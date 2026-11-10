@@ -3,7 +3,7 @@
 /// PoB 16de4b8 CalcPerform.lua:405 uses max(round(calcLib.val(...)), 0); Common.lua:683 rounds with floor(value + 0.5).
 /// This is a server model, not evidence of native fractional parity. Existing attribute-derived pool divisions stay intact.
 /// </summary>
-readonly record struct AttributeModifiers(long Strength = 0, long Dexterity = 0, long Intelligence = 0,
+public readonly record struct AttributeModifiers(long Strength = 0, long Dexterity = 0, long Intelligence = 0,
     long StrengthPct = 0, long DexterityPct = 0, long IntelligencePct = 0, bool ZeroIntelligence = false)
 {
     public static bool IsInput(string name) => name is

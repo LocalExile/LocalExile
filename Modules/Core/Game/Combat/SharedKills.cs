@@ -5,10 +5,10 @@ using Progression = GameServer.Core.World.Progression;
 // A kill of the instance's shared monsters (SharedMonsters.cs) happens on the host's connection, whoever landed the last
 // hit. Every other living player in the instance near enough gets their own share of it: the experience for their level
 // (and their gems'), the kill's quest flags and a quest kill's level, sent on their own connection by their own loop.
-static partial class Game
+public static partial class Game
 {
     /// <summary>One member's share of a party kill's experience (<see cref="Progression.PartyMultiplier"/>).</summary>
-    internal sealed record PartyExperienceShare(ClientState Conn, double Multiplier);
+    public sealed record PartyExperienceShare(ClientState Conn, double Multiplier);
 
     /// <summary>
     /// The living players in the instance near enough to the kill (the presence: a private area is entered as the
@@ -16,7 +16,7 @@ static partial class Game
     /// the game's experience range does. The wiki's Experience page: the monster's experience is multiplied by the
     /// party size and split by (level + 10)^2.71, capped at each player's solo experience.
     /// </summary>
-    internal static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(ClientState host, (int X, int Y) at)
+    public static IReadOnlyList<PartyExperienceShare> PartyExperienceShares(ClientState host, (int X, int Y) at)
     {
         var members = new List<ClientState>();
         if (host.PlayerLife > 0 && Dist(at, host.Walk.Position(host.Clock.Elapsed.TotalSeconds)) <= ExperienceRange)
@@ -34,10 +34,10 @@ static partial class Game
         return [.. members.Select((m, i) => new PartyExperienceShare(m, Progression.PartyMultiplier(levels, i)))];
     }
 
-    internal static double PartyExperienceShareOf(IReadOnlyList<PartyExperienceShare> shares, ClientState conn) =>
+    public static double PartyExperienceShareOf(IReadOnlyList<PartyExperienceShare> shares, ClientState conn) =>
         shares.FirstOrDefault(s => ReferenceEquals(s.Conn, conn))?.Multiplier ?? 1;
 
-    internal static void ShareKill(ClientState host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety,
+    public static void ShareKill(ClientState host, uint id, SpawnedMonster m, MonsterCatalog.Variety variety,
         (int X, int Y) at, IReadOnlyList<PartyExperienceShare> shares)
     {
         if (!host.Instance.World.MonsterOrigins.ContainsKey(id)) return; // a player's minion or ally
@@ -71,7 +71,7 @@ static partial class Game
 
     // An ignite, bleed or poison killed the monster on the runner's tick: the kill is the one's whose hit landed last,
     // on their own connection (their client gets the corpse, their kill effects and rewards; the others their shares).
-    internal static async Task DotKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task DotKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m)
     {
         if (m.LastHitBy is { } by && !ReferenceEquals(by, conn) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, conn.Instance))
@@ -86,7 +86,7 @@ static partial class Game
     // client without it cannot read a message about it: an object's component update (0x2bc) is read by the object's
     // components, and a buried Gravel Eater's rise (0x2bc Transitionable) sent to a client it was never created on broke
     // its stream ("Unable to deserialise packet", live 2026-11-05 01:15:27). SyncInstanceMonsters creates it there.
-    internal static void ToOthers(ClientState conn, uint id, byte[] bytes)
+    public static void ToOthers(ClientState conn, uint id, byte[] bytes)
     {
         foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
             if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea
@@ -96,7 +96,7 @@ static partial class Game
     }
 
     // This player's frame: the shares of the host's kills.
-    internal static async Task ApplyKillShares(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ApplyKillShares(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         while (conn.KillShares.TryDequeue(out var share)) await share(remote, stream, ciphers);
     }

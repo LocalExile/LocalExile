@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
         && (conn.Golems.All.GetValueOrDefault(g.Id) == g || conn.Reservations.Fighters.GetValueOrDefault(g.Id) == g || conn.Summons.Fighters.GetValueOrDefault(g.Id) == g)

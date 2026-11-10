@@ -10,12 +10,12 @@ using GameServer.Core;
 /// disposed when nobody has used it for <see cref="Keep"/>, or by <see cref="Release"/>. A file written since is parsed
 /// again (the key holds its size and write time).
 /// </summary>
-static class GameTables
+public static class GameTables
 {
     /// <summary>How long an unused parse is kept for the next catalogue of the burst.</summary>
     public static readonly TimeSpan Keep = TimeSpan.FromSeconds(2);
 
-    internal sealed class Entry(JsonDocument document)
+    public sealed class Entry(JsonDocument document)
     {
         public readonly JsonDocument Document = document;
         public int Users;
@@ -35,7 +35,7 @@ static class GameTables
         readonly (string, long, DateTime) key;
         Entry? entry;
 
-        internal Lease((string, long, DateTime) key, Entry entry) { this.key = key; this.entry = entry; }
+        public Lease((string, long, DateTime) key, Entry entry) { this.key = key; this.entry = entry; }
 
         public JsonElement RootElement => (entry ?? throw new ObjectDisposedException(nameof(Lease))).Document.RootElement;
 

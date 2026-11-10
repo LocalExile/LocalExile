@@ -14,7 +14,7 @@ using GameServer.Core.Protocol.Instance;
 /// the exact value is not yet
 /// confirmed live (scripts/re/frida/trace-movement.js prints each monster's seed words, range and multiplier).
 /// </summary>
-static class MonsterSpeedRoll
+public static class MonsterSpeedRoll
 {
     /// <summary>The roll in percent for this key: min for equal bounds, else uniform in [min, max].</summary>
     public static int Percent(uint objectId, uint typeWord, int min, int max)

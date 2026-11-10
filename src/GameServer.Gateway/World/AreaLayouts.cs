@@ -5,7 +5,7 @@ using SaveFiles = GameServer.Core.Saves.SaveFiles;
 /// <summary>What the Gateway knows about an area's layout: the terrain grid (for movement estimates), where the player
 /// appears and the area transitions. Towns are fixed; other areas are generated from the seed, so their walkability only exists as
 /// a dump of the client's walkability grid per (area, seed).</summary>
-sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int SpawnX, int SpawnY,
+public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int SpawnX, int SpawnY,
     Func<int, int, bool>? Walkable, (uint Id, AreaTransitionObject Transition)[] AreaTransitions)
 {
     public float SpawnRotation { get; init; }
@@ -85,7 +85,7 @@ sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, int Spawn
     }
 }
 
-static class AreaLayouts
+public static class AreaLayouts
 {
     public const ushort LioneyesWatch = 0x235c, TheCoast = 0x7ad2;
 

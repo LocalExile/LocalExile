@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 /// <summary>Qualified support multipliers, with explicit owner conditions for Energy Leech.
 /// Other conditional/trigger/minion mechanics require their own execution paths.</summary>
-static class GemSupportDamage
+public static class GemSupportDamage
 {
     static readonly HashSet<string> Unconditional =
     [

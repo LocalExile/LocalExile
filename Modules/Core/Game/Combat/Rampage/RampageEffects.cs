@@ -4,12 +4,12 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal sealed record RampageStunToken(uint Id, SpawnedMonster Target, int Stun, int Action,
+    public sealed record RampageStunToken(uint Id, SpawnedMonster Target, int Stun, int Action,
         int IncomingEpoch, int ProjectileEpoch, long OwnedEpoch, double Until);
 
-    internal static readonly RampageCatalog RampageData = new();
+    public static readonly RampageCatalog RampageData = new();
 
     static bool RampageEffectCurrent(ClientState conn, long epoch) => CurrentRampageWork
         && conn.OwnedCombatState is RampageWorld world && world.Current(epoch)
@@ -218,7 +218,7 @@ static partial class Game
         return hit.Value.Life == 0;
     }
 
-    internal static bool RampageAttackHits(ClientState conn, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+    public static bool RampageAttackHits(ClientState conn, uint id, SpawnedMonster target, int accuracy, double now, Random random,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
@@ -288,7 +288,7 @@ static partial class Game
     // A current stun's 0x1d1 at its send gate, for the recovery left of it at `now`, under conn.Monsters. It is a monster
     // TakeHit like any other (TakeHitPacket), so a lockstep client's recovery is held in its frames, and the stun's own
     // hold on the AI (BusyUntil, RampageStatusLocked) moves with it.
-    internal static byte[]? RampageStunPacket(ClientState conn, RampageStunToken token, double now)
+    public static byte[]? RampageStunPacket(ClientState conn, RampageStunToken token, double now)
     {
         var target = token.Target;
         if ((float)(token.Until - now) <= 0) return null;

@@ -23,7 +23,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// Physical damage never penetrates, and "your hits cannot
 /// penetrate or ignore elemental resistances" turns every elemental penetration off (chaos is not elemental).
 /// </summary>
-static class Penetration
+public static class Penetration
 {
     public const string ElementalProhibition = "cannot_penetrate_or_ignore_elemental_resistances";
 

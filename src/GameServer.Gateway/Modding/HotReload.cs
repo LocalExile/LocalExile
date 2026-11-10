@@ -13,7 +13,7 @@ using System.Reflection.Metadata;
 /// `dotnet watch` (DOTNET_WATCH=1). A failed compile or a needed restart is only in `dotnet watch`'s own output, which
 /// live.ps1 writes to the file named by Game_HOT_RELOAD_LOG (logs\live-gateway.err): its new lines are read here, and
 /// players are told the compile errors (the old code keeps running) or that the Gateway restarts.</summary>
-static class HotReload
+public static class HotReload
 {
     static int count;
     static long pendingSince;   // Stopwatch timestamp of the first save not yet applied; 0 = none
@@ -28,7 +28,7 @@ static class HotReload
     static readonly Timer? WatchOutput = ReadWatchOutput();
 
     /// <summary>A connection in game that hears about reloads (Program.Connection, after its chat commands).</summary>
-    internal static void Register(ClientState conn)
+    public static void Register(ClientState conn)
     {
         if (Sources is null) return;
         Players[conn] = 0;
@@ -136,7 +136,7 @@ static class HotReload
         Tell("Starting Hot-Reload");
     }
 
-    internal static void UpdateApplication(Type[]? updated)
+    public static void UpdateApplication(Type[]? updated)
     {
         int n = Interlocked.Increment(ref count);
         long since = Interlocked.Exchange(ref pendingSince, 0);
@@ -146,7 +146,7 @@ static class HotReload
         Tell($"Hot-reload is applied{took}.");
     }
 
-    internal static void Tell(string text)
+    public static void Tell(string text)
     {
         foreach (var conn in Players.Keys)
         {

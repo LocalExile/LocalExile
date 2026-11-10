@@ -78,7 +78,6 @@ sealed class Output
         }
         Line("The client is starting; it loads for about a minute. Closing it, or this window, stops the servers.");
         Line("Log in with your LocalExile account: its name goes in the Email field.");
-        Line("Once in game, set Options > Game > Network Mode to Predictive: it is the only mode the server supports.");
     }
 
     public void Done(string message)

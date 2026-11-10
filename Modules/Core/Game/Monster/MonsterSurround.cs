@@ -9,7 +9,7 @@ using GameServer.Core.World;
 /// free cell on the innermost ring around the player closest to its own bearing (or to its previous slot, so slots stay
 /// put while the player stands); a full ring sends the rest to the next ring out, where they wait for a gap.
 /// </summary>
-static class MonsterSurround
+public static class MonsterSurround
 {
     /// <summary>A monster asking for a cell: its id, its cell, its Positioned size (object_size − 1), its last slot, its
     /// attack's reach (MonsterVarieties MaximumAttackDistance) and whether that attack is ranged, in which case it stands

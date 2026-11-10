@@ -12,7 +12,7 @@ using GameServer.Core;
 /// Game.MinionAttacks). The buff's <c>ancestral_buff_cooldown_does_not_tick</c> stops that cooldown while it lasts.
 /// Guarded by the Monsters lock; times are the connection's game seconds.
 /// </summary>
-sealed class SpiritChieftains
+public sealed class SpiritChieftains
 {
     /// <summary>A Leadership buff: its BuffDefinitions row, its stats by client key and when it ends.</summary>
     public sealed record Leadership(ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, double Until);

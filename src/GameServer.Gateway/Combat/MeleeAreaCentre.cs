@@ -6,7 +6,7 @@
 /// cells towards it (live 2026-11-08: player (507, 645), target (520, 637), radius 40), missing monsters behind the
 /// player and hitting some past the drawn edge.
 /// </summary>
-static class MeleeAreaCentre
+public static class MeleeAreaCentre
 {
     /// <summary>ActionTypes HASH16 of the actions centred on the player: Sweep (row 0) and SweepAltX (row 1334).</summary>
     static readonly HashSet<ushort> AroundCaster = [0x8f31, 0xa0b6];

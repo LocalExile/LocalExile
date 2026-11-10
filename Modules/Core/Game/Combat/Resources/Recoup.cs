@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // Life Recoup (poedb Recoup: modifiers "that recover some of the damage taken from hits as energy shield, life, or
     // mana over 4 seconds"; "Only Damage from Hits can be Recouped, over 4 seconds following the Hit"). PoB CalcDefence
@@ -17,7 +17,7 @@ static partial class Game
 
     /// <summary>The Life a hit's taken damage recoups: the general percentage of all of it plus the per-type ones,
     /// raised by the Life recovery rate; cannot_recover_life stops it.</summary>
-    internal static double LifeRecoupOf(Func<string, int> get, DamagePacket taken)
+    public static double LifeRecoupOf(Func<string, int> get, DamagePacket taken)
     {
         if (get("cannot_recover_life") != 0) return 0;
         double life = taken.MinTotal * get("damage_taken_goes_to_life_over_4_seconds_%");
@@ -25,12 +25,12 @@ static partial class Game
         return life / 100 * Math.Max(0, 1 + get("life_recovery_rate_+%") / 100.0);
     }
 
-    internal static double LifeRecoupSeconds(Func<string, int> get) =>
+    public static double LifeRecoupSeconds(Func<string, int> get) =>
         get("recoup_effects_apply_over_3_seconds_instead") != 0
             || get("recoup_life_effects_apply_over_3_seconds_instead") != 0 ? 3 : 4;
 
     // A hit the player took (after block, mitigation and Fortification), under the Monsters lock: its recoup starts.
-    internal static void RecoupHitLocked(ClientState conn, DamagePacket taken, double now,
+    public static void RecoupHitLocked(ClientState conn, DamagePacket taken, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.Immune || conn.PlayerLife == 0 || taken.IsZero) return;

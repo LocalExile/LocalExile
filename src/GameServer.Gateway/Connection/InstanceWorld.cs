@@ -3,7 +3,7 @@
 /// monster belongs to a player: whoever comes, goes or comes back, the instance keeps them as they are. The monsters
 /// dictionary is also the instance's lock (ClientState.Monsters, which every connection's code takes).
 /// </summary>
-sealed class InstanceWorld
+public sealed class InstanceWorld
 {
     /// <summary>The instance's monsters (and the players' minions in it) by object id; the instance's lock.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> Monsters = [];

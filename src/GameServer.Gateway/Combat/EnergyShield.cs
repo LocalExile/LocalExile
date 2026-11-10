@@ -1,6 +1,6 @@
 /// <summary>Ordinary ES: non-chaos damage is absorbed first; damage restarts the two-second recharge delay.
 /// Character.ot supplies 2000%/minute recharge (one third of maximum per second). Caller supplies game time.</summary>
-sealed class EnergyShield
+public sealed class EnergyShield
 {
     public uint Current { get; private set; }
     public uint Maximum { get; private set; }

@@ -5,7 +5,7 @@ using GameServer.Core;
 /// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
 /// Siosa and campaign Lilly use their own all-class unlocks; hard mode keeps its native gem index.
 /// </summary>
-sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
+public sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
 {
     // Cache immutable catalogues, never character stock: quest/class/rule filters are evaluated on every open.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,

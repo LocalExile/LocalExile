@@ -13,7 +13,7 @@ using GameServer.Storage;
 /// HASH32 and rebuilt through the <see cref="ItemCatalog"/>, so the save holds no client-side layout. Every change is a
 /// transaction: it reads the row, changes one part and writes it back, and nothing else writes in between.
 /// </summary>
-static class CharacterSaves
+public static class CharacterSaves
 {
     public sealed record SavedSocket(SocketColour Colour, SavedItem? Gem = null);
 
@@ -356,7 +356,7 @@ static class CharacterSaves
     });
 
     /// <summary>The save with the refund points of its quest flags that it has not been credited yet (QuestStaticRewards).</summary>
-    internal static Save CreditQuestRefunds(Save s)
+    public static Save CreditQuestRefunds(Save s)
     {
         var (points, flags) = QuestStaticRewards.Default.Value.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
         if (flags.Count == 0) return s;
@@ -450,7 +450,7 @@ static class CharacterSaves
         public static PassiveProgressSnapshot From(Save? save) =>
             new(save?.MainAscendancy, save?.Passives, save?.MasteryEffects, save?.RefundPoints ?? 0);
 
-        internal bool Matches(Save save) => _refundPoints == (save.RefundPoints ?? 0) &&
+        public bool Matches(Save save) => _refundPoints == (save.RefundPoints ?? 0) &&
             _passives.SequenceEqual(save.Passives ?? []) &&
             _masteries.Count == (save.MasteryEffects?.Count ?? 0) &&
             _masteries.All(kv => save.MasteryEffects is not null && save.MasteryEffects.TryGetValue(kv.Key, out ushort value) && value == kv.Value) &&
@@ -556,6 +556,6 @@ static class CharacterSaves
 
 /// <summary>A save holds an item, gem or mod the extracted game data doesn't know (tables missing or out of date). The
 /// login stops and the save stays as it is.</summary>
-sealed class UnknownSavedItemException(string what) : IOException(
+public sealed class UnknownSavedItemException(string what) : IOException(
     $"the save holds {what}, which the game data doesn't know; nothing was changed: extract the game data " +
     "(scripts/dev/extract-data.ps1, Agents/GettingStarted.md) and log in again");

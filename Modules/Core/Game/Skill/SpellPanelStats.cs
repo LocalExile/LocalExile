@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Selected spell hit rows: noncritical ranges and hundredths for critical-weighted average damage and DPS.</summary>
-static class SpellPanelStats
+public static class SpellPanelStats
 {
     static readonly string[] Types = ["total", "physical", "fire", "cold", "lightning", "chaos"];
 

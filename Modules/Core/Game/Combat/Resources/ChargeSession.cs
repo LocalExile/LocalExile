@@ -10,7 +10,7 @@ using System.Collections.Concurrent;
 /// <see cref="Die"/> takes every gained charge at once. <see cref="Presentation"/> says which charge buffs the client
 /// must get or lose. Not thread-safe: the Gateway calls it under the connection's Monsters lock.
 /// </summary>
-sealed class ChargeSession(Charges.State? state = null)
+public sealed class ChargeSession(Charges.State? state = null)
 {
     /// <summary>How often the ticker steps (seconds): expiry and periodic gains are this precise.</summary>
     public const double StepSeconds = 0.05;

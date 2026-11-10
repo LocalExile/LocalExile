@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // number_of_active_links: one per link (each source buff's condition stat). The client's derived aura effect
     // (0x142829960) and PassiveBonus add non_curse_aura_effect_+%_while_linked (Absolution) only while it is nonzero.
@@ -32,7 +32,7 @@ static partial class Game
     /// (Deep Connections' +5 included) with the skill duration modifiers and <c>link_skill_duration_+%</c>, and costs the
     /// skill's <c>mana_cost_per_minute</c> while it lasts. False when nothing qualifies.
     /// </summary>
-    internal static async Task<bool> StartLink(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<bool> StartLink(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, uint targetId)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return false;
@@ -117,7 +117,7 @@ static partial class Game
     /// break. Then a link ends with its duration, or after 4 s with its target out of range. Field Medicine's flask buffs on
     /// the targets end with their duration.
     /// </summary>
-    internal static async Task LinkSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task LinkSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         lock (conn.Monsters)
         {

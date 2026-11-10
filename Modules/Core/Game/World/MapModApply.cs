@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     static MapMods? MapModsOf(ClientState conn) =>
         MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods;

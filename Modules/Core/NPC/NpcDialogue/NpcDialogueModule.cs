@@ -7,9 +7,9 @@ namespace GameServer.Modules.NpcDialogue;
 public sealed class NpcDialogueModule : IModule
 {
     /// <inheritdoc/>
-    public void Load(IModuleContext module) => module.OnNpcOption(async talk =>
+    public void Load(IModuleContext module) => GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
     {
-        var world = module.World(talk.Player);
+        var world = WorldOf(talk.Player);
         switch (talk.Category)
         {
             case "SelectHideout":
@@ -21,7 +21,7 @@ public sealed class NpcDialogueModule : IModule
                 return true;
             case "Gossip" or "Quests" or "QuestReward" when talk.HasText:
                 // 0x84 with the row's index: the client opens the dialogue window on that NPCTalk row (its text and audio).
-                await world.NpcSay(talk);
+                await world.NpcSay(talk.Npc, talk.Option, talk.Index, talk.Row);
                 return true;
             // Bestel's Respecialisation (script: SendOpenScreen( CharacterPassiveTreeScreen, 1 )): the character's passive tree,
             // S→C 0x7b kind 0x5f with 1. Its refunds come back as C→S 0x36 (per node) and 0x37 (Refund All), paid in gold.

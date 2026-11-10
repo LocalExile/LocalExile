@@ -2,11 +2,11 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Only call while constructing an accepted player-stat packet inside the send gate. Pure stat
     // construction must not acknowledge anything: remember exactly the pair this packet encodes.
-    internal static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
+    public static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
     {
         // Under a trap's degeneration the pools only fall: the client steps them up by these rates between updates.
         if (conn.TrapDegenPerSecond > 0 && Stats.Key("life_recovery_per_minute") is uint lifeKey
@@ -26,7 +26,7 @@ static partial class Game
 
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
-    internal static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<byte[]> packet, string? label) => Send(remote, stream, ciphers, [], label, atGate: () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "stats"))

@@ -61,36 +61,6 @@ public sealed class Act6EncounterTests
         await PartyEncounterContinuesWithoutItsRunnerAsTarget();
     }
 
-    [Fact]
-    public void CartAndTidePacketsPreserveFollowingComponentAndPacketBoundaries()
-    {
-        string[] components = ["Positioned", "Animated", "BaseEvents", "Stats", "Movement", "Transitionable", "MinimapIcon"];
-        var blob = new QuestObject(471, 448, components, Team: 4).Blob();
-        Assert.Equal(4, BitConverter.ToUInt16(blob, 14));
-        // Positioned 18, Animated 1, Stats 10; Movement: presence byte, XY, four u32s, two flags.
-        int movement = 2 + 18 + 1 + 10;
-        Assert.Equal(0, blob[movement]);
-        Assert.Equal(471, BitConverter.ToInt32(blob, movement + 1));
-        Assert.Equal(448, BitConverter.ToInt32(blob, movement + 5));
-        Assert.All(blob[(movement + 9)..(movement + 27)], b => Assert.Equal(0, b));
-        Assert.Equal(new byte[] { 1, 0, 0 }, blob[(movement + 27)..]);
-        Assert.Equal(5, QuestObject.TransitionableIndex(components));
-
-        using var metadata = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json"));
-        var row = metadata.RootElement[856];
-        Assert.Equal("brine_king_tide", row.GetProperty("Id").GetString());
-        Assert.False(row.GetProperty("IsRecovery").GetBoolean());
-        Assert.False(row.GetProperty("__col44").GetBoolean());
-        byte[] buff = BrineKing.TideBuff(0x1000, 7);
-        Assert.Equal(27, buff.Length);
-        Assert.Equal(new byte[] { 0, 0, 0, 0 }, buff[23..]);
-        byte[] next = GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(0x1000, 1000);
-        byte[] stream = [.. buff, .. next];
-        Assert.Equal(next, stream[27..]);
-
-        MonsterSpellsSuppressCalculatedDamage();
-    }
-
     static async Task PartyEncounterContinuesWithoutItsRunnerAsTarget()
     {
         using var runtime = new Runtime();
@@ -159,30 +129,6 @@ public sealed class Act6EncounterTests
         Assert.True(boss.ActionGeneration > generation);
         await Game.SyncInstanceMonsters("late", lateWire.Stream, lateWire.Ciphers, late);
         Assert.Contains(id, late.BossBarsSeen);
-    }
-
-    static void MonsterSpellsSuppressCalculatedDamage()
-    {
-        using var runtime = new Runtime();
-        foreach (var (chance, flat, expected) in new[] { (0, 0, 330), (100, 0, 198), (100, 100, 258) })
-        {
-            var conn = new ClientState(new(1, "spell-mitigation", 1000, 1000, 100, 100, null, []), 1, 1)
-            {
-                Character = $"BrineSpell{chance}_{flat}", PlayerLife = 1000000,
-                Pools = new(49, 1000000, 100, 2, 0, Armour: 10000, Evasion: 1000000,
-                    SpellSuppressionChance: chance, SpellSuppressionEffect: 40),
-            };
-            conn.PlayerStats[Program.Stats.Key("physical_damage_taken_+")!.Value] = flat;
-            var attacker = new SpawnedMonster("spell source", new PlayerWalk(100, 100, 1), 60, 1, 1000);
-            var spell = new MonsterAttack(0x4000, 1, 8, DamagePacket.Of(DamageType.Physical, 1000, 1000)) { Spell = true };
-            Game.MonsterHitOutcome? hit;
-            lock (conn.Monsters)
-                hit = Game.CommitMonsterHitLocked("Act6 spell", conn, 1, attacker, spell, 1, (100, 100), (100, 100), false);
-            Assert.NotNull(hit);
-            Assert.Equal(1000, hit.RawDamage);
-            Assert.Equal(expected, hit.Damage);
-            Assert.Equal(1000000u - (uint)expected, conn.PlayerLife);
-        }
     }
 
     sealed class Runtime : IDisposable

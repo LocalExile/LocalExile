@@ -8,7 +8,7 @@ using GameServer.Core;
 /// <c>PassiveSkillTattoos</c> for the target set and tribe. The effect itself is the replacement passive; the
 /// currency item carries no mods. Runegrafts share the apply action and are excluded by the name filter.
 /// </summary>
-static class TattooCatalogue
+public static class TattooCatalogue
 {
     public sealed record Entry(int Row, string Id, string Name, int Set, string Target, int Tribe, int Override,
         int OverrideHash, int RequiresAdjacent, int MaxAdjacent, int Limit, bool Forbidden)

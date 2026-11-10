@@ -14,7 +14,32 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
 Tip: `live.ps1` runs the Gateway with hot reload, so a saved Gateway edit usually applies while the player stays in
 game; it may be worth trying before a restart.
 Suggestions for working with it are in [live testing](Agents/docs/dev/live-testing.md) ("hot reload").
-A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod in [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods), which reloads on build. The Gateway is the framework; the game is [modules](Agents/docs/dev/modules.md).
+
+## What goes where
+
+Every change belongs to one of four layers. Decide which before writing code, and name it in the pull request
+description. The details are in [modules](Agents/docs/dev/modules.md) and [mods](Agents/docs/dev/modding.md).
+
+| Layer | Where | Is |
+|---|---|---|
+| **Framework** | `src/` (mainly the Gateway) | plumbing, no game rules: connections, packets, the message loop, game data and catalogs, saves, the connection's state, and the hosts that load modules, leagues and mods. With only the framework a server starts but has no game |
+| **Module** | `Modules/Core/`, `Modules/Legacy/`, `Modules/Custom/` | a game system, one that replicates the real game or a custom one. It runs only for the leagues that list it |
+| **League** | `Leagues/<Name>/` | a name, a parent, and the list of modules that makes up its rules. Anyone can make a custom one |
+| **Mod** | [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods), installed into `Mods/` | custom content each user opts into, for every league: it changes how modules, leagues or the framework behave, or gives the user tools for development, testing and practice |
+
+- **A GGG-like server needs zero mods.** Everything GGG's servers do is a module in `Core/` (the current game, shared by
+  many leagues) or `Legacy/` (GGG's past leagues and content), listed by the shipped leagues. A replica of the real game is
+  never a mod.
+- **`Custom/` modules are for custom leagues.** A league that replicates one of GGG's lists only `Core/` and `Legacy/` modules.
+- **A league never lists or needs a mod.** It is modules only. Its `parent` is where its characters go, not inheritance.
+- **Game rules never go in the framework.** When a module needs something from the framework, add a general hand-over
+  (a hook or a `GameEvents` entry) that names no module, league or mod.
+- **Development and testing tools are mods.** The dev chat commands are the `gm-commands` mod in LocalExile-Mods;
+  `Core/Player/Commands` holds only the commands GGG's servers have.
+- **A mod reaches what a module reaches.** The Gateway and the Game module are public, so a mod uses the server and the game's
+  rules directly. When a mod needs the framework to hand it something new, add a general hand-over (a hook or a
+  `GameEvents` entry) that names no mod, in its own LocalExile pull request; the feature's logic, settings and defaults
+  stay in the mod.
 
 ## Rules
 

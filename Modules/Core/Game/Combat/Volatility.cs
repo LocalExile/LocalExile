@@ -5,7 +5,7 @@ using GameServer.Core.World;
 /// (minimum_attack_damage_+%_final_from_volatility_support and maximum_attack_damage_+%_final_from_volatility_support).
 /// Applied to the attack's damage range before the hit rolls, so the panel and the hit use the same range.
 /// </summary>
-static class Volatility
+public static class Volatility
 {
     public static DamagePacket Apply(DamagePacket hit, Func<string, int> get)
     {

@@ -9,7 +9,7 @@ using GameServer.Core;
 /// Doctrine adds the stationary consecrated ground and the profane ground created on a critical strike. Radii are in
 /// cells. A flask ground lasts as long as the flask's effect: the tables do not give its own duration.
 /// </summary>
-static class FlaskGrounds
+public static class FlaskGrounds
 {
     public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt }
 

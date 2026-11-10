@@ -15,7 +15,7 @@ using static Game;
 /// life for the humanoid and about 26.6M for the treant; resistances are 50/50/50/30. The mechanics and the full skill
 /// list are in Agents/docs/game/king-in-the-mists.md.</para>
 /// </summary>
-static class KingInMists
+public static class KingInMists
 {
     public const string Boss2 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2";
     public const string Boss3 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss3";
@@ -25,9 +25,9 @@ static class KingInMists
     const string GuidingLight = "Metadata/Monsters/LeagueAzmeri/GuidingLight/GuidingLightDaemonMaze_";
     const string WerewolfMaze = "Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze";
     const string MeleeSpiderMaze = "Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze";
-    internal const string MysticFetish = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2RitualPillar";
-    internal const string CentralShrine = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2";
-    internal const string CentralShrineModel = "Metadata/Terrain/Doodads/Leagues/Azmeri/HugeRitualShrine01_01.ao";
+    public const string MysticFetish = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2RitualPillar";
+    public const string CentralShrine = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2";
+    public const string CentralShrineModel = "Metadata/Terrain/Doodads/Leagues/Azmeri/HugeRitualShrine01_01.ao";
 
     // The official fetish create blobs at the arena's mapboss point (162, 174): (232, 490), (368, 491) and (298, 606),
     // i.e. the offsets below, with their Positioned rotations 5.23599, 1.0472 and 3.14159 rad. The cells are blocked
@@ -64,8 +64,8 @@ static class KingInMists
     const int BossStartEffect = 6227;
     // The official actor ids of the two forms' default attacks (MeleeAtAnimationSpeedUnique). They are not the
     // player/generic 0x0102: using that id made the client play an unarmed/absent clip and the King T-posed.
-    internal const ushort Boss2AttackSkill = 0x4001;
-    internal const ushort Boss3AttackSkill = 0x4000;
+    public const ushort Boss2AttackSkill = 0x4001;
+    public const ushort Boss3AttackSkill = 0x4000;
     // Restore the fight in steps. BasicOnly trims the actor's skill table to the default attack, CTS1BossFightStart and
     // the three basic attacks (no ritual, effigy, hex or phase transition); Game_KING_BASIC=0 uses the full table.
     // While BasicOnly runs, phase 1 makes only the default attack decision, so the attack and its clip can be verified
@@ -98,19 +98,19 @@ static class KingInMists
 
     // The fetish hazards are actions on the fetish actor, not on the King. The official fetish manager has ids
     // 0x4000-0x4003 for RatSwarm, CorruptedBloodDegen and SummonFrogSwamps (row 5766 is the CGE variant).
-    internal const ushort FetishRatSkill = 0x4000, FetishBloodSkill = 0x4001, FetishSwampSkill = 0x4002,
+    public const ushort FetishRatSkill = 0x4000, FetishBloodSkill = 0x4001, FetishSwampSkill = 0x4002,
         FetishBloodAuraSkill = 0x4003;
     static readonly int[] FetishEffects = [10351, 10352, 10353, 5766, 5767];
 
     // BuffDefinitions rows: Portent Vapors, Branching Affliction, the two ritual hexes, Mystic Miasma and the invisible
     // cannot_be_damaged buff that covers the humanoid's start channel.
-    internal const ushort PortentVaporsRow = 2409, BranchingAfflictionRow = 2371, MysticMiasmaRow = 2401,
+    public const ushort PortentVaporsRow = 2409, BranchingAfflictionRow = 2371, MysticMiasmaRow = 2401,
         CannotBeDamagedRow = 350;
     // Phase-1 hexes: Ritual of Meditation (0x4006, row 2358) and Ritual of Dance (0x4007, row 2359).
-    internal const ushort HexNoMovementRow = 2358, HexNoStandingRow = 2359;
+    public const ushort HexNoMovementRow = 2358, HexNoStandingRow = 2359;
     // Unlike the invisible row 350, row 7 (god_mode / "Invulnerability") is visible and uses the client's
     // invulnerability.dds buff icon. Use it for the ritual so the immunity has a visual state on the boss.
-    internal const ushort RitualImmunityRow = 7;
+    public const ushort RitualImmunityRow = 7;
 
     public static bool IsBoss2(MonsterCatalog.Variety? variety) =>
         variety is not null && variety.Id.Equals(Boss2, StringComparison.Ordinal);
@@ -134,7 +134,7 @@ static class KingInMists
 
     /// <summary>The actor skill list for either form, built from the GrantedEffects rows the client must know to play the
     /// action's own animation. The ids are also the 0x1ab ids this controller sends.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
         MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
@@ -202,7 +202,7 @@ static class KingInMists
 
     /// <summary>The Mystic Fetish actor's full granted-effect list. The King controller sends the hazard actions to the
     /// fetish actor itself, as the official server does (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps).</summary>
-    internal static IReadOnlyList<GrantedSkill> FetishSkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill> FetishSkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
         MonsterAttack attack)
     {
         if (!IsFetish(variety)) return [];

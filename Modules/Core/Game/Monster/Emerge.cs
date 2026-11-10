@@ -2,14 +2,14 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Monsters that rise from the ground (MonsterEmerge.cs); loaded with the first monster spawned.
-    internal static readonly MonsterEmerge Emerges = new();
+    public static readonly MonsterEmerge Emerges = new();
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    internal static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         bool start;
         lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
@@ -22,7 +22,7 @@ static partial class Game
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead.
-    internal static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
@@ -59,7 +59,7 @@ static partial class Game
         }
     }
 
-    internal static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;

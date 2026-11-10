@@ -8,7 +8,7 @@ using GameServer.Core;
 /// HideoutDoodads row of that MtxTypeGameSpecific row gives its object type (InheritsFrom) and models
 /// (Variation_AOFiles, picked by the placement's variation). Every character has the <see cref="Default"/> hideout.
 /// </summary>
-static class HideoutCatalog
+public static class HideoutCatalog
 {
     /// <summary>The first campaign hideout (Hideouts row 0, found in The Dread Thicket): every character's.</summary>
     public const string DefaultArea = "HideoutForest";

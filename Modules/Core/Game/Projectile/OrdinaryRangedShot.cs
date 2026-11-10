@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 /// <summary>An ordinary bow or wand's offensive inputs frozen at release. The target supplies evasion and impales
 /// at contact. Direct hit and reflected impale damage are resolved separately.</summary>
-sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int CriticalChance, int CriticalMultiplier, int ImpaleChance)
+public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int CriticalChance, int CriticalMultiplier, int ImpaleChance)
 {
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }

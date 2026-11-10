@@ -5,11 +5,11 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 
 // Shared transaction boundary for a mod-prepared character build after the old session has saved.
-static class CharacterBuildImports
+public static class CharacterBuildImports
 {
-    internal const int MaxJsonLength = 8 * 1024 * 1024;
+    public const int MaxJsonLength = 8 * 1024 * 1024;
 
-    internal static CharacterBuildImports.Prepared Validate(string text, Character record)
+    public static CharacterBuildImports.Prepared Validate(string text, Character record)
     {
         if (text.Length > MaxJsonLength) throw new InvalidDataException("The external converter response is too large.");
         using var json = JsonDocument.Parse(text);
@@ -34,10 +34,10 @@ static class CharacterBuildImports
         return new(record.Id, record.AccountId, record.League, converted.Class, converted.Level, save, summary, warnings);
     }
 
-    internal sealed record Prepared(Guid CharacterId, Guid AccountId, string League, CharacterClass Class,
+    public sealed record Prepared(Guid CharacterId, Guid AccountId, string League, CharacterClass Class,
         int Level, CharacterSaves.Save Save, string Summary, string[] Warnings);
 
-    internal sealed class Session(TimeProvider? time = null)
+    public sealed class Session(TimeProvider? time = null)
     {
         readonly TimeProvider clock = time ?? TimeProvider.System;
         Prepared? pending;
@@ -55,18 +55,18 @@ static class CharacterBuildImports
         public bool HasPending => pending is not null;
     }
 
-    internal static readonly ConcurrentDictionary<Guid, byte> Applying = new();
-    internal static readonly byte[] Replaced = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 23, 102];
-    internal static bool IsApplying(Guid id) => Applying.ContainsKey(id);
+    public static readonly ConcurrentDictionary<Guid, byte> Applying = new();
+    public static readonly byte[] Replaced = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 14, 15, 23, 102];
+    public static bool IsApplying(Guid id) => Applying.ContainsKey(id);
 
-    internal static void Release(ClientState conn)
+    public static void Release(ClientState conn)
     {
         if (conn.CharacterId is { } id && conn.BuildImport.Confirmed is not null) Applying.TryRemove(id, out _);
         conn.BuildImport.Clear();
     }
 
     // Called after all old-session writers and leaving hooks, while the instance socket is still open.
-    internal static void Apply(Prepared plan)
+    public static void Apply(Prepared plan)
     {
         string? replaced = null;
         Saves.Atomically(() =>
@@ -88,7 +88,7 @@ static class CharacterBuildImports
         CharacterEquipmentState.Replaced(replaced!);
     }
 
-    internal static CharacterSaves.Save Merge(CharacterSaves.Save current, CharacterSaves.Save build)
+    public static CharacterSaves.Save Merge(CharacterSaves.Save current, CharacterSaves.Save build)
     {
         var inventories = current.Inventories.Where(kv => !Replaced.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value);
         uint next = inventories.Values.SelectMany(v => v).Select(i => i.Id).DefaultIfEmpty(0u).Max();

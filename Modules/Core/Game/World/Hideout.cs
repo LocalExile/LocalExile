@@ -3,9 +3,9 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task RefreshBenchBalance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool clear = false)
+    public static async Task RefreshBenchBalance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool clear = false)
     {
         clear |= !LeagueFor(conn).Rules.CraftingBench;
         if (clear && !conn.BenchBalanceSent) return;
@@ -26,7 +26,7 @@ static partial class Game
     // A click on the guild stash (C→S 0x24): walk there, then its tab list (S→C 0x136 kind 1) and its panel (0x7b kind 2).
     // While it is open the stash messages (0xc7, 0x28, 0x2a, Ctrl + click …) act on it (StashOf); the personal stash's open
     // switches back.
-    internal static async Task OpenGuildStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task OpenGuildStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (conn.Ssf || conn.GuildStashObject == 0) return;
         if (!TryBeginObjectWalk(conn, requestedAt, conn.GuildStashAt.X, conn.GuildStashAt.Y, ClientState.StashBlockerSize, out var objectWalk)) return;

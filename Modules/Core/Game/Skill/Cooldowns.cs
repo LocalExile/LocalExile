@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
+    public static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
     {
         var sources = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
         if (SkillsFor(conn).CooldownMs(effect, level) <= 0 || sources.Length != 1) return null;
@@ -13,7 +13,7 @@ static partial class Game
             CharacterPlayerStats(conn), supported.Stats));
     }
 
-    internal static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
+    public static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
     {
         if (!conn.SingleUseCooldowns.TryGetValue(effect, out var state))
         {
@@ -30,18 +30,18 @@ static partial class Game
 
     // Readiness, reservation and action side effects are one short critical section, before any echo/await.
     // An approach checks readiness without spending; arrival must reserve under its original action token.
-    internal static bool TryBeginCooldownUse(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
+    public static bool TryBeginCooldownUse(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken = null, bool reserve = true, double? requestedAt = null)
         => TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, null);
 
-    internal static bool TryBeginSkillCooldownUse(ClientState conn, ushort skillId, int effect,
+    public static bool TryBeginSkillCooldownUse(ClientState conn, ushort skillId, int effect,
         SingleUseCooldown? plan, bool instant, Action sideEffects, out CooldownUseTicket? ticket,
         int? actionToken = null, bool reserve = true, double? requestedAt = null) =>
         TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, skillId);
 
-    internal static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
+    public static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
         ushort? skillId)
     {
@@ -111,7 +111,7 @@ static partial class Game
             GolemStat(SupportedSkill(conn, gem.Id).Stats, CooldownBypass.PowerOverride) != 0);
     }
 
-    internal static void RefreshSingleUseCooldowns(ClientState conn)
+    public static void RefreshSingleUseCooldowns(ClientState conn)
     {
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
         var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
@@ -130,7 +130,7 @@ static partial class Game
         }
     }
 
-    internal static byte[]? NativeCooldownRefresh(ClientState conn, int epoch,
+    public static byte[]? NativeCooldownRefresh(ClientState conn, int epoch,
         Func<IReadOnlyList<(ushort Id, int Effect)>> currentSkills)
     {
         lock (conn.Monsters)
@@ -156,7 +156,7 @@ static partial class Game
         }
     }
 
-    internal static Task SendNativeCooldownRefresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task SendNativeCooldownRefresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
             if (!conn.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;

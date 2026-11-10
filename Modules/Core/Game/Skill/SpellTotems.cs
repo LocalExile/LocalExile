@@ -4,10 +4,10 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Projectiles;
 
-static partial class Game
+public static partial class Game
 {
     static readonly ConditionalWeakTable<TotemState.Totem, SupportedGem> TotemSources = new();
-    internal static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
+    public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true && UsesProjectileRuntime(effect)
         && ResolveProjectileDefinition(effect) is not null
@@ -17,12 +17,12 @@ static partial class Game
         && a.SourceGem is not null && b.SourceGem is not null
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
         && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
-    internal static void BindTotemSource(ClientState conn, TotemState.Totem totem)
+    public static void BindTotemSource(ClientState conn, TotemState.Totem totem)
     {
         TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
     }
 
-    internal static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
+    public static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
     {
         var caster = new Dictionary<uint, int>(owner);
         // This prohibition belongs to the owner (Ancestral Bond); type prohibitions remain inherited.
@@ -30,7 +30,7 @@ static partial class Game
         return caster;
     }
 
-    internal static double? TotemCastSeconds(ClientState conn, ushort skill)
+    public static double? TotemCastSeconds(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         if (SkillsFor(conn).IsAttack(gem.Effect)) return TotemAttackSeconds(conn, skill);
@@ -44,7 +44,7 @@ static partial class Game
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }
 
-    internal static GrantedSkill? TotemProxy(ClientState conn, ushort skill)
+    public static GrantedSkill? TotemProxy(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         var payload = new Dictionary<uint, int>(gem.Stats);
@@ -69,7 +69,7 @@ static partial class Game
         return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
     }
 
-    internal static bool SpellTotemCurrent(ClientState conn, TotemState.Totem totem)
+    public static bool SpellTotemCurrent(ClientState conn, TotemState.Totem totem)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
             || !totem.Alive(conn.Clock.Elapsed.TotalSeconds)) return false;
@@ -84,7 +84,7 @@ static partial class Game
             && IsTotemSkill(conn, totem.SkillId);
     }
 
-    internal static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, List<byte> bytes)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;

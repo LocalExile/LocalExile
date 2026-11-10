@@ -8,7 +8,7 @@ using GameServer.Core;
 /// placeholders (QuestFlag NEVER_SET). The data the Pantheon module (Modules/Core/Player/Pantheon) chooses and applies the
 /// gods by; the choice itself is the character's (ClientState and the save: PantheonMajor, PantheonMinor).
 /// </summary>
-sealed class PantheonCatalog
+public sealed class PantheonCatalog
 {
     /// <summary>A panel row: its Id (TheBrineKing …), whether it is a major god, the flag that unlocks it, the god's name
     /// (GodName1), its power (Effect1: Stats keys = row + 1, values) and its upgrades (Effect2–4, each with the PantheonSouls

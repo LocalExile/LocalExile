@@ -3,11 +3,11 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>Where Flicker Strike takes the player: the monster the client's action picks (FlickerStrike) and the
     /// landing next to it. Null when no monster is in range: the client then strikes where the player stands.</summary>
-    internal static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
+    public static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
         ushort skillId, (int X, int Y) player, (int X, int Y) aim, uint clicked, double now)
     {
         var stats = SupportedSkill(conn, skillId).Stats;
@@ -34,11 +34,11 @@ static partial class Game
     static readonly ConditionalWeakTable<ClientState, FlickerSpeed> FlickerSpeeds = new();
 
     // The running buff's movement bonus, for the pools (PoolsFor); 0 when none runs.
-    internal static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;
+    public static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;
 
     // After an accepted Flicker Strike use: the buff and the faster movement speed, and both gone when it runs out
     // (a later use's buff takes over).
-    internal static async Task GrantFlickerSpeed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task GrantFlickerSpeed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;

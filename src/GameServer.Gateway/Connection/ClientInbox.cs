@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// message waits here, in the order received, for the connection's one handler task. A slow handler (0x7d populating
 /// the area, an area change) no longer holds the 0x1c answers back.
 /// </summary>
-sealed class ClientInbox(ConnectionPerformance? performance = null)
+public sealed class ClientInbox(ConnectionPerformance? performance = null)
 {
     /// <summary>A tick answered, or a handler run, later than this is logged.</summary>
     public static readonly TimeSpan SlowAfter = TimeSpan.FromMilliseconds(50);

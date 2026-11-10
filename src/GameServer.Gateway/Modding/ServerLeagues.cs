@@ -5,7 +5,7 @@ using LeagueCode = GameServer.Modding.League;
 
 /// <summary>A connection's league (<c>Program.LeagueFor</c>), fixed until its next area. It holds no object of a module, so a
 /// connection does not keep a reloaded assembly in memory.</summary>
-sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
+public sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
 {
     /// <summary>The rules' defaults, with no modules: a league that is not loaded, for what still reaches the Gateway.</summary>
     public static readonly LeagueRuntime Standard = new(new League(LeagueCatalog.Standard, LeagueCatalog.Standard, false, false), ImmutableHashSet<string>.Empty);
@@ -23,7 +23,7 @@ sealed class LeagueRuntime(League definition, IReadOnlySet<string> modules)
 
 /// <summary>Which modules each league has, and the rules they give. Set when the Gateway starts: leagues are not loaded, unloaded,
 /// added or removed while it runs. One copy of each module serves every league that lists it; its hooks run per player's league.</summary>
-static class ServerLeagues
+public static class ServerLeagues
 {
     static ImmutableDictionary<string, Func<LeagueRules>> _rules = ImmutableDictionary.Create<string, Func<LeagueRules>>(StringComparer.OrdinalIgnoreCase);
     static ImmutableDictionary<string, LeagueCode> _code = ImmutableDictionary.Create<string, LeagueCode>(StringComparer.OrdinalIgnoreCase);

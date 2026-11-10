@@ -12,7 +12,7 @@ using GameServer.Core.Protocol.Instance;
 /// (S→C 0x1c7, <see cref="Speech"/>). The mechanics (the BossObjectiveMarkers' objects, LabyrinthSecretEffects), the
 /// Goddess of Justice and his chests are not built yet.
 /// </summary>
-static class IzaroFights
+public static class IzaroFights
 {
     /// <summary>The arena's server objects: his elevator and the doors of the arena's ways in and out; the corridor's gate
     /// in front of the way into the arena (LabyrinthIzaroArenaTransition, at the same place).</summary>

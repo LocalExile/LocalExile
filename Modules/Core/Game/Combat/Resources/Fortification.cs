@@ -5,14 +5,14 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly ConditionalWeakTable<ClientState, FortificationSession> FortificationSessions = new();
-    internal static readonly ConcurrentDictionary<uint, (DateTime At, FortificationState.Transfer State)> CarriedFortification = new();
-    internal static FortificationSession FortificationOf(ClientState conn) =>
+    public static readonly ConditionalWeakTable<ClientState, FortificationSession> FortificationSessions = new();
+    public static readonly ConcurrentDictionary<uint, (DateTime At, FortificationState.Transfer State)> CarriedFortification = new();
+    public static FortificationSession FortificationOf(ClientState conn) =>
         FortificationSessions.GetValue(conn, _ => new());
 
-    internal static void EnsureFortificationPools(ClientState conn)
+    public static void EnsureFortificationPools(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -22,13 +22,13 @@ static partial class Game
         }
     }
 
-    internal static decimal RawFortificationDamage(DamagePacket rolled, bool critical, int multiplier)
+    public static decimal RawFortificationDamage(DamagePacket rolled, bool critical, int multiplier)
     {
         decimal total = rolled.Components.Sum(c => (decimal)c.Range.Min);
         return Math.Max(0, total) * (critical ? Math.Max(0, multiplier) / 100m : 1m);
     }
 
-    internal static Dictionary<uint, int> WithFortification(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithFortification(ClientState conn, Dictionary<uint, int> sources)
     {
         lock (conn.Monsters)
         {
@@ -48,7 +48,7 @@ static partial class Game
         }
     }
 
-    internal static void AddFortificationCounts(Dictionary<uint, int> stats, FortificationState.Value value)
+    public static void AddFortificationCounts(Dictionary<uint, int> stats, FortificationState.Value value)
     {
         foreach (var (name, amount) in new[] { (FortificationSession.Current, value.Current),
             (FortificationSession.Uncapped, (int)Math.Min(int.MaxValue, value.Uncapped)),
@@ -58,7 +58,7 @@ static partial class Game
     }
 
     // Called only at an accepted melee damage commit, before any notification can yield to another action/area.
-    internal static bool FortificationOnHitLocked(ClientState conn, SpawnedMonster target, decimal rawDamage,
+    public static bool FortificationOnHitLocked(ClientState conn, SpawnedMonster target, decimal rawDamage,
         bool melee, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill = null, Random? random = null)
     {
         if (!melee || !target.Hostile || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
@@ -72,7 +72,7 @@ static partial class Game
             target.Rarity, Get, random ?? Random.Shared);
     }
 
-    internal static int FortificationDamageTaken(ClientState conn, int damage)
+    public static int FortificationDamageTaken(ClientState conn, int damage)
     {
         lock (conn.Monsters)
         {
@@ -81,7 +81,7 @@ static partial class Game
         }
     }
 
-    internal static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife,
+    public static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife,
         IReadOnlyDictionary<uint, int> sources)
     {
         var recovery = new Dictionary<uint, int>(sources);
@@ -93,7 +93,7 @@ static partial class Game
             name => Stats.Key(name) is uint key ? recovery.GetValueOrDefault(key) : 0);
     }
 
-    internal static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife, Func<string, int> get)
+    public static void ConfigureFortificationRecovery(ClientState conn, uint maximumLife, Func<string, int> get)
     {
         lock (conn.Monsters)
         {
@@ -103,7 +103,7 @@ static partial class Game
         }
     }
 
-    internal static void CarryFortification(ClientState conn, uint ticket)
+    public static void CarryFortification(ClientState conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -119,7 +119,7 @@ static partial class Game
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedFortification.TryRemove(old, out _);
     }
 
-    internal static async Task RunFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    public static async Task RunFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         RestoreFortification(conn);
@@ -135,7 +135,7 @@ static partial class Game
         }
     }
 
-    internal static void RestoreFortification(ClientState conn)
+    public static void RestoreFortification(ClientState conn)
     {
         lock (conn.Monsters)
             if (CarriedFortification.TryRemove(conn.Ticket, out var entry)
@@ -146,7 +146,7 @@ static partial class Game
     // Construct buffs, stats and Actor records together inside the send gate from the current owner state.
     // Polled every 32 ms: without Fortification shown and with nothing changed since the last presentation (every gain moves
     // the revision) there is nothing to send, so the send gate and the Monsters lock are left alone.
-    internal static Task SendFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendFortification(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         FortificationOf(conn) is { Buff: 0 } idle && idle.PresentedRevision == idle.Revision ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "fortification"))

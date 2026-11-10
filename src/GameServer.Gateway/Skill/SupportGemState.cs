@@ -1,6 +1,6 @@
 /// <summary>Arcane Surge Support's buff and per-skill mana-spent counters, and Inspiration's charges. Guarded by the
 /// connection's Monsters lock.</summary>
-sealed class SupportGemState
+public sealed class SupportGemState
 {
     /// <summary>When the Arcane Surge buff ends (Clock seconds); 0 means it is not running.</summary>
     public double ArcaneSurgeUntil;

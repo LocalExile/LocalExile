@@ -3,7 +3,7 @@ using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Bladefall of Trarthus (BladefallVolleys): using it turns it on, as the original server does (2026-11-07). The use is
     // answered with 0x1ce, the skill_cost_over_time buff (its one-entry list 0) with the player's mana_spent_per_minute
@@ -13,9 +13,9 @@ static partial class Game
     // skill's duration, at most maximum_number_of_blades_left_in_ground of them. The mana runs down at the spent rate on top
     // of regeneration; when it is out (or the player dies) the buffs come off and the rate goes back to 0. Using it again
     // while it runs does nothing (no 0x1ce): the original server answered a second press with nothing.
-    internal static bool IsBladefallTrarthus(int effect) => Skills.EffectId(effect) == BladefallVolleys.EffectId;
+    public static bool IsBladefallTrarthus(int effect) => Skills.EffectId(effect) == BladefallVolleys.EffectId;
 
-    internal static async Task<bool> ActivateBladefallTrarthus(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> ActivateBladefallTrarthus(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId)
     {
         if (BladefallVolleys.BuffRow(BladefallVolleys.CostBuff) is not ushort costRow
@@ -56,10 +56,10 @@ static partial class Game
             : Task.CompletedTask;
 
     // The mana Bladefall of Trarthus spends over this recovery step (RunResourceRecovery takes it off with regeneration).
-    internal static double BladefallManaSpent(ClientState conn, double seconds) =>
+    public static double BladefallManaSpent(ClientState conn, double seconds) =>
         conn.BladefallTrarthus is { Ended: false } state ? state.ManaPerMinute / 60.0 * seconds : 0;
 
-    internal static async Task EndBladefallTrarthus(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task EndBladefallTrarthus(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         BladefallTrarthusState? state;
         lock (conn.Monsters)

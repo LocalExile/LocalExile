@@ -8,7 +8,7 @@ using GameServer.Core;
 /// alternate tree to build (see Agents/docs/game/timeless-jewels.md). Militant Faith also carries two random
 /// per-10-Devotion mods, as the real item does.
 /// </summary>
-static class TimelessJewelCatalog
+public static class TimelessJewelCatalog
 {
     public const string BaseId = "Metadata/Items/Jewels/JewelTimeless";
 
@@ -168,5 +168,5 @@ static class TimelessJewelCatalog
 
 /// <summary>The values a socketed timeless jewel contributes to the passive tree. <see cref="Seed"/> is the real
 /// generation seed; <see cref="DisplayedSeed"/> is what the item tooltip shows (Elegant Hubris ×20).</summary>
-sealed record TimelessSpec(string Name, int TreeVersion, string Faction, int Seed, int DisplayedSeed,
+public sealed record TimelessSpec(string Name, int TreeVersion, string Faction, int Seed, int DisplayedSeed,
     int ConquerorIndex, string ConquerorName, int ConquerorVersion, int Radius);

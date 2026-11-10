@@ -11,7 +11,7 @@
 /// the consumer on; /set_stat 0 turns it off again. This class is the derived source both the pools and the spell
 /// consumers read, so nothing counts the modifier twice.
 /// </summary>
-static class ResistanceOvercap
+public static class ResistanceOvercap
 {
     /// <summary>evasion_rating_increased_by_overcapped_cold_resistance: +1% increased evasion per 1% cold overcap.</summary>
     public const string ColdEvasionFlag = "evasion_rating_increased_by_overcapped_cold_resistance";

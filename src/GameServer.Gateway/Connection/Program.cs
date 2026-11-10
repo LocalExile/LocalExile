@@ -178,46 +178,46 @@ static async Task SaveUnsavedProgress(CancellationToken stop)
     catch (OperationCanceledException) { }
 }
 
-sealed partial class Program
+public sealed partial class Program
 {
-    internal const uint PlayerId = 0x1000;
+    public const uint PlayerId = 0x1000;
     // The server's tick: 30 per second. Nothing the server times (an attack) is shorter than one tick.
-    internal const int TickRate = 30;
-    internal const double TickSeconds = 1.0 / TickRate;
+    public const int TickRate = 30;
+    public const double TickSeconds = 1.0 / TickRate;
     // Destination tickets of waypoint travel: that connection's player arrives next to the area's waypoint.
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, byte> WaypointArrivals = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, byte> WaypointArrivals = new();
 
     /// <summary>Tickets whose connection arrives at a given cell (back through a town portal).</summary>
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (int X, int Y)> SpotArrivals = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (int X, int Y)> SpotArrivals = new();
     // The skills granted to players (the default attack); loaded with the first player.
-    internal static readonly SkillCatalog Skills = new();
+    public static readonly SkillCatalog Skills = new();
     // Stat names ↔ client keys (Stats.dat row + 1).
-    internal static readonly StatCatalog Stats = new();
+    public static readonly StatCatalog Stats = new();
     // Item types (BaseItemTypes + data/item-types.json); loaded with the first player.
-    internal static readonly ItemCatalog Items = new();
+    public static readonly ItemCatalog Items = new();
     // What dying monsters drop (ItemDrops.cs).
     // Magic and rare items (ItemRolls.cs).
-    internal static readonly ItemRolls Rolls = new(Items);
-    internal static readonly BenchCrafting Bench = new(Items, Rolls);
+    public static readonly ItemRolls Rolls = new(Items);
+    public static readonly BenchCrafting Bench = new(Items, Rolls);
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
-    internal static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
+    public static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
-    internal static readonly PassiveTree Passives = new();
+    public static readonly PassiveTree Passives = new();
 
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> SendGates = new();
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> SendGates = new();
 
     // The client's walking speed in grid cells per second at 100% (measured live: ~37 = Character.ot Pathfinding
     // base_speed). Game_WALK_SPEED overrides it.
-    internal static readonly double WalkSpeed =
+    public static readonly double WalkSpeed =
         double.TryParse(Environment.GetEnvironmentVariable("Game_WALK_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 37;
 
     // Game_TRACE=move (or the older Game_MOVE_TRACE=1) logs "[move-trace] qpc=…" for the client's 0x24/0x25/0x191 as read
     // and the server's 0x1ab/0x1b7/0x1ba as written, on the machine's QPC clock (scripts/re/frida/trace-movement.js uses
     // the same clock).
-    internal static readonly bool MoveTrace = ServerTrace.Move;
+    public static readonly bool MoveTrace = ServerTrace.Move;
 
     // The server frame length (ms, S→C 0x2b8): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
-    internal static readonly byte FrameMs =
+    public static readonly byte FrameMs =
         byte.TryParse(Environment.GetEnvironmentVariable("Game_FRAME_MS"), out var fm) && fm > 0 ? fm : (byte)33;
 }
