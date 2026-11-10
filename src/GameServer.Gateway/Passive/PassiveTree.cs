@@ -16,7 +16,8 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
 {
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1, bool IsKeystone = false,
-        bool IsNotable = false, bool IsJewelSocket = false, bool IsProxy = false, bool IsExpansion = false)
+        bool IsNotable = false, bool IsJewelSocket = false, bool IsProxy = false, bool IsExpansion = false,
+        int DescendancyKey = 0)
     {
         public bool IsMastery => MasteryGroup >= 0;
     }
@@ -250,14 +251,19 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
                 : Flag(r, "IsMultipleChoice") ? 0 : 1;
             string name = r.GetProperty("Name").GetString() ?? "";
             if (alternate && r.GetProperty("NameHardmode").GetString() is { Length: > 0 } alternateName) name = alternateName;
+            int descendancyKey = r.TryGetProperty("DescendancyKey", out var descendancy) && descendancy.ValueKind == JsonValueKind.Number
+                ? descendancy.GetInt32() : 0;
+            // Descendancy nodes are the second ascendancy layer: not ordinary, even though they have no AscendancyKey.
+            bool ascendancyNode = r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number || descendancyKey > 0;
             nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, r.GetProperty("Id").GetString() ?? "", name,
-                stats, r.GetProperty(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted").GetInt32(), r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number,
+                stats, r.GetProperty(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted").GetInt32(), ascendancyNode,
                 r.GetProperty("Characters").GetArrayLength() > 0, masteryGroup, respec,
                 IsKeystone: Flag(r, "IsKeystone"),
                 IsNotable: Flag(r, "IsNotable"),
                 IsJewelSocket: Flag(r, "IsJewelSocket"),
                 IsProxy: Flag(r, "IsProxyPassive"),
-                IsExpansion: Flag(r, "IsExpansion")));
+                IsExpansion: Flag(r, "IsExpansion"),
+                DescendancyKey: descendancyKey));
         }
         return nodes;
     }

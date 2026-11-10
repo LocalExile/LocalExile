@@ -10,6 +10,15 @@ sealed class DescendancyCatalog(string folder = "data")
     /// <summary>One row. <paramref name="Index"/> is the table row, the byte 0x33 carries; 0 is none.</summary>
     public sealed record Row(byte Index, string Id, string Name);
 
+    /// <summary>One node of a row's tree; the adjacency comes from the client's Default passive graph.</summary>
+    public sealed record Node(ushort Id, IReadOnlyList<ushort> Adjacent, bool IsStart, bool IsChoice, bool IsChoiceOption)
+    {
+        // A multiple-choice option is the effect of the paid parent, not a second ascendancy point.
+        public int PointCost => IsStart || IsChoiceOption ? 0 : 1;
+    }
+
+    public sealed record Definition(byte Row, ushort StartNode, IReadOnlyDictionary<ushort, Node> Nodes);
+
     readonly Lazy<IReadOnlyList<Row>> _rows = new(() => Load(folder));
 
     public IReadOnlyList<Row> Rows => _rows.Value;
@@ -36,6 +45,83 @@ sealed class DescendancyCatalog(string folder = "data")
             starts[checked((byte)key.GetInt32())] = checked((ushort)id);
         }
         return starts;
+    }
+
+    readonly Lazy<IReadOnlyDictionary<byte, Definition>> _definitions = new(() => LoadDefinitions(folder));
+
+    /// <summary>The row's full tree: nodes, their links in the Default graph and the implicit start.</summary>
+    public Definition? Tree(byte row) => _definitions.Value.GetValueOrDefault(row);
+
+    static IReadOnlyDictionary<byte, Definition> LoadDefinitions(string folder)
+    {
+        string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
+        string graphPath = Path.Combine(folder, AscendancyCatalog.GraphFile);
+        var definitions = new Dictionary<byte, Definition>();
+        if (!File.Exists(passivePath) || !File.Exists(graphPath)) return definitions;
+        var links = new Dictionary<ushort, ushort[]>();
+        using (var graph = GameTables.Open(graphPath))
+            foreach (var n in graph.RootElement.GetProperty("normal").GetProperty("nodes").EnumerateArray())
+                links[checked((ushort)n.GetProperty("id").GetInt32())] =
+                    n.GetProperty("adjacent").EnumerateArray().Select(a => checked((ushort)a.GetInt32())).ToArray();
+        var perRow = new Dictionary<byte, Dictionary<ushort, Node>>();
+        using var passives = GameTables.Open(passivePath);
+        foreach (var r in passives.RootElement.EnumerateArray())
+        {
+            if (!r.TryGetProperty("DescendancyKey", out var key) || key.ValueKind != JsonValueKind.Number) continue;
+            int id = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            if (id is <= 0 or > ushort.MaxValue) continue;
+            byte row = checked((byte)key.GetInt32());
+            if (row == 0) continue;
+            var node = new Node((ushort)id, links.GetValueOrDefault((ushort)id, []),
+                r.GetProperty("IsAscendancyStartingNode").GetBoolean(),
+                r.GetProperty("IsMultipleChoice").GetBoolean(),
+                r.GetProperty("IsMultipleChoiceOption").GetBoolean());
+            if (!perRow.TryGetValue(row, out var nodes)) perRow[row] = nodes = [];
+            nodes[(ushort)id] = node;
+        }
+        foreach (var (row, nodes) in perRow)
+            definitions[row] = new Definition(row, nodes.Values.FirstOrDefault(n => n.IsStart)?.Id ?? 0, nodes);
+        return definitions;
+    }
+
+    /// <summary>
+    /// Checks a complete proposed layer allocation: every node belongs to <paramref name="row"/>, the set stays
+    /// connected to the row's implicit start, and its points fit the shared ascendancy budget together with the main
+    /// ascendancy's <paramref name="spentElsewhere"/>.
+    /// </summary>
+    public void Validate(byte row, IEnumerable<ushort> allocated, int spentElsewhere, int earnedPoints)
+    {
+        if (row == 0) throw new AscendancyRuleException("No Descendancy is selected");
+        var definition = Tree(row) ?? throw new AscendancyRuleException($"Descendancy row {row} has no tree data");
+        if (definition.StartNode == 0) throw new AscendancyRuleException($"Descendancy row {row} has no start node");
+        var set = new HashSet<ushort>();
+        foreach (ushort n in allocated)
+        {
+            if (!set.Add(n)) throw new AscendancyRuleException($"Duplicate descendancy node {n}");
+            if (!definition.Nodes.TryGetValue(n, out var node) || node.IsStart)
+                throw new AscendancyRuleException($"Node {n} does not belong to this Descendancy's tree");
+        }
+        var reachable = new HashSet<ushort> { definition.StartNode };
+        var queue = new Queue<ushort>();
+        queue.Enqueue(definition.StartNode);
+        while (queue.TryDequeue(out ushort current))
+            foreach (ushort next in definition.Nodes[current].Adjacent)
+                if (set.Contains(next) && reachable.Add(next)) queue.Enqueue(next);
+        if (set.Any(n => !reachable.Contains(n)))
+            throw new AscendancyRuleException("Descendancy nodes must remain connected to their start");
+        var groups = new HashSet<ushort>();
+        foreach (ushort option in set.Where(n => definition.Nodes[n].IsChoiceOption))
+        {
+            var parents = definition.Nodes[option].Adjacent
+                .Where(n => definition.Nodes.TryGetValue(n, out var p) && p.IsChoice).ToArray();
+            if (parents.Length != 1 || !set.Contains(parents[0]))
+                throw new AscendancyRuleException($"Choice option {option} requires its allocated choice node");
+            if (!groups.Add(parents[0]))
+                throw new AscendancyRuleException("Only one option of a descendancy choice may be allocated");
+        }
+        int spent = set.Sum(n => definition.Nodes[n].PointCost);
+        if (spentElsewhere + spent > earnedPoints)
+            throw new AscendancyRuleException($"Ascendancy points exceeded: {spentElsewhere + spent} spent, {earnedPoints} earned");
     }
 
     static IReadOnlyList<Row> Load(string folder)

@@ -24,6 +24,11 @@ static partial class Game
         if (ordinary.Any(n => PassivesFor(conn).Find(n) is not { IsAscendancy: false }))
             throw new UnknownSavedItemException("unknown or ascendancy nodes in the ordinary passive allocation; the save was retained");
         Game.AscendancyRules.Validate((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
+        if (save?.Descendancy is { } descRow && descRow != 0)
+        {
+            int mainSpent = Game.AscendancyRules.SpentPoints((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
+            Game.Descendancies.Validate(descRow, save.DescendancyNodes ?? [], mainSpent, ascendancy.EarnedPoints);
+        }
         ValidateOrdinaryPassives(conn, ordinary, ascendancy);
     }
 
@@ -59,9 +64,9 @@ static partial class Game
         {
             conn.MainAscendancy = ascendancy;
             conn.DescendancyRow = save?.Descendancy ?? 0;
+            // The layer's start is implicit, like an ascendancy start: sending it in 0x33 would allocate it and spend a point.
             conn.DescendancyNodes.Clear();
-            if (conn.DescendancyRow != 0 && Descendancies.StartNode(conn.DescendancyRow) is { } descendancyStart)
-                conn.DescendancyNodes.Add(descendancyStart);
+            foreach (ushort n in save?.DescendancyNodes ?? []) conn.DescendancyNodes.Add(n);
             AscendancyPolicies.SelectionChanged(conn);
             conn.Passives = [.. ordinary];
             var atlasPresets = save?.AtlasPassivePresets ?? [];
@@ -168,7 +173,7 @@ static partial class Game
         AscendancyIdentity? selection;
         lock (conn.Monsters)
         {
-            nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).ToArray();
+            nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).Concat(conn.DescendancyNodes).ToArray();
             masteries = conn.MasteryEffects;
             tattoos = new(conn.Tattoos);
             tattooKeystones = new(conn.TattooKeystones);
@@ -1310,8 +1315,8 @@ static partial class Game
             throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
         if (CharacterName(conn) is { Length: > 0 } character) CharacterSaves.SetDescendancy(character, row);
         conn.DescendancyRow = row;
+        // Starts are implicit for both layers; an explicit start node would count as an allocated node and cost a point.
         conn.DescendancyNodes.Clear();
-        if (row != 0 && Descendancies.StartNode(row) is { } start) conn.DescendancyNodes.Add(start);
     }
 
     // C→S 0x3a: the Descendancy class selector (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) accepted a
@@ -1466,6 +1471,7 @@ static partial class Game
             var ascendancy = conn.MainAscendancy;
             expectedProgress = conn.SavedPassiveProgress;
             var ascendancyNodes = new List<ushort>();
+            var descendancyChanges = new List<ushort>();
             foreach (var n in nodes)
             {
                 if (PassivesFor(conn).Find(n) is not { } node) { error = $"unknown passive {n}"; break; }
@@ -1473,6 +1479,7 @@ static partial class Game
                 {
                     if (goldRespec || !allocate && !refundPoints) { error = "Ascendancy passives require refund points, not gold or a free reset"; break; }
                     if (masteryEffect is not null) { error = "An ascendancy passive is not an ordinary mastery"; break; }
+                    if (node.DescendancyKey > 0) { descendancyChanges.Add(n); continue; }
                     ascendancyNodes.Add(n);
                     continue;
                 }
@@ -1515,6 +1522,27 @@ static partial class Game
                 try { ValidateOrdinaryPassives(conn, next, ascendancy); }
                 catch (AscendancyRuleException e) { error = e.Message; }
             }
+            // The second ascendancy layer shares the same earned points; its nodes count against them.
+            var descendancyNext = new HashSet<ushort>(conn.DescendancyNodes);
+            if (error is null && descendancyChanges.Count > 0)
+            {
+                foreach (ushort n in descendancyChanges)
+                {
+                    if (allocate) descendancyNext.Add(n);
+                    else if (!descendancyNext.Remove(n)) { error = $"descendancy passive {n} is not allocated"; break; }
+                }
+                if (error is null)
+                {
+                    try
+                    {
+                        int mainSpent = Game.AscendancyRules.SpentPoints(baseClass, ascendancy);
+                        Game.Descendancies.Validate(conn.DescendancyRow, descendancyNext, mainSpent, ascendancy.EarnedPoints);
+                        if (refundPoints && !allocate)
+                            refundsSpent += descendancyChanges.Count * AscendancyRules.RefundPointsPerAscendancyPoint;
+                    }
+                    catch (AscendancyRuleException e) { error = e.Message; }
+                }
+            }
             // A socketed jewel would be left behind by a refund: the client has no automatic return, so it must be taken
             // out (into the cursor or the inventory) first.
             if (error is null && !allocate
@@ -1541,12 +1569,15 @@ static partial class Game
                     }
                     CharacterSaves.SetMainAscendancy(CharacterName(conn), ascendancyNow, now, effectsNow, refundPoints ? refundsNow : null,
                         expected: expectedProgress);
+                    if (conn.DescendancyRow != 0 || descendancyNext.Count > 0)
+                        CharacterSaves.SetDescendancy(CharacterName(conn), conn.DescendancyRow, descendancyNext);
                     return null;
                 });
             if (error is null)
             {
                 conn.Passives = now;
                 conn.MainAscendancy = ascendancyNow;
+                conn.DescendancyNodes = descendancyNext;
                 AscendancyPolicies.SelectionChanged(conn);
                 conn.MasteryEffects = effectsNow;
                 conn.RefundPoints = refundsNow;

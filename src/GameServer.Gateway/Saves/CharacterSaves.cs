@@ -64,7 +64,7 @@ static class CharacterSaves
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, bool? PetrifiedBlood = null,
         string? SelectedHideout = null, OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
-        byte? Descendancy = null,
+        byte? Descendancy = null, List<ushort>? DescendancyNodes = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
         Dictionary<string, List<SavedMonsterStatue>>? MonsterStatues = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
@@ -410,8 +410,9 @@ static class CharacterSaves
         });
 
     /// <summary>The Descendancy.dat row the client draws as its second ascendancy layer (Affliction's Wildwood
-    /// specialisations, the 3.29 Bloodline classes); 0 clears it.</summary>
-    public static void SetDescendancy(string character, byte row) => Update(character, s => s with { Descendancy = row });
+    /// specialisations, the 3.29 Bloodline classes); 0 clears it. The nodes belong to that row's tree.</summary>
+    public static void SetDescendancy(string character, byte row, IEnumerable<ushort>? nodes = null) =>
+        Update(character, s => s with { Descendancy = row, DescendancyNodes = [.. nodes ?? []] });
 
     /// <summary>
     /// Main ascendancy identity, its own nodes/point awards and any associated ordinary-node/refund changes commit in
