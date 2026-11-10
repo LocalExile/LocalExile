@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 
@@ -16,8 +17,8 @@ sealed class HarbingerCurseSources(ModCatalog mods, string folder = "data")
     {
         var result = new Dictionary<int, Dictionary<string, int>>();
         string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!File.Exists(path)) return result;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         int row = 0;
         foreach (var variety in doc.RootElement.EnumerateArray())
         {

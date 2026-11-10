@@ -33,8 +33,8 @@ public static class ServerLevelAreas
         var inPlaceOfOne = new Dictionary<string, uint>(StringComparer.Ordinal);
         try
         {
-            if (!File.Exists(file)) return (supported, inPlaceOfOne);
-            using var doc = JsonDocument.Parse(File.ReadAllText(file));
+            if (!ClientTables.Exists(file)) return (supported, inPlaceOfOne);
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllText(file));
             var failed = new HashSet<string>(StringComparer.Ordinal);
             var builtSeeds = new Dictionary<string, uint>(StringComparer.Ordinal);
             var checkedSeeds = new Dictionary<string, uint>(StringComparer.Ordinal);
@@ -112,8 +112,8 @@ public static class ServerLevelAreas
     public static Dictionary<ushort, T> ByHash<T>(string worldAreasJson, IReadOnlyDictionary<string, T> byId)
     {
         var result = new Dictionary<ushort, T>();
-        if (!File.Exists(worldAreasJson)) return result;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(worldAreasJson));
+        if (!ClientTables.Exists(worldAreasJson)) return result;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
         foreach (var r in doc.RootElement.EnumerateArray())
             if (byId.TryGetValue(r.GetProperty("Id").GetString() ?? "", out var value))
                 result[(ushort)r.GetProperty("HASH16").GetInt32()] = value;

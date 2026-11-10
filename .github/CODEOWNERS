@@ -36,6 +36,13 @@ global.json @Wrathen
 /src/LocalExile/ @Wrathen
 /src/GameServer.Patch/ @Wrathen
 
+# What every player's server runs on their accounts and saves at its next start (game content updates stay open)
+/sql/base/ @Wrathen
+/sql/updates/auth/ @Wrathen
+/sql/updates/pending_auth/ @Wrathen
+/sql/updates/characters/ @Wrathen
+/sql/updates/pending_characters/ @Wrathen
+
 # What loads and runs compiled code
 /src/GameServer.Gateway/Modding/ @Wrathen
 

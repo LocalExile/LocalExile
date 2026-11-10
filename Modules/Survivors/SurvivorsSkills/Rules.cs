@@ -8,6 +8,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 using GameServer.Modules.Survivors;
+using GameServer.Core;
 
 
 namespace GameServer.Modules.Survivors;
@@ -79,11 +80,11 @@ static partial class SurvivorsSkills
     {
         var result = new Dictionary<int, int>();
         string folder = Path.Combine("data", "tables");
-        if (!File.Exists(Path.Combine(folder, "GrantedEffects.json")) || !File.Exists(Path.Combine(folder, "ActiveSkills.json"))
-            || !File.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
-        using var actives = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
-        using var buffs = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
+        if (!ClientTables.Exists(Path.Combine(folder, "GrantedEffects.json")) || !ClientTables.Exists(Path.Combine(folder, "ActiveSkills.json"))
+            || !ClientTables.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
+        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
+        using var actives = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
+        using var buffs = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
         var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < buffs.RootElement.GetArrayLength(); i++)
             if (buffs.RootElement[i].TryGetProperty("Id", out var id) && id.GetString() is { } name) byId[name] = i;

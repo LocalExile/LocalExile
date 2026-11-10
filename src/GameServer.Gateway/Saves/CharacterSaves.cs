@@ -9,7 +9,7 @@ using GameServer.Storage;
 
 /// <summary>
 /// A character's saved state: its items per inventory (Inventories.dat row), its skill bar and its progress, one row per
-/// character in the save database (<see cref="Saves"/>, data/saves.db, git-ignored). Items are stored by BaseItemTypes
+/// character in the save database (<see cref="Saves"/>, data/characters.db, git-ignored). Items are stored by BaseItemTypes
 /// HASH32 and rebuilt through the <see cref="ItemCatalog"/>, so the save holds no client-side layout. Every change is a
 /// transaction: it reads the row, changes one part and writes it back, and nothing else writes in between.
 /// </summary>

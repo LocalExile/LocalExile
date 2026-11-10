@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>
@@ -60,8 +61,8 @@ sealed class MtxCatalog(string folder = "data")
     /// <summary>Each row's HASH32 in table order (null for a row without one), or null without the file.</summary>
     internal static List<uint?>? Hashes(string path)
     {
-        if (!File.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return null;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray().Select(r =>
             r.TryGetProperty("HASH32", out var hash) && hash.TryGetUInt32(out uint h) ? h : (uint?)null)];
     }
@@ -195,7 +196,7 @@ sealed class CosmeticEffects(string folder = "data")
     {
         var types = new Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)>();
         string path = Path.Combine(folder, "object-types.json");
-        if (!File.Exists(path)) return types;
+        if (!ClientTables.Exists(path)) return types;
         using var doc = GameTables.Open(path);
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
@@ -217,14 +218,14 @@ sealed class CosmeticEffects(string folder = "data")
         row.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array
             ? [.. p.EnumerateArray().Select(v => v.GetInt32())] : [];
 
-    static List<ushort>? Hash16s(string path) => File.Exists(path)
+    static List<ushort>? Hash16s(string path) => ClientTables.Exists(path)
         ? [.. Rows(path).Select(r => Int(r, "HASH16") is int h ? (ushort)h : (ushort)0)]
         : null;
 
     static List<JsonElement> Rows(string path)
     {
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())];
     }
 }
@@ -307,7 +308,7 @@ sealed class SkillArt(string folder = "data")
                 && pa[0].GetInt32() is int pr && pr < projectileRows.Count && projectileRows[pr].GetProperty("Id").GetString() is { Length: > 0 } pid)
                 projectiles.TryAdd((row.GetProperty("Id").GetString() ?? "", v), pid);
         string dir = Path.Combine(folder, "tables"), miscPath = Path.Combine(dir, "MiscAnimated.json");
-        var misc = File.Exists(miscPath) ? Rows(miscPath) : [];
+        var misc = ClientTables.Exists(miscPath) ? Rows(miscPath) : [];
         foreach (var row in Rows(Path.Combine(dir, "MiscAnimatedArtVariations.json")))
             if (Int(row, "Variant") is int v && row.GetProperty("Animation") is { ValueKind: JsonValueKind.Array } a && a.GetArrayLength() > 0
                 && a[0].GetInt32() is int m && m < misc.Count && misc[m].GetProperty("AOFile").GetString() is { Length: > 0 } ao)
@@ -323,8 +324,8 @@ sealed class SkillArt(string folder = "data")
 
     static List<JsonElement> Rows(string path)
     {
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())];
     }
 }

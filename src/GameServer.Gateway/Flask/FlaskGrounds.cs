@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Ground effects the player creates. Utility flasks leave them on use, from their implicit mods (Agents/docs/
@@ -98,10 +99,10 @@ static class FlaskGrounds
     {
         var art = new Dictionary<Kind, (string, int)>();
         string types = Path.Combine(folder, "tables", "GroundEffectTypes.json"), effects = Path.Combine(folder, "tables", "GroundEffects.json");
-        if (!File.Exists(types) || !File.Exists(effects)) return art;
-        using var t = JsonDocument.Parse(File.ReadAllBytes(types));
+        if (!ClientTables.Exists(types) || !ClientTables.Exists(effects)) return art;
+        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(types));
         var ids = t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString()).ToList();
-        using var e = JsonDocument.Parse(File.ReadAllBytes(effects));
+        using var e = JsonDocument.Parse(ClientTables.ReadAllBytes(effects));
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
             (Kind.ProfaneGround, "Profane") })
             foreach (var r in e.RootElement.EnumerateArray())

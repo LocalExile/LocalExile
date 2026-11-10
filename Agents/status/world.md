@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Rotting Core: organ portals, Black Heart and the blood passage to Lilly work ([Act 9](../docs/game/campaign/act9.md)).
 - Instance connection: opening, encryption switch (0x11), framing, dispatcher.
   Code: `GameServer.Gateway`, `GameServer.Core/Protocol/Instance`.
   Docs: [02](../docs/protocol/02-instance-connection.md).
@@ -281,8 +282,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   created open.
   An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
   model at its point, there from the start.
-  The move the game makes when a fight ends is not modelled: The Rotting Core's way to Weylam's boat (telepad16)
-  after the Depraved Trinity ([08](../docs/protocol/08-area-transitions.md) §8).
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.

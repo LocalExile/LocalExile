@@ -76,7 +76,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### The game's start and resurrection
 
-- **Known:** items, equipment, the skill bar, experience and passives are saved per character in `data/saves.db`
+- **Known:** items, equipment, the skill bar, experience and passives are saved per character in `data/characters.db`
   ([saves](../docs/saves.md)) ([13](../docs/protocol/13-items.md) §7, [11](../docs/protocol/11-skills.md) §11,
   [15](../docs/protocol/15-progression.md)), and every login starts at the last town's spawn point
   ([09](../docs/protocol/09-area-change.md) §4).

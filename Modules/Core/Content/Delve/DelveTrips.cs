@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Delve;
 
@@ -56,13 +57,13 @@ public sealed partial class DelveModule
         var world = module.World(player);
         var state = _states.GetOrCreateValue(player);
         if (state.Journey is not null || state.Crawler == 0 || conn.Layout.Walkable is null) return;
-        if (!File.Exists("data/tables/DelveLevelScaling.json"))
+        if (!ClientTables.Exists("data/tables/DelveLevelScaling.json"))
         {
             await player.Tell("Delve trip scaling data is unavailable; no sulphite was spent."); return;
         }
         var rail = DelveRailRoute.Load(conn.Layout.Id, conn.Seed);
         if (rail is null) { await player.Tell("The mine rail capture is unavailable; no sulphite was spent."); return; }
-        using var scaling = JsonDocument.Parse(File.ReadAllBytes("data/tables/DelveLevelScaling.json"));
+        using var scaling = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/DelveLevelScaling.json"));
         // 0x141ea9bb0 prices path points after the origin. BlockY*8 + CellY + 1 = 2 for the first quest destination.
         var depth = scaling.RootElement.EnumerateArray().First(r => r.GetProperty("Depth").GetInt32() == 2);
         int cost = depth.GetProperty("SulphiteCost").GetInt32();

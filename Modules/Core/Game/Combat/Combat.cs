@@ -474,9 +474,8 @@ static partial class Game
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                     at, Random.Shared, poison: DefaultAttackPoison(conn, player));
-                if (life > 0 && ownRolled[DamageType.Fire].Max > 0
-                    && IgniteOnHitLocked(conn, targetId, m, DefaultAttackIgnite(conn, player),
-                        critical, at) is { } packets)
+                if (life > 0 && DefaultAttackIgnite(conn, player) is var defaultIgnite && defaultIgnite.CanIgnite(ownRolled)
+                    && IgniteOnHitLocked(conn, targetId, m, defaultIgnite, critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
                 if (life > 0 && ownRolled[DamageType.Physical].Max > 0
                     && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at) is { } cut)
@@ -529,10 +528,11 @@ static partial class Game
     {
         if (m.OwnerId is not null) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
+        if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, use.SkillId) is not null) return;
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
-        if (gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
+        if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
             if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
             {
@@ -615,9 +615,11 @@ static partial class Game
         }
         double castAt = conn.Clock.Elapsed.TotalSeconds;
         int castAction = 0;
-        (int X, int Y) aim = default, stand = default;
+        (int X, int Y) aim = default, stand = default, landing = default;
         int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(conn, use.SkillId, gem.Effect), chargeToken = 0;
         bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect);
+        // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
+        bool flicker = moves && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -629,9 +631,18 @@ static partial class Game
                 conn.Walk.Order(stand.X, stand.Y, castAt);
                 // A movement skill aimed at a monster travels as one aimed at the ground does.
                 if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
+                else if (flicker)
+                {
+                    landing = stand;
+                    if (FlickerDestination(conn, gem.Effect, use.SkillId, stand, aim, use.TargetId, castAt) is { } to)
+                    {
+                        (aim, landing, flickers) = (to.At, to.Landing, true);
+                        conn.Walk.Teleport(landing.X, landing.Y, castAt);
+                    }
+                }
                 else if (moves)
                 {
-                    var landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    landing = MovementLanding(conn, gem.Effect, stand, aim);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
             }, out var spellUse, requestedAt: requestedAt)) return;
@@ -646,10 +657,14 @@ static partial class Game
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
+        if (flickers && spellAcknowledged)
+            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, landing.X, landing.Y),
+                $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
+        if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
-        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim, use.TargetId, sequence: use.Sequence,
-            actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
+        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, use.TargetId,
+            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
     }
 
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when
@@ -732,7 +747,7 @@ static partial class Game
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
         // two attacks cannot start at once either.
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
-        if (vaalUse is null && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect))
+        if (vaalUse is null && gem.Name is not null && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
         {
             double duration = SupportedAttackSeconds(conn, skillId);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
@@ -784,6 +799,9 @@ static partial class Game
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                     conn.PaidChannel = CombatLifetime is { IsActive: true } rules
                         ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
+                    if (GolemStat(SupportedSkill(conn, skillId).Stats, "cast_while_channelling_time_ms") > 0)
+                        BeginChannelTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId,
+                            action, conn.ChannelGeneration, to, conn.Clock.Elapsed.TotalSeconds);
                 }
                 // Capture at paid admission, before output or release scheduling can catch up other hits.
                 recoveryGeneration = conn.ActionInterruptionGeneration;
@@ -845,7 +863,7 @@ static partial class Game
             return await CastSummon(remote, stream, ciphers, conn, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Desecrate")
             return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
-        if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
+        if (gem.Name is not null && IsTotemSkill(conn, skillId) && TotemVariety(conn, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
             return true;
@@ -868,6 +886,7 @@ static partial class Game
         ushort skillId, uint targetId, (int X, int Y) at)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (gem.Name is not null && InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId, default, targetId);
@@ -906,7 +925,7 @@ static partial class Game
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        if (gem.Name is null) return;
+        if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (!InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
@@ -1252,6 +1271,7 @@ static partial class Game
     // A channel that stands keeps the player where it is.
     internal static void ChannelAimedAt(ClientState conn, int x, int y, double at)
     {
+        AimChannelTriggers(conn, (x, y));
         if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
     }
 
@@ -1326,7 +1346,7 @@ static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0, double? swingAt = null)
+        double radiusMore = 1, int addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1339,11 +1359,12 @@ static partial class Game
         bool TokenCurrent() => holdsItsSwing
             ? PlayerStateAllowsAction(conn)
             : cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
-        bool Current() => TokenCurrent()
+        bool Current() => (triggeredCurrent?.Invoke() ?? true) && TokenCurrent()
             && (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
+        var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
         var skillStats = SupportedSkill(conn, skillId).Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
@@ -1387,7 +1408,7 @@ static partial class Game
         // invisible in the log (the live tests cannot count what a swing did without it).
         bool Replaced()
         {
-            if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            if (triggeredCurrent is not null || cooldownUse?.Instant == true || conn.ActionCount == action) return false;
             // A gem melee swing survives the Move the client queued behind its swing (holdsItsSwing): the walk order
             // stands, the hit still lands, and only a real interruption (which PlayerStateAllowsAction refuses) drops it.
             if (holdsItsSwing && PlayerStateAllowsAction(conn))
@@ -1536,7 +1557,7 @@ static partial class Game
                 // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
                 // player moves on: its action was checked at the release.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 bool freshPlayer = player is null;
                 if (player is null)
@@ -1617,6 +1638,8 @@ static partial class Game
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
+                        criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                     if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
@@ -1628,7 +1651,7 @@ static partial class Game
                         reflected, poison, sourceSkill: skillId);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                     // physical damage bleed it.
-                    if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                    if (m.Life > 0 && ignite.CanIgnite(rolled)
                         && IgniteOnHitLocked(conn, id, m, ignite, critical, at) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                     if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
