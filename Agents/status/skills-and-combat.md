@@ -1261,6 +1261,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Desperation's life loss, the debuff in Survivors runs, and leech goes to the monster runner, not the caster.
   Code: `MonsterEssenceDrain.cs`, `MonsterEssenceDrains.cs`, `ProjectileOffense.EssenceDrain`, `Projectiles.cs` hit,
   `Player.cs` ticker.
+- **Contagion (verified live, 3.29.3c).** No hit: every hostile monster in the area gets a non-stacking chaos DoT; one
+  that dies affected (including from the expiring tick) spreads it in the cast radius, Subsiding at 75%. Spreads draw the
+  worn Contagion skin's circle (`ContagionSkinAo`, by MtxTypes Id). Not yet: the debuff icon (BuffDefinitions 504 crashes
+  the client), Transference, the panel DoT row. Code: `MonsterContagion(s).cs`, `AreaSkillHit`, `MonsterKilledBy`.
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
   (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
