@@ -1244,23 +1244,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Not yet: the `contagion` debuff (BuffDefinitions 504) is not sent: the client closed the connection about 3 s after it,
   with or without the source skill id (`ContagionBuffShown` is false); Contagion of Transference (spread on hit); the
   character panel's DoT row; Malevolence's conditional DoT multiplier.
-- **Essence Drain (verified live 2026-11-08).** The gem fires its old name's projectile row, `Metadata/Projectiles/Siphon`
-  (`SkillCatalog.ProjectileFallbacks`; before, every cast was refused). A projectile hit the monster survives puts a chaos
-  damage over time on it: `base_chaos_damage_to_deal_per_minute` with spell/chaos/DoT increases,
-  `essence_drain_damage_+%`, support more (Controlled Destruction, Void Manipulation, Rapid Decay, Efficacy, Vicious
-  Projectiles) and DoT multipliers, for `base_skill_effect_duration` (3.8 s) with skill and siphon duration. Instances do
-  not stack: the strongest active one deals damage and a weaker one takes over when it ends. 0.5% of the damage dealt
-  (`siphon_life_leech_from_damage_permyriad`) is leeched as life through the ordinary leech session. Live (3.29.3b): 24 hits,
-  18 kills by the debuff, leech recovering life, together with Contagion, no crash.
-  A monster that dies affected by both Contagion and Essence Drain spreads both: the strongest Essence Drain instance goes
-  with each Contagion spread at full damage for its remaining duration (wiki), also after a death tick cleared it.
-  Live (3.29.3b): 91 spreads carried it (e.g. 7 monsters, 208.7/s for 1.44 s), chaining through the pack, no crash.
-  Rechecked live on 3.29.3c (2026-11-08): 33 spreads all carried it (e.g. 521.9/s for 3.45 s), 26 kills by its damage,
-  no disconnect.
-  Not done: the `siphon_damage` debuff icon (BuffDefinitions 503, `__col7` 8, the same crash as Contagion's), Of
-  Desperation's life loss, the debuff in Survivors runs, and leech goes to the monster runner, not the caster.
-  Code: `MonsterEssenceDrain.cs`, `MonsterEssenceDrains.cs`, `ProjectileOffense.EssenceDrain`, `Projectiles.cs` hit,
-  `Player.cs` ticker.
+- **Essence Drain (verified live, 3.29.3c).** Fires its old name's projectile row (`Siphon`, `ProjectileFallbacks`); a
+  surviving hit gets a chaos DoT (strongest instance wins) leeching 0.5% of its damage as life. Contagion's spread
+  carries it for its remaining duration. Not yet: the debuff icon (503 crashes the client), Of Desperation's life loss,
+  the debuff in Survivors, leech to the caster in multiplayer. Code: `MonsterEssenceDrain(s).cs`, `Projectiles.cs` hit.
 - **Contagion (verified live, 3.29.3c).** No hit: every hostile monster in the area gets a non-stacking chaos DoT; one
   that dies affected (including from the expiring tick) spreads it in the cast radius, Subsiding at 75%. Spreads draw the
   worn Contagion skin's circle (`ContagionSkinAo`, by MtxTypes Id). Not yet: the debuff icon (BuffDefinitions 504 crashes
