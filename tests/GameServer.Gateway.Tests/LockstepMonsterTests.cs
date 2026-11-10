@@ -155,14 +155,19 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(recovered, hurt.ClientChase);
         // The recovery cancels the walk with the client's own stop, which waits for the tick (0x141e350e0, 0x141e32710):
         // a walker hit in the frame from 1.0 to 1.033 still takes its step due at 1.025 and stands a cell further on, with
-        // the 8 ms since that step kept for its next walk. Without frames it stands where the hit finds it.
+        // the 8 ms since that step kept for its next walk. Without frames it stands where the hit finds it. The frame is
+        // the one the 0x1d1 is written in: a hit committed a frame earlier (a projectile's, whose output follows its
+        // commit) leaves the walker walking until then, as the client's does.
         foreach (bool frames in new[] { true, false })
         {
-            (double Start, double End) sending = (1.0, 1.033);
+            (double Start, double End) sending = (0.967, 1.0);
             var walk = frames ? new PlayerWalk(100, 100, 8) { FrameOf = at => (Math.Min(at, sending.Start), sending.End) } : new PlayerWalk(100, 100, 8);
             walk.Order(110, 100, now: 0.9);
             var struck = new SpawnedMonster("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23) { HitAnimations = [new(0, 1.0)] };
-            Assert.True(HitReaction.TryFlinch(struck, new(100), 1.001, new Random(1)));
+            Assert.True(HitReaction.TryFlinch(struck, new(100), 0.999, new Random(1)));
+            Assert.Equal(frames, walk.Moving(1.001));
+            hurtConn.LockstepFrame = sending = (1.0, 1.033);
+            lock (hurtConn.Monsters) Game.TakeHitPacket(hurtConn, 0x3002, struck, struck.FlinchUntil, 1.001);   // its send gate
             sending = (1.033, 1.066);
             Assert.Equal(frames ? (101, 100) : (100, 100), walk.Position(1.04));
             Assert.False(walk.Moving(1.04));

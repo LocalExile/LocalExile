@@ -1346,9 +1346,13 @@ static partial class Game
     // tick, after the player's: its chase would test his cell after his step there, which the server knows only once that
     // frame is complete (a body that blocks the step, or an order of his placed later in the frame, changes it). The cost
     // is one frame's stand after the recovery; the frame GGG orders in after a TakeHit is not traced.
+    // A walker on frames is stopped here, in the frame the client gets the 0x1d1 in, not where the hit was committed
+    // (HitReaction.TryFlinch): a projectile's output goes out after its commit, often a frame later, and the client walks
+    // until then.
     internal static byte[] TakeHitPacket(ClientState conn, uint id, SpawnedMonster m, double until, double now)
     {
         float seconds = (float)(until - now);
+        if (m.Walk.OnFrames(now)) m.Walk.Cancel(now);
         if (conn.LockstepClient && conn.LockstepFrame is { } frame && m.FlinchUntil == until)
             m.FlinchUntil = LockstepRecoveryEnds(frame, seconds);
         return InstanceProtocol.ActorAnimation(id, seconds, PlayerHitRecovery.TakeHitAnimation);

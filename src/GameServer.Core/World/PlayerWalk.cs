@@ -215,6 +215,10 @@ public sealed class PlayerWalk
         return _rest;
     }
 
+    /// <summary>Whether the walker's client runs on frames at <paramref name="now"/>: a stop then belongs to the frame its
+    /// message is written in, not to the moment the server decided it.</summary>
+    public bool OnFrames(double now) => FrameOf?.Invoke(now) is not null;
+
     /// <summary>Paths again to the current order's target from where the walk ended, at <paramref name="at"/>.</summary>
     public (int X, int Y) Repath(double at) => Walk(_target, _maxRange, _tolerance, at, _precision);
 

@@ -239,7 +239,7 @@ static partial class Game
             target.FlinchUntil = Math.Max(target.FlinchUntil,
                 now + .35 * (1 + own.Get("base_stun_duration_+%") / 100.0));
             target.BusyUntil = Math.Max(target.BusyUntil, target.FlinchUntil);
-            target.Walk.Cancel(now);
+            if (!target.Walk.OnFrames(now)) target.Walk.Cancel(now);   // on frames with the 0x1d1 (TakeHitPacket)
             target.LastTarget = null;
             // Capture the accepted mutation before any LifeUpdate await or deferred projectile output.
             stun = new(id, target, target.StunSerial, target.ActionGeneration, conn.IncomingHitEpoch,

@@ -792,7 +792,10 @@ traced.
 
 The TakeHit also ends the monster's running action (`0x141e95e60`), and a cancelled Move stops its walker with the same
 stop as any other (`0x141e350e0`): the walker still takes the steps due in the 0x1d1's frame, stands a cell further on
-when one was due, and keeps the time since that step. The Gateway ends the walk the same way (`PlayerWalk.Cancel`).
+when one was due, and keeps the time since that step. The Gateway ends the walk the same way (`PlayerWalk.Cancel`), in
+the frame the 0x1d1 is written in (`TakeHitPacket`): a projectile's hit is committed before its output goes out, and
+stopping at the commit put the stop a frame early when a frame ended between them, so the next walk's first step came
+a frame late (tick trace 2026-11-10: 40.2 ms kept on the client, 7.2 ms on the server).
 Standing the monster on its cell at the frame's start left the next order one cell behind the client's monster, along
 its path, after 9 of 54 recoveries of walking monsters (bench 2026-11-10); none was off any other way. On a monster
 that already stands the stop does nothing (it acts only on a walker with a step time), so the time its last stop kept
