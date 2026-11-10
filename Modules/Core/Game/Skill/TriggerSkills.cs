@@ -37,15 +37,13 @@ static partial class Game
     static Item? TriggerHost(ClientState conn, SupportedGem gem) => ItemsOf(conn).EquipmentSnapshot()
         .FirstOrDefault(e => e.Item.Id == gem.Host).Item?.Item;
 
-    // Only adopted projectile spells have an independent release executor here. Never approximate guards, curses,
-    // reservations, minions or transformation supports with a generic area hit or a manual player action.
+    // Every payload needs an independent executor; unsupported mechanics stay unavailable.
     static bool DamageTriggerExecutable(ClientState conn, ushort id, SupportedGem gem) => SkillsFor(conn).IsSpell(gem.Effect)
         && !SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsTravel(gem.Effect)
         && Supports.Of(gem.Effect)?.Types.Contains(47) != true && PlacedKind(gem) is (false, false)
         && gem.Supports.Count(s => s.Effect.Added.Contains(36)) == 1
         && SupportedReservation(conn, id) is null && SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
-        && UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
-        && SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality).CanHit;
+        && TriggerPayloadAvailable(conn, gem);
 
     // Called only by accepted hit damage, before Ward/ES/Mana absorb it. DoT and costs never enter this hook.
     internal static void RecordDamageTakenTriggers(ClientState conn, int damage, double at)
@@ -74,6 +72,7 @@ static partial class Game
                 if (!state.Counters.TryGetValue(skill.Id, out var counter) || !SameTriggerSource(counter.Gem, gem)
                     || !ReferenceEquals(counter.Host, host))
                     state.Counters[skill.Id] = counter = new(gem, host);
+                if (TriggerGuardSpell(conn, gem) && !TriggerGuardReady(conn, at)) continue;
                 if (counter.Pending || at < counter.ReadyAt || at < state.SharedReadyAt.GetValueOrDefault(gem.Effect)) continue;
                 int threshold = GolemStat(gem.Stats, "cast_on_damage_taken_threshold");
                 if (threshold <= 0) continue;
@@ -112,7 +111,7 @@ static partial class Game
                 if (!state.Counters.TryGetValue(request.Skill, out var current) || !ReferenceEquals(current, counter)
                     || !SameTriggerSource(counter.Gem, gem) || !ReferenceEquals(counter.Host, TriggerHost(conn, gem))
                     || GemSkillInstanceDisabled(conn, gem.Effect, request.Skill, triggered: true) is not null
-                    || !ProjectilePathAvailable("CWDT", conn, request.Skill, gem.Effect)) continue;
+                    || !TriggerPayloadAvailable(conn, gem)) continue;
                 var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == request.Skill);
                 if (skill.Name is null) continue;
                 var support = gem.Supports.Single(s => s.Effect.Id == "SupportCastWhenDamageTaken");
@@ -123,19 +122,16 @@ static partial class Game
                     ? player.GetValueOrDefault(recoveryKey) : 0)
                     + (Stats.Key("base_cooldown_speed_+%") is uint baseRecovery ? gem.Stats.GetValueOrDefault(baseRecovery) : 0)
                     + (Stats.Key("virtual_cooldown_speed_+%") is uint ownRecovery ? gem.Stats.GetValueOrDefault(ownRecovery) : 0)) / 100d);
-                var use = CaptureGemProjectile(conn, session, request.Skill, skill, request.Aim, CaptureSkillCriticalRoll(conn, request.Skill));
-                // Keep the spell's native volley and Spark legs before selecting server-owned presentation.
-                use = ClientDrawnVolley(conn, session, request.Skill, skill, use, 0, 0);
-                // Triggered spells have no local cast action predicting their primary projectiles.
-                use = use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
-                if (!PayMana(conn, request.Skill, out uint cost, out uint lifeCost)) continue;
+                bool Current() => state.Epoch == conn.ProjectileEpoch && CurrentGameRules
+                    && ReferenceEquals(state.Rules, CombatLifetime) && session.Active && !conn.Paused
+                    && conn.PlayerLife > 0 && !conn.LeavingArea && conn.PendingTransfer is null
+                    && SameTriggerSource(gem, SupportedSkill(conn, skillId))
+                    && ReferenceEquals(counter.Host, TriggerHost(conn, gem));
+                var release = PrepareTriggeredPayload(conn, session, skillId, request.Aim, Current);
+                if (release is null || !PayMana(conn, request.Skill, out uint cost, out uint lifeCost)) continue;
                 counter.ReadyAt = rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
                 state.SharedReadyAt[gem.Effect] = counter.ReadyAt;
-                session.Schedule(session.Runtime.Now,
-                    () => state.Epoch == conn.ProjectileEpoch && CurrentGameRules && ReferenceEquals(state.Rules, CombatLifetime)
-                        && !conn.Paused && conn.PlayerLife > 0 && SameTriggerSource(gem, SupportedSkill(conn, skillId))
-                        && ReferenceEquals(counter.Host, TriggerHost(conn, gem)),
-                    () => use);
+                release();
                 if (cost > 0 || lifeCost > 0) session.Enqueue(() => SendSkillCost(session.remote, session.stream, session.ciphers, conn, lifeCost, "CWDT cost"));
             }
         }

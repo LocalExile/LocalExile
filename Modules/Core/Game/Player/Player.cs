@@ -557,6 +557,7 @@ static partial class Game
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 await SendLifetap(remote, stream, ciphers, conn);
+                lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);
                 await SendSupportGemBuffs(remote, stream, ciphers, conn);
                 await SendLeechBuffs(remote, stream, ciphers, conn);
                 await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);

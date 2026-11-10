@@ -133,6 +133,8 @@ public class DamageTakenTriggerTests
                 Assert.False(((ProjectileOffense)sparkShot.Use.Payload!).ClientPredicted);
                 Assert.NotNull(sparkShot.Profile.Legs);
                 Assert.Equal(150, sparkShot.Profile.LegLeash);
+                VerifyNonProjectile(conn, session);
+                VerifyGuards(conn, session);
                 paid = conn.PlayerMana;
                 conn.Clock.Stop();
                 Game.RecordDamageTakenTriggers(conn, threshold, 1);
@@ -141,6 +143,75 @@ public class DamageTakenTriggerTests
             }
             finally { session.Invalidate(); }
         });
+    }
+    static void VerifyNonProjectile(ClientState conn, Game.ProjectileSession session)
+    {
+        foreach (var item in Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).ToArray())
+            Game.ItemsOf(conn).Remove(PlayerInventories.Weapon1, item.Id);
+        Equip(conn, "SupportGemCastOnDamageTaken", "SkillGemIceNova");
+        var nova = Game.GemSkillEffects(conn).Single(g => g.Name == "Ice Nova");
+        Assert.True(Game.TriggerPayloadAvailable(conn, Game.SupportedSkill(conn, nova.Id)));
+        Assert.Null(Game.GemSkillInstanceDisabled(conn, nova.Effect, nova.Id, triggered: true));
+        var origin = conn.Walk.Position(0);
+        var victim = new SpawnedMonster("trigger-target", new(origin.X + 1, origin.Y, 0), 0, 0, 100000)
+            { Hostile = true };
+        var friendly = new SpawnedMonster("friendly", new(origin.X, origin.Y, 0), 0, 0, 100000) { Hostile = false };
+        conn.Monsters[0x800abcd] = victim; conn.Monsters[0x800abce] = friendly;
+        int action = conn.ActionCount;
+        Game.ReleaseTriggeredNonProjectile(conn, session, nova.Id, (1000, 1000), () => false).GetAwaiter().GetResult();
+        Assert.Equal(100000u, victim.Life);
+        Game.ReleaseTriggeredNonProjectile(conn, session, nova.Id, (1000, 1000), () => true).GetAwaiter().GetResult();
+        Assert.True(victim.Life < 100000); // Self-centred nova ignores the remote aim.
+        Assert.Equal(100000u, friendly.Life);
+        Assert.Equal(action, conn.ActionCount);
+        foreach (var item in Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).ToArray())
+            Game.ItemsOf(conn).Remove(PlayerInventories.Weapon1, item.Id);
+        Equip(conn, "SupportGemCastOnDamageTaken", "SkillGemFlammability");
+        var curse = Game.GemSkillEffects(conn).Single(g => g.Name == "Flammability");
+        Assert.True(Game.TriggerPayloadAvailable(conn, Game.SupportedSkill(conn, curse.Id)));
+        Game.ReleaseTriggeredNonProjectile(conn, session, curse.Id, origin, () => true).GetAwaiter().GetResult();
+        Assert.Single(victim.Curses.All);
+        Assert.Empty(friendly.Curses.All);
+        Assert.True(victim.Effects["base_fire_damage_resistance_%"] < 0);
+        Assert.Equal(action, conn.ActionCount);
+    }
+    static void VerifyGuards(ClientState conn, Game.ProjectileSession session)
+    {
+        void Change(string active)
+        {
+            foreach (var item in Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).ToArray())
+                Game.ItemsOf(conn).Remove(PlayerInventories.Weapon1, item.Id);
+            Equip(conn, "SupportGemCastOnDamageTaken", active);
+        }
+        Change("SkillGemSteelskin");
+        var steel = Game.GemSkillEffects(conn).Single(g => g.Name == "Steelskin");
+        Assert.True(Game.TriggerPayloadAvailable(conn, Game.SupportedSkill(conn, steel.Id)));
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        conn.PlayerMana = 1000;
+        int action = conn.ActionCount;
+        Game.RecordDamageTakenTriggers(conn, 528, now);
+        Game.ReleaseDamageTakenTriggers(conn, session);
+        Assert.True(conn.PlayerMana < 1000);
+        Assert.False(Game.TriggerGuardReady(conn, now));
+        Assert.Equal(1, Game.CharacterPlayerStats(conn)[Program.Stats.Key("affected_by_guard_skill")!.Value]);
+        var guardPacket = Game.TriggeredGuardPresentation(conn, now);
+        Assert.Equal(1u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(guardPacket.AsSpan(guardPacket.Length - 8)));
+        Assert.Equal(54u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(guardPacket.AsSpan(guardPacket.Length - 4)));
+        Assert.Equal((46, 0, 0), Game.TriggeredGuardHit(conn, 100, 0, 0, now));
+        // The level-one shield absorbs only 54, and starts its 3s cooldown when depleted.
+        Assert.False(Game.TriggerGuardReady(conn, now + 2.99));
+        Assert.True(Game.TriggerGuardReady(conn, now + 3.01));
+        Assert.Equal(action, conn.ActionCount);
+        Change("SkillGemImmortalCall");
+        var call = Game.GemSkillEffects(conn).Single(g => g.Name == "Immortal Call");
+        var charges = Game.ChargesOf(conn);
+        charges.State.Set(ChargeType.Endurance, 3, now + 4, charges.Limits(ChargeType.Endurance));
+        Game.StartTriggeredGuard(conn, session, call.Id, now + 4);
+        Assert.Equal(0, charges.Effective(ChargeType.Endurance));
+        Assert.Equal((412, 750, 1000), Game.TriggeredGuardHit(conn, 1000, 1000, 1000, now + 4.1));
+        Assert.False(Game.TriggerGuardReady(conn, now + 8.59));
+        Assert.True(Game.TriggerGuardReady(conn, now + 8.61));
+        Assert.Equal(action, conn.ActionCount);
     }
     static void Equip(ClientState conn, string support, string active = "SkillGemFireball")
     {

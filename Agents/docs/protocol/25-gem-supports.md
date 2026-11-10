@@ -222,8 +222,10 @@ Do not describe the entire support catalogue as mechanically complete.
 Accepted hit damage counts after taken modifiers and before Ward, ES and Mana absorption; costs and DoT do not count.
 Counters are per skill instance; copies of the same effect share trigger cooldown. Trigger release uses the original supported projectile payload and ignores player
 windup/action replacement; it does not repeat Spell Echo or run another manual cast.
-Only adopted projectile spell recipes execute here. Guards, curses, reservation/minion/placement payloads and
-CoC/CwC/other generic triggers still have no independent executor and refuse manual use.
+Adopted projectile spells, Ice Nova, native curses and QuickGuard/ImmortalCall/MoltenShell have independent releases.
+Reservations, minions, placements and unimplemented non-projectile recipes stay unavailable.
+Guard cooldown recovery begins when the buff ends; guard damage absorption precedes CWDT observation.
+CoC/CwC and other generic triggers still have no independent executor and refuse manual use.
 Queued triggers retain the actual immutable source gem and equipment object references. Any host replacement
 (including gem XP/level edits and support swaps) cancels accumulated or queued work; identical type hashes and
 reused skill IDs are insufficient identity. Pause freezes pending work without erasing the counter.

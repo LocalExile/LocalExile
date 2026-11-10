@@ -1328,7 +1328,7 @@ static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0, double? swingAt = null)
+        double radiusMore = 1, int addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1341,7 +1341,7 @@ static partial class Game
         bool TokenCurrent() => holdsItsSwing
             ? PlayerStateAllowsAction(conn)
             : cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
-        bool Current() => TokenCurrent()
+        bool Current() => (triggeredCurrent?.Invoke() ?? true) && TokenCurrent()
             && (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
@@ -1389,7 +1389,7 @@ static partial class Game
         // invisible in the log (the live tests cannot count what a swing did without it).
         bool Replaced()
         {
-            if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            if (triggeredCurrent is not null || cooldownUse?.Instant == true || conn.ActionCount == action) return false;
             // A gem melee swing survives the Move the client queued behind its swing (holdsItsSwing): the walk order
             // stands, the hit still lands, and only a real interruption (which PlayerStateAllowsAction refuses) drops it.
             if (holdsItsSwing && PlayerStateAllowsAction(conn))
@@ -1538,7 +1538,7 @@ static partial class Game
                 // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
                 // player moves on: its action was checked at the release.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 bool freshPlayer = player is null;
                 if (player is null)
