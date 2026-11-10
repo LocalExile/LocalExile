@@ -1233,7 +1233,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   the hex lifecycle. Skitterbots apply scaled chill/shock and trigger placed traps/mines, rearming a mine once;
   full trap/mine skill-specific payloads, banner/Vaal executors and Agony's retail Virulence decay remain partial.
   ([11](../docs/protocol/11-skills.md) 13).
-- Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
+- Animated equipment admission respects melee/ranged variants, identification, item level and six-socket weapon exclusion.
+  Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
 - Totems: Rejuvenation, adopted projectile spells and bow/wand ballistas execute ([11](../docs/protocol/11-skills.md) §10g).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
