@@ -17,10 +17,13 @@ static partial class Game
     {
         var conn = session.Conn;
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-        conn.LastEnemyHitAt = now;
-        // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-        conn.RecentEvents.Record(StatConditions.HitEnemy, now);
-        if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        if (shot.ActualCaster is null)
+        {
+            conn.LastEnemyHitAt = now;
+            // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
+            conn.RecentEvents.Record(StatConditions.HitEnemy, now);
+            if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        }
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
@@ -49,8 +52,8 @@ static partial class Game
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
             + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
-        if (critical) CommitProjectileCritFlasks(session, now, random);
-        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource);
+        if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
+        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
         var charges = ChargesOf(conn);

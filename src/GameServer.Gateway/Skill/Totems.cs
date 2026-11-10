@@ -28,6 +28,12 @@ sealed class TotemState
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
+        public int Effect = -1;
+        public uint SourceGem;
+        public uint SourceHost;
+        public Item? SourceItem;
+        public double NextCast;
+        public ushort Sequence;
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;

@@ -209,6 +209,8 @@ static partial class Game
                 result.Add(new(Key(id, monster), monster.Hostile ? 2 : 1,
                     t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = LivingCollision.Size(monster) });
             }
+            foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
+                result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
                 result.Add(new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
@@ -293,7 +295,7 @@ static partial class Game
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
-            var player = CharacterPlayerStats(Conn);
+            var player = shot.ActualCaster ?? CharacterPlayerStats(Conn);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
@@ -321,20 +323,21 @@ static partial class Game
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
-                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
+                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
+                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
-            if (hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
+            if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
-            RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
+            if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
-            ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
+            if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
             InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));

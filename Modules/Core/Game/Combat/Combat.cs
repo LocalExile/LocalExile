@@ -845,7 +845,7 @@ static partial class Game
             return await CastSummon(remote, stream, ciphers, conn, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Desecrate")
             return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
-        if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
+        if (gem.Name is not null && IsTotemSkill(conn, skillId) && TotemVariety(conn, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
             return true;

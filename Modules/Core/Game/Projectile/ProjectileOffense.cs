@@ -6,6 +6,7 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     int CriticalMultiplier, string Label)
 {
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
+    public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public object? Owner { get; init; }
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
