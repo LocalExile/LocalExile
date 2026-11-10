@@ -1640,6 +1640,7 @@ public static partial class Game
                 {
                     if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                         criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
+                    else ArcaneSurgeOnSpellHitLocked(conn, player, m);
                     if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
                     landed++;
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.

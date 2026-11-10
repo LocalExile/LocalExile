@@ -215,6 +215,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Hierophant: every ordinary node's stats apply except the Brand ones (no Brand executes), with Arcane Surge from
+  spell hits and its effect, per-totem regeneration and damage, and the unreserved-mana area; not yet checked in the
+  client, [node by node](../docs/game/hierophant.md).
 - Behemoth: the optional Phrecia module supplies its capability, verified-graph opt-in and mode-aware node sources.
   Shared Rampage tiers and Vaal Ground Slam payment execute in Game with generation/source retirement guards.
   Two deterministic Gateway regressions cover worker ownership and atomic attack/payment admission.

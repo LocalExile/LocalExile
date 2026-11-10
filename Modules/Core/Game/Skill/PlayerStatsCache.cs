@@ -14,7 +14,8 @@ public static partial class Game
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
-        public long Golems, Slayer;
+        public long Golems, Slayer, Hierophant;
+        public bool ArcaneSurge;
         public int Overrides, Auras;
         public bool Moving;
         public Dictionary<uint, int>? Stats;
@@ -42,14 +43,15 @@ public static partial class Game
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
-            Slayer = global::Slayer.Revision(conn),
+            Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
+            ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
         };
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
-        && a.Slayer == b.Slayer;
+        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge;
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
