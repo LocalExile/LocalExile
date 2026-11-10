@@ -1212,8 +1212,9 @@ public static partial class Game
     // skill's own speed, its supports and the player's attack speed, as the tooltip shows) for as long as the channel
     // runs. The hits used to wait for the client's position updates (C→S 0x197), which do not come at that rate, so a
     // short channel landed one late sweep. The channel ends with C→S 0x199, any other action, mana, death or travel, or
-    // when the client's 0x197 updates stop for ChannelSilenceSeconds (it sends them all the time while the button is held,
-    // so a lost 0x199 cannot keep a channel spinning on its own).
+    // when the client's 0x197 updates stop for ChannelSilenceSeconds (so a lost 0x199 cannot keep a channel spinning on
+    // its own). A held Winter Orb is the exception: its client sends 0x198 only when the aimed cell changes, so a still
+    // cursor leaves none, and the orb must keep charging the stages the bar is counting (ChannelCurrent).
     public const double ChannelSilenceSeconds = 1.0;
 
     public static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -1318,7 +1319,11 @@ public static partial class Game
         lock (conn.Monsters)
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
                 && conn.ChannelSkill == skill && conn.ActionCount == action && conn.ChannelGeneration == generation
-                && conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds;
+                // Winter Orb's channel is held by the button, not by the aim: a still cursor keeps the aimed cell and the
+                // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
+                // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
+                && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                    || conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
     public static bool PaidChannelCurrent(ClientState conn, ChannelPaymentReceipt receipt)
