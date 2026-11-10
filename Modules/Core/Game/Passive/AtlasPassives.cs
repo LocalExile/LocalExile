@@ -7,7 +7,7 @@ using GameServer.Core;
 /// start with <c>atlas_</c>. The client supplies the tree's geometry and connectivity, so the server needs the node ids
 /// (PassiveSkillGraphId) for the S→C 0x3d preset lists and the C→S 0x3e/0x3f allocation requests.
 /// </summary>
-sealed class AtlasPassives(string folder = "data")
+public sealed class AtlasPassives(string folder = "data")
 {
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
         IReadOnlyList<(uint Key, int Value)> Stats);

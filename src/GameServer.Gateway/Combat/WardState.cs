@@ -1,6 +1,6 @@
 /// <summary>Ward absorbs one hit, then restores in full after its delay. It never absorbs damage over time.
 /// The 3.25 player-balance change set the base restoration delay to two seconds.</summary>
-sealed class WardState
+public sealed class WardState
 {
     public uint Maximum { get; private set; }
     public uint Current => Broken ? 0 : Maximum;

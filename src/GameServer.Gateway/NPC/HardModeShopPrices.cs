@@ -2,7 +2,7 @@ using System.Text.Json;
 using GameServer.Core;
 
 /// <summary>The copied client's HardMode purchase costs. Unmodelled/multi-currency costs are omitted, never free.</summary>
-sealed class HardModeShopPrices
+public sealed class HardModeShopPrices
 {
     readonly Dictionary<(int Base, int Level), (uint Currency, uint Amount)> _prices = [];
     readonly Dictionary<int, (uint Currency, uint Amount)> _maps = [];

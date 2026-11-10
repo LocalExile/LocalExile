@@ -5,9 +5,9 @@ using DamageModel = GameServer.Core.World.DamageModel;
 
 /// <summary>A fighting minion's target this AI step: the hostile monster and where it stands, whether it is in reach, and
 /// the cell the minion walks to so it is.</summary>
-readonly record struct MinionTarget(uint Id, SpawnedMonster Monster, (int X, int Y) At, bool InReach, (int X, int Y) Approach);
+public readonly record struct MinionTarget(uint Id, SpawnedMonster Monster, (int X, int Y) At, bool InReach, (int X, int Y) Approach);
 
-static partial class Game
+public static partial class Game
 {
     // A fighting minion reaches a monster's edge: its attack's distance (MaximumAttackDistance, as a monster's reach of the
     // player) plus the target's body.
@@ -18,7 +18,7 @@ static partial class Game
     /// and of the player (it does not leave him for a distant pack), not lurking unrisen. Null when there is none or the
     /// player is dead; it then follows him. Under the Monsters lock.
     /// </summary>
-    internal static MinionTarget? MinionTargetLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at,
+    public static MinionTarget? MinionTargetLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at,
         (int X, int Y) player, double now)
     {
         if (m.Attack is not { } a || conn.PlayerLife == 0) return null;
@@ -45,7 +45,7 @@ static partial class Game
     /// mitigated by the target as any hit. It is the minion's hit, not the player's (no hit-recently). Null when it did not
     /// land.
     /// </summary>
-    internal static (MonsterHit Hit, int Damage)? MinionHitLocked(ClientState conn, uint id, SpawnedMonster m, MinionTarget target,
+    public static (MonsterHit Hit, int Damage)? MinionHitLocked(ClientState conn, uint id, SpawnedMonster m, MinionTarget target,
         double now, Random random)
     {
         var t = target.Monster;
@@ -89,7 +89,7 @@ static partial class Game
         }
     }
 
-    internal static async Task MinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task MinionSwing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlayerMinions.Attack attack)
     {
         var rules = CombatLifetime;

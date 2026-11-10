@@ -213,7 +213,8 @@ owned by the driver; tell it where a new quest belongs if it is not in `ORDER`.
 
 ## Server interface
 
-The dev commands are in the Commands module (`Modules/Core/Player/Commands/Rules.Campaign.cs`, `CampaignState.cs`;
+The dev commands are in the `gm-commands` mod (LocalExile-Mods: `mods/gm-commands/Rules.Campaign.cs`, `CampaignState.cs`;
+install it first;
 [10](../protocol/10-chat-and-commands.md)). `/state` answers `STATE {json}`; a long reply continues on lines starting
 `STATE+ ` (the runner joins them in order). Schema v1: `area`, `areaName`, `town`, `seed`, `instance`, `character`,
 `classRow`, `level`, `xp`, `life`, `maxLife`, `dead`, `god`, `immune`, `pos` [x,y], `passives` {`unspent` (level,

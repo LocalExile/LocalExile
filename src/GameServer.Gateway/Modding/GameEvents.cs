@@ -4,9 +4,10 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-/// <summary>A point where the framework hands over to the Core modules, in the Gateway's own types. A module's subscribers run only for
-/// connections whose league lists that module, so a league without one has simply nothing happen here.</summary>
-sealed class GameEvent<T> where T : Delegate
+/// <summary>A point where the framework hands over to the modules and mods, in the Gateway's own types. A module's subscribers run only
+/// for connections whose league lists that module, so a league without one has simply nothing happen here; a mod's (its id as the owner)
+/// run in every league, as long as the mod is loaded.</summary>
+public sealed class GameEvent<T> where T : Delegate
 {
     ImmutableArray<(string Module, T Run)> _subscribers = [];
 
@@ -22,7 +23,7 @@ sealed class GameEvent<T> where T : Delegate
     public IEnumerable<T> For(ClientState conn)
     {
         foreach (var (module, run) in _subscribers)
-            if (Program.LeagueFor(conn).Modules.Contains(module)) yield return run;
+            if (Program.LeagueFor(conn).Modules.Contains(module) || Program.ServerMods.Runs(module)) yield return run;
     }
 
     sealed class Subscription(Action remove) : IDisposable
@@ -34,7 +35,7 @@ sealed class GameEvent<T> where T : Delegate
 /// <summary>A hostile monster died by the player's hand, inside the kill's commit. What sends messages goes in <see cref="Later"/>: it runs
 /// after the commit, in order, whichever way the kill came (a melee hit, a projectile). An atomic kill with
 /// CommittedOutput instead requires handlers to commit gameplay synchronously and append primitive output there.</summary>
-sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
+public sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string VarietyId, (int X, int Y) At)
 {
     // Attributed owned kills still dispatch league content; only owner-specific triggers filter this flag.
     public bool PlayerKill { get; init; } = true;
@@ -46,7 +47,7 @@ sealed record KillContext(ClientState Conn, SpawnedMonster Monster, string Varie
 }
 
 /// <summary>Where the framework hands over to the Core modules.</summary>
-static class GameEvents
+public static class GameEvents
 {
     // Optional gameplay shares the existing minion schedule and current connection writer.
     public static readonly GameEvent<Func<string, NetworkStream, ConnectionCiphers, ClientState, double, Task>> CompanionTick = new();

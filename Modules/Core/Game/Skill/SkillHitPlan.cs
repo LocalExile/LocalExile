@@ -1,11 +1,11 @@
 using GameServer.Core.World;
 
 
-enum SkillHitKind { Unsupported, Attack, Spell }
+public enum SkillHitKind { Unsupported, Attack, Spell }
 
 /// <summary>Routes the supported area hit by the catalog's actual skill types, never by a trial damage roll.
 /// A spell without extracted hit damage has no supported hit here; auras, beams and other DoTs do not borrow a weapon.</summary>
-sealed record SkillHitPlan(SkillHitKind Kind, DamagePacket SpellBase)
+public sealed record SkillHitPlan(SkillHitKind Kind, DamagePacket SpellBase)
 {
     public bool CanHit => Kind == SkillHitKind.Attack || Kind == SkillHitKind.Spell && !SpellBase.IsZero;
 

@@ -8,7 +8,7 @@ using GameServer.Core;
 /// <c>JewelUniqueAllocateDisconnectedPassivesAroundKeystone</c> mod stores the chosen row and the 800 radius.
 /// The server uses that value for the allocation bypass around the keystone.
 /// </summary>
-static class ImpossibleEscapeCatalogue
+public static class ImpossibleEscapeCatalogue
 {
     const string ModId = "JewelUniqueAllocateDisconnectedPassivesAroundKeystone";
     const string KeystoneStat = "local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash";

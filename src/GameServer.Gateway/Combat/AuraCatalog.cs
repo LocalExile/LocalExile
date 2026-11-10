@@ -3,7 +3,7 @@
 /// data-driven (SkillCatalog.Reservation). Enemy auras, herald procs, reservation minions and persistent spell buffs
 /// have separate executors; their HUD state does not turn them into ordinary player-stat auras.
 /// </summary>
-static class AuraCatalog
+public static class AuraCatalog
 {
     /// <summary>One active reservation skill: the skill id, its GrantedEffects row and id, its buff instance, and its gem's
     /// level and quality.</summary>
@@ -164,7 +164,7 @@ static class AuraCatalog
     public static int RequiredLife(CharacterStats.Pools pools, IEnumerable<Aura> auras)
         => Required(pools.Life, pools.LifeReservationEfficiencyPct, auras.Where(a => a.ReservesLife));
 
-    internal static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
+    public static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
     {
         double flat = 0, percent = 0;
         foreach (var aura in auras)

@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Current (3.25+) Rage inputs and derived native stats, independent of any class selection.</summary>
-static class RageStats
+public static class RageStats
 {
     public static RageState.Inputs Inputs(Func<string, int> get) => new(
         MaximumBonus: get("maximum_rage"), HalfMaximum: get("maximum_rage_is_halved") != 0,

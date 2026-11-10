@@ -11,7 +11,7 @@ using GameServer.Core;
 /// accepts. QuestEngineTests feeds every act's sequence and checks the result against CharacterStartQuestState.
 /// Code-driven quest objects (a1q4's Glyph Wall) register in <see cref="ObjectHandlers"/>.
 /// </summary>
-sealed class QuestSimulator
+public sealed class QuestSimulator
 {
     public sealed class StepFailed(string message) : Exception(message);
 

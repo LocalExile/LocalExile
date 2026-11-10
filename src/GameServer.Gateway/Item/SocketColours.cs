@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// stay white. GGG has not published the curve, so <see cref="NonWhiteChance"/> is an approximation
 /// (13-items.md, "Socket colours (3.29)").
 /// </summary>
-static class SocketColours
+public static class SocketColours
 {
     /// <summary>The weight every colour gets on top of its attribute requirement, so a base can roll all three colours.
     /// The client's exact weights are unknown.</summary>

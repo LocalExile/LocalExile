@@ -4,7 +4,7 @@ What a tool needs to let a player compose an item and get it in game: the deskto
 server gives the data and makes the item; the tool owns the window, the choices and what it saves.
 
 Code: `src/GameServer.Gateway/Item/ItemCrafter.cs` (catalog and build), `StatDescriptions.cs` (mod wording),
-`Program.cs` (`crafter` mode), `/item_give` in `Modules/Core/Player/Commands/CommandsFeature.cs`.
+`Program.cs` (`crafter` mode), `/item_give` in the `gm-commands` mod (LocalExile-Mods).
 Tests: `tests/GameServer.Gateway.Tests/ItemCrafterTests.cs`.
 
 ## The catalog: `GameServer.Gateway crafter`

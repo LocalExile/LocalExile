@@ -1,6 +1,6 @@
 /// <summary>Combat streak and pending tier crossings. Explicit policy v1: one stack per accepted owner melee
 /// contact and one per owner kill, including both on a melee killing blow. A counter alone is not full Rampage.</summary>
-sealed class RampageSession
+public sealed class RampageSession
 {
     public const string Source = "melee_hits_grant_rampage_stacks";
     /// <summary>The other way to start a streak: kills grant the stacks instead of melee hits.</summary>

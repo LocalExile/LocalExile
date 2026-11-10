@@ -5,7 +5,7 @@ using GameServer.Core;
 /// <summary>The map catalogue Nessa's development shop sells, independent of ambiguous display-name lookup: one
 /// generic "Map (Tier N)" key for every tier 1-16, the tier-17 Nightmare Map, the Originator-influenced entries and
 /// the unique map identities.</summary>
-static class NessaMapStock
+public static class NessaMapStock
 {
     public sealed record Entry(ItemCatalog.BaseType Type, Item Item, string Name, int Tier)
     {

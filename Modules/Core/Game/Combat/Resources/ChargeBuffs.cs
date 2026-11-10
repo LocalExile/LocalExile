@@ -11,7 +11,7 @@ using GameServer.Core.Protocol.Instance;
 /// One buff per type carries the count in 0x1c1's stacks field (flags bit2) and the time left in its duration field
 /// (bit1, f32 seconds); a change sends the old instance's 0x1c2 and a new 0x1c1 (11-skills.md §15).
 /// </summary>
-static class ChargeBuffs
+public static class ChargeBuffs
 {
     /// <summary>The BuffDefinitions row of each type's buff, or of its special type's when <paramref name="converted"/>.</summary>
     public static ushort Row(ChargeType type, bool converted = false) => (type, converted) switch

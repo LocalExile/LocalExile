@@ -1,13 +1,13 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // These spells have a single radial hit executor. Do not silently turn ground damage, chains, corpses or
     // persistent entities into one area hit merely because their extracted stat set contains damage.
     static bool TriggerAreaSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
         is "IceNova";
 
-    internal static bool TriggerPayloadAvailable(ClientState conn, SupportedGem gem)
+    public static bool TriggerPayloadAvailable(ClientState conn, SupportedGem gem)
     {
         if (TriggerGuardSpell(conn, gem)) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? "")) return true;
@@ -36,7 +36,7 @@ static partial class Game
         return () => session.Enqueue(() => ReleaseTriggeredNonProjectile(conn, session, id, aim, current));
     }
 
-    internal static async Task ReleaseTriggeredNonProjectile(ClientState conn, ProjectileSession session, ushort id,
+    public static async Task ReleaseTriggeredNonProjectile(ClientState conn, ProjectileSession session, ushort id,
         (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(conn, id);

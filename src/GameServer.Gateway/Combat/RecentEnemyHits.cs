@@ -1,5 +1,5 @@
 /// <summary>LocalExile incoming-contact model v1. Owned by one area connection; use under its Monsters lock.</summary>
-sealed class RecentEnemyHits
+public sealed class RecentEnemyHits
 {
     public const string Counter = "number_of_times_have_been_hit_by_enemy_recently";
     public const string PerHit = "chance_to_double_armour_effect_on_hit_%_per_enemy_hit_taken_recently_capped";

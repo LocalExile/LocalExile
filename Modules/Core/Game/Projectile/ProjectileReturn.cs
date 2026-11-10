@@ -1,7 +1,7 @@
 
 
 /// <summary>Resolved returning-damage multipliers shared by projectile sources.</summary>
-static class ProjectileReturn
+public static class ProjectileReturn
 {
     /// <summary>The "while Returning" more multiplier: the support's less Damage and the game's returning-projectile
     /// final multipliers, combined multiplicatively (all are percentages, e.g. -70 = ×0.3).</summary>

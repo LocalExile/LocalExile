@@ -4,7 +4,7 @@ using GameServer.Modding;
 using GameServer.Storage;
 
 /// <summary>SDK-only access to the server's validation and post-session save transaction.</summary>
-sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? time = null) : ICharacterBuilds
+public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? time = null) : ICharacterBuilds
 {
     public string Capture(IPlayer player) => JsonSerializer.Serialize(Current(Connection(player)));
 

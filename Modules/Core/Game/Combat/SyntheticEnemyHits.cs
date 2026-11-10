@@ -1,14 +1,16 @@
 using GameServer.Core.World;
 
-static partial class CommandsRules
+public static partial class Game
 {
-    internal sealed record DevEnemyHit(int Damage, string Mitigation, uint Life, uint Mana, uint ManaBefore,
+    public sealed record SyntheticEnemyHit(int Damage, string Mitigation, uint Life, uint Mana, uint ManaBefore,
         bool Blocked, int BlockChance, bool Suppressed, (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression);
 
-    // /hit and /spellhit are synthetic incoming enemy contacts. /blockhit can additionally block.
+    /// <summary>A synthetic incoming enemy contact of one damage type through the player's whole defence (avoidance, block when
+    /// <paramref name="block"/>, resistance, armour, suppression when <paramref name="suppress"/>), as a monster's hit; for tests
+    /// and testing tools. False when the player cannot be hit now.</summary>
     // Admission, prior-history decision, pool mutation and recording are a single combat commit.
-    internal static bool TryDevEnemyHit(ClientState conn, DamageType type, int amount, bool block, bool spell, bool suppress,
-        out DevEnemyHit hit, bool ranged = false)
+    public static bool TrySyntheticEnemyHit(ClientState conn, DamageType type, int amount, bool block, bool spell, bool suppress,
+        out SyntheticEnemyHit hit, bool ranged = false)
     {
         lock (conn.Monsters)
         {
@@ -77,5 +79,20 @@ static partial class CommandsRules
                 blocked, blockChance, suppressed, suppression);
             return true;
         }
+    }
+
+    // What MitigateTaken applied, for a hit's report: armour or resistance, and the additional reduction.
+    public static string MitigationLabel(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
+        int effectiveArmour, IReadOnlyDictionary<uint, int> stats)
+    {
+        var (physical, elemental) = PlayerDamageReduction(conn, stats);
+        if (type == DamageType.Physical)
+            return $"{DamageModel.ArmourReduction(effectiveArmour, amount)}% armour" + (physical > 0 ? $" + {physical}% physical damage reduction" : "");
+        int share = PlayerHitMitigation.ArmourPercent(conn.Pools, type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        return $"{DamageModel.Capped(resistance, maxResistance)}% resistance" +
+            (share > 0
+                ? $" + {DamageModel.ArmourReduction((int)((long)effectiveArmour * share / 100), DamageModel.Mitigate(amount, resistance, maxResistance))}% armour"
+                : "") +
+            (DamageTypes.IsElemental(type) && elemental > 0 ? $" + {elemental}% elemental damage reduction" : "");
     }
 }

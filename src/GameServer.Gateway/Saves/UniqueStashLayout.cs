@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
 /// <summary>Native collection categories and fixed cells, keyed by unique name and artwork, not base type.</summary>
-sealed class UniqueStashLayout
+public sealed class UniqueStashLayout
 {
     public sealed record Cell(string Name, ulong Category, byte X, byte Y, uint Word, ushort Visual);
     public IReadOnlyList<Cell> Cells { get; private init; } = [];

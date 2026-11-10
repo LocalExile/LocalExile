@@ -1,7 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // An admitted quest kill completes synchronously under QuestGate -> cipher -> level -> Monsters.
     // Helpers may await only captured Send or synchronously completed helpers. No module continuation or

@@ -2,7 +2,7 @@
 
 /// <summary>One accepted use, reserved before ordinary action side effects. Async continuations keep this original
 /// witness; a later action may cancel it, but cancellation never refunds an accepted use.</summary>
-sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch, bool Instant, bool Reserved = true,
+public sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch, bool Instant, bool Reserved = true,
     SingleUseCooldownState? State = null, int UseVersion = 0)
 {
     bool consumed;

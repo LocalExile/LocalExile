@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 /// Gateway's 33 ms frames went out 31 or 47 ms apart and a lockstep frame end up to a tick late (07 §6). While a player is
 /// in game the Gateway asks for 1 ms. Every launcher starts it without a window, and Windows 11 ignores a hidden process's
 /// request unless the process opts out of that power throttling, so it does that too. Elsewhere nothing changes.</summary>
-static class WindowsTimerResolution
+public static class WindowsTimerResolution
 {
     // Held per connection in game (InGame); the request and the opt-out stand while any is held. Windows drops both when
     // the process ends, so a killed Gateway leaves nothing behind.
@@ -12,7 +12,7 @@ static class WindowsTimerResolution
     static int holders;
     static bool told;
 
-    internal static void Acquire()
+    public static void Acquire()
     {
         if (!OperatingSystem.IsWindows()) return;
         lock (Gate)
@@ -31,7 +31,7 @@ static class WindowsTimerResolution
         }
     }
 
-    internal static void Release()
+    public static void Release()
     {
         if (!OperatingSystem.IsWindows()) return;
         lock (Gate)

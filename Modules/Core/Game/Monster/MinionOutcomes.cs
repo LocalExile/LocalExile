@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 using Progression = GameServer.Core.World.Progression;
 
-static partial class Game
+public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
@@ -24,7 +24,7 @@ static partial class Game
         if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
     }
 
-    internal static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
+    public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
@@ -118,7 +118,7 @@ static partial class Game
     }
 
     // Only the existing current minion role/caller drains. Selection, validation and consumption share the real send gate.
-    internal static Task PublishMinionOutcomes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task PublishMinionOutcomes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         PublishMinionOutcomesFor(remote, stream, ciphers, conn, CombatLifetime);
 
     static async Task PublishMinionOutcomesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

@@ -3,11 +3,11 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
-static partial class Game
+public static partial class Game
 {
     // Reserve an object walk and its original token atomically with the same recovery/read-time check as skills.
     // An interaction dispatched before a hit may not capture a new token after that hit cancels the old action.
-    internal static bool TryBeginObjectWalk(ClientState conn, double requestedAt, int x, int y, double reach,
+    public static bool TryBeginObjectWalk(ClientState conn, double requestedAt, int x, int y, double reach,
         out (int Action, double Now, (int X, int Y) Here, (int X, int Y) Stop, double Arrive) started,
         bool centreRange = false, int tolerance = -1)
     {
@@ -26,7 +26,7 @@ static partial class Game
 
     // An area transition click. Plain: change area (0x2b4 now, the move itself once the client acknowledges with 0x2cd).
     // With Ctrl: list the destination's instances (0xae) for the client's instance chooser.
-    internal static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task OnUseObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         lock (conn.Monsters)
@@ -163,7 +163,7 @@ static partial class Game
     // Arakaali's return gate and telepad are on the balcony outside her closed web. Until the encounter's scripted
     // entrance is modelled, the arena entrance must land on the boss room's floor, rather than beside that return gate.
     // Use the placed room's footprint so every seed and orientation supplies its own coordinates.
-    internal static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
+    public static (int X, int Y) GateArrival(AreaLayout layout, AreaTransitionObject transition)
     {
         if (transition.TeleportTo is not { } pair) throw new ArgumentException("The transition is not an intra-area gate.", nameof(transition));
         if (layout.Id == "2_7_12_2" && transition.SourceType == "Metadata/QuestObjects/BossArenaEntranceTransition"
@@ -182,7 +182,7 @@ static partial class Game
     }
 
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
-    internal static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint)
+    public static async Task ShowInstances(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort dest, bool atWaypoint)
     {
         var list = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = dest });
         var instances = list.Instances ?? [];
@@ -195,7 +195,7 @@ static partial class Game
 
     // A waypoint click (C→S 0x24 on the waypoint, Agents/docs/protocol/16-waypoints.md): walk there, activate it if it is
     // not yet, then open the World panel for travel (S→C 0x7b kind 0). The panel's pick arrives as C→S 0x4d.
-    internal static async Task UseWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task UseWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, WaypointObject waypoint, double requestedAt)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, waypoint.GridX, waypoint.GridY, WaypointObjectSize, out var objectWalk)) return;
@@ -216,7 +216,7 @@ static partial class Game
     // Activates this area's waypoint for the character (saved, added to the saved ones) and tells the client: a new 0x4c with
     // the area's bit set plays the waypoint's activation. Towns activate on entry, other waypoints when the player comes near
     // or clicks them.
-    internal static async Task ActivateWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task ActivateWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is not { } entry) return;
         lock (conn.Monsters)
@@ -229,7 +229,7 @@ static partial class Game
     }
 
     // After the player is in: a town's waypoint activates on entry, then the character's waypoints (S→C 0x4c).
-    internal static async Task SendWaypoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendWaypoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (WaypointCatalog.Areas.Entries.Count == 0) return;
         if (WaypointCatalog.Areas.Find(conn.Layout.Hash) is { IsTown: true } town)
@@ -245,7 +245,7 @@ static partial class Game
         await SendWaypointList(remote, stream, ciphers, conn, "the character's waypoints");
     }
 
-    internal static async Task SendWaypointList(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendWaypointList(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         var entries = WaypointCatalog.Areas.Entries;
         List<int> bits;
@@ -265,7 +265,7 @@ static partial class Game
     // and what the World panel needs (16-waypoints.md §4): the visit flags of every area entered or whose waypoint is
     // activated (they reveal the neighbouring pins and so the connection lines), and the access flags of the activated
     // waypoints' areas (their pins become travel targets).
-    internal static List<int> PlayerQuestFlags(ClientState conn)
+    public static List<int> PlayerQuestFlags(ClientState conn)
     {
         // ThisIsMyHideout only in a hideout and the Mine Encampment, where Niko needs it for his own options; elsewhere NPCs
         // show their "not my hideout" rows. (It does not hide Sell Items: the client offers Sell only in towns and hideouts.)
@@ -285,7 +285,7 @@ static partial class Game
     }
 
     // Entering an area marks it visited (saved, added to the saved ones) before the player object carries the quest flags.
-    internal static void RecordVisit(ClientState conn)
+    public static void RecordVisit(ClientState conn)
     {
         if (WaypointCatalog.Visits.For(conn.Layout.Id).Count == 0) return;
         lock (conn.Monsters)
@@ -298,7 +298,7 @@ static partial class Game
 
     // C→S 0x4d: a waypoint picked on the World panel. An activated waypoint changes area (the player arrives next to its
     // waypoint); with Ctrl, the instance chooser first.
-    internal static async Task TravelByWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceWaypoints.Travel travel)
+    public static async Task TravelByWaypoint(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceWaypoints.Travel travel)
     {
         var entry = WaypointCatalog.Areas.Find(travel.AreaHash16);
         bool activated;
@@ -312,7 +312,7 @@ static partial class Game
 
     // To the character's hideout (21-hideouts.md §3): "/hideout" (C→S 0x16 command 45) or the World panel's Hideout button
     // (C→S 0x17a). Its own instance (Auth re-enters the live one), arriving next to its waypoint.
-    internal static async Task WarpToHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task WarpToHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (HomeHideout(conn) is not { } hideout)
         {
@@ -323,14 +323,14 @@ static partial class Game
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
-    internal static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
+    public static HideoutCatalog.Hideout? HomeHideout(ClientState conn) =>
         HideoutCatalog.Selected(CharacterSaves.Load(CharacterName(conn))?.SelectedHideout);
 
-    internal static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
+    public static HideoutScene? HideoutFurniture(ClientState conn) => conn.Furniture ??=
         HideoutCatalog.ByArea(conn.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
             ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, conn.Layout.Walkable), SavedHideoutPlacements(conn)) : null;
 
-    internal static async Task SelectHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Row, bool Guild) selected)
+    public static async Task SelectHideout(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Row, bool Guild) selected)
     {
         if (selected.Guild || conn.PendingTransfer is not null) return;
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
@@ -346,7 +346,7 @@ static partial class Game
     }
 
     // 0x2b4 now; the move itself (0x27) once the client acknowledges with 0x2cd.
-    internal static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
+    public static async Task ChangeArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PendingTransfer t, string why)
     {
         foreach (var check in GameEvents.TravelRefusal.For(conn))
             if (check(conn, t) is { } refusal)
@@ -369,7 +369,7 @@ static partial class Game
     // The capture tour's next step (CaptureTour), after an area load (0x7d) or when /tour starts: at the tour's current
     // stop, wait for scripts/walkmaps to write it, then go to a new instance of the next (area, seed). A tour saved before
     // a restart (data/tour-left.txt) resumes at the character's first area load.
-    internal static async Task ContinueTour(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool starting = false)
+    public static async Task ContinueTour(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool starting = false)
     {
         // Tours record with scripts/walkmaps: without it a saved tour (data/tour-left.txt) is left alone.
         if (!CurrentGameWork || !AreaLayouts.Recording) return;
@@ -412,7 +412,7 @@ static partial class Game
             }
     }
     // Auth moves the player and issues the destination ticket; 0x27 sends the client there (it reconnects to this Gateway).
-    internal static async Task Transfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task Transfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PendingTransfer t, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         lock (conn.Monsters)

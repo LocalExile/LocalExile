@@ -12,8 +12,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Compiled against, not copied: every mod uses the Gateway's own GameServer.Modding. -->
+    <!-- Compiled against, not copied: every mod uses the Gateway's own GameServer.Modding, and can alter the game as fully as a
+         module (Agents/docs/dev/modding.md): the server itself, the client protocol and shared types, and the game's rules. -->
     <ProjectReference Include="$(MSBuildThisFileDirectory)GameServer.Modding.csproj" Private="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\GameServer.Gateway\GameServer.Gateway.csproj" Private="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\GameServer.Core\GameServer.Core.csproj" Private="false" />
+    <ProjectReference Include="$(MSBuildThisFileDirectory)..\..\Modules\Core\Game\Game.csproj" Private="false" />
     <None Include="mod.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Its settings, when it has any (Agents/docs/dev/modding.md, "Settings"). -->
     <None Include="settings.json" Condition="Exists('settings.json')" CopyToOutputDirectory="PreserveNewest" />

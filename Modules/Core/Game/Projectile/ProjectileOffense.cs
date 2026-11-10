@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Frozen offensive inputs. Targets, including evasion and resistance, are resolved at contact.</summary>
-sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
+public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>

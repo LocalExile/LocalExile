@@ -5,9 +5,9 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    public static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         int frames = 0;
@@ -49,7 +49,7 @@ static partial class Game
     // The client does not stop for is_frozen (live 2026-11-01), and virtual_action_speed_+% at -100, which would stop it,
     // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands and lets
     // it go on with its walk after, as the server's walk does.
-    internal static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -70,7 +70,7 @@ static partial class Game
     }
 
     // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
-    internal static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
             if (!CurrentGameWork || conn.HeldMove is null) return;
@@ -94,7 +94,7 @@ static partial class Game
 
     // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of
     // scripts/re/frida/trace-sync.js. scripts/re/sync_report.py compares the two.
-    internal static void TraceSync(ClientState conn)
+    public static void TraceSync(ClientState conn)
     {
         if (!conn.PlayerSent) return;
         var line = new System.Text.StringBuilder();
@@ -114,7 +114,7 @@ static partial class Game
         Console.WriteLine(line);
     }
 
-    internal static void PublishPlayerPose(ClientState conn)
+    public static void PublishPlayerPose(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -127,7 +127,7 @@ static partial class Game
 
     // Called under the owner's lock. Publish experience and final scale in an immutable template, retaining other creation stats,
     // equipment and skills. Observers read published snapshots and never lock another connection's simulation.
-    internal static void RefreshPeerScale(ClientState conn, int scale)
+    public static void RefreshPeerScale(ClientState conn, int scale)
     {
         if (conn.PeerTemplate is not { } template) return;
         if (template.Experience != conn.Experience)
@@ -154,7 +154,7 @@ static partial class Game
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
     const uint TownStanceStat = 21141;
 
-    internal static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var ids = conn.Instance.PlayersExcept(conn.PeerId).Select(p => p.Id)
             .Concat(conn.SeenPlayers.Keys).Distinct().ToArray();
@@ -239,7 +239,7 @@ static partial class Game
             });
     }
 
-    internal static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         using (ProjectileMutation(conn, phase: "collision"))
         {
@@ -258,7 +258,7 @@ static partial class Game
     // the steps taken since the last pass, the player's and every monster's, each against the cells the others hold at
     // that moment: on a predictive client in time order; on a lockstep client frame by frame as its world ticks
     // (StepFrames). Called under conn.Monsters.
-    internal static void StepWalkers(ClientState conn, double now)
+    public static void StepWalkers(ClientState conn, double now)
     {
         double from = conn.WalkersSteppedTo;
         // A lockstep client's walkers move only in its frames, so whole frames are replayed, up to the start of the frame
@@ -386,14 +386,14 @@ static partial class Game
     // order carries it to its own generation until the gate places it, and a give-up or a freeze, which send nothing,
     // keep it (NextPlannedAction); a swing order, a flinch, a stage and a transfer move the action generation on and end
     // it. Out of the wake zone its copy does not tick.
-    internal static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
+    public static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
         conn.LockstepClient && m.ClientChase == m.ActionGeneration && !m.Dead && m.Life > 0 && !m.Asleep;
 
     // A lockstep client's attack on a monster that is walking up (placed at its gate, goal not met) while it is still the
     // player's action: an order the client takes ends it (a Move within two cells is none: PlaceLockstepPlayerMove places
     // nothing), as do a hit's recovery and a transfer; a target gone from the area ends it too (not traced). A closed one
     // is failed here, so the attack's task wakes. Under conn.Monsters.
-    internal static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
+    public static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
     {
         if (!conn.LockstepClient || conn.LockstepAttack is not { Open: true } attack) return null;
         if (conn.ActionCount == attack.Action && conn.PlayerSent && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea

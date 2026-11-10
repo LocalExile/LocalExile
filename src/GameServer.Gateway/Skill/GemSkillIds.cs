@@ -7,10 +7,10 @@
 /// equipment for an update or more, and a new gem takes the lowest id no gem had. A Vaal gem has two skills in its
 /// socket (its Vaal skill and its regular skill), each with its own id.
 /// </summary>
-sealed class GemSkillIds
+public sealed class GemSkillIds
 {
     // Neutral identity state must outlive a Game module replacement: a live actor holds these skill ids.
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A socketed gem: the item it is in, its socket, its GrantedEffects row.</summary>
     public readonly record struct Gem(uint Host, int Socket, int Effect);

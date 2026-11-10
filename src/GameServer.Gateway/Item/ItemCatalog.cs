@@ -7,13 +7,13 @@ using GameServer.Core;
 /// HASH16), each type's components from data/item-types.json (`python -I scripts/re/ot_components.py --items --json
 /// data/item-types.json`), flask charges from ComponentCharges and stack sizes from CurrencyItems. All game data: it stays in data/ and loads on first use.
 /// </summary>
-sealed class ItemCatalog
+public sealed class ItemCatalog
 {
     /// <summary>What the stash tabs hold (<see cref="StashRules"/>), loaded on first use; tests set their own.</summary>
     public StashRules Stash
     {
         get => _stash ??= StashRules.Load(_folder, _rows.Value.Rows);
-        internal set => _stash = value;
+        set => _stash = value;
     }
 
     private StashRules? _stash;
@@ -757,4 +757,4 @@ sealed class ItemCatalog
 /// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
 /// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
 /// QuestStaticRewards keys by that flag).</summary>
-sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);
+public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);

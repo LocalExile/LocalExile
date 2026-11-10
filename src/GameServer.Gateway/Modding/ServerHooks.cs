@@ -2,7 +2,7 @@ using GameServer.Modding;
 
 /// <summary>What the Gateway calls where it does the same thing itself: the hooks of the league's own code, of its modules, then of
 /// the mods.</summary>
-sealed class ServerHooks(params ModHost[] hosts)
+public sealed class ServerHooks(params ModHost[] hosts)
 {
     public IEnumerable<(string Name, string Usage)> Commands => hosts.SelectMany(h => h.Commands);
 

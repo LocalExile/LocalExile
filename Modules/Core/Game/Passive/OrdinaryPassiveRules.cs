@@ -7,7 +7,7 @@ using GameServer.Core;
 /// Callers validate the ascendancy allocation separately, then supply its candidate nodes so refunding an Ascendant
 /// Path of the class cannot leave an ordinary branch depending on the removed additional start.
 /// </summary>
-sealed class OrdinaryPassiveRules(string folder = "data")
+public sealed class OrdinaryPassiveRules(string folder = "data")
 {
     sealed record Node(bool IsAscendancy, bool IsMastery, bool RequiresExpansion,
         IReadOnlyList<byte> Starts, byte? GrantedStart);

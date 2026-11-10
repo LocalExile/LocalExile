@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // Resolve the batch once, before any output await. Only current-state presentation remains queued, so a delayed
     // hook/send cannot replay historical events through the live ticker or resurrect their expired deadlines.

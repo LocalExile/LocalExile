@@ -7,7 +7,7 @@
 /// hand-in follow its .it Quest component (QuestItems) and Hailrake's drop is a rule of the engine's table (Modules/Core/World/QuestObjects/Acts/Act1.cs).
 /// This class keeps the quest's names and the boat rooms' placement rule.
 /// </summary>
-static class MercyMission
+public static class MercyMission
 {
     public const string Area = "1_1_2a";
     public const string ReceivedQuest = "a1q5-ReceivedQuest", BestelClue = "a1q5-BestelClue", HaveMedicineChest = "a1q5-HaveMedicineChest",

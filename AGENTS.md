@@ -34,11 +34,12 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
 - **A league never lists or needs a mod.** It is modules only. Its `parent` is where its characters go, not inheritance.
 - **Game rules never go in the framework.** When a module needs something from the framework, add a general hand-over
   (a hook or a `GameEvents` entry) that names no module, league or mod.
-- **Development and testing tools are mods.** `Core/Player/Commands` still holds the old dev commands until it moves;
-  add no new dev command to it.
-- **The mod API grows only by general hooks.** A mod that needs something `GameServer.Modding` lacks gets a hook or event
-  any mod could use, in its own LocalExile pull request; the feature's logic, settings and defaults stay in the mod. An API
-  shaped for one mod's feature (a "currency pickup rules" or "jewel grant rules" option) is the wrong shape.
+- **Development and testing tools are mods.** The dev chat commands are the `gm-commands` mod in LocalExile-Mods;
+  `Core/Player/Commands` holds only the commands GGG's servers have.
+- **A mod reaches what a module reaches.** The Gateway and the Game module are public, so a mod uses the server and the game's
+  rules directly. When a mod needs the framework to hand it something new, add a general hand-over (a hook or a
+  `GameEvents` entry) that names no mod, in its own LocalExile pull request; the feature's logic, settings and defaults
+  stay in the mod.
 
 ## Rules
 
