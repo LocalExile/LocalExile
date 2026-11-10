@@ -370,7 +370,16 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
             $a = Get-Item $link; $b = Get-Item $shared
             if ($a.Length -ne $b.Length -or $a.LastWriteTimeUtc -ne $b.LastWriteTimeUtc) { Remove-Item $link -Force }
         }
-        if (-not (Test-Path $link)) { New-Item -ItemType HardLink -Path $link -Target $shared | Out-Null }
+        if (-not (Test-Path $link)) {
+            # A hard link needs the same volume; the shared GGPK may live on another one (the Client path can be a
+            # link to another drive), so fall back to a symbolic link to the real file, then to the shared path.
+            try { New-Item -ItemType HardLink -Path $link -Target $shared -ErrorAction Stop | Out-Null }
+            catch {
+                $item = Get-Item $shared -Force -ErrorAction SilentlyContinue
+                $target = if ($item -and $item.Target) { @($item.Target)[0] } else { $shared }
+                New-Item -ItemType SymbolicLink -Path $link -Target $target -ErrorAction Stop | Out-Null
+            }
+        }
         foreach ($assets in Get-ChildItem $client -Directory | Where-Object { $_.Name -notin 'logs', 'CachedHLSLShaders' }) {
             $junction = Join-Path $folder $assets.Name
             if (-not (Test-Path $junction)) { New-Item -ItemType Junction -Path $junction -Target $assets.FullName | Out-Null }
