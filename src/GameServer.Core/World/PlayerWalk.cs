@@ -232,18 +232,30 @@ public sealed class PlayerWalk
     {
         if (speed <= 0) throw new ArgumentOutOfRangeException(nameof(speed));
         _speed = speed;
+        // On frames the message takes effect at the frame's start, on the cell the walker stands on then.
+        now = Frame(now);
         var here = At(now, out double fraction);
         int i = _segments.FindIndex(s => now < s.End);
         if (i < 0) return;
+        // The piece in progress, to its waypoint: steps already due were split off it (Joined), and go with it again.
+        int last = i;
+        while (_segments[last].Joined && last + 1 < _segments.Count) last++;
         var left = _segments[i];
-        var end = left.Cells[^1];
+        var end = _segments[last].Cells[^1];
+        if (end == here) return;
         float step = StepTime(here, end);
         double start = now < left.T0 ? left.T0 : now - fraction * step;
-        var walk = new List<Segment> { left with { From = here, Cells = [.. ClientPathfinder.Line(here, end).Skip(1)], T0 = start, Step = step } };
-        foreach (var next in _segments.Skip(i + 1))
+        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
+        foreach (var next in _segments.Skip(last + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
         _segments = walk;
     }
+
+    /// <summary>Lays the piece in progress again from the walker's cell at the speed it has. The client does this to a
+    /// walking actor for every stats message that names a movement stat, changed or not (its stat listener 0x141e9cf90
+    /// runs the active MoveTo's piece again, 0x141e7b6f0 → 0x141e34400): the straight line from here to the waypoint can
+    /// step sideways at another cell than the line from where the piece began.</summary>
+    public void Relay(double now) => SetSpeed(_speed, now);
 
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
     public (int X, int Y) Position(double now) => At(Frame(now), out _);

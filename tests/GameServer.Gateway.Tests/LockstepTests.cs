@@ -136,6 +136,29 @@ public class LockstepTests : IDisposable
             Assert.Equal(start + step, walk.Steps(start, start + 1)[0].At, 5);
         }
 
+        // A stats message that names a movement stat lays the piece in progress again from the walker's cell, at an
+        // unchanged speed too: the straight line from there steps sideways further on than the line from the piece's
+        // start did. Any other stats message leaves the walk as it is.
+        static int Sideways(PlayerWalk w, int y) => w.Steps(0, 9).First(s => s.Cell.Y == y).Cell.X;
+        start = 0; walk = Walker(40);
+        walk.Order(40, 1, 0);
+        int turned = Sideways(walk, 1);
+        start = .231; walk.Relay(.24);   // nine cells along, before the sideways step
+        Assert.True(Sideways(walk, 1) > turned);
+        Assert.Equal((40, 1), walk.Destination);
+        var told = new ClientState(new(1, "stats", 300, 300, 100, 100, null, []), 1, 1)
+            { LockstepClient = true, PlayerLife = 100, PlayerSent = true, LockstepFrame = (0, .033) };
+        told.Walk.Order(140, 101, 0);
+        turned = Sideways(told.Walk, 101);
+        told.LockstepFrame = (.231, .264);
+        lock (told.Monsters)
+        {
+            Game.RelayWalkForStats(told, InstanceEntities.StatsUpdate(0x1000, [(0x2fec, 0)]));
+            Assert.Equal(turned, Sideways(told.Walk, 101));
+            Game.RelayWalkForStats(told, InstanceEntities.StatsUpdate(0x1000, [(0x2fec, 0), (StatKeys.MovementVelocityPct, 0)]));
+            Assert.True(Sideways(told.Walk, 101) > turned);
+        }
+
         // A stop keeps the time since the last step, and the next walk from the stand starts with it (40 cells a second:
         // 25 ms a step; the client's accumulator 16 ms, + 33 ms is one step, + 33 ms two more).
         start = 0; walk = Walker(40);

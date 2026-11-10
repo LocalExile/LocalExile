@@ -248,7 +248,13 @@ it stands with the accumulator at zero (4 of 4), so the estimate keeps them as s
 walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo then clears the deferred stop
 (`0x141e34400`) and rescales the step time still set (`0x141e4d180`), and the estimate does the same: the walker is
 still on its cell with its step in progress. Shield Charge (`0x141a6bae0` → `0x141e9a3c0`, its first step from a stand not traced)
-takes no kept time at all. Each step's
+takes no kept time at all. A stats message (0x1b3) sets every stat it lists and tells that stat's listeners,
+changed or not; for `movement_velocity_+%` (0xf5), 0xce6 and 0x7b5 the Actor's listener (`0x141e9cf90`) runs the
+active MoveTo's piece again (`0x141e7b6f0` → `0x141e34400`): a straight walk from the walker's cell to the same
+waypoint at the current speed, whose line can step sideways at another cell than the line from the piece's start (tick
+trace 2026-11-10: four setups of one segment in the frame a full player snapshot arrived, three at an unchanged step
+time). The estimate lays a lockstep player's walk again when it sends such a snapshot (`RelayWalkForStats`); a
+monster's stats message that names one of them without a speed change is not handled. Each step's
 body check (`0x141e47ca0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
 in the frame is seen where that frame's steps put it and a later one where the frame before left it. The forced
 position set of an action start (`0x141e8e7e0` → `0x141e31800`: in lockstep whenever the actor's cell is not the 0x1ab's
