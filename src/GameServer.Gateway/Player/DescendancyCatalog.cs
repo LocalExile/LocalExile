@@ -19,6 +19,12 @@ sealed class DescendancyCatalog(string folder = "data")
 
     public sealed record Definition(byte Row, ushort StartNode, IReadOnlyDictionary<ushort, Node> Nodes);
 
+    /// <summary>The three Affliction (Wildwood) rows keep their own eight points, as they had in that league; the 3.29
+    /// Bloodline rows share the main ascendancy's points.</summary>
+    public const int WildwoodPoints = 8;
+
+    public static int BonusPoints(byte row) => row is >= 1 and <= 3 ? WildwoodPoints : 0;
+
     readonly Lazy<IReadOnlyList<Row>> _rows = new(() => Load(folder));
 
     public IReadOnlyList<Row> Rows => _rows.Value;
@@ -86,10 +92,10 @@ sealed class DescendancyCatalog(string folder = "data")
 
     /// <summary>
     /// Checks a complete proposed layer allocation: every node belongs to <paramref name="row"/>, the set stays
-    /// connected to the row's implicit start, and its points fit the shared ascendancy budget together with the main
-    /// ascendancy's <paramref name="spentElsewhere"/>.
+    /// connected to the row's implicit start, and its points fit the layer's own budget (the Wildwood rows) and the
+    /// shared ascendancy total together with the main ascendancy's <paramref name="spentElsewhere"/>.
     /// </summary>
-    public void Validate(byte row, IEnumerable<ushort> allocated, int spentElsewhere, int earnedPoints)
+    public void Validate(byte row, IEnumerable<ushort> allocated, int spentElsewhere, int mainPoints, int layerPoints)
     {
         if (row == 0) throw new AscendancyRuleException("No Descendancy is selected");
         var definition = Tree(row) ?? throw new AscendancyRuleException($"Descendancy row {row} has no tree data");
@@ -120,8 +126,11 @@ sealed class DescendancyCatalog(string folder = "data")
                 throw new AscendancyRuleException("Only one option of a descendancy choice may be allocated");
         }
         int spent = set.Sum(n => definition.Nodes[n].PointCost);
-        if (spentElsewhere + spent > earnedPoints)
-            throw new AscendancyRuleException($"Ascendancy points exceeded: {spentElsewhere + spent} spent, {earnedPoints} earned");
+        if (layerPoints > 0 && spent > layerPoints)
+            throw new AscendancyRuleException($"Descendancy points exceeded: {spent} spent, {layerPoints} for this row");
+        if (spentElsewhere + spent > mainPoints + layerPoints)
+            throw new AscendancyRuleException(
+                $"Ascendancy points exceeded: {spentElsewhere + spent} spent, {mainPoints + layerPoints} available");
     }
 
     static IReadOnlyList<Row> Load(string folder)

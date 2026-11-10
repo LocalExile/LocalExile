@@ -1011,7 +1011,7 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name}");
         })
-        .Add("descendancy", "/descendancy [name|none|open [row|name]] (dev: the second ascendancy layer 0x33's spare byte selects: Affliction's Wildwood specialisations and the 3.29 Bloodline classes; open shows the client's Descendancy class selector)", async args =>
+        .Add("descendancy", "/descendancy [name|none|open [row|name]|refund <node|all>] (dev: the second ascendancy layer 0x33's spare byte selects: Affliction's Wildwood specialisations and the 3.29 Bloodline classes; open shows the client's Descendancy class selector)", async args =>
         {
             if (Game.Descendancies.Rows.Count <= 1) throw new ArgumentException("Descendancy data is missing; run scripts/dev/extract-data.ps1");
             if (args.Length == 0)
@@ -1035,6 +1035,19 @@ static class CommandsFeature
                 await conn.Commands!.Reply($"0x7b kind 0x4c row {descRow} ({descName})");
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.DescendancySelectUi, descRow),
                     $"0x007b kind 0x4c row {descRow} (descendancy open)");
+                return;
+            }
+            if (args[0].Equals("refund", StringComparison.OrdinalIgnoreCase))
+            {
+                if (conn.DescendancyNodes.Count == 0) { await conn.Commands!.Reply("No descendancy nodes are allocated."); return; }
+                ushort[] nodes = args.Length > 1 && !args[1].Equals("all", StringComparison.OrdinalIgnoreCase)
+                    ? [ushort.Parse(args[1])]
+                    : [.. conn.DescendancyNodes];
+                foreach (ushort n in nodes)
+                    if (!conn.DescendancyNodes.Contains(n)) throw new ArgumentException($"{n} is not an allocated descendancy node");
+                string? refundError = await ChangePassives(remote, stream, ciphers, conn, nodes, allocate: false,
+                    "/descendancy refund", refundPoints: true);
+                await conn.Commands!.Reply(refundError ?? $"Refunded {nodes.Length} descendancy node(s).");
                 return;
             }
             if (args[0].Equals("none", StringComparison.OrdinalIgnoreCase))

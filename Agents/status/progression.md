@@ -193,6 +193,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/descendancy` selects or clears a row, sets the three Wildwood Azmeri flag groups and reloads the area.
   Nodes allocate by the layer's own `DescendancyKey` tree, stay connected to its implicit start, save, and count
   against the shared ascendancy points; a live Primalist allocation was checked in the local client.
+  The three Wildwood rows keep Affliction's separate eight points: `0x33` carries the earned points plus eight for
+  those rows, the main ascendancy stays capped at its own earned points and the layer at eight.
+  A refused allocation now replies with its reason in chat; `/descendancy refund <node|all>` reverts the layer.
   Refunds charge the same five refund points per node; their stats are part of the passive stat list.
 
 - Antiquarian: all nine notables and nine small nodes execute through three legal connected eight-point builds.

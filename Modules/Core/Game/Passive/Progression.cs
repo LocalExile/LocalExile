@@ -27,7 +27,8 @@ static partial class Game
         if (save?.Descendancy is { } descRow && descRow != 0)
         {
             int mainSpent = Game.AscendancyRules.SpentPoints((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
-            Game.Descendancies.Validate(descRow, save.DescendancyNodes ?? [], mainSpent, ascendancy.EarnedPoints);
+            Game.Descendancies.Validate(descRow, save.DescendancyNodes ?? [], mainSpent, ascendancy.EarnedPoints,
+                DescendancyCatalog.BonusPoints(descRow));
         }
         ValidateOrdinaryPassives(conn, ordinary, ascendancy);
     }
@@ -1419,12 +1420,15 @@ static partial class Game
                 })
                 .Where(pair => pair.Entry is not null)
                 .ToDictionary(pair => pair.Node, pair => pair.Hash);
+            int descendancyPoints = DescendancyCatalog.BonusPoints(conn.DescendancyRow);
             return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated, .. conn.DescendancyNodes],
-                    questPoints: clientExtra, refundPoints: refundPoints, ascendancyPoints: (ushort)conn.MainAscendancy.EarnedPoints, masteryEffects: masteries,
+                    questPoints: clientExtra, refundPoints: refundPoints,
+                    ascendancyPoints: (ushort)(conn.MainAscendancy.EarnedPoints + descendancyPoints), masteryEffects: masteries,
                     clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos, descendancy: conn.DescendancyRow),
                 $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
                 $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
-                $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes");
+                $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes" +
+                (descendancyPoints > 0 ? $" + {descendancyPoints} descendancy points (row {conn.DescendancyRow})" : ""));
         }
     }
 
@@ -1536,7 +1540,8 @@ static partial class Game
                     try
                     {
                         int mainSpent = Game.AscendancyRules.SpentPoints(baseClass, ascendancy);
-                        Game.Descendancies.Validate(conn.DescendancyRow, descendancyNext, mainSpent, ascendancy.EarnedPoints);
+                        Game.Descendancies.Validate(conn.DescendancyRow, descendancyNext, mainSpent, ascendancy.EarnedPoints,
+                            DescendancyCatalog.BonusPoints(conn.DescendancyRow));
                         if (refundPoints && !allocate)
                             refundsSpent += descendancyChanges.Count * AscendancyRules.RefundPointsPerAscendancyPoint;
                     }

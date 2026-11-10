@@ -345,7 +345,10 @@ static partial class Game
                 if (u2 == 0 && u6 != 0)
                     await ChangeClusterPassive(remote, stream, ciphers, conn, node, allocate: true);
                 else if (u2 == 0)
-                    await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree");
+                {
+                    string? error = await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree");
+                    if (error is not null) await conn.Commands!.Reply(error);
+                }
                 else
                 {
                     Console.WriteLine($"[gateway] {remote} allocation refused: 32-bit passive ids are not supported");
@@ -367,9 +370,15 @@ static partial class Game
                 else if (!expansion && node <= ushort.MaxValue)
                 {
                     if (gold)
-                        await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Respecialisation", goldRespec: true);
+                    {
+                        string? error = await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Respecialisation", goldRespec: true);
+                        if (error is not null) await conn.Commands!.Reply(error);
+                    }
                     else
-                        await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Refund points", refundPoints: true);
+                    {
+                        string? error = await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Refund points", refundPoints: true);
+                        if (error is not null) await conn.Commands!.Reply(error);
+                    }
                 }
                 else
                 {
