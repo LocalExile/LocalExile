@@ -531,6 +531,10 @@ S→C 0x2b0 tells the client the same about a corpse, as GGG does: it clears Pos
 The client also clears that flag itself, from the corpse's death clip (§6 "Corpses"), so the message changes its paths
 only when it comes first.
 Phasing removes living bodies from the local player's path checks.
+A monster whose object type sets `set_phase_through_objects` in its Stats (Maven's orbs, volatile orbs, daemons: 116
+types, `phases` in data/object-types.json) phases the same way from the type alone: the client's player walks straight
+through it and it through every other body, in path searches and step checks alike (traced 2026-11-10 in the Maven's
+arena), so the Gateway gives it no body and stops it only at terrain and stationary objects (`LivingCollision.Phases`).
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
 
 `InstanceState` publishes immutable player snapshots without acquiring another connection's monster lock.

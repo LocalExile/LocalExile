@@ -55,6 +55,21 @@ public class DormantMonsterTests
             using (var frame = conn.BeginMonsterBlockerFrame(0))
                 Assert.DoesNotContain(frame.Bodies, b => b.Id == 0x3042);
 
+            // A type that phases through objects (Stats set_phase_through_objects: Maven's orbs) is no body to the
+            // others, and no living body stops it: its own view holds the stationary objects only.
+            var orb = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrbSmall"));
+            Assert.True(orb.Phases);
+            Assert.False(drowned.Phases);
+            conn.Monsters[0x3043] = new SpawnedMonster("orb", new PlayerWalk(64, 50, 8), 60, 2, 23) { Variety = orb };
+            Assert.DoesNotContain(conn.Blockers, b => (b.X, b.Y) == (64, 50));
+            using (var frame = conn.BeginMonsterBlockerFrame(0))
+            {
+                Assert.DoesNotContain(frame.Bodies, b => b.Id == 0x3043);
+                Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), frame.For(0x3041));
+                Assert.Equal(conn.StationaryBlockers, frame.For(0x3043));
+            }
+            conn.Monsters.Remove(0x3043);
+
             // Phasing removes living bodies only from the player's collision view; terrain objects remain,
             // and a different monster still sees the dormant bodies but no longer sees the phased player.
             conn.SetBlocker(0x2000, 70, 70, 1);

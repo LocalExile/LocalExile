@@ -21,6 +21,9 @@ sealed class MonsterCatalog(string folder = "data")
         /// <summary>Native Positioned.blocking, independent of targetability. Missing optional metadata retains
         /// the earlier living-body assumption; the extracted resolved type supplies explicit false values.</summary>
         public bool PositionedBlocking { get; init; } = true;
+        /// <summary>The type's Stats set_phase_through_objects (object-types.json "phases"): the client's Pathfinding
+        /// phases for it, so it is no body to any other walker and no living body stops it (Maven's orbs).</summary>
+        public bool Phases { get; init; }
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -285,6 +288,7 @@ sealed class MonsterCatalog(string folder = "data")
         var transitionStates = new Dictionary<string, byte>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
         var blocking = new Dictionary<string, bool>();
+        var phasing = new HashSet<string>();
         string types = Path.Combine(folder, "object-types.json");
         if (File.Exists(types))
         {
@@ -300,6 +304,7 @@ sealed class MonsterCatalog(string folder = "data")
                     if (block.ValueKind is JsonValueKind.True or JsonValueKind.False) blocking[type] = block.GetBoolean();
                     else if (block.ValueKind == JsonValueKind.String && bool.TryParse(block.GetString(), out bool value)) blocking[type] = value;
                 }
+                if (t.TryGetProperty("phases", out var phases) && phases.ValueKind == JsonValueKind.True) phasing.Add(type);
                 // Files generated before the StateMachine data have no "shared_states": those types stay unsupported.
                 if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
                     stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
@@ -345,7 +350,7 @@ sealed class MonsterCatalog(string folder = "data")
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
-                        PositionedBlocking = blocking.GetValueOrDefault(type, true),
+                        PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type),
                         Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,

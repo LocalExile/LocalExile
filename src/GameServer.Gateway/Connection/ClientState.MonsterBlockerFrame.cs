@@ -79,6 +79,8 @@ sealed partial class ClientState
 
         public IReadOnlyList<ClientPathfinder.Blocker> For(uint self)
         {
+            // A monster that phases through objects is stopped by no living body (LivingCollision.Phases).
+            if (owner.Monsters.TryGetValue(self, out var mover) && LivingCollision.Phases(mover)) return owner.StationaryBlockers;
             if (!indices.TryGetValue(self, out var index)) return current;
             if (!views.TryGetValue(self, out var view)) views[self] = view = current.Without(index.Current, -1);
             return view;
