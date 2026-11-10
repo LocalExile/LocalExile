@@ -52,6 +52,7 @@ static partial class Game
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
     internal static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
     {
+        if (!TotemPathAvailable(conn, skillId, effect)) return false;
         if (!UsesProjectileRuntime(effect)) return true;
         try
         {
@@ -220,7 +221,7 @@ static partial class Game
 
     internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -240,7 +241,7 @@ static partial class Game
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(conn, gem.Effect));
-        var at = conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+        var at = totem?.At ?? conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
         var origin = ProjectileSession.Vector(at);
         if (definition.RequiresTerrain && ProjectileGrid.Blocks(conn.Layout.Id, conn.Seed, at.X, at.Y) is null)
             throw new InvalidOperationException("Projectile recipe requires a projectile terrain mask");
@@ -258,7 +259,7 @@ static partial class Game
             WeaponProfileFor(conn, activeSet: true));
         double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
-        origin += direction * Math.Min(ahead, (target - origin).Length / 2);
+        if (totem is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
             (target - origin).Length, toTarget: rain) };
         // Arrow Nova's payload takes the rig's fixed timeline, not the arrow's speed: the official landing rig came
@@ -281,6 +282,7 @@ static partial class Game
             AreaHit = SupportedProjectileHit(conn, skillId, area: true),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
+            ActualCaster = totem is null ? null : TotemCasterStats(player),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
             SkillStats = new Dictionary<uint, int>(own),
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId),
@@ -337,8 +339,19 @@ static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
-        var use = new ProjectileUse(profile, new(PlayerId, conn.ProjectileEpoch), new(PlayerId, conn.ProjectileEpoch), 1, origin, target)
-            { Payload = shot, ReturnAnchor = new(PlayerId, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
+        if (totem is not null)
+        {
+            double totemMore = Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d);
+            shot = shot with { Hit = shot.Hit.Scale(totemMore), AreaHit = shot.AreaHit?.Scale(totemMore),
+                Ignite = shot.Ignite with { Min = shot.Ignite.Min * totemMore, Max = shot.Ignite.Max * totemMore,
+                    CriticalMin = shot.Ignite.CriticalMin * totemMore, CriticalMax = shot.Ignite.CriticalMax * totemMore },
+                Poison = shot.Poison with { Min = shot.Poison.Min * totemMore, Max = shot.Poison.Max * totemMore,
+                    CriticalMin = shot.Poison.CriticalMin * totemMore, CriticalMax = shot.Poison.CriticalMax * totemMore },
+                Valid = () => SpellTotemCurrent(conn, totem), Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
+        }
+        uint emitter = totem?.Id ?? PlayerId;
+        var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)
+            { Payload = shot, ReturnAnchor = new(emitter, conn.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
         var context = new ProjectileReleaseContext(conn, session, skillId, gem, variation, Get, Player, Own);
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;
     }

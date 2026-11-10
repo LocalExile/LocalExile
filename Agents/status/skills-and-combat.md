@@ -1235,16 +1235,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   ([11](../docs/protocol/11-skills.md) 13).
 - Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
-- **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
-  a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
-  (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
-  Totems live apart from the monsters, so area hits, monster AI, loot and the instance save never see them.
-  A totem dies at Life 0, at the end of its duration, when replaced or when the player dies, and leaves a second later.
-  Its aura regenerates the player's Life within its radius, with buff 172.
-  `damage_removed_from_your_nearest_totem_before_life_or_es_%` moves that share of a monster or `/hit` hit, after
-  mitigation, to the nearest totem's Life (Forest of Ancestors, Spirit of Kaom); covered by Gateway tests.
-  Not yet: other totem skills (their use places nothing), monsters attacking totems, placement range and server-side
-  totem collision; not yet checked with the real client ([11](../docs/protocol/11-skills.md) §10g).
+- Totems: Rejuvenation aura and Fireball + Spell Totem execute server-side; native client acceptance is pending.
+  Spell Totem uses a native skin and proxy Actor spell, casts from its own entity, and rejects unimplemented payloads.
+  Life, duration, replacement, damage redirection and source removal are covered by Gateway tests; enemy targeting of
+  totems and placement range remain open ([11](../docs/protocol/11-skills.md) §10g).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
   passives' sum and is sent with 0x1c1 after an allocation and on area entry, and taken off with 0x1c2 on a refund
   (Surfcaster's Ghost of the Deep).

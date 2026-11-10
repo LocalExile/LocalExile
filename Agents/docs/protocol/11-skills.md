@@ -2500,9 +2500,17 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
   The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
 
-Not modelled: the other totem skills (their gem use stays as before: a totem that does not use its skill is not
-placed), monsters attacking totems, placement range (`base_totem_range`), the totem's collision on the server's paths,
-and the totem as the aura buff's source.
+Spell Totem currently executes Fireball through the existing projectile runtime, using a proxy Actor skill `0x4000`
+with `Parent = (PlayerId, sourceSkill)`. Fireball's `SkillTotemId = 22` has no dedicated variation; the generic
+intelligence skin is `SkillTotemVariations` key 3, skin 0, variety 2272. The proxy carries the underlying Fireball
+GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
+The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
+Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
+owner offensive stats and type prohibitions, with the owner's `spell_skills_deal_no_damage` removed (Ancestral Bond).
+The existing tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
+transfer and module retirement stop pending releases. Native client visual acceptance remains pending.
+Other totem payloads are refused before action/cost admission. Enemy targeting of totems, placement range
+(`base_totem_range`) and the aura buff's totem source remain unimplemented.
 
 ## 10h. Player minions that fight
 
