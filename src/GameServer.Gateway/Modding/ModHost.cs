@@ -71,9 +71,6 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
     /// <summary>A host of modules loads only these: a module lives in a league. Null: all.</summary>
     public Func<IReadOnlySet<string>>? Wanted { get; init; }
 
-    /// <summary>What <see cref="IModuleContext.World"/> gives.</summary>
-    public Func<IPlayer, IPlayerWorld>? WorldOf { get; init; }
-
     /// <summary>The modules a mod may depend on beside other mods (a host of mods): a mod uses a module's assembly as a module
     /// that depends on it does, and reloads when that module does.</summary>
     public ModHost? Modules { get; init; }
@@ -658,7 +655,6 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         public ModManifest Manifest => mod.Manifest;
         public IModuleLifetime Lifetime => mod.Lifetime;
         public string Folder => mod.Folder;
-        public ICharacterBuilds CharacterBuilds { get; } = new CharacterBuildApi(mod.Lifetime);
         public void Log(string message) => host.Write($"{host.Tag} {mod.Manifest.Id}: {message}");
 
         public void ProvideLeagueRules(Func<LeagueRules> rules)
@@ -671,8 +667,6 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
                 ServerLeagues.AddRules(mod.Manifest.Id, rules);
             }
         }
-
-        public IPlayerWorld World(IPlayer player) => (host.WorldOf ?? throw new InvalidOperationException("this server gives modules no world"))(player);
 
         string ValuesPath => Path.Combine(host.SettingsFolder, mod.Manifest.Id + ".json");
 

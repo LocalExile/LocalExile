@@ -107,7 +107,8 @@ mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 `IModuleContext` includes a host-issued `Lifetime` for each load. Stopping cancels its token and releases
 resources registered through `Own`; it does not drain arbitrary tasks already running.
 The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this ownership for admission and reload.
-`IModuleContext` is what a mod has (manifest, settings, log, folder), and `ProvideLeagueRules` and `World(player)`.
+`IModuleContext` is what a mod has (manifest, lifetime, settings, log, folder), and `ProvideLeagueRules`.
+The player and its world are the Gateway's: `PlayerOf(conn)` (an `IPlayer`) and `WorldOf(conn)` or `WorldOf(player)` (an `IPlayerWorld`).
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own

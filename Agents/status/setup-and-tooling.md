@@ -98,7 +98,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the one hook system for modules and mods (chat commands, tick, client messages, area generated, monster killed, drop,
   experience and stat modifiers among it); a mod's subscriptions run in every league, and the host releases everything
   an id holds (subscriptions, `ChatRoutes.Use`, `ExchangeRateStore.Use`) when it unloads. `GameServer.Modding` is only
-  the loader contract and host services. A subscriber that throws is logged and skipped.
+  the loader contract and host services (`IMod`, `IModule`, `League`, the context) and depends on nothing of the server;
+  `IPlayer`, `IPlayerWorld` (`Program.WorldOf`) and build imports (`CharacterBuildApi.For(mod)`) are the Gateway's. A subscriber that throws is logged and skipped.
   The dev chat commands are the `gm-commands` mod in LocalExile-Mods; `/reload` and `/lastpackets` are the Gateway's.
   Not tried in the client yet.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
@@ -112,7 +113,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (fallback, required features, tunables, scoped hooks) and built-ins.
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
-  `Program.ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
+  `Modules/Core/Game/Player/ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.

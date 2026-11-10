@@ -22,13 +22,13 @@ public sealed class HarvestModule : IModule
         GameEvents.HideoutReady.Add(module.Manifest.Id, async conn =>
         {
             var player = PlayerOf(conn);
-            if (await module.World(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
+            if (await WorldOf(player).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
                 _states.GetOrCreateValue(player).Station = id;
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
         {
             if (!_states.TryGetValue(PlayerOf(conn), out var state) || state.Station == 0 || use.TargetId != state.Station) return false;
-            var world = module.World(PlayerOf(conn));
+            var world = WorldOf(conn);
             if (await world.WalkUpToStation(state.Station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
@@ -44,7 +44,7 @@ public sealed class HarvestModule : IModule
     /// The item and all lifeforce costs commit together; a refusal spends nothing.</summary>
     async Task Craft(IModuleContext module, IPlayer player, ushort recipe)
     {
-        var world = module.World(player);
+        var world = WorldOf(player);
         if (world.OpenWindowOwner != Window || !_states.TryGetValue(player, out var state) || state.Station == 0) return;
         var harvest = _recipes.GetValue(world.Crafting, items => new HarvestCrafting(items));
         string name = harvest.ByHash(recipe)?.Id ?? $"0x{recipe:x4}";

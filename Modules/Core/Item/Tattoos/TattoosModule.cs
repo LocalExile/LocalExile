@@ -9,17 +9,8 @@ using static TattoosFeature;
 namespace GameServer.Modules.M_tattoos;
 
 /// <summary>Tattoos on passives.</summary>
-public sealed class TattoosModule : IModule, IDisposable
+public sealed class TattoosModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Tattoos", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
