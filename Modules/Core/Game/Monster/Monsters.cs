@@ -711,8 +711,9 @@ static partial class Game
                     }
                 }
                 // Totems, statues, vines and the like (MovementSpeed 0) never walk: the estimate's minimum speed must not
-                // move them, so they get no chase.
-                bool still = m.Variety is { MovementSpeed: 0 };
+                // move them, so they get no chase. Neither does a type the client never walks (Pathfinding immobile),
+                // whatever its speed column says: the client would only hop it to each order's from cell.
+                bool still = m.Variety is { MovementSpeed: 0 } or { Immobile: true };
                 // A swing order: a monster's in-place skill, a summoner's (its actor's clip, not a walk-up), a melee attack
                 // of a monster that never walks (the chase's own 0x1ab, whose goal test passes as it applies: 0x141e7b530),
                 // and any attack on a predictive client, where a walking player has already gone farther: no swing right

@@ -270,6 +270,14 @@ what the Gateway's step pass adds for a lockstep client is the order within a fr
 (`StepWalkers` → `StepFrames`: whole frames, each walker's steps of the frame in ascending object id against the cells
 as moved so far, up to the start of the frame being sent).
 
+The arithmetic is single precision and exact to the bit in the traces (2026-11-10, two fights): a tick adds the frame's
+length (33 ms as a float) and then, while the accumulator is not below the step time, subtracts the step time and
+takes a cell (44 975 of 44 975 walker ticks without a segment change); a re-order while walking sets it to
+(accumulator / old step time) x new step time, in that order, and leaves it alone when the step time does not change
+(4 829 of 4 829); between the pieces of one path the step time is zero at the setup, so nothing is rescaled. The
+estimate keeps the same quantities as doubles on the frames' grid, which agrees except where a step falls exactly on a
+frame's end (§6, differences).
+
 The stop accumulator rule is shared with predictive mode: twelve traced stop/tick/idle/restart sequences retained
 the same raw time through the next path setup. The predictive estimate now retains it too, at its continuous stop
 time; the client's exact frame boundary remains unknown. If retained time already covers a new step, that step is
@@ -535,6 +543,10 @@ A monster whose object type sets `set_phase_through_objects` in its Stats (Maven
 types, `phases` in data/object-types.json) phases the same way from the type alone: the client's player walks straight
 through it and it through every other body, in path searches and step checks alike (traced 2026-11-10 in the Maven's
 arena), so the Gateway gives it no body and stops it only at terrain and stationary objects (`LivingCollision.Phases`).
+A type with `Pathfinding { immobile = true }` (`immobile` in data/object-types.json; a unique Maven's orb among them) is
+never walked by the client, whatever its MonsterVarieties MovementSpeed: a Move's 0x1ab only puts it on the order's from
+cell, with no path search and no step (traced 2026-11-10). The generic AI gives such a type no chase, as it gives none
+to a variety with MovementSpeed 0.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
 
 `InstanceState` publishes immutable player snapshots without acquiring another connection's monster lock.
@@ -956,10 +968,8 @@ another player's attack on a monster; the copy stands until that player's next o
 | The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |
 
 Still to do: monsters' order keys, a trace of a frozen monster, and a walk set up in a stop's own frame and Shield
-Charge's first step from a stand (§5). Also open, none a frame rule: a monster type with `Pathfinding { immobile = true }`
-(252 types, a unique Maven's orb among them) is never walked by the client, but the generic AI still sends it Moves, so
-it hops to each order's cell; the King in the Mists moves during its own skills on the client, which its script here
-does not follow; and in two places the client cannot stand where the generated walk grid lets the server walk (The
+Charge's first step from a stand (§5). Also open, none a frame rule: the King in the Mists moves during its own skills
+on the client, which its script here does not follow; and in two places the client cannot stand where the generated walk grid lets the server walk (The
 Coast seed 51 near (332, 1192), the Maven's arena at (126, 222)). A movement skill's landing comes from the server's
 own estimate; the client's snap at the next action settles any difference, and its 0x128 does nothing here.
 

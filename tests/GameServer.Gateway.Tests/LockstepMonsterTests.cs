@@ -153,6 +153,20 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(((93, 102), (101, 101)), Game.PlaceLockstepChase(hurtConn, hurt, recovered, 2.079));
         Assert.Null(hurt.ClientSwingAt);
         Assert.Equal(recovered, hurt.ClientChase);
+        // A type the client never walks (Pathfinding immobile: a unique Maven's orb, MovementSpeed 20) gets no chase and
+        // no Move, like a variety with MovementSpeed 0; the small orb, whose type is not immobile, is chased with.
+        var orbs = new MonsterCatalog();
+        foreach (var (type, walks) in new[] { ("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrb", false), ("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrbSmall", true) })
+        {
+            var arena = Connection(lockstep: true);
+            arena.LockstepFrame = (1.023, 1.056);
+            arena.Monsters[0x3010] = new SpawnedMonster("orb", new PlayerWalk(130, 100, 20), aggroRange: 60, stopRange: 2, maxLife: 23)
+            {
+                Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, Variety = orbs.Find(type),
+            };
+            var orders = Game.PlanMonsterAi(arena, new MonsterAiCadence(), now: 1.03);
+            Assert.Equal(walks, orders.Chases.Count + orders.Moves.Count + orders.MoveLegs.Count + orders.Legs.Count > 0);
+        }
         // The recovery cancels the walk with the client's own stop, which waits for the tick (0x141e350e0, 0x141e32710):
         // a walker hit in the frame from 1.0 to 1.033 still takes its step due at 1.025 and stands a cell further on, with
         // the 8 ms since that step kept for its next walk. Without frames it stands where the hit finds it. The frame is

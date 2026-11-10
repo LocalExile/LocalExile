@@ -308,7 +308,7 @@ def parse(text):
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
          "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
          "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {},
-         "stats": {}}
+         "stats": {}, "pathfinding": {}}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -354,6 +354,8 @@ def parse(text):
                     top_level_keys(toks[i + 2:j - 1], r["positioned"], ("object_size", "blocking", "static", "block_league_flag"))
                 elif t == "Stats":
                     top_level_keys(toks[i + 2:j - 1], r["stats"], ("set_phase_through_objects",))
+                elif t == "Pathfinding":
+                    top_level_keys(toks[i + 2:j - 1], r["pathfinding"], ("immobile",))
                 elif t == "Animated":
                     top_level_keys(toks[i + 2:j - 1], r["animated"], ("animated_object",))
                 elif t == "Actor":  # basic actions (ActionTypes Ids): basic_action = "Emerge"
@@ -506,6 +508,12 @@ def merge(type_path, files, otc, first=("Positioned",)):
                    if f and "set_phase_through_objects" in f.get("stats", {})), None)
     if phases is not None and phases != "0":
         result["phases"] = True
+    # Pathfinding { immobile = true } along the chain (later files override): the client never walks the object, whatever
+    # its MonsterVarieties MovementSpeed (a unique Maven's orb has 20). Written only when set, as "immobile".
+    immobile = next((f["pathfinding"]["immobile"] for _, f in reversed(ch)
+                     if f and "immobile" in f.get("pathfinding", {})), None)
+    if immobile is not None and immobile.lower() == "true":
+        result["immobile"] = True
     if "Life" in comps[:read]:
         # Life type constructor 0x141e254f0, store 0x141e25645: e4..e7 = 00 00 00 01.
         # A missing parent can override these defaults; only subsequent explicit keys resolve that uncertainty.

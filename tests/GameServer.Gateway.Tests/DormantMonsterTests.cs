@@ -60,6 +60,9 @@ public class DormantMonsterTests
             var orb = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrbSmall"));
             Assert.True(orb.Phases);
             Assert.False(drowned.Phases);
+            // The unique orb's type is Pathfinding immobile (the client never walks it); the small one's is not.
+            Assert.True(Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrb")).Immobile);
+            Assert.False(orb.Immobile);
             conn.Monsters[0x3043] = new SpawnedMonster("orb", new PlayerWalk(64, 50, 8), 60, 2, 23) { Variety = orb };
             Assert.DoesNotContain(conn.Blockers, b => (b.X, b.Y) == (64, 50));
             using (var frame = conn.BeginMonsterBlockerFrame(0))
