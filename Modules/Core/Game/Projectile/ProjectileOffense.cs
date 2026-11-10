@@ -26,6 +26,7 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
+    public Game.LinkedTriggerSource? CriticalTrigger { get; init; }
     public long? RampageEpoch { get; init; }
     public RampageCatalog.SkillLevel? RampageSkill { get; init; }
     public int Level { get; init; } = 1;

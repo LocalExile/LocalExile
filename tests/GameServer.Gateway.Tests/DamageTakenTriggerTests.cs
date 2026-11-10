@@ -24,7 +24,7 @@ public class DamageTakenTriggerTests
             {
                 var effect = Game.Supports.Effects.Single(e => e.Id == triggerId);
                 var applied = Game.Supports.Resolve(gem.Effect, [new(effect.Row, 1, 0, 1)], Game.SkillsFor(conn));
-                Assert.Contains("no server executor", Game.TriggerOnlyReason(Game.SupportedSkill(conn, gem.Id) with { Supports = applied }) ?? "");
+                Assert.Contains("trigger", Game.TriggerOnlyReason(Game.SupportedSkill(conn, gem.Id) with { Supports = applied }) ?? "");
             }
         });
     }
@@ -143,6 +143,7 @@ public class DamageTakenTriggerTests
             }
             finally { session.Invalidate(); }
         });
+        VerifyCriticalTrigger();
     }
     static void VerifyNonProjectile(ClientState conn, Game.ProjectileSession session)
     {
@@ -213,6 +214,94 @@ public class DamageTakenTriggerTests
         Assert.True(Game.TriggerGuardReady(conn, now + 8.61));
         Assert.Equal(action, conn.ActionCount);
     }
+    static void VerifyCriticalTrigger()
+    {
+        WithCharacter(conn =>
+        {
+            conn.Clock.Start();
+            EquipCriticalLinks(conn);
+            var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
+            var fireball = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
+            var pulse = Game.GemSkillEffects(conn).Single(s => s.Name == "Freezing Pulse");
+            var source = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureCriticalTriggerSource(conn, attack.Id));
+            Assert.Equal(new[] { fireball.Id, pulse.Id }, source.Spells.Select(s => s.Skill));
+            Assert.Contains("critical strike", Game.TriggerOnlyReason(Game.SupportedSkill(conn, fireball.Id))!);
+            Assert.Null(Game.TriggerOnlyReason(Game.SupportedSkill(conn, attack.Id)));
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            using var reader = listener.AcceptTcpClient();
+            var session = new Game.ProjectileSession("coc-test", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            try
+            {
+                int action = conn.ActionCount; uint mana = conn.PlayerMana;
+                Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, false, true, (20, 0), 10));
+                Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, true, false, (20, 0), 10));
+                Assert.Equal(mana, conn.PlayerMana);
+                Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10));
+                session.AdvanceTo(0);
+                var first = Assert.IsType<ProjectileOffense>(Assert.Single(session.Runtime.Projectiles).Use.Payload);
+                Assert.Equal(fireball.Id, first.SourceSkill); Assert.False(first.ClientPredicted);
+                var inputs = Game.SupportedHitInputsFor(conn, fireball.Id, area: false)!;
+                var full = Game.SupportedHitFrom(inputs with { Modifiers = inputs.Modifiers
+                    .Where(m => m.Name != "support_cast_on_crit_spell_damage_+%_final").ToList() }, suppress: false);
+                Assert.Equal(full[GameServer.Core.World.DamageType.Fire].Min * .81,
+                    first.Hit[GameServer.Core.World.DamageType.Fire].Min, 5);
+                Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10));
+                session.AdvanceTo(0);
+                Assert.Equal(2, session.Runtime.Projectiles.Count);
+                Assert.Contains(session.Runtime.Projectiles, p => ((ProjectileOffense)p.Use.Payload!).SourceSkill == pulse.Id);
+                Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10));
+                conn.PlayerMana = 0;
+                Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 11));
+                Assert.Equal(2, session.Runtime.Projectiles.Count);
+                conn.PlayerMana = mana;
+                var host = Game.ItemsOf(conn).Items(PlayerInventories.BodyArmour).Single();
+                Game.ItemsOf(conn).Change(PlayerInventories.BodyArmour, host.Id, item => item with
+                { Sockets = [.. item.Sockets.Select(s => s with { Gem = PlayerInventories.PreserveGemIdentity(s.Gem!, s.Gem! with { GemExperience = 1 }) })] });
+                Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 12));
+                session.AdvanceTo(0); Assert.Equal(3, session.Runtime.Projectiles.Count);
+                Game.ItemsOf(conn).Change(PlayerInventories.BodyArmour, host.Id, item => item with
+                { Sockets = [item.Sockets[0] with { Gem = item.Sockets[0].Gem! with { } }, .. item.Sockets.Skip(1)] });
+                uint before = conn.PlayerMana;
+                Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 13));
+                Assert.Equal(before, conn.PlayerMana);
+                Assert.Equal(action, conn.ActionCount);
+            }
+            finally { session.Invalidate(); }
+        });
+        WithCharacter(conn =>
+        {
+            conn.Clock.Start(); EquipCriticalLinks(conn);
+            conn.PlayerStats[Program.Stats.Key("global_always_hit")!.Value] = 1;
+            var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
+            Assert.True(Game.SupportedCriticalChance(conn, attack.Id) > 0);
+            var victim = new SpawnedMonster("critical-contact", new(1, 0, 0), 0, 0, 100000) { Hostile = true };
+            conn.Monsters[0x800abc] = victim;
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            using var reader = listener.AcceptTcpClient();
+            var session = Game.ProjectilesFor("coc-contact", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            try
+            {
+                uint mana = conn.PlayerMana; int action = conn.ActionCount;
+                Game.AreaSkillHit("coc-contact", writer.GetStream(), session.ciphers, conn, attack.Id, attack,
+                    (0, 0), (1, 0), immediate: true, criticalRoll: new SkillCriticalRoll(0)).GetAwaiter().GetResult();
+                Assert.True(victim.Life < 100000);
+                Assert.True(conn.PlayerMana < mana); // The accepted critical contact paid for its linked spell.
+                Assert.Equal(action, conn.ActionCount);
+            }
+            finally { session.Invalidate(); }
+        });
+    }
+    static void EquipCriticalLinks(ClientState conn)
+    {
+        var names = new[] { "SkillGemKineticBlast", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastOnCrit" };
+        var robe = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        { Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White,
+            ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + n)!)))], Links = [4] };
+        Game.ItemsOf(conn).Add(PlayerInventories.BodyArmour, 0, 0, robe);
+        Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+    }
     static void Equip(ClientState conn, string support, string active = "SkillGemFireball")
     {
         var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + active)!);
@@ -221,6 +310,7 @@ public class DamageTakenTriggerTests
         { Sockets = [new(SocketColour.White, fireball), new(SocketColour.White, trigger)], Links = [2] };
         Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wand);
     }
+    sealed class ZeroCritical : Random { public override int Next(int maxValue) => 0; }
     static void WithCharacter(Action<ClientState> run)
     {
         string path = Path.Combine(Path.GetTempPath(), $"cwdt-{Guid.NewGuid():N}.db");
@@ -228,7 +318,7 @@ public class DamageTakenTriggerTests
         var lifetime = new ModuleLifetime("Game"); Game.CombatLifetime = lifetime; Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = new ClientState(new(1, "cwdt", 1000, 1000, 100, 100, null, []), 1, 1)
-        { Character = "Cwdt" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
+        { CriticalRandom = new ZeroCritical(), Character = "Cwdt" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
           Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
           LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])) };
         conn.Clock.Stop();

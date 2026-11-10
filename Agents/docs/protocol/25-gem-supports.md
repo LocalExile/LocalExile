@@ -225,10 +225,10 @@ windup/action replacement; it does not repeat Spell Echo or run another manual c
 Adopted projectile spells, Ice Nova, native curses and QuickGuard/ImmortalCall/MoltenShell have independent releases.
 Reservations, minions, placements and unimplemented non-projectile recipes stay unavailable.
 Guard cooldown recovery begins when the buff ends; guard damage absorption precedes CWDT observation.
-CoC/CwC and other generic triggers still have no independent executor and refuse manual use.
-Queued triggers retain the actual immutable source gem and equipment object references. Any host replacement
-(including gem XP/level edits and support swaps) cancels accumulated or queued work; identical type hashes and
-reused skill IDs are insufficient identity. Pause freezes pending work without erasing the counter.
+CoC alternates linked executable spells after an accepted attack critical hit, with native per-effect cooldown
+and separate spell payment; attacks retain manual use. CwC and other generic triggers remain unavailable.
+Queued triggers retain stable source gem identity and the support configuration. XP/lock edits retain identity;
+actual gem swaps or changed levels/links cancel queued work. Reused skill IDs alone are insufficient identity. Pause freezes pending work without erasing the counter.
 Triggered roots use server projectile objects because there is no local input action to predict them.
 The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
 Native targeting, visual parity and threshold timing require client verification.
