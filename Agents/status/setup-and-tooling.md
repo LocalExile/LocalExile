@@ -94,8 +94,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   without Harvest places no station. Not tried in the client after the move.
   The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
   (2026-11-07); Waypoint installs them. A release ships no mods.
-  Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
+  A mod reaches what a module reaches (the Gateway and Game are public; `GameEvents` reach a loaded mod in every league;
+  `depends` may name a module), beside `GameServer.Modding`'s chat commands, player tick, client messages, area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
+  The dev chat commands are the `gm-commands` mod in LocalExile-Mods; `/reload` and `/lastpackets` are the Gateway's.
+  Not tried in the client yet.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
@@ -144,8 +147,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/state` reports and the objects quest rules watch.
   The same driver played Acts 1-10 and the Epilogue live before the game moved into modules; on the quest engine's Act 1
   it is checked offline only (runner tests against a simulated server, `test_client_control.py`,
-  `CampaignCommandTests`).
-  Code: `scripts/dev/campaign/`, `Modules/Core/Player/Commands/Rules.Campaign.cs`, `CampaignState.cs`.
+  `CampaignCommandTests`, removed with the move to the mod).
+  Code: `scripts/dev/campaign/`, the `gm-commands` mod (LocalExile-Mods).
   Docs: [campaign automation](../docs/dev/campaign-automation.md), [10](../docs/protocol/10-chat-and-commands.md).
 
 - Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its

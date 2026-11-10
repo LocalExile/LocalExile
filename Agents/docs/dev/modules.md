@@ -91,8 +91,8 @@ Modules sit in three folders, and each module in exactly one.
 | `Modules/Legacy/` | like Core, for GGG's past leagues and content | `PhreciaAscendancies` |
 | `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/`, `PlayerBots`, `NessaDevelopmentTabs` |
 
-A module is not a development or testing tool: those are [mods](modding.md). `Core/Player/Commands` still holds the old
-dev commands until they move to LocalExile-Mods; add no new one there.
+A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
+mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 
 - **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `Ruthless`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
 - **`Game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
@@ -100,7 +100,7 @@ dev commands until they move to LocalExile-Mods; add no new one there.
 - **Settings:** what a module lets the user tune is declared in its `settings.json`, read with `Settings<T>()`, and the user's values are in `data/modules/<id>.json`, as for a mod ([modding](modding.md), "Settings"). A module's settings are the same in every league that lists it.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
-- **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in the `modules.json` of the leagues that want it.
+- **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
 
 ## What a module sees
 
@@ -110,7 +110,7 @@ The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this
 `IModuleContext` is what a mod has, and `ProvideLeagueRules`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcOption`.
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
-A module can alter the game fully: it compiles against the Gateway and its internals (add its assembly to `InternalsVisibleTo` in `GameServer.Gateway.csproj`), with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. Mods see only `GameServer.Modding`. Per-player state in a module's own
+A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own
 `ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
 Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
 the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
