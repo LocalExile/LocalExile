@@ -108,10 +108,12 @@ public sealed class SpellTotemExecutionTests
             Assert.True(Game.SpellTotemCurrent(conn, totem));
             Assert.Equal(1000u, conn.PlayerMana); Assert.Equal(1000u, conn.PlayerLife);
             conn.Totems.Place(totem, 1, 0);
-            var target = new SpawnedMonster("totem-target", new(125, 20, 0), 0, 0, 10000);
-            conn.Monsters[900] = target;
             conn.Clock.Start();
             var actions = new List<byte>();
+            Game.TickSpellTotemsLocked("test", wire.Stream, wire.Ciphers, conn, actions);
+            Assert.Empty(actions); Assert.Equal(0, totem.NextCast); // Empty area keeps the player tick alive.
+            var target = new SpawnedMonster("totem-target", new(125, 20, 0), 0, 0, 10000);
+            conn.Monsters[900] = target;
             Game.TickSpellTotemsLocked("test", wire.Stream, wire.Ciphers, conn, actions);
             Assert.NotEmpty(actions); Assert.True(totem.NextCast > 1);
             conn.Clock.Stop(); actions.Clear();
@@ -120,7 +122,10 @@ public sealed class SpellTotemExecutionTests
             session.AdvanceTo(ProjectileRuntime.Time(3));
             Assert.True(target.Life < 10000, $"life={target.Life} closed={conn.Closed}");
             Assert.Equal(1000u, conn.PlayerMana);
-            totem.NextCast = 0; target.Dead = true;
+            totem.NextCast = 0; target.Dead = true; target.Life = 0;
+            actions.Clear();
+            Game.TickSpellTotemsLocked("test", wire.Stream, wire.Ciphers, conn, actions);
+            Assert.Empty(actions); Assert.Equal(0, totem.NextCast); // Last enemy died; no cast or tick failure.
             conn.Monsters[901] = new("next-target", new(100, 45, 0), 0, 0, 10000);
             Game.TickSpellTotemsLocked("test", wire.Stream, wire.Ciphers, conn, actions);
             Assert.NotEmpty(actions);

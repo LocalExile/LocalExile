@@ -62,7 +62,7 @@ static partial class Game
             if (conn.Paused || now < totem.NextCast) continue;
             var target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
                 && Dist(p.Value.Walk.Position(now), totem.At) <= 60)
-                .MinBy(p => Dist(p.Value.Walk.Position(now), totem.At));
+                .OrderBy(p => Dist(p.Value.Walk.Position(now), totem.At)).FirstOrDefault();
             if (target.Value is null || TotemCastSeconds(conn, totem.SkillId) is not double seconds) continue;
             var aim = target.Value.Walk.Position(now);
             var gem = GemSkillEffects(conn).First(g => g.Id == totem.SkillId);
