@@ -35,35 +35,35 @@ public static partial class Game
             if (!conn.Golems.Restored) return;
             double now = AreaTime(conn);
             text = JsonSerializer.Serialize(conn.Golems.All.Values.Where(g => !g.Monster.Dead || double.IsFinite(g.ReviveAt))
-                .Select(g => new GolemState.Saved(g.Definition.Id, g.Source,
-                    g.Monster.Dead ? 0 : g.Monster.Life / (double)Math.Max(1, g.Monster.MaxLife),
-                    g.Monster.Dead ? Math.Max(.001, g.ReviveAt - now) : 0))
+                .Select(g => SavedGolem(conn, g, now))
                 .Concat(conn.Golems.Waiting.Select(w => w.Saved with { ReviveSeconds = Math.Max(.001, w.At - now) })).ToArray());
         }
         CharacterSaves.ChangeModuleData(CharacterName(conn), GolemSaveKey, _ => text);
     }
 
-    static async Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current)
+    static GolemState.Saved SavedGolem(ClientState conn, GolemState.Golem golem, double now)
     {
-        double release = AreaTime(conn) + (CastMs(conn, definition.Effect, source) ?? 1000) / 1000.0;
-        var lifetime = CombatLifetime;
-        while (true)
-        {
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || !ReferenceEquals(CombatLifetime, lifetime) || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-                    || recovery != conn.ActionInterruptionGeneration || !current()) return false;
-                if (!conn.Paused && AreaTime(conn) >= release) break;
-            }
-            await AreaWait(PlayerUpdateRole.Minions, 25);
-        }
-        await SummonGolem(remote, stream, ciphers, conn, source, definition, aim, current: current);
-        return true;
+        var gem = SupportedSkill(conn, golem.Source);
+        var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
+        return new(golem.Definition.Id, golem.Source,
+            golem.Monster.Dead ? 0 : golem.Monster.Life / (double)Math.Max(1, golem.Monster.MaxLife),
+            golem.Monster.Dead ? Math.Max(.001, golem.ReviveAt - now) : 0,
+            place.ItemId == 0 ? null : place.ItemId, place.ItemId == 0 ? null : place.Socket);
     }
 
+    internal static ushort RestoredGolemSource(ClientState conn, GolemState.Saved saved) =>
+        RestoredMinionSource(conn, saved.Effect, saved.Skill, saved.Host, saved.Socket);
+
+    internal static Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current) =>
+        RepeatSummonCast(conn, source, recovery, current, async () =>
+        {
+            await SummonGolem(remote, stream, ciphers, conn, source, definition, aim, current: current);
+            return true;
+        });
+
     public static async Task<uint> SummonGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false, Func<bool>? current = null)
+        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false, Func<bool>? current = null, uint? replacing = null)
     {
         var supported = SupportedSkill(conn, source);
         if (supported.Effect != definition.Effect || !supported.RequirementsMet || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
@@ -83,10 +83,13 @@ public static partial class Game
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
             ownedSkills: probe.Skills, ownedMaximumLife: maximum, damagedLife: (uint)Math.Clamp(maximum * life, 1, maximum),
             ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true)
+                && (replacing is null || conn.Golems.All.ContainsKey(replacing.Value))
                 && GemSkillEffects(conn).Any(g => g.Id == source && g.Effect == definition.Effect),
             owned: (id, m) =>
             {
-                if (conn.Golems.Replacement(definition.Kind, limit) is { } old) RemoveGolemLocked(conn, old, AreaTime(conn));
+                if (replacing is uint replaced && conn.Golems.All.TryGetValue(replaced, out var original))
+                    RemoveGolemLocked(conn, original, AreaTime(conn));
+                else if (conn.Golems.Replacement(definition.Kind, limit) is { } old) RemoveGolemLocked(conn, old, AreaTime(conn));
                 probe.Id = id; probe.Monster = m; probe.SummonedAt = probe.LastStep = AreaTime(conn);
                 probe.Shield = probe.MaximumShield = GolemShield(probe, player);
                 conn.Golems.All.Add(id, probe);
@@ -134,23 +137,22 @@ public static partial class Game
                 try { saved = JsonSerializer.Deserialize<GolemState.Saved[]>(CharacterSaves.ModuleData(CharacterName(conn), GolemSaveKey) ?? "[]") ?? []; }
                 catch (JsonException) { saved = []; }
             }
-            var gems = GemSkillEffects(conn).ToArray();
             foreach (var old in saved.Take(100))
             {
                 if (GolemData.Find(old.Effect) is not { } definition) continue;
-                var source = gems.FirstOrDefault(g => g.Id == old.Skill && g.Effect == definition.Effect);
-                if (source.Name is null) source = gems.FirstOrDefault(g => g.Effect == definition.Effect);
-                if (source.Name is null) continue;
+                ushort source = RestoredGolemSource(conn, old);
+                if (source == 0) continue;
                 if (old.ReviveSeconds > 0)
-                { conn.Golems.Waiting.Add(new(old with { Skill = source.Id }, now + old.ReviveSeconds)); continue; }
-                await SummonGolem(remote, stream, ciphers, conn, source.Id, definition, NextToPlayer(conn), Math.Max(.001, old.Life), arrival: true);
+                { conn.Golems.Waiting.Add(new(old with { Skill = source }, now + old.ReviveSeconds)); continue; }
+                await SummonGolem(remote, stream, ciphers, conn, source, definition, NextToPlayer(conn), Math.Max(.001, old.Life), arrival: true);
             }
         }
         foreach (var revive in conn.Golems.Waiting.Where(w => conn.PlayerLife > 0 && now >= w.At).ToArray())
         {
             conn.Golems.Waiting.Remove(revive);
-            if (GolemData.Find(revive.Saved.Effect) is { } definition)
-                await SummonGolem(remote, stream, ciphers, conn, revive.Saved.Skill, definition, NextToPlayer(conn));
+            if (RestoredGolemSource(conn, revive.Saved) is ushort source and not 0
+                && GolemData.Find(revive.Saved.Effect) is { } definition)
+                await SummonGolem(remote, stream, ciphers, conn, source, definition, NextToPlayer(conn));
         }
         // Deadlines run at the companion cadence, independently of the slower stat-source refresh.
         GolemState.Golem[] due;
@@ -192,7 +194,7 @@ public static partial class Game
                     if (level != golem.Monster.Level)
                     {
                         rebuild.Add((golem, golem.Monster.Life / (double)Math.Max(1, golem.Monster.MaxLife)));
-                        RemoveGolemLocked(conn, golem, now); continue;
+                        continue;
                     }
                     RefreshGolemLocked(conn, golem, player);
                 }
@@ -203,7 +205,7 @@ public static partial class Game
             await RefreshGolemBuffs(remote, stream, ciphers, conn);
         }
         foreach (var (golem, fraction) in rebuild)
-            await SummonGolem(remote, stream, ciphers, conn, golem.Source, golem.Definition, NextToPlayer(conn), fraction, arrival: true);
+            await SummonGolem(remote, stream, ciphers, conn, golem.Source, golem.Definition, NextToPlayer(conn), fraction, arrival: true, replacing: golem.Id);
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;

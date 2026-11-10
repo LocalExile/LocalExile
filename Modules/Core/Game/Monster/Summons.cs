@@ -9,17 +9,42 @@ public static partial class Game
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 
-    static void SaveSummons(ClientState conn)
+    internal static void SaveSummons(ClientState conn)
     {
         if (!conn.Summons.Restored) return;
         string text;
         lock (conn.Monsters)
             text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
                     && conn.Summons.Definitions[g.Id].Persistent)
-                .Select(g => new SummonedMinions.Saved(g.Definition.Id, g.Source, g.Monster.Variety!.Id,
-                    g.Monster.Life / (double)Math.Max(1, g.Monster.MaxLife), g.Equipment.Count > 0 ? g.Equipment : null)).ToArray());
+                .Select(g => SavedSummon(conn, g)).ToArray());
         CharacterSaves.ChangeModuleData(CharacterName(conn), SummonSaveKey, _ => text);
         CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => JsonSerializer.Serialize(conn.Summons.GuardianEquipment));
+    }
+
+    static SummonedMinions.Saved SavedSummon(ClientState conn, GolemState.Golem fighter)
+    {
+        var gem = SupportedSkill(conn, fighter.Source);
+        var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
+        return new(fighter.Definition.Id, fighter.Source, fighter.Monster.Variety!.Id,
+            fighter.Monster.Life / (double)Math.Max(1, fighter.Monster.MaxLife),
+            fighter.Equipment.Count > 0 ? fighter.Equipment : null,
+            place.ItemId == 0 ? null : place.ItemId, place.ItemId == 0 ? null : place.Socket);
+    }
+
+    internal static ushort RestoredSummonSource(ClientState conn, SummonedMinions.Saved saved) =>
+        RestoredMinionSource(conn, saved.Effect, saved.Source, saved.Host, saved.Socket);
+
+    static ushort RestoredMinionSource(ClientState conn, string effect, ushort source, uint? host, int? socket)
+    {
+        var candidates = GemSkillEffects(conn).Where(g => SkillsFor(conn).EffectId(g.Effect) == effect).ToArray();
+        if (host is uint item && socket is int index)
+        {
+            var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => p.ItemId == item && p.Socket == index);
+            return place.Gem is null ? (ushort)0 : candidates.FirstOrDefault(g =>
+                ReferenceEquals(SupportedSkill(conn, g.Id).SourceGem, place.Gem)).Id;
+        }
+        var exact = candidates.FirstOrDefault(g => g.Id == source);
+        return exact.Name is not null ? exact.Id : candidates.FirstOrDefault().Id;
     }
 
     public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
@@ -49,44 +74,33 @@ public static partial class Game
             .MinBy(m => Dist(m.Walk.Position(AreaTime(conn)), aim));
     }
 
-    static async Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current)
-    {
-        var gem = SupportedSkill(conn, source);
-        double release = AreaTime(conn) + (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d;
-        var lifetime = CombatLifetime;
-        while (true)
+    internal static Task<bool> CastSummon(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current) =>
+        RepeatSummonCast(conn, source, recovery, current, async () =>
         {
-            lock (conn.Monsters)
+            var gem = SupportedSkill(conn, source);
+            int count = definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
+                "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n))) : 1;
+            for (int i = 0; i < count && current(); i++)
             {
-                if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || conn.Closed || conn.LeavingArea
-                    || conn.PlayerLife == 0 || recovery != conn.ActionInterruptionGeneration) return false;
-                if (!conn.Paused && AreaTime(conn) >= release) break;
+                if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
+                    lock (conn.Monsters)
+                        if (conn.Summons.Fighters.Values.FirstOrDefault(g => g.Source == source && g.Definition.Id == definition.Id && !g.Monster.Dead) is { } reaper
+                            && reaper.Abilities.FirstOrDefault(a => a.Effect == 10584) is { } ultimate)
+                        {
+                            GolemReserveLocked(conn, reaper, ultimate, target, conn.Monsters.GetValueOrDefault(target), aim, AreaTime(conn));
+                            return true;
+                        }
+                await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target, current: current);
             }
-            await AreaWait(PlayerUpdateRole.Minions, 25);
-        }
-        int count = definition.Family == "Skeleton" ? Math.Max(1, new[] { "number_of_melee_skeletons_to_summon",
-            "number_of_archer_skeletons_to_summon", "number_of_mage_skeletons_to_summon" }.Sum(n => GolemStat(gem.Stats, n))) : 1;
-        for (int i = 0; i < count && current(); i++)
-        {
-            if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
-                lock (conn.Monsters)
-                    if (conn.Summons.Fighters.Values.FirstOrDefault(g => g.Source == source && g.Definition.Id == definition.Id && !g.Monster.Dead) is { } reaper
-                        && reaper.Abilities.FirstOrDefault(a => a.Effect == 10584) is { } ultimate)
-                    {
-                        GolemReserveLocked(conn, reaper, ultimate, target, conn.Monsters.GetValueOrDefault(target), aim, AreaTime(conn));
-                        return true;
-                    }
-            await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target, current: current);
-        }
-        SaveSummons(conn);
-        return true;
-    }
+            SaveSummons(conn);
+            return true;
+        });
 
     public static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
-        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null)
+        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null)
     {
         var gem = SupportedSkill(conn, source);
         if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
@@ -140,12 +154,15 @@ public static partial class Game
             ownedLooks: SummonLooks(fighter),
             ownedAdmission: () => animated?.Ground is not { } item || conn.Instance.Ground.Take(animated.Id, item) is not null,
             ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
+                && (replacing is null || conn.Summons.Fighters.ContainsKey(replacing.Value))
                 && GemSkillInstanceDisabled(conn, gem.Effect, source) is null,
             owned: (id, monster) =>
             {
                 if (consumed is not null) consumed.CorpseConsumed = true;
                 if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed"));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
+                if (replacing is uint oldId && conn.Summons.Fighters.TryGetValue(oldId, out var old))
+                    RemoveSummonLocked(conn, old, AreaTime(conn));
                 while (conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == definition.Family && !g.Monster.Dead) >= limit)
                     RemoveSummonLocked(conn, conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead)
                         .MinBy(g => g.SummonedAt)!, AreaTime(conn));
@@ -189,8 +206,8 @@ public static partial class Game
                 foreach (var old in restore)
                     if (SummonData.Find(old.Effect) is { Persistent: true } definition)
                     {
-                        var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillsFor(conn).EffectId(g.Effect) == old.Effect);
-                        if (gem.Name is not null) await SummonFighter(remote, stream, ciphers, conn, gem.Id, definition,
+                        ushort source = RestoredSummonSource(conn, old);
+                        if (source != 0) await SummonFighter(remote, stream, ciphers, conn, source, definition,
                             NextToPlayer(conn), restoredVariety: old.Variety, life: old.Life, restoredEquipment: old.Equipment);
                     }
             }
@@ -229,7 +246,7 @@ public static partial class Game
         foreach (var (old, definition) in rescaled)
             if (await SummonFighter(remote, stream, ciphers, conn, old.Source, definition, old.Monster.Walk.Position(now),
                 restoredVariety: old.Monster.Variety!.Id, life: old.Monster.Life / (double)old.Monster.MaxLife,
-                restoredEquipment: old.Equipment.Count > 0 ? old.Equipment : null, remaining: Math.Max(0, state.Until[old.Id] - now)) != 0)
+                restoredEquipment: old.Equipment.Count > 0 ? old.Equipment : null, remaining: Math.Max(0, state.Until[old.Id] - now), replacing: old.Id) != 0)
                 lock (conn.Monsters)
                 { if (state.Fighters.ContainsKey(old.Id)) RemoveSummonLocked(conn, old, now); changed = true; }
         if (changed) SaveSummons(conn);
