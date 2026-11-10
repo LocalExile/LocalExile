@@ -7,9 +7,16 @@ public static partial class Game
     public static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
     {
         var sources = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
-        if (SkillsFor(conn).CooldownMs(effect, level) <= 0 || sources.Length != 1) return null;
-        var supported = SupportedSkill(conn, sources[0].Id);
-        return WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, supported.Level,
+        if (SkillsFor(conn).CooldownMs(effect, level) <= 0 || sources.Length == 0) return null;
+        ushort source = conn.CooldownSources.GetValueOrDefault(effect);
+        return CooldownForSkill(conn, sources.FirstOrDefault(g => g.Id == source).Name is not null ? source : sources[0].Id);
+    }
+
+    internal static SingleUseCooldown? CooldownForSkill(ClientState conn, ushort skillId)
+    {
+        var supported = SupportedSkill(conn, skillId);
+        if (supported.Effect < 0) return null;
+        return WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, supported.Effect, supported.Level,
             CharacterPlayerStats(conn), supported.Stats));
     }
 
@@ -21,8 +28,17 @@ public static partial class Game
             state = new(now, plan.RecoveryRate, double.IsFinite(legacyRemaining)
                 ? legacyRemaining * 1000 * (plan.RecoveryRate > 0 ? plan.RecoveryRate : 1) : plan.BaseMilliseconds,
                 plan.BaseMilliseconds);
+            // 36 is the native per-skill group; it never links unrelated effects.
+            if (legacyRemaining == 0 && plan.Group != 36)
+            {
+                var debt = conn.SingleUseCooldowns.Where(e => conn.CooldownGroups.GetValueOrDefault(e.Key, 36) == plan.Group)
+                    .Select(e => e.Value).Select(s => { s.Refresh(now, s.Rate); return s; })
+                    .Where(s => !s.FullyRecovered).OrderByDescending(s => s.SpentUses).FirstOrDefault();
+                if (debt is not null) state.InheritDebt(debt, now, plan);
+            }
             conn.SingleUseCooldowns[effect] = state;
         }
+        conn.CooldownGroups[effect] = plan.Group;
         state.Refresh(now, plan.RecoveryRate);
         state.Capacity(plan.Uses);
         return state;
@@ -50,6 +66,7 @@ public static partial class Game
             using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             ticket = null;
             SingleUseCooldownState? state = null;
+            var sharedUses = new List<(SingleUseCooldownState State, int Version, ushort Skill)>();
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
                 || requestedAt is double asked && PlayerActionBlocked(conn, asked, conn.Clock.Elapsed.TotalSeconds)
                 || actionToken is int original && conn.ActionCount != original) return false;
@@ -75,14 +92,18 @@ public static partial class Game
                 }
             }
             bool bypassed = false;
+            if (reserve && vaal is null && skillId is ushort paying
+                && SupportedReservation(conn, paying) is null && !CanPaySkillCost(conn, paying)) return false;
             if (plan is { } cooldown)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                // A use the player cannot pay for is refused here, before it spends a cooldown use or a bypass charge and
-                // before its side effects move the player (a movement skill's landing, Flicker Strike's teleport): its
-                // cost is paid only later, when its effect starts (PayMana).
-                if (reserve && skillId is ushort paying && !CanPaySkillCost(conn, paying)) return false;
                 state = CooldownStateLocked(conn, effect, cooldown, now);
+                var peers = cooldown.Group == 36 ? [] : GemSkillEffects(conn).Where(g => g.Effect != effect)
+                    .GroupBy(g => g.Effect).Select(g => g.First())
+                    .Select(g => (Gem: g, Plan: CooldownFor(conn, g.Effect, g.Level, g.Quality)))
+                    .Where(p => p.Plan is { } peer && peer.Group == cooldown.Group)
+                    .Select(p => (p.Gem, Plan: p.Plan!.Value,
+                        State: CooldownStateLocked(conn, p.Gem.Effect, p.Plan.Value, now))).ToArray();
                 if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
@@ -92,12 +113,23 @@ public static partial class Game
                     bypassed = true;
                 }
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
+                if (reserve && !bypassed)
+                {
+                    if (skillId is ushort source) conn.CooldownSources[effect] = source;
+                    foreach (var peer in peers)
+                    {
+                        // A full queue is not extended by another group member's use.
+                        if (peer.State.Ready) peer.State.TryUse(now, peer.Plan);
+                        conn.SkillReadyAt[peer.Gem.Effect] = now + peer.State.RemainingSeconds;
+                        sharedUses.Add((peer.State, peer.State.UseVersion, peer.Gem.Id));
+                    }
+                }
             }
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
             // A bypassed use spends no cooldown use, so its ticket follows none.
             if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
-                bypassed ? null : state, bypassed ? 0 : state!.UseVersion);
+                bypassed ? null : state, bypassed ? 0 : state!.UseVersion) { SharedUses = sharedUses };
             return true;
         }
     }
@@ -115,7 +147,7 @@ public static partial class Game
     {
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
         var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
-            g.Count() != 1 ? null : CooldownFor(conn, g.Key, g.First().Level, g.First().Quality));
+            CooldownFor(conn, g.Key, g.First().Level, g.First().Quality));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
@@ -141,8 +173,7 @@ public static partial class Game
             var synchronized = new List<SingleUseCooldownState>();
             foreach (var (id, effect) in currentSkills())
             {
-                if (!conn.ClientSkillIds.Contains(id) || !conn.SingleUseCooldowns.TryGetValue(effect, out var state)
-                    || state.NativeSkillId != id) continue;
+                if (!conn.ClientSkillIds.Contains(id) || !conn.SingleUseCooldowns.TryGetValue(effect, out var state)) continue;
                 state.Refresh(now, state.Rate);
                 if (!state.NeedsNativeRefresh) continue;
                 updates.Add(new(id, state.FullyRecovered ? 0 : (float)(state.RemainingBaseMilliseconds / 1000),

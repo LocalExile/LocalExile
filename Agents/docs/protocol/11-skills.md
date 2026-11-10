@@ -1491,10 +1491,11 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   A projectile's creation gate ends action cancellation; released flights continue with their existing area lifetime.
   Ordinary stored uses and Second Wind share the recovery state; spent uses recover one at a time.
   The first native queue entry retains progress, while later entries retain their full base-time budget.
-  Duplicate same-effect gems, other extra-use sources, flat/override and pause-while-active mechanics retain legacy
-  `SkillReadyAt` raw deadlines.
-  Shared cooldown groups, bypass, conditional/enemy recovery, typed/more recovery and official tick equivalence are
-  outside this generic one-use implementation.
+  Same-effect gems retain shared recharge debt; recovery/capacity use the actual admitted socket instance.
+  Native GEPL groups debit each available member once; group 36 stays per-effect. Peer progress is published only
+  after the admitted use acknowledgement. Equipping a new group member inherits outstanding recovery debt.
+  Unpayable ordinary uses are rejected before cooldown reservation and movement. Other extra-use sources,
+  flat/override, pause-while-active, bypass, conditional/enemy recovery and official tick equivalence remain partial.
   A zero recovery rate stalls a spent use.
   Extreme input sums are bounded to avoid signed native `percent + 100` overflow.
 

@@ -1182,6 +1182,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Wire, active/expired/zero-rate and queued encrypted-send checks also pass.
   Multi-use, duplicate same-effect gems, shared groups, extra uses, typed/conditional/more recovery and official
   tick equivalence remain outside this slice.
+  Stored uses, duplicate-gem source resolution, native shared groups and unpayable-use preflight have regression coverage.
+  Native composition checks are pending; other extra uses, bypass, typed/conditional/more recovery remain partial.
   Skill records carry the GEPL Cooldown and the stats the cooldown count, and the server refuses a skill until its
   cooldown is over.
   Ground-target C→S 0x190 now frames its 12 bytes and routes ordinary Frostblink through mana/cooldown acceptance.

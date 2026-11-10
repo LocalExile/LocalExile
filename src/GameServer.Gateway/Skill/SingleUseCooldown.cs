@@ -1,6 +1,6 @@
 /// <summary>Generic recovery for ordinary stored uses. The native record retains BaseMilliseconds and
 /// consumes base-time units at RecoveryRate; it must not receive a pre-divided cooldown.</summary>
-public readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPercent, int Uses = 1)
+public readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPercent, int Uses = 1, int Group = 36)
 {
     public double RecoveryRate => Math.Max(0, 1 + RecoveryPercent / 100.0);
 
@@ -34,7 +34,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
             recovery += (long)Get(player, "golem_cooldown_recovery_+%") + Get(own, "golem_cooldown_recovery_+%");
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
-        return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
+        return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses, skills.CooldownGroup(effect, level));
     }
 }
 
@@ -58,6 +58,20 @@ public sealed class SingleUseCooldownState(double at, double rate, double remain
 
     // A capacity change never erases recharge debt (including when a support is removed then re-linked).
     public void Capacity(int uses) => Uses = Math.Max(1, uses);
+
+    // Equipping a new member of a cooling group cannot grant a fresh pool. Keep the existing recovery fraction.
+    public void InheritDebt(SingleUseCooldownState source, double now, SingleUseCooldown plan)
+    {
+        source.Refresh(now, source.Rate);
+        if (source.FullyRecovered) return;
+        Capacity(plan.Uses);
+        SpentUses = Math.Min(Uses, source.SpentUses);
+        TotalBaseMilliseconds = plan.BaseMilliseconds;
+        RemainingBaseMilliseconds = source.TotalBaseMilliseconds > 0
+            ? source.RemainingBaseMilliseconds / source.TotalBaseMilliseconds * plan.BaseMilliseconds : plan.BaseMilliseconds;
+        lastAt = now;
+        spentRate = Rate = plan.RecoveryRate;
+    }
 
     public void Refresh(double now, double rate)
     {

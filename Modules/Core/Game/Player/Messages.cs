@@ -168,7 +168,7 @@ public static partial class Game
                     {
                         int walkAction = 0;
                         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                            CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                            CooldownForSkill(conn, use.SkillId), false,
                             () => { at = Math.Max(at, ProjectileWorldTime(conn)); walkAction = Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
                         await Send(remote, stream, ciphers,
@@ -234,7 +234,7 @@ public static partial class Game
                 if (cast && gem.Name is not null)
                 {
                     if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                        CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+                        CooldownForSkill(conn, use.SkillId),
                         false, StartAction, out cooldownUse, requestedAt: at)) continue;
                 }
                 else
@@ -259,11 +259,15 @@ public static partial class Game
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 Mark("cast");
                 bool acknowledged = false;
-                Func<Task> echo = () => Send(remote, stream, ciphers,
+                Func<Task> echo = async () =>
+                {
+                    await Send(remote, stream, ciphers,
                     [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
                     $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
                     still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                         () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+                    if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+                };
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
                 else await echo();
                 Mark("echo");
