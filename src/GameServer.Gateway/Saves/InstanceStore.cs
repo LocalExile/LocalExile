@@ -163,9 +163,17 @@ public sealed class InstanceGround
         lock (_items) return births.GetValueOrDefault(id) > observers.GetValue(observer, _ => new(birthVersion)).Since;
     }
 
-    public void Restore(uint id, WorldItemObject item)
+    public void Restore(uint id, WorldItemObject item) => Restore(id, item, null, true);
+
+    public void Restore(uint id, WorldItemObject item, object? by, bool shared)
     {
-        lock (_items) { _items[id] = item; births.Remove(id); }
+        lock (_items)
+        {
+            _items[id] = item;
+            births.Remove(id);
+            if (by is not null) _by[id] = by;
+            if (!shared) _private.Add(id);
+        }
     }
 
     // Who put each item down (the client already shown it) and the items only that player sees (quest items, the start
