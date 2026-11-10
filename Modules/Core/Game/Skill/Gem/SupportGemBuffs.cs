@@ -77,6 +77,7 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
+            stats = WithTriggeredGuard(conn, stats);
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
             void Add(string name, int value)
             {

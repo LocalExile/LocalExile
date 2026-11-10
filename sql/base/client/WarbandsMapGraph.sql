@@ -1,0 +1,6 @@
+-- Client table WarbandsMapGraph (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "WarbandsMapGraph" (
+    "_row" INTEGER PRIMARY KEY,
+    "WorldAreasKey" INTEGER,
+    "Connections" JSON
+);

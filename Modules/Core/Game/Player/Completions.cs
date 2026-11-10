@@ -1,3 +1,4 @@
+using GameServer.Core;
 
 static partial class Game
 {
@@ -17,8 +18,8 @@ static partial class Game
         "gem" => Items.GemNames().Order(StringComparer.OrdinalIgnoreCase).Select(n => (n, "")),
         "stat" => Stats.Names.Select((n, i) => (n, $"key {i + 1}")),
         "npc" => Named(Npcs.Value.Rows.Where(n => n.Supported), n => n.Name, n => n.Id),
-        "quest_flag" => File.Exists(Path.Combine("data", "tables", "QuestFlags.json"))
-            ? Quests.ParseRows(File.ReadAllText(Path.Combine("data", "tables", "QuestFlags.json"))).Keys.Select(id => (id, ""))
+        "quest_flag" => ClientTables.Exists(Path.Combine("data", "tables", "QuestFlags.json"))
+            ? Quests.ParseRows(ClientTables.ReadAllText(Path.Combine("data", "tables", "QuestFlags.json"))).Keys.Select(id => (id, ""))
             : [],
         _ => null,
     };

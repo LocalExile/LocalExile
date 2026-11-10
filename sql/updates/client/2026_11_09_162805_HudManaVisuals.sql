@@ -1,0 +1,4 @@
+-- Client table HudManaVisuals: all 2 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "HudManaVisuals" ("_row", "Id", "OrbContent", "OrbTrim", "HUDContent", "HUDTrim", "FlaskContent", "__col6") VALUES
+(0, 'Default', 'Art/2DArt/UIImages/InGame/OrbManaContent', 'Art/2DArt/UIImages/InGame/OrbManaTrim', 'Art/2DArt/UIImages/InGame/Console/HUD_BarManaContent', 'Art/2DArt/UIImages/InGame/Console/HUD_BarManaTrim', '', 0),
+(1, 'MtxGhostVeilArmourSet', 'Art/2DArt/UIImages/InGame/MTX/GhostVeil/OrbLifeContentGhostVeil', 'Art/2DArt/UIImages/InGame/MTX/GhostVeil/OrbLifeTrimGhostVeil', 'Art/2DArt/UIImages/InGame/MTX/GhostVeil/HUD_BarManaContentGhostVeil', 'Art/2DArt/UIImages/InGame/MTX/GhostVeil/HUD_BarManaTrimGhostVeil', 'Art/2DArt/UIEffects/Mtx/GhostVeilManaFlaskContents.dds', 0);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Device-recipe fights the area does not play by itself (21-hideouts.md §5). Maven invitations spawn
@@ -130,7 +131,7 @@ sealed class MapBossFights
         var areaBosses = AreaBosses(folder, varieties);
         var invites = new Dictionary<int, Invitation>();
         string fights = Path.Combine(folder, "tables", "MavenFights.json");
-        if (File.Exists(fights))
+        if (ClientTables.Exists(fights))
         {
             using var doc = GameTables.Open(fights);
             foreach (var row in doc.RootElement.EnumerateArray())
@@ -160,7 +161,7 @@ sealed class MapBossFights
         var items = ItemIds(folder);
         var stones = new List<Stone>();
         string slots = Path.Combine(folder, "tables", "AtlasVoidstoneSlots.json");
-        if (File.Exists(slots))
+        if (ClientTables.Exists(slots))
         {
             using var doc = GameTables.Open(slots);
             int i = 0;
@@ -198,7 +199,7 @@ sealed class MapBossFights
     {
         var map = new Dictionary<int, string>();
         string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!File.Exists(path)) return map;
+        if (!ClientTables.Exists(path)) return map;
         using var doc = GameTables.Open(path);
         int row = 0;
         foreach (var v in doc.RootElement.EnumerateArray())
@@ -223,7 +224,7 @@ sealed class MapBossFights
     {
         var list = new List<(int, string, IReadOnlyList<string>)>();
         string path = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(path)) return list;
+        if (!ClientTables.Exists(path)) return list;
         using var doc = GameTables.Open(path);
         int i = 0;
         foreach (var a in doc.RootElement.EnumerateArray())
@@ -242,7 +243,7 @@ sealed class MapBossFights
         var bosses = new List<string>();
         string nodes = Path.Combine(folder, "tables", "AtlasNode.json");
         string areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(nodes) || !File.Exists(areas)) return bosses;
+        if (!ClientTables.Exists(nodes) || !ClientTables.Exists(areas)) return bosses;
         using var n = GameTables.Open(nodes);
         using var a = GameTables.Open(areas);
         int areaCount = a.RootElement.GetArrayLength();
@@ -263,7 +264,7 @@ sealed class MapBossFights
     {
         var map = new Dictionary<int, string>();
         string path = Path.Combine(folder, "tables", "QuestFlags.json");
-        if (!File.Exists(path)) return map;
+        if (!ClientTables.Exists(path)) return map;
         using var doc = GameTables.Open(path);
         int row = 0;
         foreach (var f in doc.RootElement.EnumerateArray())
@@ -275,7 +276,7 @@ sealed class MapBossFights
     {
         var map = new Dictionary<int, string>();
         string path = Path.Combine(folder, "tables", "BaseItemTypes.json");
-        if (!File.Exists(path)) return map;
+        if (!ClientTables.Exists(path)) return map;
         using var doc = GameTables.Open(path);
         int row = 0;
         foreach (var t in doc.RootElement.EnumerateArray())

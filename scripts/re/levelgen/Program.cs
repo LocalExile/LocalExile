@@ -394,7 +394,7 @@ static void QuestObjectsList(string filter, uint seed, bool rooms = false)
     var files = Files();
     string root = Root();
     var levels = new Dictionary<string, int>(StringComparer.Ordinal);
-    using (var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json"))))
+    using (var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json"))))
         foreach (var row in doc.RootElement.EnumerateArray())
             if (row.GetProperty("Id").GetString() is { } id) levels.TryAdd(id, row.GetProperty("AreaLevel").GetInt32());
     static bool Plain(string type) => type.Length == 0 || type == "Metadata/MiscellaneousObjects/Doodad"

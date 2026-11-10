@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.CurrencyExchange;
 
@@ -22,8 +23,8 @@ sealed class ExchangeItems
 
     static IReadOnlyList<(string, uint, bool)> Load()
     {
-        using var types = JsonDocument.Parse(File.ReadAllBytes("data/tables/BaseItemTypes.json"));
-        using var rows = JsonDocument.Parse(File.ReadAllBytes("data/tables/CurrencyExchange.json"));
+        using var types = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/BaseItemTypes.json"));
+        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/CurrencyExchange.json"));
         var list = new List<(string, uint, bool)>();
         foreach (var row in rows.RootElement.EnumerateArray())
         {

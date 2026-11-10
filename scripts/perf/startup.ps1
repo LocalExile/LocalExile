@@ -21,8 +21,8 @@ $out = Join-Path $repo 'artifacts\perf'
 New-Item -ItemType Directory -Force $out | Out-Null
 $bin = "bin\$Configuration\net10.0"
 $counters = Join-Path $repo 'artifacts\tools\dotnet-counters.exe'
-$source = Join-Path $repo 'data\validation-saves.db'
-if (-not (Test-Path $source)) { throw "no data\validation-saves.db to copy (the perf run never uses data\saves.db)" }
+$source = Join-Path $repo 'data\validation-characters.db'
+if (-not (Test-Path $source)) { throw "no data\validation-characters.db to copy (the perf run never uses data\characters.db; validation-characters-auth.db holds its accounts)" }
 
 function Wait-Line($proc, $log, $pattern, $timeoutSeconds) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -58,11 +58,12 @@ function Measure-Process($proc) {
 # the later runs are ordinary restarts; the medians use those.
 $db = Join-Path $out 'startup-saves.db'
 Copy-Item $source $db -Force
+Copy-Item ($source -replace '.db$', "-auth.db") ($db -replace '.db$', "-auth.db") -Force
 $results = @()
 for ($run = 1; $run -le $Runs; $run++) {
     $started = @()
     $saved = @{}
-    $vars = @{ Game_SAVES_DB = $db; Game_LOGIN_PORT = "$($PortBase + 1)"; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)";
+    $vars = @{ Game_CHARACTERS_DB = $db; Game_LOGIN_PORT = "$($PortBase + 1)"; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)";
                Game_GATEWAY_PORT = "$($PortBase + 3)"; Game_DEV_PORT = "$($PortBase + 4)" }
     foreach ($k in $Env.Keys) { $vars[$k] = $Env[$k] }   # -Env may also override these
     foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
@@ -88,7 +89,7 @@ for ($run = 1; $run -le $Runs; $run++) {
         foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
     }
 }
-Remove-Item $db, "$db-wal", "$db-shm" -ErrorAction SilentlyContinue
+Remove-Item $db, "$db-wal", "$db-shm", ($db -replace '.db$', "-auth.db*") -ErrorAction SilentlyContinue
 $results | Format-Table -AutoSize | Out-String -Width 220
 $restarts = @($results | Where-Object Run -gt 1)
 if ($restarts.Count -eq 0) { $restarts = $results }
