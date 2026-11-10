@@ -119,7 +119,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
-  Optional [MCP control](../../Modules/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
+  Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
   Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
   trade, chat, ascendancy builds and advanced tactical AI remain open.
   See [player bots](../docs/dev/player-bots.md).

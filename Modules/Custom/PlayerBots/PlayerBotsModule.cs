@@ -40,7 +40,7 @@ public sealed class PlayerBotsModule : IModule
             {
                 BotInvite.Joined => $"{name} joined your party.",
                 BotInvite.Refused => $"Five bots already follow you, so {name} stayed behind.",
-                _ => $"No bot you can see is called \"{name}\" (names are in Modules/PlayerBots/state/bots.json).",
+                _ => $"No bot you can see is called \"{name}\" (names are in Modules/Custom/PlayerBots/state/bots.json).",
             });
         });
         module.OnChatCommand("botleave", "/botleave (the bots following you leave and go back to their quests)", async cmd =>

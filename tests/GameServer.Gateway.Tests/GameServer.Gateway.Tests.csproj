@@ -20,11 +20,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
-    <ProjectReference Include="..\..\Modules\PlayerBots\PlayerBots.csproj" />
-    <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
-    <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
-    <ProjectReference Include="..\..\Modules\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
-    <ProjectReference Include="..\..\Modules\PhreciaAscendancies\PhreciaAscendancies.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\PlayerBots\PlayerBots.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
+    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
+    <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
     <!-- The campaign oracle plays the act tables the QuestObjects module registers (QuestEngineTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <!-- The campaign driver's dev commands (CampaignCommandTests). -->

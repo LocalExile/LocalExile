@@ -31,7 +31,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Gem attacks still need their own accuracy rolls before these target conditions can affect them.
 - **Known:** pinned ordinary/Phrecia topology is available as
   [read-only analysis artifacts](../docs/dev/passive-graph-data.md), without installing a client graph.
-- **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/PhreciaAscendancies`.
+- **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/Legacy/PhreciaAscendancies`.
   Its league composition is independent of Idols; the latter has client data but no gameplay implementation.
   Behemoth now supplies its descriptor and sources with generation-bound shared Rampage/Vaal engines.
   Whisperer supplies its exact descriptor and generic Mana/Recoup/Blind consumers after the actual Behemoth merge.
