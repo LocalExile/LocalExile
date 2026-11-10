@@ -31,6 +31,9 @@ abstract record ChargeEvent
 
     /// <summary>The /charges command sets a type's count; null type with 0 clears all.</summary>
     public sealed record Set(ChargeType? Type, int Count) : ChargeEvent;
+
+    /// <summary>A skill spends <paramref name="Count"/> charges of a type (Discharge): never below the minimum.</summary>
+    public sealed record Spend(ChargeType Type, int Count, string Why) : ChargeEvent;
 }
 
 /// <summary>
@@ -119,6 +122,9 @@ static class ChargeGains
                 if (g.Count > 0) gains.Add(new(g.Type, g.Count, g.Why));
                 return gains;
             case ChargeEvent.Set:
+                return gains;
+            case ChargeEvent.Spend spend:
+                if (spend.Count > 0) gains.Add(new(spend.Type, -spend.Count, spend.Why));
                 return gains;
         }
         var skill = (e as ChargeEvent.Hit)?.Skill;
