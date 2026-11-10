@@ -68,7 +68,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   file, a changed merged file refused. `Config/localexile.conf` (written with the defaults on the first start) holds the addresses, ports and client folder. CI builds every
   database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
   databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
-  migrated and played on. Not yet: the pending rename on `main` (needs the ruleset bypass), and the generated files
+  migrated and played on. Not yet: the pending rename on `main` (set up with a deploy key, not yet run), and the generated files
   served from `client.db` in a real-client session.
   Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton

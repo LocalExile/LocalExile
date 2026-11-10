@@ -1,7 +1,8 @@
 # After a merge to main: each sql/updates/pending_<db>/<name>.sql becomes sql/updates/<db>/YYYY_MM_DD_HHMMSS_<name>.sql,
 # in name order and after every merged file (the AzerothCore way; Agents/docs/dev/databases.md). The servers' updater
 # recognises a renamed file by its hash, so a database that ran it while pending only renames its record.
-# It pushes one commit to main with the workflow's token: the main ruleset must let GitHub Actions bypass it.
+# It pushes one commit to main with the repository's write deploy key (secret SQL_PENDING_DEPLOY_KEY): the main ruleset
+# lets deploy keys bypass it, since GitHub Actions' own token cannot be a ruleset bypass actor.
 name: SQL pending updates
 
 on:
@@ -11,7 +12,7 @@ on:
       - "sql/updates/pending_*/**"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: sql-pending
@@ -25,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          ssh-key: ${{ secrets.SQL_PENDING_DEPLOY_KEY }}
 
       - name: Name the pending updates
         run: |
