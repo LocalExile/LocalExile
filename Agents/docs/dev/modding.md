@@ -162,6 +162,7 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 | `UseChatServer(host, port)` | until it unloads: global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one | |
 | `UseExchangeOptions(options)` | until it unloads: the [Currency Exchange](../protocol/29-currency-exchange.md) trades by these options | |
+| `CharacterBuilds.Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes | `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
 | `PublishExchangeRates(json)` | any time: new rates for the Currency Exchange, which the Gateway saves | |
 
 A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,

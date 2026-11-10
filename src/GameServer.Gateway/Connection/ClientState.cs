@@ -385,6 +385,8 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 
 public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
+    public readonly CharacterBuildImports.Session BuildImport = new();
+    public bool BuildFinalized;
     public bool Controlled, ControlledPrepared;
     public double ControlledNextAction, ControlledDeadSince = double.NaN;
     public AreaLayout Layout { get; private set; } = layout;

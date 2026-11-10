@@ -821,6 +821,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         public ModManifest Manifest => mod.Manifest;
         public IModuleLifetime Lifetime => mod.Lifetime;
         public string Folder => mod.Folder;
+        public ICharacterBuilds CharacterBuilds { get; } = new CharacterBuildApi(mod.Lifetime);
         public void Log(string message) => host.Write($"{host.Tag} {mod.Manifest.Id}: {message}");
 
         IDisposable Add<T>(HookList<T> list, T run)
