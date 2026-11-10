@@ -2791,6 +2791,9 @@ failed I/O, allocation limits, actual official values and every skill's successf
   by +0x82 percent. The client reads the BuffDefinitions row in memory as the
   .dat row (BuffVisualsKey at +0x55). **S→C 0x1c2** (class `0x1435e8418`): object header, u16 buff instance: removes it.
   The Buffs component has no 0x2bc update reader; its creation blob holds the same entries ([04](04-player-entity.md)).
+  Guard backends also require additional-data element 0: the remaining absorption capacity (or Immortal Call's
+  consumed charge count). Getter `0x141f84000` dereferences Buff `+0x80` without a null check; an empty list
+  crashes the HUD. Guard definitions are not `IsRecovery`, so no inline stat values precede that list.
   The generic source-object/skill labels above are context-dependent: the concrete RapidFireCharge and
   Anticipation repeat backends consume retained Buff `+40/+42/+28` as count, last sequence and a consumed-count
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count

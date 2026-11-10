@@ -974,11 +974,14 @@ static partial class Game
 
     // Keep source-gem requirements and accepted supports local to the actual requested instance.
     // A second gem with the same GrantedEffects row may have a different level or link group.
-    internal static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId)
+    internal static string? GemSkillInstanceDisabled(ClientState conn, int effect, ushort skillId, bool triggered = false)
     {
         var gem = SupportedSkill(conn, skillId);
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted) return "skill is unavailable";
         if (GolemStat(gem.Stats, "cannot_cast_curses") != 0) return "this curse is triggered by Hextouch";
+        if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken")
+            && !DamageTriggerExecutable(conn, skillId, gem)) return "this CWDT payload has no server executor";
+        if (!triggered && TriggerOnlyReason(gem) is { } trigger) return trigger;
         if ((ActorSkillInstanceDisabled(conn, effect, skillId) ?? WeaponRestricted(conn, effect)
                 ?? GemRequirementsUnmet(conn, gem.SourceGem)) is { } disabled)
             return disabled;

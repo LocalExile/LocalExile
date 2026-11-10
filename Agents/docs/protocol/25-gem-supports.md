@@ -195,7 +195,7 @@ PoEDB is a comparison source, not a replacement for those versioned tables.
 
 A native compatibility match and a displayed support letter do not prove that its special mechanic is implemented.
 Spell Echo's repeats are modelled ([11](11-skills.md) "Spell repeats"), except Ice Nova's and the final-repeat stats.
-Triggers, totems, mines, minion behaviour, attack repeats, projectile branching, leech and many conditional effects
+Other trigger payloads, totems, mines, minion behaviour, attack repeats, projectile branching, leech and conditional effects
 still require their own execution paths.
 Second Wind uses the supported skill's cooldown/recovery inputs: non-instant skills gain its extra stored use,
 instant skills retain their original count, and spent uses recover in sequence on game time. Active recovery-rate
@@ -214,3 +214,21 @@ Lifetap's spent-Life counter and buff are server state: the hidden `lifetap_life
 not gain the buff, and its more damage does not reach damage over time.
 The native catalogue includes historical and placeholder variants; their presence does not make them obtainable.
 Do not describe the entire support catalogue as mechanically complete.
+
+## Damage-taken trigger execution
+
+3.29.3c `SupportCastWhenDamageTaken` GEPL level 1 has 250% cost and 250 ms cooldown; its stat set has
+`cast_on_damage_taken_threshold = 528`. Compatibility additionally compares active/support `PlayerLevelReq`.
+Accepted hit damage counts after taken modifiers and before Ward, ES and Mana absorption; costs and DoT do not count.
+Counters are per skill instance; copies of the same effect share trigger cooldown. Trigger release uses the original supported projectile payload and ignores player
+windup/action replacement; it does not repeat Spell Echo or run another manual cast.
+Adopted projectile spells, Ice Nova, native curses and QuickGuard/ImmortalCall/MoltenShell have independent releases.
+Reservations, minions, placements and unimplemented non-projectile recipes stay unavailable.
+Guard cooldown recovery begins when the buff ends; guard damage absorption precedes CWDT observation.
+CoC/CwC and other generic triggers still have no independent executor and refuse manual use.
+Queued triggers retain the actual immutable source gem and equipment object references. Any host replacement
+(including gem XP/level edits and support swaps) cancels accumulated or queued work; identical type hashes and
+reused skill IDs are insufficient identity. Pause freezes pending work without erasing the counter.
+Triggered roots use server projectile objects because there is no local input action to predict them.
+The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
+Native targeting, visual parity and threshold timing require client verification.
