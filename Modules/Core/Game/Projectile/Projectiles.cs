@@ -382,11 +382,11 @@ static partial class Game
                     spawn ? presentation.SpawnAnimationValue : 0, spawn ? presentation.SpawnAnimatedId : 0);
             }
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
-            // areas and continuation children, which do get objects).
+            // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
-            if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
-                && p.Use.Payload is ProjectileOffense primary
-                && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect))) return;
+            if (value.Kind == ProjectileEventKind.Spawn && p.Use.Payload is ProjectileOffense primary
+                && ((p.ParentId == 0 && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect)))
+                    || (primary.ClientPredicted && p.Profile.HidePredictedVisual))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;

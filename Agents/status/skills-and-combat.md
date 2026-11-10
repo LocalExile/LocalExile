@@ -747,6 +747,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
+- Kinetic Bolt (`ZigZagProjectile`): fires `Metadata/Projectiles/ZigZagWandProjectile` (`SkillCatalog.ProjectileFallbacks`),
+  converts theoretical forks into zig-zags (`virtual_projectiles_cannot_fork = 1`) and publishes
+  `kinetic_bolt_number_of_zig_zags` in the skill record.
+  Primary bolts travel 15 cells, then alternate +-45 deg (10 cells) and +-90 deg (20 cells) on leg end, non-evaded
+  enemy hit or wall hit without spending Pierce/Chain/Return, emitting `ZigZagSecondaryWandProjectile` with shared hit
+  history (`HidePredictedVisual = true` when client-predicted); remaining Pierce/Chain/Return resume afterward.
+  Live checks verified casting, multi-turn monster hits and wall shots in Predictive mode; Fork, Returning, AltX,
+  Ballista Totems and Volley parallel geometry remain unverified live.
+  Code: `SkillCatalog.cs`, `KineticBoltLegs.cs`, `GatewayProjectileModifiers.cs`, `GatewayProjectileSkillProfiles.cs`,
+  `ProjectilePanel.cs`, `ProjectileRelease.cs`, `ProjectileRuntime.cs`.
 - Petrified Blood: the 35% Mana reservation buff, its hit-only Life-loss split at half Life, the four-second deferred
   loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented. Life leech instances and
   the client's leech display keep the full maximum-unreserved-Life cap; they are not removed at Low Life, but their
