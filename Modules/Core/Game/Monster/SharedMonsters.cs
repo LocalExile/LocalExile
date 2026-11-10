@@ -341,18 +341,20 @@ static partial class Game
     // target: the copy is never put back, and ends where the owner's walk ends. A Move walks it; any other action, and
     // a hit's recovery (0x1d1), ends its walk with the stop that waits for the tick, as on the owner's client.
     // Not modelled: the walk-up of another player's attack on a monster (the copy stands until its next order).
+    // A client that showed itself a lockstep one only after it was sent the player has no copy yet: the first order
+    // makes it on the order's own cell, where that order puts the client's.
     internal static byte[] PeerRecordAtGate(ClientState other, uint id, byte[] record, double speed)
     {
-        if (!other.PeerWalks.TryGetValue(id, out var copy)) return record;
         ushort message = (ushort)(record[0] << 8 | record[1]);
         if (message != InstanceProtocol.ActionStartedId && message != InstanceProtocol.ActorAnimationId) return record;
         // The start of the frame being sent, after the steps of the frames before it, as a monster's order is placed.
-        if (other.LockstepFrame is not { } frame) return record;
+        if (!other.LockstepClient || other.LockstepFrame is not { } frame) return record;
+        other.PeerWalks.TryGetValue(id, out var copy);
         StepWalkers(other, frame.Start);
         double at = frame.Start;
         if (message == InstanceProtocol.ActorAnimationId)
         {
-            copy.Cancel(at);
+            copy?.Cancel(at);
             return record;
         }
         if (record.Length < 18) return record;
@@ -366,6 +368,7 @@ static partial class Game
         if (next + 4 > record.Length) return record;
         const ushort Move = 0x2909;
         ushort skill = (ushort)(record[next] << 8 | record[next + 1]);
+        copy ??= other.PeerWalks[id] = other.NewPeerWalk(id, cells[0], cells[1], speed);
         if (copy.Speed != speed) copy.SetSpeed(speed, at);
         var here = copy.Position(at);
         if (skill == Move) copy.Order(cells[2], cells[3], at);
