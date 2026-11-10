@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Impossible Escape (Viridian Jewel, Small, limited to 1): a generated unique whose variant is one of the client's
@@ -115,8 +116,8 @@ static class ImpossibleEscapeCatalogue
     {
         var result = new List<Keystone>();
         string path = Path.Combine("data", "tables", "MavenJewelRadiusKeystones.json");
-        if (!File.Exists(path)) return result;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var entry in document.RootElement.EnumerateArray())
         {
             int row = entry.GetProperty("Keystone").GetInt32();

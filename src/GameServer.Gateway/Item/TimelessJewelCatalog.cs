@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The six Legion timeless jewels: their unique name, base type, faction, mod row, real seed range and current
@@ -19,22 +20,6 @@ static class TimelessJewelCatalog
         public int DisplayedMaxSeed => MaxSeed * DisplayMultiplier;
         public bool IsElegantHubris => DisplayMultiplier > 1;
     }
-
-    internal static readonly Entry[] Seed =
-    [
-        new("Glorious Vanity", 1, "Vaal", "UniqueJewelAlternateTreeInRadiusVaal", 100, 8000, 1,
-            [new("Xibaqua", 1, 0), new("Ahuana", 2, 1), new("Doryani", 3, 0)]),
-        new("Lethal Pride", 2, "Karui", "UniqueJewelAlternateTreeInRadiusKarui", 10000, 18000, 1,
-            [new("Kaom", 1, 0), new("Rakiata", 2, 0), new("Akoya", 3, 1)]),
-        new("Brutal Restraint", 3, "Maraketh", "UniqueJewelAlternateTreeInRadiusMaraketh", 500, 8000, 1,
-            [new("Balbala", 1, 1), new("Asenath", 2, 0), new("Nasima", 3, 0)]),
-        new("Militant Faith", 4, "Templar", "UniqueJewelAlternateTreeInRadiusTemplar", 2000, 10000, 1,
-            [new("Maxarius", 1, 1), new("Dominus", 2, 0), new("Avarius", 3, 0)]),
-        new("Elegant Hubris", 5, "Eternal", "UniqueJewelAlternateTreeInRadiusEternal", 100, 8000, 20,
-            [new("Cadiro", 1, 0), new("Victario", 2, 0), new("Caspiro", 3, 1)]),
-        new("Heroic Tragedy", 6, "Kalguur", "UniqueJewelAlternateTreeInRadiusKalguur", 100, 8000, 1,
-            [new("Vorana", 1, 0), new("Uhtred", 2, 0), new("Medved", 3, 0)]),
-    ];
 
     public static Entry[] All => GameDataCatalog.TimelessJewels;
 
@@ -172,8 +157,8 @@ static class TimelessJewelCatalog
     {
         var result = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in d.RootElement.EnumerateArray())
             if (row.GetProperty("Wordlist").GetInt32() == 6)
                 result[row.GetProperty("Text").GetString() ?? ""] = row.GetProperty("HASH32").GetUInt32();

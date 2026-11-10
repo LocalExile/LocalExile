@@ -227,7 +227,7 @@ sealed class Act3 : Act
                 On.Object(SarnEncampment, Act3Objects.LabyrinthPlaque, Act3Objects.StatueOpened),
                 // The way to the plaza stands behind the statue: shown once it is open.
                 On.Exit(SarnEncampment, Act3Objects.Plaza, Act3Objects.StatueOpened),
-                On.Object(Act3Objects.Plaza, Act3Objects.LabyrinthSelect),
+                On.Object(Act3Objects.Plaza, Act3Objects.LabyrinthSelect, Act3Objects.PlazaDoorOpen),
                 On.Object(Act3Objects.Plaza, Act3Objects.ReturnPortal),
                 On.Object(Act3Objects.Plaza, Act3Objects.PlazaDoor, Act3Objects.PlazaDoorOpen),
                 On.Object(Act3Objects.Chamber1, Act3Objects.ChamberPortal),

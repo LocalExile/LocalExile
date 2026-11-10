@@ -1,14 +1,18 @@
-# Extracts the game data the servers read from Client/Content.ggpk into data/ (all git-ignored; see
-# Agents/GettingStarted.md step 7). Runs every entry of the manifest below whose output is missing or whose stamp in
-# data/extract-stamps.json differs from the manifest's version, and skips the rest. live.ps1 runs it on every start.
-# Read-only on the GGPK (it works while the client runs); never touches the client or the patch servers.
+# Extracts game data from Client/Content.ggpk into data/ (all git-ignored; see Agents/GettingStarted.md step 7). Runs
+# every entry of the manifest below whose output is missing or whose stamp in data/extract-stamps.json differs from the
+# manifest's version, and skips the rest. Read-only on the GGPK (it works while the client runs); never touches the
+# client or the patch servers.
+# The servers read the client tables and the generated files from client.db, built from sql/ (databases.md): of this
+# manifest they need only the entries marked Servers, which live.ps1 and a release extract (-Servers). The full
+# manifest is the maintainer's input to scripts/dev/client-sql.ps1 diff after a client patch or a generator change.
+#   -Servers       only the entries the servers read (Servers = $true) and those they need
 #   -Force         run every entry
 #   -Only <name>   run only these entries (comma-separated), whatever their stamps say
 #   -List          print the manifest and each entry's state, run nothing
 # A change to a generator's output bumps its entry's Version in the same PR (AGENTS.md); everyone's next run
 # regenerates it. An entry that runs also reruns the entries that need it (Needs).
 #   -ExportManifest <file>   write the manifest as JSON and run nothing (a release's launcher reads it: scripts/release)
-param([switch]$Force, [string[]]$Only = @(), [switch]$List, [string]$ExportManifest)
+param([switch]$Force, [string[]]$Only = @(), [switch]$List, [string]$ExportManifest, [switch]$Servers)
 $Only = @($Only | ForEach-Object { $_ -split "," } | Where-Object { $_ })
 
 $ErrorActionPreference = 'Stop'
@@ -63,10 +67,10 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/passive-graphs', '--', 'Client/Content.ggpk', 'data/passive-skill-graphs.json'); Version = 6; Needs = @('tables')
        UsedBy = 'ordinary/ascendancy server membership and connectivity; derived Phrecia client artifact remains uninstalled' }
     # The servers never open Client/ as they run: what they would read from it comes from these two.
-    @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'
+    @{ Name = 'client-constants'; Outputs = @('data\client-constants.json'); Runner = 'dotnet'; Servers = $true
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()
-       UsedBy = 'the Gateway''s HNC mask and the Patch server''s root hash (live.ps1 refreshes the hash before each client start)' }
-    @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'
+       UsedBy = 'the Patch server''s root hash of the local GGPK (live.ps1 refreshes it before each client start; the HNC mask is in client.db)' }
+    @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'; Servers = $true
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 3; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
@@ -75,6 +79,19 @@ $manifest = @(
 )
 
 function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message (see Agents/GettingStarted.md)" } }
+
+if ($Servers) {
+    # The Servers entries and, through their Needs, what they are made from.
+    $keep = @{}
+    $next = @($manifest | Where-Object { $_.Servers } | ForEach-Object { $_.Name })
+    while ($next) {
+        $name, $next = $next
+        if ($keep.ContainsKey($name)) { continue }
+        $keep[$name] = $true
+        $next = @($next) + @(($manifest | Where-Object { $_.Name -eq $name }).Needs)
+    }
+    $manifest = @($manifest | Where-Object { $keep.ContainsKey($_.Name) })
+}
 
 if ($ExportManifest) {
     ConvertTo-Json -Depth 4 -InputObject @($manifest | ForEach-Object { [ordered]@{ Name = $_.Name; Outputs = @($_.Outputs); Runner = $_.Runner; Args = @($_.Args); Version = $_.Version; Needs = @($_.Needs) } }) |

@@ -1,0 +1,25 @@
+-- Client table MicrotransactionJewelVariations (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "MicrotransactionJewelVariations" (
+    "_row" INTEGER PRIMARY KEY,
+    "Mtx" INTEGER,
+    "__col1" INTEGER,
+    "ActiveArt" TEXT,
+    "BackgroundArt" TEXT,
+    "__col4" INTEGER,
+    "BackgroundPupil" TEXT,
+    "JewelCircle1" TEXT,
+    "JewelCircle2" TEXT,
+    "JewelCircleGlow" TEXT,
+    "__col9" INTEGER,
+    "__col10" INTEGER,
+    "SmokeRing" TEXT,
+    "__col12" INTEGER,
+    "Ring" TEXT,
+    "__col14" INTEGER,
+    "__col15" INTEGER,
+    "__col16" BOOLEAN,
+    "__col17" BOOLEAN,
+    "__col18" INTEGER,
+    "__col19" INTEGER,
+    "__col20" INTEGER
+);

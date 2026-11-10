@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 /// <summary>
 /// Every area's area transitions: where they are (the client's generated layout, captured per (area, seed) by
@@ -250,8 +251,8 @@ static class AreaTransitionCatalog
         var acts = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            if (!File.Exists(file)) return acts;
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            if (!ClientTables.Exists(file)) return acts;
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
             foreach (var r in doc.RootElement.EnumerateArray())
                 if (r.GetProperty("Id").GetString() is { } id) acts.TryAdd(id, r.GetProperty("Act").GetInt32());
         }
@@ -385,10 +386,10 @@ static class AreaTransitionCatalog
     static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
     {
         const string file = "data/tables/ClientStrings.json";
-        if (!File.Exists(file)) return null;
+        if (!ClientTables.Exists(file)) return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
             var map = new Dictionary<string, uint>(StringComparer.Ordinal);
             foreach (var r in doc.RootElement.EnumerateArray())
                 if (r.GetProperty("Id").GetString() is { } id && r.TryGetProperty("HASH32", out var h) && h.TryGetUInt32(out uint hash))
@@ -453,7 +454,7 @@ static class AreaTransitionCatalog
     static readonly Lazy<Dictionary<string, List<string>>?> ObjectTypes = new(() =>
     {
         const string file = "data/object-types.json";
-        if (!File.Exists(file)) return null;
+        if (!ClientTables.Exists(file)) return null;
         try
         {
             using var doc = GameTables.Open(file);
@@ -494,7 +495,7 @@ static class AreaTransitionCatalog
     internal static bool UseLayout { get; set; } = true;
 
     /// <summary>True once scripts/walkmaps saved this layout's tile objects.</summary>
-    public static bool Captured(string id, uint seed) => UseCaptures && File.Exists(CaptureFile(id, seed));
+    public static bool Captured(string id, uint seed) => UseCaptures && ClientTables.Exists(CaptureFile(id, seed));
 
     static string CaptureFile(string id, uint seed) => $"{Folder}/{id}_seed{seed}.transitions.json";
 
@@ -511,7 +512,7 @@ static class AreaTransitionCatalog
         {
             if (!Captured(id, seed))
                 return ServerLevels.For(id, seed)?.Objects.Select(o => new CapturedObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Z)).ToList();
-            return JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
+            return JsonSerializer.Deserialize<CaptureFileData>(ClientTables.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
@@ -534,10 +535,10 @@ static class AreaTransitionCatalog
 
     static Dictionary<ushort, AtlasArea>? Load()
     {
-        if (!File.Exists(AtlasFile)) return null;
+        if (!ClientTables.Exists(AtlasFile)) return null;
         try
         {
-            using var stream = File.OpenRead(AtlasFile);
+            using var stream = ClientTables.OpenRead(AtlasFile);
             // On a thread of its own: the reader's 56 MB of pooled buffers go with it (GameTables.Isolated).
             var file = GameTables.Isolated(() => JsonSerializer.Deserialize<AtlasFileData>(stream, Json));
             var areas = new Dictionary<ushort, AtlasArea>();

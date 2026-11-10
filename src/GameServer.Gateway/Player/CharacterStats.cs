@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// A character's level-based pools and attribute bonuses, from its class, level and allocated passives: what the server
@@ -341,8 +342,8 @@ static class CharacterStats
     private static uint[] LoadExperience(string folder)
     {
         string path = Path.Combine(folder, "tables", "ExperienceLevels.json");
-        if (!File.Exists(path)) return [0];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [0];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Level").GetInt32()).Select(r => (uint)r.GetProperty("Experience").GetInt64())];
     }
 }

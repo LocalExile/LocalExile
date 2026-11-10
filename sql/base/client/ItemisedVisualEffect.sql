@@ -1,0 +1,27 @@
+-- Client table ItemisedVisualEffect (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "ItemisedVisualEffect" (
+    "_row" INTEGER PRIMARY KEY,
+    "Mtx" INTEGER,
+    "VisualEffect" INTEGER,
+    "VisualIdentity" INTEGER,
+    "Stats" JSON,
+    "ItemClasses" JSON,
+    "BaseItemTypes" JSON,
+    "__col6" BOOLEAN,
+    "__col7" JSON,
+    "__col8" JSON,
+    "__col9" BOOLEAN,
+    "Name" JSON,
+    "__col11" BOOLEAN,
+    "__col12" JSON,
+    "Character" JSON,
+    "GrantedEffect" JSON,
+    "OnKillEffect" JSON,
+    "__col16" JSON,
+    "__col17" BOOLEAN,
+    "EffectSlotType" INTEGER,
+    "VisualEffectType" INTEGER,
+    "__col20" BOOLEAN,
+    "GameObjectTask" INTEGER,
+    "__col22" INTEGER
+);

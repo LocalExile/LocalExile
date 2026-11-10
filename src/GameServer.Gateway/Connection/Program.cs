@@ -15,6 +15,7 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 using GameServer.Core.Diagnostics;
+using GameServer.Core;
 
 // GameServer.Gateway — the instance (game) server the client connects to after login 0x14, or after 0x27 on an area
 // change (Agents/docs/protocol/02, 09).
@@ -24,6 +25,15 @@ using GameServer.Core.Diagnostics;
 // movement and area transition clicks (0x24: change area, or with Ctrl the instance chooser; Agents/docs/protocol/09-area-change.md).
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
+
+// The client tables (ClientTables) are in data/client.db, built and brought up to date from sql/ before anything reads
+// them (Agents/docs/dev/databases.md). Its lines go to standard error: the commands below print JSON.
+try { GameServer.Storage.SqlUpdater.Update(ClientTables.DefaultPath, "client", log: Console.Error.WriteLine); }
+catch (Exception e) when (e is GameServer.Storage.SqlUpdateException or IOException or Microsoft.Data.Sqlite.SqliteException)
+{
+    Console.Error.WriteLine($"[gateway] {ClientTables.DefaultPath} can't be built: {e.Message}");
+    return 1;
+}
 
 // `commands`: one JSON line per chat command ({"name", "usage", "args"}) for tools such as the desktop launcher, then
 // exit; nothing starts. `values <kind>`: what an argument of that kind can be ({"value", "detail"}), from the Gateway's
@@ -78,38 +88,11 @@ if (args is ["values", var kind])
 
 ServerLog.Install("gateway");
 
-// dotnet run --project src/GameServer.Gateway -- seed-game-data [database]
-// Fills the SQLite game-data overlay from data/tables without starting the servers. The first Gateway start does the
-// same; this mode is for a fresh database, an editor or a check while the Gateway is stopped.
-if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.OrdinalIgnoreCase))
-{
-    string path = args.Length > 1 ? args[1] : Saves.DefaultPath;
-    try
-    {
-        GameData.Open(path);
-        var (stats, mods, modStats) = (GameData.Store
-            ?? throw new InvalidOperationException("the game-data store did not open")).ReferenceCounts();
-        if (stats == 0 || mods == 0 || modStats == 0)
-        {
-            Console.Error.WriteLine("[gateway] game data seed: Stats.json/Mods.json are missing; run scripts/dev/extract-data.ps1 first");
-            return 1;
-        }
-        Console.WriteLine($"[gateway] game data seeded into {path}: {stats} stat(s), {mods} mod(s), " +
-            $"{modStats} default mod stat row(s)");
-        return 0;
-    }
-    catch (Exception e)
-    {
-        Console.Error.WriteLine($"[gateway] game data seed failed: {e.Message}");
-        return 1;
-    }
-}
-
 int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
 // The HNC side channel needs a 64-byte table from the client: extracted to data/, not shipped.
-if (!File.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
+if (!ClientTables.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
 {
     Console.Error.WriteLine($"[gateway] {GameServer.Data.Ggpk.ClientConstants.DefaultFile} not found; run .\\scripts\\dev\\extract-data.ps1");
     return 1;
@@ -125,12 +108,12 @@ try
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
     // The short-lived parsing thread releases its pooled buffers after startup.
-    GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
-    Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
+    GameTables.Isolated(() => GameData.Open(GameData.DefaultPath));
+    Console.WriteLine($"[gateway] saves: {Saves.Db.Path} (accounts: {Saves.Db.AuthPath})");
 }
-catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
+catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or GameServer.Storage.SqlUpdateException)
 {
-    Console.Error.WriteLine($"[gateway] the save database can't be opened: {e.Message}");
+    Console.Error.WriteLine($"[gateway] the databases can't be opened: {e.Message}");
     return 1;
 }
 
@@ -141,7 +124,7 @@ Item.LevelRequirementOf = item => !item.Components.Contains("SkillGem") && Items
     ? ItemModStats.LevelRequirement(item, t.DropLevel, Items.Mods) : 0;
 
 // Local play only by default; Game_BIND=0.0.0.0 to accept other machines (then also set Game_GATEWAY_HOST).
-var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
+var bind = ServerConfig.GatewayBind;
 var listener = new TcpListener(bind, port);
 // Before any client connects: Auth forgets the players of this Gateway's last run, which may have stopped without
 // sending "leave" for them (their instances would never expire).

@@ -533,7 +533,10 @@ static partial class Game
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
             if (singleSources.Contains(effect) && WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own)) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
+            {
                 stats[recoveryKey] = cooldown.RecoveryPercent;
+                if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
+            }
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.

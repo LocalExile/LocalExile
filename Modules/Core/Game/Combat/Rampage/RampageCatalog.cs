@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Read-only 3.29.3b Rampage execution plans, not an effect executor. Thresholds join their actual daemon variety,
@@ -81,8 +82,8 @@ sealed class RampageCatalog(string folder = "data")
             foreach (string table in RequiredTables)
             {
                 string path = Path.Combine(folder, "tables", table + ".json");
-                if (!File.Exists(path)) return Empty($"Rampage requires {path}.");
-                documents.Add(table, JsonDocument.Parse(File.ReadAllBytes(path)));
+                if (!ClientTables.Exists(path)) return Empty($"Rampage requires {path}.");
+                documents.Add(table, JsonDocument.Parse(ClientTables.ReadAllBytes(path)));
                 Require(documents[table].RootElement.ValueKind == JsonValueKind.Array, $"{table} is not a row array.");
             }
             JsonElement Rows(string table) => documents[table].RootElement;

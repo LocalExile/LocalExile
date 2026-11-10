@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>One sale quote: ingredients are consumed once, outputs are rolled once and retained until acceptance.</summary>
@@ -51,8 +52,8 @@ sealed partial class VendorRecipes
         List<JsonElement> Read(string name)
         {
             string path = Path.Combine(folder, "tables", name + ".json");
-            if (!File.Exists(path)) return [];
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+            if (!ClientTables.Exists(path)) return [];
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
             return doc.RootElement.EnumerateArray().Select(r => r.Clone()).ToList();
         }
     }

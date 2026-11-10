@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The item crafter of tools such as the desktop launcher (Agents/docs/dev/item-crafter.md): <see cref="Catalog"/> is what
@@ -135,8 +136,8 @@ static class ItemCrafter
     static Dictionary<string, string> LoadClassNames(string folder)
     {
         string path = Path.Combine(folder, "tables", "ItemClasses.json");
-        if (!File.Exists(path)) return [];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { Length: > 0 } id) names.TryAdd(id, r.GetProperty("Name").GetString() ?? id);

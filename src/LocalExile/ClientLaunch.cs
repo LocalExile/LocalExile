@@ -6,7 +6,7 @@ namespace LocalExile;
 /// --patching-server), the client contacts the official patch servers and can update itself, which ends the setup.</summary>
 static class ClientLaunch
 {
-    const string Folder = "Client";
+    static string Folder => GameServer.Core.ServerConfig.ClientFolder;
     const string Executable = "Game.patched.exe";
 
     static string[] Arguments(int patchPort) => ["--patching-server", $"127.0.0.1:{patchPort}"];

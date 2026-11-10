@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 /// <summary>
 /// The quest objects the engine creates itself (Quests.ObjectRule, ChestRule; Agents/docs/protocol/12-quests.md §5): what
@@ -42,8 +43,8 @@ static class QuestObjectTypes
     {
         var types = new Dictionary<string, Info>(StringComparer.Ordinal);
         string file = Path.Combine(folder, "object-types.json");
-        if (!File.Exists(file)) return types;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(file)))
+        if (!ClientTables.Exists(file)) return types;
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file)))
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
                 string id = t.GetProperty("type").GetString() ?? "";
@@ -65,9 +66,9 @@ static class QuestObjectTypes
             }
         // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
         string chests = Path.Combine(folder, "tables", "Chests.json");
-        if (File.Exists(chests))
+        if (ClientTables.Exists(chests))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(chests));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(chests));
             foreach (var r in doc.RootElement.EnumerateArray())
             {
                 if (r.GetProperty("Id").GetString() is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;

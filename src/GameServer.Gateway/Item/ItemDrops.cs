@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// What a dying monster drops, rolled in stages like the game's (Agents/docs/protocol/15-progression.md §3); the numbers
@@ -156,7 +157,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         var list = new List<ItemCatalog.BaseType>();
         var seen = new HashSet<int>();
         string path = Path.Combine(folder, "tables", "Scarabs.json");
-        if (File.Exists(path))
+        if (ClientTables.Exists(path))
         {
             using var doc = GameTables.Open(path);
             foreach (var row in doc.RootElement.EnumerateArray())
@@ -471,9 +472,9 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         string values = Path.Combine(folder, "tables", "VillageUniqueDisenchantValues.json"), words = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(values) || !File.Exists(words)) return weights;
-        using var wordsDoc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(words));
-        using var valuesDoc = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(values));
+        if (!ClientTables.Exists(values) || !ClientTables.Exists(words)) return weights;
+        using var wordsDoc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(words));
+        using var valuesDoc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(values));
         foreach (var row in valuesDoc.RootElement.EnumerateArray())
         {
             double value = row.GetProperty(hardMode ? "RuthlessValue" : "Value").GetDouble();

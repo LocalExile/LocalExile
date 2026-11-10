@@ -1,0 +1,21 @@
+-- Client table CloneShot: all 19 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "CloneShot" ("_row", "Id", "MonsterVarietiesKey", "MiscAnimated1", "MiscAnimated2", "MiscAnimated3") VALUES
+(0, 1, 4072, NULL, NULL, NULL),
+(1, 2, 4077, NULL, NULL, NULL),
+(2, 3, 15, NULL, NULL, NULL),
+(3, 4, 4581, NULL, NULL, NULL),
+(4, 5, 4587, NULL, NULL, NULL),
+(5, 6, 4550, NULL, NULL, NULL),
+(6, 9, 463, NULL, NULL, NULL),
+(7, 10, 509, NULL, NULL, NULL),
+(8, 11, 942, NULL, NULL, NULL),
+(9, 12, 4078, NULL, NULL, NULL),
+(10, 13, 1165, NULL, NULL, NULL),
+(11, 14, 1461, NULL, NULL, NULL),
+(12, 15, 2693, NULL, NULL, NULL),
+(13, 16, 2706, NULL, NULL, NULL),
+(14, 17, 3537, NULL, NULL, NULL),
+(15, 18, 464, NULL, NULL, NULL),
+(16, 19, 510, NULL, NULL, NULL),
+(17, 20, 943, NULL, NULL, NULL),
+(18, 21, 6374, 1793, 1794, 1795);

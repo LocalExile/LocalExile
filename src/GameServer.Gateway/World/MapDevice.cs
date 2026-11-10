@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The hideout's map device (Agents/docs/protocol/21-hideouts.md §5): what its slots (Inventories row 13 <c>Map1</c>)
@@ -11,6 +12,14 @@ sealed class MapDevice
 {
     /// <summary>Portals one activation opens; each takes one player into the map once.</summary>
     public const int PortalCount = 6;
+
+    public const string CampaignDeviceArea = "2_7_5_1", CampaignMapArea = "2_7_5_map",
+        CampaignDeviceType = "Metadata/QuestObjects/Act7/MaligaroOrrery",
+        CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
+    public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
+
+    public static bool AcceptsItem(uint typeHash, string itemClass) =>
+        typeHash == CampaignMapHash || AcceptsClass(itemClass);
 
     /// <summary>ItemClasses Ids the slots take.</summary>
     public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment",
@@ -55,7 +64,7 @@ sealed class MapDevice
         var byType = new Dictionary<uint, MapArea>();
         var byFragment = new Dictionary<uint, MapArea>();
         string maps = Path.Combine(folder, "tables", "Maps.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (File.Exists(maps) && File.Exists(areas))
+        if (ClientTables.Exists(maps) && ClientTables.Exists(areas))
         {
             using var m = GameTables.Open(maps);
             using var a = GameTables.Open(areas);
@@ -95,7 +104,7 @@ sealed class MapDevice
     static List<MapArea?> LoadWorldAreas(string folder)
     {
         string areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(areas)) return [];
+        if (!ClientTables.Exists(areas)) return [];
         using var a = GameTables.Open(areas);
         var list = new List<MapArea?>(a.RootElement.GetArrayLength());
         foreach (var wa in a.RootElement.EnumerateArray())
@@ -153,9 +162,21 @@ sealed class MapDevice
     /// </summary>
     public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false)
     {
         why = "";
+        if (campaign)
+        {
+            if (slots.Count != 1 || slots[0].TypeHash != CampaignMapHash)
+            {
+                why = "Place only Maligaro's Map in this device.";
+                return null;
+            }
+            var sanctum = _worldAreas.FirstOrDefault(a => a?.Id == CampaignMapArea);
+            if (sanctum is not null) return new Opening(sanctum, MapMods.None);
+            why = "Maligaro's Sanctum is not available.";
+            return null;
+        }
         if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
@@ -212,7 +233,10 @@ sealed class MapDevice
     public sealed record OpenMap(MapArea Area, ulong Instance, IReadOnlyList<int> Left, MapMods Mods, int ItemRow = 0)
     {
         public int PortalsLeft => Left.Count;
+        public Origin? ReturnTo { get; init; }
     }
+
+    public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
 
     private static readonly ConcurrentDictionary<string, OpenMap> Open = new(StringComparer.OrdinalIgnoreCase);
 
@@ -220,8 +244,8 @@ sealed class MapDevice
     public static OpenMap? OpenOf(string character) => Open.GetValueOrDefault(character);
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
-    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0) =>
-        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow);
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null) =>
+        Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow) { ReturnTo = returnTo };
 
     /// <summary>The character's open map when they are in that area.</summary>
     public static OpenMap? Current(string character, ushort areaHash) =>
@@ -236,7 +260,7 @@ sealed class MapDevice
         {
             if (!map.Left.Contains(index)) return null;
             var after = map with { Left = [.. map.Left.Where(i => i != index)] };
-            bool done = after.Left.Count == 0 ? Open.TryRemove(new(character, map)) : Open.TryUpdate(character, after, map);
+            bool done = after.Left.Count == 0 && map.ReturnTo is null ? Open.TryRemove(new(character, map)) : Open.TryUpdate(character, after, map);
             if (done) return (map, after.Left.Count);
         }
         return null;
