@@ -1,6 +1,6 @@
 """Collect the poe.ninja economy of a league into PlayerBots' price grid and market-turnover statistics.
 
-Run from the repository root:  python Modules/PlayerBots/tools/collect_economy.py [--league Allflame] [--no-history]
+Run from the repository root:  python Modules/Custom/PlayerBots/tools/collect_economy.py [--league Allflame] [--no-history]
 
 Covers every category in poe.ninja's economy menu (the left column). poe.ninja has two kinds:
 - exchange categories (currency, fragments, scarabs, ...): a value in chaos and the chaos volume traded on the
@@ -8,10 +8,10 @@ Covers every category in poe.ninja's economy menu (the left column). poe.ninja h
 - stash categories (uniques, gems, maps, base types, ...): a value and the number of listings, no trade volume.
 
 Writes (economy/ is gitignored: the snapshot stays local):
-  Modules/PlayerBots/economy/<league>/raw/<UTC date>/<category>.json   the responses, as fetched
-  Modules/PlayerBots/economy/<league>/prices.json                      the price grid (chaos, divine, alchemy, regal)
-  Modules/PlayerBots/economy/<league>/turnover.json                    per-item volume, units a day, daily history
-  Modules/PlayerBots/economy/<league>/summary.json                     totals per category and for the market
+  Modules/Custom/PlayerBots/economy/<league>/raw/<UTC date>/<category>.json   the responses, as fetched
+  Modules/Custom/PlayerBots/economy/<league>/prices.json                      the price grid (chaos, divine, alchemy, regal)
+  Modules/Custom/PlayerBots/economy/<league>/turnover.json                    per-item volume, units a day, daily history
+  Modules/Custom/PlayerBots/economy/<league>/summary.json                     totals per category and for the market
 """
 import argparse
 import datetime as dt
@@ -81,7 +81,7 @@ def main():
     parser.add_argument("--no-history", action="store_true", help="skip the per-item daily history (one request per item)")
     args = parser.parse_args()
     now = dt.datetime.now(dt.timezone.utc)
-    root = os.path.join("Modules", "PlayerBots", "economy", args.league.lower().replace(" ", "-"))
+    root = os.path.join("Modules", "Custom", "PlayerBots", "economy", args.league.lower().replace(" ", "-"))
     raw = os.path.join(root, "raw", now.strftime("%Y-%m-%d"))
 
     items, turnover = [], []

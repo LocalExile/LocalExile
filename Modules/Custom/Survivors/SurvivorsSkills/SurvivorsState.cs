@@ -12,7 +12,7 @@ sealed class SurvivorsState
     public readonly HashSet<uint> Effects = [];
     public Task? Runner;
     public bool Entered;
-    /// <summary>The survivors run of this connection (Modules/Survivors), null when none is active.</summary>
+    /// <summary>The survivors run of this connection (Modules/Custom/Survivors), null when none is active.</summary>
     public SurvivorsRun? Survivors;
     /// <summary>This connection's client has the reward inventory from 0xc0: 0xbf before it is fatal
     /// ("Got an inventory set change for an inventory that isn't in the set").</summary>

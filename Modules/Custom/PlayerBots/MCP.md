@@ -22,7 +22,7 @@ An external host needs a trusted local bridge/tunnel; this module does not open 
   "mcpServers": {
     "localexile-playerbots": {
       "command": "python",
-      "args": ["<repo>/Modules/PlayerBots/mcp.py", "--root", "<repo>", "--port", "6194"]
+      "args": ["<repo>/Modules/Custom/PlayerBots/mcp.py", "--root", "<repo>", "--port", "6194"]
     }
   }
 }

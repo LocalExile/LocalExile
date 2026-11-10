@@ -1,6 +1,6 @@
 # Phrecia Ascendancies module
 
-`Modules/PhreciaAscendancies` owns the existing Phrecia family's class capabilities, opt-ins,
+`Modules/Legacy/PhreciaAscendancies` owns the existing Phrecia family's class capabilities, opt-ins,
 read-only installed-graph verification, allocated node-stat sources and native graph selector.
 `Leagues/Phrecia/modules.json` explicitly composes it with the standard game modules.
 Any other league can list `PhreciaAscendancies` independently.

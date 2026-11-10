@@ -1,7 +1,9 @@
 # Mods
 
-Mods are small modifications, global, and the user's own: `Mods/` is gitignored, and another app will install them. A game system is a [module](modules.md), and only a
-league lists one.
+Mods are custom content that each user opts into, for every league: `Mods/` is gitignored, and Waypoint installs them. A mod
+changes how modules, leagues or the framework behave, or gives the user tools for development, testing and practice (GM
+commands, teleports, every MTX owned). A GGG-like server needs no mod, and no league lists one: a replica of the real game is
+a [module](modules.md). Which layer a change belongs in: [AGENTS.md](../../../AGENTS.md) ("What goes where").
 A mod is a C# assembly, or loose `.cs` files, the Gateway loads from `Mods/Binaries/<id>/` while it runs, and reloads when its
 files change, without a rebuild or restart of the Gateway. A mod sees only the `GameServer.Modding` API; the Gateway, Core and Data stay
 internal to the server.
@@ -193,6 +195,15 @@ Gateway's log does with `[mods]`.
 Suggestions while working on a mod with the client in game: `dotnet build Mods\Source\<Name>` and watch the chat line;
 `live.ps1` builds every mod in `Mods\Source\` before it starts the Gateway (one that fails to build is left out with a
 warning).
+
+## Growing the API
+
+A mod sees only `GameServer.Modding`, so it keeps working while the server changes. When a mod needs something the API
+lacks, its LocalExile pull request adds a **general hook or event**, one any mod could use ("before an item is rolled",
+"when currency lands"), and nothing else. The feature's logic, settings and defaults stay in the mod. An API shaped for
+one mod's feature (a "currency pickup rules" or "jewel grant rules" option with its own settings) is the wrong shape: the
+next mod needs another one, and the framework ends up holding mods' rules. The mod's pull request in LocalExile-Mods waits
+for the hook ("Requires LocalExile Update").
 
 ## Limits
 
