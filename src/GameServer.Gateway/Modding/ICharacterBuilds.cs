@@ -1,4 +1,3 @@
-namespace GameServer.Modding;
 
 /// <summary>The server's validated character-build boundary. JSON uses the versioned native import contract;
 /// mods never receive a save database, internal item types or a writable character record.</summary>

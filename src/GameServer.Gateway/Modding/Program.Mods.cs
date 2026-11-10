@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Accounts;
-using Mod = GameServer.Modding;
 
 // The hosts of leagues' code, modules and mods (ModHost, Agents/docs/dev/modding.md), and the player as GameServer.Modding shows it.
 // What they hook into is GameEvents (GameEvents.cs): one hook system, each subscriber running for its league's players.
@@ -14,21 +13,18 @@ public partial class Program
 
     public static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
     {
-        WorldOf = player => Logic.WorldFor(ConnOf(player)),
         GameValues = GameValuesOf,
     };
 
     public static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
     {
         Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup),
-        WorldOf = player => Logic.WorldFor(ConnOf(player)),
         GameValues = GameValuesOf,
     };
     // A mod gets what a module gets, in every league: the server's assemblies, the modules it depends on, the player's world.
     public static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine)
     {
         Modules = ServerModules,
-        WorldOf = player => Logic.WorldFor(ConnOf(player)),
         GameValues = GameValuesOf,
     };
 
@@ -115,8 +111,14 @@ public partial class Program
     }
 
     /// <summary>The player as mods see it (one per connection).</summary>
-    public static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, Logic.PlayerFor);
+    /// <summary>What a module or mod can do with this player's world: objects, walking, windows, crafting and saved data.</summary>
+    public static IPlayerWorld WorldOf(IPlayer player) => Logic.WorldFor(ConnOf(player));
+
+    /// <summary>What a module or mod can do with this connection's world.</summary>
+    public static IPlayerWorld WorldOf(ClientState conn) => Logic.WorldFor(conn);
+
+    public static IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, Logic.PlayerFor);
 
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
-    public static ClientState ConnOf(Mod.IPlayer player) => ((IConnectionPlayer)player).Conn;
+    public static ClientState ConnOf(IPlayer player) => ((IConnectionPlayer)player).Conn;
 }

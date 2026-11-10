@@ -63,7 +63,7 @@ public sealed class CharacterBuildImportTests
                 public sealed class Probe : IMod
                 {
                     public void Load(IModContext mod) => GameEvents.Command(mod.Manifest.Id, "capture", "/capture",
-                        (conn, _) => Program.PlayerOf(conn).Tell(mod.CharacterBuilds.Capture(Program.PlayerOf(conn))));
+                        (conn, _) => Program.PlayerOf(conn).Tell(CharacterBuildApi.For(mod).Capture(Program.PlayerOf(conn))));
                 }
                 """);
             using (var host = new ModHost(mods, _ => { }))

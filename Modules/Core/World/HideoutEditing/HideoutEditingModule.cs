@@ -9,17 +9,8 @@ using static HideoutEditingFeature;
 namespace GameServer.Modules.M_hideoutediting;
 
 /// <summary>Moving things in the hideout's editor.</summary>
-public sealed class HideoutEditingModule : IModule, IDisposable
+public sealed class HideoutEditingModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("HideoutEditing", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {

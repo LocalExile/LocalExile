@@ -12,6 +12,10 @@ public sealed class ChatCommands
     /// <summary>Tells the player something (chat lines, one per line of the text).</summary>
     public required Func<string, Task> Reply { get; init; }
 
+    /// <summary>The same replies with no commands: what a connection keeps once a module or mod unloads, so its last table
+    /// holds none of the unloaded code's handlers. The next typed command builds the full table again.</summary>
+    public ChatCommands Emptied() => new() { Send = Send, Reply = Reply };
+
     /// <summary>Commands per /help page.</summary>
     public const int PageSize = 8;
 

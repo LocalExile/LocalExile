@@ -1,8 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 
-namespace GameServer.Modding;
 
-/// <summary>What a module can do with a player's world (<see cref="IModuleContext.World"/>): objects, walking, windows, crafting
+/// <summary>What a module can do with a player's world (<see cref="Program.WorldOf(IPlayer)"/>): objects, walking, windows, crafting
 /// and saved data. Messages go through <see cref="IPlayer.Send"/>, built with GameServer.Core's protocol, which modules may use.</summary>
 public interface IPlayerWorld
 {
