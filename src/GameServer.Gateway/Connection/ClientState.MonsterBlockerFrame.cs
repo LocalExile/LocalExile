@@ -93,6 +93,14 @@ sealed partial class ClientState
             Bodies[index.Body] = (id, x, y, before.Size);
         }
 
+        /// <summary>The body is gone from here on (a corpse cleared in its own turn of a frame).</summary>
+        public void Remove(uint id)
+        {
+            if (!indices.Remove(id, out var index)) return;
+            current.Remove(index.Current);
+            Bodies[index.Body] = (id, current[index.Current].X, current[index.Current].Y, -1);
+        }
+
         public void Dispose() => owner.monsterFrame = outer;
     }
 }

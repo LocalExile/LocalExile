@@ -561,6 +561,8 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141e991e0` | Fn | Duration-based ACT animation eligibility and weighted reservoir selection |
 | `0x141fde9d0` | Fn | 0x1d1/0x1d2 reader: duration float, Animation.dat type byte, boolean |
 | `0x141e95e60` | Fn | 0x1d1 Actor animation: cancel prediction, select stance ACT, lock input during recovery |
+| `0x141e95960` | Fn | Actor death handler: cancel the action, pick the death clip, clear Positioned blocking when the clip has no remove_collidability event |
+| `0x141e938c0` | Fn | Actor animation event handler: event 0xbbd2 (remove_collidability) clears Positioned blocking (+0x1e5 & 8) |
 | `0x1421949c3` | Code | Actor 0x1d1 dispatch to virtual `+0xe0` recovery handler |
 | `0x141e8d900` | Fn | Action-start gate: Actor `+0x219` bit 2 blocks input during recovery |
 | `0x141e90740` | Fn | End local predicted action (Actor +0x1b8) |

@@ -299,8 +299,9 @@ static partial class Game
         if (now <= from) return;
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
+        // A lockstep client's killed monster walks until its death reaches the client (ClientState.Corpse).
         foreach (var (id, m) in conn.Monsters)
-            if (LivingCollision.StepsWithBodies(m)) walks[id] = m.Walk;
+            if (LivingCollision.StepsWithBodies(m) || conn.CorpseWalks(id, m)) walks[id] = m.Walk;
         if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
         // The other players' copies on a lockstep client: walkers like any other, ticked in id order.
         if (frame is not null)
@@ -395,6 +396,8 @@ static partial class Game
                     if (stopped || walk.Reached || walk.ArrivesAt > end) break;
                     walk.Repath(walk.ArrivesAt);
                 }
+                // A corpse's death clip clears its body in its own turn: the walkers after it step without it.
+                if (conn.CorpseClears(id, start)) bodies.Remove(id);
             }
             // Game_TRACE=sync: every walker's cell after the frame, with how far it is into its step and the step's length,
             // on the QPC clock of scripts/re/frida/trace-sync.js.

@@ -526,8 +526,9 @@ only those that can reach the queried cell (same answers as the full scan).
 The player's own path treats estimated monster bodies as blockers too, so a player the client finds boxed in stays in
 on both sides.
 Alive friendly monsters also block; corpses and removed objects do not.
-S→C 0x2b0 tells the client the same about a corpse, about 165 ms after its life reached 0, as GGG does.
-The client takes it live; what it changes in the client's own paths is not measured.
+S→C 0x2b0 tells the client the same about a corpse, as GGG does: it clears Positioned's blocking flag (`+0x1e5` & 8).
+The client also clears that flag itself, from the corpse's death clip (§6 "Corpses"), so the message changes its paths
+only when it comes first.
 Phasing removes living bodies from the local player's path checks.
 Large bodies are checked even when their centres lie outside the small query's spatial buckets.
 
@@ -699,9 +700,31 @@ tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
 is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
 
-A killed monster's Positioned body still affects path search until its `0x2b0` clear. A Move during that interval
-can start a different route even when it never touches the corpse. Keep the death-cell blocker through the clear's
-send gate, after stepping earlier frames; clearing it when Life reaches zero can force a position correction on the next action.
+**Corpses.** A killed monster's Positioned body stays in the client's path searches and step checks after its death,
+so a Move in that time can take another route even when it never touches the corpse. The client's monster lives until
+the death reaches it: it walks on, and the death handler (`0x141e95960`, run when the 0x1b1 with life 0 is applied)
+cancels its action, so the walker takes the steps due in that frame and stands, as after a hit's recovery. The handler
+picks the death clip (Animation.dat `Death`, or `DeathFromDegen`, `DeathWhileMoving` and the four directional ones)
+and clears the blocking flag at once when that clip has no `remove_collidability` event; otherwise the Actor's
+animation event handler (`0x141e938c0`, event id 0xbbd2) clears it when the clip reaches the event. The clip gains
+the frame's length in each tick from the death's own frame on (the 0x1b1 has key 0, so it is applied before the
+frame's ticks): a 150 ms event comes in the fifth tick, in the monster's own turn (tick trace 2026-11-10: death in
+frame n, event in n + 4, four of four; a search at the start of n + 4 still went round the corpse, one at n + 5 did
+not). `data/monster-takehit.json` has the event's time per variety (`death.unblock`): 150 ms for about 8500
+varieties, none for about 1950, 166 ms for 115 and 1833 ms for 12 (Hillock's rig); the clips of one variety agree,
+except five whose `DeathFromDegen` clip differs (listed under `unblockByKind`, not used). GGG's 0x2b0 follows its own
+death message by 4 or 5 frames for a 150 ms clip, by 0 for a clip without the event and by 54 or 55 for Hillock's
+(recordings of 2026-11-04), keyed by the monster with checkpoint 0x7000.
+
+The Gateway keeps the corpse as the client has it (`ClientState.Corpse`): from the kill the monster keeps its walker
+and its body, the frame its death message is written in ends the walk and starts the clip's count
+(`CorpseDeathsWritten`, in the send gate of whatever writes the 0x1b1), the body leaves in the monster's turn of the
+clip's last tick, and the 0x2b0 goes out one frame later, where the client has cleared it already. Before, the body
+stood on the cell of the kill's commit (a projectile's is a frame before its messages) and left at the 0x2b0's send
+gate, 165 ms of wall time later: the corpse was a cell behind the client's when the monster died walking, and a Move
+planned in the 0x2b0's own frame still went round it (two of eight wand fights, 2026-11-10). Not traced: an event
+exactly on a tick, a death clip played at another speed, which death animation a death picks, and kills that send no
+0x2b0 (a minion's).
 
 A Move whose target is within two cells (Chebyshev) of the walker's cell is not taken by the client at all: no path
 search, no step and no move onto the 0x1ab's position pair, even when the pair is not the walker's cell, and the action

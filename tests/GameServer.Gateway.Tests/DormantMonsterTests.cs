@@ -116,7 +116,7 @@ public class DormantMonsterTests
 
             // Life and Positioned's blocking lifetime differ: a post-kill path still sees the death cell until
             // the clear is sent. A replacement at the same ID must not inherit the old corpse's body.
-            conn.RetainCorpseBody(0x303f, first, 2);
+            conn.RetainCorpseBody(0x303f, first, 5);
             Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             Assert.False(LivingCollision.StepsWithBodies(first));
             using (var frame = conn.BeginMonsterBlockerFrame(2))
@@ -125,9 +125,49 @@ public class DormantMonsterTests
             conn.ReleaseCorpseBody(0x303f, first);
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             conn.LockstepClient = false;
-            conn.RetainCorpseBody(0x303f, first, 2);
+            conn.RetainCorpseBody(0x303f, first, 5);
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             conn.LockstepClient = true;
+
+            // The corpse is the client's monster: it walks until the frame its death is written in, takes that frame's
+            // steps and stands (0.125 s a cell from 0.9: the step due at 1.025), and its body lasts the death clip's
+            // ticks from that frame on, leaving in its own turn of the last one. A 150 ms remove_collidability event
+            // is the fifth tick of 33 ms; a clip without the event clears the body with the death.
+            Assert.Equal([5, 6, 56, 0], new int?[] { 150, 166, 1833, null }.Select(Game.CorpseBodyTicks));
+            (double Start, double End) sending = (0.967, 1.0);
+            var walker = new PlayerWalk(100, 100, 8) { FrameOf = at => (Math.Min(at, sending.Start), sending.End) };
+            walker.Order(110, 100, now: 0.9);
+            var dying = new SpawnedMonster("dying", walker, 60, 2, 23) { Life = 0 };
+            conn.Monsters[0x3050] = dying;
+            conn.RetainCorpseBody(0x3050, dying, 5);
+            Assert.True(conn.CorpseAwaitsDeath);
+            Assert.True(conn.CorpseWalks(0x3050, dying));
+            Assert.Equal(new ClientPathfinder.Blocker(100, 100, 2), conn.MonsterBody(0x3050, dying, 0.967));
+            conn.LockstepFrame = sending = (1.0, 1.033);
+            conn.CorpseDied(0x3050, sending);
+            Assert.False(conn.CorpseAwaitsDeath);
+            conn.LockstepFrame = sending = (1.033, 1.066);
+            Assert.False(walker.Moving(1.033));
+            Assert.Equal(new ClientPathfinder.Blocker(101, 100, 2), conn.MonsterBody(0x3050, dying, 1.033));
+            conn.LockstepFrame = sending = (1.132, 1.165);
+            Assert.False(conn.CorpseClears(0x3050, 1.099));
+            Assert.True(conn.CorpseClears(0x3050, 1.132));
+            using (var frame = conn.BeginMonsterBlockerFrame(1.132))
+            {
+                Assert.Contains(new ClientPathfinder.Blocker(101, 100, 2), frame.For(0x3041));
+                frame.Remove(0x3050);
+                Assert.False(ClientPathfinder.ObjectBlocks(frame.For(0x3041), 101, 100, 3, 6));
+            }
+            conn.LockstepFrame = sending = (1.165, 1.198);
+            Assert.Null(conn.MonsterBody(0x3050, dying, 1.165));
+            conn.ReleaseCorpseBody(0x3050, dying);
+            conn.RetainCorpseBody(0x3050, dying, 0);
+            Assert.NotNull(conn.MonsterBody(0x3050, dying, 1.165));
+            conn.CorpseDied(0x3050, sending);
+            Assert.Null(conn.MonsterBody(0x3050, dying, 1.165));
+            conn.ReleaseCorpseBody(0x3050, dying);
+            conn.Monsters.Remove(0x3050);
+            conn.LockstepFrame = (0, .033);
 
             // A nonblocking mover must still take collision-checked movement turns. Without StepWalkers admitting
             // it, Position would advance analytically through the dormant neighbour instead of stopping at 0.1 s.

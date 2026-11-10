@@ -62,6 +62,28 @@ sealed class MonsterCatalog(string folder = "data")
     /// </summary>
     public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.Value.GetValueOrDefault(id) ?? [];
 
+    /// <summary>
+    /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
+    /// remove_collidability event; data/monster-takehit.json "death"), null when it has none: the client then clears the
+    /// body with the death itself. 150 for a file written before the entry existed (most varieties' value).
+    /// </summary>
+    public int? CorpseUnblockMs(string id) => _corpse.Value is { } known ? known.GetValueOrDefault(id) : 150;
+
+    private readonly Lazy<Dictionary<string, int?>?> _corpse = new(() => LoadCorpse(folder));
+
+    static Dictionary<string, int?>? LoadCorpse(string folder)
+    {
+        string path = Path.Combine(folder, "monster-takehit.json");
+        if (!File.Exists(path)) return null;
+        using var doc = GameTables.Open(path);
+        Dictionary<string, int?>? result = null;
+        foreach (var p in doc.RootElement.EnumerateObject())
+            if (p.Value.TryGetProperty("death", out var death) && death.ValueKind == JsonValueKind.Object)
+                (result ??= [])[p.Name] = death.TryGetProperty("unblock", out var ms) && ms.ValueKind == JsonValueKind.Number
+                    ? ms.GetInt32() : null;
+        return result;
+    }
+
     static Dictionary<string, HitAnimation[]> LoadTakeHit(string folder)
     {
         string path = Path.Combine(folder, "monster-takehit.json");

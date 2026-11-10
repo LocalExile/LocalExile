@@ -1970,13 +1970,64 @@ static partial class Game
     }
 
     const double CorpseBlockDelaySeconds = .165;
+    // How long a kill waits for its death message on a lockstep client before the monster is taken as dead in the frame
+    // then being sent (a kill whose life update is never written).
+    const double CorpseDeathWaitSeconds = 1;
 
-    // The client keeps routing around a corpse until Positioned clears its body. Retire the lockstep estimate at
-    // that message's send gate too; clearing it on death gives early post-kill Moves a different path.
+    // The ticks of its death clip that a corpse's body lasts on a lockstep client, the death's own frame included. The
+    // client's Actor clears the body from Positioned (+0x1e5 & 8, what its path searches and step checks read) when the
+    // clip reaches its remove_collidability event (0x141e938c0), and the clip gains the frame's length each tick from
+    // the frame the death is applied in; a clip without the event clears it with the death (0x141e95960). 150 ms, most
+    // monsters' value, is the fifth tick. Not traced: an event exactly on a tick, and a death clip played at another
+    // speed.
+    internal static int CorpseBodyTicks(int? unblockMs)
+    {
+        if (unblockMs is not { } ms) return 0;
+        float at = ms / 1000f, played = 0, length = FrameMs / 1000f;
+        int ticks = 0;
+        while (played < at && ticks < 100_000) { played += length; ticks++; }
+        return ticks;
+    }
+
+    // The client keeps routing around a corpse until its body is cleared. A predictive client is told 165 ms after the
+    // kill (S→C 0x2b0, as GGG sends it). A lockstep client's copy is exact: its monster walks until the death message's
+    // frame and its body lasts the death clip's ticks from there (ClientState.Corpse), so the body is kept at the kill,
+    // its clock starts where the death is written (CorpseDeathsWritten), and the 0x2b0 follows in the frame after the
+    // client's own clear, where it changes nothing (GGG's comes 4 or 5 frames after a 150 ms death, 0 after one
+    // without the event, 54 or 55 after Hillock's 1833 ms).
     internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
-        lock (conn.Monsters) conn.RetainCorpseBody(id, m, conn.LockstepFrame?.Start ?? ProjectileWorldTime(conn));
-        SendAfter(CorpseBlockDelaySeconds, () => SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
+        int ticks = CorpseBodyTicks(m.Variety is { } variety ? Monsters.CorpseUnblockMs(variety.Id) : 150);
+        Task<double>? death;
+        lock (conn.Monsters)
+        {
+            conn.RetainCorpseBody(id, m, ticks);
+            death = conn.CorpseDeath(id, m);
+        }
+        if (death is null)
+        {
+            SendAfter(CorpseBlockDelaySeconds, Clear);
+            return;
+        }
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (await Task.WhenAny(death, Task.Delay(TimeSpan.FromSeconds(CorpseDeathWaitSeconds))) != death)
+                    lock (conn.Monsters)
+                        if (conn.LockstepFrame is { } frame && conn.CorpseAwaitsDeathOf(id))
+                        {
+                            StepWalkers(conn, frame.Start);
+                            conn.CorpseDied(id, frame);
+                        }
+                if (!death.IsCompletedSuccessfully) return;
+                await conn.FrameFrom(death.Result + ticks * (FrameMs / 1000d));
+                await Clear();
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+        });
+
+        Task Clear() => SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
         {
             using (ProjectileMutation(conn, phase: "send"))
             {
@@ -1989,7 +2040,28 @@ static partial class Game
                 conn.ReleaseCorpseBody(id, m);
                 return InstanceProtocol.StopBlocking(id);
             }
-        }));
+        });
+    }
+
+    // In a lockstep client's send gate, for the records about to be admitted to the frame being sent: a kept corpse
+    // whose life reaches 0 in one of them dies on the client in this frame (the client applies the 0x1b1 before the
+    // frame's ticks). Its walk is stepped up to the frame and ends with the frame's steps, and its body's clock starts.
+    internal static void CorpseDeathsWritten(ClientState conn, OutputBatch batch)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.LockstepFrame is not { } frame) return;
+            foreach (var record in batch.Records)
+            {
+                if (record.Kind is not (OutputRecord.RecordKind.World or OutputRecord.RecordKind.AfterBirth)
+                    || record.Object is not { } target || !conn.CorpseAwaitsDeathOf(target.Id)) continue;
+                var bytes = record.CopyBytes();
+                if (bytes.Length < 16 || System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes) != InstanceProtocol.LifeUpdateId
+                    || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12)) != 0) continue;
+                StepWalkers(conn, frame.Start);
+                conn.CorpseDied(target.Id, frame);
+            }
+        }
     }
 
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near

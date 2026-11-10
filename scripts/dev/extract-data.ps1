@@ -50,9 +50,10 @@ $manifest = @(
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
        Args = @('scripts/re/monster_contacts.py'); Version = 4; Needs = @('tables')
        UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
-    # monster-takehit also gives each variety's Emerge clip and its length: how long an emerge monster takes to rise.
+    # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
+    # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'
-       Args = @('scripts/re/monster_takehit.py'); Version = 4; Needs = @('tables')
+       Args = @('scripts/re/monster_takehit.py'); Version = 5; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     # projectile-clips: a server-created projectile object plays nothing by itself; the Gateway starts its rig's flight
     # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise).

@@ -73,6 +73,7 @@ static class GameDataFiles
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 7, "class rig animation indices and spell cancellation events: without them cast movement waits for the full spell"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
+        ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("object-types", 8, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals): without them they get the wrong blob or none"),
     ];
 

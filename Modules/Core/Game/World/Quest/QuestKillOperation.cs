@@ -94,6 +94,17 @@ static partial class Game
             atGate = admission => project(admission) is { } batch
                 ? new([.. batch.Records.Select(record => record.AsSharedView())]) : null;
         }
+        // A lockstep client's monster dies in the frame its death is written in, whichever producer writes it.
+        if (conn.LockstepClient)
+        {
+            var project = atGate;
+            atGate = admission =>
+            {
+                var batch = project(admission);
+                if (batch is not null && conn.CorpseAwaitsDeath) CorpseDeathsWritten(conn, batch);
+                return batch;
+            };
+        }
         if (QuestKillCommitOutput is not { } capture)
         {
             if (!conn.LockstepClient) return PredictiveBatch();
