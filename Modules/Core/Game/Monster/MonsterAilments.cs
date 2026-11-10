@@ -83,6 +83,47 @@ static partial class Game
         }
     }
 
+    /// <summary>Ignite proliferation, once per AI tick: every living hostile monster that can be ignited, within a
+    /// spreading ignite's own radius (cells) of the monster it is on, a corpse included, burns with the strongest that
+    /// reaches it (MonsterIgnites.Proliferated). A monster that starts burning from it gets the ignited buff. Under the
+    /// Monsters lock.</summary>
+    static void ProliferateIgnitesLocked(ClientState conn, double now, List<(byte[] Packet, string Log)> packets)
+    {
+        var sources = new List<(uint Id, SpawnedMonster M, (int X, int Y) At, double Dps, double Until, int Radius)>();
+        foreach (var (id, m) in conn.Monsters)
+        {
+            // A shattered or consumed corpse is gone: its retained ignites retire, and the copies it gave end below.
+            if (m.Dead && (m.Ailments.Shattered || m.CorpseConsumed))
+            {
+                m.Ignites.RetireCorpse();
+                continue;
+            }
+            foreach (var (dps, until, radius) in m.Ignites.Spreads(now)) sources.Add((id, m, m.Walk.Position(now), dps, until, radius));
+        }
+        foreach (var (id, m) in conn.Monsters)
+        {
+            if (sources.Count == 0 && m.Ignites.Idle) continue;
+            (double Dps, double Until)? best = null;
+            uint from = 0;
+            var e = m.Mods.Effects;
+            if (sources.Count > 0 && !m.Dead && m.Life > 0 && m.Hostile && !m.Invulnerable
+                && e["immune_to_ignite"] == 0 && e["cannot_be_ignited"] == 0)
+            {
+                var at = m.Walk.Position(now);
+                foreach (var s in sources)
+                    if (!ReferenceEquals(s.M, m) && Dist(s.At, at) <= s.Radius
+                        && (best is not { } b || (s.Dps, s.Until).CompareTo((b.Dps, b.Until)) > 0))
+                        (best, from) = ((s.Dps, s.Until), s.Id);
+            }
+            bool showing = m.Ignites.Buff is not null;
+            if (!m.Ignites.Proliferated(best, now) || showing) continue;
+            string log = $"monster 0x{id:x} ({m.Label}) ignited by proliferation from 0x{from:x}: {best!.Value.Dps:0.#}/s for {best.Value.Until - now:0.##} s";
+            Console.WriteLine($"[gateway] {log}");
+            // Not showing yet, so this is the add alone (no old instance to take off).
+            foreach (var packet in ShowDotBuffLocked(conn, id, m.Ignites, IgnitedBuffRow, now)) packets.Add((packet, "0x01c1 " + log));
+        }
+    }
+
     /// <summary>Its action speed: 0 frozen, else less by its chill. Unstoppable (action_speed_cannot_be_reduced_below_base)
     /// keeps it at 1.</summary>
     internal static double MonsterActionFactor(SpawnedMonster m, double now) =>
@@ -181,6 +222,7 @@ static partial class Game
     {
         ProliferateLocked(conn, now);
         var packets = new List<(byte[], string)>();
+        ProliferateIgnitesLocked(conn, now, packets);
         foreach (var (id, m) in conn.Monsters)
         {
             var a = m.Ailments;

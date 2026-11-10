@@ -86,7 +86,35 @@ static partial class Game
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
-        return settings;
+        return WithIgniteSpread(settings, player, SupportedSkill(conn, skillId).Stats, spell, hand);
+    }
+
+    /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation
+    /// Support's, the gloves', the notable's, the flask's, the generic stat, the main hand's (attacks in that hand) and
+    /// Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, the larger of its two sources). The client
+    /// has no virtual_ignite_proliferation_radius, so this follows the shock calculator's "largest source" rule (not
+    /// verified for ignite).</summary>
+    internal static int IgniteProliferationRadius(Func<string, int> get, string hand) => Math.Max(0, new[]
+    {
+        get("support_ignite_proliferation_radius"), get("ignite_proliferation_radius"),
+        get("gloves_ignite_proliferation_radius"), get("passive_notable_ignite_proliferation_radius"),
+        get("flask_ignite_proliferation_radius"), hand == "main_hand" ? get("main_hand_ignite_proliferation_radius") : 0,
+        get("elemental_status_effect_aura_radius"), get("elementalist_elemental_status_effect_aura_radius"),
+    }.Max());
+
+    /// <summary>Settings with their ignite's spread: <see cref="IgniteProliferationRadius"/> from the player's and the
+    /// skill's stats, grown by the hit's area modifier as a chill's or shock's is (MonsterElementalAilments.SpreadRadius).
+    /// </summary>
+    internal static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand)
+    {
+        if (settings.Seconds <= 0) return settings;
+        int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
+        int radius = IgniteProliferationRadius(name => Player(name) + Skill(name), hand);
+        if (radius <= 0) return settings;
+        double area = AilmentArea(Player, Skill, spell);
+        return settings with { Spread = (int)Math.Floor(radius * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100) };
     }
 
     /// <summary>How many enemies were ignited in the last four seconds (Controlled Blaze).</summary>
@@ -101,9 +129,9 @@ static partial class Game
     internal static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        return MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
+        return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(player, Stats, attack: true), Get),
-            "main_hand", Get);
+            "main_hand", Get), player, null, spell: false, "main_hand");
     }
 
     // Called under the combat lock at an accepted hit that dealt fire damage and left the monster alive: the hit's ignite
@@ -130,7 +158,8 @@ static partial class Game
     }
 
     internal static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
-        $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s";
+        $"monster 0x{id:x} ({target.Label}) ignited{(critical ? " by a critical hit" : "")} for {target.Ignites.Until - now:0.##} s"
+        + (target.Ignites.SpreadRadius > 0 ? $", spreads {target.Ignites.SpreadRadius} cells" : "");
 
     internal static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now) =>
