@@ -14,7 +14,7 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// One table, three views, each limited to the templates whose stats have a consumer:
 /// <list type="bullet">
 /// <item>enemy auras (<see cref="EnemyAurasFor"/>, Game.EnemyAuraActs): Light of Divinity's elemental damage taken,
-/// Born under Fire's hit conversion and the <c>SaboteurBlind</c> blind (Devout of Solaris, Born in the Shadows: a
+/// Born under Fire's hit conversion, Overwhelm's crit multiplier and the <c>SaboteurBlind</c> blind (Devout of Solaris, Born in the Shadows: a
 /// stat-less generic_buff_aura, shown on monsters as BuffDefinitions <c>blinded</c>). Game.EnemyDebuffsTick puts
 /// them on every living hostile monster within their radius of the living player; hits read them.</item>
 /// <item>player-and-ally auras (<see cref="AllyAurasFor"/>): the relic trigger (Program.TriggerElementalRelicLocked).</item>
@@ -42,6 +42,7 @@ static class PassiveBuffAuras
     static readonly HashSet<string> EnemyAuraTemplates =
     [
         "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken", // Paladin Light of Divinity: 2551 Augury of Penitence
+        "SlayerCritMultiplier", // Slayer Overwhelm: 1343 slayer_crit_multi_aura, -30 to their crits on the player
     ];
 
     /// <summary>The passive blind aura: every enemy in it is Blinded (Game.Blinded).</summary>

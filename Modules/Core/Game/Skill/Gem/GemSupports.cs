@@ -74,11 +74,13 @@ sealed class GemSupports(string folder = "data")
     }
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass = null)
+        int? weaponClass = null, int activeLevel = 1)
     {
         if (Of(active) is not { Support: false, CannotBeSupported: false } target) return [];
         var types = target.Types.ToHashSet();
         var all = candidates.Where(c => Of(c.Effect) is { Support: true })
+            .Where(c => Of(c.Effect)?.Id != "SupportCastWhenDamageTaken"
+                || skills.PlayerLevelReq(active, activeLevel) <= skills.PlayerLevelReq(c.Effect, c.Level))
             .Select(c => (Gem: c, Effect: Of(c.Effect)!))
             .GroupBy(c => Family(c.Effect))
             .Select(g => g.OrderByDescending(c => c.Effect.Regular is not null).ThenByDescending(c => c.Gem.Level)

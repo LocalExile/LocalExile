@@ -11,6 +11,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Sweep's area: its swings (ActionTypes Sweep, SweepAltX) hit around the player, where the client draws them,
   instead of around the aimed monster (live 2026-11-08); other melee area attacks still land on the target.
   Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Flicker Strike (live 2026-11-09): the server teleports the player (S→C 0x1b7), which the client's action never does,
+  to the clicked monster in range or else the one nearest the aim; with none in range it strikes in place.
+  Its 10% attack speed per Frenzy Charge counts, and each use gives its buff (20% movement speed for the skill's 3 s).
+  Code: `FlickerStrike.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Cooldown bypass (live 2026-11-09: Flicker Strike with Frenzy Charges): the skill record carries GEPL
+  `CooldownBypassType`, and a use during the cooldown spends a charge above the minimum.
+  Code: `CooldownBypass.cs`, `Cooldowns.cs`. Docs: [11](../docs/protocol/11-skills.md) §9.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.
   Elapsed Life regeneration, stopping at expiry, area carry, death and relog were also verified.
@@ -308,7 +315,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ward conversions, ring-slot and jewel-radius operators remain separate work.
   Code: `CharacterStats.cs`, `DamageModel.cs`, `ItemCatalog.cs`, `ItemDefences.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2.
-- Gem skills and bow attacks: Fireball from the socketed gem with its level-1 stats (9–14 fire, 750 ms cast via
+- Gem skills include CWDT, CoC and CwC releases for adopted projectiles, Ice Nova, curses and three guard spells ([25](../docs/protocol/25-gem-supports.md));
+  bow attacks and manual Fireball from the socketed gem with its level-1 stats (9–14 fire, 750 ms cast via
   `virtual_base_spell_cast_time_ms`, 5 mana), cast at the ground or at a monster; a bow's ordinary attack and attack
   gems create `Metadata/Projectiles/DefaultArrow` (or the gem's own projectile) at the attack animation's `attack1_bow`
   contact (0.374 of the attack time).
@@ -688,6 +696,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
 
 ## Partly working
+
+- Ice Shot primary projectile resolution uses IceArrow; 3.29.3c protocol-driven primary-hit controls pass; cone splash remains open.
 
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
@@ -1170,7 +1180,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Native Dash mid-cooldown recovery changes now pass live: one entry changes rate with base/total/progress preserved,
   early input has no echo/cost, and reuse succeeds after native expiry.
   Wire, active/expired/zero-rate and queued encrypted-send checks also pass.
-  Multi-use, duplicate same-effect gems, shared groups, extra uses, bypass, typed/conditional/more recovery and official
+  Multi-use, duplicate same-effect gems, shared groups, extra uses, typed/conditional/more recovery and official
   tick equivalence remain outside this slice.
   Skill records carry the GEPL Cooldown and the stats the cooldown count, and the server refuses a skill until its
   cooldown is over.
@@ -1225,16 +1235,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   ([11](../docs/protocol/11-skills.md) 13).
 - Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
-- **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
-  a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
-  (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
-  Totems live apart from the monsters, so area hits, monster AI, loot and the instance save never see them.
-  A totem dies at Life 0, at the end of its duration, when replaced or when the player dies, and leaves a second later.
-  Its aura regenerates the player's Life within its radius, with buff 172.
-  `damage_removed_from_your_nearest_totem_before_life_or_es_%` moves that share of a monster or `/hit` hit, after
-  mitigation, to the nearest totem's Life (Forest of Ancestors, Spirit of Kaom); covered by Gateway tests.
-  Not yet: other totem skills (their use places nothing), monsters attacking totems, placement range and server-side
-  totem collision; not yet checked with the real client ([11](../docs/protocol/11-skills.md) §10g).
+- Totems: Rejuvenation, adopted projectile spells and bow/wand ballistas execute ([11](../docs/protocol/11-skills.md) §10g).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
   passives' sum and is sent with 0x1c1 after an allocation and on area entry, and taken off with 0x1c2 on a refund
   (Surfcaster's Ghost of the Deep).
@@ -1609,6 +1610,12 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Killing a shocked monster with Berek's Respite gives the monsters within 2 m the same shock.
   Each chill, freeze and shock spreads to living enemies within its own `virtual_*_proliferation_radius` of the
   monster or corpse it is on, like an aura.
+  An ignite with a proliferation radius (Ignite Proliferation Support, gloves, notable, flask, main hand, Elemental
+  Proliferation; the largest, grown by area) does the same: each AI tick the strongest spreading ignite in reach burns
+  a living ignitable monster at its damage per second until it ends, competing with its own ignites. Corpses keep
+  spreading until shattered or consumed. The copy does not spread or count as inflicting. Verified live 2026-11-08 (Fireball + Ignite
+  Proliferation: 536 spreads at 16 cells, 246 burn kills, no client crash). Not yet: a killing hit's ignite on the
+  corpse, the skill-less default bow attack, Berek's Respite's ignite twin.
   An area skill applies a Mirrored monster's reflected ailments after its last target, and a sweep stopped partway
   still rewards its kills.
   The buffs, the sent action speed and the frozen pose are not checked with the real client.
@@ -1711,6 +1718,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   surface-height model, so a projectile on the hideout waypoint platform spawns at the terrain height below it.
   Tracked in issue #182.
 - Spirit of Utula's Leadership and Rakiata's Mark-specific trigger still need their own chieftain executors.
+- Where Flicker Strike lands beside the monster is the server's guess (its cell): the client leaves it to the server.
+  Its buff's movement speed does not scale with increased buff effect.
 - Holy Sweep's hammers deal no damage: the client draws them on the hits, but the server has no hammerfall hits
   (`holy_sweep_number_of_holy_bolts_to_create`, the 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 - Effects that should be attached to bones (Righteous Fire's orbs, MiscAnimated RighteousFireOrb) are not sent;
