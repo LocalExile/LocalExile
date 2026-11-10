@@ -28,10 +28,26 @@ sealed partial class ClientState
         return corpseBodies.TryGetValue(id, out var corpse) && ReferenceEquals(corpse.Monster, monster) ? corpse.Body : null;
     }
 
+    /// <summary>The other players' walkers as this lockstep client runs them (by their id here). Each walks the orders its
+    /// owner's client was sent, from the cell the copy stands on, and is stepped in this client's frames with every other
+    /// walker, as a body among them (SharedMonsters.cs PeerRecordAtGate). Under Monsters.</summary>
+    public readonly Dictionary<uint, PlayerWalk> PeerWalks = [];
+
+    /// <summary>A walk for another player's copy on this client: a player's search and size, this client's floor, bodies
+    /// and frames.</summary>
+    public PlayerWalk NewPeerWalk(uint id, int x, int y, double speed)
+    {
+        var l = Layout;
+        Func<int, int, bool>? walkable = l.Walkable is { } w ? (cx, cy) => w(cx, cy) && !Barrier.Contains((cx, cy)) : null;
+        return new(x, y, Math.Max(1, speed), walkable, l.GridW > 0 ? l.GridW : 4096, l.GridH > 0 ? l.GridH : 4096,
+            () => MonsterBlockers(id), LivingCollision.PlayerSize, sight: l.Sight) { FrameOf = LockstepFrameOf };
+    }
+
     public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers()
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
-        if (IsPhasing) return result;
+        // A lockstep client moves nobody out of another player's body, so neither does its estimate.
+        if (IsPhasing || LockstepClient) return result;
         // Deterministic arrival arbitration: the later actor moves, instead of both choosing the same exit.
         foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
             if (peer.Id < PeerId && peer.Life > 0 && peer.Owner is not null) result.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));

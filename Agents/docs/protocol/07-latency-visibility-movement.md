@@ -861,6 +861,14 @@ walk reached the others as a Move from the player's published pose with sequence
 orders matched the receiver's cell (bench 2026-11-09). Only a server-driven player, which has no connection of its
 own, is still walked from its pose.
 
+Players block each other as monsters do (two clients walking together never had the two closer than 3 cells), and each
+client steps its own copy of the other player in its own frames, against its own bodies. So the estimate keeps that copy
+for every lockstep client (`ClientState.PeerWalks`): it is a walker and a body in that client's step pass, and the other
+player's order goes out from the cell the copy stands on, with the owner's target (`PeerRecordAtGate`). Against the
+other player's published pose instead, the two estimates disagreed about who was in whose way: of two players walking
+side by side, one's own orders matched its client's cell in 217 of 279 (bench 2026-11-10). Not modelled: the walk-up of
+another player's attack on a monster; the copy stands until that player's next order.
+
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
 
@@ -871,6 +879,7 @@ own, is still walked from its pose.
 | The client's cell for a target is estimated: the lowest round trip and two frames ago | Its frames say which it was | A lockstep request carries no frame |
 | Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself |
 | Frames laid over a clock, late ones sent at once, on one grid for everyone in an instance | Frames are ticks of its world | The walks run on the clock |
+| Another player's order names the cell its copy stands on here, not the cell its owner was sent | One world: the same cell | Each client steps its own copy against its own bodies; the estimate keeps that copy per client, so nothing puts it back |
 | Another player's orders reach a lockstep client one frame after the owner's | In the same tick | Each connection's frame goes out by itself; the next frame is the first that can hold every order of the owner's frame |
 | Orders a walking monster again only at a frame start right after its estimate's step | On its cadence, from its own simulation | A set after an order whose from cell is off zeroes the client's step accumulator while the estimate keeps its fraction; right after the estimate's step there is under a frame to lose |
 | Sends 0x2b6 | Never | The client's default is not traced |

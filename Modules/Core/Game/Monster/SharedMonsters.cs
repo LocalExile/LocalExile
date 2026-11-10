@@ -285,7 +285,7 @@ static partial class Game
                 if (peer.Owner is not { Outbox: not null } other || other.Closed || other.LeavingArea) continue;
                 bool knows;
                 try { knows = other.SeenPlayers.ContainsKey(conn.PeerId); } catch (InvalidOperationException) { knows = false; }
-                if (knows) _ = MirrorPlayerRecords(other, conn.PeerId, records, after, source);
+                if (knows) _ = MirrorPlayerRecords(other, conn.PeerId, records, after, source, conn.Walk.Speed);
             }
         }
         finally { Mirroring.Value = false; }
@@ -305,7 +305,8 @@ static partial class Game
     // each order's from cell is the cell that copy stands on. Sent into whichever frame was open, an order landed in the
     // same frame or the next by turns and the copy lost or gained a step. A predictive client gets them at once.
     // Differs from GGG: there every client's frame is the same tick of one world, so its copy is not a frame behind.
-    static Task MirrorPlayerRecords(ClientState other, uint id, IReadOnlyList<byte[]> records, double? after, WorldOutput.Packet? source)
+    static Task MirrorPlayerRecords(ClientState other, uint id, IReadOnlyList<byte[]> records, double? after, WorldOutput.Packet? source,
+        double speed)
     {
         // A record keyed by its own object keeps that key under the object's id here.
         bool keyed = source is { IsWorld: true }
@@ -324,9 +325,76 @@ static partial class Game
             foreach (var bytes in copies)
             {
                 if (keyed) System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
-                await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, bytes, null);
+                var record = bytes;
+                await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, [], null, atGate: () =>
+                {
+                    lock (other.Monsters) return PeerRecordAtGate(other, id, record, speed);
+                });
             }
         });
+    }
+
+    // Another player's record at its send gate on a lockstep client (under that client's Monsters lock). The client runs
+    // its own copy of that player: an order starts an action on it at the start of the frame being sent, and puts it on
+    // the order's from cell (07 §6). The estimate runs the same copy (ClientState.PeerWalks), stepped in this client's
+    // frames against this client's bodies, so the order goes out from the cell the copy stands on, with the owner's
+    // target: the copy is never put back, and ends where the owner's walk ends. A Move walks it; any other action, and
+    // a hit's recovery (0x1d1), ends its walk with the stop that waits for the tick, as on the owner's client.
+    // Not modelled: the walk-up of another player's attack on a monster (the copy stands until its next order).
+    internal static byte[] PeerRecordAtGate(ClientState other, uint id, byte[] record, double speed)
+    {
+        if (!other.PeerWalks.TryGetValue(id, out var copy)) return record;
+        ushort message = (ushort)(record[0] << 8 | record[1]);
+        if (message != InstanceProtocol.ActionStartedId && message != InstanceProtocol.ActorAnimationId) return record;
+        // The start of the frame being sent, after the steps of the frames before it, as a monster's order is placed.
+        if (other.LockstepFrame is not { } frame) return record;
+        StepWalkers(other, frame.Start);
+        double at = frame.Start;
+        if (message == InstanceProtocol.ActorAnimationId)
+        {
+            copy.Cancel(at);
+            return record;
+        }
+        if (record.Length < 18) return record;
+        int head = 14 + ((record[13] & 0x80) != 0 ? 4 : 0), next = head;
+        Span<int> cells = stackalloc int[4];
+        for (int i = 0; i < 4; i++)
+        {
+            if (next >= record.Length) return record;
+            cells[i] = ReadCompactInt(record, ref next);
+        }
+        if (next + 4 > record.Length) return record;
+        const ushort Move = 0x2909;
+        ushort skill = (ushort)(record[next] << 8 | record[next + 1]);
+        if (copy.Speed != speed) copy.SetSpeed(speed, at);
+        var here = copy.Position(at);
+        if (skill == Move) copy.Order(cells[2], cells[3], at);
+        else copy.Cancel(at);
+        var w = new LoginWriter();
+        foreach (byte b in record.AsSpan(0, head)) w.U8(b);
+        InstanceProtocol.CompactInt(w, here.X); InstanceProtocol.CompactInt(w, here.Y);
+        InstanceProtocol.CompactInt(w, cells[2]); InstanceProtocol.CompactInt(w, cells[3]);
+        foreach (byte b in record.AsSpan(next)) w.U8(b);
+        return w.ToArray();
+    }
+
+    // InstanceProtocol.CompactInt, read back: 7, 14, 21 or 28 bits with their sign, or 0xf0 and a u32.
+    static int ReadCompactInt(byte[] bytes, ref int at)
+    {
+        byte first = bytes[at];
+        int length = first switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
+        if (at + length > bytes.Length) { at = bytes.Length; return 0; }
+        int value;
+        if (length == 5) value = bytes[at + 1] << 24 | bytes[at + 2] << 16 | bytes[at + 3] << 8 | bytes[at + 4];
+        else
+        {
+            int bits = 7 * length;
+            value = first & (0x7f >> (length - 1));
+            for (int i = 1; i < length; i++) value = value << 8 | bytes[at + i];
+            if ((value & 1 << (bits - 1)) != 0) value -= 1 << bits;
+        }
+        at += length;
+        return value;
     }
 
     // A player's hit on an instance monster (0x1af: u16 id, object, u32 0, u16 0, u16 sequence, u8, u8, u32 target, u16
@@ -356,7 +424,7 @@ static partial class Game
             foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
                 if (peer.Owner is { Outbox: not null } other && !other.Closed && !other.LeavingArea
                     && Array.BinarySearch(other.AwakeMonsters, target) >= 0)
-                    _ = MirrorPlayerRecords(other, conn.PeerId, [copy], after, source);
+                    _ = MirrorPlayerRecords(other, conn.PeerId, [copy], after, source, conn.Walk.Speed);
         }
         finally { Mirroring.Value = false; }
     }

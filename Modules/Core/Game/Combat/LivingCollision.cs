@@ -170,6 +170,7 @@ static partial class Game
                     if (!conn.SeenPlayers.TryGetValue(id, out var current) || current.Life != 0
                         || conn.Instance.Player(id) is not { Life: > 0 }) return null;
                     conn.SeenPlayers.Remove(id);
+                    lock (conn.Monsters) conn.PeerWalks.Remove(id);
                     return InstanceProtocol.RemoveObject(id);
                 });
             await SendWorldBatch(conn, [], admission =>
@@ -180,6 +181,7 @@ static partial class Game
                 if (conn.Instance.Player(id) is not { } peer)
                 {
                     if (conn.SeenPlayers.Remove(id)) packets.Remove(id);
+                    lock (conn.Monsters) conn.PeerWalks.Remove(id);
                     return packets.Build();
                 }
                 bool exists = conn.SeenPlayers.TryGetValue(peer.Id, out var previous);
@@ -199,6 +201,10 @@ static partial class Game
                     if (InTown(conn))
                         player = player with { Stats = [.. (player.Stats ?? []).Where(s => s.Key != TownStanceStat), (TownStanceStat, 1)] };
                     packets.Create(peer.Id, InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
+                    // A lockstep client runs the player's copy itself from here on: so does its estimate (PeerWalks).
+                    if (conn.LockstepClient)
+                        lock (conn.Monsters)
+                            conn.PeerWalks[peer.Id] = conn.NewPeerWalk(peer.Id, peer.X, peer.Y, peer.Owner?.Walk.Speed ?? Program.WalkSpeed);
                     packets.Presentation(peer.Id, InstanceProtocol.EnterWakeZone(peer.Id));
                     // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e97190)
                     // when its equipment changes, not when it is created: without this every other player stood in the
@@ -221,7 +227,11 @@ static partial class Game
                         packets.World(peer.Id, InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
                     else if (destination == (peer.X, peer.Y) && (previous.X, previous.Y) != (peer.X, peer.Y)
                         && Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20 && heading == (previous.X, previous.Y))
+                    {
                         packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                        lock (conn.Monsters)
+                            if (conn.PeerWalks.TryGetValue(peer.Id, out var jumped)) jumped.Teleport(peer.X, peer.Y, conn.Clock.Elapsed.TotalSeconds);
+                    }
                     else if (!ordered && destination == (peer.X, peer.Y) && heading != destination)
                     {
                         // Stopped short of where it was going (a body in the way): the observers' walk stops there too.
@@ -292,6 +302,9 @@ static partial class Game
         foreach (var (id, m) in conn.Monsters)
             if (LivingCollision.StepsWithBodies(m)) walks[id] = m.Walk;
         if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
+        // The other players' copies on a lockstep client: walkers like any other, ticked in id order.
+        if (frame is not null)
+            foreach (var (id, copy) in conn.PeerWalks) walks[id] = copy;
         if (frame is { } f)
         {
             StepFrames(conn, walks, from, now, f.End - f.Start);

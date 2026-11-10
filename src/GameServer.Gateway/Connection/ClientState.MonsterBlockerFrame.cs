@@ -31,10 +31,21 @@ sealed partial class ClientState
             long startedAt = Stopwatch.GetTimestamp();
             this.owner = owner; this.outer = outer;
             var fixedBodies = new List<ClientPathfinder.Blocker>(owner.StationaryBlockers);
+            // Another player stands where its published pose has it, unless this client runs a copy of it (PeerWalks):
+            // then the copy's own cell is its body, and it moves with the copy's steps.
             foreach (var peer in owner.Instance?.PlayersExcept(owner.PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null) fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null && (placement || !owner.PeerWalks.ContainsKey(peer.Id)))
+                    fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             FixedBlockers = new BlockerSet(fixedBodies);
             current = new(fixedBodies);
+            if (!placement)
+                foreach (var (id, copy) in owner.PeerWalks)
+                {
+                    if (owner.Instance?.Player(id) is { Life: 0 }) continue;
+                    var p = copy.Position(now);
+                    indices.Add(id, (Bodies.Count, current.Add(new(p.X, p.Y, LivingCollision.PlayerSize))));
+                    Bodies.Add((id, p.X, p.Y, LivingCollision.PlayerSize));
+                }
             if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.IsPhasing)
             {
                 var player = owner.Walk.Position(now);

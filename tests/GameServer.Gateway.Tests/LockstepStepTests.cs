@@ -72,6 +72,43 @@ public class LockstepStepTests
         Assert.Equal((50, 55), b.Walk.Position(0.14));
     }
 
+    // A lockstep client runs its own copy of another player, so the estimate runs it too: the other player's order
+    // starts from the cell the copy stands on, whatever cell its owner's estimate reported, and the copy steps in this
+    // client's frames after the local player (a higher id), a body like any other.
+    [Fact]
+    public void Another_players_copy_walks_its_orders_in_the_observers_frames()
+    {
+        const uint peer = 0x20000005;
+        var conn = Connection(lockstep: true, sending: (0.033, 0.066));
+        conn.Walk.Teleport(50, 50, 0);
+        lock (conn.Monsters)
+        {
+            var copy = conn.PeerWalks[peer] = conn.NewPeerWalk(peer, 60, 50, 37);
+            // The owner was sent a Move from (61, 50), a cell ahead of the copy: this client gets it from (60, 50).
+            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 60, 50, 80, 50, 0x2909, 0x8005, 0x0408),
+                Game.PeerRecordAtGate(conn, peer,
+                    GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 61, 50, 80, 50, 0x2909, 0x8005, 0x0408), 37));
+            // 37 cells a second, a step every 27 ms: one in the frame from 0.033, one in the frame from 0.066.
+            conn.LockstepFrame = (0.099, 0.132);
+            Game.StepWalkers(conn, now: 0.1);
+            Assert.Equal((62, 50), copy.Position(0.099));
+            // Another action ends its walk after the frame's step; the order again names the copy's cell.
+            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 62, 50, 70, 60, 0x0102, 0x8006, 0x0408),
+                Game.PeerRecordAtGate(conn, peer,
+                    GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 64, 50, 70, 60, 0x0102, 0x8006, 0x0408), 37));
+            conn.LockstepFrame = (0.198, 0.231);
+            Game.StepWalkers(conn, now: 0.2);
+            Assert.Equal((63, 50), copy.Position(0.198));
+            Assert.False(copy.Moving(0.198));
+            // The local player walks into it: its body stops him three cells short, as a monster's would.
+            conn.Walk.Order(63, 50, now: 0.198);
+            conn.LockstepFrame = (0.990, 1.023);
+            Game.StepWalkers(conn, now: 1);
+            Assert.Equal((60, 50), conn.Walk.Position(0.990));
+            Assert.False(conn.Walk.Moving(0.990));
+        }
+    }
+
     [Fact]
     public void The_player_ticks_before_the_monsters_in_a_lockstep_frame()
     {
