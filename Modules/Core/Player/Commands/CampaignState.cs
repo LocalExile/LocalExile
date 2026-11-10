@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// What the campaign driver's dev commands (scripts/dev/campaign, Agents/docs/dev/campaign-automation.md) decide without a
@@ -109,10 +110,10 @@ static class CampaignState
     public static IReadOnlyList<string> PresetWaypoints(string id, string tables = "data/tables")
     {
         string presetsFile = Path.Combine(tables, "CharacterStartQuestState.json"), areasFile = Path.Combine(tables, "WorldAreas.json");
-        if (!File.Exists(presetsFile) || !File.Exists(areasFile)) return [];
-        using var areas = JsonDocument.Parse(File.ReadAllBytes(areasFile));
+        if (!ClientTables.Exists(presetsFile) || !ClientTables.Exists(areasFile)) return [];
+        using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes(areasFile));
         string[] ids = [.. areas.RootElement.EnumerateArray().Select(r => r.TryGetProperty("Id", out var a) ? a.GetString() ?? "" : "")];
-        using var presets = JsonDocument.Parse(File.ReadAllBytes(presetsFile));
+        using var presets = JsonDocument.Parse(ClientTables.ReadAllBytes(presetsFile));
         var row = presets.RootElement.EnumerateArray().FirstOrDefault(r => string.Equals(r.GetProperty("Id").GetString(), id, StringComparison.OrdinalIgnoreCase));
         if (row.ValueKind != JsonValueKind.Object || !row.TryGetProperty("Areas", out var list)) return [];
         return [.. list.EnumerateArray().Select(a => a.GetInt32()).Where(i => i >= 0 && i < ids.Length).Select(i => ids[i])];
@@ -175,12 +176,12 @@ static class CampaignState
     {
         var gates = new Dictionary<string, string[]>(StringComparer.Ordinal);
         string areas = Path.Combine("data", "tables", "WorldAreas.json"), flagsFile = Path.Combine("data", "tables", "QuestFlags.json");
-        if (!File.Exists(areas) || !File.Exists(flagsFile)) return gates;
-        using var flags = JsonDocument.Parse(File.ReadAllBytes(flagsFile));
+        if (!ClientTables.Exists(areas) || !ClientTables.Exists(flagsFile)) return gates;
+        using var flags = JsonDocument.Parse(ClientTables.ReadAllBytes(flagsFile));
         string[] names = [.. flags.RootElement.EnumerateArray().Select(r => r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "")];
         string[] Names(JsonElement area, string column) => area.TryGetProperty(column, out var list)
             ? [.. list.EnumerateArray().Select(e => e.GetInt32()).Where(i => i >= 0 && i < names.Length).Select(i => names[i])] : [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(areas));
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(areas));
         foreach (var area in doc.RootElement.EnumerateArray())
             foreach (string visit in Names(area, "StartQuestFlags").Where(f => f.StartsWith("Visited-", StringComparison.Ordinal)))
                 gates.TryAdd(visit, Names(area, "EndQuestFlags"));

@@ -30,8 +30,8 @@ public sealed class AreaVisitFlags
         var pinned = new List<string>();
         try
         {
-            if (!File.Exists(worldAreasJson)) return new([], []);
-            using var areas = JsonDocument.Parse(File.ReadAllBytes(worldAreasJson));
+            if (!ClientTables.Exists(worldAreasJson)) return new([], []);
+            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
             var ids = areas.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "").ToList();
             int row = 0;
             foreach (var r in areas.RootElement.EnumerateArray())
@@ -40,9 +40,9 @@ public sealed class AreaVisitFlags
                     foreach (var f in start.EnumerateArray()) Add(ids[row], f.GetInt32());
                 row++;
             }
-            if (File.Exists(mapPinsJson))
+            if (ClientTables.Exists(mapPinsJson))
             {
-                using var pins = JsonDocument.Parse(File.ReadAllBytes(mapPinsJson));
+                using var pins = JsonDocument.Parse(ClientTables.ReadAllBytes(mapPinsJson));
                 foreach (var p in pins.RootElement.EnumerateArray())
                 {
                     if (!p.TryGetProperty("WorldAreasKeys", out var keys) || keys.ValueKind != JsonValueKind.Array) continue;

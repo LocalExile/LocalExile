@@ -129,7 +129,7 @@ password digests, tokens, tickets and machine ids redacted.
 | 0x0e | 0x14: `127.0.0.1:6112`, address, area `0x235c`, `ticket = Keyring.NewTicket()`, `key = Keyring.Key(ticket)` |
 | anything else | nothing |
 
-Accounts come from the save database `data/saves.db` (shared with `GameServer.Host` and the Gateway, [saves](../saves.md)). Each account stores a verifier
+Accounts come from the save database `data/characters.db` (shared with `GameServer.Host` and the Gateway, [saves](../saves.md)). Each account stores a verifier
 for the client digest. `InstanceKeyring` (`Protocol/Instance/InstanceProtocol.cs`) loads or creates
 `data/instance-secret.bin` (`Game_INSTANCE_SECRET`). Tests: `LoginCryptoTests` (patches an in-memory copy of the real
 client and handshakes against it), `LoginMessageTests`, `LoginServerSessionTests` (including the live-verified flow).
@@ -196,7 +196,7 @@ new character up by name in the character list and sends **Play (0x0e) with its 
 
 **Delete (C→S 0x0c)**: the server removes the character (name matched case-insensitively) and answers with the new
 0x15 list, then 0x0d result 0; an unknown name gets 0x0d 16 (BackendErrors row 15 + 1, CharacterDoesNotExist). Auth
-moves the character's save to the `deleted_characters` table of `data/saves.db` ([saves](../saves.md)), so a new character
+moves the character's save to the `deleted_characters` table of `data/characters.db` ([saves](../saves.md)), so a new character
 with the same name starts with its class's kit, and the Gateway drops items it still holds in memory for a name that
 has no save any more.
 

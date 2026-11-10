@@ -14,8 +14,8 @@ public static class WorldAreaHideouts
 
     public static IReadOnlyDictionary<string, ushort> LoadAreas(string worldAreasJson)
     {
-        if (!File.Exists(worldAreasJson)) return new Dictionary<string, ushort>();
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(worldAreasJson));
+        if (!ClientTables.Exists(worldAreasJson)) return new Dictionary<string, ushort>();
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
         return doc.RootElement.EnumerateArray()
             .Where(r => r.TryGetProperty("IsHideout", out var h) && h.ValueKind == JsonValueKind.True)
             .ToDictionary(r => r.GetProperty("Id").GetString()!, r => (ushort)r.GetProperty("HASH16").GetInt32());

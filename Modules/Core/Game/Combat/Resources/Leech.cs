@@ -32,6 +32,29 @@ static partial class Game
             if (Stats.Key(name) is uint key) stats[key] = active ? 1 : 0;
     }
 
+    // "X% increased Attack Speed while Leeching" (Endless Hunger): the client's increased attack speed sum (0x142704be0)
+    // adds it while is_leeching. The server sends the final main-hand value, so it joins there.
+    internal static int LeechingAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        var state = LeechContext(conn);
+        return (state.Life || state.Mana || state.EnergyShield) && Stats.Key("attack_speed_+%_while_leeching") is uint key
+            ? stats.GetValueOrDefault(key) : 0;
+    }
+
+    // Endless Hunger's two "while Leeching" defences, on the final flags the server sends and reads (client 0x1427e17d0:
+    // cannot_be_stunned_while_leeching and is_leeching; 0x142896810 the same for virtual_unaffected_by_bleeding).
+    // A /set_stat value of either flag keeps its value.
+    internal static void WithLeechingDefences(Dictionary<uint, int> stats, IReadOnlySet<uint> devSet)
+    {
+        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        bool leeching = Get("is_leeching") != 0;
+        if (Stats.Key("cannot_be_stunned") is uint stun && !devSet.Contains(stun)
+            && leeching && Get("cannot_be_stunned_while_leeching") != 0) stats[stun] = 1;
+        if (Stats.Key("virtual_unaffected_by_bleeding") is uint bleed && !devSet.Contains(bleed))
+            stats[bleed] = Get("base_unaffected_by_bleeding") != 0 || leeching && Get("unaffected_by_bleeding_while_leeching") != 0
+                ? 1 : 0;
+    }
+
     internal static void ConfigureLeech(ClientState conn, Func<string, int> get, IReadOnlyDictionary<uint, int> replacements,
         bool onLowLife)
     {
@@ -84,6 +107,8 @@ static partial class Game
                     sources.GainOnHit.Mana + target.Curses["mana_granted_when_hit_by_attacks"], sources.GainOnHit.EnergyShield) };
         }
         var amounts = sources.Amounts(taken, directDamage);
+        // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
+        amounts.Life += sources.OverkillLife(directDamage, target.Life);
         var session = LeechOf(conn);
         if (target.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
         if (target.Effects["cannot_have_energy_shield_leeched_from"] != 0)

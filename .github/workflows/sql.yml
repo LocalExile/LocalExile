@@ -1,0 +1,29 @@
+# The SQL in git (Agents/docs/dev/databases.md): on a pull request that touches sql/, the rules (new updates only in
+# sql/updates/pending_<db>/, merged files never change, no rows in base/, LF, no tabs or trailing spaces, statements end
+# with ;) and every database built from scratch. pull_request runs with a read-only token: it only reads the branch.
+name: SQL
+
+on:
+  pull_request:
+    paths:
+      - "sql/**"
+      - ".github/scripts/check-sql.py"
+      - ".github/workflows/sql.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check and build the databases
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 -I .github/scripts/check-sql.py --base "origin/$BASE_REF"

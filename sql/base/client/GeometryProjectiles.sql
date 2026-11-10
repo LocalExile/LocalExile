@@ -1,0 +1,26 @@
+-- Client table GeometryProjectiles (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "GeometryProjectiles" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" INTEGER,
+    "Projectile" INTEGER,
+    "__col2" BOOLEAN,
+    "__col3" INTEGER,
+    "__col4" BOOLEAN,
+    "__col5" INTEGER,
+    "__col6" INTEGER,
+    "__col7" BOOLEAN,
+    "__col8" INTEGER,
+    "__col9" INTEGER,
+    "__col10" INTEGER,
+    "__col11" BOOLEAN,
+    "__col12" INTEGER,
+    "__col13" INTEGER,
+    "__col14" BOOLEAN,
+    "__col15" INTEGER,
+    "__col16" BOOLEAN,
+    "__col17" BOOLEAN,
+    "GeometryChannel" INTEGER,
+    "__col19" BOOLEAN,
+    "__col20" INTEGER,
+    "__col21" INTEGER
+);

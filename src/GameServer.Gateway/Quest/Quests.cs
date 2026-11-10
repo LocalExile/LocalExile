@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The quest engine (Agents/docs/protocol/12-quests.md §5, Agents/docs/game/campaign-quests.md). A character's quest progress
@@ -684,7 +685,7 @@ static partial class Quests
     static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
     {
         const string file = "data/tables/QuestFlags.json";
-        try { return File.Exists(file) ? ParseRows(File.ReadAllText(file)) : []; }
+        try { return ClientTables.Exists(file) ? ParseRows(ClientTables.ReadAllText(file)) : []; }
         catch (Exception ex) when (ex is IOException or JsonException) { Console.WriteLine($"[gateway] {file}: {ex.Message}"); return []; }
     });
 

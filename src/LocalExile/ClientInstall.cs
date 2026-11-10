@@ -7,7 +7,7 @@ namespace LocalExile;
 /// path, as they do in a checkout. Game.exe and Game.patched.exe are added beside the client's own files.</summary>
 static class ClientInstall
 {
-    const string Folder = "Client";
+    static string Folder => GameServer.Core.ServerConfig.ClientFolder;
     static string Ggpk => Path.Combine(Folder, "Content.ggpk");
     static string GameExe => Path.Combine(Folder, "Game.exe");
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
@@ -203,7 +203,7 @@ static class ClientInstall
     /// already name this one, and the original is kept in data\gateway_list.original.txt.</summary>
     public static void SelectLocalLogin(Ports ports, Output log)
     {
-        if (ports.Patch != Ports.DefaultPatch) return;
+        if (ports.Base != 0) return;
         log.Step("login-list", "checking the client's login list ...");
         var (code, lines) = Tools.Capture(Tools.Patch, ["gateway", Ggpk]);
         var list = lines.Where(l => l.Split(';').Length >= 3).ToList();
@@ -215,10 +215,11 @@ static class ClientInstall
             "could not change the client's login list; close every client and try again");
     }
 
-    /// <summary>The Patch server answers with this hash; the client's data may have changed since it was saved.</summary>
+    /// <summary>The Patch server answers with this hash; the client's data may have changed since it was saved. A zero hash
+    /// (left by the official patcher or a GGPK tool) is given a value first: the client never skips patching with one.</summary>
     public static void RefreshRootHash(Output log)
     {
-        var (code, _) = Tools.Capture(Tools.Patch, ["root-hash", Ggpk, "--save"]);
+        var (code, _) = Tools.Capture(Tools.Patch, ["root-hash", Ggpk, "--repair", "--save"]);
         if (code != 0) log.Warn("could not refresh the client data's hash; the saved one is used");
     }
 }

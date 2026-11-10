@@ -221,7 +221,7 @@ and socket mutations have full payload acknowledgements. The original account, t
 stash banks and forty tabs retain exact UTF-8 payload hashes; the two fixture inventories persist with their complete
 canonical contents. All 714 frozen source/runtime/helper/oracle inputs match at session end. The supplemental sparse
 policy, verifier and normal-source wrapper have separate recorded freezes and are not included in that 714 count.
-The copied test client is closed and the normal Gateway uses `data/saves.db` again.
+The copied test client is closed and the normal Gateway uses `data/characters.db` again.
 
 The full test run also retained six existing `MonsterKilled` cleanup writes to disposed streams, with no targeted
 conversion fault in the filtered diagnostic capture. The native log retained four remote-host connection closures;
@@ -1364,7 +1364,7 @@ The parent completed with 918 input hashes held; the stopped-child audit checked
 Both canonical inventories, exact item/gem IDs, full charges, empty host, saved bar intent, account, probes, stash and
 metadata payloads were preserved apart from both LastPlayed values and Ruthless current Mana 750→655.
 Its native trace shows a 700→650 clamp, higher capacity without refill, then recovery through 654; the later save is 655,
-without a captured event for that final tick. Only the disposable child was used; normal `data/saves.db` was restored.
+without a captured event for that final tick. Only the disposable child was used; normal `data/characters.db` was restored.
 The three live service stderr files are empty, but the Gateway stdout log retains one remote-closure IOException;
 this is not a fault-free-run claim. Earlier automated diagnostic faults above remain separate and preserved.
 Evidence: `artifacts/issue75-completion/attribute-defence3-native/final-fourteen-controls-summary.json` and the adjacent
@@ -1631,8 +1631,17 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   as inflicting, and goes as soon as the monster is out of range or the source ends. The receiving monster's immunity
   to the kind counts; its own `shocked_effect_on_self_+%` or `chill_effectiveness_on_self_+%` does not change the
   copy (not verified). A spread chill keeps Glacial Wave's effects, as the wiki says effects built into an ailment
-  spread with it (not verified for Glacial Wave). Ignite proliferation is not modelled, nor a reflected ailment
-  spreading from the player. A shattered monster spreads nothing.
+  spread with it (not verified for Glacial Wave). A reflected ailment spreading from the player is not modelled.
+  Ignite proliferation (`ProliferateIgnitesLocked`, same AI tick): an ignite takes the largest of
+  `support_ignite_proliferation_radius`, `ignite_proliferation_radius`, `gloves_`, `passive_notable_`, `flask_`,
+  `main_hand_` (attacks in that hand) `ignite_proliferation_radius` and the elemental aura radius
+  (`MonsterIgnites.Settings.Spread`, cells, × area like `SpreadRadius`); the client has no virtual ignite radius, so
+  "largest" follows the shock calculator (not verified). Every living hostile monster that can be ignited, in reach of
+  one (corpses included, `MonsterIgnites.Spreads`), burns with the strongest at its damage per second until it ends
+  (`MonsterIgnites.Proliferated`); the copy competes with its own ignites, does not spread and is not a new ignite.
+  A monster that starts burning from it gets the ignited buff (0x1c1 row 0). A killing hit's ignite is not put on
+  the corpse. A shattered or consumed corpse spreads nothing: its retained ignites retire
+  (`MonsterIgnites.RetireCorpse`) and the copies it gave end at the next AI tick; an intact corpse keeps spreading.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
 effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C
