@@ -58,6 +58,10 @@ static partial class Game
         lock (conn.Monsters)
         {
             conn.MainAscendancy = ascendancy;
+            conn.DescendancyRow = save?.Descendancy ?? 0;
+            conn.DescendancyNodes.Clear();
+            if (conn.DescendancyRow != 0 && Descendancies.StartNode(conn.DescendancyRow) is { } descendancyStart)
+                conn.DescendancyNodes.Add(descendancyStart);
             AscendancyPolicies.SelectionChanged(conn);
             conn.Passives = [.. ordinary];
             var atlasPresets = save?.AtlasPassivePresets ?? [];
@@ -1297,6 +1301,29 @@ static partial class Game
         return next.EarnedPoints;
     }
 
+    // The second ascendancy layer (Descendancy.dat): Affliction's Wildwood specialisations and the 3.29 Bloodline
+    // classes. Its row is 0x33's spare byte, so the client draws that row's tree beside the main ascendancy; the
+    // selection saves like the main one. The client's point budget sums both layers against the earned ascendancy points.
+    internal static void SelectDescendancy(ClientState conn, byte row)
+    {
+        if (row != 0 && Descendancies.Rows.All(r => r.Index != row))
+            throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
+        if (CharacterName(conn) is { Length: > 0 } character) CharacterSaves.SetDescendancy(character, row);
+        conn.DescendancyRow = row;
+        conn.DescendancyNodes.Clear();
+        if (row != 0 && Descendancies.StartNode(row) is { } start) conn.DescendancyNodes.Add(start);
+    }
+
+    // C→S 0x3a: the Descendancy class selector (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) accepted a
+    // Descendancy.dat row. The second ascendancy layer: selects it, saves, and reloads so the client builds its tree.
+    internal static async Task ChooseDescendancy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        Console.WriteLine($"[gateway] {remote} <= 0x003a descendancy row {row} chosen");
+        if (row == 0 || Descendancies.Rows.All(r => r.Index != row)) return;
+        SelectDescendancy(conn, row);
+        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
+    }
+
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
     // Ascendancy.dat row. Only in a Labyrinth's last room, for an unascended character; the area reloads with the new class.
     internal static async Task ChooseAscendancyClass(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
@@ -1387,9 +1414,9 @@ static partial class Game
                 })
                 .Where(pair => pair.Entry is not null)
                 .ToDictionary(pair => pair.Node, pair => pair.Hash);
-            return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated],
+            return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated, .. conn.DescendancyNodes],
                     questPoints: clientExtra, refundPoints: refundPoints, ascendancyPoints: (ushort)conn.MainAscendancy.EarnedPoints, masteryEffects: masteries,
-                    clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos),
+                    clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos, descendancy: conn.DescendancyRow),
                 $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
                 $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
                 $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes");

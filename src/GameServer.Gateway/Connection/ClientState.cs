@@ -766,6 +766,11 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     /// </summary>
     public HashSet<ushort> ClusterPassives = [];
     public AscendancyProgress MainAscendancy = new();
+    // The Descendancy.dat specialisation row the client shows as a second ascendancy layer (0: none). 0x33 carries it in
+    // its spare byte; Affliction's Wildwood classes and the 3.29 Bloodline classes are rows of that table.
+    public byte DescendancyRow;
+    // The descendancy layer's allocated nodes (PassiveSkills rows with that DescendancyKey); sent in 0x33 with the rest.
+    public HashSet<ushort> DescendancyNodes = [];
     public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
     // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
     public Dictionary<ushort, ushort> MasteryEffects = [];

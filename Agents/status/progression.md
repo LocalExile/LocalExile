@@ -185,6 +185,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AscendancyCatalog`, `AscendancyProgress`, `OrdinaryPassiveRules`, `CharacterSaves`, Gateway progression.
   Docs: [scope, evidence and beginner steps](../docs/game/ascendancies.md).
 
+- Descendancy, the second ascendancy layer: `Descendancy.dat` rows (Affliction's three Wildwood specialisations and the
+  thirteen 3.29 Bloodline classes) selected through the `0x33` spare byte and saved with the character.
+  The client's class selector opens with `0x7b` kind `0x4c` (first u32 = row) and Accept sends `0x3a`; both and the
+  selector window were checked against the local 3.29.3c client.
+  `/descendancy` selects or clears a row, sets the three Wildwood Azmeri flag groups and reloads the area.
+  Allocating the layer's nodes and applying their stats are not implemented yet; both layers share the ascendancy
+  point pool the client derives from the level and the earned-point counters.
+
 - Antiquarian: all nine notables and nine small nodes execute through three legal connected eight-point builds.
   Native checks cover Ward/Adrenaline, final attributes/requirements, stun recovery, Enduring Cry duration,
   always-hit attacks, Far Shot arrows and active-shield block/ranged mitigation.

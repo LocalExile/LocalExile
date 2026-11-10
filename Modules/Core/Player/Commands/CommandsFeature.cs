@@ -56,6 +56,20 @@ static class CommandsFeature
 
     internal static ChatCommands Register(ChatCommands commands, string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // One 0x7b by hand, with the kind echoed into chat, so a kind can be tried on its own: some kinds close the
+        // passive tree's window, which makes a sweep hard to read.
+        async Task OpenUiKind(string[] args)
+        {
+            if (args.Length == 0) throw new ArgumentException("which kind in hex, for example /ui 0x4d");
+            byte kind = byte.Parse(args[0].Replace("0x", "", StringComparison.OrdinalIgnoreCase),
+                System.Globalization.NumberStyles.HexNumber);
+            uint U(int i) => args.Length > i ? Convert.ToUInt32(args[i].Replace("0x", "", StringComparison.OrdinalIgnoreCase),
+                args[i].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16 : 10) : 0;
+            string what = $"kind 0x{kind:x2} ({U(1)}, {U(2)}, {U(3)}, {U(4)})";
+            await conn.Commands!.Reply($"0x7b {what}");
+            await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(kind, U(1), U(2), U(3), U(4)), $"0x007b open UI {what}");
+        }
+
         return commands
         .Add("raw","/raw <hex> (send one S→C message)", async args =>
         {
@@ -997,6 +1011,56 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name}");
         })
+        .Add("descendancy", "/descendancy [name|none|open [row|name]] (dev: the second ascendancy layer 0x33's spare byte selects: Affliction's Wildwood specialisations and the 3.29 Bloodline classes; open shows the client's Descendancy class selector)", async args =>
+        {
+            if (Game.Descendancies.Rows.Count <= 1) throw new ArgumentException("Descendancy data is missing; run scripts/dev/extract-data.ps1");
+            if (args.Length == 0)
+            {
+                var current = Game.Descendancies.Rows.FirstOrDefault(r => r.Index == conn.DescendancyRow);
+                await conn.Commands!.Reply($"Descendancy - {(current is { Index: > 0 } ? current.Name : "none")}.\n" +
+                    string.Join("\n", Game.Descendancies.Rows.Where(r => r.Index != 0).Select(r => $"/descendancy {r.Id}")));
+                return;
+            }
+            if (args[0].Equals("open", StringComparison.OrdinalIgnoreCase))
+            {
+                // 0x7b kind 0x4c: the client's Descendancy class selector, with the Descendancy.dat row as its first u32.
+                byte descRow = args.Length > 1
+                    ? Game.Descendancies.Find(args[1])?.Index ?? byte.Parse(args[1])
+                    : conn.DescendancyRow;
+                if (args.Length > 1 && Game.Descendancies.Rows.All(r => r.Index != descRow))
+                    throw new ArgumentException("no such Descendancy row");
+                if (descRow == 0)
+                    throw new ArgumentException("no Descendancy chosen; pass a row name or number, for example /descendancy open 6");
+                string descName = Game.Descendancies.Rows.FirstOrDefault(r => r.Index == descRow)?.Name ?? "?";
+                await conn.Commands!.Reply($"0x7b kind 0x4c row {descRow} ({descName})");
+                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.DescendancySelectUi, descRow),
+                    $"0x007b kind 0x4c row {descRow} (descendancy open)");
+                return;
+            }
+            if (args[0].Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                Game.SelectDescendancy(conn, 0);
+                await conn.Commands!.Reply("Descendancy cleared. Reloading the area to show the change.");
+                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), "descendancy none");
+                return;
+            }
+            string name = string.Join(' ', args);
+            var row = Game.Descendancies.Find(name) ?? throw new ArgumentException("choose one Id from /descendancy");
+            // Affliction's Wildwood rows keep their own gate in the client: the Azmeri class flag and the four point flags
+            // unlock the tree and its eight points (the 3.29 Bloodline rows use the 0x33 byte alone).
+            string[] azmeri = row.Index switch
+            {
+                1 => ["AzmeriAreWarden", "WardenPassivePoints1", "WardenPassivePoints2", "WardenPassivePoints3", "WardenPassivePoints4"],
+                2 => ["AzmeriAreVoodooShaman", "ShamanPassivePoints1", "ShamanPassivePoints2", "ShamanPassivePoints3", "ShamanPassivePoints4"],
+                3 => ["AzmeriArePrimalist", "PrimalistPassivePoints1", "PrimalistPassivePoints2", "PrimalistPassivePoints3", "PrimalistPassivePoints4"],
+                _ => [],
+            };
+            if (azmeri.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, azmeri);
+            Game.SelectDescendancy(conn, row.Index);
+            await conn.Commands!.Reply($"Descendancy selected - {row.Name} (row {row.Index})" +
+                (azmeri.Length > 0 ? " with its Azmeri flags" : "") + ". Reloading the area to show its tree.");
+            await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy {row.Name}");
+        })
         .Add("ascendancy_points", "/ascendancy_points <normal|cruel|merciless|eternal|all> (dev: grant each Labyrinth's two ascendancy points once)", async args =>
         {
             if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
@@ -1596,13 +1660,8 @@ static class CommandsFeature
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({npc.X}, {npc.Y}) faces {deg}° ({rad:0.###} rad).");
         })
         // Probe: S→C 0x7b (open a UI) with any kind and its four u32s (16-waypoints.md §3; kind 0 = World panel).
-        .Add("ui", "/ui <kind hex> [a] [b] [c] [d] (S→C 0x7b open a UI)", async args =>
-        {
-            if (args.Length == 0) throw new ArgumentException("which kind");
-            byte kind = Convert.ToByte(args[0].Replace("0x", "", StringComparison.OrdinalIgnoreCase), 16);
-            uint U(int i) => args.Length > i ? Convert.ToUInt32(args[i], args[i].StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? 16 : 10) : 0;
-            await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(kind, U(1), U(2), U(3), U(4)), $"0x007b open UI kind 0x{kind:x2} ({U(1)}, {U(2)}, {U(3)}, {U(4)})");
-        })
+        .Add("ui", "/ui <kind hex> [a] [b] [c] [d] (S→C 0x7b open a UI by kind, one at a time)", OpenUiKind)
+        .Add("kind", "/kind <kind hex> [a] [b] [c] [d] (same as /ui)", OpenUiKind)
         .Add("npcs", "/npcs (list NPCs here)", async _ =>
         {
             string list;

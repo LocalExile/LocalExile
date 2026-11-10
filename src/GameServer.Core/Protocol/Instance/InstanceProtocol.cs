@@ -103,6 +103,7 @@ public static class InstanceProtocol
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
         InstanceWaypoints.AscendancyChosenId => InstanceWaypoints.AscendancyChosenLength,
+        InstanceWaypoints.DescendancyChosenId => InstanceWaypoints.DescendancyChosenLength,
         InstanceMicrotransactions.SkillPickId => InstanceMicrotransactions.SkillPickLength,
         InstanceMicrotransactions.RequestId => InstanceMicrotransactions.RequestLength,
         InstanceHideouts.SelectId => InstanceHideouts.SelectLength,

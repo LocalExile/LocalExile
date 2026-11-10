@@ -69,6 +69,8 @@ changes and refund payment in one transaction (`CharacterSaves.SetMainAscendancy
 A snapshot comparison rejects an old area's attempt to replace a newer passive state.
 `ChangeMainAscendancy` applies awards/selection to the latest saved state.
 Unknown nested ascendancy fields are kept, and incompatible identities/graphs are refused without dropping progress.
+The Descendancy row (the second ascendancy layer) saves as one byte beside it, written by `CharacterSaves.SetDescendancy`;
+0 is none and a cleared row drops the layer's nodes.
 The production Phrecia compatibility gate runs before inventory loading or save normalization.
 Level candidates are rechecked against the current passive snapshot before applying, even when no trim was planned.
 Allocations/refunds and level trims hold the connection lock through validation, saving and runtime publication.

@@ -170,10 +170,10 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
