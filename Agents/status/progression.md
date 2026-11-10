@@ -216,7 +216,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Hierophant: every ordinary node's stats apply except the Brand ones (no Brand executes), checked in the client
-  except the halved ailments and spell leech while Arcane Surge runs,
+  except the halved chill and shock while Arcane Surge runs,
   [node by node](../docs/game/hierophant.md).
 - Behemoth: the optional Phrecia module supplies its capability, verified-graph opt-in and mode-aware node sources.
   Shared Rampage tiers and Vaal Ground Slam payment execute in Game with generation/source retirement guards.
