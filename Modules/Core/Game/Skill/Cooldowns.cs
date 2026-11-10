@@ -56,6 +56,7 @@ static partial class Game
             // Covers object/self and instant routes before creating or spending cooldown state or a new action.
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(conn, effect, id)
                 : ActorSkillDisabled(conn, effect)) is not null) return false;
+            if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(conn, manual)) is not null) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(conn)

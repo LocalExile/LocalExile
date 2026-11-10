@@ -915,6 +915,8 @@ static partial class Game
         MonsterAiCadence cadence)
     {
         MonsterAiPlan plan;
+        if (DamageTriggers.TryGetValue(conn, out _))
+            ReleaseDamageTakenTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn));
         // Advance the projectile runtime first: decisions and committed projectile contacts share one game time and pose.
         using (ProjectileMutation(conn, phase: "ai")) plan = PlanMonsterAi(conn, cadence, Math.Max(ProjectileWorldTime(conn), AreaTime(conn)));
         const ushort Move = 0x2909;
@@ -1770,7 +1772,7 @@ static partial class Game
             m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false));
         AilmentsWhenHitLocked(m, StatOf, blocked, now);
         ReservationWhenHitLocked(conn, id, m, blocked, now);
-        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
+        if (conn.PlayerLife == 0) { DamageTriggers.Remove(conn); conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
         RecordHardcoreDeath(conn);
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(conn, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - conn.PlayerLife));

@@ -19,6 +19,7 @@ static partial class Game
         physical = IncomingResourceDefences.Taken(physical, Get, less);
         other = IncomingResourceDefences.Taken(other, Get, less);
         chaos = IncomingResourceDefences.Taken(chaos, Get, less);
+        RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         int bypass = Get(IncomingResourceDefences.BypassStat);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)

@@ -62,7 +62,8 @@ static partial class Game
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
         var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
         int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
-        var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass);
+        var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass,
+            ItemsFor(conn).GemLevel(selected.Place.Gem));
         int Value(string stat) => Stats.Key(stat) is uint k ? supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value)) : 0;
         // "+1 to Supported <type> Skill Gems" (Awakened supports): every supported_*_skill_gem_level_+ counts, the
         // generic active-gem one included.
