@@ -112,6 +112,34 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Resurrect at Checkpoint" (hardcore: "Exit"), and both buttons work (C→S 0x54; in town: the last town); `/heal`.
   Code: `MonsterAttack`, `Resurrect`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §6–7.
+- The Shaper (`MapWorldsShapersRealm`, TheShaperBoss; `TheShaperBossUberElder` in the Uber Elder arena), the Elder
+  (`MapWorldsElderArena`, TheElder; TheElderUber) and Sirus (`AtlasExilesBoss5` "Eye of the Storm", AtlasExile5;
+  the Gauntlet and standalone rows fight the same way) fight with their own kits instead of one granted effect as a plain
+  swing. All are scripted (the ordinary AI skips them), own their whole effect list on the actor under ids 0x4000-0x4005
+  (Shaper), 0x4010-0x4015 (Elder) and 0x4020-0x402c (Sirus) — never a gem id — and play it from one controller per
+  monster: the Shaper's melee (481), Celestial Beam (6093, a three-second degen whose fire/cold/lightning come from its
+  per-minute stats), accelerating projectiles (6106), flicker slam (6091), retreat (6089) and the bullet-hell ring (6111,
+  twelve in a circle) behind `immune_shield.ao` at 75/50/25%; the Elder's melee (406), siphon (9058, a physical degen
+  that heals him a quarter of what it takes), slamming tentacles (9062, five portals around the player), expanding nova
+  (9066), doom projectile (9351) and three-shot spellcast (9330) behind `eldershield` at the same thresholds; Sirus'
+  beam blast (7008, his record's own skill — he never swings a weapon), corridor "Die" beam (10948, a five-unit corridor
+  that hits 1.1 s into the cast), meteor arena (10141, eight circles then the desolation 10945 burning for four seconds),
+  circle-maze sweep (10949-10953, five blasts of a turn each), multi-beam barrage (8098/8099 with the clone beam 7031)
+  and beam bomb (10973) behind `atlas_orion_immunity` (row 1464) at the same thresholds, blinking out of a player's face
+  and back into reach (the teleport clips are art, not actions: an action would land its contact too). The arena is a
+  phased one (`MapBossFights`): WorldAreas lists the throne row first and the walking row as the held-back last boss, so
+  a fresh arena holds only `AtlasExile5Throne` — Sirus seated, no granted effects of its own — and killing him is what
+  forms the walking Sirus and his four storms. Both are Sirus and both fight; the seated one casts without leaving the
+  throne. Damage comes from
+  each effect's own stat set at the area's level, pacing from its clip's cast time; a timed hit lands on every player
+  standing in it, not only on the connection that owns the fight, and an intermission returns the boss to the arena's
+  own `ArenaMiddle` marker (the layout's spawn is the map entrance, which put the Shaper at the door). Sirus' rows carry it as a fraction of
+  the variety's damage (0.8-2.4, read as a multiplier, not as the flat hit the rounded row would suggest); every `.ao`
+  path is checked against the client's metadata. Not yet: the Shaper's fragment summon (3429 names a GameObject, not a
+  monster variety), his teleport-the-player (6092) and portal warp (6090), the uber phase variants (6112-6114, 7905), the
+  Elder's super siphon (9061), the Uber Elder pairing's shared phases (each boss runs its own), Sirus' death storms and
+  the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. Code:
+  `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`.
 - Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
