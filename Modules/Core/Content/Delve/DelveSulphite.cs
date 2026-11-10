@@ -36,7 +36,7 @@ public sealed partial class DelveModule
             {
                 // Outside a mine the native HUD times out its transient resource bar. A loss-side UI event refreshes
                 // that timeout without a gain popup; its target is always the real saved balance, never a debit.
-                ushort amount = Sulphite(module.World(p).CharacterData);
+                ushort amount = Sulphite(WorldOf(p).CharacterData);
                 await p.Send(InstanceDelve.SulphiteChanged(amount < ushort.MaxValue ? (ushort)(amount + 1) : amount, amount));
                 encounter.GaugeAt = now + 3;
             }
@@ -62,8 +62,8 @@ public sealed partial class DelveModule
             if (!_sulphite.TryGetValue(conn, out var encounter)) return;
             json["sulphite"] = new JsonObject
             {
-                ["amount"] = Sulphite(module.World(PlayerOf(conn)).CharacterData),
-                ["capacity"] = Capacity(module.World(PlayerOf(conn))),
+                ["amount"] = Sulphite(WorldOf(PlayerOf(conn)).CharacterData),
+                ["capacity"] = Capacity(WorldOf(PlayerOf(conn))),
                 ["owner"] = encounter.Owner,
                 ["yield"] = MapSulphite.Yield(encounter.Map.Area.Level, encounter.Map.Mods, CharacterName(conn).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase)),
                 ["fumes"] = MapSulphite.Fumes(encounter.Map.Mods),
@@ -103,13 +103,13 @@ public sealed partial class DelveModule
                 await SulphiteGuards(conn, encounter, deposit);
         }
         if (encounter.Deposits.Length > 0) await MoveNiko(module, player, encounter, encounter.Deposits[0]);
-        await player.Send(DelveData(module.World(player)), "Map sulphite and equipment");
+        await player.Send(DelveData(WorldOf(player)), "Map sulphite and equipment");
         module.Log($"Sulphite: {encounter.Deposits.Length} deposits in {conn.Layout.Id}/{conn.Seed}, owner {encounter.Owner}, level {encounter.Map.Area.Level}, quantity {encounter.Map.Mods.Quantity}%, owner bonus {encounter.Map.Mods.Get("map_owner_sulphite_gained_+%")}%");
     }
 
     static async Task ShowDeposit(IModuleContext module, IPlayer player, SulphiteEncounter encounter, Deposit deposit, bool replace)
     {
-        var conn = ConnOf(player); var world = module.World(player);
+        var conn = ConnOf(player); var world = WorldOf(player);
         if (replace) await player.Send(InstanceProtocol.RemoveObject(deposit.Id));
         bool mined = conn.Instance.HasState(MinedKey(deposit.Index));
         await player.Send(InstanceEntities.CreateObject(deposit.Id, InstanceEntities.ObjectTypeHash(deposit.Type),
@@ -122,7 +122,7 @@ public sealed partial class DelveModule
     static async Task MoveNiko(IModuleContext module, IPlayer player, SulphiteEncounter encounter, Deposit deposit)
     {
         if (encounter.NikoAt == deposit.Index) return;
-        var conn = ConnOf(player); var world = module.World(player);
+        var conn = ConnOf(player); var world = WorldOf(player);
         string type = "Metadata/NPC/League/Delve/DelveMinerWild" + (deposit.Type == MapSulphite.Chest ? "Chest" : "Vein");
         if (Npcs.Value.Find(type) is not { Supported: true } npc) return;
         var at = conn.Layout.Near((deposit.X + 9, deposit.Y));
@@ -142,7 +142,7 @@ public sealed partial class DelveModule
     {
         if (!_sulphite.TryGetValue(conn, out var encounter) || encounter.Deposits.FirstOrDefault(d => d.Id == objectId) is not { } deposit) return false;
         if (conn.PlayerLife == 0 || conn.LeavingArea || conn.Closed || !module.Lifetime.IsActive) return true;
-        var world = module.World(PlayerOf(conn));
+        var world = WorldOf(PlayerOf(conn));
         if (!await world.WalkUpTo(deposit.X, deposit.Y, 4, requestedAt)) return true;
         var recipients = InGame.Keys.Where(p => ReferenceEquals(p.Instance, conn.Instance) && p.PlayerSent && !p.LeavingArea && !p.Closed && p.PlayerLife > 0
             && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(p.Clock.Elapsed.TotalSeconds), (deposit.X, deposit.Y)) <= 150).ToList();
@@ -156,7 +156,7 @@ public sealed partial class DelveModule
             {
                 foreach (var recipient in recipients)
                 {
-                    var recipientWorld = module.World(PlayerOf(recipient));
+                    var recipientWorld = WorldOf(PlayerOf(recipient));
                     int gain = MapSulphite.Yield(encounter.Map.Area.Level, encounter.Map.Mods,
                         CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
                     ushort before = 0, after = 0;

@@ -37,7 +37,7 @@ public sealed partial class DelveModule
 
     DelveMine Mine(IModuleContext module, IPlayer player)
     {
-        var account = module.World(player).AccountData;
+        var account = WorldOf(player).AccountData;
         var mine = DelveMine.Load(account);
         if (mine.Pending is { } abandoned && !_attempts.ContainsKey(abandoned.Id))
         {
