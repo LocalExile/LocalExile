@@ -500,6 +500,10 @@ public static partial class Game
             }
             else if (id == InstanceItems.InventoryRequestId)
                 Console.WriteLine($"[gateway] {remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+            else if (id == InstanceSkinTransfers.BindId)
+                await NativeSkinTransfer(remote, stream, ciphers, conn, InstanceSkinTransfers.ReadBind(bytes));
+            else if (id == InstanceSkinTransfers.ReclaimId)
+                await NativeReclaimSkin(remote, stream, ciphers, conn, InstanceSkinTransfers.ReadReclaim(bytes));
             else if (id == InstanceItems.PickUpItemId)
                 await PickUpItem(remote, stream, ciphers, conn, InstanceItems.ReadPickUpItem(bytes));
             else if (id == InstanceProtocol.ExitToCharacterSelectId)

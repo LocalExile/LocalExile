@@ -8,7 +8,7 @@ using GameServer.Core;
 /// in memory per character name and saved after every change (<see cref="CharacterSaves"/>, data/saves/), so they follow
 /// the player through area changes and Gateway restarts.
 /// </summary>
-public sealed class PlayerInventories
+public sealed partial class PlayerInventories
 {
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
         Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
@@ -483,7 +483,10 @@ public sealed class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.OrderBy(e => e.Value).Select(e =>
-                _items.TryGetValue(e.Key, out var l) && l.Count > 0 && look(l[0].Item) is { } v ? v with { Slot = e.Value } : VisibleItem.Empty(e.Value))];
+                _items.TryGetValue(e.Key, out var l) && l.Count > 0 && look(l[0].Item) is { } v
+                    ? v with { Slot = e.Value, SkinVisual = l[0].Item.SkinTransferSource is { } source
+                        && look(source) is { } donor ? donor.VisualIdentity : v.SkinVisual }
+                    : VisibleItem.Empty(e.Value))];
     }
 
     /// <summary>Which weapon set is in the hands: 0 the first, 1 the second (the 0x21 / 0xde flag the panel's I / II tab
@@ -896,7 +899,7 @@ public sealed class PlayerInventories
         lock (_lock)
         {
             if (_offered.ContainsKey(itemId) || ItemsIn(row).FirstOrDefault(i => i.Id == itemId) is not { } it
-                || it.Item.Sockets.Any(s => s.Gem is not null)) return null;
+                || it.Item.SkinTransferSource is not null || it.Item.Sockets.Any(s => s.Gem is not null)) return null;
             if (row == Cursor)
             {
                 var shape = shapeOf(it.Item) ?? new(1, 1, "");

@@ -26,5 +26,5 @@ public static class DualWieldPanel
     /// <summary>The off hand's swing time: its own duration (local speed included) at the off-hand increased attack
     /// speed, at least one server tick.</summary>
     public static double OffHandSeconds(SkillCatalog.Unarmed offHand, int offHandAttackSpeedPct) =>
-        Math.Max(Program.TickSeconds, offHand.AttackMs / 1000.0 / Math.Max(0.01, 1 + offHandAttackSpeedPct / 100.0));
+        Math.Max(Program.TickSeconds, offHand.EffectiveAttackMs / 1000.0 / Math.Max(0.01, 1 + offHandAttackSpeedPct / 100.0));
 }

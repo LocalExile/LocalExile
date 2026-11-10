@@ -1124,6 +1124,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>A class's unarmed "weapon" (Characters.dat WeaponSpeed, MinDamage, MaxDamage, MaxAttackDistance).</summary>
     public sealed record Unarmed(int AttackMs, int MinDamage, int MaxDamage, int Range)
     {
+        public double? ExactAttackMs { get; init; }
+        public double EffectiveAttackMs => ExactAttackMs ?? AttackMs;
         /// <summary>The equipped item's local typed ranges. Class unarmed records retain their physical fallback.</summary>
         public DamagePacket? LocalDamage { get; init; }
         /// <summary>Raw local modifiers captured with this weapon, including penetration and impale chance.</summary>
@@ -1220,7 +1222,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// main_hand_attack_speed_+% (the final value already includes more multipliers), at least one server tick
         /// (<see cref="Program.TickSeconds"/>: at most 30 attacks per second).</summary>
         public double AttackSeconds(IReadOnlyDictionary<uint, int>? player) =>
-            Math.Max(Program.TickSeconds, AttackMs / 1000.0 / Math.Max(0.01, 1 + IncreasedAttackSpeed(player) / 100.0));
+            Math.Max(Program.TickSeconds, EffectiveAttackMs / 1000.0 / Math.Max(0.01, 1 + IncreasedAttackSpeed(player) / 100.0));
 
         /// <summary>
         /// The skill's final main-hand stats (client keys = Stats.dat row + 1). The server computes them, as the real one

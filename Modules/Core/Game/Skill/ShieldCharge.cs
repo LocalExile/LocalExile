@@ -31,7 +31,7 @@ public static partial class Game
         (100 + (Stats.Key("shield_charge_range_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0))
             * ShieldChargeBaseDistance / 100;
 
-    // In the use's StartAction: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
+    // After paid admission: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
     // than the charge's maximum distance. Returns the run's token, which only the latest charge's end may clear.
     public static int BeginShieldCharge(ClientState conn, ushort skillId, int percent, int x, int y, double at)
     {

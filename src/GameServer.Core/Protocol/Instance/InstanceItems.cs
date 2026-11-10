@@ -40,6 +40,9 @@ public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int>
 /// </summary>
 public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushort VisualIdentity)
 {
+    /// <summary>The independently preserved donor, carried by Base's nested skin item rather than A's mods or sockets.</summary>
+    public Item? SkinTransferSource { get; init; }
+
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
 
@@ -167,7 +170,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 // Bit 7 (a vendor price): u8 n, then n × (u32 item type hash, compact uint amount; 0x141fabcc0 looks the type
                 // up, 0x141e655b0 reads the amount); stored in the Base's +0xb8 item list.
                 case "Base":
-                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0)).U16((ushort)(Price.Count > 0 ? 0x80 : 0)).U8((byte)Influences);
+                    w.U16(VisualIdentity).U8(0).U8((byte)(Corrupted ? 1 : 0))
+                        .U16((ushort)((Price.Count > 0 ? 0x80 : 0) | (SkinTransferSource is not null ? 0x40 : 0))).U8((byte)Influences);
+                    if (SkinTransferSource is { } skin)
+                    {
+                        if (skin.SkinTransferSource is not null) throw new InvalidDataException("Nested skin transfers are not supported");
+                        w.Bytes(skin.Payload());
+                    }
                     if (Price.Count > 0)
                     {
                         w.U8((byte)Price.Count);

@@ -519,7 +519,7 @@ public static partial class Game
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
         {
-            var raw = ItemModStats.RawAttributes(active, ItemsFor(conn).Mods);
+            var raw = SkinTransferStats.RawAttributes(active, ItemsFor(conn).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
             return raw;
         }
@@ -592,7 +592,7 @@ public static partial class Game
                 "rage" => null,
                 _ => (int?)null,
             }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags);
-        var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
+        var sources = ItemModStats.Plus(passives, SkinTransferStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);

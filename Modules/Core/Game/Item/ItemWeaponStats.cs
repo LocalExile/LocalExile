@@ -5,7 +5,10 @@ using GameServer.Core.World;
 /// <summary>A weapon's local item damage and duration, before character, skill and support modifiers.</summary>
 public static class ItemWeaponStats
 {
-    public sealed record Result(DamagePacket Damage, int AttackMs);
+    public sealed record Result(DamagePacket Damage, int AttackMs)
+    {
+        public double? ExactAttackMs { get; init; }
+    }
 
     /// <summary>PoB 3.29.x Item.lua: local physical increases and ordinary quality multiply, then round once.
     /// Elemental local increases apply to fire, cold and lightning; chaos has only its local flat range here.</summary>
