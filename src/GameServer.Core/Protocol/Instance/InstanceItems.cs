@@ -63,7 +63,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init; } = [];
 
-    /// <summary>Transformed component's original item (0x1424a5760); null when an imported snapshot omits it.</summary>
+    /// <summary>Transformed component's original item; null when an imported snapshot omits it.</summary>
     public Item? OriginalItem { get; init; }
 
     /// <summary>Link groups: the number of sockets in each, in socket order (null: every socket alone).</summary>

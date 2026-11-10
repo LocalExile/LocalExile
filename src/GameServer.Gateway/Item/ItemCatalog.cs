@@ -329,7 +329,7 @@ sealed class ItemCatalog
     static HashSet<int> LoadActiveGemEffects(string folder)
     {
         string path = Path.Combine(folder, "tables", "GrantedEffects.json");
-        if (!File.Exists(path)) return [];
+        if (!GameServer.Core.ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         return doc.RootElement.EnumerateArray().Select((row, i) => (Row: row, Index: i))
             .Where(r => !r.Row.GetProperty("IsSupport").GetBoolean() && r.Row.GetProperty("ActiveSkill").ValueKind == JsonValueKind.Number)

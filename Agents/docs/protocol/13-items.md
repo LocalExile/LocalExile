@@ -166,7 +166,7 @@ empty one; no Mods.dat row has a gap), so the count must match. An unknown hash 
 recognise". After reading, `0x142205d50` adds the "magic" / "rare" tag and gives each list to `0x142206280` with its
 kind (implicit 1, explicit 2, enchant 3, scourge and hidden without one).
 
-Indexed descriptions in 3.29.3b: `0x1424c6020` cases `0x27`, `0x28`, `0x3a` look up the stat value by
+Indexed descriptions, cases `0x27`, `0x28`, `0x3a`, look up the stat value by
 `Index` in `IndexableSupportGems`, `IndexableNonActiveSupportGems`, `IndexableSkillGems`, respectively.
 These are not row offsets: `RandomSkillUnique__1` carries `[level, skill index]`,
 `RandomSupportUnique__1`/`__2` carry `[support index, level]`, and `UniquePearlSupportOne`/`Two` carry
@@ -175,8 +175,8 @@ The skill description selects `Name1` normally, `Name2` when its format flags in
 PoB aggregates the socket penalties of Domain 42 Deepwater tattoos; each native mod retains its own `-1` and
 companion stat, so a combined `-2` line must not become one arbitrary socket-penalty mod.
 Energy Blade's `StormBladeOneHand`/`StormBladeTwoHand` bases include `Transformed`.
-Its writer `0x1424a5750` tail-calls `0x1421ec010`; its reader `0x1424a5760` calls `0x1421ec390` directly.
-The latter accepts an unknown type hash as null after four bytes; live Energy Blade imports accept hash 0 here.
+The original uses an unframed ordinary item payload. An unknown type hash is null after four bytes;
+live Energy Blade imports accepted hash 0 here.
 Downloaded ninja snapshots retain its computed `StormBladeImplicitLocalLightningDamage_1` values and socket indexes;
 PoB's generated weapon text omits that damage and the original sword.
 Restore the transformed snapshot from matching native data; an absent original cannot reconstruct the pre-buff sword.

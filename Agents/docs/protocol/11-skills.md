@@ -26,7 +26,7 @@ ActiveSkillInstance (base vtable `0x1435c19f0`, 400-byte `make_shared` block, vt
 
 Hybrid gems must classify each `GrantedEffects` row, not only `SkillGems.IsSupport`.
 Automation's second effect is `SupportAutomation`, with `IsSupport=true` and null `ActiveSkill`.
-Sending it as an Actor skill crashes at `0x141ee795a` in `0x141ee73d0`, which dereferences that foreign row.
+Sending it as an Actor skill dereferences a support-only row rather than an active skill.
 Keep the physical gem and its support data, but publish only effects with an actual `ActiveSkill` row.
 
 ## 2. Basic actions: from the object type
