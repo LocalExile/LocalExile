@@ -1225,25 +1225,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   ([11](../docs/protocol/11-skills.md) 13).
 - Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
-- **Contagion (verified live 2026-11-08, Contagion and Contagion of Subsiding).** The cast has no hit: at the area
-  cast clip's contact every live hostile monster within the skill's radius of the spell centre gets one chaos damage
-  over time (`MonsterContagion`, ticked with the poisons by `TickContagions`, the monster's chaos mitigation applied).
-  Damage: `base_chaos_damage_to_deal_per_minute` with damage, spell, area, chaos, damage over time and chaos damage over
-  time increases, the `dot_multiplier_+` and `chaos_dot_multiplier_+` multipliers and the more of Concentrated Effect,
-  Controlled Destruction, Void Manipulation, Rapid Decay and Efficacy; duration from `base_skill_effect_duration` and
-  skill effect duration. It does not stack: a recast keeps the stronger damage and the later expiry; a recast after the
-  old cast expired (no tick between) replaces it, keeping only the damage owed up to its expiry. A monster that dies
-  affected spreads it to every monster within the cast radius (`SpreadContagion` in `MonsterKilledBy`), also when the
-  final tick that expires it is the one that kills it (`MonsterContagion.Died`); a nonlethal expiry leaves no spread.
-  Subsiding's spread keeps three quarters of the damage. Live (3.29.3b): 86 kills by Contagion, a spread on each, no
-  disconnect.
-  Each spread plays the cast circle at the corpse, scaled to the spread radius: MiscAnimated `ContagionCast`, or the
-  caster's worn Contagion skin's (Arcane, Celestial, Sunprism, Scientist, Project; matched by MtxTypes Id because no art
-  variation table covers Contagion; `ContagionSkinAo`). Rechecked live on 3.29.3c (2026-11-08, with the lethal-tick and
-  recast fixes): 33 spreads, 7 kills by Contagion's own damage, the Arcane skin's circle on every spread, no disconnect.
-  Not yet: the `contagion` debuff (BuffDefinitions 504) is not sent: the client closed the connection about 3 s after it,
-  with or without the source skill id (`ContagionBuffShown` is false); Contagion of Transference (spread on hit); the
-  character panel's DoT row; Malevolence's conditional DoT multiplier.
+- **Contagion (verified live, 3.29.3c).** No hit: every hostile monster in the area gets a non-stacking chaos DoT; one
+  that dies affected (including from the expiring tick) spreads it in the cast radius, Subsiding at 75%. Spreads draw the
+  worn Contagion skin's circle (`ContagionSkinAo`, by MtxTypes Id). Not yet: the debuff icon (BuffDefinitions 504 crashes
+  the client), Transference, the panel DoT row. Code: `MonsterContagion(s).cs`, `AreaSkillHit`, `MonsterKilledBy`.
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit
   (1 plus `number_of_additional_totems_allowed`; past it the oldest dies).
