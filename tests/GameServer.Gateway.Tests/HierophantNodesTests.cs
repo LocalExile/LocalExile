@@ -56,6 +56,16 @@ public sealed class HierophantNodesTests
         Assert.Equal(30, Get("base_skill_area_of_effect_+%"));
         Assert.Equal(50, Get("base_life_leech_from_spell_damage_permyriad"));
         Assert.Equal(-50, Get("non_damaging_ailment_effect_+%_on_self"));
+        // ... which halves a chill or shock on the player, on top of their own effect-on-self stats.
+        foreach (var kind in new[] { PlayerElementalAilments.Kind.Chill, PlayerElementalAilments.Kind.Shock })
+        {
+            var plain = new PlayerElementalAilments();
+            plain.Inflict(kind, 20, 2, 0, _ => 0, new Random(1));
+            var surged = new PlayerElementalAilments();
+            surged.Inflict(kind, 20, 2, 0, Get, new Random(1));
+            Assert.Equal(20, plain.Magnitude(kind, 0));
+            Assert.Equal(10, surged.Magnitude(kind, 0));
+        }
 
         // The cast speed total counts the buff's; a totem's copy of the owner's stats loses its more Spell Damage.
         Assert.Contains("arcane_surge_cast_speed_+%",

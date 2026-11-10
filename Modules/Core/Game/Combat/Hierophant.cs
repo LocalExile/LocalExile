@@ -15,6 +15,8 @@ static class Hierophant
     internal const string LifeRegenPerTotem = "you_and_totem_life_regeneration_rate_per_minute_%_per_active_totem";
     internal const string ManaRegenPerTotem = "mana_regeneration_rate_per_minute_%_per_active_totem";
     internal const string MorePerTotem = "hierophant_passive_damage_+%_final_per_totem";
+    /// <summary>The count of Summoned Totems the client's per-totem stats read (Stats row 3460), sent by the server.</summary>
+    internal const string ActiveTotems = "number_of_active_totems";
 
     /// <summary>"Increases and Reductions to Maximum Mana also apply to Damage at 30% of their value"
     /// (ReminderTextPsudoKeystoneTransfigurationOfMind).</summary>
@@ -64,7 +66,8 @@ static class Hierophant
         // Read before anything below adds to maximum_mana_+% (nothing does) or damage_+%.
         Add("damage_+%", DamageFromMana(Get));
         if (!States.TryGetValue(conn, out var state)) return stats;
-        Add("life_regeneration_rate_per_minute_%", (long)Get(LifeRegenPerTotem) * state.Totems);
+        Add(ActiveTotems, state.Totems);
+        Add("life_regeneration_rate_per_minute_%",(long)Get(LifeRegenPerTotem) * state.Totems);
         Add("mana_regeneration_rate_per_minute_%", (long)Get(ManaRegenPerTotem) * state.Totems);
         // Joins the base form, which the panel's total and every skill read (as Impact's and Rampage's do).
         Add(SkillArea.BaseIncreased, state.ManaArea);
@@ -95,8 +98,9 @@ static class Hierophant
             state.LastTick = now;
             bool alive = conn.PlayerLife > 0;
             int lifePerTotem = Raw(conn, LifeRegenPerTotem);
-            int totems = alive && (lifePerTotem != 0 || Raw(conn, ManaRegenPerTotem) != 0 || Raw(conn, MorePerTotem) != 0)
-                ? conn.Totems.Living(now).Count() : 0;
+            // Counted for everyone: the client reads number_of_active_totems for its own per-totem stats (the skill
+            // tooltip's damage), as Slayer's nearby enemies.
+            int totems = alive ? conn.Totems.Living(now).Count() : 0;
             // "You and your Totems Regenerate 1% of Life per second for each Summoned Totem": the totems' part.
             if (totems > 0 && lifePerTotem > 0 && elapsed > 0)
                 foreach (var totem in conn.Totems.Living(now))

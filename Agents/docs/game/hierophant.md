@@ -47,6 +47,7 @@ Phrecia class's and are not covered here. Every stat is applied through its sum,
 - Ritual of Awakening: Summoned Totems are the living ones (`TotemState.Living`). The 3% more scales the rolled hit of
   the three executors that run `GameEvents.OutgoingDamage`, the totems' own hits included.
   Totems regenerate in the tick.
+  The count is sent to every player as `number_of_active_totems` (Stats row 3460) for the client's own calculators.
 - Chill and shock on the player add `non_damaging_ailment_effect_+%_on_self` to their own effect-on-self stat.
 
 ## Not applied
@@ -59,5 +60,10 @@ Phrecia class's and are not covered here. Every stat is applied through its sum,
 
 ## Not seen in the client
 
-Not verified live yet. Not observable without the client: whether the client's own tooltip damage also adds Divine
-Guidance's share to the `damage_+%` it receives (a double count on the display only), and the Arcane Surge buff timer.
+Live 2026-11-10 confirmed Arcane Blessing from the player's and a spell totem's Fireball (4 s buff, tooltip DPS 561 to
+870 with both effect nodes), Illuminated Devotion's +30% area, Sanctuary of Thought's area and Energy Shield, Divine
+Guidance's mana and damage (no double count in the tooltip), Pursuit of Faith (2 totems, 8 s to 16 s, faster
+placement), Ritual of Awakening's regeneration per totem and Conviction of Power. Not observed, so only tested:
+
+- Ritual of Awakening's more damage: the tooltip did not move before `number_of_active_totems` was sent;
+- the halved chill and shock while Arcane Surge runs, and the spell leech while it runs.
