@@ -63,6 +63,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init; } = [];
 
+    /// <summary>Transformed component's original item; null when an imported snapshot omits it.</summary>
+    public Item? OriginalItem { get; init; }
+
     /// <summary>Link groups: the number of sockets in each, in socket order (null: every socket alone).</summary>
     public IReadOnlyList<byte>? Links { get; init; }
     public int GemExperience { get; init; }
@@ -131,7 +134,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -192,6 +195,11 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     MagicProperties(w); w.U8(0).U8(0);
                     break;
                 case "Quality": w.U8(Quality); break;                 // 0x1424b5720
+                // The transformed original uses an unframed ordinary item payload.
+                case "Transformed":
+                    if (OriginalItem is { } original) w.Bytes(original.Payload());
+                    else w.U32(0);
+                    break;
                 case "Charges": w.CompactI(Charges); break;           // 0x1424a3f80: signed compact (0x141e4c7e0)
                 // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20. Stored tinctures are inactive.
                 case "Tincture": w.U8(0); break;

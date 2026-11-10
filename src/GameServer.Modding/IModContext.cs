@@ -20,6 +20,9 @@ public interface IModContext
     /// <summary>The mod's folder (<c>Mods/Binaries/&lt;id&gt;</c>), for its own files.</summary>
     string Folder { get; }
 
+    /// <summary>Prepare and confirm a validated character build, scoped to this load.</summary>
+    ICharacterBuilds CharacterBuilds => throw new NotSupportedException("This host does not provide character build imports.");
+
     /// <summary>Writes a line to the Gateway's log, as <c>[mods] &lt;id&gt;: message</c>.</summary>
     void Log(string message);
 

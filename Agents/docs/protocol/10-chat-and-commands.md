@@ -33,6 +33,10 @@ Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
 Party and guild lines are not sent. A whisper is typed `@Name text`.
 
+The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
+Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
+inbox filename instead. Raising only the server's packet limit does not change these client limits.
+
 ## 2. Server → client text
 
 Candidates that read a wide string were found by mapping every S→C factory case to its class and read function (slot
