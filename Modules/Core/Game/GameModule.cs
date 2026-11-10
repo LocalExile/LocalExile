@@ -19,6 +19,8 @@ public sealed class GameModule : IModule
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
         module.OnPlayerLeaving((player, _) => global::DoedreSewers.Leaving(Program.ConnOf(player)));
         module.OnTick((player, _) => global::BrineKing.Tick(Program.ConnOf(player)));
+        // The Shaper, the Elder and Sirus: one scripted step per connection per tick, their own fight state per monster.
+        module.OnTick((player, _) => global::AtlasBosses.Tick(Program.ConnOf(player)));
         module.OnTick((player, _) => global::VaalOversoul.Tick(Program.ConnOf(player)));
         module.OnTick((player, _) => global::DepravedTrinity.Tick(Program.ConnOf(player)));
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
@@ -29,6 +31,7 @@ public sealed class GameModule : IModule
         module.OnPlayerLeaving((player, _) => global::VaalOversoul.Leaving(Program.ConnOf(player)));
         module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game",global::BrineKing.PlayerStats));
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         module.Lifetime.Own(GameEvents.Kill.Add("Game", Rules.ReservationKill));
         module.OnTick((player, _) => global::Slayer.Tick(Program.ConnOf(player)));
         module.Lifetime.Own(GameEvents.Kill.Add("Game", global::Slayer.Kill));
