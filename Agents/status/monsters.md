@@ -159,13 +159,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   breaks them (her own 7799 names no summon row, so the controller hatches them), and Garukhan's cascade raises
   `GarukhanMinionSmall` warriors from the sand. Shakari burrows, blinks to the player and emerges with a tail sweep;
   Ryslatha slides away from the player before spitting again; Arakaali (MovementSpeed 0) fights from her web.
-  Behind the generic cannot-be-damaged buff (BuffDefinitions row 350: no Pantheon boss has a shield row of its own)
-  at 75/50/25%, an intermission teleports to the arena's `ArenaMiddle` and plays the boss's signature move. Damage
+  There is no life gate: a campaign Pantheon boss does not stop taking damage at a threshold, and the two-variety
+  phases the data describes (Abberath 6008 then 6012, Shakari 6275 then 6278) are a second monster in a second room
+  that `WorldAreas` already places, so each kit's gate is created empty (`LifePhaseGate` with no thresholds never
+  arms, and `Step` still has one to read); Tukohama's shield is his own totem's. Damage
   comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
   none, scaled for the slams). Not yet: Arakaali's laser turret daemons and Abberath's spawner daemons as separate
   casters (their beams and fireballs play from the boss's own rows), Garukhan's charged-dash shadow clones, the
-  Tukohama map variants' extra rows (3561/3562). Checked by the build, the three suites and the data (every raised
-  variety resolves and is Supported); not yet with the client. Code:
+  Tukohama map variants' extra rows (3561/3562), and the arena controllers' own objects (`RyslathaFightManager`'s
+  parasite nests, Garukhan's `SpawnerController`, Arakaali's turret spawners). Checked by the build, the three suites
+  and the data (every raised variety resolves and is Supported); not yet with the client. Code:
   `Modules/Core/Game/Monster/PantheonBosses.cs` (wired in `Monsters.cs` and `GameModule.cs`), over
   `AtlasBossFight.cs`. Tests: `PantheonBossSkillTests.cs`.
 

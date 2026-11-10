@@ -326,9 +326,13 @@ public static partial class Game
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
                 KingGrace = !friendly && KingInMists.IsBoss(variety),
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
-                // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times);
-                // the Pantheon bosses get their own controllers' thresholds the same way (PantheonBosses.cs).
-                LifePhases = !friendly && (brine || atlas || pantheon) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
+                // Atlas fights (and the Brine King) stop at 75/50/25 for an intermission. A Pantheon boss has no life
+                // gate: its "second phase" is the first form's death raising the second where it fell (Abberath
+                // 6008->6012, Shakari 6275->6278), so damage runs straight through - the empty gate never arms, and
+                // Step (which reads it) still has one to look at (PantheonBosses.cs).
+                LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25])
+                    : !friendly && pantheon ? new([])
+                    : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
                 EntranceGrace = !friendly && (KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);

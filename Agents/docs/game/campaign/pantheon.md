@@ -43,11 +43,15 @@ receives (S→C 0x2bc Player). Every unlock flag is a boss kill the act's quest 
 | 9 | Yugul | no | `a8q4-KilledBoss` | a8q4 Reflection of Terror ([act 8](act8.md)) | Yugul, Reflection of Terror (`Frog/FrogGod/SilverFrog`), The High Gardens 2_8_4 |
 | 10 | Shakari | no | `a9q5-KilledBoss` | a9q5 Queen of the Sands ([act 9](act9.md)) | Shakari, Queen of the Sands (`Shakari/Shakari`, `Shakari2`), The Oasis 2_9_4 |
 | 11 | Tukohama | no | `a6q3-KilledBoss` | a6q3 The Father of War ([act 6](act6.md)) | Tukohama, Karui God of War (`Tukohama/Tukohama`), The Karui Fortress 2_6_5 |
-| 13 | Ralakesh | no | `a7q1-KilledBoss` | a7q1 The Master of a Million Faces ([act 7](act7.md)) | Greust, Lord of the Forest (`Ralakesh/Greust/Greust`, Ralakesh's avatar; in WorldAreas `Monsters`, not `Bosses`, so the server does not place him today), The Ashen Fields 2_7_7 |
+| 13 | Ralakesh | no | `a7q1-KilledBoss` | a7q1 The Master of a Million Faces ([act 7](act7.md)) | Greust, Lord of the Forest (`Ralakesh/Greust/Greust`, Ralakesh's avatar), The Ashen Fields 2_7_7 — placed (one of the area's four `Bosses_MonsterVarietiesKeys`, rows 5724, 5731 Oak, 5734 Alira, 5737 Kraityn) |
 | 14 | Garukhan | no | `a9q2-KilledBoss` | a9q2 The Ruler of Highgate ([act 9](act9.md)) | Garukhan, Queen of the Winds (`Garukhan/Garukhan`), The Quarry 2_9_8 |
 | 15 | Ryslatha | no | `a6q6-KilledBoss` | a6q6 The Puppet Mistress ([act 6](act6.md)) | Ryslatha, the Puppet Mistress (`InsectSpawner/InsectSpawnerParasiteBoss`), The Wetlands 2_6_11 |
 
-The bosses' areas, varieties and whether the server places them are in the act files.
+The bosses' areas, varieties and whether the server places them are in the act files. None of these fights has a
+life gate: the client's kits name no immunity buff, and where the data describes a second phase (Abberath 6008 then
+6012, Shakari 6275 then 6278) it is a second variety in a second room, both of them in the area's `Bosses` list
+already. Tukohama's only shield is the one his `TukohamaShieldTotem` carries (`tukohama_totem_shield`, effect 6666),
+which is a monster, not a duration.
 
 **Sin.** In the real game Sin appears beside each defeated god (`Metadata/NPC/Act6/SinTukohama`, `SinAbberath`,
 `SinRyslatha`, `SinBrineKing`, `Act7/SinRalakesh`, `SinGruthkul`, `SinArakaali`, `Act8/SinYugul`,

@@ -380,8 +380,6 @@ static class PantheonBosses
         int hatchlings;
         // Shakari's underground travel: she submerges, blinks to the player and emerges.
         bool burrowed;
-        // The per-boss signature skill each intermission plays once the shield is up.
-        int intermissionCast;
 
         protected override async Task Ticks(ClientState conn, double now)
         {
@@ -426,35 +424,15 @@ static class PantheonBosses
             }
         }
 
-        protected override async Task Intermission(ClientState conn, double now)
+        protected override Task Intermission(ClientState conn, double now)
         {
-            // A quarter of the life gone: the shield comes up and the boss plays its signature move (the shared
-            // Shield plays row 350's buff and removes it on the way out, the way the Atlas fights do).
-            await Shield(conn, true);
-            var at = Stage(conn);
-            await Teleport(conn, at, now);
-            intermissionCast = boss.Variety!.Id switch
-            {
-                Tukohama => 6665,      // the big slam
-                Shakari or Shakari2 => 8768,
-                Garukhan => 7857,
-                Abberath or Abberath2 => 6748,
-                Gruthkul => 6763,
-                Arakaali => 6549,
-                Solaris => 6462,
-                Lunaris => 6471,
-                Yugul => 6794,
-                Ryslatha => 6266,
-                Greust => 5623,
-                _ => BasicEffect(boss.Variety),
-            };
-            var attack = Attack(conn, intermissionCast);
-            if (ArtOf(intermissionCast) is { } art) await Effect(conn, at, art, Math.Max(2, attack.Seconds));
-            SwingWith(conn, attack, intermissionCast, area: true, radius: attack.Range);
-            busyUntil = Math.Max(busyUntil, now) + Math.Max(3, attack.Seconds);
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(3, attack.Seconds)));
-            await Shield(conn, false);
+            // Unreachable on purpose: a Pantheon boss has no life gate (see the gate in Monsters.cs). The campaign
+            // bosses do not stop taking damage at a threshold — the two-variety phases the data describes (Abberath
+            // 6008→6012, Shakari 6275→6278) are a second monster in a second room, both already placed by
+            // WorldAreas' Bosses, and Tukohama's totem shield is his own mechanic (Cast 5373). Should a gate ever be
+            // given to one of these kits again, this closes it instead of standing behind a shield nothing lifts.
             EndIntermission();
+            return Task.CompletedTask;
         }
 
         protected override async Task Act(ClientState conn, double now)
