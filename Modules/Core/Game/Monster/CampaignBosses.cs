@@ -4,10 +4,12 @@ using GameServer.Core.World;
 using static Game;
 
 /// <summary>
-/// The Pantheon's campaign bosses fight with their own kits instead of one plain swing. Upstream precedent:
+/// The campaign's scripted bosses fight with their own kits instead of one plain swing. Upstream precedent:
 /// the Atlas pinnacle bosses (838bdcc6, ShaperFight/ElderFight/SirusFight over the shared
 /// <see cref="AtlasBossFight"/> plumbing) and the campaign Brine King (BrineKing.cs). The same fix applied to
-/// the ten Pantheon bosses that had none: each variety's whole GrantedEffectsKeys list goes onto the actor
+/// the ten Pantheon bosses that had none, and now to the acts' bosses as they are taken one by one (the
+/// <see cref="Acts"/> table names them; each entry's own mechanics are the cases in <see cref="Fight.Cast"/>).
+/// Each variety's whole GrantedEffectsKeys list goes onto the actor
 /// (<see cref="SkillsFor"/>), so every 0x1ab the controller plays names a clip the client owns, and one
 /// controller per monster rotates the kit instead of the ordinary AI's auto-attack (the AI skips them, like
 /// the Atlas bosses: Monsters.cs line "DepravedTrinity.IsBoss || … || AtlasBosses.IsBoss").
@@ -21,12 +23,15 @@ using static Game;
 /// no hit. Bosses that fight twice with the same row in a map arena (Tukohama's and Shakari's map spawners
 /// keep the act row) each get their own controller; the arena damage share is not split, which only makes a
 /// two-boss arena hit for its full damage.</para>
+/// <para>A campaign boss's later form is not the controller's business: the quest engine creates it when the
+/// first one falls (<see cref="GameServer.Core.World.Quest.QuestEngine"/> SecondForm — Merveil, Dominus,
+/// Malachai), so the second form's variety is listed here only to give it a controller of its own.</para>
 /// <para>Their art paths were checked against the client's metadata (data/game-files.zip, the
 /// metadata/effects/spells/monsters_effects trees of act6/act7/act8/act9, tukohama_e, vaalspiderboss_e,
 /// despair_bear_upheaval, yugul_silverfrog, insect_spawner_spit). Bosses whose kit rows name no distinctive
 /// art of their own (Ryslatha's flame breath, Greust's blessing) play the effect row's own cast clip only.</para>
 /// </summary>
-static class PantheonBosses
+static class CampaignBosses
 {
     // ---- the varieties (Agent docs: Agents/docs/game/campaign/pantheon.md §2) ----
     internal const string BrineKingId = "Metadata/Monsters/BrineKing/BrineKing";           // owned by BrineKing.cs
@@ -91,6 +96,31 @@ static class PantheonBosses
         5373,                          // Tukohama's totem summon (the clip; the mechanic is the phase shield)
         5586,                          // izaro_taunt (Greust)
         6774, 6775, 6776, 6777,        // Gruthkul's trigger_spawners (the geysers hit through the fight)
+        // Act 1. Brutus' hook and slam hit; his spiked ground is the patch the slam leaves (it hits on landing).
+        8089, 9282,                    // empty_action_attack, geometry_attack
+        4007,                          // merveil_teleport (she blinks; there is no hit in the row)
+        4016, 4021, 4022, 4023,        // her summons: animate_weapon, statues, daughters, spawn
+        2713,                          // the Weaver's hide (its burrow)
+        6995,                          // geometry_spell (Merveil's second form)
+        // Acts 3 and 4: the form changes, the warps, the dodge/geometry rows and the spawner triggers.
+        2505, 2506,                    // piety_fire_form, piety_ice_form
+        1278,                          // Lightning Warp (Piety warps; the case in Cast moves her)
+        2941,                          // dominus_death_teleport
+        5142, 5143,                    // kaom's archer and skull spawners
+        4396, 4397, 4398,              // Daresso's monster_dodge rows
+        5076, 5077, 5078, 5079, 5080,  // his empty_action_attack and geometry rows
+        4652, 4614,                    // daresso_enrage, daresso_summon_clones (the clones are the AI's own adds)
+        5243, 5244,                    // piety_activate_eye_spawner
+        5236, 5189,                    // malachai_transform_piety, malachai_shield
+        5017,                          // malachai_teleport (the case in Cast moves him)
+        5245,                          // malachai_open_heart
+        // Acts 5 to 10: the statue and templar spawners, the warps, the hide and stance changes.
+        6326, 6320, 6327, 6654,        // avarius_raise_statues, avarius_summon_templars, avarius_kill_statues
+        5066, 5067,                    // shavronne_teleport (the case in Cast moves her)
+        6674, 6675,                    // summon_specific_monsters_on_self/_on_target
+        6426,                          // maligaro_vanish
+        9402, 6203,                    // vilenta's hide and her change_to_stance2
+        9083, 9085, 7901, 7903, 7904,  // her geometry and empty_action rows
     ];
 
     // Attacks that hit harder than their stat set names (the slams and the big swings): a scale on the variety's
@@ -127,6 +157,31 @@ static class PantheonBosses
         [4364] = 12, [4781] = 8, [5623] = 14,
         [6557] = 12, [6545] = 6, [4259] = 14, [6549] = 15, [4438] = 9, [5221] = 12, [5222] = 14, [6555] = 7,
         [6266] = 10, [3432] = 12, [2069] = 6,
+        // Act 1. Brutus hooks, then slams, then leaves the spikes; Merveil blinks often and throws a spear or a
+        // firestorm between blinks; the Weaver hides to reposition and mortars in between.
+        [2395] = 9, [4003] = 11, [3971] = 13,
+        [3774] = 7, [4007] = 10, [4016] = 18, [1422] = 12, [4021] = 16,
+        [3777] = 6, [3781] = 12, [3250] = 15, [3329] = 9, [4491] = 8, [4022] = 20, [4023] = 14,
+        [2247] = 6, [4440] = 10, [2713] = 16,
+        // Acts 3 and 4. One boss per act final: each of them keeps one signature skill on a long cooldown.
+        [2267] = 6, [2315] = 7, [2486] = 9, [1479] = 12, [2507] = 20, [1278] = 12,
+        [2673] = 8, [2679] = 14, [2744] = 11, [2677] = 16, [2682] = 18, [2941] = 20,
+        [2717] = 6, [2722] = 7, [2928] = 14, [2743] = 11, [2858] = 16,
+        [119] = 10, [5035] = 14, [5142] = 25, [5143] = 25,
+        [4752] = 6, [5075] = 9, [5081] = 12, [4614] = 22, [4652] = 30,
+        [5000] = 7, [5003] = 11, [5304] = 8, [5243] = 20,
+        [5014] = 7, [5015] = 12, [5167] = 10, [2140] = 9, [5146] = 11, [5241] = 13, [5251] = 15,
+        [5257] = 12, [5210] = 10, [5245] = 18, [5017] = 14,
+        // Acts 5 to 10: the boss-bar finals pace on the same cast time, with one signature skill held back.
+        [6284] = 7, [6314] = 8, [6318] = 11, [6291] = 12, [6566] = 10, [6326] = 20, [6320] = 22,
+        [6316] = 8, [6288] = 9, [6285] = 7, [6327] = 20,
+        [6590] = 6, [6598] = 10, [6603] = 12, [6636] = 14,
+        [6592] = 6, [6587] = 12, [6589] = 16, [8484] = 14, [8508] = 18, [8678] = 12, [6625] = 20,
+        [3804] = 6, [6671] = 7, [6673] = 9, [6691] = 14, [6715] = 11, [5066] = 12,
+        [492] = 6, [493] = 6, [6709] = 11, [6367] = 10, [6369] = 13,
+        [6415] = 6, [6422] = 8, [6434] = 9, [6418] = 10, [5596] = 11, [6412] = 12,
+        [5474] = 10, [4740] = 14,
+        [8904] = 9, [8896] = 12, [357] = 7, [5603] = 10, [6388] = 11, [5637] = 10,
     };
 
     // Ground art of the kit's skills (checked against the client's metadata; where a skill has none, its cast
@@ -213,12 +268,113 @@ static class PantheonBosses
     internal static bool IsLunaris(MonsterCatalog.Variety? v) => v?.Id == Lunaris;
     internal static bool IsShakari(MonsterCatalog.Variety? v) => v?.Id is Shakari or Shakari2;
     internal static bool IsGarukhan(MonsterCatalog.Variety? v) => v?.Id == Garukhan;
-    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsTukohama(v)
+    // ---- the acts' bosses: one entry per variety the controller drives ----
+    // Act 1 has no campaign doc (there is no act1.md), so its mechanics are the data's: the kit is the variety's
+    // own GrantedEffectsKeys in its order, and the cases in Fight.Cast are the ones the rows name (a hook, a slam,
+    // a teleport, a hide). A later form is listed as well: QuestEngine SecondForm creates it when the first one
+    // falls, and it needs its own controller to fight with its own kit.
+    internal const string Brutus = "Metadata/Monsters/Brute/BossBrute";                  // a1q2, The Upper Prison
+    internal const string Merveil = "Metadata/Monsters/seawitchillusion/BossMerveil";     // a1q3, Cavern of Anger
+    internal const string MerveilTwisted = "Metadata/Monsters/Seawitch/BossMerveil2";     // her second form
+    internal const string Weaver = "Metadata/Monsters/Spiders/SpiderBossWeaver";         // The Weaver's Chambers
+    internal const string Piety = "Metadata/Monsters/Axis/PietyBoss";                    // a3q7, Lunaris Temple 2
+    internal const string Dominus = "Metadata/Monsters/Pope/Pope";                       // a3q11, Upper Sceptre of God
+    internal const string DominusAscendant = "Metadata/Monsters/Dominusdemon/Dominusdemon"; // 1688, his second form
+    internal const string Kaom = "Metadata/Monsters/Kaom/KaomBoss";                      // a4q2, Kaom's Stronghold
+    internal const string Daresso = "Metadata/Monsters/Daresso/DaressoBoss";             // a4q3, The Grand Arena
+    internal const string PietyBeast = "Metadata/Monsters/Axis/PietyBeastBoss";          // a4q4, Belly of the Beast 2
+    internal const string Malachai = "Metadata/Monsters/Malachai/MalachaiBoss";          // a4q5, The Harvest
+    internal const string Malachai2 = "Metadata/Monsters/Malachai/MalachaiBoss2";        // his second stage
+    internal const string Avarius = "Metadata/Monsters/AvariusCasticus/AvariusCasticus";  // a5q?, Chamber of Innocence
+    internal const string AvariusReassembled = "Metadata/Monsters/AvariusCasticus/AvariusCasticusWickerman"; // a10q?
+    // Kitava's two fights are main's own controllers (KitavaActFive.cs, KitavaActTen.cs): they already script the swipe,
+    // the slam, the debris and the final fight's rows, and they own the heart, Sin and Innocence too, so this table
+    // leaves them alone rather than giving one body two kits.
+    internal const string ShavronneTower = "Metadata/Monsters/Shavronne/ShavronneTower"; // a6q2, Shavronne's Tower
+    internal const string BruteTower = "Metadata/Monsters/Brute/BruteTower";             // the same arena's second boss
+    internal const string Maligaro = "Metadata/Monsters/Maligaro/Maligaro2";             // a7q2, Maligaro's Sanctum
+    internal const string GeneralAdus = "Metadata/Monsters/GeneralAdus/GeneralAdus";     // a9q?, The Refinery
+    internal const string Vilenta = "Metadata/Monsters/Vilenta/Vilenta";                 // a10q?, The Control Blocks
+
+    // Brutus: his plain swing is row 491 (his own Default Attack, not 406), then the hook that pulls the player in,
+    // the ground slam and the spiked ground it leaves.
+    internal static readonly int[] BrutusEffects = [491, 2395, 4003, 3971];
+    // Merveil: ice spears, the teleport that repositions her, the statues she animates and the firestorm.
+    internal static readonly int[] MerveilEffects = [406, 3774, 4007, 4016, 1422, 4021];
+    // Her second form has no plain swing at all: the geyser is what stands in for one.
+    internal static readonly int[] MerveilTwistedEffects = [3777, 4007, 4022, 4023, 3781, 3250, 3329, 4491, 6995];
+    // The Weaver hides (its burrow), throws knives and lobs its mortar.
+    internal static readonly int[] WeaverEffects = [420, 2247, 4440, 2713];
+    // Piety switches between her ice and fire forms (2506/2505) and warps; her blood elementals are her summons.
+    internal static readonly int[] PietyEffects = [406, 2267, 2315, 2486, 1479, 2507, 1278];
+    // Dominus: the chilling bond, Touch of God (his real swing), the dash, the lightning souls and his mark.
+    internal static readonly int[] DominusEffects = [2673, 2679, 2744, 2677, 2682, 2941];
+    // His second form (Dominusdemon): the cleave, the projectile, the grab, the charge and the blood rain.
+    internal static readonly int[] DominusAscendantEffects = [406, 2717, 2722, 2928, 2743, 2858];
+    // Kaom: the leap slam and the fire chasm he opens in the floor; the archers and skulls are his spawners.
+    internal static readonly int[] KaomEffects = [3757, 119, 5035, 5142, 5143];
+    // Daresso: the combo, the reave, the charge, the clones he summons and his enrage.
+    internal static readonly int[] DaressoEffects = [406, 4752, 5075, 5081, 4614, 4652];
+    // Piety, the Abomination: the corrupted ball lightning and beam, her reverse cleave, the eye spawner.
+    internal static readonly int[] PietyBeastEffects = [406, 5000, 5003, 5304, 5243];
+    // Malachai: the cone, the teleport slam, Voll's slam, the fire traps, the mortar, the impale and the tri bomb.
+    internal static readonly int[] MalachaiEffects = [494, 5014, 5015, 5167, 2140, 5146, 5241, 5251];
+    // His second stage: the cone, the repeatable wave, the teleport, the mortars, the open heart and the tri bomb.
+    internal static readonly int[] Malachai2Effects = [5014, 5257, 5015, 5210, 2140, 5251, 5017];
+    // Avarius: the cleave, the rapid projectile, the divine slam, the charge, the statues and his templars.
+    internal static readonly int[] AvariusEffects = [406, 6284, 6314, 6318, 6291, 6566, 6326, 6320];
+    // Reassembled (the wickerman form): no slam of his own left, only the projectiles, the cleave and the statues.
+    internal static readonly int[] AvariusReassembledEffects = [406, 6316, 6288, 6285, 6327];
+    // Shavronne: the pulse, the levitating projectile, the empower beam and the barrage; she teleports and summons.
+    internal static readonly int[] ShavronneEffects = [3804, 6671, 6673, 6691, 6715, 5066];
+    // Reassembled Brutus: his two Default Attacks, the wall hook and the levitation slam.
+    internal static readonly int[] BruteTowerEffects = [492, 493, 6709, 6367, 6369];
+    // Maligaro: the combo, the blades in front and behind, the flurry, the telekinetic blades and the teleport slam.
+    internal static readonly int[] MaligaroEffects = [406, 6415, 6422, 6434, 6418, 5596, 6412];
+    // General Adus: his own swing, the earthquake and the living bomb.
+    internal static readonly int[] AdusEffects = [406, 5474, 4740];
+    // Vilenta: the gas mortars, the reflection, Whirling Blades, her slam, the breach mortar and the sunder.
+    internal static readonly int[] VilentaEffects = [406, 8904, 8896, 357, 5603, 6388, 5637];
+
+    // What stands in for a campaign boss's own swing where the kit's first row is not an attack (BasicEffect).
+    static readonly Dictionary<string, int> ActBasic = new()
+    {
+        [Brutus] = 491,            // his hook leads the row; the swing is 491
+        [MerveilTwisted] = 3777,   // no Default Attack in her row: the geyser is her basic skill
+        [Dominus] = 2679,          // no Default Attack either: Touch of God is what he swings
+        [Malachai2] = 5014,        // likewise: the elemental cone
+    };
+
+    internal static bool IsAct(MonsterCatalog.Variety? v) => v?.Id is Brutus or Merveil or MerveilTwisted or Weaver
+        or Piety or Dominus or DominusAscendant or Kaom or Daresso or PietyBeast or Malachai or Malachai2
+        or Avarius or AvariusReassembled or ShavronneTower or BruteTower or Maligaro
+        or GeneralAdus or Vilenta;
+
+    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsTukohama(v)
         || IsAbberath(v) || IsRyslatha(v) || IsGreust(v) || IsGruthkul(v) || IsArakaali(v) || IsYugul(v)
         || IsSolaris(v) || IsLunaris(v) || IsShakari(v) || IsGarukhan(v));
 
     internal static int[] EffectsFor(MonsterCatalog.Variety variety) => variety.Id switch
     {
+        Brutus => BrutusEffects,
+        Merveil => MerveilEffects,
+        MerveilTwisted => MerveilTwistedEffects,
+        Weaver => WeaverEffects,
+        Piety => PietyEffects,
+        Dominus => DominusEffects,
+        DominusAscendant => DominusAscendantEffects,
+        Kaom => KaomEffects,
+        Daresso => DaressoEffects,
+        PietyBeast => PietyBeastEffects,
+        Malachai => MalachaiEffects,
+        Malachai2 => Malachai2Effects,
+        Avarius => AvariusEffects,
+        AvariusReassembled => AvariusReassembledEffects,
+        ShavronneTower => ShavronneEffects,
+        BruteTower => BruteTowerEffects,
+        Maligaro => MaligaroEffects,
+        GeneralAdus => AdusEffects,
+        Vilenta => VilentaEffects,
         Tukohama => TukohamaEffects,
         Abberath or Abberath2 => variety.Id == Abberath ? AbberathEffects : Abberath2Effects,
         Ryslatha => RyslathaEffects,
@@ -237,11 +393,13 @@ static class PantheonBosses
     /// cleave); otherwise the first effect is the basic skill, the way Sirus' beam blast stands in for his swing.</summary>
     internal static int BasicEffect(MonsterCatalog.Variety variety)
     {
+        if (ActBasic.TryGetValue(variety.Id, out int basic)) return basic;
         var effects = EffectsFor(variety);
         return effects.Length > 0 ? effects[0] : MeleeEffect;
     }
 
-    internal static bool MeleeLike(MonsterCatalog.Variety variety) => BasicEffect(variety) is MeleeEffect or BearMeleeEffect or CleaveEffect;
+    internal static bool MeleeLike(MonsterCatalog.Variety variety) => BasicEffect(variety) is MeleeEffect or BearMeleeEffect
+        or CleaveEffect or 491 or 492 or 493;   // 491/492/493: the Brute rows' own Default Attack
 
     /// <summary>The skill id the client's actor uses for one of the boss's effects: 0x4030 + the index in the
     /// merged kit. An effect outside the kit keeps an id of its own rather than colliding with the basic skill's.</summary>
@@ -356,7 +514,7 @@ static class PantheonBosses
         : AtlasBossFight(id, boss, conn)
     {
         protected override string Name => $"[Pantheon {boss.Variety?.Id.Split('/')[^1]}]";
-        protected override ushort ImmunityRow => PantheonBosses.ImmunityRow;
+        protected override ushort ImmunityRow => CampaignBosses.ImmunityRow;
         protected override string ShieldArt => "";
         protected override string ShieldOffArt => "";
         // Arakaali never walks (MovementSpeed 0): she fights from her web at the arena's middle.
@@ -416,8 +574,10 @@ static class PantheonBosses
             {
                 burrowed = false;
                 var at = boss.Walk.Position(now);
+                // Shakari breaks out of the sand with a tail sweep everyone close takes; the Weaver's hide is only a
+                // reposition (2713), so it comes back without either.
+                if (!IsShakari(boss.Variety)) return;
                 await Effect(conn, at, BurrowEmerge, 1.2);
-                // Emerging tail sweep: everyone close takes the tail strike's hit.
                 var attack = Attack(conn, 8768);
                 foreach (var player in Watchers())
                     if (Distance(player.Walk.Position(now), at) <= 14) await Hit(player, attack, at);
@@ -515,9 +675,33 @@ static class PantheonBosses
                     await Teleport(conn, to, now);
                     return;
                 }
+                // Merveil blinks away from the player before her next spell (merveil_teleport), and Dominus leaves
+                // his body the same way when the first form falls (dominus_death_teleport).
+                case 4007 or 2941 or 5066:
+                {
+                    int dx = pos.X - player.X, dy = pos.Y - player.Y;
+                    double len = Math.Max(1, Math.Sqrt(dx * dx + dy * dy));
+                    var to = ((int)(pos.X + dx / len * 16), (int)(pos.Y + dy / len * 16));
+                    await Teleport(conn, to, now);
+                    busyUntil = Math.Max(busyUntil, now) + 0.6;
+                    return;
+                }
+                // Piety's Lightning Warp and Malachai's teleport land them on the player: a reposition, no hit of
+                // their own (the slam that follows is the skill's own cast).
+                case 1278 or 5017:
+                    await Teleport(conn, conn.Layout.Near((player.X + 2, player.Y + 2)), now);
+                    busyUntil = Math.Max(busyUntil, now) + 0.5;
+                    return;
+                // The Weaver hides and comes back somewhere else (its burrow: spider_boss_hide).
+                case 2713:
+                    await Teleport(conn, conn.Layout.Near((player.X - 10, player.Y - 10)), now);
+                    burrowed = true;
+                    busyUntil = Math.Max(busyUntil, now) + 1.2;
+                    return;
                 default:
-                    SwingWith(conn, attack, effect, area: !MeleeLike(variety) && effect != BasicEffect(variety),
-                        radius: attack.Range);
+                    // Everything that is not the plain swing is a slam, a hook or a projectile row: it lands in its
+                    // skill's own reach rather than on the one player it faced.
+                    SwingWith(conn, attack, effect, area: effect != BasicEffect(variety), radius: attack.Range);
                     return;
             }
         }

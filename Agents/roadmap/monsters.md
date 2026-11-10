@@ -28,11 +28,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Historical LocalExile controls verify chase response, turning, pacing and native pause; this port awaits a rerun.
   Automated cadence and lifecycle checks retain interruption and stage-completion guards.
 - **Start:** the systems the 74 unsupported monster mods need (auras on allies, retaliation and on-death skills, ailments and
-  curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), stages of other bosses (`BossFights.cs` has Hillock's
-  and `KingInMists.cs` the two-form Ritual pinnacle), pack
+  curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), the life-gate stages (`BossFights.cs` has
+  Hillock's and `KingInMists.cs` the two-form Ritual pinnacle; `CampaignBosses.cs` gives the acts' bosses their kits but
+  no stage), pack
   `Grounds`, the varieties with ControlZone / BlightTower / Mercenary … components (each needs its deserializer,
-  schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
-  forms (Abberath2, Shakari2, Malachai's second form) created by their fight, tile spawner bosses
+  schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, tile spawner bosses
   (Marceus).
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
   files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.

@@ -144,12 +144,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
   Docs: [11](../docs/protocol/11-skills.md) §6.
-- The Pantheon's campaign bosses (Tukohama, Abberath and his enraged form, Ryslatha, Greust, Gruthkul, Arakaali,
-  Yugul, Solaris and Lunaris, Shakari and her second form, Garukhan) fight with their own kits instead of one plain
+- The campaign's scripted bosses (the Pantheon's twelve: Tukohama, Abberath and his enraged form, Ryslatha, Greust,
+  Gruthkul, Arakaali, Yugul, Solaris and Lunaris, Shakari and her second form, Garukhan; and the acts' bosses: Brutus,
+  Merveil and her twisted form, The Weaver, Piety, Dominus and his ascendant, Kaom, Daresso, Piety the Abomination,
+  Malachai and his second stage, Avarius and his reassembled form, Kitava in both fights, Shavronne and the reassembled
+  Brutus, Maligaro, General Adus, Vilenta) fight with their own kits instead of one plain
   swing, after the Atlas bosses' pattern (the Brine King already had his own controller). All are scripted (the
   ordinary AI skips them), own their whole `GrantedEffectsKeys` list on the actor under ids 0x4030 + the index in
   the kit — never a gem id — and rotate it from one controller per monster: the melee keeps the variety's own
-  attack time and reach, the slams (Tukohama's totem slam, Abberath's meteor upheaval, Gruthkul's upheaval, Shakari's
+  attack time and reach, every other skill of the kit is a slam, a hook or a projectile row and lands in its own
+  reach rather than on the one player the boss faced, so the slams (Tukohama's totem slam, Abberath's meteor
+  upheaval, Gruthkul's upheaval, Shakari's
   tail strike, Garukhan's combo, Yugul's chomp, the Leap Slams) hit harder than the plain swing at their clip's cast
   time, a marker row (a hide, a burrow, a dodge, a spawner trigger, Solaris' and Lunaris' transform) carries no hit,
   and each skill's ground art was checked against the client's metadata. The monsters the fights raise are real
@@ -159,17 +164,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   breaks them (her own 7799 names no summon row, so the controller hatches them), and Garukhan's cascade raises
   `GarukhanMinionSmall` warriors from the sand. Shakari burrows, blinks to the player and emerges with a tail sweep;
   Ryslatha slides away from the player before spitting again; Arakaali (MovementSpeed 0) fights from her web.
-  There is no life gate: a campaign Pantheon boss does not stop taking damage at a threshold, and the two-variety
+  The bosses that warp move themselves instead of having a hit played: Merveil, Dominus' death teleport and
+  Shavronne blink away from the player, Piety's Lightning Warp and Malachai's teleport land on it, and the Weaver's
+  hide repositions it (only Shakari's emerge keeps its tail sweep).
+  There is no life gate: a campaign boss does not stop taking damage at a threshold, and the two-variety
   phases the data describes (Abberath 6008 then 6012, Shakari 6275 then 6278) are a second monster in a second room
   that `WorldAreas` already places, so each kit's gate is created empty (`LifePhaseGate` with no thresholds never
-  arms, and `Step` still has one to read); Tukohama's shield is his own totem's. Damage
+  arms, and `Step` still has one to read); Tukohama's shield is his own totem's. A later form the data does not place
+  is the quest engine's: Merveil's `BossMerveil2`, Dominus' `Dominusdemon` and Malachai's `MalachaiBoss2` appear
+  where the first one falls (`QuestEngine` SecondForm), and each gets its own controller from this same table. Damage
   comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
-  none, scaled for the slams). Not yet: Arakaali's laser turret daemons and Abberath's spawner daemons as separate
+  none, scaled for the slams). Not yet: the acts' add-spawning skills are markers (Avarius' statues and templars,
+  Shavronne's summons, Daresso's clones, the eye spawners of Piety the Abomination, Malachai's heart), Arakaali's
+  laser turret daemons and Abberath's spawner daemons as separate
   casters (their beams and fireballs play from the boss's own rows), Garukhan's charged-dash shadow clones, the
   Tukohama map variants' extra rows (3561/3562), and the arena controllers' own objects (`RyslathaFightManager`'s
   parasite nests, Garukhan's `SpawnerController`, Arakaali's turret spawners). Checked by the build, the three suites
-  and the data (every raised variety resolves and is Supported); not yet with the client. Code:
-  `Modules/Core/Game/Monster/PantheonBosses.cs` (wired in `Monsters.cs` and `GameModule.cs`), over
+  and the data (every raised variety resolves and is Supported, and every act kit is built out of that variety's own
+  rows); not yet with the client. Code:
+  `Modules/Core/Game/Monster/CampaignBosses.cs` (wired in `Monsters.cs` and `GameModule.cs`), over
   `AtlasBossFight.cs`. Tests: `PantheonBossSkillTests.cs`.
 
 ## Partly working
@@ -298,5 +311,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
-  that does not create it yet.
+  The endgame bosses (Izaro, Atziri, the map, league and pinnacle bosses) still play one plain swing: only the Atlas
+  pinnacles, the Depraved Trinity, Doedre, the Vaal Oversoul, the King in the Mists, the Brine King, Hillock and the
+  campaign bosses above have a controller of their own.
