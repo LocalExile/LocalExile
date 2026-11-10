@@ -2430,8 +2430,9 @@ Only templates whose stats have a consumer are applied, through three views:
 
 - **Enemy auras** (`EnemyAurasFor`, `Program.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
   `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
-  BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50) and `SaboteurBlind` (below).
-  The others, such as Overwhelm's crit multiplier, the Occultist's resistances and Kaom's Binding's
+  BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50), `SaboteurBlind` (below) and
+  Overwhelm (`SlayerCritMultiplier`, 1343: -30 to a monster's crits on the player, `EnemyAuraStatLocked`).
+  The others, such as the Occultist's resistances and Kaom's Binding's
   `base_from_enemy_physical_damage_%_to_convert_to_fire`, wait for consumers: their buff would show an effect that
   does not happen. The player tick shows them on monsters (`TickPassiveAuras` → `EnemyDebuffsTick`, §12 "The
   player's debuffs on monsters"). The stats act on the monster's hits at contact, by the radius at that moment:

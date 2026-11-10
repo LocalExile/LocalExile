@@ -28,6 +28,19 @@ static partial class Game
         return conversion.IsEmpty ? null : conversion;
     }
 
+    // The sum of one stat of the player's passive enemy auras on this monster at contact, by the radius at that moment
+    // (Overwhelm's base_critical_strike_multiplier_+ for its critical strikes on the player). Call under the Monsters lock.
+    internal static int EnemyAuraStatLocked(ClientState conn, SpawnedMonster m, (int X, int Y) player, double now, string stat)
+    {
+        if (!m.Hostile || conn.PlayerLife == 0 || Stats.Key(stat) is not uint key) return 0;
+        var at = m.Walk.Position(now);
+        long sum = 0;
+        foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. conn.Passives, .. conn.MainAscendancy.Allocated], LeagueFor(conn).HardMode, EnemyAuraActs))
+            if (Dist(at, player) <= aura.Radius)
+                foreach (var (s, value) in aura.Stats) if (s == key) sum += value;
+        return (int)Math.Clamp(sum, int.MinValue, int.MaxValue);
+    }
+
     // Whether the server applies this enemy aura: by name (Light of Divinity, the blind) or because every stat it has is a
     // hit conversion (Born under Fire). The others' buffs would show effects that do not happen, so they are not sent
     // until their stats have consumers.

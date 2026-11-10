@@ -260,7 +260,7 @@ static partial class Game
         foreach (uint key in StatKeys.AttackSpeedInputs)
             devAttackSpeed += rawOverrides.GetValueOrDefault(key);
         stats[StatKeys.MainHandAttackSpeedPct] = conn.Pools.AttackSpeedPct + devAttackSpeed
-            + SoulEaterAttackSpeed(conn, stats);
+            + SoulEaterAttackSpeed(conn, stats) + LeechingAttackSpeed(conn, stats);
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         int FlaskGet(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -326,6 +326,7 @@ static partial class Game
             SuppressionChance = Suppression(conn).Chance,
         };
         stats = StatSnapshotTailFor(conn, finalInputs, StatSnapshotStage.Critical);
+        WithLeechingDefences(stats, devSet);
         stats[OwnAuraRestriction.Disabled] = OwnAuraRestrictionValue(conn);
         if (Get("global_always_hit") != 0)
             foreach (string name in new[] { "main_hand_chance_to_hit_%", "off_hand_chance_to_hit_%",
