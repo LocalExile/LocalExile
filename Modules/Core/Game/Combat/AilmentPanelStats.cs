@@ -87,7 +87,10 @@ static class AilmentPanelStats
             }
         }
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
-        Add("ignite", DamageType.Fire, [DamageType.Fire], IgnitePercent);
+        // Shaper of Flames' "All Damage can Ignite" (all_damage_can_ignite): every type's portion adds to the ignite's
+        // base, with the increases of the types it visited, as poison's physical portion does.
+        Add("ignite", DamageType.Fire, get("all_damage_can_ignite") != 0 ? DamageTypes.ConversionOrder : [DamageType.Fire],
+            IgnitePercent);
         Add("poison", DamageType.Chaos, [DamageType.Physical, DamageType.Chaos], PoisonPercent);
         if (get("chaos_damage_chance_to_poison_%") != 0)
             Add("poison", DamageType.Chaos, [DamageType.Chaos], PoisonPercent, chaosOnly: true);

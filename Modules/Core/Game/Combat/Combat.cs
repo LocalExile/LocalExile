@@ -474,9 +474,8 @@ static partial class Game
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                     at, Random.Shared, poison: DefaultAttackPoison(conn, player));
-                if (life > 0 && ownRolled[DamageType.Fire].Max > 0
-                    && IgniteOnHitLocked(conn, targetId, m, DefaultAttackIgnite(conn, player),
-                        critical, at) is { } packets)
+                if (life > 0 && DefaultAttackIgnite(conn, player) is var defaultIgnite && defaultIgnite.CanIgnite(ownRolled)
+                    && IgniteOnHitLocked(conn, targetId, m, defaultIgnite, critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
                 if (life > 0 && ownRolled[DamageType.Physical].Max > 0
                     && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at) is { } cut)
@@ -1628,7 +1627,7 @@ static partial class Game
                         reflected, poison, sourceSkill: skillId);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                     // physical damage bleed it.
-                    if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                    if (m.Life > 0 && ignite.CanIgnite(rolled)
                         && IgniteOnHitLocked(conn, id, m, ignite, critical, at) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                     if (m.Life > 0 && rolled[DamageType.Physical].Max > 0

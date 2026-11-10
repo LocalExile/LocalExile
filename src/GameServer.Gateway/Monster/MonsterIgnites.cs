@@ -19,9 +19,14 @@ sealed class MonsterIgnites
     /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
         double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
-        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0)
+        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
+
+        /// <summary>Whether a hit of <paramref name="hit"/> (rolled, before mitigation) can ignite: its fire damage, or any
+        /// damage with "All Damage can Ignite" (<see cref="AllDamage"/>, Shaper of Flames).</summary>
+        public bool CanIgnite(DamagePacket hit) =>
+            AllDamage ? hit.Components.Any(c => c.Range.Max > 0) : hit[DamageType.Fire].Max > 0;
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
@@ -35,13 +40,15 @@ sealed class MonsterIgnites
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
-            long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%");
+            // Shaper of Flames: "Hits always Ignite" (always_ignite).
+            long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%")
+                + (get("always_ignite") != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
                 * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                FireExposure: get("ignites_apply_fire_resistance_+"));
+                FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0);
         }
     }
 

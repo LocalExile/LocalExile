@@ -185,6 +185,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AscendancyCatalog`, `AscendancyProgress`, `OrdinaryPassiveRules`, `CharacterSaves`, Gateway progression.
   Docs: [scope, evidence and beginner steps](../docs/game/ascendancies.md).
 
+- Elementalist Shaper of Flames: all three stats work. `always_ignite` adds 100% ignite chance;
+  `all_damage_can_ignite` lets any hit ignite and puts every damage type into the ignite's base (90% per second,
+  fire scaling plus the types the portion visited, as poison's physical part); the panel's ignite rows follow.
+  `enemies_ignited_by_you_have_physical_damage_%_converted_to_fire` (40%) converts a burning monster's hits on the
+  player through the Born under Fire hook (`EnemyAuraConversionLocked`). Verified live on 3.29.3c with Arc: 40 of 40
+  surviving hits ignited, 56 converted monster hits, no client crash. Not covered: the golem and Abberath ignites
+  still need fire damage; the conversion applies to hits only.
+
 - Antiquarian: all nine notables and nine small nodes execute through three legal connected eight-point builds.
   Native checks cover Ward/Adrenaline, final attributes/requirements, stun recovery, Enduring Cry duration,
   always-hit attacks, Far Shot arrows and active-shield block/ranged mitigation.
