@@ -308,7 +308,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ward conversions, ring-slot and jewel-radius operators remain separate work.
   Code: `CharacterStats.cs`, `DamageModel.cs`, `ItemCatalog.cs`, `ItemDefences.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2.
-- Gem skills include CWDT and CoC releases for adopted projectiles, Ice Nova, curses and three guard spells ([25](../docs/protocol/25-gem-supports.md));
+- Gem skills include CWDT, CoC and CwC releases for adopted projectiles, Ice Nova, curses and three guard spells ([25](../docs/protocol/25-gem-supports.md));
   bow attacks and manual Fireball from the socketed gem with its level-1 stats (9–14 fire, 750 ms cast via
   `virtual_base_spell_cast_time_ms`, 5 mana), cast at the ground or at a monster; a bow's ordinary attack and attack
   gems create `Metadata/Projectiles/DefaultArrow` (or the gem's own projectile) at the attack animation's `attack1_bow`

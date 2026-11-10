@@ -364,7 +364,10 @@ static partial class Game
     {
         (ushort Sequence, (int X, int Y) Aim)? channel;
         lock (conn.Monsters)
+        {
             channel = conn.LockstepSkill.Channel is { } sequence ? (sequence, conn.LockstepSkill.Aim) : null;
+            if (channel is { } current) AimChannelTriggers(conn, current.Aim);
+        }
         return channel is { } c
             ? Send(remote, stream, ciphers, InstanceProtocol.ActionTarget(PlayerId, c.Sequence, c.Aim.X, c.Aim.Y), $"0x01ad channel aims at ({c.Aim.X}, {c.Aim.Y})")
             : Task.CompletedTask;
