@@ -2,7 +2,6 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
-using ChatCommand = GameServer.Modding.ChatCommand;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;

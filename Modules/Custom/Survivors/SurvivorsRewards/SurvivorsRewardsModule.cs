@@ -18,19 +18,17 @@ public sealed class SurvivorsRewardsModule : IModule
                 "virtual_intelligence_for_requirements" })
                 if (Stats.Key(name) is uint key) stats[key] = Math.Max(stats.GetValueOrDefault(key), 1000);
         }));
-        module.OnPacket(InstanceNpcs.BuyId, packet =>
+        GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, (conn, bytes) =>
         {
-            var conn = ConnOf(packet.Player);
             var (remote, stream, ciphers) = conn.Wire;
             return SurvivorsRewards.ChooseSurvivorsSkill(remote, stream, ciphers, conn,
-                InstanceNpcs.ReadBuy(packet.Bytes.Span).ItemId);
+                InstanceNpcs.ReadBuy(bytes.AsSpan()).ItemId);
         });
-        module.OnPacket(InstanceNpcs.CtrlBuyId, packet =>
+        GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, (conn, bytes) =>
         {
-            var conn = ConnOf(packet.Player);
             var (remote, stream, ciphers) = conn.Wire;
             return SurvivorsRewards.ChooseSurvivorsSkill(remote, stream, ciphers, conn,
-                InstanceNpcs.ReadCtrlBuy(packet.Bytes.Span).ItemId);
+                InstanceNpcs.ReadCtrlBuy(bytes.AsSpan()).ItemId);
         });
         module.Lifetime.Own(GameEvents.RewardClosing.Add("SurvivorsRewards", async conn =>
         {

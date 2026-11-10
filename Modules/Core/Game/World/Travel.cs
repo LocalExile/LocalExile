@@ -84,7 +84,7 @@ public static partial class Game
             await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt);
             return;
         }
-        // Objects of the Core modules.
+        // Objects of a module or mod.
         if (await GameEvents.AnyObjectUse(conn, use, requestedAt)) return;
         if (use.TargetId == WaypointCatalog.ObjectId && conn.Layout.Waypoint is { } waypoint)
         {
@@ -98,8 +98,6 @@ public static partial class Game
             await TalkToNpc(remote, stream, ciphers, conn, use, npc, requestedAt);
             return;
         }
-        // Objects of a module or mod.
-        if (await Program.ServerHooks.ObjectUsed(new(PlayerOf(conn), use.TargetId, requestedAt))) return;
         if (conn.StashObject != 0 && use.TargetId == conn.StashObject)
         {
             await OpenStash(remote, stream, ciphers, conn, use, requestedAt);
@@ -355,7 +353,7 @@ public static partial class Game
                 return;
             }
         if (!conn.TryBeginAreaChange(t, out var projectiles)) return;
-        await Program.ServerHooks.PlayerLeaving(PlayerOf(conn), "left the area");
+        await GameEvents.RunPlayerLeaving(conn, "left the area");
         // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
         foreach (uint id in projectiles)

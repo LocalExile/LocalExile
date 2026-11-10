@@ -5,7 +5,7 @@ using Mod = GameServer.Modding;
 public static partial class Game
 {
 
-    public static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
+    public static MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
         new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
             Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
 

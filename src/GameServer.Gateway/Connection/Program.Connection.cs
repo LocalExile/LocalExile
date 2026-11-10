@@ -128,7 +128,7 @@ public partial class Program
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
-                var moduleHeader = ServerHooks.Header(PlayerOf(conn));
+                var moduleHeader = GameEvents.RunAreaHeader(conn);
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
@@ -192,7 +192,7 @@ public partial class Program
                     inbox.Complete();
                     await handlers;
                     // An open trade ends with its owner: the other side gets its items back in view and the window closes.
-                    try { await ServerHooks.PlayerLeaving(PlayerOf(conn), "disconnected"); }
+                    try { await GameEvents.RunPlayerLeaving(conn, "disconnected"); }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
                     if (conn.BuildImport.Confirmed is { } build)
                     {

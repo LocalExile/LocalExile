@@ -2056,7 +2056,7 @@ public static partial class Game
         var monster = ModMonster(m, at);
         if (playerKill)
         {
-            await Program.ServerHooks.MonsterKilled(new(killer, monster));
+            await GameEvents.RunMonsterKilled(new(conn, monster));
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
@@ -2106,7 +2106,7 @@ public static partial class Game
         if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
-        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));
+        var modded = GameEvents.RunDrops(conn, ModMonster(m, at));
         List<ItemDrops.Drop> drops = [];
         // The King in the Mists always drops one of four uniques, plus its support gems and card. Its humanoid form is
         // removed without a death, so only the treant (Boss3) reaches here.

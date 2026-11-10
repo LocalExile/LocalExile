@@ -70,7 +70,7 @@ public static partial class Game
         }
         // The stations of the modules this league uses. One taken away is simply not placed: its spot stays free.
         conn.CurrentHideoutScene = scene;
-        if (scene is not null) await Program.ServerHooks.HideoutReady(PlayerOf(conn));
+        if (scene is not null) await GameEvents.RunHideoutReady(conn);
     }
 
     // A click on the Stash (C→S 0x24): walk there, then S→C 0x7b kind 1 opens the stash panel. Its affinity argument selects

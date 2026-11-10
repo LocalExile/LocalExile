@@ -26,9 +26,9 @@ public sealed class UniqueBeltsModule : IModule, IDisposable
         On(GameEvents.Kill, kill => { if (kill.PlayerKill) StealMonsterMods(kill.Conn, kill.Monster); });
         On(GameEvents.PlayerStatSources, WithStolenMods);
         On(GameEvents.OutgoingDamage, (_, player, monster, rolled) => WithDamageVsRarity(player, monster, rolled));
-        module.OnAreaGenerated(player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            var (remote, stream, ciphers) = conn.Wire;
             _ = RunUniqueBeltEffects(remote, stream, ciphers, conn);
             return Task.CompletedTask;
         });
