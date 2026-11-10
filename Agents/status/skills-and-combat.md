@@ -691,8 +691,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
-  recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
-  Code: `PlayerStatsCache.cs`, `StatConditions.cs`.
+  recipes are reused. Aura reconciliation compares live sources, restrictions, equipment and reservation inputs;
+  support resolution shares raw gem sources, quest rewards follow flag changes, and projectile motion is reused only
+  until the next contact. F1 NETWORK retains real input-queue latency; pathfinding and load spikes remain under investigation.
+  Code: `PlayerStatsCache.cs`, `OwnAuras.cs`, `GemLevels.cs`, `ProjectileRuntime.cs`, `StatConditions.cs`.
 
 - Survivors league and three optional modules, including the seven stage gate bosses; the catalogue keeps only skills the flight/pulse presentation can play (every projectile gets a visible fallback), ground area spells land on their target, the support pool is every normal support gem whose numbers the cast pipeline reads, and enemies are 5x tougher and 4x harder-hitting (ranged shots at 30%) with a DPS threat on life, nearby experience orbs, a first window that pauses before any spawn, 25%-of-life death zones and corpse cleanup; uniques persist between runs and bosses are 5x their ladder: [client presentation and limits](../docs/game/survivors-mode.md).
 
@@ -862,7 +864,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   ordinary-bow sparse-zero controls. The first sparse Standard baseline is retrospective; the next seven are
   prospective. Actual natural getter zeros are distinct from explicit wire zeros or hidden-row rendering.
   Four restoration/relog controls, 184 full item/socket acknowledgements, original-save preservation and 714 unchanged
-  source/runtime inputs pass. The client is closed and normal `data/saves.db` restored. Native publication does not
+  source/runtime inputs pass. The client is closed and normal `data/characters.db` restored. Native publication does not
   certify authoritative hit contact, critical-weighted DPS, conditional/endpoints/ailment/DoT or official rounding.
   Existing disposed-stream cleanup faults and separate native connection closures remain recorded in the evidence.
   Code: `ItemWeaponStats.cs`, `DamageStats.cs`, `SkillCatalog.cs`, `SupportedAttackDamage.cs`.
@@ -1723,6 +1725,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   The first live check found that direct radius alone did not scale the channelled visual;
   its conditional path now also receives aggregate area (0xd7) and radius percentage (0x1591).
   Cyclone's additional melee-range and stage modifiers remain partial.
+  Its sweeps follow the player walking toward the aimed cell (C→S 0x197) at the gem's movement speed, not the cursor.
+  Checked with the real client (2026-11-08): the sweeps advance with the player.
   See protocol/11-skills.md.
 - **Self-targeted spells (2026-10-29).** Self-targeted spells (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
   Shock Nova) hit around the caster wherever they are aimed, as the client draws them; before, an Ice Nova cast on a

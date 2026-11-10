@@ -4,6 +4,43 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
+    sealed record AuraReconcileInputs(object? ItemSources, ItemCatalog Items, SkillCatalog Skills,
+        CharacterStats.Pools Pools, Dictionary<uint, int> Sources, Dictionary<uint, int> Overrides,
+        (byte Row, InventoryItem Item)[] Equipment, AuraCatalog.Aura[] Auras,
+        string[] Remembered, string? SavedStance, bool SavedBlood, string Stance,
+        bool ActiveBlood, ushort BloodBuff, int ManaReserved, int LifeReserved,
+        bool CanRestore, bool Town, bool Dirty, int Restricted, bool DisabledSpells)
+    {
+        public static AuraReconcileInputs Capture(ClientState conn)
+        {
+            var sources = CharacterStatSources(conn).Stats;
+            var saved = CharacterSaves.Load(CharacterName(conn));
+            return new(conn.StatSourcesCache, ItemsFor(conn), SkillsFor(conn), conn.Pools, sources,
+                new(conn.PlayerStats), [.. ItemsOf(conn).EquipmentSnapshot()], [.. conn.Auras.Values],
+                [.. saved?.ActiveAuras ?? []], saved?.Stance, saved?.PetrifiedBlood == true, conn.Stance,
+                conn.PetrifiedBlood.Active, conn.PetrifiedBlood.Buff,
+                PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false),
+                PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true),
+                !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0,
+                InTown(conn), conn.AuraStatsDirty, OwnAuraRestrictionValue(conn, new(sources)), SpellsDisabled(conn, sources));
+        }
+
+        public bool Matches(AuraReconcileInputs b) => ReferenceEquals(ItemSources, b.ItemSources)
+            && ReferenceEquals(Items, b.Items) && ReferenceEquals(Skills, b.Skills) && Pools == b.Pools
+            && CanRestore == b.CanRestore && Town == b.Town && Dirty == b.Dirty
+            && Restricted == b.Restricted && DisabledSpells == b.DisabledSpells
+            && SavedStance == b.SavedStance && SavedBlood == b.SavedBlood && Stance == b.Stance
+            && ActiveBlood == b.ActiveBlood && BloodBuff == b.BloodBuff
+            && ManaReserved == b.ManaReserved && LifeReserved == b.LifeReserved
+            && SameInOrder(Sources, b.Sources) && SameInOrder(Overrides, b.Overrides)
+            && Remembered.AsSpan().SequenceEqual(b.Remembered) && Auras.AsSpan().SequenceEqual(b.Auras)
+            && Equipment.Length == b.Equipment.Length && Equipment.Zip(b.Equipment).All(p =>
+                p.First.Row == p.Second.Row && p.First.Item.Id == p.Second.Item.Id
+                && SameSkillItem(p.First.Item.Item, p.Second.Item.Item, Items));
+    }
+    sealed class AuraReconcileCache { public AuraReconcileInputs? Inputs; }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
+
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.
     internal static bool OwnAuraAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
@@ -67,6 +104,12 @@ static partial class Game
 
     internal static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
     {
+        // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
+        // Cache only the lifecycle decision after comparing its complete effective inputs. A full
+        // replay bypasses it; module reload discards these connection-weak entries automatically.
+        var inputs = AuraReconcileInputs.Capture(conn);
+        var cached = AuraReconcileCaches.GetOrCreateValue(conn);
+        if (!validateSkills && cached.Inputs is { } previous && previous.Matches(inputs)) return;
         EnsureOwnAuraPools(conn);
         // Revalidate the source skill as well as the restriction before queued activation/entry adds.
         // Dirty runtime or presented instances are owned by this lifecycle; pure unpresented pool inputs are not adds.
@@ -110,6 +153,9 @@ static partial class Game
         SuspendPetrifiedBloodIfUnavailable(conn);
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
             RestoreRememberedPetrifiedBlood(conn);
+        // Remember the inputs actually checked. If reconciliation mutated auras/pools, the next
+        // invocation validates the resulting state once rather than blessing an unchecked result.
+        cached.Inputs = inputs;
     }
 
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
@@ -117,7 +163,13 @@ static partial class Game
     // Reconcile before constructing any player/Actor/mana snapshot, including another mechanic's refresh.
     internal static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false)
     {
+        // At-gate builders are synchronous and hold Monsters. Do not inherit the input handler's
+        // older scope across its await; resolve each supported skill once for this snapshot.
+        using var skillScope = new PlayerStatScope(conn, fresh: true);
         ReconcileOwnAuras(conn, validateSkills: replay);
+        // Reconciliation can replace pools, remove a source or switch stance. The packet must see
+        // the resulting state, not supported gems or character stats captured before that mutation.
+        using var packetScope = new PlayerStatScope(conn, fresh: true);
         // LoadProgress can restore intent before the object exists. Keep aura publication pending;
         // in particular never prefix a creation snapshot with buffs, Stats, Actor or Life updates.
         if (!conn.PlayerObjectCreated && !conn.PlayerSent) return snapshot();

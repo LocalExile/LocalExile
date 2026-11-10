@@ -84,17 +84,16 @@ sealed class Act7 : Act
                 On.Exit(AshenFields, NorthernForest, "a7q1-KilledBoss"),
             },
             // a7q2 "Essence of the Artist" (act7.md a7q2): Sin's "Inquisitor Maligaro", Helena's clue; the map lies in The
-            // Crypt's Container of Sins (maligarochest_01.arm; MaligaroMap.it: grant a7q2-HaveItem, extra a7q3-SpawnSilk, kept
-            // until Silk takes it). Used at the Reverie Device in The Chamber of Sins Level 1 (tile temple_maporrery4) it opens
-            // the portals (a7q2-DeliveredItem; no setter in the data): MaligaroPortalTransition, which the device spawns beside
-            // itself, leads into the Sanctum (a quest portal, shown with the flag). Maligaro (mapboss1 with Black Death and
+            // Crypt's Container of Sins (maligarochest_01.arm; MaligaroMap.it: grant a7q2-HaveItem, extra a7q3-SpawnSilk).
+            // The Portals module consumes it from the Reverie Device's inventory on activation, sets a7q2-DeliveredItem and
+            // opens six portals into the Sanctum. The portal rule below reserves the layout's former point exit; its static
+            // transition is hidden in favour of the device's consumable portals. Maligaro (mapboss1 with Black Death and
             // Fidelitas) dies: KilledBoss, and Sin appears (1137: no god). Helena's "Maligaro Reward" is offer 47 (class
             // boots, rare/magic).
             new Quest("a7q2")
             {
                 On.Chest(Crypt, Act7Objects.MaligaroMapChest, Act7Items.MaligaroMap),
                 On.Object(SinsLevel1, Act7Objects.Orrery, "a7q2-DeliveredItem"),
-                On.UsedWith(SinsLevel1, Act7Objects.Orrery, ["a7q2-HaveItem"], "a7q2-DeliveredItem"),
                 On.Portal(SinsLevel1, Act7Objects.Orrery, MaligarosSanctum, Act7Objects.MaligaroPortal),
                 On.Exit(SinsLevel1, MaligarosSanctum, "a7q2-DeliveredItem"),
                 On.Seen(MaligarosSanctum, Act7Monsters.Maligaro, "a7q2-SeenBoss"),

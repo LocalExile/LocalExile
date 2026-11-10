@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>How a monster type starts: as usual, or waiting to rise (MonsterEmerge).</summary>
@@ -208,7 +209,7 @@ sealed class MonsterEmerge(string folder = "data")
     static Dictionary<string, EmergeKind> LoadTypes(string folder)
     {
         string path = Path.Combine(folder, "object-types.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         var types = new Dictionary<string, EmergeKind>();
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
@@ -221,7 +222,7 @@ sealed class MonsterEmerge(string folder = "data")
     static Dictionary<string, (double Seconds, int Index)> LoadClips(string folder)
     {
         string path = Path.Combine(folder, "monster-takehit.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         var clips = new Dictionary<string, (double, int)>();
         foreach (var p in doc.RootElement.EnumerateObject())
@@ -235,8 +236,8 @@ sealed class MonsterEmerge(string folder = "data")
     static ushort? LoadAction(string folder)
     {
         string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!File.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return null;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.TryGetProperty("Id", out var id) && id.GetString() == "Emerge" && r.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number)
                 return (ushort)h.GetInt32();

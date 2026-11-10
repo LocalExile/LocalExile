@@ -151,7 +151,7 @@ the Submerged Passage blocker), which matches having been there.
 
 - Towns activate on entry; other waypoints when the player is within 25 cells (`WaypointActivationRange`, checked in
   the player tick) or clicks it (reach 6). Activated waypoints are saved per character (`Waypoints` in
-  `data/saves.db`), added to the saved ones.
+  `data/characters.db`), added to the saved ones.
 - `/waypoints` lists them; `/waypoints all` activates every waypoint and visits every pinned area (dev);
   `/waypoints reset` keeps the towns only.
 

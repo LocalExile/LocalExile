@@ -30,7 +30,7 @@ sealed class StatDescriptions
     public Description? For(string stat) => _byStat.GetValueOrDefault(stat);
 
     public static StatDescriptions Load(string path = DefaultFile) =>
-        File.Exists(path) ? Parse(File.ReadLines(path)) : new([]);
+        GameServer.Core.ClientTables.Exists(path) ? Parse(GameServer.Core.ClientTables.ReadLines(path)) : new([]);
 
     public static StatDescriptions Parse(IEnumerable<string> lines)
     {

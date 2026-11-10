@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Unique items the server can create. The client data has a unique's name (<c>Words</c>) and artwork
@@ -30,33 +31,6 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
-
-    /// <summary>The curated entries whose 3.29 data differs from the PoB export used for the full catalogue.</summary>
-    static readonly Definition[] Curated =
-    [
-        // Mageblood (Heavy Belt): the +25-35 Strength is the Heavy Belt implicit; the rest are the unique's mods.
-        new("Mageblood", "Metadata/Items/Belts/Belt4",
-            ["DexterityUnique__3", "FireResistUnique__24", "ColdResistUnique__34",
-             "MagicUtilityFlasksCannotUseUnique__1____", "MagicUtilityFlasksCannotRemoveUnique__1",
-             "MagicUtilityFlasksAlwaysApplyUnique__1"]),
-        // Crown of Eyes (3.29): use the current attack-leech mods, not the old physical-only variants.
-        new("Crown of Eyes", "Metadata/Items/Armours/Helmets/HelmetInt7",
-            ["IncreasedAccuracyUniqueHelmetInt7", "LocalIncreasedEnergyShieldUniqueHelmetInt7",
-             "FireResistUniqueHelmetInt7", "LifeLeechPermyriadUniqueHelmetInt7",
-             "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
-        // That Which Was Taken: a Crimson Jewel that rolls four random charm modifiers. Its modifiers are chosen in
-        // Create rather than listed here; the definition carries the base type, name and item level.
-        new("That Which Was Taken", "Metadata/Items/Jewels/JewelStr", [], 83),
-    ];
-
-    /// <summary>The generated full PoB catalogue (see scripts/re/unique_items.py), with the curated entries first so
-    /// the existing item tests and name lookup keep their 3.29 definitions.</summary>
-    internal static readonly Definition[] Seed =
-    [
-        .. Curated,
-        .. UniqueItemSeed.All.Where(entry => Curated.All(curated =>
-            !curated.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase))),
-    ];
 
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
@@ -240,7 +214,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
                 yield return mod.Roll(section, random, stat => RollOf(definition, mod, section, stat));
     }
 
-    /// <summary>The definition's roll of one stat. An admin's range for the mod (/game_data mod) comes first.</summary>
+    /// <summary>The definition's roll of one stat. A range for the mod in world.db's mod_stat_overrides comes first.</summary>
     static (int Min, int Max)? RollOf(Definition definition, ModCatalog.Mod mod, ModSection section, int stat) =>
         !mod.RangeOverridden(stat) && definition.Ranges?.FirstOrDefault(range => range.Mod == mod.Id && range.Stat == stat
             && range.Implicit == (section == ModSection.Implicit)) is { } own ? (own.Min, own.Max) : null;
@@ -290,7 +264,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(Table("Words")) || !File.Exists(Table("UniqueStashLayout")) || !File.Exists(Table("ItemVisualIdentity")))
+        if (!ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("UniqueStashLayout")) || !ClientTables.Exists(Table("ItemVisualIdentity")))
             return result;
         using var words = GameTables.Open(Table("Words"));
         using var layout = GameTables.Open(Table("UniqueStashLayout"));

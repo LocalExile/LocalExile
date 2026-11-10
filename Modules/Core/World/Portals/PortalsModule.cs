@@ -30,9 +30,9 @@ public sealed class PortalsModule : IModule, IDisposable
             await SpawnMapReturnPortal(remote, stream, ciphers, conn);
             await SpawnTownPortals(remote, stream, ciphers, conn);
             // The portals of the character's open map stand at the device again.
-            bool device;
-            lock (conn.HideoutDoodads) device = conn.HideoutDoodads.Count > 0;
-            if (device && MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open) await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
+            if (MapDeviceHere(conn) is { } device && MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open
+                && (open.ReturnTo is null ? !device.Campaign : open.ReturnTo.Area == conn.Layout.Hash && open.ReturnTo.Instance == conn.InstanceNumber))
+                await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
         });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {

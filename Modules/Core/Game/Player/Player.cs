@@ -34,6 +34,8 @@ static partial class Game
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn)) return [];
         var wanted = saved.Select(AuraCatalog.Family).ToHashSet(StringComparer.Ordinal);
         conn.Stance = CharacterSaves.Load(CharacterName(conn))?.Stance == "Sand" ? "Sand" : "Blood";
+        wanted.ExceptWith(conn.Auras.Values.Select(a => AuraCatalog.Family(a.EffectId)));
+        if (wanted.Count == 0) return [];
         var candidates = new List<AuraCatalog.Aura>();
         foreach (var gem in GemSkillEffects(conn))
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effect && wanted.Contains(AuraCatalog.Family(effect)) && AuraCatalog.Supported(effect)
@@ -303,7 +305,8 @@ static partial class Game
     // mana cost with Life. False when the player lacks the pool it actually uses.
     internal static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
-        var own = SupportedSkill(conn, skillId).Stats;
+        var supported = SupportedSkill(conn, skillId);
+        var own = supported.Stats;
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         cost = (uint)Math.Max(0, Own("mana_cost"));
         lifeCost = 0;
@@ -349,6 +352,7 @@ static partial class Game
             }
             ManaSpentLocked(conn, cost, player);
             SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
+            ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
     }

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Atlas;
 
@@ -109,7 +110,7 @@ public static class AtlasProgress
         string nodes = Path.Combine(folder, "tables", "AtlasNode.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json"),
             varieties = Path.Combine(folder, "tables", "MonsterVarieties.json"),
             recipes = Path.Combine(folder, "tables", "MapDeviceRecipes.json");
-        if (!File.Exists(nodes) || !File.Exists(areas)) return ([], new HashSet<int>());
+        if (!ClientTables.Exists(nodes) || !ClientTables.Exists(areas)) return ([], new HashSet<int>());
         var areaRows = new List<(string Id, string Name, int[] Bosses)>();
         using (var a = GameTables.Open(areas))
             foreach (var row in a.RootElement.EnumerateArray())
@@ -143,7 +144,7 @@ public static class AtlasProgress
                     Add(r, row.GetProperty("Id").GetString() ?? "", (ushort)row.GetProperty("HASH16").GetInt32(),
                         areaRows[rowAreas[0]].Name, rowAreas);
             }
-            if (File.Exists(recipes))
+            if (ClientTables.Exists(recipes))
             {
                 using var rec = GameTables.Open(recipes);
                 foreach (var row in rec.RootElement.EnumerateArray())
@@ -163,7 +164,7 @@ public static class AtlasProgress
         var bossIds = new Dictionary<int, string>();
         foreach (int boss in byRow.Values.SelectMany(n => n.Areas.SelectMany(i => areaRows[i].Bosses)))
             bossIds[boss] = "";
-        if (bossIds.Count > 0 && File.Exists(varieties))
+        if (bossIds.Count > 0 && ClientTables.Exists(varieties))
             using (var v = GameTables.Open(varieties))
             {
                 int count = v.RootElement.GetArrayLength();

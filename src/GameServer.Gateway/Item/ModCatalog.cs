@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Mods.dat (data/tables/Mods.json, loaded on first use): what the server needs to put mods on items
@@ -56,7 +57,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
                 : (0, 0);
 
-        /// <summary>An admin's range (/game_data mod) applies to this stat.</summary>
+        /// <summary>A range from world.db's mod_stat_overrides applies to this stat.</summary>
         public bool RangeOverridden(int index) => Ranges?.All.ContainsKey((Id, index)) == true;
 
         /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>
@@ -119,17 +120,17 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         string path = Path.Combine(folder, "tables", "Mods.json"), statsPath = Path.Combine(folder, "tables", "Stats.json"),
             tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
         var rows = new List<Mod>();
-        if (!File.Exists(path) || !File.Exists(statsPath)) return (rows, [], []);
+        if (!ClientTables.Exists(path) || !ClientTables.Exists(statsPath)) return (rows, [], []);
         List<(string Id, bool Local)> stats;
         using (var s = GameTables.Open(statsPath))
             stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "", r.GetProperty("IsLocal").GetBoolean()))];
         List<string> modTypes = [];
-        if (File.Exists(modTypePath))
-            using (var t = JsonDocument.Parse(File.ReadAllBytes(modTypePath)))
+        if (ClientTables.Exists(modTypePath))
+            using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(modTypePath)))
                 modTypes = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Name").GetString() ?? "")];
         List<string> tags = [];
-        if (File.Exists(tagsPath))
-            using (var t = JsonDocument.Parse(File.ReadAllBytes(tagsPath)))
+        if (ClientTables.Exists(tagsPath))
+            using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath)))
                 tags = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
         List<(string, int)> Weights(JsonElement r, string keys, string values) =>
             [.. r.GetProperty(keys).EnumerateArray().Zip(r.GetProperty(values).EnumerateArray(),

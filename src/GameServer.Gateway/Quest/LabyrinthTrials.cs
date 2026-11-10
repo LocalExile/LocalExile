@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The Trials of Ascendancy (Agents/docs/game/labyrinth-trials.md): LabyrinthTrials.dat names each trial's area. Its
@@ -1010,7 +1011,7 @@ static class LabyrinthTrials
     {
         const string file = "data/tables/BuffDefinitions.json";
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
-        if (!File.Exists(file)) return rows;
+        if (!ClientTables.Exists(file)) return rows;
         using var table = GameTables.Open(file);
         int row = 0;
         foreach (var buff in table.RootElement.EnumerateArray())
@@ -1040,10 +1041,10 @@ static class LabyrinthTrials
         const string file = "data/tables/GrantedEffectStatSets.json";
         try
         {
-            if (!File.Exists(file) || !File.Exists("data/tables/Stats.json")) return null;
-            using var stats = JsonDocument.Parse(File.ReadAllBytes("data/tables/Stats.json"));
+            if (!ClientTables.Exists(file) || !ClientTables.Exists("data/tables/Stats.json")) return null;
+            using var stats = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/Stats.json"));
             var names = stats.RootElement.EnumerateArray().Select(s => s.GetProperty("Id").GetString() ?? "").ToList();
-            using var sets = JsonDocument.Parse(File.ReadAllBytes(file));
+            using var sets = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
             foreach (var set in sets.RootElement.EnumerateArray())
             {
                 if (set.GetProperty("Id").GetString() != id) continue;
@@ -1306,6 +1307,8 @@ static class LabyrinthTrials
         // A Door_Counter gate in a fence line, a tile wide (our estimate from the fence pieces a tile apart); a smashable
         // thin wall and a secret wall, a tile of wall each (ours).
         "ruinedtemple_smallgate.ao" or "drygarden_smallgate.ao" => (11.5, 3),
+        // Izaro's arena's alcove railing, across the alcove's three places (ours, from their spread).
+        "alcove_railing.ao" => (17, 2.5),
         "eleganthouse_thinwallstraight_smashable_openanimation_v01_01_animation.ao" => (11.5, 2.5),
         "gardendry_wall_straight_secretwall_v01_01_openanimation.ao" => (11.5, 4),
         _ => (14, 6),
@@ -1468,8 +1471,8 @@ static class LabyrinthTrials
     {
         try
         {
-            if (!File.Exists("data/tables/WorldAreas.json")) return [];
-            using var areas = JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json"));
+            if (!ClientTables.Exists("data/tables/WorldAreas.json")) return [];
+            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/WorldAreas.json"));
             return [.. areas.RootElement.EnumerateArray().Where(a => a.GetProperty("IsLabyrinthArea").GetBoolean())
                 .Select(a => a.GetProperty("Id").GetString() ?? "")];
         }
@@ -1494,12 +1497,12 @@ static class LabyrinthTrials
     {
         try
         {
-            if (!File.Exists("data/tables/LabyrinthTrials.json") || !File.Exists("data/tables/WorldAreas.json")) return [];
-            using var areas = JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json"));
+            if (!ClientTables.Exists("data/tables/LabyrinthTrials.json") || !ClientTables.Exists("data/tables/WorldAreas.json")) return [];
+            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/WorldAreas.json"));
             var areaIds = areas.RootElement.EnumerateArray().Select(a => a.GetProperty("Id").GetString() ?? "").ToList();
-            var flags = Quests.ParseRows(File.Exists("data/tables/QuestFlags.json") ? File.ReadAllText("data/tables/QuestFlags.json") : "[]")
+            var flags = Quests.ParseRows(ClientTables.Exists("data/tables/QuestFlags.json") ? ClientTables.ReadAllText("data/tables/QuestFlags.json") : "[]")
                 .ToDictionary(kv => kv.Value, kv => kv.Key);
-            return Parse(File.ReadAllText("data/tables/LabyrinthTrials.json"), areaIds, flags).ToDictionary(t => t.Area);
+            return Parse(ClientTables.ReadAllText("data/tables/LabyrinthTrials.json"), areaIds, flags).ToDictionary(t => t.Area);
         }
         catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
         {

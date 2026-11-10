@@ -694,7 +694,7 @@ All eight identities, original account/probes, both stash banks, all 40 tabs/met
 Participant last-played timestamps and the saved slot2 Fireball intent changed normally; Ruthless current Life
 1345 → 1245 retained the temporary qualifier-removal maximum clamp, and restoration did not heal it.
 Cleanup passed with all 774 frozen hashes unchanged; the post-run audit matched 773 source hashes.
-Observers/client were detached/closed, and normal `data/saves.db` services were restored.
+Observers/client were detached/closed, and normal `data/characters.db` services were restored.
 Evidence is under `artifacts/issue75-completion/selected-crit-native/`, its sibling assessment directory and
 `artifacts/issue75-completion/selected-crit-native-preservation/post-run-audit.json`.
 These controls establish selected publication, not native critical hits, rendered zero, legal carrier acquisition,
@@ -1484,7 +1484,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   An attack approach only checks readiness, then reserves at arrival under its original action token.
   Instant 0x191 skills preserve the current action.
   A projectile's creation gate ends action cancellation; released flights continue with their existing area lifetime.
-  Multi-use, extra-use, duplicate same-effect gem, flat/override and pause-while-active mechanics retain legacy
+  Ordinary stored uses and Second Wind share the recovery state; spent uses recover one at a time.
+  The first native queue entry retains progress, while later entries retain their full base-time budget.
+  Duplicate same-effect gems, other extra-use sources, flat/override and pause-while-active mechanics retain legacy
   `SkillReadyAt` raw deadlines.
   Shared cooldown groups, bypass, conditional/enemy recovery, typed/more recovery and official tick equivalence are
   outside this generic one-use implementation.
@@ -1669,8 +1671,12 @@ it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks th
 (§10k).
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
-u32 BE y, the player's cell) every few frames while the button is held, and **C→S 0x199** (2 bytes) when it is let go
-(read from live captures 2026-10-23). The Gateway only moves the player there: 0x197 does not come at the attack rate.
+u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
+2026-10-23). 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
+after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
+(live 2026-11-08). Taken as the player's cell it put Cyclone's sweeps around the cursor. Cyclone's player walks toward
+it, an order re-aimed on each update, at the movement speed with the gem's `cyclone_movement_speed_+%_final`
+(`ChannelAimedAt`, `ClientState.ChannelMovement`); a channel that stands ignores it. 0x197 does not come at the attack rate.
 The hits run on the server's own timer (`RunChannel`, started with the channel): the first sweep lands as the channel
 starts, then one sweep around the player's current cell every `SupportedAttackSeconds` (the skill's own speed, its
 supports and the player's attack speed, as the tooltip shows), paying the cost each time, until 0x199, any other action,
@@ -2739,7 +2745,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   socketed again did not get its slot back either. `SendSkills` therefore sends the saved bar (0x53) after every
   update, unless it adds a skill whose GrantedEffects Id the saved bar does not have: the client binds such a new
   skill to a free slot itself (0x4e), and a bar sent then would clear it.
-- **The Gateway** saves each 0x4e (`CharacterSaves`, `data/saves.db`) as slot → a GrantedEffects Id for gems and the default
+- **The Gateway** saves each 0x4e (`CharacterSaves`, `data/characters.db`) as slot → a GrantedEffects Id for gems and the default
   attack (skill ids change with the socketed gems), `Action/<ActionTypes Id>` for a basic action (Move 0x2909 =
   "Move only"), or "" for a cleared slot. It sends 0x53 right after the player and area messages, no delay needed,
   with the default attack on slot 0 only when nothing was saved there. Live 2026-10-18: Fireball on the right mouse

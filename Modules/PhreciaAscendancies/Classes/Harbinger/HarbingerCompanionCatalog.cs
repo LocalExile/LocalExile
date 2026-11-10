@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Collections.Concurrent;
+using GameServer.Core;
 
 namespace GameServer.Modules.PhreciaAscendancies.Classes.Harbinger;
 
@@ -115,12 +116,12 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
             "GrantedEffectStatSetsPerLevel", "Stats", "AddBuffToTargetVarieties", "BuffDefinitions", "MinionType",
             "MonsterVarieties", "Mods"];
         string? missing = files.Select(f => Path.Combine(folder, "tables", f + ".json")).Append(Path.Combine(folder, "object-types.json"))
-            .FirstOrDefault(f => !File.Exists(f));
+            .FirstOrDefault(f => !ClientTables.Exists(f));
         if (missing is not null) return (null, $"Harbinger companion data missing: {missing}");
         var docs = new Dictionary<string, JsonDocument>();
         try
         {
-            foreach (string file in files) docs[file] = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables", file + ".json")));
+            foreach (string file in files) docs[file] = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables", file + ".json")));
             var perLevel = docs["GrantedEffectsPerLevel"].RootElement;
             var grants = new Dictionary<ushort, (int, int)>();
             foreach (var row in docs["PassiveSkills"].RootElement.EnumerateArray())

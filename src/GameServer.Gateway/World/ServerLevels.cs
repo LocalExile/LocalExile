@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 /// <summary>Server-side level generation (GameServer.Data/Terrain/Generation, Agents/docs/re/011-level-generation.md):
 /// for an area the port reproduces 1:1, the Gateway generates the layout itself from the seed instead of reading the
@@ -291,7 +292,7 @@ static class ServerLevels
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
             foreach (var row in doc.RootElement.EnumerateArray())
                 levels[row.GetProperty("Id").GetString() ?? ""] = row.GetProperty("AreaLevel").GetInt32();
         }

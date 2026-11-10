@@ -3,6 +3,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Skills that allocated passives grant or trigger (Agents/docs/protocol/11-skills.md §10f): "Grants Level 30
@@ -39,8 +40,8 @@ sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", b
     {
         var grants = new Dictionary<ushort, Grant>();
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!File.Exists(path)) return grants;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return grants;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
         {
             int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();

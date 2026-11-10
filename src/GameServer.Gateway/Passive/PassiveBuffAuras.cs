@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 using DamageConversion = GameServer.Core.World.DamageConversion;
 
 /// <summary>
@@ -120,10 +121,10 @@ static class PassiveBuffAuras
     {
         string Table(string name) => Path.Combine(folder, "tables", $"{name}.json");
         var result = new Dictionary<ushort, Aura[]>();
-        if (new[] { "PassiveSkills", "BuffTemplates", "BuffDefinitions" }.Any(t => !File.Exists(Table(t)))) return result;
-        using var passives = JsonDocument.Parse(File.ReadAllBytes(Table("PassiveSkills")));
-        using var templates = JsonDocument.Parse(File.ReadAllBytes(Table("BuffTemplates")));
-        using var definitions = JsonDocument.Parse(File.ReadAllBytes(Table("BuffDefinitions")));
+        if (new[] { "PassiveSkills", "BuffTemplates", "BuffDefinitions" }.Any(t => !ClientTables.Exists(Table(t)))) return result;
+        using var passives = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("PassiveSkills")));
+        using var templates = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("BuffTemplates")));
+        using var definitions = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("BuffDefinitions")));
         var cache = new Dictionary<int, Aura?>();
         Aura? Template(int row)
         {

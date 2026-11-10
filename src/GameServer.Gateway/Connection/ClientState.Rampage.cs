@@ -19,6 +19,7 @@ sealed partial class ClientState
     // Close Combat's Combat Rush: more Attack Speed for a travel skill (GemSupports.Rules.CombatRushOnHit).
     internal double CombatRushUntil;
     internal int CombatRushAttackSpeed;
+    internal (int Action, ushort Skill, int Speed)? CombatRushUse;
     // Fist of War: per skill, when its next use counts as the big hit (ClientState.cs).
     internal readonly Dictionary<ushort, double> FistOfWarAt = [];
 
@@ -39,6 +40,9 @@ sealed partial class ClientState
             }
             OwnedCombatState = null;
             VaalUseState = null;
+            CombatRushUntil = 0;
+            CombatRushAttackSpeed = 0;
+            CombatRushUse = null;
             if (RampageBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, RampageBuff));
             RampageBuff = 0;
             SentRampage = default;
@@ -58,6 +62,7 @@ sealed partial class ClientState
         lock (Monsters)
             Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + Pools.MovementVelocityPct
                 + Rampage.Current.MovementPercent) / 100.0 * (Program.GameLogicOrNull?.PlayerActionFactor(this)
-                    ?? ElementalAilments.ActionFactor(at))), at);
+                    ?? ElementalAilments.ActionFactor(at))
+                * (ChannelMovement.Skill != 0 && ChannelMovement.Skill == ChannelSkill ? (100.0 + ChannelMovement.Percent) / 100 : 1)), at);
     }
 }
