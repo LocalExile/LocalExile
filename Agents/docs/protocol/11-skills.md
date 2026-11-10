@@ -84,7 +84,7 @@ GEPL reference (0x1424a7890):
 u8   flags: bit0 → u32 parent object id ("Skill parent object did not exist" if unknown) + u16
             bit1 (0x02) → retain native Vaal soul inputs; bit2 → constructor parameter13 bit1
 u8   n supports, n × (GEPL reference, u32)
-u32, u32, u32 cooldown ms, u8                       → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141eedc30)
+u32, u32, u32 cooldown ms, u8 bypass type          → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141eedc30; §9 bypass)
 compact n × (compact stat key, compact value)      the skill's own stats
 per additional stat set: the same stats list
 ```
@@ -1542,6 +1542,12 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   [PoB](https://github.com/PathOfBuildingCommunity/PathOfBuilding/blob/dev/src/Modules/CalcOffence.lua)
   also divides base duration by recovery, then rounds ordinary one-use durations to its server tick.
   This server keeps its existing continuous game clock and does not claim that tick boundary behavior.
+- **Cooldown bypass.** The skill record's u8 after the cooldown ms (skill +0xcc, §3) is the GEPL `CooldownBypassType`:
+  1 Endurance, 2 Frenzy (Flicker Strike), 3 Power; `active_skill_cooldown_bypass_type_override_to_power_charge` on the
+  skill makes it Power. While the skill cools down, `0x141ea4560` allows a use when the player's
+  `current_removable_*_charges` of that type is above 0, and `0x141ea4290` takes one off the charges it counts in its
+  buffs; the cooldown keeps running. At 0 (what the Gateway sent) the client never used Flicker Strike during its
+  cooldown, whatever the charges (live 2026-11-09). `CooldownBypass` sends it and spends the server's charge.
 - **Mana.** The server keeps the player's mana (`PlayerMana`): a cast pays the skill's `mana_cost` first (refused
   without enough), and `RunPlayerTick` regenerates 1.75% of maximum mana per second (Character.ot
   `mana_regeneration_rate_per_minute_%` 105) plus `base_mana_regeneration_rate_per_minute`, raised by
@@ -1669,6 +1675,17 @@ cell when the skill starts (`Game.LandsAtAim`); it kept the starting cell before
 player back there (live 2026-10-23). A resync follows at the end of the action, and aimed at a monster the skill lands on
 it ([07](07-latency-visibility-movement.md) §5). Shield Charge instead walks there at its charge speed and hits on the way
 (§10k).
+
+**Flicker Strike** (ActionTypes `FlickerStrike` 0x6352, base class `0x141a5f640`) does not move the player on the
+client: in 17 started Flicker actions with a target, nothing set the player's position (Frida, live 2026-11-09).
+The action only picks its target (`0x141a5fa50`) and strikes. The pick: the clicked monster when its distance from
+the player less its size is within 40 cells × (1 + `flicker_strike_teleport_range_+%` / 100) (`0x141a60380`; 60 with
+`apply_cut_debuff_on_hit`), else the hostile monster in range nearest the aimed point (`0x141a60180`), else none and
+it strikes in place. A predictive client's 0x1ab echo snaps only at 92+ cells, so the Gateway sends S→C 0x1b7 to
+the landing (`FlickerStrike`); the action still keeps the use's sequence for the camera's smoothing (+0x11d0).
+Where GGG lands the player beside the target is not on the client; the Gateway uses the target's cell.
+Its buff (BuffDefinitions 1344 `flicker_strike_speed_boost`, `base_movement_velocity_+%`) is the server's too:
+each use gives it for the skill's duration, and its bonus is in the movement speed the Gateway sends.
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
