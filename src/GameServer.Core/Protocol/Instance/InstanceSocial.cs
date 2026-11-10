@@ -70,6 +70,26 @@ public static class InstanceSocial
         return r.Short ? null : r.Position;
     }
 
+    /// <summary>C→S 0x98: the Social party description bar (sender 0x14216f9e0, writer 0x141f9baf0): wstr the
+    /// description ("" makes the party private or cancels it) and a u8 (client +0xcf20, meaning unknown). Not handled
+    /// here; read so the stream goes on.</summary>
+    public const ushort PartyDescribeId = 0x98;
+
+    /// <summary>Bytes of a 0x98 at the start of <paramref name="m"/>, or null if it is not complete yet.</summary>
+    public static int? PartyDescribeLength(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m);
+        r.U16();
+        r.WStr();
+        r.U8();
+        return r.Short ? null : r.Position;
+    }
+
+    /// <summary>C→S 0x187 (3 bytes; sender 0x1421718c0, writer 0x141fa20c0): the party options' Map Portal Access, one
+    /// bit field byte: bits 0-2 client +0xcd37..+0xcd39, bit 3 access 0, bit 4 access 2, bit 5 access 1 or 2.</summary>
+    public const ushort MapPortalAccessId = 0x187;
+    public const int MapPortalAccessLength = 3;
+
     /// <summary>C→S 0xca: the Social panel's status message (sender 0x14216d6f0, writer 0x141f98140): wstr, the text the
     /// client also keeps as its current status (instance +0xcd10). Not stored here; read so the stream goes on.</summary>
     public const ushort StatusMessageId = 0xca;

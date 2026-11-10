@@ -11,6 +11,7 @@ public class InstanceFixedMessageFramingTests
         { "020A01", 0x020a, 3 },
         { "005900150001001B001500000001020A", 0x0059, 16 },
         { "00990100", 0x0099, 4 },
+        { "018728", 0x0187, 3 },
     };
 
     [Theory]
@@ -64,6 +65,25 @@ public class InstanceFixedMessageFramingTests
                 messages.Select(m => m.Id));
             for (int i = 0; i < expected.Length; i++) Assert.Equal(expected[i], messages[i].Bytes);
             Assert.Equal(text, InstanceChat.ReadChat(messages[2].Bytes).Text);
+        }
+    }
+
+    [Fact]
+    public void A_party_description_0098_is_split_by_its_wide_string_and_byte()
+    {
+        // u16 0x98, wstr "ab", u8 0, then a tick.
+        byte[] describe = Convert.FromHexString("00980002616200");
+        byte[] tick = Convert.FromHexString("001B0100000000");
+        for (int split = 1; split < describe.Length; split++)
+        {
+            var first = InstanceProtocol.SplitClientMessages(describe.AsSpan(0, split), out var carry, out var unknown);
+            Assert.Empty(first);
+            Assert.Empty(unknown);
+            var second = InstanceProtocol.SplitClientMessages([.. carry, .. describe[split..], .. tick], out carry, out unknown);
+            Assert.Equal(2, second.Count);
+            Assert.Equal(describe, second[0].Bytes);
+            Assert.Empty(carry);
+            Assert.Empty(unknown);
         }
     }
 

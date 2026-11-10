@@ -85,7 +85,7 @@ public static class InstanceProtocol
         0x020a => 3, 0x0059 => 16, InstanceSocial.TradeRequestId => InstanceSocial.TradeRequestLength,
         InstanceSocial.TradeRequestAcceptId => InstanceSocial.TradeRequestAcceptLength,
         InstanceSocial.PartyAcceptId => InstanceSocial.PartyAcceptLength,
-        InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength,
+        InstanceSocial.PartyLeaveId => InstanceSocial.PartyLeaveLength, InstanceSocial.MapPortalAccessId => InstanceSocial.MapPortalAccessLength,
         InstanceChat.JoinChannelId => InstanceChat.JoinChannelLength, InstancePantheon.ChooseGodId => InstancePantheon.ChooseGodLength,
         InstanceWaypoints.VisitDelveHubId => InstanceWaypoints.VisitDelveHubLength, InstanceWaypoints.VisitSanctumId => InstanceWaypoints.VisitSanctumLength,
         InstanceWaypoints.VisitKingsmarchId => InstanceWaypoints.VisitKingsmarchLength, InstanceWaypoints.VisitHeistHubId => InstanceWaypoints.VisitHeistHubLength,
@@ -537,7 +537,8 @@ public static class InstanceProtocol
                 : id is InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId ? InstanceSocial.PartyInviteLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceTransfer.LeaveAreaAckId ? InstanceTransfer.LeaveAreaAckLength(data[pos..]) ?? int.MaxValue
                 : id == InstanceSocial.FriendAddId ? InstanceSocial.FriendAddLength(data[pos..]) ?? int.MaxValue
-                : id == InstanceSocial.StatusMessageId ? InstanceSocial.StatusMessageLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
+                : id == InstanceSocial.StatusMessageId ? InstanceSocial.StatusMessageLength(data[pos..]) ?? int.MaxValue
+                : id == InstanceSocial.PartyDescribeId ? InstanceSocial.PartyDescribeLength(data[pos..]) ?? int.MaxValue : KnownClientLength(id);
             if (known is not int len) { unknown = data[pos..].ToArray(); break; }
             if (data.Length - pos < len) { partial = data[pos..].ToArray(); break; }
             result.Add((id, data.Slice(pos, len).ToArray()));
