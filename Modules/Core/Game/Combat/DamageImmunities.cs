@@ -7,7 +7,7 @@ using GameServer.Core.World;
 /// <c>chaos_immunity</c>; the display stat itself (<c>fire_damage_immunity</c> …) is accepted too, so a mod or
 /// <c>/set_stat</c> can set it directly. The damage model and the character panel both read this table.
 /// </summary>
-static class DamageImmunities
+public static class DamageImmunities
 {
     static readonly (string Stat, DamageType[] Types)[] Sources =
     [

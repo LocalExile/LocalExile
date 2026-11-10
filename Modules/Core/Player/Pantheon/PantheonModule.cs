@@ -30,11 +30,10 @@ public sealed class PantheonModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnPacket(InstancePantheon.ChooseGodId, async p =>
+        GameEvents.Packet(InstancePantheon.ChooseGodId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
             var (remote, stream, ciphers) = conn.Wire;
-            await PantheonRules.ChooseGod(remote, stream, ciphers, conn, InstancePantheon.ReadChooseGod(p.Bytes.Span));
+            await PantheonRules.ChooseGod(remote, stream, ciphers, conn, InstancePantheon.ReadChooseGod(bytes.AsSpan()));
             return true;
         });
         On(GameEvents.PlayerStatSources, PantheonRules.WithGods);

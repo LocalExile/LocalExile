@@ -1,7 +1,7 @@
 /// <summary>Frees unloaded mods' load contexts. A reload unloads and loads many modules in a row, and a forced collection stops
 /// every player's tick, so one pass runs after the last change of the whole wave, for all of them. A context still alive after
 /// it stays listed: an ordinary collection may free it later, and its private copy is deleted at the end of a later pass.</summary>
-static class UnloadCollector
+public static class UnloadCollector
 {
     sealed record Unloaded(WeakReference Context, string CopyDirectory, Action StillInMemory, Action CopyStuck, TaskCompletionSource<bool> Done);
 

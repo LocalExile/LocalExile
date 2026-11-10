@@ -1,7 +1,7 @@
 using GameServer.Modding;
 
 /// <summary>One load's identity. Only the host can stop it; callers can own and release resources.</summary>
-sealed class ModuleLifetime : IModuleLifetime
+public sealed class ModuleLifetime : IModuleLifetime
 {
     static long _nextGeneration;
     readonly Lock _gate = new();
@@ -38,7 +38,18 @@ sealed class ModuleLifetime : IModuleLifetime
         return ownership;
     }
 
-    internal void Stop(Action<Exception> failed)
+    // Only Gateway-owned transitions run here, never callbacks into a mod.
+    public bool TryCommit(Action commit)
+    {
+        lock (_gate)
+        {
+            if (!IsActive) return false;
+            commit();
+            return true;
+        }
+    }
+
+    public void Stop(Action<Exception> failed)
     {
         Ownership[] owned;
         lock (_gate)

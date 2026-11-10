@@ -9,23 +9,23 @@ using static Game;
 /// own panel from <c>number_of_nearby_enemies</c> and <c>number_of_enemies_killed_recently</c> (0x14276e1f0,
 /// 0x14274c820) but never counts them: the server does and sends them, and the pools read the same values.
 /// </summary>
-static class Slayer
+public static class Slayer
 {
-    internal const string MovementOnKill = "gain_movement_speed_+%_for_20_seconds_on_kill";
-    internal const string AttackSpeedOnRareKill = "gain_attack_speed_+%_for_20_seconds_on_killing_rare_or_unique_enemy";
-    internal const string CritPerNearbyEnemy = "slayer_critical_strike_multiplier_+_per_nearby_enemy_up_to_100";
-    internal const string AreaPerEnemyKilled = "slayer_area_of_effect_+%_per_enemy_killed_recently_up_to_50%";
-    internal const string MoreVsUnique = "slayer_damage_+%_final_against_unique_enemies";
-    internal const string MoreIfKilledRecently = "damage_+%_if_enemy_killed_recently_final";
-    internal const string NearbyEnemies = "number_of_nearby_enemies", EnemiesKilledRecently = "number_of_enemies_killed_recently",
+    public const string MovementOnKill = "gain_movement_speed_+%_for_20_seconds_on_kill";
+    public const string AttackSpeedOnRareKill = "gain_attack_speed_+%_for_20_seconds_on_killing_rare_or_unique_enemy";
+    public const string CritPerNearbyEnemy = "slayer_critical_strike_multiplier_+_per_nearby_enemy_up_to_100";
+    public const string AreaPerEnemyKilled = "slayer_area_of_effect_+%_per_enemy_killed_recently_up_to_50%";
+    public const string MoreVsUnique = "slayer_damage_+%_final_against_unique_enemies";
+    public const string MoreIfKilledRecently = "damage_+%_if_enemy_killed_recently_final";
+    public const string NearbyEnemies = "number_of_nearby_enemies", EnemiesKilledRecently = "number_of_enemies_killed_recently",
         HaveKilledRecently = "have_killed_recently";
 
     /// <summary>"for 20 seconds" (both Headsman stats' descriptions).</summary>
-    internal const double HeadsmanSeconds = 20;
+    public const double HeadsmanSeconds = 20;
 
     /// <summary>"Nearby": 60 cells (6 m), the radius of Overwhelm's own enemy aura (BuffTemplates SlayerCritMultiplier).
     /// The client does not count nearby enemies, so the radius is not in its code.</summary>
-    internal const int NearbyRadius = 60;
+    public const int NearbyRadius = 60;
 
     // BuffDefinitions bane_of_legends_movement_speed and bane_of_legends_attack_speed: invisible, not IsRecovery (no
     // values in 0x1c1), CancelOnDeath. Headsman was once called Bane of Legends.
@@ -33,25 +33,25 @@ static class Slayer
 
     /// <summary>Overwhelm's crit multiplier: +X per nearby enemy, the product capped at +100 (client 0x14276e1f0:
     /// <c>min(100, S[26a6] × S[18a1])</c>, no lower bound).</summary>
-    internal static long CritMultiplierFromNearby(Func<string, int> get) =>
+    public static long CritMultiplierFromNearby(Func<string, int> get) =>
         Math.Min(100, (long)get(CritPerNearbyEnemy) * get(NearbyEnemies));
 
     /// <summary>Impact's increased area: X per enemy killed recently, the product capped at 50 (client 0x14274c820,
     /// RE area-increased-terms §4: <c>min(50, S[26a2] × S[1f22])</c>).</summary>
-    internal static long AreaFromKills(Func<string, int> get) =>
+    public static long AreaFromKills(Func<string, int> get) =>
         Math.Min(50, (long)get(AreaPerEnemyKilled) * get(EnemiesKilledRecently));
 
     /// <summary>A count stopped where the capped product above stops changing (10 enemies at +10 per enemy, 10 kills at
     /// 5% per kill), so a count past the cap changes nothing the client is sent.</summary>
-    internal static int UpToCap(int count, int perUnit, int cap) =>
+    public static int UpToCap(int count, int perUnit, int cap) =>
         perUnit > 0 ? Math.Min(count, (cap + perUnit - 1) / perUnit) : count;
 
     /// <summary>Bane of Legends' two more multipliers on one hit, against a unique target or not.</summary>
-    internal static double DamageMore(Func<string, int> get, bool uniqueTarget) =>
+    public static double DamageMore(Func<string, int> get, bool uniqueTarget) =>
         (uniqueTarget ? Math.Max(0, 1 + get(MoreVsUnique) / 100.0) : 1)
         * (get(HaveKilledRecently) != 0 ? Math.Max(0, 1 + get(MoreIfKilledRecently) / 100.0) : 1);
 
-    internal sealed class State
+    public sealed class State
     {
         public readonly Queue<double> Kills = new();
         public double MovementUntil = double.NegativeInfinity, AttackSpeedUntil = double.NegativeInfinity;
@@ -73,9 +73,9 @@ static class Slayer
     }
 
     static readonly ConditionalWeakTable<ClientState, State> States = new();
-    internal static State Of(ClientState conn) => States.GetValue(conn, _ => new());
+    public static State Of(ClientState conn) => States.GetValue(conn, _ => new());
 
-    internal static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
+    public static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
     static int Raw(ClientState conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
@@ -83,7 +83,7 @@ static class Slayer
 
     /// <summary>A kill of the player's (GameEvents.Kill): it counts as killed recently, and starts or refreshes
     /// Headsman's buffs (attack speed only for a rare or unique enemy). The tick applies them.</summary>
-    internal static void Kill(KillContext kill)
+    public static void Kill(KillContext kill)
     {
         if (!kill.PlayerKill) return;
         var conn = kill.Conn;

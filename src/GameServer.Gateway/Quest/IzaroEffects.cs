@@ -6,7 +6,7 @@ using System.Text.RegularExpressions;
 /// gargoyles') or object (the statues'), Izaro's buff and the buff's stats with the row's values (BuffDefinitions, Stats).
 /// The ones the official data spells oddly (GargoylesMerciless_LIghtning2) are matched without case.
 /// </summary>
-static partial class IzaroEffects
+public static partial class IzaroEffects
 {
     /// <summary>A row: its Id, mechanic (ToggleStatues, Gargoyles …), tier (1 Normal … 4 Endgame), element (0 fire, 1 cold,
     /// 2 lightning), whether it is the "…2" one, its monster variety's Id or object type (empty when none), Izaro's buff row

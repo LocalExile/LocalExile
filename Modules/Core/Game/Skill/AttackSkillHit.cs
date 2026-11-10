@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>The existing main-hand attack-gem hit before critical strikes and target mitigation.</summary>
-static class AttackSkillHit
+public static class AttackSkillHit
 {
     public static DamagePacket Resolve(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> character,
         IEnumerable<(uint, int)> levelConversionInputs, StatCatalog catalog, int effectiveness, bool melee = false,

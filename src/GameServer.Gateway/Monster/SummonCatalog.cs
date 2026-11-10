@@ -1,9 +1,9 @@
 using System.Text.Json;
 
 /// <summary>Player summon identities, independent of the golem limit and golem revival policy.</summary>
-sealed class SummonCatalog(string folder = "data")
+public sealed class SummonCatalog(string folder = "data")
 {
-    internal sealed record Definition(string Id, string Family, string Variety, string LimitStat,
+    public sealed record Definition(string Id, string Family, string Variety, string LimitStat,
         string CountStat, bool Persistent = false, bool Corpse = false, bool Follows = true, bool Targetable = true);
     readonly Lazy<IReadOnlyDictionary<string, Definition>> all = new(() => Load(folder));
     public IReadOnlyCollection<Definition> All => all.Value.Values.ToArray();
@@ -46,7 +46,7 @@ sealed class SummonCatalog(string folder = "data")
     }
 }
 
-sealed class SummonedMinions
+public sealed class SummonedMinions
 {
     public readonly Dictionary<uint, GolemState.Golem> Fighters = [];
     public readonly Dictionary<uint, double> Until = [];
@@ -59,10 +59,10 @@ sealed class SummonedMinions
     public ushort HolyBuff;
     public readonly Queue<uint> Corpses = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
-    internal sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null);
+    public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null);
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     SummonedMinions? summons;
     public SummonedMinions Summons => System.Threading.LazyInitializer.EnsureInitialized(ref summons);

@@ -3,7 +3,7 @@
 /// <summary>The inherent character values from Metadata/Characters/Character.ot needed by the Brand, special charge and
 /// critical ailment panel rows. Add them to original actor sources once, before derivation; final developer replacements remain
 /// the caller's responsibility. These are coefficients and a Brand limit, not charge counts or gameplay effects.</summary>
-static class PanelStatDefaults
+public static class PanelStatDefaults
 {
     public static readonly (string Stat, int Value)[] Inherent =
     [

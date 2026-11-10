@@ -1,16 +1,16 @@
 using GameServer.Core.Projectiles;
 
-static partial class Game
+public static partial class Game
 {
     // Parameter rules do not require native projectile metadata or an executable release path.
-    internal sealed record ProjectileSkillParameters(
+    public sealed record ProjectileSkillParameters(
         Func<Func<string, int>, double, bool, ProjectileProfile> Resolve)
     {
         public Action<ProjectileProfile, Dictionary<uint, int>>? PanelStats { get; init; }
     }
 
     // Executable definitions add resources and release/presentation policy to the shared parameter rules.
-    internal sealed record ProjectileSkillDefinition(string Metadata, ProjectileSkillParameters Parameters)
+    public sealed record ProjectileSkillDefinition(string Metadata, ProjectileSkillParameters Parameters)
     {
         public bool RequiresTerrain { get; init; }
         public bool CancelWindupOnNewAction { get; init; }
@@ -19,11 +19,11 @@ static partial class Game
         public Func<ProjectileEntity, ProjectilePresentation>? Presentation { get; init; }
     }
 
-    internal sealed record ProjectileReleaseContext(ClientState Conn, ProjectileSession Session, ushort SkillId,
+    public sealed record ProjectileReleaseContext(ClientState Conn, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
         int Variation, Func<string, int> Get, Func<string, int> Player, Func<string, int> Own);
 
-    internal sealed record ProjectilePresentation
+    public sealed record ProjectilePresentation
     {
         public string? FlightVisual { get; init; }
         public uint? FlightClip { get; init; }
@@ -91,12 +91,12 @@ static partial class Game
         return (definitions, requireExplicit);
     }
 
-    internal static ProjectileSkillDefinition? ProjectileDefinition(string effect) =>
+    public static ProjectileSkillDefinition? ProjectileDefinition(string effect) =>
         ProjectileDefinitions.Definitions.GetValueOrDefault(effect);
 
     // Catalog metadata permits only the basic approximation. Providers can require explicit recipes;
     // that is an admission policy, never a choice of simulator or production entry point.
-    internal static ProjectileSkillDefinition? CatalogProjectileDefinition(int effect)
+    public static ProjectileSkillDefinition? CatalogProjectileDefinition(int effect)
     {
         if (!Skills.IsProjectile(effect) || Skills.ProjectileFor(effect) is not { } projectile) return null;
         ProjectileSkillDefinition? definition = new(projectile.Id, CatalogProjectileParameters(effect, projectile.Id));
@@ -108,7 +108,7 @@ static partial class Game
     // resolved flight/damage profile: every release still evaluates its current player and supported-skill stats.
     // Module reload replaces this dictionary together with the providers that define the recipes.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProjectileSkillDefinition?> ProjectileRecipes = new();
-    internal static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
+    public static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
         ProjectileRecipes.GetOrAdd(effect, static row => ProjectileDefinition(Skills.EffectId(row) ?? "")
             ?? (ProjectileDefinitions.RequireExplicitProfiles ? null : CatalogProjectileDefinition(row)));
 

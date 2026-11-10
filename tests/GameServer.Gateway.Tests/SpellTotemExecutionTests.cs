@@ -106,7 +106,7 @@ public sealed class SpellTotemExecutionTests
         conn.Clock.Stop();
         using var wire = new Wire();
         var session = new Game.ProjectileSession("test", wire.Stream, wire.Ciphers, conn);
-        conn.ProjectileRuntime = session;
+        conn.ProjectileRuntimeState = session;
         try
         {
             ushort skill = Equip(conn, "SkillGemFireball", "SupportGemSpellTotem");
@@ -228,7 +228,7 @@ public sealed class SpellTotemExecutionTests
         items.Add(PlayerInventories.BodyArmour, 0, 0, body);
         var bow = items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
         using var wire = new Wire();
-        var session = new Game.ProjectileSession("ballista-test", wire.Stream, wire.Ciphers, conn); conn.ProjectileRuntime = session;
+        var session = new Game.ProjectileSession("ballista-test", wire.Stream, wire.Ciphers, conn); conn.ProjectileRuntimeState = session;
         try
         {
             var burning = Game.GemSkillEffects(conn).Single(s => s.Name == "Burning Arrow");

@@ -11,7 +11,7 @@ using GameServer.Core;
 /// (<see cref="DuringEffect"/>). How each stat counts is <see cref="SupportOf"/>: modelled, shown on the character panel
 /// only (unsupported ailment sources and curses), or consumed by the authoritative Ward pool.
 /// </summary>
-static class UtilityFlasks
+public static class UtilityFlasks
 {
     /// <summary>One base type's use: its buff (BuffDefinitions row and Id), the buff's stats with their values, how long
     /// it lasts, and its charges. <paramref name="Extra"/>: a second buff the flask grants with its own stats (the Silver
@@ -226,7 +226,7 @@ static class UtilityFlasks
     public sealed record Active(uint ItemId, byte Slot, string Name, Utility Flask, ushort Buff, ushort? ExtraBuff,
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
-        internal long Activation { get; set; }
+        public long Activation { get; set; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
     }
@@ -266,7 +266,7 @@ static class UtilityFlasks
             }
         }
 
-        internal bool IsLatest(uint item, long activation)
+        public bool IsLatest(uint item, long activation)
         {
             lock (_lock) return _latest.GetValueOrDefault(item) == activation;
         }

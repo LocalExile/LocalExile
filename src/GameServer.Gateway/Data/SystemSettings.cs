@@ -5,7 +5,7 @@ using GameServer.Storage;
 /// Numeric server settings by key: world.db's <c>system_settings</c> rows, read at startup and on <c>/reload</c>. A key
 /// with no row reads 0. Every row is checked on load; a bad value keeps the previous settings.
 /// </summary>
-sealed class SystemSettings
+public sealed class SystemSettings
 {
     static readonly Dictionary<string, string> SocketKeys = new(StringComparer.Ordinal)
     {

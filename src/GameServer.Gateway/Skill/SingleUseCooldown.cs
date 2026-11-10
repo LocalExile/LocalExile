@@ -1,6 +1,6 @@
 /// <summary>Generic recovery for ordinary stored uses. The native record retains BaseMilliseconds and
 /// consumes base-time units at RecoveryRate; it must not receive a pre-divided cooldown.</summary>
-readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPercent, int Uses = 1)
+public readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPercent, int Uses = 1)
 {
     public double RecoveryRate => Math.Max(0, 1 + RecoveryPercent / 100.0);
 
@@ -40,7 +40,7 @@ readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPerce
 
 /// <summary>Elapsed game-time budget, used under the connection's Monsters lock. Rate changes settle the old rate
 /// first, preserving progress through equipment/stat refreshes and pause.</summary>
-sealed class SingleUseCooldownState(double at, double rate, double remainingBaseMilliseconds = 0,
+public sealed class SingleUseCooldownState(double at, double rate, double remainingBaseMilliseconds = 0,
     int totalBaseMilliseconds = 0)
 {
     public double RemainingBaseMilliseconds { get; private set; } = remainingBaseMilliseconds;

@@ -24,9 +24,9 @@ public sealed class VendorsModule : IModule, IDisposable
     public void Load(IModuleContext module)
     {
         On(GameEvents.NpcTalk,(conn,_,_) => { conn.Shop = null; return Task.FromResult(false); });
-        module.OnChatCommand("vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
-            command => RefreshKirac(ConnOf(command.Player)));
-        module.OnMonsterKilled(kill =>
+        GameEvents.Command(module.Manifest.Id, "vendor_refresh", "/vendor_refresh (refresh the open Kirac shop for its progression-based Gold cost)",
+            (conn, args) => RefreshKirac(conn));
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill =>
         {
             var conn = ConnOf(kill.Player);
             if (kill.Monster.Rarity == GameServer.Modding.MonsterRarity.Unique
@@ -34,7 +34,7 @@ public sealed class VendorsModule : IModule, IDisposable
                 KiracProgress.Complete(PersonalStashOf(conn),map.Area.Id,map.Area.Tier);
             return Task.CompletedTask;
         });
-        module.OnNpcOption(async talk =>
+        GameEvents.NpcOption.Add(module.Manifest.Id, async talk =>
         {
             var conn = ConnOf(talk.Player);
             var (remote, stream, ciphers) = conn.Wire;
@@ -68,9 +68,9 @@ public sealed class VendorsModule : IModule, IDisposable
             if (held is not null) await OfferForSale(remote, stream, ciphers, conn, sale, cursor, held.Id, (byte)place.X, (byte)place.Y);
             return true;
         });
-        module.OnPacket(InstanceNpcs.TradeOfferId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             // A trade between players has these messages first.
             if (conn.Trade is not null) return false;
             var offer = InstanceNpcs.ReadTradeOffer(bytes);
@@ -81,9 +81,9 @@ public sealed class VendorsModule : IModule, IDisposable
             return true;
         });
         foreach (ushort id in new[] { InstanceNpcs.TradeTakeBackId, InstanceNpcs.TradeMoveAllId })
-            module.OnPacket(id, async p =>
+            GameEvents.Packet(id).Add(module.Manifest.Id, async (conn, bytes) =>
             {
-                var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+                var (remote, stream, ciphers) = conn.Wire;
             // A trade between players has these messages first.
             if (conn.Trade is not null) return false;
                 var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
@@ -92,32 +92,32 @@ public sealed class VendorsModule : IModule, IDisposable
                 else await OfferFromInventory(remote, stream, ciphers, conn, sale, inventory, item);
                 return true;
             });
-        module.OnPacket(InstanceNpcs.TradeAcceptId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             // A trade between players has these messages first.
             if (conn.Trade is not null) return false;
             uint revision = InstanceNpcs.ReadTradeAccept(bytes);
             await CloseSale(remote, stream, ciphers, conn, accepted: conn.Sale is { } s && s.TheirsRevision == revision);
             return true;
         });
-        module.OnPacket(InstanceNpcs.TradeAnswerId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             // A trade between players has this message first.
             if (conn.Trade is not null || conn.TradeRequestTo != 0 || (InstanceNpcs.ReadTradeAnswer(bytes).Other != 0 && conn.Sale is null)) return false;
             await AnswerSale(remote, stream, ciphers, conn, InstanceNpcs.ReadTradeAnswer(bytes));
             return true;
         });
-        module.OnPacket(InstanceNpcs.BuyId, async p =>
+        GameEvents.Packet(InstanceNpcs.BuyId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await BuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadBuy(bytes));
             return true;
         });
-        module.OnPacket(InstanceNpcs.CtrlBuyId, async p =>
+        GameEvents.Packet(InstanceNpcs.CtrlBuyId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await CtrlBuyFromShop(remote, stream, ciphers, conn, InstanceNpcs.ReadCtrlBuy(bytes));
             return true;
         });

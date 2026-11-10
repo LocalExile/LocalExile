@@ -12,92 +12,89 @@ public sealed class SocialModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        static (ClientState Conn, string Remote) Of(Packet p) => (ConnOf(p.Player), ConnOf(p.Player).Wire.Remote);
-        module.OnEnterMessages(player => FriendsFeature.Enter(ConnOf(player)));
+        GameEvents.EnterMessages.Add(module.Manifest.Id, conn => FriendsFeature.Enter(conn));
         // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
-        module.OnTick(async (player, _) =>
+        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
         {
-            if (ConnOf(player) is not { PlayerSent: true } c || !SocialFeature.Rebound.TryAdd(c, null)) return;
+            if (conn is not { PlayerSent: true } c || !SocialFeature.Rebound.TryAdd(c, null)) return;
             await SocialFeature.RebindParty(c);
             await FriendsFeature.AfterEntry(c);
         });
         module.Lifetime.Own(InstanceEvents.TransferInstance.Add("Social", SocialFeature.PartyInstance));
-        module.OnPlayerLeaving((player, why) => FriendsFeature.Leaving(ConnOf(player)));
-        module.OnPacket(InstanceSocial.FriendAddId, async p =>
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => FriendsFeature.Leaving(conn));
+        GameEvents.Packet(InstanceSocial.FriendAddId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await FriendsFeature.Change(ConnOf(p.Player), InstanceSocial.ReadFriendAdd(p.Bytes.ToArray()));
+            await FriendsFeature.Change(conn, InstanceSocial.ReadFriendAdd(bytes));
             return true;
         });
-        module.OnPlayerLeaving((player, why) => SocialFeature.CancelPlayerTrade(ConnOf(player), why));
-        module.OnPacket(InstanceNpcs.TradeOfferId, async p =>
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => SocialFeature.CancelPlayerTrade(conn, why));
+        GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
+            var remote = conn.Wire.Remote;
             if (conn.Trade is not { } trade) return false;
-            var offer = InstanceNpcs.ReadTradeOffer(p.Bytes.ToArray());
+            var offer = InstanceNpcs.ReadTradeOffer(bytes);
             await SocialFeature.PlayerTradeOffer(remote, conn, trade, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
             return true;
         });
         foreach (ushort id in new[] { InstanceNpcs.TradeTakeBackId, InstanceNpcs.TradeMoveAllId })
-            module.OnPacket(id, async p =>
+            GameEvents.Packet(id).Add(module.Manifest.Id, async (conn, bytes) =>
             {
-                var (conn, remote) = Of(p);
+                var remote = conn.Wire.Remote;
                 if (conn.Trade is not { } trade) return false;
-                var (item, inventory) = InstanceNpcs.ReadTradeMove(p.Bytes.ToArray());
+                var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
                 await SocialFeature.PlayerTradeOffer(remote, conn, trade, inventory, item);
                 return true;
             });
-        module.OnPacket(InstanceNpcs.TradeAcceptId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
+            var remote = conn.Wire.Remote;
             if (conn.Trade is not { } trade) return false;
-            await SocialFeature.PlayerTradeAccept(remote, conn, trade, InstanceNpcs.ReadTradeAccept(p.Bytes.ToArray()));
+            await SocialFeature.PlayerTradeAccept(remote, conn, trade, InstanceNpcs.ReadTradeAccept(bytes));
             return true;
         });
-        module.OnPacket(InstanceNpcs.TradeUnacceptId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeUnacceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, _) = Of(p);
             if (conn.Trade is not { } trade) return false;
             await SocialFeature.PlayerTradeUnaccept(conn, trade);
             return true;
         });
-        module.OnPacket(InstanceNpcs.TradeAnswerId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, _) = Of(p);
             if (conn.Trade is not null) await SocialFeature.CancelPlayerTrade(conn, "cancelled");
             else if (conn.TradeRequestTo != 0) await SocialFeature.CancelTradeRequest(conn);
-            else if (InstanceNpcs.ReadTradeAnswer(p.Bytes.ToArray()).Other != 0 && conn.Sale is null)
-                await SocialFeature.DeclineTradeRequest(conn, InstanceNpcs.ReadTradeAnswer(p.Bytes.ToArray()).Other);
+            else if (InstanceNpcs.ReadTradeAnswer(bytes).Other != 0 && conn.Sale is null)
+                await SocialFeature.DeclineTradeRequest(conn, InstanceNpcs.ReadTradeAnswer(bytes).Other);
             else return false;
             return true;
         });
-        module.OnPacket(InstanceSocial.TradeRequestAcceptId, async p =>
+        GameEvents.Packet(InstanceSocial.TradeRequestAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            await SocialFeature.AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            await SocialFeature.AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(bytes));
             return true;
         });
-        module.OnPacket(InstanceSocial.TradeRequestId, async p =>
+        GameEvents.Packet(InstanceSocial.TradeRequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            await SocialFeature.RequestTrade(remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceSocial.ReadTradeRequest(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            await SocialFeature.RequestTrade(remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceSocial.ReadTradeRequest(bytes));
             return true;
         });
-        module.OnPacket(InstanceSocial.PartyInviteId, async p =>
+        GameEvents.Packet(InstanceSocial.PartyInviteId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
+            var remote = conn.Wire.Remote;
             // Not a player here: another module may own the name (the PlayerBots module's bots).
-            return await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(p.Bytes.ToArray()));
+            return await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(bytes));
         });
-        module.OnPacket(InstanceSocial.PartyAcceptId, async p =>
+        GameEvents.Packet(InstanceSocial.PartyAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            await SocialFeature.AcceptParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            await SocialFeature.AcceptParty(remote, conn, InstanceSocial.ReadPartyAccept(bytes));
             return true;
         });
-        module.OnPacket(InstanceSocial.PartyLeaveId, async p =>
+        GameEvents.Packet(InstanceSocial.PartyLeaveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(bytes));
         });
     }
 }

@@ -3,7 +3,7 @@
 /// its model; the town tiles' .tmd records hold the waypoint and doodads), so the cells are ours, as for the NPCs. A
 /// hideout's comes from its decoration (HideoutCatalog).
 /// </summary>
-static class StashCatalog
+public static class StashCatalog
 {
     public sealed record Placement(int X, int Y, float Rotation);
 

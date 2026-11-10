@@ -3,7 +3,7 @@
 /// Hit cooldowns, hit-plus-kill credit, ownership and duplicate-event rejection belong to that caller: the primary
 /// sources do not establish those policies. In particular this class invents no melee-hit cooldown.
 /// </summary>
-sealed class RampageState
+public sealed class RampageState
 {
     public const int MaximumStacks = 1000;
     public const double DurationSeconds = 5;

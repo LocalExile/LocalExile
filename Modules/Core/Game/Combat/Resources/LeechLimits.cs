@@ -5,7 +5,7 @@
 /// Character.ot's constants, also exported in pinned PoB 16de4b82's Data/Misc.lua and used by CalcSetup/CalcDefence.
 /// The limits use maximum pools, including their reserved portions. This does not create or recover any leech.
 /// </summary>
-static class LeechLimits
+public static class LeechLimits
 {
     public const int BaseInstancePercent = 10;
     public const int BaseLifeManaRatePercentPerMinute = 1200;

@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>
 /// Currency used on an item (C→S 0x71, Agents/docs/protocol/13-items.md §4b): what each handled orb does to the target.
 /// </summary>
-static class CurrencyEffects
+public static class CurrencyEffects
 {
     public const string ChromaticOrb = "Metadata/Items/Currency/CurrencyRerollSocketColours";
     public const string JewellersOrb = "Metadata/Items/Currency/CurrencyRerollSocketNumbers";

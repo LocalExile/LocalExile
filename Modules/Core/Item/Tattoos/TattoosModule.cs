@@ -23,17 +23,15 @@ public sealed class TattoosModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnPacket(InstanceItems.UseItemOnPassiveId, async p =>
+        GameEvents.Packet(InstanceItems.UseItemOnPassiveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await UseTattooOnPassive(remote, stream, ciphers, conn, InstanceItems.ReadUseItemOnPassive(bytes), Convert.ToHexString(bytes));
             return true;
         });
-        module.OnChatCommand("tattoo", "/tattoo <name> | list (dev: a tattoo currency item into the inventory)", async c =>
+        GameEvents.Command(module.Manifest.Id, "tattoo", "/tattoo <name> | list (dev: a tattoo currency item into the inventory)", async (conn, args) =>
         {
-            var conn = ConnOf(c.Player);
             var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length == 0 || args[0].Equals("list", StringComparison.OrdinalIgnoreCase))
             {
                 await conn.Commands!.Reply(string.Join(", ", TattooCatalogue.Names));
@@ -58,11 +56,9 @@ public sealed class TattoosModule : IModule, IDisposable
             await conn.Commands!.Reply($"{entry.Name} added to the inventory (replaces {entry.Target}" +
                 (entry.EventOnly ? "; event-only, not normally obtainable" : entry.DropDisabled ? "; drop-disabled" : "") + ")");
         });
-        module.OnChatCommand("tattoo_apply", "/tattoo_apply <tattoo name> <node> (dev: apply a pilot tattoo to an allocated passive)", async c =>
+        GameEvents.Command(module.Manifest.Id, "tattoo_apply", "/tattoo_apply <tattoo name> <node> (dev: apply a pilot tattoo to an allocated passive)", async (conn, args) =>
         {
-            var conn = ConnOf(c.Player);
             var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length < 2 || !ushort.TryParse(args[^1], out ushort node))
             {
                 await conn.Commands!.Reply("Usage: /tattoo_apply <tattoo name> <node>");
@@ -72,11 +68,9 @@ public sealed class TattoosModule : IModule, IDisposable
             string? error = await ApplyTattoo(remote, stream, ciphers, conn, name, node);
             await conn.Commands!.Reply(error ?? $"{name} applied to passive {node}");
         });
-        module.OnChatCommand("journey_makanui", "/journey_makanui <node> [keystone] (dev: apply Journey Makanui, random or chosen)", async c =>
+        GameEvents.Command(module.Manifest.Id, "journey_makanui", "/journey_makanui <node> [keystone] (dev: apply Journey Makanui, random or chosen)", async (conn, args) =>
         {
-            var conn = ConnOf(c.Player);
             var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length < 1 || !ushort.TryParse(args[0], out ushort node))
             {
                 await conn.Commands!.Reply("Usage: /journey_makanui <node> [keystone name|graph id]");
@@ -97,11 +91,9 @@ public sealed class TattoosModule : IModule, IDisposable
             await conn.Commands!.Reply(error ?? $"Journey Tattoo of Makanui applied to passive {node}" +
                 (chosen is null ? " (random keystone)" : $" ({chosen.Name})"));
         });
-        module.OnChatCommand("tattoo_remove", "/tattoo_remove <node> (dev: remove the tattoo from a passive)", async c =>
+        GameEvents.Command(module.Manifest.Id, "tattoo_remove", "/tattoo_remove <node> (dev: remove the tattoo from a passive)", async (conn, args) =>
         {
-            var conn = ConnOf(c.Player);
             var (remote, stream, ciphers) = conn.Wire;
-            string[] args = [.. c.Args];
             if (args.Length != 1 || !ushort.TryParse(args[0], out ushort node))
             {
                 await conn.Commands!.Reply("Usage: /tattoo_remove <node>");

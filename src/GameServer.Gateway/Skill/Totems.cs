@@ -11,7 +11,7 @@ using GameServer.Core.Protocol.Login;
 /// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
 /// the Monsters lock; times are the connection's game seconds.
 /// </summary>
-sealed class TotemState
+public sealed class TotemState
 {
     /// <summary>The death animation's time before the object goes.</summary>
     public const double RemoveSeconds = 1;

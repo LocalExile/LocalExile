@@ -2,7 +2,7 @@
 
 /// <summary>Provisional presentation parabola. Heights are Positioned markers, increasing upward.
 /// The runtime owns XY travel/contact; eight native linear segments approximate this visual-only curve.</summary>
-readonly record struct ProjectileArc(double StartDistance, double Distance, int StartMarker, int EndMarker,
+public readonly record struct ProjectileArc(double StartDistance, double Distance, int StartMarker, int EndMarker,
     double Apex = 40)
 {
     public const int Segments = 8;

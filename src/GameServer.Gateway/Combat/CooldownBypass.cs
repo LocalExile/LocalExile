@@ -6,7 +6,7 @@
 /// (<c>current_removable_*_charges</c>, <c>0x141ea4560</c>) and spends one (<c>0x141ea4290</c>); the cooldown goes
 /// on as it was.
 /// </summary>
-static class CooldownBypass
+public static class CooldownBypass
 {
     public const string PowerOverride = "active_skill_cooldown_bypass_type_override_to_power_charge";
 

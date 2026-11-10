@@ -8,10 +8,10 @@ using GameServer.Core;
 /// it, so each definition below lists them from the game's data (poedb: Mageblood, 3.29). The base type's implicits are
 /// rolled by <see cref="ItemCatalog.Create"/>; the unique's own mods are explicit and rolled once per item.
 /// </summary>
-sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
+public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
     // Several native names use a typographic apostrophe while the definition export uses ASCII.
-    internal static string NameKey(string name) => name.Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
+    public static string NameKey(string name) => name.Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
     {
         "Rigwald's Charge" => "Rigvald's Charge",
         "The Broken Elegy" => "Broken Elegy",

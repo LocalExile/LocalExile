@@ -77,7 +77,7 @@ public sealed class JuggernautNodesTests
         try
         {
             // The whole raw hit is prevented when blocked, the blocked hit still counts as hit, and only armour's share otherwise.
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, DamageType.Physical, 100, block: true, spell: false, suppress: false, out var blocked));
+            Assert.True(Game.TrySyntheticEnemyHit(conn, DamageType.Physical, 100, block: true, spell: false, suppress: false, out var blocked));
             Assert.True(blocked.Blocked);
             Assert.Equal(100, Game.PreventedDamageOf(conn).Take(0, 1000, .1), 6);
             Func<string, int> stats = name => name == "chance_to_gain_endurance_charge_when_hit_%" ? 100 : 0;
@@ -100,7 +100,7 @@ public sealed class JuggernautNodesTests
             conn.PlayerStats.Remove(Program.Stats.Key("keystone_glancing_blows")!.Value);
             Game.PreventedDamageOf(conn).Clear();
 
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, DamageType.Physical, 100, block: false, spell: false, suppress: false, out var hit));
+            Assert.True(Game.TrySyntheticEnemyHit(conn, DamageType.Physical, 100, block: false, spell: false, suppress: false, out var hit));
             Assert.InRange(hit.Damage, 1, 99);
             Assert.Equal(100 - hit.Damage, Game.PreventedDamageOf(conn).Take(0, 1000, .1), 6);
 

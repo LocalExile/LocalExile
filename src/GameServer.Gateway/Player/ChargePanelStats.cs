@@ -13,7 +13,7 @@
 /// gains, expiry, per-charge effects) are <see cref="Charges"/>, which takes its standard maxima from here. No Mods.dat
 /// row uses the max_*_charges_override stats today; if supported later, those must replace the sum rather than add to it.
 /// </summary>
-static class ChargePanelStats
+public static class ChargePanelStats
 {
     /// <summary>Metadata/Characters/Character.ot's <c>max_endurance_charges</c>, <c>max_frenzy_charges</c> and
     /// <c>max_power_charges</c>: every character starts with three of each.</summary>

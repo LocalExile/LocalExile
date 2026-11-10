@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 /// One main ascendancy and its own allocated nodes/point awards. A missing selection is an unascended character.
 /// Nodes exclude the implicit, free start; ordinary passive points remain in CharacterSaves.Save.Passives.
 /// </summary>
-sealed record AscendancyProgress(AscendancyIdentity? Selection = null, IReadOnlyList<ushort>? Nodes = null, IReadOnlyList<string>? Awards = null)
+public sealed record AscendancyProgress(AscendancyIdentity? Selection = null, IReadOnlyList<ushort>? Nodes = null, IReadOnlyList<string>? Awards = null)
 {
     [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
     [JsonIgnore] public IReadOnlyList<ushort> Allocated => Nodes ?? [];
@@ -14,13 +14,13 @@ sealed record AscendancyProgress(AscendancyIdentity? Selection = null, IReadOnly
 }
 
 /// <summary>Rejected input or a saved ascendancy this build cannot safely restore; callers must keep the old save.</summary>
-sealed class AscendancyRuleException(string message) : ArgumentException(message);
+public sealed class AscendancyRuleException(string message) : ArgumentException(message);
 
 /// <summary>A connection tried to overwrite passive progress already changed by another connection.</summary>
-sealed class PassiveProgressConflictException() : InvalidOperationException("Passive progress changed in another connection; reconnect before changing it again");
+public sealed class PassiveProgressConflictException() : InvalidOperationException("Passive progress changed in another connection; reconnect before changing it again");
 
 /// <summary>Pure validation/transitions: construct a candidate, save it, then publish it to the connection.</summary>
-sealed class AscendancyRules(AscendancyCatalog catalog)
+public sealed class AscendancyRules(AscendancyCatalog catalog)
 {
     // Every Labyrinth tier awards two points once. Stable keys make retries/relogins idempotent.
     public static IReadOnlyList<string> AwardKeys { get; } = Array.AsReadOnly(new[] { "normal", "cruel", "merciless", "eternal" });
