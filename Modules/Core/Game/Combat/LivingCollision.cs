@@ -47,8 +47,9 @@ static partial class Game
     }
 
     // The client does not stop for is_frozen (live 2026-11-01), and virtual_action_speed_+% at -100, which would stop it,
-    // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands and lets
-    // it go on with its walk after, as the server's walk does.
+    // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands. A
+    // predictive client goes on with its walk after, as the server's walk does; a lockstep one stands until its next order
+    // (PlayerHitRecoveryRecordLocked: the same message and handler; the freeze itself is not traced).
     internal static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
@@ -63,6 +64,7 @@ static partial class Game
                 double now = conn.Clock.Elapsed.TotalSeconds, left = conn.ElementalAilments.FreezeUntil(now) - now;
                 if (left <= 0 || conn.PlayerLife == 0 || conn.LeavingArea || conn.Paused) return null;
                 conn.FreezeShown = conn.FreezeGeneration;
+                if (conn.LockstepClient) conn.Walk.Cancel(now);
                 return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)left, PlayerHitRecovery.TakeHitAnimation),
                     .. ResyncPacketLocked(conn, now)];
             }

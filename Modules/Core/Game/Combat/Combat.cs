@@ -1859,24 +1859,33 @@ static partial class Game
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
-        // The client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when this ended it).
-        conn.Walk.Pause(now, seconds);
+        // A predictive client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when
+        // this ended it). A lockstep one ends its walk in the frame the 0x1d1 reaches it (PlayerHitRecoveryRecordLocked).
+        if (!conn.LockstepClient) conn.Walk.Pause(now, seconds);
         return new(conn.ProjectileEpoch, action, conn.HitRecovery.Until, seconds);
     }
 
     internal static Task SendPlayerHitRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlayerRecoveryIntent recovery) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01d1 player TakeHit recovery", atGate: () =>
         {
-            lock (conn.Monsters)
-            {
-                double remaining = recovery.Until - conn.Clock.Elapsed.TotalSeconds;
-                if (!conn.ProjectileActive(recovery.Epoch) || conn.PlayerLife == 0 || conn.Paused
-                    || conn.ActionCount != recovery.Action || remaining <= 0) return null;
-                // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
-                return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
-                    .. ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds)];
-            }
+            lock (conn.Monsters) return PlayerHitRecoveryRecordLocked(conn, recovery, conn.Clock.Elapsed.TotalSeconds);
         });
+
+    // The recovery's 0x1d1, written in its send gate (under conn.Monsters). The client's TakeHit handler (0x141e95e60) ends
+    // the player's current action, and on a lockstep client nothing takes the walk up again: it stops after the steps of
+    // the frame the message arrives in (the deferred stop of 0x141e350e0) and stands, keeping its step's fraction, until
+    // its next order (tick trace 2026-11-10: 14 frames, to the held Move that followed the recovery). So the walk ends
+    // here, in the frame being sent, not when the hit was committed.
+    internal static byte[]? PlayerHitRecoveryRecordLocked(ClientState conn, PlayerRecoveryIntent recovery, double now)
+    {
+        double remaining = recovery.Until - now;
+        if (!conn.ProjectileActive(recovery.Epoch) || conn.PlayerLife == 0 || conn.Paused
+            || conn.ActionCount != recovery.Action || remaining <= 0) return null;
+        if (conn.LockstepClient) conn.Walk.Cancel(now);
+        // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
+        return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
+            .. ResyncPacketLocked(conn, now)];
+    }
 
     internal static bool PlayerActionCurrent(ClientState conn, int action)
     {

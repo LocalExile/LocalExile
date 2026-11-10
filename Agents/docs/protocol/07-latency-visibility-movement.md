@@ -784,6 +784,12 @@ when one was due, and keeps the time since that step. The Gateway ends the walk 
 Standing the monster on its cell at the frame's start left the next order one cell behind the client's monster, along
 its path, after 9 of 54 recoveries of walking monsters (bench 2026-11-10); none was off any other way.
 
+The player's own 0x1d1 does the same to a lockstep client's player, and nothing takes the walk up again: it stood from
+the 0x1d1's frame to its next order, 14 frames later (tick trace 2026-11-10), where a predictive client goes on with its
+walk when the recovery ends. So the Gateway ends a lockstep player's walk in the frame the 0x1d1 goes out in
+(`PlayerHitRecoveryRecordLocked`) and holds and resumes only a predictive player's; a freeze's 0x1d1 is the same message
+and is handled the same way, though no freeze is traced.
+
 **Keeping the estimate's walk the client's.** The client's walk is exact in time (§5, the lockstep tick), so the
 estimate's steps fall in the client's frames as long as the two start a walk in the same frame with the same phase. The
 step pass replays whole frames in object order (`StepFrames`), and a monster's order places its walk when the 0x1ab

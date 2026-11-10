@@ -39,7 +39,8 @@ static partial class Game
             conn.FreezeHeldUntil = frozenUntil;
             Interlocked.Increment(ref conn.ActionCount);
             conn.ChannelSkill = 0;
-            conn.Walk.Pause(now, frozenUntil - now);
+            // A lockstep client's walk ends with the freeze's 0x1d1 instead (ShowFreeze), as with a hit's recovery.
+            if (!conn.LockstepClient) conn.Walk.Pause(now, frozenUntil - now);
         }
         if (previousAction != conn.ElementalAilments.ActionFactor(now)) conn.ApplyMovementSpeed();
     }

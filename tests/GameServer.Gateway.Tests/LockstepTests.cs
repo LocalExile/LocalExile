@@ -87,6 +87,29 @@ public class LockstepTests : IDisposable
         start = .165;
         Assert.Equal((9, 0), walk.Position(.165));
 
+        // A hit's recovery ends a lockstep player's walk after the steps of the frame its 0x1d1 goes out in, and nothing
+        // takes the walk up again: the client stands until its next order. A predictive player's walk is not the
+        // message's to end (it is held when the hit lands and goes on after).
+        foreach (bool lockstep in new[] { true, false })
+        {
+            ClientState Player() => new(new(1, "recovery", 300, 300, 100, 100, null, []), 1, 1)
+                { LockstepClient = lockstep, PlayerLife = 100, LockstepFrame = (0, .033) };
+            var hit = Player();
+            var free = Player();
+            hit.Walk.Order(160, 100, 0);
+            free.Walk.Order(160, 100, 0);
+            hit.LockstepFrame = free.LockstepFrame = (.033, .066);
+            lock (hit.Monsters)
+                Assert.NotNull(Game.PlayerHitRecoveryRecordLocked(hit, new(hit.ProjectileEpoch, hit.ActionCount, Until: .4, Seconds: .35f), now: .04));
+            hit.LockstepFrame = free.LockstepFrame = (.066, .099);
+            var stood = hit.Walk.Position(.066);
+            Assert.Equal(free.Walk.Position(.066), stood);
+            Assert.NotEqual(hit.Walk.Position(0), stood);
+            hit.LockstepFrame = free.LockstepFrame = (.495, .528);
+            Assert.Equal(lockstep, !hit.Walk.Moving(.495));
+            Assert.Equal(lockstep ? stood : free.Walk.Position(.495), hit.Walk.Position(.495));
+        }
+
         // A stop keeps the time since the last step, and the next walk from the stand starts with it (40 cells a second:
         // 25 ms a step; the client's accumulator 16 ms, + 33 ms is one step, + 33 ms two more).
         start = 0; walk = Walker(40);
