@@ -2,7 +2,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>The native sulphite resource curve and the map-owner scarab modifier, separate from player item quantity.</summary>
-static class MapSulphite
+public static class MapSulphite
 {
     public const string Vein = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralVein";
     public const string Chest = "Metadata/Terrain/Leagues/Delve/Objects/DelveMineralChest";

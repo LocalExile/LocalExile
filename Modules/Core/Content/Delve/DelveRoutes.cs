@@ -55,8 +55,9 @@ public sealed partial class DelveModule
             foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, PlayerOf(conn))))
                 await AbortTrip(module, PlayerOf(conn), attempt, "instance transfer failed");
         }));
-        module.OnPlayerLeaving(async (player, _) =>
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, async (connection, _) =>
         {
+            var player = PlayerOf(connection);
             foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, player)))
             {
                 lock (attempt.Departures) if (attempt.Departures.Contains(ConnOf(player))) continue;
@@ -71,8 +72,9 @@ public sealed partial class DelveModule
                 DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m with { Pending = null } : null);
             }
         }));
-        module.OnTick(async (player, _) =>
+        GameEvents.Tick.Add(module.Manifest.Id, async (connection, _) =>
         {
+            var player = PlayerOf(connection);
             var ready = ConnOf(player);
             if (ready.PlayerSent && !ready.Closed && !ready.LeavingArea && player.AreaId is "Delve_Hub" or "Delve_Main")
             {
@@ -95,7 +97,7 @@ public sealed partial class DelveModule
             foreach (var attempt in _attempts.Values.Where(a => ReferenceEquals(a.Player, player)))
                 if (conn.PlayerLife == 0) await AbortTrip(module, player, attempt, "player died");
         });
-        module.ModifyDrops(roll =>
+        GameEvents.Drops.Add(module.Manifest.Id, roll =>
         {
             if (roll.Player.AreaId != "Delve_Main" || !_states.TryGetValue(roll.Player, out var state) || state.Journey is not { } journey) return;
             var policy = DelveRewards.Current();
