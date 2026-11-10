@@ -26,6 +26,7 @@ Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3c c
 | [protocol/25-gem-supports.md](protocol/25-gem-supports.md) | linked supports, native badges, shared combat calculations and execution gaps |
 | [Vaal souls](protocol/27-vaal-souls.md) | Actor budgets, collection policy and pending native acceptance |
 | [protocol/28-player-trade.md](protocol/28-player-trade.md) | trade between players: requests (0xba, 0xb0), known players (0xa7), the window's 0xb8 flags and acceptance, party/friend requests read |
+| [protocol/29-currency-exchange.md](protocol/29-currency-exchange.md) | Faustus's Currency Exchange: the window (0x7b kind 0x5e), its orders and markets, the official rates |
 | [protocol/17-npcs.md](protocol/17-npcs.md) | NPCs: the object, town placements, talking (0x24 → 0x84), dialogue closed (0x85) |
 | [protocol/21-hideouts.md](protocol/21-hideouts.md) | hideouts: unlock flags and league quest flags, the Hideouts keys, `.hideout` decorations, /hideout (0x16 command 45) and the Hideout button (0x17a), HideoutDoodad data, the map device and its window (0x7b kind 5) |
 | [protocol/18-stash.md](protocol/18-stash.md) | the stash: the object, tab lists (0x21, 0x136), opening (0x7b kind 1), tab contents (0xc7 → 0xc0 + 0xc8), the account's stash |
@@ -66,7 +67,9 @@ This research does not change the production simulator or certify native/officia
 | [dev/pr-checks.md](dev/pr-checks.md) | the docs scan, the files only the maintainer approves, how status and roadmap lists merge |
 | [dev/debugging.md](dev/debugging.md) | log timestamps and archives, error stack traces, the packet history and dumps, `Game_TRACE`, client crashes, `bugreport.ps1` |
 | [dev/performance.md](dev/performance.md) | measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
+| [dev/databases.md](dev/databases.md) | the SQLite databases (`auth`, `characters`, `client`, `world`) built from `sql/`: adding an update, the updater, `client-sql.ps1` and the generated files in `client.db`, the SQL checks and owners |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
+| [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `DropDataSeed`), load and edit rules |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
 | [dev/player-bots.md](dev/player-bots.md) | the PlayerBots module: server-driven characters that play the campaign and visit towns, settings, logs, the client findings behind their walk and stance |
@@ -83,6 +86,9 @@ This research does not change the production simulator or certify native/officia
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |
 | [game/arcane-might.md](game/arcane-might.md) | spell increased/reduced transfer to attacks, source inventory and implementation boundaries |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
+| [game/currency-drops.md](game/currency-drops.md) | currency DropLevels, the hardcoded weights, the 3.26-3.29 changes and the drop penalty |
+| [game/boss-drops.md](game/boss-drops.md) | boss unique pools, boss-only currency, known drop chances |
+| [game/drop-research-roadmap.md](game/drop-research-roadmap.md) | the working checklist for currency, card, boss and penalty research |
 | [game/king-in-the-mists.md](game/king-in-the-mists.md) | The King in the Mists: Crux entry, both forms, phase data, skills, loot and implementation boundaries |
 | [game/gambler.md](game/gambler.md) | Gambler node checklist, incoming elemental ailments and read-only opt-in |
 | [game/aristocrat.md](game/aristocrat.md) | Aristocrat node checklist: gem levels/quality, attribute requirements and conditional immunities |

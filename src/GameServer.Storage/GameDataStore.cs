@@ -3,10 +3,9 @@ using Microsoft.Data.Sqlite;
 namespace GameServer.Storage;
 
 /// <summary>
-/// The SQLite overlay for server-side game data: mod stat roll ranges and item limits. The extracted
-/// <c>data/tables</c> JSON stays the reference; this store only records overrides the Gateway applies in memory at
-/// startup and after a command. One connection is shared by the Gateway's writers and readers and every write is a
-/// transaction; the schema lives beside the save tables in <c>data/saves.db</c> (or <c>Game_SAVES_DB</c>).
+/// The game content in <c>data/world.db</c> (Agents/docs/dev/databases.md): settings, unique weights, the item and
+/// jewel catalogues, drop tables, mod range and limit overrides. The database is built from <c>sql/</c>; a change to
+/// the content is an update file there, and the Gateway reads the rows at startup and on <c>/reload</c>.
 /// </summary>
 public sealed class GameDataStore : IDisposable
 {
@@ -14,140 +13,32 @@ public sealed class GameDataStore : IDisposable
     public sealed record LimitOverride(string Key, int Value);
     public sealed record CatalogRow(string Kind, string Key, string Payload, bool Enabled);
     public sealed record SettingRow(string Key, double Value);
-    public sealed record StatRow(string Id, int Row, uint Hash32, bool IsLocal, bool IsPublic, bool IsWeaponLocal,
-        int Category);
-    public sealed record ModRow(string Id, int Hash16, string Name, int Domain, int GenerationType, int Level,
-        string ModType);
-    public sealed record ModStatRow(string ModId, int StatIndex, string StatId, int Minimum, int Maximum, bool Local);
     public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
+    public sealed record CurrencyWeightRow(string CurrencyId, double Weight, int DropLevel, bool Enabled,
+        string Source, string Confidence, string? Notes);
+    public sealed record CurrencySourceRow(string CurrencyId, string SourceKind, string SourceId, double Weight,
+        int DropLevel, bool Enabled, string Confidence, string Source, string? Notes);
+    public sealed record BossRow(string BossId, string BossName, string? AreaId, string Category, bool Enabled);
+    public sealed record BossItemRow(string BossId, string ItemId, string ItemKind, double? Chance,
+        string Confidence, string Source, string? Notes);
+    public sealed record CardAreaRow(string AreaId, string AreaName, string CardId, int MinMapTier, string Source);
+    public sealed record CardSourceRow(string CardId, string SourceKind, string SourceId, int? MinMapTier,
+        int DropLevel, string Confidence, string Source, string? Notes);
+    public sealed record ItemWeightRow(string Category, string ItemId, double Weight, bool Enabled, string Source,
+        string Confidence, string Patch, string SampledAt, string? Notes);
 
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
-    private SqliteTransaction? _tx;
-
     public string Path { get; }
 
+    /// <summary>Opens the database and brings it up to date from <c>sql/base/world</c> and its updates.</summary>
     public GameDataStore(string path)
     {
         Path = path;
         if (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) is { Length: > 0 } folder)
             Directory.CreateDirectory(folder);
-        _db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path, Pooling = false }.ToString());
-        _db.Open();
-        try
-        {
-            Execute("PRAGMA busy_timeout=10000");
-            Execute("""
-                CREATE TABLE IF NOT EXISTS game_data_meta (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS mod_stat_overrides (
-                    mod_id TEXT NOT NULL,
-                    stat_index INTEGER NOT NULL,
-                    minimum INTEGER NOT NULL,
-                    maximum INTEGER NOT NULL,
-                    updated_utc TEXT NOT NULL,
-                    PRIMARY KEY (mod_id, stat_index),
-                    CHECK (minimum <= maximum)
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS limit_overrides (
-                    key TEXT PRIMARY KEY,
-                    value INTEGER NOT NULL,
-                    updated_utc TEXT NOT NULL,
-                    CHECK (value >= 0)
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS system_settings (
-                    key TEXT PRIMARY KEY,
-                    value REAL NOT NULL,
-                    updated_utc TEXT NOT NULL
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS stats (
-                    id TEXT PRIMARY KEY,
-                    row INTEGER NOT NULL,
-                    hash32 INTEGER NOT NULL,
-                    is_local INTEGER NOT NULL,
-                    is_public INTEGER NOT NULL,
-                    is_weapon_local INTEGER NOT NULL,
-                    category INTEGER NOT NULL
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS mods (
-                    id TEXT PRIMARY KEY,
-                    hash16 INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    domain INTEGER NOT NULL,
-                    generation_type INTEGER NOT NULL,
-                    level INTEGER NOT NULL,
-                    mod_type TEXT NOT NULL
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS mod_stats (
-                    mod_id TEXT NOT NULL,
-                    stat_index INTEGER NOT NULL,
-                    stat_id TEXT NOT NULL,
-                    minimum INTEGER NOT NULL,
-                    maximum INTEGER NOT NULL,
-                    "local" INTEGER NOT NULL,
-                    PRIMARY KEY (mod_id, stat_index)
-                ) STRICT;
-                CREATE INDEX IF NOT EXISTS mod_stats_stat_id ON mod_stats (stat_id);
-                CREATE INDEX IF NOT EXISTS mods_generation_type ON mods (generation_type, level);
-                CREATE TABLE IF NOT EXISTS catalog_entries (
-                    kind TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    enabled INTEGER NOT NULL,
-                    updated_utc TEXT NOT NULL,
-                    PRIMARY KEY (kind, key)
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS catalog_seed_keys (
-                    kind TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    PRIMARY KEY (kind, key)
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS catalog_seed_defaults (
-                    kind TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    payload TEXT NOT NULL,
-                    PRIMARY KEY (kind, key)
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS unique_weights (
-                    name TEXT PRIMARY KEY,
-                    weight REAL NOT NULL,
-                    ruthless_weight REAL NOT NULL,
-                    updated_utc TEXT NOT NULL
-                ) STRICT;
-                CREATE TABLE IF NOT EXISTS unique_weight_overrides (
-                    name TEXT PRIMARY KEY,
-                    weight REAL NOT NULL,
-                    ruthless_weight REAL NOT NULL,
-                    updated_utc TEXT NOT NULL
-                ) STRICT;
-                CREATE VIEW IF NOT EXISTS effective_mod_stats AS
-                    SELECT m.mod_id, m.stat_index, m.stat_id,
-                           COALESCE(o.minimum, m.minimum) AS minimum,
-                           COALESCE(o.maximum, m.maximum) AS maximum,
-                           m."local"
-                    FROM mod_stats m
-                    LEFT JOIN mod_stat_overrides o ON o.mod_id = m.mod_id AND o.stat_index = m.stat_index;
-                CREATE TABLE IF NOT EXISTS item_templates (
-                    id TEXT PRIMARY KEY,
-                    label TEXT NOT NULL,
-                    base_type TEXT NOT NULL,
-                    rarity INTEGER NOT NULL,
-                    item_level INTEGER NOT NULL,
-                    quality INTEGER NOT NULL,
-                    custom_name TEXT,
-                    name_words TEXT,
-                    visual INTEGER,
-                    corrupted INTEGER NOT NULL,
-                    mirrored INTEGER NOT NULL,
-                    mods TEXT NOT NULL,
-                    updated_utc TEXT NOT NULL
-                ) STRICT;
-                """);
-            Execute("INSERT OR IGNORE INTO game_data_meta (key, value) VALUES ('schema_version', '3')");
-            Execute("UPDATE game_data_meta SET value = '3' WHERE key = 'schema_version' AND value IN ('1', '2')");
-        }
+        _db = SqlUpdater.Open(path);
+        try { SqlUpdater.Update(_db, "world"); }
         catch
         {
             _db.Dispose();
@@ -168,37 +59,6 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
-    public void SetModRange(string modId, int statIndex, int minimum, int maximum)
-    {
-        if (string.IsNullOrWhiteSpace(modId)) throw new ArgumentException("mod id is empty", nameof(modId));
-        if (statIndex < 0) throw new ArgumentOutOfRangeException(nameof(statIndex));
-        if (minimum > maximum) throw new ArgumentException("minimum is above maximum");
-        Atomically(() =>
-        {
-            using var command = Command("""
-                INSERT INTO mod_stat_overrides (mod_id, stat_index, minimum, maximum, updated_utc)
-                VALUES ($mod, $index, $minimum, $maximum, $utc)
-                ON CONFLICT(mod_id, stat_index) DO UPDATE SET
-                    minimum = excluded.minimum,
-                    maximum = excluded.maximum,
-                    updated_utc = excluded.updated_utc
-                """, ("$mod", modId), ("$index", statIndex), ("$minimum", minimum), ("$maximum", maximum),
-                ("$utc", DateTime.UtcNow.ToString("O")));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public void ClearModRange(string modId, int? statIndex = null)
-    {
-        Atomically(() =>
-        {
-            using var command = statIndex is int index
-                ? Command("DELETE FROM mod_stat_overrides WHERE mod_id = $mod AND stat_index = $index", ("$mod", modId), ("$index", index))
-                : Command("DELETE FROM mod_stat_overrides WHERE mod_id = $mod", ("$mod", modId));
-            command.ExecuteNonQuery();
-        });
-    }
-
     public IReadOnlyList<LimitOverride> LoadLimits()
     {
         lock (_gate)
@@ -210,52 +70,6 @@ public sealed class GameDataStore : IDisposable
             return result;
         }
     }
-
-    public void SetLimit(string key, int value)
-    {
-        if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("limit key is empty", nameof(key));
-        if (value < 0) throw new ArgumentOutOfRangeException(nameof(value));
-        Atomically(() =>
-        {
-            using var command = Command("""
-                INSERT INTO limit_overrides (key, value, updated_utc)
-                VALUES ($key, $value, $utc)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_utc = excluded.updated_utc
-                """, ("$key", key), ("$value", value), ("$utc", DateTime.UtcNow.ToString("O")));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public void ClearLimit(string key)
-    {
-        Atomically(() =>
-        {
-            using var command = Command("DELETE FROM limit_overrides WHERE key = $key", ("$key", key));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public bool ReferenceSeeded() => Meta("reference_seeded") is not null;
-
-    public void MarkReferenceSeeded() => SetMeta("reference_seeded", DateTime.UtcNow.ToString("O"));
-
-    /// <summary>The rows the first Gateway start writes from data/tables; 0 when the extraction is missing.</summary>
-    public (int Stats, int Mods, int ModStats) ReferenceCounts()
-    {
-        lock (_gate)
-        {
-            int Count(string table)
-            {
-                using var command = Command($"SELECT COUNT(*) FROM {table}");
-                return Convert.ToInt32(command.ExecuteScalar());
-            }
-            return (Count("stats"), Count("mods"), Count("mod_stats"));
-        }
-    }
-
-    public bool UniqueWeightsSeeded() => Meta("unique_weights_seeded") is not null;
-
-    public void MarkUniqueWeightsSeeded() => SetMeta("unique_weights_seeded", DateTime.UtcNow.ToString("O"));
 
     public IReadOnlyList<UniqueWeightRow> LoadUniqueWeights()
     {
@@ -281,59 +95,6 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
-    /// <summary>Replace the client-derived reference weights. Admin overrides live in
-    /// <c>unique_weight_overrides</c> and are kept when the reference is rebuilt.</summary>
-    public void SeedUniqueWeights(IReadOnlyList<UniqueWeightRow> rows)
-    {
-        Atomically(() =>
-        {
-            Execute("DELETE FROM unique_weights");
-            using var command = Command("""
-                INSERT INTO unique_weights (name, weight, ruthless_weight, updated_utc)
-                VALUES ($name, $weight, $ruthless, $utc)
-                """, ("$name", ""), ("$weight", 0.0), ("$ruthless", 0.0), ("$utc", ""));
-            command.Prepare();
-            foreach (var row in rows)
-            {
-                command.Parameters["$name"].Value = row.Name;
-                command.Parameters["$weight"].Value = row.Weight;
-                command.Parameters["$ruthless"].Value = row.RuthlessWeight;
-                command.Parameters["$utc"].Value = DateTime.UtcNow.ToString("O");
-                command.ExecuteNonQuery();
-            }
-        });
-    }
-
-    public void SetUniqueWeight(string name, double weight, double ruthlessWeight)
-    {
-        if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("unique name is empty", nameof(name));
-        if (!double.IsFinite(weight) || !double.IsFinite(ruthlessWeight)
-            || weight is < 0 or > 1 || ruthlessWeight is < 0 or > 1)
-            throw new ArgumentException("unique weight must be finite and between 0 and 1");
-        Atomically(() =>
-        {
-            using var command = Command("""
-                INSERT INTO unique_weight_overrides (name, weight, ruthless_weight, updated_utc)
-                VALUES ($name, $weight, $ruthless, $utc)
-                ON CONFLICT(name) DO UPDATE SET
-                    weight = excluded.weight,
-                    ruthless_weight = excluded.ruthless_weight,
-                    updated_utc = excluded.updated_utc
-                """, ("$name", name), ("$weight", weight), ("$ruthless", ruthlessWeight),
-                ("$utc", DateTime.UtcNow.ToString("O")));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public void ClearUniqueWeight(string name)
-    {
-        Atomically(() =>
-        {
-            using var command = Command("DELETE FROM unique_weight_overrides WHERE name = $name", ("$name", name));
-            command.ExecuteNonQuery();
-        });
-    }
-
     public (int Weights, int Overrides) UniqueWeightCounts()
     {
         lock (_gate)
@@ -347,78 +108,6 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
-    /// <summary>Replace the reference tables in one transaction. This is the startup seed from the extracted
-    /// Stats/Mods tables; an admin edit lives in <c>mod_stat_overrides</c> and is not touched.</summary>
-    public void SeedReference(IReadOnlyList<StatRow> stats, IReadOnlyList<ModRow> mods,
-        IReadOnlyList<ModStatRow> modStats)
-    {
-        Atomically(() =>
-        {
-            Execute("DELETE FROM mod_stats");
-            Execute("DELETE FROM mods");
-            Execute("DELETE FROM stats");
-
-            using (var command = Command("""
-                INSERT INTO stats (id, row, hash32, is_local, is_public, is_weapon_local, category)
-                VALUES ($id, $row, $hash, $local, $public, $weapon, $category)
-                """, ("$id", ""), ("$row", 0), ("$hash", 0L), ("$local", 0), ("$public", 0), ("$weapon", 0),
-                ("$category", -1)))
-            {
-                command.Prepare();
-                foreach (var row in stats)
-                {
-                    command.Parameters["$id"].Value = row.Id;
-                    command.Parameters["$row"].Value = row.Row;
-                    command.Parameters["$hash"].Value = (long)row.Hash32;
-                    command.Parameters["$local"].Value = row.IsLocal ? 1 : 0;
-                    command.Parameters["$public"].Value = row.IsPublic ? 1 : 0;
-                    command.Parameters["$weapon"].Value = row.IsWeaponLocal ? 1 : 0;
-                    command.Parameters["$category"].Value = row.Category;
-                    command.ExecuteNonQuery();
-                }
-            }
-
-            using (var command = Command("""
-                INSERT INTO mods (id, hash16, name, domain, generation_type, level, mod_type)
-                VALUES ($id, $hash, $name, $domain, $generation, $level, $type)
-                """, ("$id", ""), ("$hash", 0), ("$name", ""), ("$domain", 1), ("$generation", 3), ("$level", 1),
-                ("$type", "")))
-            {
-                command.Prepare();
-                foreach (var row in mods)
-                {
-                    command.Parameters["$id"].Value = row.Id;
-                    command.Parameters["$hash"].Value = row.Hash16;
-                    command.Parameters["$name"].Value = row.Name;
-                    command.Parameters["$domain"].Value = row.Domain;
-                    command.Parameters["$generation"].Value = row.GenerationType;
-                    command.Parameters["$level"].Value = row.Level;
-                    command.Parameters["$type"].Value = row.ModType;
-                    command.ExecuteNonQuery();
-                }
-            }
-
-            using (var command = Command("""
-                INSERT INTO mod_stats (mod_id, stat_index, stat_id, minimum, maximum, "local")
-                VALUES ($mod, $index, $stat, $minimum, $maximum, $local)
-                """, ("$mod", ""), ("$index", 0), ("$stat", ""), ("$minimum", 0), ("$maximum", 0), ("$local", 0)))
-            {
-                command.Prepare();
-                foreach (var row in modStats)
-                {
-                    command.Parameters["$mod"].Value = row.ModId;
-                    command.Parameters["$index"].Value = row.StatIndex;
-                    command.Parameters["$stat"].Value = row.StatId;
-                    command.Parameters["$minimum"].Value = row.Minimum;
-                    command.Parameters["$maximum"].Value = row.Maximum;
-                    command.Parameters["$local"].Value = row.Local ? 1 : 0;
-                    command.ExecuteNonQuery();
-                }
-            }
-        });
-        MarkReferenceSeeded();
-    }
-
     public IReadOnlyList<SettingRow> LoadSettings()
     {
         lock (_gate)
@@ -430,34 +119,6 @@ public sealed class GameDataStore : IDisposable
             return result;
         }
     }
-
-    public void SetSetting(string key, double value)
-    {
-        if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("setting key is empty", nameof(key));
-        if (!double.IsFinite(value)) throw new ArgumentException("setting value is not finite", nameof(value));
-        Atomically(() =>
-        {
-            using var command = Command("""
-                INSERT INTO system_settings (key, value, updated_utc)
-                VALUES ($key, $value, $utc)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_utc = excluded.updated_utc
-                """, ("$key", key), ("$value", value), ("$utc", DateTime.UtcNow.ToString("O")));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public void DeleteSetting(string key)
-    {
-        Atomically(() =>
-        {
-            using var command = Command("DELETE FROM system_settings WHERE key = $key", ("$key", key));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public bool SettingsSeeded() => Meta("settings_seeded") is not null;
-
-    public void MarkSettingsSeeded() => SetMeta("settings_seeded", DateTime.UtcNow.ToString("O"));
 
     public IReadOnlyList<CatalogRow> LoadCatalog(string kind)
     {
@@ -473,167 +134,139 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
-    /// <summary>The keys of a kind's rows last written no later than <paramref name="since"/> (a round-trip UTC time).
-    /// A write through this store rewrites a row's time; an edit by hand might not.</summary>
-    public IReadOnlySet<string> CatalogKeysWrittenBy(string kind, string since)
+    public (int CurrencyWeights, int CurrencySources, int Bosses, int BossItems, int CardAreas, int CardSources,
+        int ItemWeights) DropCounts()
     {
         lock (_gate)
         {
-            using var command = Command("SELECT key FROM catalog_entries WHERE kind = $kind AND updated_utc <= $since",
-                ("$kind", kind), ("$since", since));
-            using var reader = command.ExecuteReader();
-            var keys = new HashSet<string>(StringComparer.Ordinal);
-            while (reader.Read()) keys.Add(reader.GetString(0));
-            return keys;
+            int Count(string table)
+            {
+                using var command = Command($"SELECT COUNT(*) FROM {table}");
+                return Convert.ToInt32(command.ExecuteScalar());
+            }
+            return (Count("drop_currency_weights"), Count("drop_currency_sources"), Count("drop_bosses"),
+                Count("drop_boss_items"), Count("drop_card_areas"), Count("drop_card_sources"),
+                Count("drop_item_weights"));
         }
     }
 
-    public void PutCatalogRow(string kind, string key, string payload, bool enabled = true)
+    public IReadOnlyList<CurrencyWeightRow> LoadCurrencyWeights()
     {
-        if (string.IsNullOrWhiteSpace(kind)) throw new ArgumentException("catalog kind is empty", nameof(kind));
-        if (string.IsNullOrWhiteSpace(key)) throw new ArgumentException("catalog key is empty", nameof(key));
-        Atomically(() =>
+        lock (_gate)
         {
             using var command = Command("""
-                INSERT INTO catalog_entries (kind, key, payload, enabled, updated_utc)
-                VALUES ($kind, $key, $payload, $enabled, $utc)
-                ON CONFLICT(kind, key) DO UPDATE SET
-                    payload = excluded.payload,
-                    enabled = excluded.enabled,
-                    updated_utc = excluded.updated_utc
-                """, ("$kind", kind), ("$key", key), ("$payload", payload), ("$enabled", enabled ? 1 : 0),
-                ("$utc", DateTime.UtcNow.ToString("O")));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    public void DeleteCatalogRow(string kind, string key)
-    {
-        Atomically(() =>
-        {
-            using var command = Command("DELETE FROM catalog_entries WHERE kind = $kind AND key = $key",
-                ("$kind", kind), ("$key", key));
-            command.ExecuteNonQuery();
-        });
-    }
-
-    /// <summary>The seed keys last recorded for a kind. A missing key in the catalogue that is in this set was
-    /// deleted by an admin, not omitted by an older seed.</summary>
-    public IReadOnlySet<string> LoadSeededKeys(string kind)
-    {
-        lock (_gate)
-        {
-            using var command = Command("SELECT key FROM catalog_seed_keys WHERE kind = $kind", ("$kind", kind));
+                SELECT currency_id, weight, drop_level, enabled, source, confidence, notes
+                FROM drop_currency_weights ORDER BY currency_id
+                """);
             using var reader = command.ExecuteReader();
-            var keys = new HashSet<string>(StringComparer.Ordinal);
-            while (reader.Read()) keys.Add(reader.GetString(0));
-            return keys;
+            var rows = new List<CurrencyWeightRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetDouble(1), reader.GetInt32(2), reader.GetInt32(3) != 0,
+                    reader.GetString(4), reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6)));
+            return rows;
         }
     }
 
-    public void ReplaceSeededKeys(string kind, IEnumerable<string> keys)
-    {
-        if (string.IsNullOrWhiteSpace(kind)) throw new ArgumentException("catalog kind is empty", nameof(kind));
-        Atomically(() =>
-        {
-            using (var delete = Command("DELETE FROM catalog_seed_keys WHERE kind = $kind", ("$kind", kind)))
-                delete.ExecuteNonQuery();
-            using var insert = Command("INSERT INTO catalog_seed_keys (kind, key) VALUES ($kind, $key)",
-                ("$kind", kind), ("$key", ""));
-            insert.Prepare();
-            foreach (string key in keys)
-            {
-                insert.Parameters["$key"].Value = key;
-                insert.ExecuteNonQuery();
-            }
-        });
-    }
-
-    /// <summary>The payload the seed last gave each key of a kind. A row that still holds it was not edited.</summary>
-    public IReadOnlyDictionary<string, string> LoadSeedDefaults(string kind)
+    public IReadOnlyList<CurrencySourceRow> LoadCurrencySources()
     {
         lock (_gate)
-        {
-            using var command = Command("SELECT key, payload FROM catalog_seed_defaults WHERE kind = $kind", ("$kind", kind));
-            using var reader = command.ExecuteReader();
-            var defaults = new Dictionary<string, string>(StringComparer.Ordinal);
-            while (reader.Read()) defaults[reader.GetString(0)] = reader.GetString(1);
-            return defaults;
-        }
-    }
-
-    public void ReplaceSeedDefaults(string kind, IEnumerable<KeyValuePair<string, string>> defaults)
-    {
-        if (string.IsNullOrWhiteSpace(kind)) throw new ArgumentException("catalog kind is empty", nameof(kind));
-        Atomically(() =>
-        {
-            using (var delete = Command("DELETE FROM catalog_seed_defaults WHERE kind = $kind", ("$kind", kind)))
-                delete.ExecuteNonQuery();
-            using var insert = Command("INSERT INTO catalog_seed_defaults (kind, key, payload) VALUES ($kind, $key, $payload)",
-                ("$kind", kind), ("$key", ""), ("$payload", ""));
-            insert.Prepare();
-            foreach (var (key, payload) in defaults)
-            {
-                insert.Parameters["$key"].Value = key;
-                insert.Parameters["$payload"].Value = payload;
-                insert.ExecuteNonQuery();
-            }
-        });
-    }
-
-    public bool CatalogSeeded(string kind) => Meta("catalog_seeded:" + kind) is not null;
-
-    public void MarkCatalogSeeded(string kind) => SetMeta("catalog_seeded:" + kind, DateTime.UtcNow.ToString("O"));
-
-    public string? Meta(string key)
-    {
-        lock (_gate)
-        {
-            using var command = Command("SELECT value FROM game_data_meta WHERE key = $key", ("$key", key));
-            return command.ExecuteScalar() as string;
-        }
-    }
-
-    public void SetMeta(string key, string value)
-    {
-        Atomically(() =>
         {
             using var command = Command("""
-                INSERT INTO game_data_meta (key, value) VALUES ($key, $value)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """, ("$key", key), ("$value", value));
-            command.ExecuteNonQuery();
-        });
+                SELECT currency_id, source_kind, source_id, weight, drop_level, enabled, confidence, source, notes
+                FROM drop_currency_sources ORDER BY currency_id, source_kind, source_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CurrencySourceRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3),
+                    reader.GetInt32(4), reader.GetInt32(5) != 0, reader.GetString(6), reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8)));
+            return rows;
+        }
     }
 
-    /// <summary>Runs several of this store's writes as one transaction.</summary>
-    public void InTransaction(Action work) => Atomically(work);
-
-    private void Atomically(Action work)
+    public IReadOnlyList<BossRow> LoadBosses()
     {
         lock (_gate)
         {
-            if (_tx is not null)
-            {
-                work();
-                return;
-            }
-            using var transaction = _db.BeginTransaction();
-            _tx = transaction;
-            try
-            {
-                work();
-                transaction.Commit();
-            }
-            catch
-            {
-                transaction.Rollback();
-                throw;
-            }
-            finally
-            {
-                _tx = null;
-            }
+            using var command = Command("SELECT boss_id, boss_name, area_id, category, enabled FROM drop_bosses ORDER BY boss_id");
+            using var reader = command.ExecuteReader();
+            var rows = new List<BossRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetString(3), reader.GetInt32(4) != 0));
+            return rows;
+        }
+    }
+
+    public IReadOnlyList<BossItemRow> LoadBossItems()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT boss_id, item_id, item_kind, chance, confidence, source, notes
+                FROM drop_boss_items ORDER BY boss_id, item_kind, item_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<BossItemRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetDouble(3), reader.GetString(4), reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetString(6)));
+            return rows;
+        }
+    }
+
+    public IReadOnlyList<CardAreaRow> LoadCardAreas()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT area_id, area_name, card_id, min_map_tier, source
+                FROM drop_card_areas ORDER BY area_id, card_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CardAreaRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3),
+                    reader.GetString(4)));
+            return rows;
+        }
+    }
+
+    public IReadOnlyList<CardSourceRow> LoadCardSources()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT card_id, source_kind, source_id, min_map_tier, drop_level, confidence, source, notes
+                FROM drop_card_sources ORDER BY card_id, source_kind, source_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<CardSourceRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetInt32(3), reader.GetInt32(4), reader.GetString(5),
+                    reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetString(7)));
+            return rows;
+        }
+    }
+
+    public IReadOnlyList<ItemWeightRow> LoadItemWeights()
+    {
+        lock (_gate)
+        {
+            using var command = Command("""
+                SELECT category, item_id, weight, enabled, source, confidence, patch, sampled_at, notes
+                FROM drop_item_weights ORDER BY category, item_id
+                """);
+            using var reader = command.ExecuteReader();
+            var rows = new List<ItemWeightRow>();
+            while (reader.Read())
+                rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2), reader.GetInt32(3) != 0,
+                    reader.GetString(4), reader.GetString(5), reader.GetString(6), reader.GetString(7),
+                    reader.IsDBNull(8) ? null : reader.GetString(8)));
+            return rows;
         }
     }
 
@@ -641,15 +274,8 @@ public sealed class GameDataStore : IDisposable
     {
         var command = _db.CreateCommand();
         command.CommandText = sql;
-        command.Transaction = _tx;
-        foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
+                foreach (var (name, value) in parameters) command.Parameters.AddWithValue(name, value);
         return command;
-    }
-
-    private void Execute(string sql)
-    {
-        using var command = Command(sql);
-        command.ExecuteNonQuery();
     }
 
     public void Dispose()

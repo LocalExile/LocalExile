@@ -388,7 +388,7 @@ S→C **0x2aa** (class `0x1431767e8`, read `0x140911270`): u32 BE, the gold show
 respec cost check (`0x1409996c0`) and the village gold label (`0x1404ffb90`) read it, and plays Gold_Spend.ogg when it
 drops. Found with a hardware watchpoint on the field and the dispatcher's disassembly (its decompile fails). The
 Gateway keeps gold per account, as in the real game where every character of an account (and league) shares it:
-`AccountStash.Gold`, saved in the account's stash row of `data/saves.db` ([18](18-stash.md) §6). It sends that amount on every area
+`AccountStash.Gold`, saved in the account's stash row of `data/characters.db` ([18](18-stash.md) §6). It sends that amount on every area
 entry, on `/gold` and after a gold respec. A character save from before this still holding `Gold` gives it to the
 account at the character's next login (`CharacterSaves.TakeGold`). Leagues are not kept apart yet. Gold coins on the ground are the item
 `Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound); picking them up is

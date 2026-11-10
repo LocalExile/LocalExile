@@ -2,27 +2,26 @@ namespace GameServer.Modding;
 
 /// <summary>
 /// A mod's entry point. The Gateway creates every public, non-abstract class of the mod's assembly that implements it
-/// (with a parameterless constructor) and calls <see cref="Load"/> once. A mod registers everything it does through the
-/// context; what it registered is dropped when the mod unloads (a reload, a changed or deleted folder). A class that also
-/// implements <see cref="IDisposable"/> is disposed before that.
+/// (with a parameterless constructor) and calls <see cref="Load"/> once. A mod subscribes to the Gateway's <c>GameEvents</c> with
+/// its id as the owner; the host drops those subscriptions when the mod unloads (a reload, a changed or deleted folder). A class
+/// that also implements <see cref="IDisposable"/> is disposed before that.
 /// </summary>
 /// <remarks>
 /// Static fields of a mod live in its own load context: a reload starts them over, like the rest of its state.
 /// </remarks>
 public interface IMod
 {
-    /// <summary>Registers the mod's hooks. An exception here leaves the mod unloaded, with the error in its status.</summary>
+    /// <summary>Subscribes the mod to the events it uses. An exception here leaves the mod unloaded, with the error in its status.</summary>
     void Load(IModContext mod);
 }
 
 /// <summary>
-/// A module's entry point: anything from an NPC's dialogue to a whole game system, where a mod (<see cref="IMod"/>) is a small
-/// modification. Modules live in <c>Modules/</c> and <c>Modules/Core/</c>, and load only when a league lists them. They get what mods
-/// get and what only they can do (<see cref="IModuleContext"/>).
+/// A module's entry point: a game system, from an NPC's dialogue to Delve. Modules live in <c>Modules/Core/</c>, <c>Legacy/</c> and
+/// <c>Custom/</c>, load only when a league lists them, and run only for those leagues' players (<see cref="IModuleContext"/>).
 /// </summary>
 public interface IModule
 {
-    /// <summary>Registers the module's leagues and hooks. An exception here leaves it unloaded, with the error in its status.</summary>
+    /// <summary>Subscribes the module to the events it uses. An exception here leaves it unloaded, with the error in its status.</summary>
     void Load(IModuleContext module);
 }
 

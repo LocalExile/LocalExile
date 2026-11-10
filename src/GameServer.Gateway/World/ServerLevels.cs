@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 /// <summary>Server-side level generation (GameServer.Data/Terrain/Generation, Agents/docs/re/011-level-generation.md):
 /// for an area the port reproduces 1:1, the Gateway generates the layout itself from the seed instead of reading the
@@ -11,7 +12,7 @@ using GameServer.Data.Terrain.Generation;
 /// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change), or whose seed-1
 /// failure the port reproduces (the client cannot build it either), and whose logged loads all match. Needs the game
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
-static class ServerLevels
+public static class ServerLevels
 {
     public const string UnsupportedMessage = "This map is generated on client-side and is not supported yet by the Server.";
 
@@ -113,10 +114,10 @@ static class ServerLevels
     }
 
     /// <summary>Drops the lists read from the baseline, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
-    internal static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
+    public static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
 
     /// <summary>The supported areas of a gate baseline (<see cref="GameServer.Core.World.ServerLevelAreas.Load"/>).</summary>
-    internal static HashSet<string> LoadSupported(string file) =>
+    public static HashSet<string> LoadSupported(string file) =>
         GameServer.Core.World.ServerLevelAreas.Load(file, m => Console.WriteLine($"[gateway] server levels: {m}"));
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
@@ -213,7 +214,7 @@ static class ServerLevels
     }
 
     /// <summary>The seeds tried in place of one the port cannot generate, in order (1 … int.MaxValue, as Auth's).</summary>
-    internal static IEnumerable<uint> Replacements(uint seed)
+    public static IEnumerable<uint> Replacements(uint seed)
     {
         for (uint k = 1; k <= 8; k++)
         {
@@ -291,7 +292,7 @@ static class ServerLevels
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
             foreach (var row in doc.RootElement.EnumerateArray())
                 levels[row.GetProperty("Id").GetString() ?? ""] = row.GetProperty("AreaLevel").GetInt32();
         }
@@ -300,5 +301,5 @@ static class ServerLevels
     });
 
     // The WorldAreas row's area level (the generator's AreaInfo reads level-dependent rows); 1 without the table.
-    internal static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
+    public static int AreaLevel(string areaId) => Math.Max(1, Levels.Value.GetValueOrDefault(areaId, 1));
 }

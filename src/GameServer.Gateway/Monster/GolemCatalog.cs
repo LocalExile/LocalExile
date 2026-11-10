@@ -1,9 +1,9 @@
 using System.Text.Json;
 
 /// <summary>Immutable identities from the installed client's tables; levels and quality stay with SkillCatalog.</summary>
-sealed class GolemCatalog(string folder = "data")
+public sealed class GolemCatalog(string folder = "data")
 {
-    internal sealed record Definition(int Effect, string Id, string Kind, string Variety, ushort Buff,
+    public sealed record Definition(int Effect, string Id, string Kind, string Variety, ushort Buff,
         IReadOnlyList<(string Source, string Target)> BuffStats, bool Hordes, bool Special, bool IsGolem = true);
 
     readonly Lazy<IReadOnlyDictionary<string, Definition>> definitions = new(() => Load(folder));
@@ -11,7 +11,7 @@ sealed class GolemCatalog(string folder = "data")
     public IReadOnlyCollection<Definition> All => definitions.Value.Values.ToArray();
     public Definition? Find(string? id) => id is not null ? definitions.Value.GetValueOrDefault(id) : null;
 
-    internal (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Skill(SkillCatalog skills, int effect, int actorLevel)
+    public (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Skill(SkillCatalog skills, int effect, int actorLevel)
         => scaling.Value.Skill(skills, effect, actorLevel);
 
     sealed class Scaling
@@ -101,7 +101,7 @@ sealed class GolemCatalog(string folder = "data")
         return result;
     }
 
-    internal static int Limit(int skillBase, Func<string, int> player)
+    public static int Limit(int skillBase, Func<string, int> player)
     {
         long value = Math.Max(1, skillBase) + (long)player("base_number_of_golems_allowed") + player("number_of_golems_allowed");
         if (player("primordial_jewel_count") >= 3) value += player("number_of_golems_allowed_with_3_primordial_jewels");
@@ -109,7 +109,7 @@ sealed class GolemCatalog(string folder = "data")
         return (int)Math.Clamp(value, 0, 100);
     }
 
-    internal static int BuffEffect(Definition definition, Func<string, int> player, Func<string, int> own, int count)
+    public static int BuffEffect(Definition definition, Func<string, int> player, Func<string, int> own, int count)
     {
         string family = definition.Kind switch { "Flame" => "fire", "Carrion" => "bone", _ => definition.Kind.ToLowerInvariant() };
         int effect = player("golem_buff_effect_+%") + own("golem_buff_effect_+%")

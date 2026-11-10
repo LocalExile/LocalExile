@@ -1,9 +1,10 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 
 /// <summary>Opening objects use fitted .arm placements and captured .tmd placements, never seed-specific coordinates.</summary>
-static class TutorialObjects
+public static class TutorialObjects
 {
     public const string Strand = "1_1_1", Exile = "Metadata/NPC/Act1/WoundedExile",
         Zombie = "Metadata/Monsters/Zombies/ZombieBite", Spawner = "Metadata/Monsters/Zombies/BiteZombieSpawner",
@@ -55,7 +56,7 @@ static class TutorialObjects
     {
         string file=Path.Combine(folder,$"{area}_seed{seed}.rooms.json");
         // Without a capture, an area the Gateway generates itself has the same rooms from the port (ServerLevels).
-        if(generated || !File.Exists(file))
+        if(generated || !ClientTables.Exists(file))
             return ServerLevels.InPlaceOf(folder,area,seed) is { } level
                 ? level.Rooms.Where(r=>string.Equals(r.Path,path,StringComparison.OrdinalIgnoreCase))
                     .Select(r=>new RoomPlacement(r.X,r.Y,r.Width,r.Height,r.Code)).Distinct().ToList()
@@ -63,7 +64,7 @@ static class TutorialObjects
         // It runs while the area's layout is built (room points): a broken capture means no placement, not an error.
         try
         {
-            using var doc=JsonDocument.Parse(File.ReadAllBytes(file));var root=doc.RootElement;
+            using var doc=JsonDocument.Parse(ClientTables.ReadAllBytes(file));var root=doc.RootElement;
             if(root.GetProperty("area").GetString()!=area || root.GetProperty("seed").GetUInt32()!=seed) return [];
             return root.GetProperty("rooms").EnumerateArray().Where(r=>string.Equals(r.GetProperty("path").GetString(),path,StringComparison.OrdinalIgnoreCase))
                 .Select(r=>new RoomPlacement(r.GetProperty("x").GetInt32(),r.GetProperty("y").GetInt32(),r.GetProperty("width").GetInt32(),r.GetProperty("height").GetInt32(),r.GetProperty("code").GetInt32()))
@@ -104,11 +105,11 @@ static class TutorialObjects
     {
         string file = Path.Combine(folder, $"{area}_seed{seed}.objects.json");
         // Without a capture, an area the Gateway generates itself has the same chest from the port (ServerLevels).
-        if (!File.Exists(file))
+        if (!ClientTables.Exists(file))
             return ServerLevels.InPlaceOf(folder, area, seed)?.QuestObjects.FirstOrDefault(o => o.Type == Chest) is { } made
                 ? new(Chest, made.Model, made.X, made.Y, made.Rotation)
                 : null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
         var root = doc.RootElement;
         if (root.GetProperty("area").GetString() != area || root.GetProperty("seed").GetUInt32() != seed) return null;
         foreach (var r in root.GetProperty("objects").EnumerateArray())

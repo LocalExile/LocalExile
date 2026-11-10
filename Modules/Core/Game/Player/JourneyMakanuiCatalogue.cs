@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -6,7 +7,7 @@ using System.Text.Json;
 /// <c>PassiveSkillOverrides</c> rows with Type 15 are the 48 ordinary keystone overrides; their
 /// <c>AllocatedPassiveSkill</c> is the PassiveSkills row and <c>HASH16</c> is what 0x33's fifth list needs.
 /// </summary>
-static class JourneyMakanuiCatalogue
+public static class JourneyMakanuiCatalogue
 {
     public sealed record Entry(ushort GraphId, string Name, int Row, ushort OverrideHash);
 
@@ -37,8 +38,8 @@ static class JourneyMakanuiCatalogue
     {
         var result = new List<Entry>();
         string path = Path.Combine("data", "tables", "PassiveSkillOverrides.json");
-        if (!File.Exists(path)) return result;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in document.RootElement.EnumerateArray())
         {
             if (row.GetProperty("Type").GetInt32() != 15) continue;

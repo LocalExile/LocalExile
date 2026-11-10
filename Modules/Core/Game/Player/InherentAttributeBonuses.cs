@@ -1,7 +1,7 @@
 
 
 /// <summary>Native flags that suppress inherent attribute grants while retaining attributes and item group terms.</summary>
-static class InherentAttributeBonuses
+public static class InherentAttributeBonuses
 {
     // 3.29.3b Stats.dat client keys 7964/7965/15532/18387/18388. Narrow flags do not suppress the other grant.
     public const string NoLifeFromStrength = "gain_no_maximum_life_from_strength";

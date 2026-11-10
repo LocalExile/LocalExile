@@ -1,6 +1,6 @@
 using GameServer.Core.Projectiles;
 
-static partial class Game
+public static partial class Game
 {
     static partial void RegisterProjectileSkillDefinitions(Dictionary<string, ProjectileSkillDefinition> definitions,
         ref bool requireExplicitProfiles)

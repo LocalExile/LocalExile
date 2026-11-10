@@ -69,9 +69,9 @@ What is known about the client and the data is in [19](../docs/protocol/19-gems.
   Cyclone with Increased Area of Effect was checked with the real client.
   Item-granted support references and local socketed-gem level/quality bonuses now share the resolver and calculations.
   Item-support records, duplicate resolution, rolled levels and Delve more damage have automated coverage.
-- **Next:** implement special execution mechanics separately: triggers, attack repeats (Multistrike), Ice Nova's
+- **Next:** implement remaining trigger payloads beyond CWDT projectile spells, attack repeats (Multistrike), Ice Nova's
   repeated rings and Spell Echo's final-repeat stats (Greater and Awakened Spell Echo), projectile branching,
-  totems that use their skill (only Rejuvenation Totem's aura has an executor, and monsters do not attack totems;
+  remaining totem payloads (Artillery/Focused Ballista, beams, channels and pulses; monsters do not attack totems;
   [11](../docs/protocol/11-skills.md) §10g), mines, minions, leech and conditional effects; verify each against
   native data and live behaviour.
   Cyclone's item-granted badge letters/colours and supported panel values were checked with the real client.

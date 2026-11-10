@@ -12,14 +12,23 @@ using GameServer.Core.Protocol.Instance;
 /// (S→C 0x1c7, <see cref="Speech"/>). The mechanics (the BossObjectiveMarkers' objects, LabyrinthSecretEffects), the
 /// Goddess of Justice and his chests are not built yet.
 /// </summary>
-static class IzaroFights
+public static class IzaroFights
 {
     /// <summary>The arena's server objects: his elevator and the doors of the arena's ways in and out; the corridor's gate
     /// in front of the way into the arena (LabyrinthIzaroArenaTransition, at the same place).</summary>
     public const string Elevator = "Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro",
         ArenaDoor = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroArenaDoor",
         Gate = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroDoor",
+        Railing = "Metadata/Terrain/Labyrinth/Objects/BossObjectiveBlocker",
         ArenaTransition = "Metadata/Terrain/Labyrinth/Objects/LabyrinthIzaroArenaTransition";
+
+    /// <summary>The places of a mechanic's things an earlier trial left: an alcove's (BossObjectiveMarker, three behind each
+    /// railing) and a ledge's in the room before the arena (BossEntryObjectiveMarker, in threes).</summary>
+    public const string Marker = "Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker",
+        LedgeMarker = "Metadata/Terrain/Labyrinth/Objects/BossEntryObjectiveMarker";
+
+    /// <summary>The railing's lowering (alcove_railing.ao "down").</summary>
+    public const double RailingSeconds = 3.3;
 
     // Positioned, BaseEvents, Animated, Transitionable, TriggerableBlockage (then Render), the gate also InteractionAction
     // (then Render, Targetable), ot_components.py.
@@ -40,6 +49,10 @@ static class IzaroFights
     /// (create_untransitioned pauses "closed" at its start), 2 shut (on_transition plays "closed"; back to 1 plays
     /// "open"). The gate's the other way round (LabyrinthIzaroDoor.ot): 1 shut ("open" paused at its start), 2 open.</summary>
     public const byte DoorOpen = 1, DoorShut = 2, GateShut = 1, GateOpened = 2;
+
+    /// <summary>An alcove's railing (BossObjectiveBlocker, alcove_railing.ao; same components as the doors): 1 up and
+    /// blocked, 2 lowered (its "down" clip, 3.3 s), for a mechanic's monsters to come out of the alcove.</summary>
+    public const byte RailingUp = 1, RailingDown = 2;
 
     /// <summary>Izaro's Transitionable (LabyrinthBoss.ot, num_states 5): he is created in 5 (the Hide clip at its end:
     /// down on the lowered elevator, untargetable), 2 is the fight (EnableTargetable), 4 the trial won (untargetable,
@@ -81,7 +94,7 @@ static class IzaroFights
         ["LabyrinthKilledIzaro", tier switch { 1 => "LabyrinthComplete1", 2 => "LabyrinthComplete2", 3 => "LabyrinthComplete3", _ => "LabyrinthCompleteMaps" }];
 
     /// <summary>An Aspirant's Trial: its number of the layout's sections (<see cref="Of"/>), Izaro's weapon and the tier.</summary>
-    public sealed record Trial(int Number, int Of, int Weapon, int Tier, string? Mechanic = null)
+    public sealed record Trial(int Number, int Of, int Weapon, int Tier, string? Mechanic = null, IReadOnlyList<string>? Secrets = null)
     {
         public bool Last => Number >= Of;
         /// <summary>His life when it starts: what the earlier trials left (100, 66, 33 of 100 with three).</summary>
@@ -94,14 +107,19 @@ static class IzaroFights
     /// <summary>The trial in this instance of an area, or null outside Izaro's arenas of today's Labyrinth.</summary>
     public static Trial? For(string areaId, uint instanceSeed) =>
         LabyrinthDay.IzaroRoom(areaId, instanceSeed) is { } room
-            ? new Trial(room.Number, room.Of, WeaponOf(room.Seed, room.Difficulty), room.Difficulty, SecretId(room.Secret)) : null;
+            ? new Trial(room.Number, room.Of, WeaponOf(room.Seed, room.Difficulty), room.Difficulty, SecretId(room.Secret),
+                [.. new[] { SecretId(room.Secret), SecretId(room.Secret2) }.OfType<string>()]) : null;
 
     /// <summary>The trials of a day's Labyrinth in section order, with their rooms' areas.</summary>
     public static IEnumerable<(string? Area, Trial Trial)> Trials(uint seed, int difficulty)
     {
         var day = LabyrinthDay.For(seed, difficulty);
         foreach (var (node, number, of) in LabyrinthDay.IzaroRooms(day))
-            yield return (day.Areas[node], new Trial(number, of, WeaponOf(seed, difficulty), difficulty, SecretId(day.Layout.Nodes[node].Secret1)));
+        {
+            var n = day.Layout.Nodes[node];
+            yield return (day.Areas[node], new Trial(number, of, WeaponOf(seed, difficulty), difficulty, SecretId(n.Secret1),
+                [.. new[] { SecretId(n.Secret1), SecretId(n.Secret2) }.OfType<string>()]));
+        }
     }
 
     /// <summary>The day's weapon for a difficulty (ours: a hash of both).</summary>
@@ -141,9 +159,6 @@ static class IzaroFights
     public static string EndLine(Trial trial) =>
         trial.Last ? $"IzaroDeath{Random.Shared.Next(1, 7)}" : trial.Number == 1 ? $"IzaroFlee{Random.Shared.Next(1, 7)}" : $"IzaroFlee{Random.Shared.Next(7, 9)}";
 
-    /// <summary>His line before a trial, as its corridor's gate opens: Izaro&lt;n&gt;_Prefight.</summary>
-    public static string PrefightLine(Trial trial) => $"Izaro{Math.Clamp(trial.Number, 1, 3)}_Prefight";
-
     /// <summary>The instance's state once the corridor's gate is open: it stays open, the way into the arena shows.</summary>
     public static readonly string GateOpen = Quests.InstanceFlag("IzaroGate");
 
@@ -182,5 +197,14 @@ static class IzaroFights
     /// int, float, float, byte, float?, bool, bool)"/>): a shut door blocks; the elevator never does.</summary>
     public static byte[] Blob(string type, string model, int x, int y, float angle, byte state) =>
         LabyrinthTrials.Blob(type == Gate ? GateComponents : Components, model, x, y, angle, 1, state, null, blockage: true,
-            blocked: type == ArenaDoor ? state == DoorShut : type == Gate && state == GateShut);
+            blocked: type == ArenaDoor ? state == DoorShut : type == Gate ? state == GateShut : type == Railing ? state == RailingUp
+                : LiftMoving(state));
+
+    /// <summary>An elevator (Izaro's or a small one: their states) cannot be stood on while it moves (the original, live
+    /// 2026-11-07): its blockage is on while it raises or lowers.</summary>
+    public static bool LiftMoving(byte state) => state is Raising or Lowering;
+
+    /// <summary>How far round an elevator's middle it blocks while moving (cells: its .ao's walk_tri hull, ElevatorLarge
+    /// about 21, ElevatorSmall about 11).</summary>
+    public static int LiftRadius(string type) => type == Elevator ? 21 : 11;
 }

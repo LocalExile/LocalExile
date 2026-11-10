@@ -2,9 +2,9 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
+    public static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster monster, double at)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
@@ -12,15 +12,18 @@ static partial class Game
     }
 
     // Called synchronously under XP -> combat lock. The outbox contains notifications of committed results.
-    internal static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
+    public static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
         MonsterHit hit, int damage, ProjectileOffense shot, bool critical, StunHit stun)
     {
         var conn = session.Conn;
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-        conn.LastEnemyHitAt = now;
-        // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-        conn.RecentEvents.Record(StatConditions.HitEnemy, now);
-        if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        if (shot.ActualCaster is null)
+        {
+            conn.LastEnemyHitAt = now;
+            // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
+            conn.RecentEvents.Record(StatConditions.HitEnemy, now);
+            if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        }
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
@@ -42,15 +45,15 @@ static partial class Game
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
-            session.Packet(InstanceProtocol.ActionHit(PlayerId, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
+            session.Packet(InstanceProtocol.ActionHit(contact.Projectile.Use.Emitter.Id, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
                 code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
         }
         session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
             + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
-        if (critical) CommitProjectileCritFlasks(session, now, random);
-        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource);
+        if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
+        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
         var charges = ChargesOf(conn);
@@ -69,7 +72,7 @@ static partial class Game
         }
     }
 
-    internal static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
+    public static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
     {
         if (monster.StageActionStarted) return;
         var stage = monster.Stage!;
@@ -94,7 +97,7 @@ static partial class Game
         }
     }
 
-    internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
+    public static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
         bool playerKill = true)
     {
         var conn = session.Conn;
@@ -105,27 +108,28 @@ static partial class Game
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
+        var partyShares = PartyExperienceShares(conn, position);
+        ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
-            session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
+            session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
             session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
-        ShareKill(conn, id, monster, variety, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
             session.Enqueue(() => PublishQuestFlags(session.remote, session.stream, session.ciphers, conn, quest));
         var kill = new KillContext(conn, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var send in kill.Afterwards) session.Enqueue(send);
-        uint xp = 0;
+        uint xp = 0, gemXp = 0;
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(position, conn.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
-        var (gemPackets, leveled) = CommitGemExperience(conn, xp);
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
+        var (gemPackets, leveled) = CommitGemExperience(conn, gemXp);
         foreach (var packet in gemPackets) session.Packet(packet);
         if (leveled) session.Enqueue(() => SendSkills(session.remote, session.stream, session.ciphers, conn));
         if (QuestsOf(conn).LevelAfterKill(conn.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
@@ -167,14 +171,16 @@ static partial class Game
             || !GameEvents.AllowsLoot(conn)) return;
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;
-        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(monster, position));
+        var modded = GameEvents.RunDrops(conn, ModMonster(monster, position));
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
+            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
+                ? openMap.Area.Tier : 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(conn, monster.Rarity, random));
+            drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));
         }
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
@@ -188,16 +194,16 @@ static partial class Game
         }
     }
 
-    internal static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
+    public static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
         PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
-    internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
+    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {
         session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
         session.Packet(InstanceProtocol.EnterWakeZone(id));
     }
 
-    internal static void CommitProjectileFlaskGain(ProjectileSession session,
+    public static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)
     {
         var conn = session.Conn;
@@ -221,7 +227,7 @@ static partial class Game
                 items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
     }
 
-    internal static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
+    public static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
     {
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;

@@ -104,7 +104,7 @@ glyph, "Take the Glyphs to the Glyph Wall" with all three and the wall seen, "Ta
 ## 5. The quest engine
 
 **Quest flags are the truth.** A character's quest progress is the set of its quest flags, `QuestFlags.dat` Ids (e.g.
-`a1q1-KilledHillock`), saved by name in its save (`data/saves.db`, `QuestFlags`; [saves](../saves.md)): names are
+`a1q1-KilledHillock`), saved by name in its save (`data/characters.db`, `QuestFlags`; [saves](../saves.md)): names are
 readable and survive game patches, where row numbers do not. The client keeps its own copy as QuestFlags **rows** in the
 Player component ([16](16-waypoints.md) §3): the Gateway sends them with the player object and again (0x2bc, flag 0x02,
 `PlayerQuestFlagsUpdate`) whenever one changes, together with the World panel's visit and access flags
@@ -179,6 +179,9 @@ each object once, where the client has it.
   The
   blob writes Positioned, Animated, Transitionable, Chest, Stats, ObjectMagicProperties, TriggerableBlockage, NPC,
   InteractionAction and MinimapIcon as the traced objects do; it reproduces the Rhoa Nest's and the Glyph Wall's bytes.
+  MinimapIcon flags `0x06` explicitly hide its marker (`0x02` override present, `0x04` hidden). Its component update
+  does not refresh the marker in the client: recreate the source object with those flags after its item is collected,
+  retaining its opened state. A marker is personal to the character, including on area re-entry and after hand-in.
 - **Rewards nothing can build**: an offer none of whose items the server can build (magic or rare jewellery) sets its
   taken flag without an item, so its quest completes (a3q4, a3q13).
 - **Dialogue** ([17](17-npcs.md)): `QuestFlag4` set on choosing, `QuestFlag5` when the talk ends, and the scripts'

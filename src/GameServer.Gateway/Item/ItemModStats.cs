@@ -7,11 +7,12 @@ using GameServer.Core.Protocol.Instance;
 /// character's and is added to the passives' stats (<see cref="Global"/>), so it reaches the pools and the stats the
 /// client shows the same way.
 /// </summary>
-static class ItemModStats
+public static class ItemModStats
 {
     /// <summary>The equipment rows whose items count: body armour, the first weapon set, helmet, amulet, rings, gloves,
-    /// boots and belt (Inventories.dat rows 1-10). The second weapon set (14, 15) and the flasks (11) do not.</summary>
-    public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    /// boots and belt (Inventories.dat rows 1-10), and the third ring slot (row 102, Ring3, shown by The Unseen Hand's
+    /// <c>enable_ring_slot_3</c>). The second weapon set (14, 15) and the flasks (11) do not.</summary>
+    public static readonly byte[] EquipmentRows = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 102];
 
     /// <summary>The item-local stats that raise the effect of the item's own explicit modifiers: every explicit one,
     /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source). Mods.dat carries no
@@ -66,6 +67,10 @@ static class ItemModStats
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
             {
+                // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
+                // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
+                // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
+                if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
                 int percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local)
@@ -106,6 +111,12 @@ static class ItemModStats
         mod.Section != ModSection.Explicit ? 0
         : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
             : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
+
+    /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
+    /// (enemies or allies) or a debuff the wearer puts on them.</summary>
+    static bool IsOthersAura(string id) => id.StartsWith("local_display_", StringComparison.Ordinal)
+        && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
+            || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
     static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
 
@@ -158,8 +169,56 @@ static class ItemModStats
         return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
     }
 
+    /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
+    /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
+    public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)
+    {
+        var local = Local(item, items.Mods);
+        return local.GetValueOrDefault("local_no_block_chance") != 0 ? 0
+            : items.ShieldBlock(type) + local.GetValueOrDefault("local_additional_block_chance_%");
+    }
+
+    /// <summary>An item's attribute requirements after its own local modifiers: the base's requirement raised or lowered
+    /// by <c>local_attribute_requirements_+%</c> and the per-attribute stats (Agnerod's 40% increased Strength
+    /// Requirement, Chober Chaber's reduced one), or zero with a no-attribute-requirement modifier. A row that is both the
+    /// base implicit and an explicit mod counts once (Queen's Escape).</summary>
+    public static (int Str, int Dex, int Int) AttributeRequirements(ItemCatalog items, Item item, ItemCatalog.BaseType type)
+    {
+        var local = Local(item, items.Mods);
+        if (local.GetValueOrDefault("local_no_attribute_requirements") != 0
+            || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0) return (0, 0, 0);
+        int Percent(string id) => item.Mods.GroupBy(mod => mod.Hash).Sum(group => ValueOf(group.First(), id));
+        int ValueOf(ItemMod mod, string id)
+        {
+            if (items.Mods.ByHash(mod.Hash) is not { } row) return 0;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                if (row.Stats[s].Id == id) return mod.Values[s];
+            return 0;
+        }
+        int all = Percent("local_attribute_requirements_+%");
+        int Scale(int value, int percent) => (int)Math.Floor(value * (100L + all + percent) / 100.0);
+        var (str, dex, intel) = items.Requirements(type);
+        return (Scale(str, Percent("local_strength_requirement_+%")),
+            Scale(dex, Percent("local_dexterity_requirement_+%")),
+            Scale(intel, Percent("local_intelligence_requirement_+%")));
+    }
+
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>
-    public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level);
+    public sealed record Worn(uint Id, Item Item, int Strength, int Dexterity, int Intelligence, int Level)
+    {
+        public bool BaseRequirementsApplied { get; init; }
+    }
+
+    /// <summary>Apply clothing's attribute waiver before merging the socketed gems' requirements.</summary>
+    public static Worn ApplyBaseRequirementOverrides(Worn worn, ModCatalog mods)
+    {
+        if (worn.BaseRequirementsApplied) return worn;
+        var local = Local(worn.Item, mods);
+        bool waived = local.GetValueOrDefault("local_no_attribute_requirements") != 0
+            || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0;
+        return worn with { Strength = waived ? 0 : worn.Strength, Dexterity = waived ? 0 : worn.Dexterity,
+            Intelligence = waived ? 0 : worn.Intelligence, BaseRequirementsApplied = true };
+    }
 
     /// <summary>
     /// The worn items that are inactive (their requirements are not met), as in the game: an item stays equipped but its
@@ -197,15 +256,7 @@ static class ItemModStats
         IReadOnlyList<Worn> worn, int level, Func<IReadOnlyList<Worn>, (int Str, int Dex, int Int)> finalAttributes,
         IReadOnlySet<uint>? previous = null, ModCatalog? mods = null)
     {
-        // The Tabula/Skin/Apostate hidden modifier also suppresses native attribute requirements.
-        // Keep the level requirement: removing attributes does not make a high-level item wearable at level one.
-        if (mods is not null) worn = worn.Select(w =>
-        {
-            var local = Local(w.Item, mods);
-            return local.GetValueOrDefault("local_no_attribute_requirements") != 0
-                || local.GetValueOrDefault("local_unique_tabula_rasa_no_requirement_or_energy_shield") != 0
-                ? w with { Strength = 0, Dexterity = 0, Intelligence = 0 } : w;
-        }).ToArray();
+        if (mods is not null) worn = worn.Select(w => ApplyBaseRequirementOverrides(w, mods)).ToArray();
         var inactive = Inactive(worn, level, finalAttributes, previous);
         return (inactive, worn.Where(w => !inactive.Contains(w.Id)).Select(w => w.Item).ToArray());
     }

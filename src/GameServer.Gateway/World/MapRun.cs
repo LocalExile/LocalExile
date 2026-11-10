@@ -1,12 +1,13 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// What a map device activation puts on the instance (21-hideouts.md §5): the map item's affixes and quality, plus the
 /// scarabs and fragments' MapFragmentMods. Recipes without a map (Maven's Writ, four Sacrifice fragments) open their
 /// MapDeviceRecipes area instead.
 /// </summary>
-sealed class MapMods
+public sealed class MapMods
 {
     public static readonly MapMods None = new(new Dictionary<string, int>());
 
@@ -72,7 +73,7 @@ sealed class MapMods
 }
 
 /// <summary>MapFragmentMods.dat and MapDeviceRecipes.dat for one device activation.</summary>
-sealed class MapRunCatalog
+public sealed class MapRunCatalog
 {
     public sealed record Fragment(int Family, int Limit, int MinAreaLevel, IReadOnlyList<int> ModRows);
 
@@ -99,7 +100,7 @@ sealed class MapRunCatalog
     {
         var fragments = new Dictionary<int, Fragment>();
         string fragPath = Path.Combine(folder, "tables", "MapFragmentMods.json");
-        if (File.Exists(fragPath))
+        if (ClientTables.Exists(fragPath))
         {
             using var doc = GameTables.Open(fragPath);
             foreach (var row in doc.RootElement.EnumerateArray())
@@ -118,7 +119,7 @@ sealed class MapRunCatalog
 
         var recipes = new List<Recipe>();
         string recPath = Path.Combine(folder, "tables", "MapDeviceRecipes.json");
-        if (File.Exists(recPath))
+        if (ClientTables.Exists(recPath))
         {
             using var doc = GameTables.Open(recPath);
             foreach (var row in doc.RootElement.EnumerateArray())
@@ -147,7 +148,7 @@ sealed class MapRunCatalog
     {
         var types = new Dictionary<int, (int, IReadOnlyList<string>)>();
         string statsPath = Path.Combine(folder, "tables", "Stats.json"), altPath = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
-        if (!File.Exists(statsPath) || !File.Exists(altPath)) return types;
+        if (!ClientTables.Exists(statsPath) || !ClientTables.Exists(altPath)) return types;
         using var statsDoc = GameTables.Open(statsPath);
         var stats = statsDoc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "").ToList();
         using var alt = GameTables.Open(altPath);

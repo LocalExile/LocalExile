@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The passive skill tree's nodes: PassiveSkills.dat rows by PassiveSkillGraphId (the id the client allocates and S→C
@@ -11,7 +12,7 @@ using System.Text.Json;
 /// Gold respec (Bestel's Respecialisation): a node costs VillageBalancePerLevelShared.dat's GoldRespecCost at the
 /// character's level times the node's multiplier, as the client's per-node cost 0x141f019b0 computes it.
 /// </summary>
-sealed class PassiveTree(string folder = "data", bool hardMode = false)
+public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 {
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1, bool IsKeystone = false,
@@ -213,7 +214,7 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     {
         var rows = new Dictionary<int, ushort>();
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!File.Exists(path)) return rows;
+        if (!ClientTables.Exists(path)) return rows;
         using var d = GameTables.Open(path);
         int row = 0;
         foreach (var r in d.RootElement.EnumerateArray())
@@ -229,7 +230,7 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
         var nodes = new Dictionary<ushort, Node>();
-        if (!File.Exists(path)) return nodes;
+        if (!ClientTables.Exists(path)) return nodes;
         using var d = GameTables.Open(path);
         foreach (var r in d.RootElement.EnumerateArray())
         {
@@ -270,8 +271,8 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     {
         var positions = new Dictionary<ushort, (double X, double Y)>();
         string path = Path.Combine(folder, AscendancyCatalog.GraphFile);
-        if (!File.Exists(path)) return positions;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return positions;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         if (!d.RootElement.TryGetProperty("normal", out var normal)
             || !normal.TryGetProperty("orbits", out var orbitList)
             || !normal.TryGetProperty("groups", out var groups)) return positions;
@@ -298,8 +299,8 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "VillageBalancePerLevelShared.json");
         var costs = new Dictionary<int, int>();
-        if (!File.Exists(path)) return costs;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return costs;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         // The client looks the row up by its first column (the level, 1–100).
         foreach (var r in d.RootElement.EnumerateArray())
             costs[r.GetProperty("MaxAccountLevel").GetInt32()] = r.GetProperty("GoldRespecCost").GetInt32();
@@ -325,7 +326,7 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
         var clusterIndexes = new Dictionary<int, int>();
         string slotsPath = Path.Combine(folder, "tables", "PassiveJewelSlots.json");
         string passivesPath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!File.Exists(slotsPath) || !File.Exists(passivesPath))
+        if (!ClientTables.Exists(slotsPath) || !ClientTables.Exists(passivesPath))
             return new(bySlot, byNode, large, cluster, [], [], [], [], []);
         using var slots = GameTables.Open(slotsPath);
         using var passives = GameTables.Open(passivesPath);
@@ -375,8 +376,8 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "PassiveSkillMasteryEffects.json");
         var effects = new Dictionary<int, MasteryEffect>();
-        if (!File.Exists(path)) return effects;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return effects;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         int row = 0;
         foreach (var r in d.RootElement.EnumerateArray())
         {
@@ -395,8 +396,8 @@ sealed class PassiveTree(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "PassiveSkillMasteryGroups.json");
         var groups = new Dictionary<int, List<MasteryEffect>>();
-        if (!File.Exists(path)) return groups;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return groups;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         int row = 0;
         foreach (var r in d.RootElement.EnumerateArray())
         {

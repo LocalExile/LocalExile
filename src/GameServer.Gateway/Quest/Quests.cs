@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The quest engine (Agents/docs/protocol/12-quests.md §5, Agents/docs/game/campaign-quests.md). A character's quest progress
@@ -29,7 +30,7 @@ using System.Text.Json;
 /// with its oracle step in <see cref="QuestSimulator.ObjectHandlers"/>). Then the act's event sequence goes through the
 /// oracle (<see cref="QuestSimulator"/>): the flags after the act must contain CharacterStartQuestState's preset for it.</para>
 /// </summary>
-static partial class Quests
+public static partial class Quests
 {
     /// <summary>A rule of a quest's table. Area and object/variety Ids are WorldAreas, MonsterVarieties, NPCs, Chests or
     /// .ot type Ids, as the data names them.</summary>
@@ -332,7 +333,7 @@ static partial class Quests
         readonly HashSet<string> sources = new(StringComparer.Ordinal);
         readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlySet<string>> watched = new(StringComparer.Ordinal);
 
-        internal RuleSet(IReadOnlyList<Quest> quests, IReadOnlyDictionary<Rule, string> sourceOf)
+        public RuleSet(IReadOnlyList<Quest> quests, IReadOnlyDictionary<Rule, string> sourceOf)
         {
             Quests = quests;
             this.sourceOf = sourceOf;
@@ -684,7 +685,7 @@ static partial class Quests
     static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
     {
         const string file = "data/tables/QuestFlags.json";
-        try { return File.Exists(file) ? ParseRows(File.ReadAllText(file)) : []; }
+        try { return ClientTables.Exists(file) ? ParseRows(ClientTables.ReadAllText(file)) : []; }
         catch (Exception ex) when (ex is IOException or JsonException) { Console.WriteLine($"[gateway] {file}: {ex.Message}"); return []; }
     });
 

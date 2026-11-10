@@ -232,7 +232,8 @@ static class PerfBench
     {
         _ = ConsoleLog.Value;
         string db = Path.Combine(Path.GetTempPath(), $"localexile-perf-{Guid.NewGuid():N}.db");
-        File.Copy(Path.Combine("data", "validation-saves.db"), db);
+        File.Copy(Path.Combine("data", "validation-characters.db"), db);
+        File.Copy(Path.Combine("data", "validation-characters-auth.db"), GameServer.Storage.SaveDatabase.AuthPathFor(db));
         try
         {
             void Snapshot(string phase)

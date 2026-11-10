@@ -76,7 +76,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### The game's start and resurrection
 
-- **Known:** items, equipment, the skill bar, experience and passives are saved per character in `data/saves.db`
+- **Known:** items, equipment, the skill bar, experience and passives are saved per character in `data/characters.db`
   ([saves](../docs/saves.md)) ([13](../docs/protocol/13-items.md) §7, [11](../docs/protocol/11-skills.md) §11,
   [15](../docs/protocol/15-progression.md)), and every login starts at the last town's spawn point
   ([09](../docs/protocol/09-area-change.md) §4).
@@ -127,8 +127,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's arenas' mechanics (the day's LabyrinthSecrets on his rooms: their objects at the BossObjectiveMarkers,
-     LabyrinthSecretEffects, carried to the later trials), one at a time, and the Goddess of Justice.
+  1. Izaro's arenas' other mechanics (Toggle Statues and Gargoyles are done: `Rules.IzaroArena.cs` places them and
+     what they leave), one at a time, and the Goddess of Justice.
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).

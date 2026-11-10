@@ -9,13 +9,13 @@ namespace GameServer.Core.Protocol.Instance;
 /// connection). Auth owns the login connections and the <see cref="World.InstanceRegistry"/>; the Gateway asks it which
 /// area/instance a ticket belongs to, for instance lists, and to move a player (Auth issues the new ticket; the Gateway
 /// sends it to the client in 0x27).
-/// Port: Game_AUTH_CONTROL_PORT (default 20495), bound to 127.0.0.1 only.
+/// Port: localexile.conf AuthControl.Port or Game_AUTH_CONTROL_PORT (default 20495), bound to 127.0.0.1 only.
 /// </summary>
 public static class InstanceControl
 {
     public const int DefaultPort = 20495;
 
-    public static int Port => int.TryParse(Environment.GetEnvironmentVariable("Game_AUTH_CONTROL_PORT"), out var p) ? p : DefaultPort;
+    public static int Port => ServerConfig.ControlPort;
 
     public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 

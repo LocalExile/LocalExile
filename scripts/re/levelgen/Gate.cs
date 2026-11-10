@@ -114,7 +114,7 @@ static class Gate
         int jobs = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
         for (int i = 0; i < args.Length; i++)
             if (args[i] == "--jobs") jobs = int.Parse(args[++i]);
-        using var areas = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
+        using var areas = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
         var tasks = new List<string>();
         foreach (var row in areas.RootElement.EnumerateArray())
         {
@@ -143,7 +143,7 @@ static class Gate
         string file = args[0];
         for (int i = 1; i < args.Length; i++)
             if (args[i] == "--jobs") jobs = int.Parse(args[++i]);
-        using var areas = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
+        using var areas = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
         var levels = areas.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("Id").GetString()!, r => Math.Max(1, r.GetProperty("AreaLevel").GetInt32()));
         var lines = File.ReadAllLines(file);
         var tasks = new List<string>();

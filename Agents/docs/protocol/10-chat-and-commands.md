@@ -33,6 +33,10 @@ Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
 Party and guild lines are not sent. A whisper is typed `@Name text`.
 
+The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
+Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
+inbox filename instead. Raising only the server's packet limit does not change these client limits.
+
 ## 2. Server → client text
 
 Candidates that read a wide string were found by mapping every S→C factory case to its class and read function (slot
@@ -419,12 +423,12 @@ Global, trade and whisper lines leave the Gateway for a chat server, GGG's split
 it across its areas, so players of separate Gateways can talk. Local lines stay in the Gateway.
 
 The Chat module runs a chat server on a free loopback port, so each Gateway has chat alone. A mod moves the players to
-another server with `UseChatServer(host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
+another server with `ChatRoutes.Use(id, host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
 `Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
 connection drops, each reason once, and tries again at an area change after 60 s.
 
 To host one: `dotnet run -c Release --project src/GameServer.Chat` (solution `GameServer.Chat.slnx`), with
-`Game_CHAT_BIND` and `Game_CHAT_PORT` (default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
+`Chat.BindAddress` and `Chat.Port` in `localexile.conf` (or `Game_CHAT_BIND`, `Game_CHAT_PORT`; default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
 Nothing is encrypted, stored or authenticated. Separate Gateways can have characters of one name, so a later one gets the
 first free `Name_n` for that connection; `@Name_n` whispers to it. Not `Name[n]`: the client drew `#Build[1]: hey` all
 white, without the global colour (live 2026-11-07).

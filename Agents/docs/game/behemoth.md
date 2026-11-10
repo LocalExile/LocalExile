@@ -1,7 +1,7 @@
 # Behemoth
 
 Behemoth is the Phrecia Berserker capability in
-`Modules/PhreciaAscendancies/Classes/Behemoth`.
+`Modules/Legacy/PhreciaAscendancies/Classes/Behemoth`.
 It requires that optional module in the connection's league, `Game_VERIFIED_BEHEMOTH=1`, and the reviewed
 3.29.3b combined graph already installed separately.
 The common module verifies archive bytes read-only; ordinary characters need no alternate graph.

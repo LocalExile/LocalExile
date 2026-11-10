@@ -13,11 +13,14 @@
 /// gains, expiry, per-charge effects) are <see cref="Charges"/>, which takes its standard maxima from here. No Mods.dat
 /// row uses the max_*_charges_override stats today; if supported later, those must replace the sum rather than add to it.
 /// </summary>
-static class ChargePanelStats
+public static class ChargePanelStats
 {
     /// <summary>Metadata/Characters/Character.ot's <c>max_endurance_charges</c>, <c>max_frenzy_charges</c> and
     /// <c>max_power_charges</c>: every character starts with three of each.</summary>
     public const int BaseMaximumCharges = 3;
+
+    /// <summary>Slayer's Masterful Form (Stats row 9891).</summary>
+    public const string EnduranceEqualsFrenzy = "maximum_endurance_charges_is_equal_to_maximum_frenzy_charges";
 
     /// <summary>The three panel rows, from the stats as the server holds them (<paramref name="get"/>: by Stats.dat Id,
     /// 0 when absent). Reductions that would take a maximum below zero show zero instead.</summary>
@@ -27,12 +30,13 @@ static class ChargePanelStats
         int powerAndFrenzy = get("maximum_power_and_frenzy_charges_+");
         int all = get("maximum_frenzy_power_endurance_charges");
         static int Maximum(long value) => (int)Math.Clamp(value, 0, int.MaxValue);
+        int frenzy = Maximum((long)BaseMaximumCharges + get("max_frenzy_charges") + powerAndFrenzy + all);
         return
         [
-            ("virtual_maximum_endurance_charges",
-                Maximum((long)BaseMaximumCharges + get("max_endurance_charges") + powerAndEndurance + all)),
-            ("virtual_maximum_frenzy_charges",
-                Maximum((long)BaseMaximumCharges + get("max_frenzy_charges") + powerAndFrenzy + all)),
+            // Masterful Form: the endurance maximum is the frenzy one instead of its own sum (client 0x142811290).
+            ("virtual_maximum_endurance_charges", get(EnduranceEqualsFrenzy) != 0 ? frenzy
+                : Maximum((long)BaseMaximumCharges + get("max_endurance_charges") + powerAndEndurance + all)),
+            ("virtual_maximum_frenzy_charges", frenzy),
             ("virtual_maximum_power_charges",
                 Maximum((long)BaseMaximumCharges + get("max_power_charges") + powerAndEndurance + powerAndFrenzy + all)),
         ];

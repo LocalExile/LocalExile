@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Rotting Core: organ portals, Black Heart and the blood passage to Lilly work ([Act 9](../docs/game/campaign/act9.md)).
 - Instance connection: opening, encryption switch (0x11), framing, dispatcher.
   Code: `GameServer.Gateway`, `GameServer.Core/Protocol/Instance`.
   Docs: [02](../docs/protocol/02-instance-connection.md).
@@ -209,10 +210,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   elevator's middle, down on it) and the doors and the way on open; in the last he dies, the way to the Ascendancy
   Chamber opens and `LabyrinthKilledIzaro` and the tier's `LabyrinthComplete` flag are set. His lines are S→C 0x1c7.
   Checked live 2026-11-07 (trial 1).
-  Not yet: the arenas' mechanics, the Goddess of Justice, his chests, the enchanting bench, Cruel and harder tiers, the
-  secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
+  Two arena mechanics, Toggle Statues and Gargoyles, with what they leave on him shown and active in the later
+  trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
+  stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08: a whole run on 3.29.3c, the
+  gargoyles' beam on 3.29.3b.
+  Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
+  Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
-  `Rules.Izaro.cs`, `Act3.cs`, `Act8.cs`.
+  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`), `Act3.cs`, `Act8.cs`.
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest
@@ -277,8 +282,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   created open.
   An "entranceN" with no object of its own (the portal to Highgate after Malachai, Weylam's boat) is an exit without a
   model at its point, there from the start.
-  The move the game makes when a fight ends is not modelled: The Rotting Core's way to Weylam's boat (telepad16)
-  after the Depraved Trinity ([08](../docs/protocol/08-area-transitions.md) §8).
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.

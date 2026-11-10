@@ -1,8 +1,9 @@
+using GameServer.Core;
 /// <summary>Bladefall of Trarthus (BladefallAltZ): an instant toggle that rains a volley around the player every
 /// <c>bladefall_volley_frequency_ms</c> while it spends mana. That stat is virtual: the client reads it but does not derive
 /// it from a network stat snapshot, so without it the interval was 0 and the client hung on the first use (#584). The
 /// game module runs the toggle (BladefallTrarthus.cs).</summary>
-static class BladefallVolleys
+public static class BladefallVolleys
 {
     public const string EffectId = "BladefallAltZ";
     /// <summary>skill_cost_over_time: its GrantedStats are the spent-per-minute stats, set on the player while it lasts.</summary>
@@ -35,7 +36,7 @@ static class BladefallVolleys
     {
         const string file = "data/tables/BuffDefinitions.json";
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
-        if (!File.Exists(file)) return rows;
+        if (!ClientTables.Exists(file)) return rows;
         using var table = GameTables.Open(file);
         int row = 0;
         foreach (var buff in table.RootElement.EnumerateArray())

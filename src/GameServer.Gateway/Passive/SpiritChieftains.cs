@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 
 /// <summary>
 /// The Spirit chieftain skills that Ancestral Commander's Ancestral Spirit options trigger (Summon Spirit of Kahuturoa,
@@ -11,7 +12,7 @@ using GameServer.Core.Protocol.Login;
 /// Game.MinionAttacks). The buff's <c>ancestral_buff_cooldown_does_not_tick</c> stops that cooldown while it lasts.
 /// Guarded by the Monsters lock; times are the connection's game seconds.
 /// </summary>
-sealed class SpiritChieftains
+public sealed class SpiritChieftains
 {
     /// <summary>A Leadership buff: its BuffDefinitions row, its stats by client key and when it ends.</summary>
     public sealed record Leadership(ushort Row, IReadOnlyList<(uint Stat, int Value)> Stats, double Until);
@@ -74,13 +75,13 @@ sealed class SpiritChieftains
     static (ushort Row, uint[] Values, uint[] Stats, int? Minion)[] Load(string tables)
     {
         string Path(string name) => System.IO.Path.Combine(tables, name + ".json");
-        if (!File.Exists(Path("BuffTemplates")) || !File.Exists(Path("BuffDefinitions"))) return [];
-        using var templates = JsonDocument.Parse(File.ReadAllBytes(Path("BuffTemplates")));
-        using var definitions = JsonDocument.Parse(File.ReadAllBytes(Path("BuffDefinitions")));
+        if (!ClientTables.Exists(Path("BuffTemplates")) || !ClientTables.Exists(Path("BuffDefinitions"))) return [];
+        using var templates = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("BuffTemplates")));
+        using var definitions = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("BuffDefinitions")));
         var minions = new Dictionary<int, int>();
-        if (File.Exists(Path("AncestralEmbraceVariations")))
+        if (ClientTables.Exists(Path("AncestralEmbraceVariations")))
         {
-            using var embraces = JsonDocument.Parse(File.ReadAllBytes(Path("AncestralEmbraceVariations")));
+            using var embraces = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("AncestralEmbraceVariations")));
             foreach (var e in embraces.RootElement.EnumerateArray())
                 if (e.TryGetProperty("BuffTemplate", out var t) && t.ValueKind == JsonValueKind.Number
                     && e.TryGetProperty("Minion", out var m) && m.ValueKind == JsonValueKind.Number)

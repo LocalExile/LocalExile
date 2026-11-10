@@ -28,6 +28,9 @@ SemVer, `0.x` for now: the minor for a release with features or anything that br
 The workflow prints the bump the commits suggest; the version used is always the one typed.
 The client it supports (3.29.3c) is in the notes and `release.json`.
 Dev builds keep the default version and no commit, so a commit does not restart a watched Gateway.
+Every LocalExile assembly keeps assembly version 1.0.0.0 in every build (`Directory.Build.props`): mods are built against
+main and reference the Gateway, Core and the modules as well as `GameServer.Modding`, and a release-numbered copy would
+refuse them.
 
 ## Commits and notes
 

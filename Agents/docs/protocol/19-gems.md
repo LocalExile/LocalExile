@@ -41,8 +41,10 @@ threshold (`SkillCatalog.MaxLevelAt`, `GainGemExperience`; §"Requirements" belo
 derives whatever the experience says (checked live 2026-10-23).
 
 The server gives the kills' experience to the gems (`GainGemExperience`, from `MonsterKilled` only: a quest's level and
-`/add_xp` give the gems nothing): each gem socketed in an equipped item, in either weapon set (rows 1–10, 14, 15),
-gains 10% of the player's monster experience, up to the threshold of the first level whose requirement the character
+`/add_xp` give the gems nothing): each gem socketed in an equipped item, in either weapon set (rows 1-10, 14, 15),
+gains 10% of the kill's experience **before the character's level penalty** (the wiki's Gem page: "Socketed gems gain
+10% of the experience your character earns, before any level penalties. This value is not affected by level
+penalties."), up to the threshold of the first level whose requirement the character
 does not meet and the last level's threshold (a support gem too; a gem in an
 inactive item, at its last level, or at experience -1, a corrupted gem over its cap, nothing). All the gems change in
 one step under the inventory's lock (`PlayerInventories.ChangeSocketedGems`), written into the gem inside the socket
@@ -203,6 +205,15 @@ client's own check does not look at the requirements — only the lock and the r
 level the character does not meet still shows the "+", and the click is answered with what is missing (checked live
 2026-10-23: Fireball at level 9 with the experience one below level 10 on a character set to level 31, level 10 needing
 32; then with 70 Int, level 10 needing 75). A gem lying in the inventory, not in a socket, sent nothing in the captures.
+
+**Level Up All** is C→S 0x32, the id alone (2 bytes, captured 2026-11-09): it names no gem, so the server levels every
+socketed gem in the equipment rows (both weapon sets) whose experience has reached the stall point — the state the client's
+`0x142479880` draws the "+" for — one level, with the same rules as the single click. A locked gem, one at its highest
+level and one whose next level's requirements the character does not meet are skipped without affecting the others. Each
+changed item is replaced (0xbf, one per row) and the skills are re-sent once, so the client derives the levels and drops
+the prompts. Only this message levels the batch: gaining experience, logging in, changing area and opening the inventory
+never do. A gem lying in the main inventory is not covered (its "+" sent nothing in the captures, and the message carries
+no target).
 
 The lock: a right-click on a socketed gem sends C→S 0xd7 (15 bytes): the same three u32s and a u8, 1 to lock and 0 to
 unlock. The client keeps the lock in the SkillGem flags +0x10 bit 2 — its level-up check `0x142479880` returns false

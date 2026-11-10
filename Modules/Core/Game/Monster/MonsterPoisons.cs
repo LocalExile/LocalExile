@@ -3,13 +3,13 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>BuffDefinitions row 10 <c>poison</c>.</summary>
-    internal const ushort PoisonBuffRow = 10;
+    public const ushort PoisonBuffRow = 10;
 
     /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
-    internal static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
+    public static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
     {
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
@@ -20,7 +20,7 @@ static partial class Game
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    internal static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    public static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         var weapon = WeaponFor(conn);
@@ -34,7 +34,7 @@ static partial class Game
     // per second (an independent roll in the non-critical or critical range) and duration come from the hit's panel poison
     // rows (<paramref name="settings"/>, captured with the hit as its ignite's are), so a poison deals what the panel shows:
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
-    internal static void PoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
+    public static void PoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         MonsterPoisons.Settings settings, double now, Random random)
     {
@@ -68,7 +68,7 @@ static partial class Game
         ReservationPoisonLocked(conn, now);
     }
 
-    internal static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
         var ended = new List<(uint Id, ushort Buff)>();

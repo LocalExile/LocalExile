@@ -4,7 +4,7 @@ using GameServer.Core.World;
 /// after resistance and armour the flat damage taken, the increased damage taken and the share of a blocked hit (PoB
 /// CalcDefence's TakenHit: max(damage after mitigation + flat, 0) × the taken multiplier), and last the share of its
 /// Life damage that mana takes.</summary>
-static class PlayerDamageTaken
+public static class PlayerDamageTaken
 {
     const DamageType P = DamageType.Physical, F = DamageType.Fire, C = DamageType.Cold, L = DamageType.Lightning,
         X = DamageType.Chaos;
@@ -116,10 +116,14 @@ static class PlayerDamageTaken
 
     /// <summary>"X% increased Damage taken", "X% increased Lightning Damage taken", "X% increased Elemental Damage taken"
     /// and, for a melee hit, "X% increased Damage taken from Melee Attacks": one increased value for this type, which adds
-    /// to the shock's (PlayerElementalAilments.DamageTakenFactor), as PoB adds them to its takenInc.</summary>
+    /// to the shock's (PlayerElementalAilments.DamageTakenFactor), as PoB adds them to its takenInc. "X% reduced Damage
+    /// taken while Leeching" (Brutal Fervour) joins it while is_leeching, as the client's damage taken sum does
+    /// (0x1427d25c0).</summary>
     public static int IncreasedPct(DamageType type, bool melee, Func<string, int> get) =>
         get(Increased) + get(TypedIncreased(type)) + (DamageTypes.IsElemental(type) ? get(ElementalIncreased) : 0)
-        + (melee ? get(MeleeIncreased) : 0);
+        + (melee ? get(MeleeIncreased) : 0) + (get(Leeching) != 0 ? get(WhileLeeching) : 0);
+
+    const string Leeching = "is_leeching", WhileLeeching = "damage_taken_+%_while_leeching";
 
     /// <summary>"+X Physical Damage taken from Hits" and the other types' (PoB's takenFlat), plus "... Physical Damage taken
     /// from Attack Hits" for an attack, added to the type's damage after resistance and armour.</summary>

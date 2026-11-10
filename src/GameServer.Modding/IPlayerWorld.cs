@@ -62,8 +62,9 @@ public interface IPlayerWorld
     /// <summary>The item rules of the player's data set.</summary>
     IItemCrafting Crafting { get; }
 
-    /// <summary>The NPC dialogue plays this option's text and audio; Continue returns to the options.</summary>
-    Task NpcSay(NpcOption option);
+    /// <summary>The NPC dialogue plays this option's text and audio (its index among the NPC's options, its <c>NPCTalk</c> row and text,
+    /// for the log); Continue returns to the options.</summary>
+    Task NpcSay(string npc, string option, int index, int row);
 
     /// <summary>Ends the dialogue state without closing the window: another screen takes over.</summary>
     void NpcEndTalk();
@@ -83,6 +84,14 @@ public interface IPlayerWorld
     /// <summary>Crafts the one item in an inventory row: the new item and all its costs, paid from the inventory then the stash,
     /// commit together and reach the client. Null, changing nothing, when the slot, the craft or the payment fails.</summary>
     Task<InventoryItem?> CraftInSlot(byte row, Func<Item, CraftResult?> craft, string log);
+
+    /// <summary>Pays a currency (from the inventory, then the stash) and gold; <paramref name="commit"/> saves what they buy in the same
+    /// transaction. False, changing nothing, when the player holds too little.</summary>
+    Task<bool> PayCurrency(uint currency, int amount, uint gold, Func<bool> commit, string log);
+
+    /// <summary>Puts as much of a currency as fits into the main inventory; <paramref name="commit"/> records how much in the same transaction.
+    /// Returns how much went in.</summary>
+    Task<int> ReceiveCurrency(uint currency, int amount, Func<int, bool> commit, string log);
 }
 
 /// <summary>A reserved spot on every hideout's floor: there whether or not a module uses it, so the rest of the layout does not

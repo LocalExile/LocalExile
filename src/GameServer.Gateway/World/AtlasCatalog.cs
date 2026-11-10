@@ -1,11 +1,12 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The 3.29 Atlas layouts (AtlasNode.dat + WorldAreas.dat) and the generic map keys (MapKeys.dat). A generic map item
 /// names only its tier; the layout is selected on the Atlas. Until the native Atlas panel is implemented, the first
 /// starting node is the default layout.
 /// </summary>
-sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
+public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
 {
     public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
 
@@ -37,7 +38,7 @@ sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
     static IReadOnlyList<Layout> LoadLayouts(string folder)
     {
         string nodes = Path.Combine(folder, "tables", "AtlasNode.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(nodes) || !File.Exists(areas)) return [];
+        if (!ClientTables.Exists(nodes) || !ClientTables.Exists(areas)) return [];
         using var n = GameTables.Open(nodes);
         using var a = GameTables.Open(areas);
         var result = new List<Layout>();
@@ -59,8 +60,8 @@ sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
     static IReadOnlyDictionary<uint, int> LoadKeyTiers(ItemCatalog catalog, string folder)
     {
         string path = Path.Combine(folder, "tables", "MapKeys.json");
-        if (!File.Exists(path)) return new Dictionary<uint, int>();
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return new Dictionary<uint, int>();
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         var result = new Dictionary<uint, int>();
         foreach (var row in doc.RootElement.EnumerateArray())
             if (row.GetProperty("BaseItemType") is { ValueKind: JsonValueKind.Number } baseRow &&

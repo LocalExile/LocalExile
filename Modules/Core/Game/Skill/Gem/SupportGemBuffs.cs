@@ -2,17 +2,17 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Inspiration charges cap at five (poedb: maximum_righteous_charges is the buff's own maximum).
-    internal const int InspirationMaxCharges = 5;
+    public const int InspirationMaxCharges = 5;
 
     // BuffDefinitions rows: arcane_surge (895) and righteous_charge (1378).
     const ushort ArcaneSurgeBuffRow = 895, RighteousChargeBuffRow = 1378;
 
     /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called under the Monsters lock,
     /// after the skill's cost has been paid and before the cast starts.</summary>
-    internal static void SupportManaSpentLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
+    public static void SupportManaSpentLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
         uint cost, double now)
     {
         if (cost == 0 || conn.LeavingArea || conn.PlayerLife == 0) return;
@@ -73,10 +73,11 @@ static partial class Game
 
     /// <summary>The Arcane Surge buff's cast speed and mana regeneration, added to the character's stat sources while
     /// it runs (its more Spell Damage is applied per supported hit in ConditionalSupportDamage).</summary>
-    internal static Dictionary<uint, int> WithSupportGemBuffs(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> WithSupportGemBuffs(ClientState conn, Dictionary<uint, int> stats)
     {
         lock (conn.Monsters)
         {
+            stats = WithTriggeredGuard(conn, stats);
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
             void Add(string name, int value)
             {
@@ -89,7 +90,7 @@ static partial class Game
         return stats;
     }
 
-    internal static bool ArcaneSurgeActive(ClientState conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
+    public static bool ArcaneSurgeActive(ClientState conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
 
     static List<byte[]> PresentationLocked(ClientState conn)
     {
@@ -144,7 +145,7 @@ static partial class Game
     }
 
     /// <summary>The Arcane Surge and Inspiration buff instances and their stat refresh, from the player tick.</summary>
-    internal static async Task SendSupportGemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task SendSupportGemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn)
     {
         List<byte[]> packets;

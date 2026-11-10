@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-sealed class VendorCatalog
+public sealed class VendorCatalog
 {
     public sealed record Shop(string Kind, int Act, int TownLevel);
     public sealed record GemRule(string Vendor, int Class, string Base, int[] Offers);
@@ -12,7 +12,7 @@ sealed class VendorCatalog
     readonly ILookup<string,GemRule> byVendor;
     public VendorCatalog(string folder)
     {
-        data = JsonSerializer.Deserialize<Data>(File.ReadAllText(Path.Combine(folder,"vendor-stock.json")))!;
+        data = JsonSerializer.Deserialize<Data>(GameServer.Core.ClientTables.ReadAllText(Path.Combine(folder,"vendor-stock.json")))!;
         byVendor = data.Gems.ToLookup(g => g.Vendor,StringComparer.Ordinal);
     }
     public Shop? Find(string npc) => data.Shops.GetValueOrDefault(npc);

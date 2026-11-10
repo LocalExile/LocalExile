@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using GameServer.Core.World;
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     MonsterBlockerFrame? monsterFrame;
 
@@ -26,7 +26,7 @@ sealed partial class ClientState
         public readonly List<(uint Id, int X, int Y, int Size)> Bodies = [];
         public IReadOnlyList<ClientPathfinder.Blocker> FixedBlockers { get; }
 
-        internal MonsterBlockerFrame(ClientState owner, double now, MonsterBlockerFrame? outer, bool placement = false)
+        public MonsterBlockerFrame(ClientState owner, double now, MonsterBlockerFrame? outer, bool placement = false)
         {
             long startedAt = Stopwatch.GetTimestamp();
             this.owner = owner; this.outer = outer;

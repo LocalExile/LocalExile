@@ -1,15 +1,16 @@
-"""Generate src/GameServer.Gateway/Item/UniqueItemSeed.cs from Path of Building's unique item export.
+"""Write the uniques Path of Building's export has and world.db does not as a pending world update.
 
 Path of Building is a read-only third-party reference. Its src/Export/Uniques/*.lua files list the unique name, base
-type and Mods.dat ids; src/Data/Uniques/*.lua has the human-readable text. The generated C# file is committed so the
-Gateway does not need the tool at runtime.
+type and Mods.dat ids; src/Data/Uniques/*.lua has the human-readable text. The unique catalogue is world.db's
+`catalog_entries` kind `unique_item` (Agents/docs/dev/databases.md), built from sql/: this script builds that content in
+memory, writes the missing uniques to sql/updates/pending_world/ and lists the uniques whose export now differs from the
+database, to correct by hand in an update of their own (a row in the database may be a deliberate correction of PoB).
 
 Usage (repository root):
 
     python scripts/re/unique_items.py [--pob <Path of Building folder>]
 
-The default folder is Tools/PathOfBuilding (gitignored). The generated rows are the seed for the `catalog_entries` kind
-`unique_item`. The base type is resolved against the extracted BaseItemTypes table; malformed PoB blocks without a
+The default folder is Tools/PathOfBuilding (gitignored). The base type is resolved against the extracted BaseItemTypes table; malformed PoB blocks without a
 resolvable base are skipped and reported.
 
 A block in the export:
@@ -32,14 +33,16 @@ same-name bases (Two-Stone Ring, quivers) are told apart by them, and a unique k
 names a unique's own row, the base has none, or the implicit is Eldritch.
 """
 import argparse
+import datetime
 import json
 import pathlib
 import re
+import sqlite3
 from collections import Counter, defaultdict
 
 ROOT = pathlib.Path(".")
 POB = ROOT / "Tools/PathOfBuilding"
-OUT = ROOT / "src/GameServer.Gateway/Item/UniqueItemSeed.cs"
+OUT = ROOT / "sql/updates/pending_world"
 
 # Each key with its colon: a bare prefix would also take mod ids (CorruptedMagicJewelModEffectUnique__1).
 META = re.compile(
@@ -55,6 +58,8 @@ CRAFTED = "{crafted}"
 FRACTURED = "{fractured}"
 # The Eldritch ones have no state of their own: the client reads them from the implicit mods.
 INFLUENCES = {f"{name} Item": name for name in ("Shaper", "Elder", "Crusader", "Redeemer", "Hunter", "Warlord")}
+# ItemInfluence's flags (GameServer.Core InstanceItems.cs).
+INFLUENCE_FLAGS = {name: 1 << index for index, name in enumerate(("Shaper", "Elder", "Crusader", "Redeemer", "Hunter", "Warlord"))}
 ELDRITCH = ("Searing Exarch Item", "Eater of Worlds Item")
 UNIQUE_MOD, EXARCH_IMPLICIT, EATER_IMPLICIT = 3, 28, 29
 ROLL = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)|(?<![A-Za-z])(\d+(?:\.\d+)?)")
@@ -225,7 +230,7 @@ def own_implicits(mod_rows, implicits, base_implicits, eldritch):
 
 
 def overrides(name, mod_rows, mods, implicit=False):
-    """The ranges that differ from Mods.dat, as a RollRange each. The export can tie a line to a row of the same stats
+    """The ranges that differ from Mods.dat, as a RollRange each (its JSON). The export can tie a line to a row of the same stats
     with another roll; PoB's roll is the unique's then, unless STALE_ROLLS says otherwise."""
     result = []
     for mod_id, ranges in mods:
@@ -234,8 +239,7 @@ def overrides(name, mod_rows, mods, implicit=False):
         row = mod_rows[mod_id]
         for index, (low, high) in enumerate(ranges):
             if sorted((row.get(f"Stat{index + 1}Min"), row.get(f"Stat{index + 1}Max"))) != sorted((low, high)):
-                section = ", Implicit: true" if implicit else ""
-                result.append(f'new("{mod_id}", {index}, {min(low, high)}, {max(low, high)}{section})')
+                result.append({"Mod": mod_id, "Stat": index, "Min": min(low, high), "Max": max(low, high), "Implicit": implicit})
     return result
 
 
@@ -252,8 +256,21 @@ def name_key(name):
     return NAME_SPELLINGS.get(key, key).lower()
 
 
-def csharp(values):
-    return "[" + ", ".join(json.dumps(value, ensure_ascii=False) for value in values) + "]"
+def world_uniques():
+    """The unique_item rows of world.db as sql/ builds it (base, merged updates and pending), by key."""
+    db = sqlite3.connect(":memory:")
+    sql = ROOT / "sql"
+    for path in sorted((sql / "base/world").glob("*.sql")):
+        db.executescript(path.read_text(encoding="utf-8"))
+    updates = sorted((path for folder in ("updates/world", "updates/ruthless") for path in (sql / folder).glob("*.sql")),
+                     key=lambda path: path.name)
+    for path in updates + sorted((sql / "updates/pending_world").glob("*.sql")) + sorted((sql / "updates/pending_ruthless").glob("*.sql")):
+        db.executescript(path.read_text(encoding="utf-8"))
+    return {key: json.loads(payload) for key, payload in db.execute("SELECT key, payload FROM catalog_entries WHERE kind = 'unique_item'")}
+
+
+def literal(text):
+    return "'" + text.replace("'", "''") + "'"
 
 
 def main():
@@ -333,37 +350,34 @@ def main():
     repeated = [key for key, count in Counter((row["name"], row["base"]) for row in rows).items() if count > 1]
     if repeated:
         raise SystemExit(f"two rows for one catalogue key: {repeated}")
-    lines = [
-        "// Generated from Path of Building src/Export/Uniques/*.lua for the target 3.29.3b data.",
-        "// Do not edit by hand; regenerate with scripts/re/unique_items.py (a read-only third-party reference).",
-        "using GameServer.Core.Protocol.Instance;",
-        "",
-        "/// <summary>The full unique-item seed: name, base type, Mods.dat ids and the unique's implicits. The catalogue",
-        "/// table keeps the runtime rows; this array is the fresh-database fallback.</summary>",
-        "static class UniqueItemSeed",
-        "{",
-        "    public static readonly UniqueCatalog.Definition[] All =",
-        "    [",
-    ]
+    current = world_uniques()
+    added, changed = [], []
     for row in rows:
-        options = [csharp(row["mods"])]
-        if row["implicits"] is not None:
-            options.append(f"Implicits: {csharp(row['implicits'])}")
-        if row["ranges"]:
-            options.append(f"Ranges: [{', '.join(row['ranges'])}]")
-        if row["corrupted"]:
-            options.append("Corrupted: true")
-        if row["mirrored"]:
-            options.append("Mirrored: true")
-        if row["fractured"]:
-            options.append(f"Fractured: {row['fractured']}")
-        if row["influences"]:
-            options.append("Influences: " + " | ".join(f"ItemInfluence.{name}" for name in row["influences"]))
-        lines.append(f'        new({json.dumps(row["name"], ensure_ascii=False)}, {json.dumps(row["base"])}, '
-                     f'{", ".join(options)}),')
-    lines += ["    ];", "}", ""]
-    OUT.write_text("\n".join(lines), encoding="utf-8")
-    print(f"wrote {len(rows)} unique definitions to {OUT}")
+        payload = {
+            "Name": row["name"], "BaseTypeId": row["base"], "Mods": row["mods"], "ItemLevel": 86,
+            "Corrupted": row["corrupted"], "Implicits": row["implicits"], "Ranges": row["ranges"] or None,
+            "Mirrored": row["mirrored"], "Influences": sum(INFLUENCE_FLAGS[name] for name in row["influences"]),
+            "Fractured": row["fractured"],
+        }
+        key = f'{row["name"]}|{row["base"]}'
+        if key not in current:
+            added.append((key, payload))
+        elif current[key] != payload:
+            changed.append(key)
+    if added:
+        stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y_%m_%d_%H%M%S")
+        out = OUT / f"{stamp}_unique_items.sql"
+        OUT.mkdir(parents=True, exist_ok=True)
+        values = ",\n".join(f"('unique_item', {literal(key)}, {literal(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))}, 1)"
+                            for key, payload in added)
+        out.write_text("-- Uniques from Path of Building's export that the catalogue did not have (scripts/re/unique_items.py).\n"
+                       f"INSERT INTO catalog_entries (kind, key, payload, enabled) VALUES\n{values};\n", encoding="utf-8", newline="\n")
+        print(f"wrote {len(added)} new unique(s) to {out}")
+    else:
+        print("no new uniques")
+    print(f"export differs from world.db for {len(changed)} unique(s) (check by hand; the database may hold a correction):")
+    for key in changed:
+        print("  ", key)
     print("skipped:", len(skipped))
     for entry in skipped:
         print("  ", entry)

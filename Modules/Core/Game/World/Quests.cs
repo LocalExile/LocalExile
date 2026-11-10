@@ -4,11 +4,11 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Diagnostics;
 
-static partial class Game
+public static partial class Game
 {
     // Sets or clears league quest flags (Quests.League ids, such as a Trial of Ascendancy's): saved with the account's stash
     // in the character's league, so every character of the league has them, then sent as the player's league flag set.
-    internal static async Task SetLeagueQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<int> flags, bool on = true)
+    public static async Task SetLeagueQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<int> flags, bool on = true)
     {
         List<int> wanted = [.. flags], all;
         lock (conn.Monsters)
@@ -27,7 +27,7 @@ static partial class Game
 
     // Sets or clears quest flags for the character (saved at once) and sends the player's flag set again; one change at a
     // time per connection (QuestGate), so a background sync never interleaves with another change.
-    internal static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
+    public static async Task SetQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         if (QuestKillCommitOutput is not null)
         {
@@ -39,11 +39,11 @@ static partial class Game
         finally { conn.QuestGate.Release(); }
     }
 
-    internal sealed record QuestFlagCommit(List<string> Changed, List<int> All,
+    public sealed record QuestFlagCommit(List<string> Changed, List<int> All,
         List<string> Effective, List<uint> Removed);
 
     // Gameplay and persistence commit before any notification. Caller holds the combat lock when used by simulation.
-    internal static QuestFlagCommit? CommitQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
+    public static QuestFlagCommit? CommitQuestFlags(ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         lock (conn.Monsters)
         {
@@ -83,7 +83,7 @@ static partial class Game
         }
     }
 
-    internal static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task SetQuestFlagsHeld(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, IEnumerable<string> flags, bool on = true)
     {
         QuestFlagCommit? committed;
@@ -91,7 +91,7 @@ static partial class Game
         if (committed is not null) await PublishQuestFlags(remote, stream, ciphers, conn, committed, on);
     }
 
-    internal static async Task PublishQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task PublishQuestFlags(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, QuestFlagCommit change, bool on = true)
     {
         foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}: quest flag {flag} {(on ? "set" : "cleared")}");
@@ -138,7 +138,7 @@ static partial class Game
 
     // The quest flag an area transition needs (Quests.FlagToEnter), or null. Such an exit is created only once the character
     // has the flag: The Twilight Strand's gate into Lioneye's Watch appears when Hillock dies (a1q1, 12-quests.md §6).
-    internal static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
+    public static string? TransitionFlag(ClientState conn, AreaTransitionObject transition) =>
         // The plaza's way into the Labyrinth leads to the day's first room: shown once its door is open (ChooseLabyrinth).
         conn.Layout.Id == LabyrinthDay.Plaza && transition.SourceType == LabyrinthDay.Entrance ? LabyrinthDay.PlazaDoorOpen
         // Izaro's arena's ways out (the layout's disabled ones): shown once his trial in this instance is won; the way in
@@ -149,7 +149,7 @@ static partial class Game
 
     // Whether a Labyrinth tier's trials are done (Labyrinths RequiredTrials: Normal's six, …; the character's flag or the
     // league's, LabyrinthTrials).
-    internal static bool LabyrinthTrialsDone(ClientState conn, int tier, out int done, out int count)
+    public static bool LabyrinthTrialsDone(ClientState conn, int tier, out int done, out int count)
     {
         var trials = LabyrinthTrials.Trials.Where(t => LabyrinthTrials.Tier(t) == tier).ToList();
         done = trials.Count(t => conn.HasQuestFlag(t.Flag) || conn.LeagueQuestFlags.Contains(t.LeagueFlag));
@@ -159,7 +159,7 @@ static partial class Game
 
     // C→S 0x212: the Labyrinth the plaza's select window chose (1 Normal … 4 Eternal). With its trials done the door in front
     // of the way in opens in this instance and the way in shows (to today's first room; only the Normal Labyrinth is built).
-    internal static async Task ChooseLabyrinth(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte tier)
+    public static async Task ChooseLabyrinth(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte tier)
     {
         if (conn.Layout.Id != LabyrinthDay.Plaza) return;
         bool done = LabyrinthTrialsDone(conn, tier, out int have, out int count);
@@ -177,10 +177,10 @@ static partial class Game
     // The quest tables that run for this player: those of the modules its league lists (Quests.For; empty without
     // QuestObjects). The area's layout is the same for every league, so what the tables add or change there is decided
     // here, per player (TransitionShown).
-    internal static Quests.RuleSet QuestsOf(ClientState conn) => Quests.For(ModulesFor(conn));
+    public static Quests.RuleSet QuestsOf(ClientState conn) => Quests.For(ModulesFor(conn));
 
     // The flag a dialogue row sets when chosen: its QuestFlag4, unless the player's tables say only an event sets it.
-    internal static string? TalkStartFlag(ClientState conn, NpcCatalog.Talk talk) => QuestsOf(conn).TalkStartFlag(talk);
+    public static string? TalkStartFlag(ClientState conn, NpcCatalog.Talk talk) => QuestsOf(conn).TalkStartFlag(talk);
 
     // Shown: its tile type exists for the character (Quests.ExistsRule: the Control Blocks' exit to Oriath Square before
     // Avarius, the one to The Ruined Square after), and its quest flag is set or a script opened it on this instance.
@@ -188,8 +188,12 @@ static partial class Game
     // AreaTransitionObject.QuestSource) stands only where that source's tables run; one a quest replaced
     // (QuestReplaced: the exit without a model a portal stands in for, a swapped exit's unchanged version) only where
     // they do not, so a league without them has the layout as generated.
-    internal static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
+    public static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
+        if (DepravedTrinity.GateShown(conn, id, transition) is bool shown) return shown;
+        // The Reverie Device's six consumable portals replace the old permanent quest exit.
+        if (QuestsOf(conn).Includes("QuestObjects") && conn.Layout.Id == MapDevice.CampaignDeviceArea
+            && transition.DestinationHash16 == AreaTransitionCatalog.HashOf(MapDevice.CampaignMapArea)) return false;
         var quests = QuestsOf(conn);
         if (transition.QuestSource is { } source && quests.Includes(source) == transition.QuestReplaced) return false;
         return quests.Exists(transition.SourceType, f => ClientHasQuestFlag(conn, f))
@@ -197,7 +201,7 @@ static partial class Game
     }
 
     // The area transitions whose shown state changed (a quest flag, an NPC script): created on the client or removed.
-    internal static async Task UpdateShownTransitions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task UpdateShownTransitions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (!conn.PlayerSent) return;
         // Whether each should stand now (outside the lock: it reads the flags), then, under one lock, the ones whose state
@@ -230,7 +234,7 @@ static partial class Game
     // A quest flag as the client has it: the character's own, or one the World panel's access flags carry (an activated
     // waypoint's area, 16-waypoints.md §4: the Submerged Passage's waypoint brings a1q4-PlacedGlyphs). The client opens
     // its ways by these, so the server's checks follow them.
-    internal static bool ClientHasQuestFlag(ClientState conn, string flag)
+    public static bool ClientHasQuestFlag(ClientState conn, string flag)
     {
         if (Quests.IsInstanceFlag(flag)) return conn.Instance.HasState(flag);
         if (conn.HasQuestFlag(flag)) return true;
@@ -269,7 +273,7 @@ static partial class Game
 
     // The first ground click in WashedUp sends this action instead of Move, and any other request to move gets it from the
     // server (0x141e9b860). It plays getup in place; treating a target as a walk would move only the server's position estimate.
-    internal static async Task WakeUpOnBeach(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task WakeUpOnBeach(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y)? target, ushort sequence, ushort flags, double requestedAt)
     {
         int action;
@@ -299,20 +303,20 @@ static partial class Game
             });
     }
 
-    internal static bool LyingOnBeach(ClientState conn) => conn.PeerTemplate is { WashedUp: true } && !conn.TutorialGettingUp;
+    public static bool LyingOnBeach(ClientState conn) => conn.PeerTemplate is { WashedUp: true } && !conn.TutorialGettingUp;
 
     // Ids of the invisible SunkenPassageBlockers on the server's walk estimate (blockers only: the client spawns them).
-    internal const uint PassageBlockerFirstId = 0xff000000;
+    public const uint PassageBlockerFirstId = 0xff000000;
     // a1q4's objects have ids of their own, between the quest room objects (QuestRoomObjectFirstId) and the waypoint, so
     // they never meet the ids other code takes from NextObjectId: the nests (+ their index), the wall, the waterfall and
     // the opened nests (+ 0x20 + their index).
-    internal const uint GlyphObjectFirstId = 0x2e80, GlyphWallObjectId = GlyphObjectFirstId + 0x10, GlyphWaterObjectId = GlyphObjectFirstId + 0x11,
+    public const uint GlyphObjectFirstId = 0x2e80, GlyphWallObjectId = GlyphObjectFirstId + 0x10, GlyphWaterObjectId = GlyphObjectFirstId + 0x11,
         OpenedNestFirstId = GlyphObjectFirstId + 0x20;
 
     // Which glyph (0–2) an item is, or null.
-    internal static int? GlyphIndex(Item item) => GlyphQuest.GlyphOf(Items.ByHash(item.TypeHash)?.Id);
+    public static int? GlyphIndex(Item item) => GlyphQuest.GlyphOf(Items.ByHash(item.TypeHash)?.Id);
 
-    internal static void SetPassageBlockers(ClientState conn, bool on)
+    public static void SetPassageBlockers(ClientState conn, bool on)
     {
         if (conn.Glyphs is not { } layout) return;
         for (int i = 0; i < layout.Blockers.Count; i++)
@@ -323,7 +327,7 @@ static partial class Game
     // PlacedGlyphs as the client has it changed: the wall and the waterfall play their transition (0x2bc to
     // Transitionable), and the invisible blockers leave the server's walk estimate (the client drops its own when it gets
     // the flag). Cleared (dev): the other way.
-    internal static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
+    public static async Task ChangeSubmergedPassage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool open)
     {
         lock (conn.Monsters)
         {

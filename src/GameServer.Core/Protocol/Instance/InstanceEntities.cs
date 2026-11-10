@@ -308,6 +308,7 @@ public static class InstanceEntities
 
     /// <summary>Actor 0x40's cooldown trailer (0x14219e694..0x14219e948), without replacing any skill.
     /// Existing entries are replaced, not consumed/appended: remaining and total BASE seconds, recovery rate, flags.
+    /// The first entry retains progress; later spent uses have a full base budget and recover in sequence.
     /// A zero remaining budget clears the entry vector. Native skill base duration and cooldown group stay intact.</summary>
     public static byte[] PlayerSingleUseCooldowns(uint playerId, IReadOnlyList<SingleUseCooldownUpdate> cooldowns,
         IReadOnlyList<VaalSoulBudget>? souls = null, bool canDetonateMines = false)
@@ -321,9 +322,12 @@ public static class InstanceEntities
                 || !float.IsFinite(c.TotalBaseSeconds) || c.TotalBaseSeconds <= 0
                 || !float.IsFinite(c.RecoveryRate) || c.RecoveryRate < 0)
                 throw new ArgumentOutOfRangeException(nameof(cooldowns));
-            w.U16(c.SkillId).U32(c.RemainingBaseSeconds > 0 ? 1u : 0u);
-            if (c.RemainingBaseSeconds > 0)
-                w.F32(c.RemainingBaseSeconds).F32(c.TotalBaseSeconds).F32(c.RecoveryRate).U32(0xffffffff);
+            int count = c.RemainingBaseSeconds > 0 ? c.SpentUses : 0;
+            if (count < 0 || count > 255 || c.RemainingBaseSeconds > 0 && count == 0) throw new ArgumentOutOfRangeException(nameof(cooldowns));
+            w.U16(c.SkillId).U32((uint)count);
+            for (int i = 0; i < count; i++)
+                w.F32(i == 0 ? c.RemainingBaseSeconds : c.TotalBaseSeconds)
+                    .F32(c.TotalBaseSeconds).F32(c.RecoveryRate).U32(0xffffffff);
         }
         return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
@@ -888,10 +892,12 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 /// 3.29.3c). The Beam component (0x1416710c0) reads the MiscBeams row + 1, a 16-bit flag word and a third flag byte,
 /// then the endpoints. The official packet: row 0 (SoulEaterBeam) + 1, flags 0x0C97, start world x/y, start object id,
 /// 0, end world x/y, end object id, 0. The client follows the two objects; the positions are their snapshot.
-/// World coordinates are grid cells times ten.
+/// World coordinates are grid cells times ten. Flag A6 (0x40) puts a name in place of the u32 after the start object
+/// (u32 byte length, then the bytes): the start object's bone the line leaves from (3.29.3c: 0x1416710c0 → 0x140e276c0; Izaro's
+/// gargoyles' <c>Jnt_jaw</c>). Without it the start stays where it was made; the end, given as here, follows its object.
 /// </summary>
 public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint StartObject, float EndWorldX, float EndWorldY,
-    uint EndObject, ushort BeamRow = 0)
+    uint EndObject, ushort BeamRow = 0, string? StartBone = null)
 {
     public const string TypePath = "Metadata/Effects/ServerBeamEffect";
     /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
@@ -906,9 +912,15 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
         w.U8(0);                                                        // Animated: the Beam row's art
         // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
         // world position and object id (the client follows the objects; the positions are their snapshot).
-        w.U16((ushort)(BeamRow + 1)).U8(0x97).U8(0x0C).U8(0x00)
-            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject).U32(0)
-            .F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+        w.U16((ushort)(BeamRow + 1)).U8((byte)(StartBone is null ? 0x97 : 0xD7)).U8(0x0C).U8(0x00)
+            .F32(StartGridX * WorldPerCell).F32(StartGridY * WorldPerCell).U32(StartObject);
+        if (StartBone is null) w.U32(0);
+        else
+        {
+            byte[] bone = System.Text.Encoding.ASCII.GetBytes(StartBone);
+            w.U32((uint)bone.Length).Bytes(bone);
+        }
+        w.F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
         w.U8(0);                                                        // tasks
         return w.ToArray();
     }
@@ -1021,6 +1033,10 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
     public (uint Object, ushort Skill)? Parent { get; init; }
+    /// <summary>The record's u8 → skill +0xcc: the charge the client lets the skill spend while it cools down
+    /// (GrantedEffectsPerLevel CooldownBypassType: 1 Endurance, 2 Frenzy, 3 Power; 0x141ea4290, 0x141ea4560). At 0
+    /// the client never used Flicker Strike during its cooldown, whatever the Frenzy Charges (live 2026-11-09).</summary>
+    public byte CooldownBypassType { get; init; }
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x14219d650.</summary>
@@ -1033,7 +1049,7 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
 
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
-    float TotalBaseSeconds, float RecoveryRate);
+    float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
 
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
@@ -1222,7 +1238,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          // → skill +0xc0, +0xc4, +0xc8, +0xcc (0x141eedc30). +0xc8 is the cooldown in ms: with it and the stat
          // virtual_total_cooldown_count the client keeps the skill's cooldown and shows it on the skill bar
          // (0x141ef0f00 creates the cooldown record only when it is not 0; live 2026-10-21).
-         .U32(0).U32(0).U32(s.CooldownMs).U8(0)
+         .U32(0).U32(0).U32(s.CooldownMs).U8(s.CooldownBypassType)
          .Stats(s.Stats);                      // the skill's own stats
         foreach (var (_, stats) in s.ExtraStatSets) w.Stats(stats);   // and one stat list per additional set
     }

@@ -146,7 +146,7 @@ Native table values and implemented campaign rules are used where available; unk
 
 ## Change Ruthless balance without rebuilding
 
-Eight numbers are the Ruthless module's settings, declared in `Modules/Ruthless/settings.json` with their defaults and
+Eight numbers are the Ruthless module's settings, declared in `Modules/Core/Ruthless/settings.json` with their defaults and
 limits ([modding](../dev/modding.md), "Settings"). These are server settings, separate from the private client's graphics
 and input settings. GGG does not publish the exact server drop and XP formulas, so the defaults are LocalExile
 approximations; they are not claimed to reproduce retail probabilities.

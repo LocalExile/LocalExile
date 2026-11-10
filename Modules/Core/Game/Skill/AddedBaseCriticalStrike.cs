@@ -2,7 +2,7 @@
 
 /// <summary>Ordinary added base critical chance, in permyriad. Actor and selected-skill BASE sources join the
 /// completed intrinsic base before INC (pinned PoB CalcOffence.lua3102-3107). Published final chances are not inputs.</summary>
-static class AddedBaseCriticalStrike
+public static class AddedBaseCriticalStrike
 {
     public const string Generic = "additional_base_critical_strike_chance";
     public const string Attack = "attack_additional_critical_strike_chance_permyriad";

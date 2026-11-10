@@ -1,22 +1,24 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Item types: BaseItemTypes rows from the extracted tables (Id, Name, HASH32, size, visual identity → ItemVisualIdentity
 /// HASH16), each type's components from data/item-types.json (`python -I scripts/re/ot_components.py --items --json
 /// data/item-types.json`), flask charges from ComponentCharges and stack sizes from CurrencyItems. All game data: it stays in data/ and loads on first use.
 /// </summary>
-sealed class ItemCatalog
+public sealed class ItemCatalog
 {
     /// <summary>What the stash tabs hold (<see cref="StashRules"/>), loaded on first use; tests set their own.</summary>
     public StashRules Stash
     {
         get => _stash ??= StashRules.Load(_folder, _rows.Value.Rows);
-        internal set => _stash = value;
+        set => _stash = value;
     }
 
     private StashRules? _stash;
     private readonly string _folder;
+    private readonly Lazy<HashSet<int>> _activeGemEffects;
 
     public ItemCatalog(string folder, bool hardMode = false, LimitSettings? limits = null)
     {
@@ -26,6 +28,7 @@ sealed class ItemCatalog
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
         _gems = new(() => LoadGems(folder, hardMode));
+        _activeGemEffects = new(() => LoadActiveGemEffects(folder));
         _requirements = new(() => LoadRequirements(folder));
         _shieldBlocks = new(() => LoadShieldBlocks(folder));
         _weaponCrits = new(() => LoadWeaponCrits(folder));
@@ -57,7 +60,7 @@ sealed class ItemCatalog
     static HashSet<uint> LoadWords(string folder)
     {
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("HASH32").GetUInt32())];
     }
@@ -66,7 +69,7 @@ sealed class ItemCatalog
     {
         var map = new Dictionary<string, ushort>(StringComparer.Ordinal);
         string path = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
-        if (!File.Exists(path)) return map;
+        if (!ClientTables.Exists(path)) return map;
         using var doc = GameTables.Open(path);
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { Length: > 0 } id
@@ -149,7 +152,7 @@ sealed class ItemCatalog
     {
         var actions = new Dictionary<int, string>();
         string currency = Path.Combine(folder, "tables", "CurrencyItems.json");
-        if (File.Exists(currency))
+        if (ClientTables.Exists(currency))
         {
             using var doc = GameTables.Open(currency);
             foreach (var r in doc.RootElement.EnumerateArray())
@@ -160,7 +163,7 @@ sealed class ItemCatalog
         var quality = new Dictionary<int, byte>();
         int rows = 0;
         string alt = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
-        if (File.Exists(alt))
+        if (ClientTables.Exists(alt))
         {
             using var doc = GameTables.Open(alt);
             byte row = 0;
@@ -317,8 +320,20 @@ sealed class ItemCatalog
     {
         if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
-        if (v.Effect >= 0) yield return v.Effect;
-        if (v.Effect2 >= 0) yield return v.Effect2;
+        if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
+        if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;
+    }
+
+    // Hybrid gems such as Automation carry an active effect and a support effect.
+    // The Actor skill constructor dereferences ActiveSkill (+0x63) even for a secondary effect.
+    static HashSet<int> LoadActiveGemEffects(string folder)
+    {
+        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
+        if (!GameServer.Core.ClientTables.Exists(path)) return [];
+        using var doc = GameTables.Open(path);
+        return doc.RootElement.EnumerateArray().Select((row, i) => (Row: row, Index: i))
+            .Where(r => !r.Row.GetProperty("IsSupport").GetBoolean() && r.Row.GetProperty("ActiveSkill").ValueKind == JsonValueKind.Number)
+            .Select(r => r.Index).ToHashSet();
     }
 
     /// <summary>A gem item's level from its experience (<see cref="GemType.Level"/>), 1 for an unknown gem type.</summary>
@@ -350,8 +365,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "ShieldTypes.json");
         var result = new Dictionary<int, int>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b &&
                 r.GetProperty("Block") is { ValueKind: JsonValueKind.Number } block)
@@ -392,8 +407,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "ArmourTypes.json");
         var result = new Dictionary<int, BaseDefences>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
         {
             if (r.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } key) continue;
@@ -420,8 +435,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "WeaponTypes.json");
         var result = new Dictionary<int, int>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b &&
                 r.GetProperty("Critical") is { ValueKind: JsonValueKind.Number } crit)
@@ -453,7 +468,7 @@ sealed class ItemCatalog
     {
         string flasks = Path.Combine(folder, "tables", "Flasks.json"), charges = Path.Combine(folder, "tables", "ComponentCharges.json");
         var result = new Dictionary<int, Flasks.Flask>();
-        if (!File.Exists(flasks) || !File.Exists(charges)) return result;
+        if (!ClientTables.Exists(flasks) || !ClientTables.Exists(charges)) return result;
         var perUse = new Dictionary<string, (int Max, int PerCharge)>();
         using (var c = GameTables.Open(charges))
             foreach (var r in c.RootElement.EnumerateArray())
@@ -481,14 +496,14 @@ sealed class ItemCatalog
         string Table(string n) => Path.Combine(folder, "tables", n + ".json");
         var result = new Dictionary<int, GemType>();
         string[] needed = ["SkillGems", "GemEffects", "BaseItemTypes", "ItemExperiencePerLevel", "ItemExperienceTypes"];
-        if (needed.Any(n => !File.Exists(Table(n)))) return result;
+        if (needed.Any(n => !ClientTables.Exists(Table(n)))) return result;
         using var g = GameTables.Open(Table("SkillGems"));
         using var e = GameTables.Open(Table("GemEffects"));
         using var b = GameTables.Open(Table("BaseItemTypes"));
         using var x = GameTables.Open(Table("ItemExperiencePerLevel"));
         using var xt = GameTables.Open(Table("ItemExperienceTypes"));
         // Optional: GemTags' row index for "exceptional" (the Greater supports, Pacts and Awakened exceptional supports).
-        bool hasGemTags = File.Exists(Table("GemTags"));
+        bool hasGemTags = ClientTables.Exists(Table("GemTags"));
         var exceptionalTags = new HashSet<int>();
         if (hasGemTags)
         {
@@ -568,9 +583,10 @@ sealed class ItemCatalog
 
     /// <summary>Two linked sockets for a type with a Sockets component: 3.29 white by default, each with the item-level
     /// chance to roll a colour proportional to its attribute requirements (ComponentAttributeRequirements:
-    /// strength red, dexterity green, intelligence blue; SocketColours); no sockets for other types.</summary>
+    /// strength red, dexterity green, intelligence blue; SocketColours); no sockets for other types.
+    /// <paramref name="noWhite"/> is the hidden 3.29 property that forbids white sockets.</summary>
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DefaultSockets(
-        BaseType t, int itemLevel = 1, int quality = 0, Random? random = null)
+        BaseType t, int itemLevel = 1, int quality = 0, Random? random = null, bool noWhite = false)
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
         if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
@@ -578,8 +594,8 @@ sealed class ItemCatalog
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
         random ??= Random.Shared;
-        return ([new(SocketColours.Roll(requirements, itemLevel, quality, random)),
-                 new(SocketColours.Roll(requirements, itemLevel, quality, random))], [2]);
+        return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite)),
+                 new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
 
     private Lazy<Dictionary<string, (int Str, int Dex, int Int)>> _requirements = null!;
@@ -591,8 +607,8 @@ sealed class ItemCatalog
     {
         string path = Path.Combine(folder, "tables", "ComponentAttributeRequirements.json");
         var result = new Dictionary<string, (int, int, int)>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             result[r.GetProperty("BaseItemTypesKey").GetString() ?? ""] =
                 (r.GetProperty("ReqStr").GetInt32(), r.GetProperty("ReqDex").GetInt32(), r.GetProperty("ReqInt").GetInt32());
@@ -617,12 +633,12 @@ sealed class ItemCatalog
     private static (List<BaseType>, string?) Load(string folder, ModCatalog mods)
     {
         string bases = Path.Combine(folder, "tables", "BaseItemTypes.json"), visuals = Path.Combine(folder, "tables", "ItemVisualIdentity.json");
-        if (!File.Exists(bases) || !File.Exists(visuals)) return ([], $"{bases} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Exists(bases) || !ClientTables.Exists(visuals)) return ([], $"{bases} is missing: extract the game tables (Tools/PoEDataExtractor)");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var itemTags = new Dictionary<string, IReadOnlyList<string>>();
         var questFlags = new Dictionary<string, QuestItemFlags>();
         string types = Path.Combine(folder, "item-types.json");
-        if (!File.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
+        if (!ClientTables.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
         using (var doc = GameTables.Open(types))
             foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
             {
@@ -638,13 +654,13 @@ sealed class ItemCatalog
                 }
             }
         List<ushort> visualHashes;
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(visuals)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(visuals)))
             visualHashes = [.. doc.RootElement.EnumerateArray().Select(r => (ushort)r.GetProperty("HASH16").GetInt32())];
         var charges = new Dictionary<string, int>();
         string chargesPath = Path.Combine(folder, "tables", "ComponentCharges.json");
-        if (File.Exists(chargesPath))
+        if (ClientTables.Exists(chargesPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(chargesPath));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(chargesPath));
             foreach (var r in doc.RootElement.EnumerateArray())
                 charges[r.GetProperty("BaseItemTypesKey").GetString() ?? ""] = r.GetProperty("MaxCharges").GetInt32();
         }
@@ -653,7 +669,7 @@ sealed class ItemCatalog
         var stackSizes = new Dictionary<int, ushort>();
         var fullStacks = new Dictionary<int, int>();
         string currencyPath = Path.Combine(folder, "tables", "CurrencyItems.json");
-        if (File.Exists(currencyPath))
+        if (ClientTables.Exists(currencyPath))
         {
             using var doc = GameTables.Open(currencyPath);
             foreach (var r in doc.RootElement.EnumerateArray())
@@ -670,9 +686,9 @@ sealed class ItemCatalog
         var mirrorableClasses = new List<bool>();
         var corruptibleClasses = new List<bool>();
         string classesPath = Path.Combine(folder, "tables", "ItemClasses.json");
-        if (File.Exists(classesPath))
+        if (ClientTables.Exists(classesPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(classesPath));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(classesPath));
             classes = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
             stances = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("ItemStance") is { ValueKind: JsonValueKind.Number } s ? (byte)s.GetInt32() : (byte)0xff)];
             unmodifiableClasses = [.. doc.RootElement.EnumerateArray().Select(r =>
@@ -689,13 +705,13 @@ sealed class ItemCatalog
         }
         List<string> tagIds = [];
         string tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (File.Exists(tagsPath))
+        if (ClientTables.Exists(tagsPath))
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(tagsPath));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath));
             tagIds = [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
         }
         var rows = new List<BaseType>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(bases)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(bases)))
         {
             foreach (var r in doc.RootElement.EnumerateArray())
             {
@@ -741,4 +757,4 @@ sealed class ItemCatalog
 /// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
 /// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
 /// QuestStaticRewards keys by that flag).</summary>
-sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);
+public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);

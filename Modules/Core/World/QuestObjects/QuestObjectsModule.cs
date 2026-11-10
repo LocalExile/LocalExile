@@ -36,9 +36,9 @@ public sealed class QuestObjectsModule : IModule, IDisposable
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
         _events.Add(Quests.Register(module.Manifest.Id, acts));
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
-        module.OnAreaGenerated(async player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            var (remote, stream, ciphers) = conn.Wire;
             await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
             await SpawnOpeningTutorial(remote, stream, ciphers, conn);
             await SpawnGlyphQuest(remote, stream, ciphers, conn);
@@ -47,7 +47,7 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             await StartQuestArea(remote, stream, ciphers, conn);
             await TickBeacon(conn);
         });
-        module.OnTick((player, _) => TickBeacon(ConnOf(player)));
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => TickBeacon(conn));
         // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
         // or are freed, a fight of several bosses, a cleared area (a1q8).
         On(GameEvents.Kill, kill =>
@@ -137,6 +137,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                         Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(remote, stream, ciphers, conn),
                         Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
                         Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(remote, stream, ciphers, conn),
+                        Act7Objects.Orrery => () => Send(remote, stream, ciphers,
+                            InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,
                     });
                 return true;
@@ -153,6 +155,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 await UseGlyphWall(remote, stream, ciphers, conn, use);
                 return true;
             }
+            // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
+            if (QuestobjectsRules.PickLabyrinthStash(conn, use.TargetId)) return false;
             return await UseTrialObject(remote, stream, ciphers, conn, use);
         });
     }

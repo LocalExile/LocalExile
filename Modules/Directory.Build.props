@@ -36,6 +36,7 @@
     <InternalsVisibleTo Include="chat" />
     <InternalsVisibleTo Include="commands" />
     <InternalsVisibleTo Include="cosmetics" />
+    <InternalsVisibleTo Include="currencyexchange" />
     <InternalsVisibleTo Include="delve" />
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />

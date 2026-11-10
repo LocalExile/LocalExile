@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -11,7 +12,7 @@ using System.Text.Json;
 /// </para>
 /// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
 /// </summary>
-sealed class CosmeticCatalog(string folder = "data")
+public sealed class CosmeticCatalog(string folder = "data")
 {
     /// <summary>One playable cosmetic: <paramref name="Index"/> is the table's own number.</summary>
     public sealed record Cosmetic(string Name, string Id, string Ao, int Index)
@@ -88,8 +89,8 @@ sealed class CosmeticCatalog(string folder = "data")
 
     static List<JsonElement>? ReadRows(string path)
     {
-        if (!File.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return null;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         // Clone: the elements outlive the document, whose buffers they would otherwise point into.
         return doc.RootElement.ValueKind == JsonValueKind.Array ? [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())] : null;
     }

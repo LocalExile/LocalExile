@@ -1,19 +1,19 @@
 using GameServer.Modding;
 using GameServer.Core.Diagnostics;
 
-sealed class PlayerUpdatesState(IModuleLifetime rules, IPlayerUpdateSchedule schedule) : ITransientCombatState
+public sealed class PlayerUpdatesState(IModuleLifetime rules, IPlayerUpdateSchedule schedule) : ITransientCombatState
 {
-    internal readonly IModuleLifetime Rules = rules;
-    internal readonly IPlayerUpdateSchedule Schedule = schedule;
-    internal readonly CancellationTokenSource Stop = new();
-    internal long Generation;
-    internal Task Completion = Task.CompletedTask;
-    internal (uint Id, SpawnedMonster Monster)[] PendingStages = [];
-    internal readonly HashSet<PlayerMinions.Attack> MinionAttacks = [];
+    public readonly IModuleLifetime Rules = rules;
+    public readonly IPlayerUpdateSchedule Schedule = schedule;
+    public readonly CancellationTokenSource Stop = new();
+    public long Generation;
+    public Task Completion = Task.CompletedTask;
+    public (uint Id, SpawnedMonster Monster)[] PendingStages = [];
+    public readonly HashSet<PlayerMinions.Attack> MinionAttacks = [];
     public void Clear() => Stop.Cancel();
 }
 
-static partial class Game
+public static partial class Game
 {
     sealed class PlayerUpdateSchedule : IPlayerUpdateSchedule
     {
@@ -21,21 +21,21 @@ static partial class Game
         public double ResourceNow(ClientState conn) => ProjectileWorldTime(conn);
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.Delay(milliseconds, stopping);
     }
-    internal static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
-    internal static bool CurrentGameWork => QuestKillCommitOutput is not null
+    public static readonly AsyncLocal<PlayerUpdatesState?> AreaUpdateContext = new();
+    public static bool CurrentGameWork => QuestKillCommitOutput is not null
         || CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
-    internal static double AreaTime(ClientState conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Clock.Elapsed.TotalSeconds;
-    internal static Task AreaWait(PlayerUpdateRole role, int milliseconds) => AreaUpdateContext.Value is { } state
+    public static double AreaTime(ClientState conn) => AreaUpdateContext.Value?.Schedule.Now(conn) ?? conn.Clock.Elapsed.TotalSeconds;
+    public static Task AreaWait(PlayerUpdateRole role, int milliseconds) => AreaUpdateContext.Value is { } state
         ? state.Schedule.Wait(role, milliseconds, state.Stop.Token) : Task.Delay(milliseconds);
 
-    internal static IPlayerUpdateSchedule PlayerUpdatesSchedule = new PlayerUpdateSchedule();
+    public static IPlayerUpdateSchedule PlayerUpdatesSchedule = new PlayerUpdateSchedule();
 
-    internal static bool PlayerUpdatesCurrent(ClientState conn, PlayerUpdatesState state) => CurrentGameRules
+    public static bool PlayerUpdatesCurrent(ClientState conn, PlayerUpdatesState state) => CurrentGameRules
         && !conn.Closed && !conn.RageRetired && !state.Stop.IsCancellationRequested
         && ReferenceEquals(conn.PlayerUpdatesState, state) && ReferenceEquals(CombatLifetime, state.Rules)
         && conn.PlayerUpdatesWorker.Current(state.Rules, null, state, state.Generation);
 
-    internal static void EnsurePlayerUpdates(ClientState conn)
+    public static void EnsurePlayerUpdates(ClientState conn)
     {
         lock (conn.Monsters)
         {

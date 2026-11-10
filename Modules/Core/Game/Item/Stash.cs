@@ -2,30 +2,42 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // The account's stash (AccountStash): every character of the account shares it. Without an account (an old Auth) the
     // character's name stands in.
-    internal static AccountStash StashOf(ClientState conn) => conn.GuildStashOpen && !conn.Ssf ? GuildStashOf(conn) : PersonalStashOf(conn);
+    public static AccountStash StashOf(ClientState conn) => conn.GuildStashOpen && !conn.Ssf ? GuildStashOf(conn) : PersonalStashOf(conn);
 
     // The personal stash (and the account's gold, kept with it), whichever stash panel is open: the account's in the
     // character's league (AccountStash.Key).
-    internal static AccountStash PersonalStashOf(ClientState conn) => AccountStash.For(AccountStash.Key(conn.Account ?? CharacterName(conn), conn.League), ItemsFor(conn));
+    public static AccountStash PersonalStashOf(ClientState conn) => AccountStash.For(AccountStash.Key(conn.Account ?? CharacterName(conn), conn.League), ItemsFor(conn));
 
     // The guild stash: no guilds yet, so each account has its own per league. SSF refuses this storage boundary.
-    internal static AccountStash GuildStashOf(ClientState conn) =>
+    public static AccountStash GuildStashOf(ClientState conn) =>
         AccountStash.ForGuild(conn.Account ?? CharacterName(conn), ItemsFor(conn), conn.League, conn.Ssf);
 
     // The tabs of that stash whose contents this connection has.
-    internal static HashSet<int> TabsSentOf(ClientState conn, AccountStash stash) => stash.IsGuild ? conn.GuildStashTabsSent : conn.StashTabsSent;
+    public static HashSet<int> TabsSentOf(ClientState conn, AccountStash stash) => stash.IsGuild ? conn.GuildStashTabsSent : conn.StashTabsSent;
 
-    // The town's Stash object (Agents/docs/protocol/18-stash.md §1) where the town has one (StashCatalog).
-    internal static async Task SpawnTownStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    static (StashCatalog.Placement Personal, StashCatalog.Placement Guild)? AdditionalTownStashes(ClientState conn) => conn.Layout.Id switch
+    {
+        "1_2_town" => (new(192, 283, 0), new(182, 283, 0)),
+        "1_4_town" or "2_9_town" => (new(214, 512, 310 * MathF.PI / 180), new(213, 485, 210 * MathF.PI / 180)),
+        "1_5_town" => (new(337, 336, 282 * MathF.PI / 180), new(335, 347, 282 * MathF.PI / 180)),
+        "2_7_town" => (new(598, 628, 0), new(598, 588, MathF.PI)),
+        "2_8_town" => (new(296, 423, 31 * MathF.PI / 180), new(287, 418, 31 * MathF.PI / 180)),
+        _ => null,
+    };
+
+    // The town's Stash object (Agents/docs/protocol/18-stash.md §1) where it has one.
+    public static async Task SpawnTownStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var scene = HideoutFurniture(conn);
+        var additional = AdditionalTownStashes(conn);
+        var town = additional?.Personal ?? StashCatalog.In(conn.Layout.Hash);
         var at = scene is { } furnished ? new StashCatalog.Placement(furnished.Stash.X, furnished.Stash.Y, furnished.Stash.Rotation)
-            : StashCatalog.In(conn.Layout.Hash) is { } town && StashCatalog.FromArrival(conn.Layout.Hash)
-                ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : StashCatalog.In(conn.Layout.Hash);
+            : town is not null && StashCatalog.FromArrival(conn.Layout.Hash)
+                ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : town;
         if (at is null || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
         uint id = conn.NextObjectId++;
         var stash = new StashObject(at.X, at.Y, at.Rotation);
@@ -36,11 +48,11 @@ static partial class Game
         conn.StashAt = (at.X, at.Y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, StashObject.MetadataPath, at.X, at.Y, at.Rotation,
             scene is not null ? "stash" : null);
-        // Hideouts, Lioneye's Watch (Acts 1 and 6), the Sarn Encampment and the Mine Encampment also get a guild stash.
-        if (HideoutCatalog.ByArea(conn.Layout.Hash) is null
+        // The supplied towns and hideouts also get a guild stash, except in SSF.
+        if (additional is null && HideoutCatalog.ByArea(conn.Layout.Hash) is null
             && conn.Layout.Hash is not (StashCatalog.DelveHub or StashCatalog.MenagerieHub or StashCatalog.SanctumHub or StashCatalog.Kingsmarch or StashCatalog.HeistHub or StashCatalog.ChayulaHub or AreaLayouts.LioneyesWatch
-                or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6)) return;
-        var townGuild = scene is null ? StashCatalog.GuildIn(conn.Layout.Hash) : null;
+                or StashCatalog.SarnEncampment or StashCatalog.LioneyesWatchAct6 or StashCatalog.OriathDocks)) return;
+        var townGuild = scene is null ? additional?.Guild ?? StashCatalog.GuildIn(conn.Layout.Hash) : null;
         if (townGuild is { } offset && StashCatalog.FromArrival(conn.Layout.Hash))
             townGuild = offset with { X = conn.Layout.SpawnX + offset.X, Y = conn.Layout.SpawnY + offset.Y };
         var (gx, gy) = scene?.Guild ?? (townGuild is { } tg ? (tg.X, tg.Y) : conn.Layout.Near((at.X, at.Y)));
@@ -58,12 +70,12 @@ static partial class Game
         }
         // The stations of the modules this league uses. One taken away is simply not placed: its spot stays free.
         conn.CurrentHideoutScene = scene;
-        if (scene is not null) await Program.ServerHooks.HideoutReady(PlayerOf(conn));
+        if (scene is not null) await GameEvents.RunHideoutReady(conn);
     }
 
     // A click on the Stash (C→S 0x24): walk there, then S→C 0x7b kind 1 opens the stash panel. Its affinity argument selects
     // the tab carrying that affinity bit in the tab list, which only the account's last tab does (AccountStash.Records).
-    internal static async Task OpenStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    public static async Task OpenStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         await RefreshBenchBalance(remote, stream, ciphers, conn, clear: true);
         conn.BenchOpen = false;
@@ -96,7 +108,7 @@ static partial class Game
     // C→S 0xc7: the panel shows a tab whose contents it does not have (or it just opened on it). The first time per
     // connection the tab's inventory goes out (S→C 0xc0, manager 0, row 26), then S→C 0xc8 marks the tab loaded and the panel
     // builds its page. The tab asked for is the one on screen: the stash opens on it next time.
-    internal static async Task SendStashTab(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort tab, byte kind)
+    public static async Task SendStashTab(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort tab, byte kind)
     {
         if (conn.Ssf && kind == InstanceStash.Guild) return;
         var stash = StashOf(conn);
@@ -164,7 +176,7 @@ static partial class Game
             stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), null);
     }
 
-    internal static async Task RefreshUniqueCollection(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int parent)
+    public static async Task RefreshUniqueCollection(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int parent)
     {
         var sent = TabsSentOf(conn, stash);
         byte kind = stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal;
@@ -197,7 +209,7 @@ static partial class Game
 
     // C→S 0x28 on a stash tab: the item leaves the tab for the (empty) cursor, keeping its id; both saves in one transaction
     // (ItemMoves).
-    internal static async Task PickUpFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PickUpItem pick)
+    public static async Task PickUpFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PickUpItem pick)
     {
         var stash = StashOf(conn);
         var items = ItemsOf(conn);
@@ -216,7 +228,7 @@ static partial class Game
 
     // C→S 0x2a on a stash tab: the held item goes into the tab (with a stash id, AccountStash.Place) or onto a stack of its
     // type there; the one item it was dropped on comes onto the cursor. One transaction (ItemMoves.HeldToStash).
-    internal static async Task PlaceInStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PlaceItem place)
+    public static async Task PlaceInStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, InstanceItems.PlaceItem place)
     {
         var stash = StashOf(conn);
         var items = ItemsOf(conn);
@@ -241,7 +253,7 @@ static partial class Game
 
     // C→S 0xe0: Ctrl + click on an inventory item while a stash tab is shown: into that tab (ItemMoves.InventoryToStash: a
     // stack onto the tab's stacks, a special tab only its own items, a slotted tab into the item's slot), one transaction.
-    internal static async Task MoveToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.MoveToTab move)
+    public static async Task MoveToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.MoveToTab move)
     {
         if (move.Kind != InstanceStash.Personal)
         {
@@ -253,7 +265,7 @@ static partial class Game
 
     // C→S 0xe1: Ctrl + click on an inventory item that has an affinity tab (currency …): into the tab the client picked for it
     // (StashTabAffinities), whichever tab is shown.
-    internal static async Task MoveToAffinityTab(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.MoveToAffinityTab move, string hex)
+    public static async Task MoveToAffinityTab(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.MoveToAffinityTab move, string hex)
     {
         if (move.Tabs is not [var (tab, affinity), ..])
         {
@@ -274,7 +286,7 @@ static partial class Game
         await CtrlClickToStash(remote, stream, ciphers, conn, tab, move.ItemId, $"0x00e1 (affinity {affinity})");
     }
 
-    internal static async Task CtrlClickToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, string why)
+    public static async Task CtrlClickToStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, string why)
     {
         var stash = StashOf(conn);
         var items = ItemsOf(conn);
@@ -285,7 +297,7 @@ static partial class Game
 
     // An item out of a stash tab into the main inventory (C→S 0xe3), a stack onto the inventory's stacks first
     // (ItemMoves.StashToInventory), one transaction.
-    internal static async Task TakeFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, bool all)
+    public static async Task TakeFromStash(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int tab, uint itemId, bool all)
     {
         var stash = StashOf(conn);
         var items = ItemsOf(conn);
@@ -299,7 +311,7 @@ static partial class Game
 
     // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab (only if
     // this connection has the tab's contents: else it gets them whole when it asks, 0xc7).
-    internal static async Task SendTransfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
+    public static async Task SendTransfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
         AccountStash stash, ItemMoves.Transfer t, bool tabFirst)
     {
         List<uint> invGone = [.. t.InventoryChanged.Select(i => i.Id)], tabGone = [.. t.TabChanged.Select(i => i.Id)];
@@ -330,7 +342,7 @@ static partial class Game
     // settings window waits for.
     // After the tab settings change a tab (0xcd, 0xce): the tab list again (S→C 0x136), as after the affinities; the
     // settings window waits for it before it closes.
-    internal static async Task SendTabListAgain(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte kind)
+    public static async Task SendTabListAgain(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte kind)
     {
         if (conn.Ssf && kind == InstanceStash.Guild) return;
         var stash = kind == InstanceStash.Guild ? GuildStashOf(conn) : PersonalStashOf(conn);
@@ -339,7 +351,7 @@ static partial class Game
             $"0x0136 stash {kind} tab list again ({tabs.Count} tabs, after the tab settings)");
     }
 
-    internal static async Task SetTabAffinities(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.SetAffinities set)
+    public static async Task SetTabAffinities(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceStash.SetAffinities set)
     {
         var stash = StashOf(conn);
         uint? now = set.Kind == InstanceStash.Personal ? stash.SetAffinities(set.Tab, set.Changes) : null;

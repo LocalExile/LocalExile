@@ -757,6 +757,20 @@ STEPS = [
 ]
 ```
 
+### Oversoul client findings (3.29.3c)
+
+`IncaShadowBoss.act` and `IncaShadowMonster/rig.amd` give a 27 s initial `emerge`, 1.133 s hand turns,
+0.8 s burrow/rise clips and 20 s death clips. `stance2` is the meat hand, `stance3` the claw; the default is bone.
+The spray contacts are in the actor's `.ao`, not only the rig's `.amd`. Ice projectile animation 1 is flight,
+0 is impact; the summon projectile uses 0 for flight and 1 for impact.
+
+Live, the travel action left Positioned x/y stretches at zero: the actor executed attacks but its body was invisible.
+S→C `0x2bc` to component 0, LE mask `0x20` plus three f32 values `(1,1,1)`, restores the ordinary model.
+The scale needs restoration on resurfacing as well as the clip; an initial update alone does not survive the burrow.
+The actions also need their `0x1ac` acknowledgement; without it, a pending action could remain behind an idle clip.
+Campaign level 23 uses effect level 1, not 23 (`MaxLevelAt(effect, monsterLevel)`).
+The `.ais` is absent from the archive; exact official decision weights and cooldowns are not recoverable from these assets.
+
 ### Risks
 - **The Vaal Oversoul is scripted:**
   - the Dark Altar (`IncaBossSpawner`, tile record) must exist and take The Apex;

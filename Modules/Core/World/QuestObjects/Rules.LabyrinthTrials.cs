@@ -113,6 +113,8 @@ static partial class QuestobjectsRules
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
+        // The rooms' stashes (the account's, as a town's: before Izaro's arenas and in the Ascendancy Chamber).
+        if (labyrinth) await PlaceLabyrinthStashes(remote, stream, ciphers, conn, all);
         // Izaro's arena (Rules.Izaro.cs): his elevator, its doors and his trial.
         if (labyrinth) await RunIzaroArena(remote, stream, ciphers, conn, all);
         // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
@@ -501,6 +503,8 @@ static partial class QuestobjectsRules
         if (conn.ActionCount != action || conn.Closed) return true;
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
             Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
+        else if (IzaroStatues.IsStatue(o.Type))
+            await UseIzaroStatue(remote, stream, ciphers, conn, use.TargetId);
         else if ((o.Type is LabyrinthTrials.Lever or LabyrinthWiring.OnceMultiSwitch || LabyrinthWiring.IsCrank(o.Type))
                  && TryWiring(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
             await PullWired(remote, stream, ciphers, conn, wiring, wired);
@@ -746,6 +750,14 @@ static partial class QuestobjectsRules
         // Its cages (Door_Open) go the other way, each as it stands (several levers may share one: the Labyrinth's Prison
         // bottleneck_01); its Locked Doors (Door_Closed, a Switch_Multi's transitionN) open for good.
         var linked = wiring is null ? [] : Placed(conn, wiring, LinkedFrom(wiring, o, n => n == "next" || n.StartsWith("transition", StringComparison.Ordinal)));
+        // Its gears (TimerGears) turn, and what their next links lead to is the lever's too (1_Labyrinth_RT_branch_bottleneck_2:
+        // Switch → TimerGears → Door_Closed; live 2026-11-08, the door did not open without it).
+        if (wiring is not null && linked.Where(t => t.Object.Type == LabyrinthTrials.Gears).ToList() is { Count: > 0 } gears)
+        {
+            if (pulled)
+                foreach (var (gearId, gear) in gears) await OpenTrialObject(remote, stream, ciphers, conn, gearId, gear);
+            linked = [.. linked, .. Placed(conn, wiring, gears.SelectMany(g => LinkedFrom(wiring, g.Object, n => n == "next")))];
+        }
         var cages = wiring is not null
             ? linked.Where(t => t.Object.Type == LabyrinthTrials.OpenDoor).ToList()
             : NearestTrialObject(conn, LabyrinthTrials.OpenDoor, (o.X, o.Y), closed: false) is { } nearestCage ? [nearestCage] : [];
@@ -785,7 +797,8 @@ static partial class QuestobjectsRules
             Console.WriteLine($"[gateway] {remote} trial switch at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}: sawblades stopped now " +
                 string.Join(", ", paused.Select(i => $"({wiring.All[i].X}, {wiring.All[i].Y})")));
         }
-        else if (TrapRuns.TryGetValue(conn, out var runs))
+        // Without the room links, the sawblades nearest the lever stop (the links say otherwise where a room has them).
+        else if (wiring is null && TrapRuns.TryGetValue(conn, out var runs))
         {
             var saws = runs.Where(r => LabyrinthTrials.IsSawblade(r.Roomba.Type)).ToList();
             List<(int X, int Y)> switches;
@@ -1325,6 +1338,10 @@ static partial class QuestobjectsRules
         return Get("cannot_gain_bleeding") != 0 || Get("virtual_immune_to_bleeding") != 0;
     }
 
+    // virtual_unaffected_by_bleeding, as the stats hold it now (Leech.WithLeechingDefences).
+    static bool UnaffectedByBleeding(ClientState conn) =>
+        Stats.Key("virtual_unaffected_by_bleeding") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
+
     // The bleed a spike hit leaves on a connection: its damage a second while standing, and until when (Clock seconds).
     sealed class Bleed { public double PerSecond, Until; public ushort Buff; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Bleed> Bleeds = new();
@@ -1368,6 +1385,8 @@ static partial class QuestobjectsRules
                     if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) { bleed.Until = double.NegativeInfinity; break; }
                     double factor = conn.Walk.Moving(now) ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
                     dealt = (int)Math.Round(bleed.PerSecond * factor * SpikeBleedTickSeconds);
+                    // Unaffected by Bleeding (Endless Hunger while leeching): the bleed stays on and deals nothing.
+                    if (UnaffectedByBleeding(conn)) dealt = 0;
                     long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
                     conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
                     if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }

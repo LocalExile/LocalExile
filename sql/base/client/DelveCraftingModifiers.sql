@@ -1,0 +1,27 @@
+-- Client table DelveCraftingModifiers (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "DelveCraftingModifiers" (
+    "_row" INTEGER PRIMARY KEY,
+    "BaseItemTypesKey" INTEGER,
+    "AddedModsKeys" JSON,
+    "NegativeWeight_TagsKeys" JSON,
+    "NegativeWeight_Values" JSON,
+    "ForcedAddModsKeys" JSON,
+    "ForbiddenDelveCraftingTagsKeys" JSON,
+    "AllowedDelveCraftingTagsKeys" JSON,
+    "CanMirrorItem" BOOLEAN,
+    "CorruptedEssenceChance" INTEGER,
+    "CanImproveQuality" BOOLEAN,
+    "HasLuckyRolls" BOOLEAN,
+    "SellPrice_ModsKeys" JSON,
+    "CanRollWhiteSockets" BOOLEAN,
+    "Weight_TagsKeys" JSON,
+    "Weight_Values" JSON,
+    "DelveCraftingModifierDescriptionsKeys" JSON,
+    "BlockedDelveCraftingModifierDescriptionsKeys" JSON,
+    "__col17" BOOLEAN,
+    "__col18" BOOLEAN,
+    "__col19" JSON,
+    "__col20" JSON,
+    "__col21" BOOLEAN,
+    "__col22" BOOLEAN
+);

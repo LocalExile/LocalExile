@@ -23,16 +23,16 @@ public sealed class PortalsModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnAreaGenerated(async player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            var (remote, stream, ciphers) = conn.Wire;
             await SpawnHideoutDoodads(remote, stream, ciphers, conn);
             await SpawnMapReturnPortal(remote, stream, ciphers, conn);
             await SpawnTownPortals(remote, stream, ciphers, conn);
             // The portals of the character's open map stand at the device again.
-            bool device;
-            lock (conn.HideoutDoodads) device = conn.HideoutDoodads.Count > 0;
-            if (device && MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open) await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
+            if (MapDeviceHere(conn) is { } device && MapDevice.OpenOf(CharacterName(conn)) is { PortalsLeft: > 0 } open
+                && (open.ReturnTo is null ? !device.Campaign : open.ReturnTo.Area == conn.Layout.Hash && open.ReturnTo.Instance == conn.InstanceNumber))
+                await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
         });
         On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
         {
@@ -86,21 +86,21 @@ public sealed class PortalsModule : IModule, IDisposable
             await UsePortalScroll(remote, stream, ciphers, conn, use, item, type);
             return true;
         });
-        module.OnPacket(InstanceMapDevice.ActivateId, async p =>
+        GameEvents.Packet(InstanceMapDevice.ActivateId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await ActivateMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadActivate(bytes));
             return true;
         });
-        module.OnPacket(InstanceMapDevice.SelectMapId, async p =>
+        GameEvents.Packet(InstanceMapDevice.SelectMapId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
             return true;
         });
-        module.OnPacket(InstanceMapDevice.MoveId, async p =>
+        GameEvents.Packet(InstanceMapDevice.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await MoveToMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadMove(bytes));
             return true;
         });

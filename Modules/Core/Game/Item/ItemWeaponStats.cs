@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 
 /// <summary>A weapon's local item damage and duration, before character, skill and support modifiers.</summary>
-static class ItemWeaponStats
+public static class ItemWeaponStats
 {
     public sealed record Result(DamagePacket Damage, int AttackMs);
 

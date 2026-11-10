@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 /// recovers Flasks.dat LifePerUse / ManaPerUse evenly over RecoveryTime (with its mods: FlaskRecovery). Charges come back
 /// from kills and other sources (FlaskCharges), and in full in towns and hideouts and on resurrection.
 /// </summary>
-static class Flasks
+public static class Flasks
 {
     /// <summary>What one use recovers (life, mana) over <paramref name="Seconds"/>, and its charges: spent per use, and the
     /// most it holds.</summary>
@@ -72,7 +72,7 @@ static class Flasks
         double ManaAtEnd = 0, bool LifeStays = false, bool ManaStays = false, bool NoQueue = false)
     {
         // An accepted recipient snapshot, independent of the Game assembly that admitted the paid use.
-        internal bool CopyManaToLife { get; set; }
+        public bool CopyManaToLife { get; set; }
 
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
         /// both are), unless it stays at full.</summary>

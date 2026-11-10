@@ -35,9 +35,12 @@ features.
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
   automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
-  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): sockets are not generated
-  (`Sockets:` lines are dropped, and Tabula Rasa has neither its sockets nor mods); the five synthesis uniques and The Eternal
-  Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
+  Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): Abyss socket layouts still lack
+  generation rules (`Sockets:` lines are dropped); ordinary default sockets, Tabula's six linked whites, Skin of the
+  Loyal's six linked random colours, the 3.29 no-white property, fixed "Has X Sockets" counts and Malachai's all-white
+  socket are implemented, awaiting a fresh native check. Skin of the Lords is absent from the generated seed, so it
+  cannot be created until its definition is added. The five synthesis
+  uniques and The Eternal Struggle lack their random implicits; uniques with a choice of variants are one fixed choice, and the variable mods of the 34 uniques the
   generator lists stay out, `{crafted}` lines too (Cinderswallow Urn's enchant-like rolls).
   Doryani's Delusion's generated variants are its corrupted ones.
   poedb differs from PoB's current variant on the base of Twyzel, Replica Twyzel, Kitava's Feast and Dissolution of the
@@ -123,17 +126,10 @@ features.
 
 ## 4. Server design
 
-- **Editable game data and limits:** the SQLite overlay, snapshot/reload foundation, mod roll ranges and item limits are
-  implemented and live-checked. The unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
-  catalogues are now in `catalog_entries` (including the full 1,299-row unique catalogue), seeded from the current code
-  arrays and swapped on `/game_data reload`. The `stats`/`mods`/`mod_stats` reference tables and
-  `effective_mod_stats` view give an editor the default keys and ranges without opening the JSON. `system_settings` now
-  holds socket caps by item class, passive points per level, drop/pack/experience/max-level/gold/default-limit/grace
-  numbers. The next step is item templates with custom names, then the admin interface, then NPC shops/placements and
-  the remaining drop/balance settings.
-  The client-compatibility boundary, schema and cache plan are in
-  [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
-  The extracted JSON stays the reference; the database only overrides it.
+- **Game content in world.db:** mod roll ranges, item limits, settings, unique weights, the catalogues and the drop
+  tables are world.db content built from `sql/` (status: items-and-crafting). Next: item templates with custom names,
+  then NPC shops/placements and the remaining drop/balance settings as world tables.
+  What can be content, and what the client owns, is in [dev/editable-game-data.md](../docs/dev/editable-game-data.md).
 
 ## 5. Project
 

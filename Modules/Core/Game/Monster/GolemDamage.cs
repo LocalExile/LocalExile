@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static bool GolemEnemyOrderLocked(ClientState conn, uint id, SpawnedMonster enemy, double now, double ownerDistance)
     {
@@ -76,7 +76,7 @@ static partial class Game
         }
     }
 
-    internal static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
+    public static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
     {
         if (!GolemCurrent(conn, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (!g.Definition.IsGolem && g.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning") return false;
@@ -97,7 +97,8 @@ static partial class Game
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(Random.Shared), m.Life, m.MaxLife, Random.Shared, out bool critical);
+        var rolled = MonsterModHit(source, attack.Damage.Roll(Random.Shared), m.Life, m.MaxLife, Random.Shared, out bool critical,
+            cannotCrit: VaalOversoul.CannotCrit(source, attack));
         bool elementalImmune = g.Definition.IsGolem && (Player("golem_immunity_to_elemental_damage") > 0
             || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && Player("elemental_golem_immunity_to_elemental_damage") > 0);
         int damage = 0;

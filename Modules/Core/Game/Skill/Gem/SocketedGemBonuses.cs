@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>Local level and quality bonuses belong to actual gems in the source item, not to the character
 /// or to virtual supports granted by its mods. GemTags identifies the native gem families.</summary>
-static class SocketedGemBonuses
+public static class SocketedGemBonuses
 {
     public static (int Level, int Quality) For(Item host, int socket, Item gem, ItemCatalog items,
         SkillCatalog skills, IReadOnlyDictionary<string, int> local, int playerLevel)
