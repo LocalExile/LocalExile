@@ -8,32 +8,32 @@ using static Game;
 /// Guidance's mana increases applied to damage and Arcane Blessing's Arcane Surge on spell hits. Arcane Surge itself is
 /// the shared buff of SupportGemBuffs.
 /// </summary>
-static class Hierophant
+public static class Hierophant
 {
-    internal const string ManaModifiersToDamage = "additive_mana_modifiers_apply_to_damage_at_30%_value";
-    internal const string AreaPerUnreservedMana = "hierophant_area_of_effect_+%_per_50_unreserved_mana_up_to_100%";
-    internal const string LifeRegenPerTotem = "you_and_totem_life_regeneration_rate_per_minute_%_per_active_totem";
-    internal const string ManaRegenPerTotem = "mana_regeneration_rate_per_minute_%_per_active_totem";
-    internal const string MorePerTotem = "hierophant_passive_damage_+%_final_per_totem";
+    public const string ManaModifiersToDamage = "additive_mana_modifiers_apply_to_damage_at_30%_value";
+    public const string AreaPerUnreservedMana = "hierophant_area_of_effect_+%_per_50_unreserved_mana_up_to_100%";
+    public const string LifeRegenPerTotem = "you_and_totem_life_regeneration_rate_per_minute_%_per_active_totem";
+    public const string ManaRegenPerTotem = "mana_regeneration_rate_per_minute_%_per_active_totem";
+    public const string MorePerTotem = "hierophant_passive_damage_+%_final_per_totem";
     /// <summary>The count of Summoned Totems the client's per-totem stats read (Stats row 3460), sent by the server.</summary>
-    internal const string ActiveTotems = "number_of_active_totems";
+    public const string ActiveTotems = "number_of_active_totems";
 
     /// <summary>"Increases and Reductions to Maximum Mana also apply to Damage at 30% of their value"
     /// (ReminderTextPsudoKeystoneTransfigurationOfMind).</summary>
-    internal const int ManaToDamagePct = 30;
+    public const int ManaToDamagePct = 30;
 
     /// <summary>"{0}% increased Area of Effect per 50 Unreserved Maximum Mana, up to 100%".</summary>
-    internal const int ManaPerAreaStep = 50, AreaCap = 100;
+    public const int ManaPerAreaStep = 50, AreaCap = 100;
 
     /// <summary>Divine Guidance: the increased damage from the summed <c>maximum_mana_+%</c>, truncated toward zero.</summary>
-    internal static int DamageFromMana(Func<string, int> get) =>
+    public static int DamageFromMana(Func<string, int> get) =>
         get(ManaModifiersToDamage) == 0 ? 0 : (int)((long)get("maximum_mana_+%") * ManaToDamagePct / 100);
 
     /// <summary>Sanctuary of Thought: X% per whole 50 unreserved maximum mana, the product capped at 100.</summary>
-    internal static int AreaFromMana(int perStep, int unreservedMana) =>
+    public static int AreaFromMana(int perStep, int unreservedMana) =>
         perStep <= 0 ? 0 : (int)Math.Min(AreaCap, (long)perStep * (Math.Max(0, unreservedMana) / ManaPerAreaStep));
 
-    internal sealed class State
+    public sealed class State
     {
         // What the stat sum adds now (PlayerStats); only the tick changes them, so pools and client switch together.
         public int Totems, ManaArea;
@@ -46,9 +46,9 @@ static class Hierophant
     static readonly ConditionalWeakTable<TotemState.Totem, Carry> TotemCarry = new();
 
     static readonly ConditionalWeakTable<ClientState, State> States = new();
-    internal static State Of(ClientState conn) => States.GetValue(conn, _ => new());
+    public static State Of(ClientState conn) => States.GetValue(conn, _ => new());
 
-    internal static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
+    public static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;
 
     // The passive and item sum (the stat sources cache), without what PlayerStats adds.
     static int Raw(ClientState conn, string name) => Stats.Key(name) is uint key && conn.StatSourcesCache is { } cached
