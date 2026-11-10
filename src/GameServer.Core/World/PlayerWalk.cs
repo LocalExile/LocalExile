@@ -176,6 +176,21 @@ public sealed class PlayerWalk
         WalksThrough = false;
     }
 
+    /// <summary>Ends the walk for an action that cancels it at <paramref name="now"/> (a hit's recovery, 0x141e95e60): the
+    /// cancelled Move stops its walker with the same stop (0x141e350e0), which waits for the tick. A walker on a client
+    /// that runs on frames still takes the steps due in that frame and keeps the time since its last one
+    /// (<see cref="StopAfter"/>); without frames it stands where it is. Returns where it stands.</summary>
+    public (int X, int Y) Cancel(double now)
+    {
+        if (FrameOf?.Invoke(now) is { } frame) StopAfter(frame.End);
+        else
+        {
+            var here = At(now, out _);
+            Teleport(here.X, here.Y, now);
+        }
+        return _rest;
+    }
+
     /// <summary>Paths again to the current order's target from where the walk ended, at <paramref name="at"/>.</summary>
     public (int X, int Y) Repath(double at) => Walk(_target, _maxRange, _tolerance, at, _precision);
 
