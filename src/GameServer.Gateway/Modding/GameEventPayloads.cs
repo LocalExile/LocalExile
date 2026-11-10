@@ -3,7 +3,7 @@ using GameServer.Modding;
 // What some GameEvents hand their subscribers (GameEvents.cs). `Player` is the same connection as GameServer.Modding sees it.
 
 /// <summary>A monster: its <c>MonsterVarieties.dat</c> id, name, level, rarity and where it is (cells).</summary>
-public sealed record MonsterInfo(string VarietyId, string Name, int Level, MonsterRarity Rarity, int X, int Y);
+public sealed record MonsterInfo(string VarietyId, string Name, int Level, GameServer.Core.Protocol.Instance.MonsterRarity Rarity, int X, int Y);
 
 /// <summary>A monster the player killed, after its kill was committed (<see cref="GameEvents.MonsterKilled"/>).</summary>
 public sealed record MonsterKill(ClientState Conn, MonsterInfo Monster)

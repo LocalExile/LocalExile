@@ -16,9 +16,6 @@ public interface IModContext
     /// <summary>The mod's folder (<c>Mods/Binaries/&lt;id&gt;</c>), for its own files.</summary>
     string Folder { get; }
 
-    /// <summary>Prepare and confirm a validated character build, scoped to this load.</summary>
-    ICharacterBuilds CharacterBuilds => throw new NotSupportedException("This host does not provide character build imports.");
-
     /// <summary>Writes a line to the Gateway's log, as <c>[mods] &lt;id&gt;: message</c>.</summary>
     void Log(string message);
 
@@ -35,12 +32,10 @@ public interface IModContext
     void SaveSettings<T>(T settings);
 }
 
-/// <summary>What the host gives a module or a league's own code beyond a mod's: the rules it gives leagues, and the player's world.</summary>
+/// <summary>What the host gives a module or a league's own code beyond a mod's: the rules it gives leagues. The player's world is
+/// the Gateway's (<c>Program.WorldOf</c>).</summary>
 public interface IModuleContext : IModContext
 {
     /// <summary>The rules this module gives the leagues that use it; the first in a league's list that gives any wins.</summary>
     void ProvideLeagueRules(Func<LeagueRules> rules);
-
-    /// <summary>What the module can do with this player's world.</summary>
-    IPlayerWorld World(IPlayer player);
 }

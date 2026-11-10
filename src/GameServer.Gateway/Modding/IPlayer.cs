@@ -1,4 +1,3 @@
-namespace GameServer.Modding;
 
 /// <summary>A player in an area (one connection: an area change makes a new one).</summary>
 public interface IPlayer
