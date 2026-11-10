@@ -4,10 +4,10 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // WandProjectile's own rig plays its impact (index 0, 500 ms) with the WandTrailImpact sound and wand_impact particles.
-    internal static readonly ProjectilePresentation OrdinaryWandPresentation = new()
+    public static readonly ProjectilePresentation OrdinaryWandPresentation = new()
     {
         ImpactClip = OrdinaryRangedAttack.WandImpactAnimation,
         ImpactLifetime = ProjectileRuntime.Time(OrdinaryRangedAttack.WandImpactSeconds),
@@ -15,7 +15,7 @@ static partial class Game
 
     // DefaultArrow's rig has no impact clip (Projectiles.dat gives it stuck and bounce art the client plays only for its own
     // arrows): the stopped arrow object stays in its target or wall for a second, then goes.
-    internal static readonly ProjectilePresentation OrdinaryArrowPresentation = new()
+    public static readonly ProjectilePresentation OrdinaryArrowPresentation = new()
     {
         StayOnImpact = true,
         ImpactLifetime = ProjectileRuntime.Time(OrdinaryRangedAttack.ArrowStuckSeconds),
@@ -24,7 +24,7 @@ static partial class Game
     // An ordinary bow or wand shot on the shared runtime. The release waits for the weapon's contact (attack1_bow, or
     // the ACT-selected wand clip for this input's sequence), then freezes damage, chance and multiplier; conditional
     // critical rules read the live owner at impact, and target evasion and impales resolve at contact.
-    internal static Task ScheduleOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleOrdinaryRanged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) aim, double attackSeconds, int action, int epoch, string projectileId, ushort sequence,
         SkillCriticalRoll criticalRoll, double? swingAt = null)
     {
@@ -110,7 +110,7 @@ static partial class Game
     /// the server simulates; a bow's record also carries the arrow totals, as GGG's bow records do. Empty for melee and on
     /// a predictive client (its release is not traced: a predictive Burning Arrow with a count drew no arrow, 2026-10-31).
     /// </summary>
-    internal static IReadOnlyList<(uint, int)> OrdinaryRangedCountStats(ClientState conn, IReadOnlyDictionary<uint, int> character)
+    public static IReadOnlyList<(uint, int)> OrdinaryRangedCountStats(ClientState conn, IReadOnlyDictionary<uint, int> character)
     {
         var weapon = WeaponProfileFor(conn, activeSet: true);
         if (!conn.LockstepClient || OrdinaryRangedAttack.ProjectileId(weapon) is not { } projectileId) return [];
@@ -126,7 +126,7 @@ static partial class Game
     // then draws those shots itself: a release of that projectile creates no object from here on (ClientPredicted). The
     // record is built in the send gate that writes it (SendSkills, the charge and buff updates), so ClientDrawnShot is
     // the record the client has by the frame of a release, which reads it then.
-    internal static IReadOnlyList<GrantedSkill> PlayerDefaultSkills(ClientState conn, IReadOnlyList<(uint, int)> stats,
+    public static IReadOnlyList<GrantedSkill> PlayerDefaultSkills(ClientState conn, IReadOnlyList<(uint, int)> stats,
         IReadOnlyDictionary<uint, int> character)
     {
         var counts = OrdinaryRangedCountStats(conn, character);
@@ -140,7 +140,7 @@ static partial class Game
 
     // The player's record goes out before the client has shown it runs lockstep (a lag byte or a request), so it has no
     // count; it goes again once it has, if a wand or bow is in hand. Beside the frames, which must not wait for it.
-    internal static void SendLockstepDefaultAttack(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static void SendLockstepDefaultAttack(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn)
     {
         if (!conn.LockstepClient || conn.DefaultAttackRecordLockstep || !conn.PlayerSent) return;
@@ -165,7 +165,7 @@ static partial class Game
     /// from the order's frame start: the wand's 0.367 s release on frame 12 (38 of 39), the bow's 0.268 s on frame 9
     /// (36 of 37), each within about 4 ms of the tick.
     /// </summary>
-    internal static double LockstepShotAt(double frameStart, double delay)
+    public static double LockstepShotAt(double frameStart, double delay)
     {
         double frame = FrameMs / 1000d;
         return frameStart + Math.Max(1, Math.Ceiling(delay / frame - 1e-6)) * frame;

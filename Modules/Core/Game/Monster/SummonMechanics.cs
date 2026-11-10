@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     static Dictionary<uint, int> WithSummonBuffs(ClientState conn, Dictionary<uint, int> sources)
     {
@@ -29,7 +29,7 @@ static partial class Game
                 GolemReserveLocked(conn, relic, nova, target, victim, victim.Walk.Position(now), now);
     }
 
-    internal static void HolyRelicRegenerationLocked(ClientState conn, GolemState.Golem relic, GolemState.Ability nova, double now)
+    public static void HolyRelicRegenerationLocked(ClientState conn, GolemState.Golem relic, GolemState.Ability nova, double now)
     {
         double duration = GolemStat(nova.Stats, "base_skill_effect_duration") / 1000d;
         double until = now + duration;

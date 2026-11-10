@@ -12,7 +12,7 @@
 /// Normal (the user thinks less in the higher tiers; not measured, so 15 for all). The rise interval is ours. The ignite,
 /// freeze and shock chances are given to the client's buff but not used by the server's monster hits.
 /// </summary>
-static class IzaroStatues
+public static class IzaroStatues
 {
     public const string Mechanic = "ToggleStatues";
 

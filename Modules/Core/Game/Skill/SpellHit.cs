@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>The supported spell hit before critical strikes and target mitigation, shared by combat and the panel.</summary>
-static class SpellHit
+public static class SpellHit
 {
     public static DamagePacket Resolve(SkillHitPlan plan, StatCatalog catalog,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,

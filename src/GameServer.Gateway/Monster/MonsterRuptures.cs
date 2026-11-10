@@ -4,7 +4,7 @@
 /// "bleeding expires more quickly per Rupture" is not modelled: a bleed's duration is captured when it is applied.
 /// Guarded by the connection's Monsters lock; times are projectile-world seconds.
 /// </summary>
-sealed class MonsterRuptures
+public sealed class MonsterRuptures
 {
     public const int Maximum = 4;
     public const double Seconds = 3;

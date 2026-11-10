@@ -6,12 +6,12 @@ using Progression = GameServer.Core.World.Progression;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamageType = GameServer.Core.World.DamageType;
 
-partial class Program
+public partial class Program
 {
-    internal static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
+    public static IEnumerable<(string Name, string Usage, string[] Arguments)> CommandUsages() => Commands("", null!, null!, null!).Usages;
 
     // The chat commands of one connection (ChatCommands.cs).
-    internal static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var commands = new ChatCommands
         {
@@ -52,7 +52,33 @@ partial class Program
             await conn.Commands!.Reply(id is null ? "Mods reloaded (/mod for the list)." : $"Mod {id} reloaded (/mod for the list).");
         })
         .Add("mod_enable", "/mod_enable <id> (load a mod, now and at every start)", args => SetModEnabled(conn, args, true))
-        .Add("mod_disable", "/mod_disable <id> (unload a mod and the mods that depend on it, now and at every start)", args => SetModEnabled(conn, args, false));
+        .Add("mod_disable", "/mod_disable <id> (unload a mod and the mods that depend on it, now and at every start)", args => SetModEnabled(conn, args, false))
+        .Add("reload", "/reload (read world.db again: settings, catalogues, drop tables, unique weights, overrides; no restart)", async _ =>
+        {
+            if (GameData.Store is null)
+            {
+                await conn.Commands!.Reply("world.db is not open");
+                return;
+            }
+            try
+            {
+                GameData.Reload("command");
+                await conn.Commands!.Reply($"Game data reloaded: revision {GameData.Current.Revision}; {SystemSettings.Default.Values.Count} " +
+                    $"setting(s), {GameData.Current.ModRanges.Count} mod range override(s), {GameData.Current.Limits.Count} limit " +
+                    $"override(s); {GameDataCatalog.Summary}");
+            }
+            catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException
+                or System.Text.Json.JsonException)
+            {
+                await conn.Commands!.Reply($"Reload failed, the previous data stays: {e.Message}");
+            }
+        })
+        .Add("lastpackets", "/lastpackets [n] (the connection's last n messages, both directions, to the Gateway log; default 64)", async args =>
+        {
+            int n = args.Length > 0 && int.TryParse(args[0], out int count) ? Math.Clamp(count, 1, PacketHistory.Capacity) : 64;
+            conn.Packets.Print(remote, "/lastpackets", n);
+            await conn.Commands!.Reply($"The last {Math.Min(n, conn.Packets.Count)} of {conn.Packets.Count} packet(s) are in logs\\live-gateway.log.");
+        });
         return GameEvents.RunCommandsBuilding(conn, commands, remote, stream, ciphers);
     }
 }

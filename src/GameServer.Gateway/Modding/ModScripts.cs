@@ -11,7 +11,7 @@ using Microsoft.CodeAnalysis.Emit;
 /// They see the framework, GameServer.Modding, the assemblies in their folder and those of the mods they depend on; the
 /// server's other assemblies are not offered to the compiler, as <see cref="ModLoadContext"/> does not offer them at run time.
 /// </summary>
-static class ModScripts
+public static class ModScripts
 {
     /// <summary>What a script file has without writing it.</summary>
     const string Usings = """

@@ -2,18 +2,18 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
-static partial class Game
+public static partial class Game
 {
-    internal sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
+    public sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
     {
         public string? Get(string key) => get(key);
         public bool Change(string key, Func<string?, string?> apply) => change(key, apply);
     }
 
-    internal static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
-    internal static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
+    public static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
+    public static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
 
-    internal sealed class ModuleWorld(ClientState conn) : IPlayerWorld
+    public sealed class ModuleWorld(ClientState conn) : IPlayerWorld
     {
         Task Send(byte[] message, string? log) => Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, message, log);
 
@@ -151,7 +151,7 @@ static partial class Game
 }
 
 /// <summary>The Gateway's item rules for one data set, as modules see them.</summary>
-sealed class ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls) : IItemCrafting
+public sealed class ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls) : IItemCrafting
 {
     readonly Lazy<IReadOnlySet<string>> _modTypes = new(() =>
         catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase));

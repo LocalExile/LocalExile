@@ -2,12 +2,12 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>The counting tattoos' aggregate stats: Journey Body/Mind/Soul grant their flat pool per allocated
     /// copy, and Ancestral Bloodlines grants recovery per distinct tribe among the allocated tattoos. The marker
     /// stats on each node are ignored by consumers; this pass emits the real stat keys once per character.</summary>
-    internal static Dictionary<uint, int> TattooCountingStats(IReadOnlyDictionary<ushort, string> tattoos,
+    public static Dictionary<uint, int> TattooCountingStats(IReadOnlyDictionary<ushort, string> tattoos,
         IReadOnlySet<ushort> allocated)
     {
         var result = new Dictionary<uint, int>();

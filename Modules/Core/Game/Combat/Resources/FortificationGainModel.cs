@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// current maximum. Rarity factors are our policy: Normal 1, Magic 1.5, Rare 2, Unique 3. The default threshold is
 /// maximum Life. rawHit is the accepted melee hit AFTER its critical multiplier and BEFORE target mitigation.
 /// </summary>
-static class FortificationGainModel
+public static class FortificationGainModel
 {
     public const int Version = 1;
     public const string GainedFromHitsStat = "fortification_gained_from_hits_+%";

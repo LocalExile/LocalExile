@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Login;
 // Affliction, Absorption) are not removable and stay.
 // One use's count of its charges, shared by its repeats (Spell Echo) and cascade areas (Spell Cascade): they all deal
 // damage for these charges, and the first of them to land spends them, once.
-sealed class DischargeUse(IReadOnlyDictionary<ChargeType, int> charges)
+public sealed class DischargeUse(IReadOnlyDictionary<ChargeType, int> charges)
 {
     int spent;
     public IReadOnlyDictionary<ChargeType, int> Charges { get; } = charges;

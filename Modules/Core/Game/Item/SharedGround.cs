@@ -6,9 +6,9 @@ using GameServer.Core.Protocol.Login;
 // client in the instance, and goes for all of them when someone picks it up. The client that put it down was sent it
 // where that happened; the others get it here, within a sync (100 ms). Quest items and the start weapon stay the
 // player's own (InstanceGround.Add shared: false).
-static partial class Game
+public static partial class Game
 {
-    internal static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         var ground = conn.Instance.Ground;

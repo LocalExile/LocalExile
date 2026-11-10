@@ -13,7 +13,7 @@ using GameServer.Modding;
 /// Every hook a mod registers is held here, in the host's lists, and nowhere else in the server: unloading a mod removes
 /// them all, so no static of the server keeps one of its types alive and the context can be collected.
 /// </remarks>
-sealed class ModHost(string folder, Action<string> log, bool modules = false, bool leagues = false) : IDisposable
+public sealed class ModHost(string folder, Action<string> log, bool modules = false, bool leagues = false) : IDisposable
 {
     /// <summary>A change was applied (a mod loaded, unloaded or failed): the line it logged.</summary>
     public event Action<string>? Changed;
@@ -79,6 +79,35 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
 
     /// <summary>What <see cref="IModuleContext.World"/> gives.</summary>
     public Func<IPlayer, IPlayerWorld>? WorldOf { get; init; }
+
+    /// <summary>The modules a mod may depend on beside other mods (a host of mods): a mod uses a module's assembly as a module
+    /// that depends on it does, and reloads when that module does.</summary>
+    public ModHost? Modules { get; init; }
+
+    /// <summary>A module of <see cref="Modules"/> reloaded, with the ids it took along: the mods that depend on one reload too.</summary>
+    public event Action<IReadOnlyList<string>>? Reloaded;
+
+    // The ids loaded or loading, read without the lock on every game event (Runs).
+    ImmutableHashSet<string> _running = ImmutableHashSet.Create<string>(StringComparer.Ordinal);
+
+    /// <summary>Whether this host's mod of that id is loaded or loading. Lock-free: game events ask it for every subscriber.</summary>
+    public bool Runs(string id) => _running.Contains(id);
+
+    // A mod's dependency: another of this host's, or one of the modules.
+    LoadedMod? Dependency(string id) => _loaded.GetValueOrDefault(id) ?? Modules?.LoadedModule(id);
+
+    LoadedMod? LoadedModule(string id)
+    {
+        lock (_gate) return _loaded.GetValueOrDefault(id);
+    }
+
+    /// <summary>Reloads the mods that depend on one of these modules, with their dependents.</summary>
+    public void ReloadUsersOf(IReadOnlyList<string> modules)
+    {
+        List<string> users;
+        lock (_gate) users = [.. _loaded.Values.Where(m => m.Manifest.Depends.Any(modules.Contains)).Select(m => m.Manifest.Id)];
+        foreach (string id in users) Reload(id);
+    }
 
     bool IsHostOfModules => modules;
 
@@ -468,6 +497,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             Tell($"{Tag} {id} keeps running as it was, the new build did not load: {why}");
         }
         foreach (var dependent in before.Where(m => m != old).Reverse()) Load(dependent.Manifest, dependent.Folder, dependent.Images);
+        Reloaded?.Invoke(affected);
         return false;
     }
 
@@ -503,14 +533,14 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             progress = false;
             foreach (var (id, (manifest, dir)) in waiting.ToList())
             {
-                if (!manifest.Depends.All(_loaded.ContainsKey)) continue;
+                if (!manifest.Depends.All(d => Dependency(d) is not null)) continue;
                 waiting.Remove(id);
                 progress |= Load(manifest, dir);
             }
         }
         foreach (var (id, (manifest, _)) in waiting)
         {
-            var missing = manifest.Depends.Where(d => !_loaded.ContainsKey(d)).ToList();
+            var missing = manifest.Depends.Where(d => Dependency(d) is null).ToList();
             Fail(id, $"needs {string.Join(", ", missing.Select(d => _off.Contains(d) ? $"{d} (disabled)" : _failed.ContainsKey(d) || waiting.ContainsKey(d) ? $"{d} (not loaded)" : $"{d} (no such mod)"))}");
         }
     }
@@ -534,7 +564,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             assemblies.Add((File.ReadAllBytes(path), File.Exists(pdb) ? File.ReadAllBytes(pdb) : null));
         }
         if (scripts.Length == 0) return new(assemblies, null);
-        var compiled = ModScripts.Compile(manifest.Id, scripts, ScriptReferences(manifest, dir), modules);
+        var compiled = ModScripts.Compile(manifest.Id, scripts, ScriptReferences(manifest, dir), module: true);
         assemblies.Add(compiled);
         return new(assemblies, compiled.Dll);
     }
@@ -559,8 +589,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     bool Load(ModManifest manifest, string dir, Images? images = null)
     {
         string id = manifest.Id;
-        var context = new ModLoadContext(id, Path.GetFullPath(dir), modules, [.. manifest.Depends.Select(d => _loaded[d].Context).OfType<ModLoadContext>()]);
+        var context = new ModLoadContext(id, Path.GetFullPath(dir), [.. manifest.Depends.Select(d => Dependency(d)?.Context).OfType<ModLoadContext>()]);
         var mod = new LoadedMod(manifest, Path.GetFullPath(dir), context);
+        ImmutableInterlocked.Update(ref _running, r => r.Add(id));
         try
         {
             mod.Images = images ?? ReadImages(manifest, mod.Folder);
@@ -580,6 +611,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         }
         catch (Exception ex)
         {
+            ImmutableInterlocked.Update(ref _running, r => r.Remove(id));
             mod.Unloaded = true;
             mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
             Remove(mod);
@@ -626,7 +658,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         foreach (string dll in Directory.GetFiles(folder, "*.dll")) yield return File.ReadAllBytes(dll);
         foreach (string dependency in manifest.Depends)
         {
-            var loaded = _loaded[dependency];
+            if (Dependency(dependency) is not { } loaded) continue;
             string path = Path.Combine(loaded.Folder, loaded.Manifest.Assembly);
             if (File.Exists(path)) yield return File.ReadAllBytes(path);
             if (loaded.ScriptImage is { } image) yield return image;
@@ -636,6 +668,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
     void Unload(string id)
     {
         if (!_loaded.Remove(id, out var mod)) return;
+        ImmutableInterlocked.Update(ref _running, r => r.Remove(id));
         mod.Unloaded = true;
         mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
         Remove(mod);
@@ -788,6 +821,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         public ModManifest Manifest => mod.Manifest;
         public IModuleLifetime Lifetime => mod.Lifetime;
         public string Folder => mod.Folder;
+        public ICharacterBuilds CharacterBuilds { get; } = new CharacterBuildApi(mod.Lifetime);
         public void Log(string message) => host.Write($"{host.Tag} {mod.Manifest.Id}: {message}");
 
         IDisposable Add<T>(HookList<T> list, T run)

@@ -1,7 +1,7 @@
 using GameServer.Core.World;
 
 
-static class SupportedAttackDamage
+public static class SupportedAttackDamage
 {
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {

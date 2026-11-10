@@ -15,7 +15,7 @@ using GameServer.Data.Terrain.Generation;
 /// </list>
 /// The links of the other kinds (rails, traps) are not followed here.
 /// </summary>
-sealed class LabyrinthWiring
+public sealed class LabyrinthWiring
 {
     public enum Change { On, Off, Disabled, Spent }
 

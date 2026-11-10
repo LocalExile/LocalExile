@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core;
 
 /// <summary>Opening objects use fitted .arm placements and captured .tmd placements, never seed-specific coordinates.</summary>
-static class TutorialObjects
+public static class TutorialObjects
 {
     public const string Strand = "1_1_1", Exile = "Metadata/NPC/Act1/WoundedExile",
         Zombie = "Metadata/Monsters/Zombies/ZombieBite", Spawner = "Metadata/Monsters/Zombies/BiteZombieSpawner",

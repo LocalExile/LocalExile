@@ -8,7 +8,7 @@ using GameServer.Core;
 /// scripts/walkmaps, or the atlas's static placement for fixed layouts) and where each leads (the atlas,
 /// data/area-transitions.json from scripts/re/atlas). Agents/docs/protocol/08-area-transitions.md §5, §6.
 /// </summary>
-static class AreaTransitionCatalog
+public static class AreaTransitionCatalog
 {
     const string AtlasFile = "data/area-transitions.json";
     const string Folder = "data/walkability";
@@ -156,7 +156,7 @@ static class AreaTransitionCatalog
     /// else the nearest direction round it that has such floor, else a little nearer or farther. The floor reached from the
     /// walkable cells within reach of the object (walk value 2 and up, 8 neighbours, as the exit audit reads it) without
     /// going farther than twice the offset; the cell and its 8 neighbours must all be floor. Without any, +X as before.</summary>
-    internal static (int X, int Y) PortalCell(byte[] walk, int width, int height, int x, int y, float rotation)
+    public static (int X, int Y) PortalCell(byte[] walk, int width, int height, int x, int y, float rotation)
     {
         bool Floor(int cx, int cy) => cx >= 0 && cy >= 0 && cx < width && cy < height && walk[cy * width + cx] >= 2;
         const int Reach = 6, Range = PortalOffset * 2;
@@ -196,7 +196,7 @@ static class AreaTransitionCatalog
     /// <summary>Marks the exits without a model or object (<see cref="FromExits"/>: an entrance point no object marks)
     /// that lead to <paramref name="destination"/> as replaced by the quest portal of <paramref name="source"/>'s tables
     /// (they stand only where those do not run); returns how many.</summary>
-    internal static int ReplacePointExits(List<AreaTransitionObject> placed, ushort destination, string? source)
+    public static int ReplacePointExits(List<AreaTransitionObject> placed, ushort destination, string? source)
     {
         int n = 0;
         for (int i = 0; i < placed.Count; i++)
@@ -241,7 +241,7 @@ static class AreaTransitionCatalog
     }
 
     /// <summary>Whether two areas are of one act (WorldAreas Act; true when either is unknown or the table is missing).</summary>
-    internal static bool SameAct(string a, string b) =>
+    public static bool SameAct(string a, string b) =>
         !AreaActs.Value.TryGetValue(a, out int x) || !AreaActs.Value.TryGetValue(b, out int y) || x == y;
 
     // WorldAreas Id → Act (data/tables/WorldAreas.json).
@@ -316,7 +316,7 @@ static class AreaTransitionCatalog
     /// that appears there (The Harvest's way to Highgate after Malachai, Weylam's boat at The Beacon and the Brine King's
     /// Reef), or a town's exit no tile marks (Karui Shores' camp.arm "entrance1" to Oriath, as the atlas's point-only
     /// exits); a quest gate on the destination still applies (Quests.FlagToEnter).</summary>
-    internal static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
+    public static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
         IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null, bool openDisabled = false)
     {
         var placed = new List<AreaTransitionObject>();
@@ -412,7 +412,7 @@ static class AreaTransitionCatalog
         return entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
     }
 
-    internal static bool TryDelveEntrance(string area, string? model, out ushort destination)
+    public static bool TryDelveEntrance(string area, string? model, out ushort destination)
     {
         destination = 0;
         destination = area switch
@@ -488,11 +488,11 @@ static class AreaTransitionCatalog
     /// <summary>Whether a scripts/walkmaps capture is read for an area the Gateway does not generate (on). A generated
     /// layout never reads one (<see cref="For"/>); scripts/re/exits turns captures off so that its comparison with the
     /// model matching (<see cref="UseLayout"/> off) runs on the generated objects too.</summary>
-    internal static bool UseCaptures { get; set; } = true;
+    public static bool UseCaptures { get; set; } = true;
 
     /// <summary>Whether a generated layout's exits come from its graph nodes (§8, on), or from §7's model matching over
     /// its objects (off: scripts/re/exits compares the two).</summary>
-    internal static bool UseLayout { get; set; } = true;
+    public static bool UseLayout { get; set; } = true;
 
     /// <summary>True once scripts/walkmaps saved this layout's tile objects.</summary>
     public static bool Captured(string id, uint seed) => UseCaptures && ClientTables.Exists(CaptureFile(id, seed));
@@ -559,7 +559,7 @@ static class AreaTransitionCatalog
     sealed record AtlasFileData(List<AtlasArea>? Areas);
     sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies, List<AtlasConnection>? Connections,
         bool IsTown = false);
-    internal sealed record AtlasConnection(int Index, string Id, ushort Hash16);
+    public sealed record AtlasConnection(int Index, string Id, ushort Hash16);
     sealed record AtlasTopology(string Id, string? Kind, List<AtlasTransition>? Transitions);
     sealed record AtlasTransition(string? Model, string? ObjectType, bool? Enabled, string? Status, string? Destination,
         ushort? DestinationHash16, AtlasGrid? Grid);
@@ -570,7 +570,7 @@ static class AreaTransitionCatalog
 
 /// <summary>An AreaTransitionEffects object (GlowyFX, SlavePensIntroGround): Positioned, Animated, BaseEvents,
 /// Transitionable (<c>num_states 3</c>: 1 hidden or paused at the start, 2 plays, 3 at the animation's end).</summary>
-sealed record TransitionEffect(string Type, string Model, int X, int Y, float Rotation, float? Z)
+public sealed record TransitionEffect(string Type, string Model, int X, int Y, float Rotation, float? Z)
 {
     /// <summary>Created at its end state: the crater as it stands after the arrival's animation. Whether the real server
     /// plays state 2 on the first arrival is not captured.</summary>

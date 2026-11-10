@@ -6,7 +6,7 @@ using System.Runtime.CompilerServices;
 /// Chase repaths have a separate budget so responsive attack/aggro checks do not keep restarting the same walk.
 /// Access under the connection's Monsters lock.
 /// </summary>
-sealed class MonsterAiCadence
+public sealed class MonsterAiCadence
 {
     public const int StepMilliseconds = 50;
     public const double StepSeconds = StepMilliseconds / 1000.0;

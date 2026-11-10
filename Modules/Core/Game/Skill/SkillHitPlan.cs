@@ -1,13 +1,13 @@
 using GameServer.Core.World;
 
 
-enum SkillHitKind { Unsupported, Attack, Spell }
+public enum SkillHitKind { Unsupported, Attack, Spell }
 
 /// <summary>Routes the supported area hit by the catalog's actual skill types, never by a trial damage roll.
 /// A spell without extracted hit damage has no supported hit here; auras, beams and other DoTs do not borrow a weapon.
 /// <paramref name="ChargeBase"/>: a charge-spending spell's base per removable charge (Discharge), which
 /// <see cref="SpellBaseWith"/> adds to <paramref name="SpellBase"/> for the charges held.</summary>
-sealed record SkillHitPlan(SkillHitKind Kind, DamagePacket SpellBase,
+public sealed record SkillHitPlan(SkillHitKind Kind, DamagePacket SpellBase,
     IReadOnlyList<(ChargeType Type, DamagePacket PerCharge)>? ChargeBase = null)
 {
     public bool CanHit => Kind == SkillHitKind.Attack || Kind == SkillHitKind.Spell && (!SpellBase.IsZero || SpendsCharges);

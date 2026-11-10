@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 /// Slash commands typed in the client's chat box (C→S 0x15, Agents/docs/protocol/10-chat-and-commands.md). Dev tools for now:
 /// every command is accepted from every player.
 /// </summary>
-sealed class ChatCommands
+public sealed class ChatCommands
 {
     /// <summary>Sends one S→C message (bytes, log line).</summary>
     public required Func<byte[], string, Task> Send { get; init; }

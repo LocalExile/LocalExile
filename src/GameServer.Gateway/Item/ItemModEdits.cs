@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 
 /// <summary>Removing one named modifier from an item, as the developer /item_mod remove does.</summary>
-static class ItemModEdits
+public static class ItemModEdits
 {
     /// <summary>The item without its first modifier with this hash in that section, or in any section when
     /// <paramref name="section"/> is null; the same item when it has none.</summary>

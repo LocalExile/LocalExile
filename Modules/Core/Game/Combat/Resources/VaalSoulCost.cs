@@ -1,7 +1,7 @@
 
 
 /// <summary>The bounded inputs read by native 3.29.3c getter 0x141eeef80; no general cost/modifier engine.</summary>
-static class VaalSoulCost
+public static class VaalSoulCost
 {
     public const string NonAuraMultiplier = "virtual_non_aura_vaal_skill_soul_requirement_multipler";
     public const string AuraMultiplier = "virtual_aura_vaal_skill_soul_requirement_multipler";

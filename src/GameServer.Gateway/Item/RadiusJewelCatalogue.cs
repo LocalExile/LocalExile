@@ -9,7 +9,7 @@ using GameServer.Core;
 /// same stat move to the allocated passives in the item's radius. Lioneye's Fall is not in this catalogue yet: its
 /// melee-to-bow change needs the weapon/melee modifier flags the server's stat model does not carry.
 /// </summary>
-static class RadiusJewelCatalogue
+public static class RadiusJewelCatalogue
 {
     public sealed record Variant(string Name, string ModId, int? Value = null);
     public sealed record Entry(string Name, string Base, string[] GlobalMods, string ConversionMod,
@@ -357,7 +357,7 @@ static class RadiusJewelCatalogue
 
     /// <summary>Path of Building's <c>ScaleAddList</c> scales integer stats and truncates toward zero; 50% on 5
     /// therefore gives 7, not 8.</summary>
-    internal static int ScaleEffect(int value, int pct) =>
+    public static int ScaleEffect(int value, int pct) =>
         (int)Math.Truncate(value * (100 + pct) / 100.0);
 
     /// <summary>Might in All Forms: the Dexterity plus Intelligence on a passive, counted toward the Strength melee
@@ -531,7 +531,7 @@ static class RadiusJewelCatalogue
 
     static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
 
-    internal static uint? WordHash(string name, string folder) =>
+    public static uint? WordHash(string name, string folder) =>
         folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)

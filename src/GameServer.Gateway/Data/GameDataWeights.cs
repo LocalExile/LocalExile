@@ -8,7 +8,7 @@ using GameServer.Core;
 /// and <c>unique_weight_overrides</c> on top. ItemDrops reads the published provider and falls back to the client table
 /// while world.db is not open.
 /// </summary>
-static class GameDataWeights
+public static class GameDataWeights
 {
     public static void Reload(GameDataStore store, UniqueWeightProvider? provider = null)
     {
@@ -25,7 +25,7 @@ static class GameDataWeights
 
 /// <summary>The published unique weights. Empty until world.db is open, when ItemDrops uses
 /// its client-table fallback; once the reference exists, a missing name weighs zero (it does not drop).</summary>
-sealed class UniqueWeightProvider
+public sealed class UniqueWeightProvider
 {
     static readonly IReadOnlyDictionary<string, (double Normal, double Ruthless)> Empty =
         new Dictionary<string, (double, double)>(StringComparer.OrdinalIgnoreCase);

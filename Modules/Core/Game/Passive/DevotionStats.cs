@@ -11,7 +11,7 @@
 /// that no other server code reads is still mapped here so the source is complete; the generated support list marks it
 /// inert until a consumer exists.
 /// </summary>
-static class DevotionStats
+public static class DevotionStats
 {
     public const string Devotion = "base_devotion";
 

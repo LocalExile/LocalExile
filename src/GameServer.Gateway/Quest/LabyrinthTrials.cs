@@ -8,7 +8,7 @@ using GameServer.Core;
 /// plaque and the portal back as server object lines. The client counts a trial done when the character has the row's
 /// quest flag (column 7, e.g. NormalLabyrinthCompletedPrison) or the league quest flag of column 1 (0x141f6fb00).
 /// </summary>
-static class LabyrinthTrials
+public static class LabyrinthTrials
 {
     public sealed record Trial(string Area, string Flag, int LeagueFlag);
 

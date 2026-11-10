@@ -1,12 +1,13 @@
 # Leagues and modules
 
-The Gateway is the framework: connections, packets, the message loop, the hosts of mods, modules and leagues, game data, saves and the connection's state. **Modules** do everything else, **leagues** are sets
-of modules, and [mods](modding.md) are small modifications, global and the user's own.
+The Gateway is the framework: connections, packets, the message loop, the hosts of mods, modules and leagues, game data, saves and the connection's state, with no game rules. **Modules** do everything else, **leagues** are sets
+of modules, and [mods](modding.md) are custom content each user opts into, for every league. A GGG-like server needs no mod.
+Which layer a change belongs in: [AGENTS.md](../../../AGENTS.md) ("What goes where").
 
 | | Mod | Module | League |
 |---|---|---|---|
-| Is | a tweak | a game system: NPC dialogue, Delve, Pantheons | what a character lives in, shown in game |
-| Folder | `Mods/` (gitignored as a whole; installed by the user) | `Modules/<any folders>/<id>/` | `Leagues/<Name>/` |
+| Is | the user's opt-in change or tool | a game system: NPC dialogue, Delve, Pantheons | what a character lives in, shown in game |
+| Folder | `Mods/` (gitignored as a whole; installed by the user) | `Modules/Core/`, `Legacy/` or `Custom/`, then `<any folders>/<id>/` | `Leagues/<Name>/` |
 | Entry point | `IMod` | `IModule` | a class deriving `League` in `Source/`, `league.json` and `modules.json` |
 | Loads | any time | when the Gateway starts, if a league enables it | when the Gateway starts, if its folder exists |
 | Hot reload | yes | yes | its code, yes |
@@ -43,11 +44,13 @@ Beside `league.json`, `modules.json` lists the modules the league loads, Core on
 
 ```json
 {
-  "modules": ["Core/Game", "Core/Player/Commands", "Core/NPC/Vendors", "Ruthless"]
+  "modules": ["Core/Game", "Core/Player/Commands", "Core/NPC/Vendors", "Core/Ruthless"]
 }
 ```
 
 A league with no `modules.json`, or a module listed twice, does not load. Every league that can be played lists `Core/Game`. The Gateway logs a listed path with no module.
+A league lists modules only, never a mod. A league that replicates one of GGG's lists only `Core/` and `Legacy/` modules;
+`Custom/` ones are for custom leagues.
 
 A user's own changes to the lists are in `data/league-modules.json` (`Game_LEAGUE_MODULES` moves it), so the leagues' files stay as
 LocalExile ships them; Auth and the Gateway read both when they start. An added module goes last, so a module before it that
@@ -80,13 +83,24 @@ A catalog type holding some rules stays when `ClientState` has a field of it (`C
 A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
 One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
+Modules sit in three folders, and each module in exactly one.
+
+| Folder | Holds | Today |
+|---|---|---|
+| `Modules/Core/` | the current game as GGG runs it, shared by many leagues | the systems below, `Ruthless` |
+| `Modules/Legacy/` | like Core, for GGG's past leagues and content | `PhreciaAscendancies` |
+| `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/`, `PlayerBots`, `NessaDevelopmentTabs` |
+
+A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
+mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
+
+- **Core** (`Modules/Core/`) is ordinary modules, in folders by subject: `Game`; `Ruthless`; `NPC/` `NpcDialogue`, `Vendors`; `World/` `Portals`, `QuestObjects` (the campaign's quests: the act tables of the quest engine, [campaign quests](../game/campaign-quests.md)), `HideoutEditing`, `Atlas`; `Content/` `Harvest`, `Heist`, `Delve`; `Item/` `Bench`, `Tattoos`, `UniqueBelts`, `Cosmetics`; `Player/` `Chat`, `Social`, `Commands`, `Pantheon` (the god choice and its powers, [pantheon](../game/campaign/pantheon.md)). A folder holding a `module.json` is a module, at any depth; its id is the folder's name, and ids are unique.
 - **`Game`** is the rules: casting, hits, monsters, items, passives, travel, in subfolders by subject (`Combat/`, `Monster/`, `Skill/`, `Item/`, `Passive/`, `Projectile/`, `Flask/`, `World/`, `NPC/`, `Player/`). Its parts call one another, so they are one assembly, and a league cannot turn one part off. Every other module depends on it; rebuilding it reloads them all, and its in-memory per-connection sessions (leech, charges, fortification, projectiles) start over.
 - **Hot reload:** a new build in `bin/`, an edited `module.json` or `settings.json`, a change to its user's settings, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
 - **Settings:** what a module lets the user tune is declared in its `settings.json`, read with `Settings<T>()`, and the user's values are in `data/modules/<id>.json`, as for a mod ([modding](modding.md), "Settings"). A module's settings are the same in every league that lists it.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
-- **To make one:** copy `Modules/Core/Content/Heist/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` and `GameServer.Gateway.csproj` for internals, and list it in the `modules.json` of the leagues that want it.
+- **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
 
 ## What a module sees
 
@@ -96,7 +110,7 @@ The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this
 `IModuleContext` is what a mod has, and `ProvideLeagueRules`, `World(player)`, `OnHideoutReady`, `OnEnterMessages`, `OnAreaHeader`, `OnNpcOption`.
 `IPlayerWorld` is objects, blockers, walking up, hideout stations, windows, stats, travel, NPC actions, crafting in a slot (with payment), item rules
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
-A module can alter the game fully: it compiles against the Gateway and its internals (add its assembly to `InternalsVisibleTo` in `GameServer.Gateway.csproj`), with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. Mods see only `GameServer.Modding`. Per-player state in a module's own
+A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own
 `ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `ClientState` survives.
 Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
 the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what

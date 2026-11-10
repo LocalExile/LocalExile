@@ -119,6 +119,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- The campaign Trinity has native attacks and two scorpion phases; exact official AI weights remain unverified.
+  Docs: [Act 9](../docs/game/campaign/act9.md).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
 - Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
@@ -239,5 +241,5 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) is left to a fight or quest
+  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
   that does not create it yet.

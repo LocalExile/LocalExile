@@ -5,7 +5,7 @@ using GameServer.Core.World;
 /// Nevalius' flat and per-level sources add once. The raw character keys remain raw; there is no effect panel row.
 /// Local increased effect and magic-utility-only increased effect join the same additive bucket when applicable.
 /// </summary>
-static class FlaskEffectScaling
+public static class FlaskEffectScaling
 {
     public static long GlobalIncrease(Func<string, int> raw, int playerLevel = 1) =>
         (long)raw("flask_effect_+%")

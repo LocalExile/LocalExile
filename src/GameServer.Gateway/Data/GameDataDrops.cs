@@ -6,7 +6,7 @@ using GameServer.Core;
 /// The drop tables: world.db's <c>drop_*</c> rows (Agents/docs/dev/drop-data-schema.md), published as an immutable
 /// snapshot at startup and on <c>/reload</c>. A reader takes the snapshot, never SQLite.
 /// </summary>
-static class GameDataDrops
+public static class GameDataDrops
 {
     public static void Reload(GameDataStore store, DropDataProvider? provider = null) =>
         (provider ?? DropDataProvider.Default).Replace(store);
@@ -16,7 +16,7 @@ static class GameDataDrops
 }
 
 /// <summary>The published drop tables. Empty until world.db is open; callers keep their code fallback.</summary>
-sealed class DropDataProvider
+public sealed class DropDataProvider
 {
     public sealed record Snapshot(IReadOnlyDictionary<string, GameDataStore.CurrencyWeightRow> CurrencyWeights,
         IReadOnlyDictionary<string, GameDataStore.CurrencySourceRow> CurrencySources,

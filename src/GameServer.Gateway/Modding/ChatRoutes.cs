@@ -1,6 +1,6 @@
 /// <summary>The chat server the mods asked for (<c>IModContext.UseChatServer</c>), for the Chat module to follow. It stays here so
 /// that a mod and the module can each load and reload without the other. The last one asked wins; none means local chat.</summary>
-static class ChatRoutes
+public static class ChatRoutes
 {
     sealed class Undo(Action undo) : IDisposable
     {

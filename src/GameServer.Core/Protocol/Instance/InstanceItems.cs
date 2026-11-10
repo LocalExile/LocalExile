@@ -63,6 +63,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public ushort StackSize { get; init; } = 1;
     public IReadOnlyList<ItemSocket> Sockets { get; init; } = [];
 
+    /// <summary>Transformed component's original item; null when an imported snapshot omits it.</summary>
+    public Item? OriginalItem { get; init; }
+
     /// <summary>Link groups: the number of sockets in each, in socket order (null: every socket alone).</summary>
     public IReadOnlyList<byte>? Links { get; init; }
     public int GemExperience { get; init; }
@@ -131,7 +134,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Stack", "SkillGem", "Map", "MapKey", "Transformed"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -192,6 +195,11 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     MagicProperties(w); w.U8(0).U8(0);
                     break;
                 case "Quality": w.U8(Quality); break;                 // 0x1424b5720
+                // The transformed original uses an unframed ordinary item payload.
+                case "Transformed":
+                    if (OriginalItem is { } original) w.Bytes(original.Payload());
+                    else w.U32(0);
+                    break;
                 case "Charges": w.CompactI(Charges); break;           // 0x1424a3f80: signed compact (0x141e4c7e0)
                 // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20. Stored tinctures are inactive.
                 case "Tincture": w.U8(0); break;
@@ -313,13 +321,19 @@ public static class InstanceItems
 {
     public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
-        LevelUpGemId = 0x31, LockGemId = 0xd7;
+        LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7;
 
     /// <summary>
     /// C→S 0x31 (14 bytes, live 2026-10-23): the level-up arrow on a socketed gem with experience one below its next
     /// level's threshold (the client's "+", 19-gems.md §4). u32 inventory id, u32 item id, u32 socket index.
     /// </summary>
     public static SocketGem ReadLevelUpGem(ReadOnlySpan<byte> m) => ReadSocketGem(m);
+
+    /// <summary>
+    /// C→S 0x32 (2 bytes, id only, captured 2026-11-09): the gem level-up panel's "Click to level up ALL" button. It names
+    /// no gem: the server levels every socketed gem that is ready, with the same rules as the individual "+" (0x31).
+    /// </summary>
+    public const int LevelUpAllGemsLength = 2;
 
     /// <summary>
     /// C→S 0xd7 (15 bytes, live 2026-10-23): the gem's level lock toggled by a right-click. u32 inventory id, u32 item

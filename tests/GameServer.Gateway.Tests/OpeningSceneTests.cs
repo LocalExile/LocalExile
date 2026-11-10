@@ -18,7 +18,11 @@ public class OpeningSceneTests
     [InlineData(true)]
     public async Task An_untouched_character_lies_down_facing_the_room_and_gets_up_in_place_once(bool withSkills)
     {
-        if (!withSkills) await CheckSharedMessageOwnership();
+        if (!withSkills)
+        {
+            await CheckSharedMessageOwnership();
+            CheckOpeningWakeRange(new MonsterCatalog().Find("Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake1")!);
+        }
         if (!withSkills)
         {
             Assert.Equal(unchecked((int)0xcb7dc2d3), AreaPopulation.PopulationSeed(0xf00a, 1604777343));
@@ -108,6 +112,31 @@ public class OpeningSceneTests
         byte[] created = InstanceEntities.CreateObject(0x20001234, 7, (player with { Skills = player.Skills?.Where(s => s.Id != TutorialObjects.WashedUpSkillId).ToList(),
             QuestFlags = [], LeagueQuestFlags = [] }).Blob());
         Assert.Equal(created, observer.Read(created.Length));
+    }
+
+    static void CheckOpeningWakeRange(MonsterCatalog.Variety variety)
+    {
+        var emerges = new MonsterEmerge();
+        foreach (var (area, type, aggro, range) in new[]
+        {
+            (TutorialObjects.Strand, variety, 60, 60),
+            (TutorialObjects.Strand, variety, 35, 35), // Shorter aggro caps still apply.
+            (TutorialObjects.Strand, variety, 0, 60),
+            ("1_1_2", variety, 60, 24),
+            (TutorialObjects.Strand, variety with { Id = "Metadata/Monsters/Other" }, 60, 24),
+        })
+        {
+            var conn = new ClientState(new(0, area, 256, 256, 10, 10, null, []), 0, 1) { Instance = new() };
+            var m = new SpawnedMonster("wake-boundary", new(100, 100, 1), aggro, 2, 23) { Variety = type };
+            Assert.True(MonsterEmerge.AddLocked(conn, 7, m, EmergeKind.Buried, true));
+            Assert.Empty(emerges.RiseLocked(conn, (100 - range - 1, 100), 10, out bool watching));
+            Assert.True(watching);
+            Assert.Single(emerges.RiseLocked(conn, (100 - range, 100), 10, out watching));
+            Assert.False(watching);
+            Assert.Same(m, conn.Monsters[7]);
+            Assert.True(m.BusyUntil > 10);
+            Assert.Empty(emerges.RiseLocked(conn, (100, 100), 11, out _)); // Exactly once, without advancing real time.
+        }
     }
 
     static async Task CheckSharedMessageOwnership()

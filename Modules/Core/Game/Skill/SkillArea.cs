@@ -9,7 +9,7 @@
 /// skill's stats include the player's. Discharge's more area per removable charge counts; other conditional area stats (per
 /// attribute, "recently") are not modelled.
 /// </summary>
-static class SkillArea
+public static class SkillArea
 {
     public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX";
 
@@ -89,7 +89,7 @@ static class SkillArea
 /// tunables: they are ESTIMATES to calibrate against the live client (stand at a known distance in front, and time the
 /// hit at a known distance).
 /// </summary>
-static class GroundSlamWave
+public static class GroundSlamWave
 {
     /// <summary>ActionTypes "DistanceScaledGroundSlam" HASH16 (row 3): the action of the player's Ground Slam and its
     /// alternate-quality and Royale forms (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale

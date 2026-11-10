@@ -1,10 +1,13 @@
 # Mods
 
-Mods are small modifications, global, and the user's own: `Mods/` is gitignored, and another app will install them. A game system is a [module](modules.md), and only a
-league lists one.
+Mods are custom content that each user opts into, for every league: `Mods/` is gitignored, and Waypoint installs them. A mod
+changes how modules, leagues or the framework behave, or gives the user tools for development, testing and practice (GM
+commands, teleports, every MTX owned). A GGG-like server needs no mod, and no league lists one: a replica of the real game is
+a [module](modules.md). Which layer a change belongs in: [AGENTS.md](../../../AGENTS.md) ("What goes where").
 A mod is a C# assembly, or loose `.cs` files, the Gateway loads from `Mods/Binaries/<id>/` while it runs, and reloads when its
-files change, without a rebuild or restart of the Gateway. A mod sees only the `GameServer.Modding` API; the Gateway, Core and Data stay
-internal to the server.
+files change, without a rebuild or restart of the Gateway. A mod reaches what a module reaches: `GameServer.Modding`, and the
+Gateway, Core and the Game module, which are public, so it can alter the game as fully as a [module](modules.md). It runs in
+every league.
 
 What is built and what is planned: [status](../../status/setup-and-tooling.md) ("Mods"),
 [roadmap](../../roadmap/setup-and-tooling.md) ("Mods").
@@ -159,6 +162,7 @@ Each `IModContext` call returns a handle; disposing it removes that hook, and un
 | `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 | `UseChatServer(host, port)` | until it unloads: global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one | |
 | `UseExchangeOptions(options)` | until it unloads: the [Currency Exchange](../protocol/29-currency-exchange.md) trades by these options | |
+| `CharacterBuilds.Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes | `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
 | `PublishExchangeRates(json)` | any time: new rates for the Currency Exchange, which the Gateway saves | |
 
 A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,
@@ -194,9 +198,23 @@ Suggestions while working on a mod with the client in game: `dotnet build Mods\S
 `live.ps1` builds every mod in `Mods\Source\` before it starts the Gateway (one that fails to build is left out with a
 warning).
 
+## The server, and growing it
+
+A project mod compiles against the Gateway, Core and the Game module beside `GameServer.Modding` (`Mod.props`, and
+LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` when it uses the game's rules: it then
+reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
+own, and those subscriptions run in every league while it is loaded; it disposes them when it unloads. A mod that uses
+only `GameServer.Modding` keeps working while the server changes; one that uses the server breaks when what it uses
+changes, as a module would, and is fixed in its own repository.
+
+When a mod needs the framework to hand it something it does not, its LocalExile pull request adds a **general hook or
+event**, one any mod could use ("before an item is rolled", "when currency lands"), and nothing else. The feature's
+logic, settings and defaults stay in the mod. The mod's pull request in LocalExile-Mods waits for it ("Requires
+LocalExile Update").
+
 ## Limits
 
-- A mod can use the framework, `GameServer.Modding`, the assemblies of the mods it depends on and the files in its
-  folder; any other `GameServer.*` assembly is refused when it loads.
+- A mod can use the framework, the server's `GameServer.*` assemblies, the assemblies of the mods and modules it depends
+  on and the files in its folder. A league never lists a mod, so `ProvideLeagueRules` is a module's only.
 - Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two data sets), and the rest of
   the systems moved behind the API ([roadmap](../../roadmap/setup-and-tooling.md)).

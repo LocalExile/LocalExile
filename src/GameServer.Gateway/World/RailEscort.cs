@@ -1,6 +1,6 @@
 /// <summary>A one-way rail walk: game time advances it only while escorted. Presentation can send the remaining leg
 /// once, and interrupt it at Position when the escort leaves.</summary>
-sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
+public sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
 {
     public IReadOnlyList<(int X, int Y)> Path { get; } = path.Count >= 2 && double.IsFinite(speed) && speed > 0 ? path : throw new ArgumentException("A rail escort needs a path and positive speed.");
     public double Speed { get; } = speed;

@@ -1,14 +1,14 @@
 using GameServer.Core.Accounts;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>Left in the character's saved data from the moment of a Hardcore death until it has moved, so that a crash in between
     /// cannot bring the character back.</summary>
-    internal const string HardcoreDeathMark = "hardcore.dead";
+    public const string HardcoreDeathMark = "hardcore.dead";
 
     // Called synchronously inside the lethal damage mutation, before its first network write. The player sees the death screen and
     // stays connected; the character (only: stashes stay) moves to the parent league once they have left (CommitHardcoreDeath).
-    internal static void RecordHardcoreDeath(ClientState conn)
+    public static void RecordHardcoreDeath(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -25,7 +25,7 @@ static partial class Game
     }
 
     // The connection has ended (the death screen's Exit, or any other way out).
-    internal static void CommitHardcoreDeath(ClientState conn)
+    public static void CommitHardcoreDeath(ClientState conn)
     {
         if (!conn.HardcoreDeathRecorded) return;
         string name = CharacterName(conn);
@@ -38,7 +38,7 @@ static partial class Game
     }
 
     // A connection of a character that died and whose move a crash interrupted: it moves now, and this connection does not go on.
-    internal static void RefuseInterruptedHardcoreDeath(ClientState conn)
+    public static void RefuseInterruptedHardcoreDeath(ClientState conn)
     {
         if (!conn.Hardcore || CharacterSaves.ModuleData(CharacterName(conn), HardcoreDeathMark) is not { Length: > 0 }) return;
         conn.HardcoreDeathRecorded = true;

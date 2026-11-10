@@ -1,5 +1,5 @@
 /// <summary>Unconditional impale inputs, kept separate from final panel aliases and target mitigation.</summary>
-static class ImpaleStats
+public static class ImpaleStats
 {
     public static bool IsDisplay(string stat) => stat is "virtual_total_main_hand_impale_on_hit_%_chance"
         or "virtual_total_off_hand_impale_on_hit_%_chance" or "virtual_total_spell_impale_on_hit_%_chance";

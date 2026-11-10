@@ -22,10 +22,10 @@ public sealed class SurvivorsLeagueTests
         Assert.Equal("Void", league.Parent);
         Assert.True(leagues.CanEnter("Survivors"));
         Assert.Contains(leagues.Entries(), entry => entry.Name == "Survivors");
-        Assert.Contains("Survivors/SurvivorsRun", league.Modules);
-        Assert.Contains("Survivors/SurvivorsSkills", league.Modules);
-        Assert.Contains("Survivors/SurvivorsRewards", league.Modules);
-        Assert.DoesNotContain(leagues.Find("Standard")!.Modules, module => module.StartsWith("Survivors/"));
+        Assert.Contains("Custom/Survivors/SurvivorsRun", league.Modules);
+        Assert.Contains("Custom/Survivors/SurvivorsSkills", league.Modules);
+        Assert.Contains("Custom/Survivors/SurvivorsRewards", league.Modules);
+        Assert.DoesNotContain(leagues.Find("Standard")!.Modules, module => module.StartsWith("Custom/Survivors/"));
 
         var skills = new ModuleLifetime("SurvivorsSkills");
         var rewards = new ModuleLifetime("SurvivorsRewards");
