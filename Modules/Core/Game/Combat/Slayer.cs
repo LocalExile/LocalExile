@@ -41,6 +41,11 @@ static class Slayer
     internal static long AreaFromKills(Func<string, int> get) =>
         Math.Min(50, (long)get(AreaPerEnemyKilled) * get(EnemiesKilledRecently));
 
+    /// <summary>A count stopped where the capped product above stops changing (10 enemies at +10 per enemy, 10 kills at
+    /// 5% per kill), so a count past the cap changes nothing the client is sent.</summary>
+    internal static int UpToCap(int count, int perUnit, int cap) =>
+        perUnit > 0 ? Math.Min(count, (cap + perUnit - 1) / perUnit) : count;
+
     /// <summary>Bane of Legends' two more multipliers on one hit, against a unique target or not.</summary>
     internal static double DamageMore(Func<string, int> get, bool uniqueTarget) =>
         (uniqueTarget ? Math.Max(0, 1 + get(MoreVsUnique) / 100.0) : 1)
@@ -57,6 +62,8 @@ static class Slayer
         // Counts each applied change: the player stats cache (PlayerStatsKey) rebuilds on it, as the pools do not hold
         // everything these values change (the area total).
         public long Revision;
+        // Bane of Legends' last logged multiplier: an area hit changes target on every hit, so only a new value logs.
+        public double BaneLogged = 1;
 
         public int KilledWithin(double now)
         {
@@ -118,6 +125,9 @@ static class Slayer
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         double more = DamageMore(Get, target.Rarity == MonsterRarity.Unique);
+        var state = Of(conn);
+        if (state.BaneLogged == more) return more == 1 ? rolled : rolled.Scale(more);
+        state.BaneLogged = more;
         if (more == 1) return rolled;
         Console.WriteLine($"[gateway] Bane of Legends: {more:0.###}x on {target.Rarity} {target.Label}"
             + $" ({(target.Rarity == MonsterRarity.Unique ? "unique" : "not unique")}, killed recently: {Get(HaveKilledRecently) != 0})");
@@ -142,14 +152,21 @@ static class Slayer
                 state.MovementUntil = state.AttackSpeedUntil = double.NegativeInfinity;
                 state.Kills.Clear();
             }
-            int killed = state.KilledWithin(now);
-            if (Raw(conn, AreaPerEnemyKilled) == 0 && Raw(conn, MoreIfKilledRecently) == 0) killed = 0;
-            int nearby = 0;
-            if (alive && Raw(conn, CritPerNearbyEnemy) != 0)
+            // Each count stops where its capped product does (or at one for Bane's "killed recently" alone), so the
+            // pools and the stats are not rebuilt for a change the client would not see.
+            int killed = state.KilledWithin(now), areaPerKill = Raw(conn, AreaPerEnemyKilled);
+            killed = areaPerKill != 0 ? UpToCap(killed, areaPerKill, 50)
+                : Raw(conn, MoreIfKilledRecently) != 0 ? Math.Min(killed, 1) : 0;
+            int nearby = 0, critPerEnemy = Raw(conn, CritPerNearbyEnemy);
+            if (alive && critPerEnemy != 0)
             {
+                // Awake hostile monsters the client has been shown, as Flicker Strike's targets (FlickerDestination).
                 var here = conn.Walk.Position(now);
-                foreach (var m in conn.Monsters.Values)
-                    if (m is { Hostile: true, Dead: false, Life: > 0 } && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
+                foreach (var (id, m) in conn.Monsters)
+                    if (m is { Hostile: true, Dead: false, Life: > 0 } && !conn.AsleepMonsters.Contains(id)
+                        && (conn.Instance is null || conn.MonsterViews.ContainsKey(id))
+                        && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
+                nearby = UpToCap(nearby, critPerEnemy, 100);
             }
             int movement = now < state.MovementUntil ? Raw(conn, MovementOnKill) : 0;
             int attackSpeed = now < state.AttackSpeedUntil ? Raw(conn, AttackSpeedOnRareKill) : 0;
