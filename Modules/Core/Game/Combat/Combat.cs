@@ -1114,6 +1114,10 @@ public static partial class Game
         // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
         if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
+        if (IsLightningStrike(gem.Effect))
+            return ScheduleLightningStrike(remote, stream, ciphers, conn, skillId, gem, from, to, targetId,
+                recoveryGeneration, cooldownUse, criticalRoll,
+                sequence, swingAt);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
@@ -1346,7 +1350,8 @@ public static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null)
+        double radiusMore = 1, int addedChaos = 0, double? swingAt = null,
+        Func<bool>? triggeredCurrent = null, uint? singleStrikeTarget = null, Action<uint>? onHit = null, ProjectileSession? scheduledSession = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1427,8 +1432,8 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null)
-            using (ProjectileMutation(conn))
+        if (!spell && channelGeneration is null && singleStrikeTarget is null)
+            using (ProjectileMutation(conn, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null)
@@ -1453,7 +1458,7 @@ public static partial class Game
         double sweepStart = 0;
         double[] reach = [];
         int epoch = conn.ProjectileEpoch;
-        using (ProjectileMutation(conn))
+        using (ProjectileMutation(conn, advance: scheduledSession is null))
         {
             double now = ProjectileWorldTime(conn);
             if (!Current()) return;
@@ -1465,6 +1470,7 @@ public static partial class Game
             var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
+                    && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
                     && e.Distance <= (wave ? waveLength : radius) && once?.Contains(e.Key) != true
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
                 .ToList();
@@ -1551,7 +1557,7 @@ public static partial class Game
             List<byte[]>? ignited = null, bled = null;
             string igniteLog = "", bleedLog = "";
             StunHit stun;
-            using (ProjectileMutation(conn))
+            using (ProjectileMutation(conn, advance: scheduledSession is null))
             {
                 // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
                 // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
@@ -1681,6 +1687,20 @@ public static partial class Game
                 }
             }
             if (applied is not { } hit) continue;
+            onHit?.Invoke(id);
+            if (scheduledSession is { } scheduled)
+            {
+                using (ProjectileMutation(conn, advance: false))
+                {
+                    ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: true);
+                    if (reflected.Count > 0 && player is not null)
+                        ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+                    CommitLightningStrikeMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence);
+                }
+                scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, ignited, igniteLog));
+                scheduled.Enqueue(() => SendDotBuff(remote, stream, ciphers, bled, bleedLog));
+                return;
+            }
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
             await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
@@ -1691,7 +1711,7 @@ public static partial class Game
             ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
         }
         if (reflected.Count > 0 && player is not null)
-            using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
+            using (ProjectileMutation(conn, advance: scheduledSession is null)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
         foreach (var (deadId, dead) in deaths) await MonsterKilled(remote, stream, ciphers, conn, deadId, dead);
         // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle; a gem melee
         // attack reports the clip its contact came from (GemAttackContactDelay), which the live check can compare with the

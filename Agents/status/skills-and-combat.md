@@ -699,6 +699,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Ice Shot primary projectile resolution uses IceArrow; 3.29.3c protocol-driven primary-hit controls pass; cone splash remains open.
 
+- Lightning Strike's standard gem has a melee contact and three native client-drawn `LightningSlash` projectiles;
+  damage, conversion and projectile-only modifiers are separate, and outward bolts exclude the melee victim.
+  Native volley spread/speed variation, extra-target strike volleys and the transfigured/Vaal executors remain partial.
+  See [11](../docs/protocol/11-skills.md) §10.
+
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
   recipes are reused. Aura reconciliation compares live sources, restrictions, equipment and reservation inputs;
