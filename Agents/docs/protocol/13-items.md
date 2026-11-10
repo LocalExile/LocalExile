@@ -58,6 +58,7 @@ Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` 
 | Stack | `0x14363f6e8` | `0x1423fb5f0` | u16 stack size (§4a) |
 | SkillGem | `0x143641ec0` | `0x1424755d0` | i32 experience (-1: one level over the cap), u32 +0x3c the variant, u8 +0x10 flags (bit 2: level locked), u16 +0x40 |
 | Sockets | `0x1435ea420` | `0x1421e9790` | u8 = bit0/bit1 (special: nothing more) \| socket count << 2 \| link group count << 5; per socket u8 colour << 1 \| has gem, then the gem's item data **without** the length prefix; then a u8 per link group (its socket count). Colours: 1 red, 2 green, 3 blue, 4 white (all seen live 2026-10-26) |
+| Transformed | — | — | original item's unframed payload; u32 hash 0 represents an omitted original |
 | Armour | `0x143645930` | `0x1424b6a90` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
 | MapKey | `0x1436457f8` | `0x1424b5290` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
 | LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x143645740`, `0x1435ea600` … | `ret` | nothing |
@@ -164,6 +165,21 @@ A list is u8 count + mods. A mod (`0x142436e50`): **u16 Mods.dat HASH16**, then 
 empty one; no Mods.dat row has a gap), so the count must match. An unknown hash throws "Deserialised a mod that we don't
 recognise". After reading, `0x142205d50` adds the "magic" / "rare" tag and gives each list to `0x142206280` with its
 kind (implicit 1, explicit 2, enchant 3, scourge and hidden without one).
+
+Indexed descriptions, cases `0x27`, `0x28`, `0x3a`, look up the stat value by
+`Index` in `IndexableSupportGems`, `IndexableNonActiveSupportGems`, `IndexableSkillGems`, respectively.
+These are not row offsets: `RandomSkillUnique__1` carries `[level, skill index]`,
+`RandomSupportUnique__1`/`__2` carry `[support index, level]`, and `UniquePearlSupportOne`/`Two` carry
+`[slot, non-active support index, level]` (slots 1 helmet, 2 gloves, 3 boots, 4 passive-tree skills).
+The skill description selects `Name1` normally, `Name2` when its format flags include bit 3.
+PoB aggregates the socket penalties of Domain 42 Deepwater tattoos; each native mod retains its own `-1` and
+companion stat, so a combined `-2` line must not become one arbitrary socket-penalty mod.
+Energy Blade's `StormBladeOneHand`/`StormBladeTwoHand` bases include `Transformed`.
+The original uses an unframed ordinary item payload. An unknown type hash is null after four bytes;
+live Energy Blade imports accepted hash 0 here.
+Downloaded ninja snapshots retain its computed `StormBladeImplicitLocalLightningDamage_1` values and socket indexes;
+PoB's generated weapon text omits that damage and the original sword.
+Restore the transformed snapshot from matching native data; an absent original cannot reconstruct the pre-buff sword.
 
 What the tooltip shows (live, 2026-10-20, an Iron Ring with `/item_mod <list> IncreasedLife1`): implicit under the
 properties, enchant above the implicits, explicit below a separator, scourge as orange lines among the explicits
