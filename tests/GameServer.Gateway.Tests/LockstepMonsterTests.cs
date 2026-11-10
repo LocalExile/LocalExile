@@ -529,6 +529,13 @@ public class LockstepMonsterTests : IDisposable
             Assert.Equal(0x8051, left.Sequence);
             Assert.Equal((229, 100), left.Walk.Destination);
             Assert.False(Game.WalkUpOpen(held, left));
+            // A monster that left the wake zone after the plan gets no order: its copy no longer ticks, and the estimate
+            // stays where the leave left it.
+            held.AsleepMonsters.Add(0x3000);
+            Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (240, 100), "flees"));
+            Assert.Equal(0x8051, left.Sequence);
+            Assert.Equal((229, 100), left.Walk.Destination);
+            held.AsleepMonsters.Remove(0x3000);
             // It carries GGG's monster flags, 0 (none of its 56 175 monster orders has 0x400 or 0x8): without 0x400 the
             // client refuses it while a non-Move action waits queued (0x141e8cf10), as GGG's client does.
             Assert.Equal(0, BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(12)));

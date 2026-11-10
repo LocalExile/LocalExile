@@ -1236,6 +1236,9 @@ static partial class Game
         (int X, int Y) from, Func<double, (int X, int Y)> place)
     {
         if (double.IsNaN(plan.FrameStart) || conn.LockstepFrame is not { } frame) return from;
+        // Out of this client's wake zone since the plan: its copy has stopped ticking (the 0x1aa went out first), so an
+        // order would walk the estimate alone until it is back. Nothing is sent and nothing placed (KeepWakeZone).
+        if (conn.AsleepMonsters.Contains(id)) return null;
         StepWalkers(conn, frame.Start);
         if (m.ClientSwingAt is not null && m.ClientSwingAction == action || m.SwingGeneration == action)
         {
