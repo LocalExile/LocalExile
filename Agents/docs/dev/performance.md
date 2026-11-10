@@ -8,7 +8,7 @@ measurements and the results of the 2026-10-30 pass (branch `contrib/server-perf
 
 **Startup and idle memory**: `scripts/perf/startup.ps1` (after `dotnet build`). It starts the built Auth, then the built
 Gateway, on a private port block (`-PortBase`, default 23000: login +1, Auth control +2, Gateway +3, dev +4) with a copy
-of `data\validation-saves.db`, times each to its "listening" line, waits `-SettleSeconds`, records private bytes,
+of `data\validation-characters.db`, times each to its "listening" line, waits `-SettleSeconds`, records private bytes,
 working set and the GC heap and committed size (through `dotnet-counters`, when `artifacts\tools` has it:
 `dotnet tool install dotnet-counters --tool-path artifacts/tools`), and stops only the processes it started. Run 1 is a
 stack's first start (the Gateway seeds the game-data reference tables into the database); the medians use the

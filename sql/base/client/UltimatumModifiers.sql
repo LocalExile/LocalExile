@@ -1,0 +1,27 @@
+-- Client table UltimatumModifiers (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "UltimatumModifiers" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "Types" JSON,
+    "ExtraMods" JSON,
+    "TypesFiltered" JSON,
+    "DaemonSpawningData" INTEGER,
+    "PreviousTier" INTEGER,
+    "__col6" BOOLEAN,
+    "Radius" INTEGER,
+    "Name" TEXT,
+    "Icon" TEXT,
+    "HASH16" INTEGER,
+    "TypesExtra" JSON,
+    "MonsterTypesApplyingRuin" INTEGER,
+    "MiscAnimated" INTEGER,
+    "BuffTemplates" JSON,
+    "Tier" INTEGER,
+    "__col16" INTEGER,
+    "Description" TEXT,
+    "MonsterSpawners" JSON,
+    "__col19" BOOLEAN,
+    "Achievements" JSON,
+    "TextAudio" INTEGER,
+    "UniqueMapMod" INTEGER
+);

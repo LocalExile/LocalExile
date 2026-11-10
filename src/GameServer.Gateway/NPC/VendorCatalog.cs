@@ -12,7 +12,7 @@ sealed class VendorCatalog
     readonly ILookup<string,GemRule> byVendor;
     public VendorCatalog(string folder)
     {
-        data = JsonSerializer.Deserialize<Data>(File.ReadAllText(Path.Combine(folder,"vendor-stock.json")))!;
+        data = JsonSerializer.Deserialize<Data>(GameServer.Core.ClientTables.ReadAllText(Path.Combine(folder,"vendor-stock.json")))!;
         byVendor = data.Gems.ToLookup(g => g.Vendor,StringComparer.Ordinal);
     }
     public Shop? Find(string npc) => data.Shops.GetValueOrDefault(npc);

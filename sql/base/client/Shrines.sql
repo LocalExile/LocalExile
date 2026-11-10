@@ -1,0 +1,26 @@
+-- Client table Shrines (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "Shrines" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "TimeoutInSeconds" INTEGER,
+    "ChargesShared" BOOLEAN,
+    "Player_ShrineBuffsKey" INTEGER,
+    "__col4" INTEGER,
+    "__col5" INTEGER,
+    "Monster_ShrineBuffsKey" INTEGER,
+    "SummonMonster_MonsterVarietiesKey" INTEGER,
+    "SummonPlayer_MonsterVarietiesKey" INTEGER,
+    "__col9" INTEGER,
+    "Duration" INTEGER,
+    "ShrineSoundsKey" INTEGER,
+    "__col12" BOOLEAN,
+    "AchievementItemsKeys" JSON,
+    "IsPVPOnly" BOOLEAN,
+    "__col15" BOOLEAN,
+    "IsLesserShrine" BOOLEAN,
+    "Description" INTEGER,
+    "Name" INTEGER,
+    "__col19" BOOLEAN,
+    "Mods" INTEGER,
+    "MonsterPacks" JSON
+);

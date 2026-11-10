@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// A character's items, by Inventories.dat row (the Gateway registers inventory id = row + 1 for every row, 05 §2). Kept
@@ -1011,7 +1012,7 @@ sealed class PlayerInventories
         var inv = new PlayerInventories();
         if (Environment.GetEnvironmentVariable("Game_START_ITEMS") == "0") return inv;
         string chars = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (catalog.Error is not null || !File.Exists(chars) || !File.Exists(gems))
+        if (catalog.Error is not null || !ClientTables.Exists(chars) || !ClientTables.Exists(gems))
         {
             // The empty kit is saved like any other, so this character stays empty: say why.
             Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no {chars} or {gems}"} (extract the tables and data/item-types.json first, Agents/GettingStarted.md)");

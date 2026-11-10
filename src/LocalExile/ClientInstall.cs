@@ -7,7 +7,7 @@ namespace LocalExile;
 /// path, as they do in a checkout. Game.exe and Game.patched.exe are added beside the client's own files.</summary>
 static class ClientInstall
 {
-    const string Folder = "Client";
+    static string Folder => GameServer.Core.ServerConfig.ClientFolder;
     static string Ggpk => Path.Combine(Folder, "Content.ggpk");
     static string GameExe => Path.Combine(Folder, "Game.exe");
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
@@ -203,7 +203,7 @@ static class ClientInstall
     /// already name this one, and the original is kept in data\gateway_list.original.txt.</summary>
     public static void SelectLocalLogin(Ports ports, Output log)
     {
-        if (ports.Patch != Ports.DefaultPatch) return;
+        if (ports.Base != 0) return;
         log.Step("login-list", "checking the client's login list ...");
         var (code, lines) = Tools.Capture(Tools.Patch, ["gateway", Ggpk]);
         var list = lines.Where(l => l.Split(';').Length >= 3).ToList();

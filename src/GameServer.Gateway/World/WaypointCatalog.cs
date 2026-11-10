@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Waypoints (Agents/docs/protocol/16-waypoints.md): which areas have one and their bit in S→C 0x4c (WorldAreas, see
@@ -73,10 +74,10 @@ static class WaypointCatalog
         try
         {
             // No capture: the layout the Gateway generated itself.
-            if (!File.Exists(file))
+            if (!ClientTables.Exists(file))
                 return ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
                     ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
-            var data = JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(file), Json);
+            var data = JsonSerializer.Deserialize<CaptureFileData>(ClientTables.ReadAllText(file), Json);
             var o = data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath);
             return o is null ? null : new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z);
         }

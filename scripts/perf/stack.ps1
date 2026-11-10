@@ -1,7 +1,7 @@
 # usage: scripts/perf/stack.ps1 [-PortBase 23000] [-Configuration Debug] [-SettleSeconds 15] [-IdleSeconds 60] [-Runs 1]
 #                               [-Env @{ NAME = 'value' }] [-NoPatch]
 # What one idle server stack costs (Agents/docs/dev/performance.md): starts the built Auth, Patch and Gateway on
-# PortBase+1 … +6 with a copy of data\validation-saves.db, waits for each to be ready and SettleSeconds more, then over
+# PortBase+1 … +6 with a copy of data\validation-characters.db, waits for each to be ready and SettleSeconds more, then over
 # IdleSeconds records each process's CPU time, private bytes (its commit) and working set, and stops exactly the processes
 # it started. No player connects. Never touches the default ports. Run from the repository root after `dotnet build`
 # (or `dotnet build -c Release` with -Configuration Release).
@@ -23,8 +23,8 @@ try {
 $out = Join-Path $repo 'artifacts\perf'
 New-Item -ItemType Directory -Force $out | Out-Null
 $bin = "bin\$Configuration\net10.0"
-$source = Join-Path $repo 'data\validation-saves.db'
-if (-not (Test-Path $source)) { throw "no data\validation-saves.db to copy (the perf run never uses data\saves.db)" }
+$source = Join-Path $repo 'data\validation-characters.db'
+if (-not (Test-Path $source)) { throw "no data\validation-characters.db to copy (the perf run never uses data\characters.db; validation-characters-auth.db holds its accounts)" }
 
 function Wait-Line($proc, $log, $pattern, $timeoutSeconds) {
     $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -38,11 +38,12 @@ function Wait-Line($proc, $log, $pattern, $timeoutSeconds) {
 
 $db = Join-Path $out 'stack-saves.db'
 Copy-Item $source $db -Force
+Copy-Item ($source -replace '.db$', "-auth.db") ($db -replace '.db$', "-auth.db") -Force
 $rows = @()
 for ($run = 1; $run -le $Runs; $run++) {
     $started = [ordered]@{}
     $saved = @{}
-    $vars = @{ Game_SAVES_DB = $db; Game_LOGIN_PORT = "$($PortBase + 1)"; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)";
+    $vars = @{ Game_CHARACTERS_DB = $db; Game_LOGIN_PORT = "$($PortBase + 1)"; Game_AUTH_CONTROL_PORT = "$($PortBase + 2)";
                Game_GATEWAY_PORT = "$($PortBase + 3)"; Game_DEV_PORT = "$($PortBase + 4)";
                Game_PATCH_URL = "http://127.0.0.1:$($PortBase + 5)"; Game_PATCH_TCP_PORT = "$($PortBase + 6)" }
     foreach ($k in $Env.Keys) { $vars[$k] = $Env[$k] }
@@ -76,7 +77,7 @@ for ($run = 1; $run -le $Runs; $run++) {
         foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
     }
 }
-Remove-Item $db, "$db-wal", "$db-shm" -ErrorAction SilentlyContinue
+Remove-Item $db, "$db-wal", "$db-shm", ($db -replace '.db$', "-auth.db*") -ErrorAction SilentlyContinue
 $rows | Format-Table -AutoSize | Out-String -Width 200
 foreach ($run in 1..$Runs) {
     $r = @($rows | Where-Object Run -eq $run)

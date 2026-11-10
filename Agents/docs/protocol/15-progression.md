@@ -31,7 +31,7 @@ yet confirmed on screen).
 - **A new level** (`ApplyLevel`): the level's stats (0x1b3) and skills (0x2bc Actor), full life and mana (0x1b1), the
   Passive Skill Tree with the new level (0x33, §2), and the account's level through Auth's `set_level` control op (the
   character list and the next tickets carry it). Experience stops at the start of level 100.
-- **Saved** in the character's save (`data/saves.db`, `Experience`): added to the character's total in memory and saved within 5 s, at once at a level-up ([saves](../saves.md)); the saved
+- **Saved** in the character's save (`data/characters.db`, `Experience`): added to the character's total in memory and saved within 5 s, at once at a level-up ([saves](../saves.md)); the saved
   experience decides the level, and a stale account level is corrected at login ([saves](../saves.md)).
 - **Concurrent events:** each receiving connection reconciles its level from current character experience.
   An old-area gain cannot suppress a live connection's pending level gain or explicit reset.

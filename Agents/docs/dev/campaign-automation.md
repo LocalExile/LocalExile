@@ -21,8 +21,8 @@ Pantheon module's `/state` field).
 From the repository root, on a copy of the saves, with this checkout's own ports and client session:
 
 ```powershell
-Copy-Item data\saves.db data\campaign-saves.db        # once, or any copied database
-$env:Game_SAVES_DB = "$PWD\data\campaign-saves.db"
+Copy-Item data\characters.db data\campaign-characters.db        # once, or any copied database
+$env:Game_CHARACTERS_DB = "$PWD\data\campaign-characters.db"
 .\scripts\dev\campaign.ps1 -PortBase 25000 -Nullifier  # new level-1 Witch, the whole order
 ```
 
@@ -57,9 +57,9 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
   for a quick start in a later act (sets flags by hand: not a real playthrough), `-PortBase`, `-Session`,
   `-Nullifier`. Runner flags pass through (`--stop-on-fail`, `--retries N`, `--spend-passives`, `--no-auto-rewards`,
   `--dry-run`, `--list`).
-- **Its own save database.** Without `Game_SAVES_DB` the script stops before anything starts: the run creates
+- **Its own save database.** Without `Game_CHARACTERS_DB` the script stops before anything starts: the run creates
   characters, puts items into the stash and (`--replace`) deletes characters, which must not happen in the user's
-  `data\saves.db` by accident; `-AllowDefaultSaves` plays there on purpose. Servers it reuses must have logged the same
+  `data\characters.db` by accident; `-AllowDefaultSaves` plays there on purpose. Servers it reuses must have logged the same
   database (the Gateway's `[gateway] saves: <path>` line in `logs\live-gateway.log`), and so must the servers it starts;
   otherwise it stops and prints the path the Gateway really uses.
 - **Afterwards:** the client and servers keep running, so the character can be played on; `live.ps1 -Stop` (this
@@ -72,7 +72,7 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
   repository `.venv` with `frida` (as for `client_control.py`).
 - The local account's password in `data/offline-login.txt` (untracked; a `Password: <x>` line). Without it the runner
   asks once. The password is never logged.
-- A copied save database: set `$env:Game_SAVES_DB` before starting (required unless `-AllowDefaultSaves`). The
+- A copied save database: set `$env:Game_CHARACTERS_DB` before starting (required unless `-AllowDefaultSaves`). The
   scripts never set or change it.
 - An account has 24 character slots; each fresh run creates one. Delete old campaign characters, or reuse a name with
   `-Name <name> --replace` (the old one goes to `deleted_characters` in the save database).

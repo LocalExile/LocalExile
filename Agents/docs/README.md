@@ -67,6 +67,7 @@ This research does not change the production simulator or certify native/officia
 | [dev/pr-checks.md](dev/pr-checks.md) | the docs scan, the files only the maintainer approves, how status and roadmap lists merge |
 | [dev/debugging.md](dev/debugging.md) | log timestamps and archives, error stack traces, the packet history and dumps, `Game_TRACE`, client crashes, `bugreport.ps1` |
 | [dev/performance.md](dev/performance.md) | measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
+| [dev/databases.md](dev/databases.md) | the SQLite databases (`auth`, `characters`, `client`, `world`) built from `sql/`: adding an update, the updater, `client-sql.ps1` and the generated files in `client.db`, the SQL checks and owners |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
 | [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `DropDataSeed`), load and edit rules |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |

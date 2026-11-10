@@ -11,19 +11,23 @@ public sealed class ItemWeightTests
         Directory.CreateDirectory(folder);
         try
         {
-            using var store = new GameDataStore(Path.Combine(folder, "drops.db"));
-            store.ReplaceItemWeights([
-                new("card", "Metadata/Items/DivinationCards/DivinationCardRainOfChaos", 1, true,
-                    "test", "estimated", "3.27.0", "2026-02-08", null),
-                new("card", "Metadata/Items/DivinationCards/DivinationCardTheDoctor", 1e-9, true,
-                    "test", "estimated", "3.27.0", "2026-02-08", null),
-                new("card", "Metadata/Items/DivinationCards/DivinationCardTheApothecary", 1e9, false,
-                    "test", "estimated", "3.27.0", "2026-02-08", "disabled"),
-                new("scarab", "Metadata/Items/Scarabs/ScarabAbyssNew1", 1, true,
-                    "test", "estimated", "3.28.0", "2026-03-23", null),
-                new("scarab", "Metadata/Items/Scarabs/ScarabBreach1", 1e9, false,
-                    "test", "estimated", "3.28.0", "2026-03-23", "disabled"),
-            ]);
+            // world.db's rows, with the card and scarab weights replaced as an update file would.
+            string path = Path.Combine(folder, "world.db");
+            using var store = new GameDataStore(path);
+            using (var db = SqlUpdater.Open(path))
+            using (var command = db.CreateCommand())
+            {
+                command.CommandText = """
+                    DELETE FROM drop_item_weights WHERE category IN ('card', 'scarab');
+                    INSERT INTO drop_item_weights (category, item_id, weight, enabled, source, confidence, patch, sampled_at, notes) VALUES
+                    ('card', 'Metadata/Items/DivinationCards/DivinationCardRainOfChaos', 1, 1, 'test', 'estimated', '3.27.0', '2026-02-08', NULL),
+                    ('card', 'Metadata/Items/DivinationCards/DivinationCardTheDoctor', 1e-9, 1, 'test', 'estimated', '3.27.0', '2026-02-08', NULL),
+                    ('card', 'Metadata/Items/DivinationCards/DivinationCardTheApothecary', 1e9, 0, 'test', 'estimated', '3.27.0', '2026-02-08', 'disabled'),
+                    ('scarab', 'Metadata/Items/Scarabs/ScarabAbyssNew1', 1, 1, 'test', 'estimated', '3.28.0', '2026-03-23', NULL),
+                    ('scarab', 'Metadata/Items/Scarabs/ScarabBreach1', 1e9, 0, 'test', 'estimated', '3.28.0', '2026-03-23', 'disabled');
+                    """;
+                command.ExecuteNonQuery();
+            }
             GameDataDrops.Reload(store);
 
             var drops = new ItemDrops(new ItemCatalog("data"));
@@ -39,7 +43,7 @@ public sealed class ItemWeightTests
         }
         finally
         {
-            GameDataDrops.Reset();
+            GameDataDrops.Reload(GameData.Store!);
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             try { Directory.Delete(folder, recursive: true); } catch (IOException) { }
         }
