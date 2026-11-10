@@ -74,15 +74,6 @@ static class Hierophant
         return stats;
     }
 
-    /// <summary>GameEvents.OutgoingDamage: Ritual of Awakening's more damage per Summoned Totem, on the hits of the
-    /// player and of his totems (whose stats are the player's).</summary>
-    public static DamagePacket OutgoingDamage(ClientState conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target,
-        DamagePacket rolled)
-    {
-        int per = Stats.Key(MorePerTotem) is uint key ? player.GetValueOrDefault(key) : 0;
-        if (per == 0 || !States.TryGetValue(conn, out var state) || state.Totems == 0) return rolled;
-        return rolled.Scale(Math.Max(0, 1 + (double)per * state.Totems / 100));
-    }
 
     /// <summary>The player tick: count the Summoned Totems and the unreserved-mana area (only with a stat that reads
     /// them), regenerate the totems' Life, and when a value changed rebuild the pools and send the stats.</summary>

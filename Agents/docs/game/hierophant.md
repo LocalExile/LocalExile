@@ -18,7 +18,7 @@ Phrecia class's and are not covered here. Every stat is applied through its sum,
 | Sanctuary of Thought | `hierophant_area_of_effect_+%_per_50_unreserved_mana_up_to_100%` 1 | `Hierophant.Tick`, `SkillArea` |
 | Pursuit of Faith (1105) | `number_of_additional_totems_allowed` 1, `totem_duration_+%` 100, `summon_totem_cast_speed_+%` 100 | `TotemLimit`, `CreateTotem`, `PlaceTotem` |
 | Ritual of Awakening (34434) | `you_and_totem_life_regeneration_rate_per_minute_%_per_active_totem` 60, `mana_regeneration_rate_per_minute_%_per_active_totem` 30 | `Hierophant.Tick`, `PlayerStats` |
-| Ritual of Awakening | `hierophant_passive_damage_+%_final_per_totem` 3 | `Hierophant.OutgoingDamage` |
+| Ritual of Awakening | `hierophant_passive_damage_+%_final_per_totem` 3 | `PlayerHitDamage.Resolve` |
 | Conviction of Power (25651) | `maximum_power_and_endurance_charges_+` 1, `base_minimum_endurance_charges` 4, `base_minimum_power_charges` 4 | `ChargePanelStats`, `Charges.LimitsOf` |
 | Illuminated Devotion (60462) | `area_of_effect_+%_while_you_have_arcane_surge` 30, `life_leech_from_spell_damage_permyriad_while_you_have_arcane_surge` 50 | `WithSupportGemBuffs` |
 | Illuminated Devotion | `non_damaging_ailment_effect_+%_on_self_while_you_have_arcane_surge` -50 | `WithSupportGemBuffs`, `PlayerElementalAilments` |
@@ -44,10 +44,10 @@ Phrecia class's and are not covered here. Every stat is applied through its sum,
 - Divine Guidance: `damage_+%` gets 30% of the summed `maximum_mana_+%`, truncated toward zero.
 - Sanctuary of Thought: unreserved mana is the pool's maximum minus the reservation (`UnreservedMana`), read by the
   250 ms tick, as the Summoned Totems count is; a change rebuilds the pools and sends the stats.
-- Ritual of Awakening: Summoned Totems are the living ones (`TotemState.Living`). The 3% more scales the rolled hit of
-  the three executors that run `GameEvents.OutgoingDamage`, the totems' own hits included.
+- Ritual of Awakening: Summoned Totems are the living ones (`TotemState.Living`). The count is sent to every player as
+  `number_of_active_totems` (Stats row 3460). The 3% more applies in the skill's hit damage (`PlayerHitDamage`), so the
+  skill stats and tooltip carry it and a totem's hits read it from its owner's stats; it does not reach ignite.
   Totems regenerate in the tick.
-  The count is sent to every player as `number_of_active_totems` (Stats row 3460) for the client's own calculators.
 - Chill and shock on the player add `non_damaging_ailment_effect_+%_on_self` to their own effect-on-self stat.
 
 ## Not applied
@@ -65,5 +65,5 @@ Live 2026-11-10 confirmed Arcane Blessing from the player's and a spell totem's 
 Guidance's mana and damage (no double count in the tooltip), Pursuit of Faith (2 totems, 8 s to 16 s, faster
 placement), Ritual of Awakening's regeneration per totem and Conviction of Power. Not observed, so only tested:
 
-- Ritual of Awakening's more damage: the tooltip did not move before `number_of_active_totems` was sent;
+- Ritual of Awakening's more damage: the tooltip did not move while it applied only per hit, after the skill stats;
 - the halved chill and shock while Arcane Surge runs, and the spell leech while it runs.

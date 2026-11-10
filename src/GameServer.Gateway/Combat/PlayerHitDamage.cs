@@ -80,6 +80,10 @@ public static class PlayerHitDamage
         // multiplier here. Both routes apply it once. Rage remains outside this resolver in the attack caller.
         if (skillTypes?.Contains(32) == true || skillTypes?.Contains(35) == true)
             result = result.Scale(Math.Max(0, 1 + get("skitterbots_trap_mine_damage_+%_final") / 100.0));
+        // Ritual of Awakening: "3% more Damage per Summoned Totem", the count the server sends (Hierophant). Here, not
+        // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
+        if (get("hierophant_passive_damage_+%_final_per_totem") is var perTotem and not 0)
+            result = result.Scale(Math.Max(0, 1 + (double)perTotem * get("number_of_active_totems") / 100));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 

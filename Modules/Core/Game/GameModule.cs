@@ -37,7 +37,6 @@ public sealed class GameModule : IModule
         module.OnPlayerLeaving((player, _) => global::Slayer.Leaving(Program.ConnOf(player)));
         module.OnTick((player, _) => global::Hierophant.Tick(Program.ConnOf(player)));
         module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::Hierophant.PlayerStats));
-        module.Lifetime.Own(GameEvents.OutgoingDamage.Add("Game", global::Hierophant.OutgoingDamage));
         module.OnPlayerLeaving((player, _) => global::Hierophant.Leaving(Program.ConnOf(player)));
         module.OnPlayerLeaving((player, _) => global::BrineKing.Leaving(Program.ConnOf(player)));
     }
