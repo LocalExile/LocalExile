@@ -276,7 +276,7 @@ static partial class Game
                 if (flicker) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
                 // Flicker Strike strikes from where it lands, at the monster it went to (or the point, when none was in range).
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
-                if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, sequence: use.Slot,
+                if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
                 // often does neither, live 2026-11-01): the resync settles which, once the action is over.
