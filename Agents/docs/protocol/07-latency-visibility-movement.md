@@ -243,10 +243,12 @@ blocked step started at 0. The stop's own tick is a step loop too: when it steps
 a piece of its path) the walk ends there as at a path's end, with the accumulator at zero and no step into the next
 piece (tick traces 2026-11-10: 19 of 19 such stops, where 31 of 31 that ended mid-piece kept it). The estimate kept the
 fraction there and stepped a frame early on the next walk, which a walker with a step time near the frame's length
-shows at once. A walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo
-then clears the deferred stop (`0x141e34400`) and rescales the step time still set (`0x141e4d180`). The estimate gives
-such a walk no kept time, and Shield Charge (`0x141a6bae0` → `0x141e9a3c0`, its first step from a stand not traced)
-none at all. Each step's
+shows at once. Each step of that tick is checked against bodies like any other, and a blocked one ends the walk where
+it stands with the accumulator at zero (4 of 4), so the estimate keeps them as steps of the walk for the step pass. A
+walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo then clears the deferred stop
+(`0x141e34400`) and rescales the step time still set (`0x141e4d180`), and the estimate does the same: the walker is
+still on its cell with its step in progress. Shield Charge (`0x141a6bae0` → `0x141e9a3c0`, its first step from a stand not traced)
+takes no kept time at all. Each step's
 body check (`0x141e47ca0`) reads the other objects' cells as they are at that moment, so an object that ticked earlier
 in the frame is seen where that frame's steps put it and a later one where the frame before left it. The forced
 position set of an action start (`0x141e8e7e0` → `0x141e31800`: in lockstep whenever the actor's cell is not the 0x1ab's

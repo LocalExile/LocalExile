@@ -461,12 +461,19 @@ public sealed class PlayerWalk
         // since its last step for the next walk (_kept).
         if (path.Count < 2 && Moving(now))
         {
+            if (FrameOf?.Invoke(now) is { } frame)
+            {
+                // On frames the steps still due in the tick stay steps of the walk, so the step pass checks each against
+                // the bodies as the client's tick does (a blocked one ends the walk where it stands, nothing kept), and
+                // the tick ends the walk at a waypoint it steps into (StopAfter).
+                StopAfter(frame.End, now);
+                _goalReached = reached;
+                return here;
+            }
             // Predictive uses a continuous clock: its frame boundary is unknown, but the same stop retains time.
-            double stopAt = FrameOf?.Invoke(now)?.End ?? now;
-            // On frames the tick ends the walk at a waypoint it steps into, with no time kept (WaypointIn).
-            double? waypoint = FrameOf is null ? null : WaypointIn(now, stopAt);
-            var stop = At(waypoint ?? stopAt, out _);
-            var kept = waypoint is null ? (Phase(stopAt).Into, stopAt) : default;
+            double stopAt = now;
+            var stop = At(stopAt, out _);
+            var kept = (Phase(stopAt).Into, stopAt);
             Teleport(stop.X, stop.Y, now);
             // At its goal only when it was in range where it stood, not when the search found no path (ReachedGoal).
             _goalReached = reached;

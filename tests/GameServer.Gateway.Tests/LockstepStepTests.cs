@@ -38,6 +38,25 @@ public class LockstepStepTests
         Assert.Equal((50, 56), b.Walk.Position(0.132));
         Assert.False(b.Walk.Moving(0.2));
 
+        // A stop waits for the tick, and the step that tick still owes is checked like any other. 0x3001 is ordered onto
+        // its own cell in the frame from 0.099: its step to (50, 55) at 0.100 is still due, and 0x3000's body, ticked
+        // first, blocks it, so it never leaves (50, 56).
+        var stopping = Connection(lockstep: true, sending: (0.099, 0.132));
+        (double Start, double End) sent = (0.099, 0.132);
+        a = Monster(50, 50, 1 / 0.105);
+        b = new SpawnedMonster("Drowned", new PlayerWalk(50, 56, 10, size: 2) { FrameOf = at => (Math.Min(at, sent.Start), sent.End) },
+            aggroRange: 60, stopRange: 2, maxLife: 23);
+        a.Walk.Order(50, 70, now: 0);
+        b.Walk.Order(50, 36, now: 0);
+        stopping.Monsters[0x3000] = a;
+        stopping.Monsters[0x3001] = b;
+        Assert.Equal((50, 56), b.Walk.Order(50, 56, now: 0.1));
+        stopping.LockstepFrame = sent = (0.132, 0.165);
+        lock (stopping.Monsters) Game.StepWalkers(stopping, now: 0.14);
+        Assert.Equal((50, 51), a.Walk.Position(0.132));
+        Assert.Equal((50, 56), b.Walk.Position(0.132));
+        Assert.False(b.Walk.Moving(0.132));
+
         // A predictive client's steps are replayed in time order: 0x3001's at 0.100 goes first and 0x3000's is blocked.
         var predictive = Connection(lockstep: false, sending: (0.132, 0.165));
         a = Monster(50, 50, 1 / 0.105);

@@ -74,8 +74,10 @@ public class LockstepTests : IDisposable
         start = .033;
         Assert.Equal((3, 0), walk.Position(.04));   // read during a frame, it is where the frame began
         Assert.Equal((3, 0), walk.Order(3, 0, .04));   // the stop reports where the client is now
-        Assert.Equal((6, 0), walk.Position(.04));   // and the walker stands where the frame's steps take it
-        Assert.False(walk.Moving(.1));
+        Assert.Equal((3, 0), walk.Position(.04));   // the frame's steps are still steps: the step pass checks each
+        start = .066;
+        Assert.Equal((6, 0), walk.Position(.066));   // and the walker stands where they took it
+        Assert.False(walk.Moving(.066));
 
         start = 0;
         walk = Walker();
@@ -187,13 +189,15 @@ public class LockstepTests : IDisposable
         Assert.Equal([(2, 1), (3, 1), (4, 1), (5, 1), (6, 1)], walk.Steps(.099, .132).Select(s => s.Cell));
         start = .165; Assert.Equal((8, 1), walk.Position(.165));
 
-        // A walk set up in the stop's own frame takes no kept time (that frame went to the old walk's steps), and Shield
-        // Charge none at all (its first step from a stand is not traced): each steps a whole step after it starts.
+        // A walk set up in the stop's own frame finds the walker still on its cell with the step in progress (the stop
+        // waits for the tick, and the new MoveTo clears it): it goes on from there with the step's fraction, 33 of
+        // 35.4 ms carried into a 25 ms step. Shield Charge takes no kept time at all (its first step from a stand is not
+        // traced): it steps a whole step after it starts.
         start = 0; walk = Walker(40);
         walk.Order(20, 20, 0);
-        start = .033; walk.Order(0, 0, .04);   // stands at (1, 1) after the frame, 30.6 ms into its step
-        walk.Order(1, 20, .05);
-        Assert.Equal(.058, walk.Steps(.033, .2)[0].At, 4);
+        start = .033; walk.Order(0, 0, .04);   // would stand at (1, 1) after the frame's step
+        Assert.Equal((0, 0), walk.Order(1, 20, .05));
+        Assert.Equal(.0347, walk.Steps(.033, .2)[0].At, 4);
         start = 0; walk = Walker(40);
         walk.Order(20, 20, 0);
         start = .033; walk.Order(0, 0, .04);
