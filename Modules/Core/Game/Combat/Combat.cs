@@ -1993,8 +1993,10 @@ static partial class Game
     // kill (S→C 0x2b0, as GGG sends it). A lockstep client's copy is exact: its monster walks until the death message's
     // frame and its body lasts the death clip's ticks from there (ClientState.Corpse), so the body is kept at the kill,
     // its clock starts where the death is written (CorpseDeathsWritten), and the 0x2b0 follows in the frame after the
-    // client's own clear, where it changes nothing (GGG's comes 4 or 5 frames after a 150 ms death, 0 after one
-    // without the event, 54 or 55 after Hillock's 1833 ms).
+    // client's own clear, where it changes nothing.
+    // Differs from GGG: its 0x2b0 comes 4 or 5 frames after a 150 ms death, 0 after one without the event and 54 or 55
+    // after Hillock's 1833 ms, by its own world's count of the clip; ours counts as the client does and sends it a frame
+    // after that (5, 0 and 56 frames).
     internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         int ticks = CorpseBodyTicks(m.Variety is { } variety ? Monsters.CorpseUnblockMs(variety.Id) : 150);

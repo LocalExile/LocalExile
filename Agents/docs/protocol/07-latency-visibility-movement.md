@@ -944,6 +944,8 @@ another player's attack on a monster; the copy stands until that player's next o
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours stands out there too now (its walk ends at the 0x1aa, no order until it is back); 0x128 is skipped here, so the return places it with LockstepPlace |
 | No resync with a stun, a freeze, a movement skill or the client's request | Its 0x128, which the client skips | Ours for a predictive client is one 0x1b7 per monster (0x128 would move the player too), and a 0x1b7 zeroes a walker's step accumulator (`0x141e31800`): after one, 8–12 % of the next 3 s of monster orders were off the client's cell, against 0.2 % otherwise |
 | No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client does nothing with a 0x1ac; the swing starts by its own goal test |
+| A corpse's 0x2b0 goes out the frame after the client's own clear (5 frames after a 150 ms death, 0 after one without the event, 56 after Hillock's) | 4 or 5 frames after a 150 ms death, 0 without the event, 54 or 55 after Hillock's (its world's own count of the clip) | The client clears the body itself from the death clip; sent after that, the message changes nothing, so the estimate needs only the client's count |
+| A step due exactly on a frame's end can fall a frame apart (about 1 walker-frame in 40 000, for one frame) | Never: one simulation | The client counts a walker's step time in a float accumulator; the estimate keeps times as doubles |
 | A monster that gives up a pursuit gets no order: it goes on with its last one as the client's does, a chase's walk-up after the player | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here |
 | A frozen monster gets no stop: its walk goes on, the estimate's too, a chase's walk-up with its goal test | Not traced | The client does not stop the player for `is_frozen` (§5) and takes no Move onto the walker's own cell; the player's freeze plays a recovery of its length (`ShowFreeze`), a monster's does not |
 | An object use reports the player's cell as its target | The object's cell | The client takes the object's position anyway, and not every kind of object has a cell here |
@@ -954,7 +956,11 @@ another player's attack on a monster; the copy stands until that player's next o
 | The server simulates a mortar's flight, and the player's wand bolt or arrow, and lands its hit where that lands; the client draws each from its own action | One simulation, the client's | The server is a port: the client's spread (`projectile_spread_radius`) is seeded by the order's sequence and owner (`0x141bb13a0`) |
 
 Still to do: monsters' order keys, a trace of a frozen monster, and a walk set up in a stop's own frame and Shield
-Charge's first step from a stand (§5). A movement skill's landing comes from the server's
+Charge's first step from a stand (§5). Also open, none a frame rule: a monster type with `Pathfinding { immobile = true }`
+(252 types, a unique Maven's orb among them) is never walked by the client, but the generic AI still sends it Moves, so
+it hops to each order's cell; the King in the Mists moves during its own skills on the client, which its script here
+does not follow; and in two places the client cannot stand where the generated walk grid lets the server walk (The
+Coast seed 51 near (332, 1192), the Maven's arena at (126, 222)). A movement skill's landing comes from the server's
 own estimate; the client's snap at the next action settles any difference, and its 0x128 does nothing here.
 
 ## 7. More client messages seen

@@ -66,6 +66,10 @@ public sealed class PlayerWalk
 
     /// <summary>The frame a time's messages take effect in on this client, if it runs on frames: a lockstep client applies
     /// them at the frame's start, and its walkers only move on frames.</summary>
+    /// <remarks>Differs from GGG: the client counts a walker's step time in a float accumulator (33 ms as a float added
+    /// each tick, 0x141e32710), and its server is that same simulation. The times here are doubles on the frames' grid, so
+    /// a step due exactly on a frame's end can fall a frame apart from the client's (about 1 walker-frame in 40 000 in
+    /// the traced fights of 2026-11-10, each for one frame).</remarks>
     public Func<double, (double Start, double End)?>? FrameOf { get; init; }
 
     private double Frame(double now) => FrameOf?.Invoke(now)?.Start ?? now;
