@@ -110,6 +110,30 @@ public class LockstepTests : IDisposable
             Assert.Equal(lockstep ? stood : free.Walk.Position(.495), hit.Walk.Position(.495));
         }
 
+        // A stop whose tick steps the walker into a waypoint ends the walk there, as at a path's end: it does not go on into
+        // the next piece, and nothing of the step time is kept, so the next walk from the stand steps a whole step after
+        // it starts. Round a corner at 40 cells a second, cancelled in the frame of the step into the corner.
+        foreach (bool order in new[] { false, true })
+        {
+            start = 0;
+            walk = new PlayerWalk(0, 0, 40, walkable: (x, y) => y == 0 || x == 8) { FrameOf = at => (Math.Min(at, start), start + .033) };
+            walk.Order(8, 9, 0);
+            var corner = walk.Steps(0, 1).First(s => walk.EndsPiece(s.At));
+            Assert.True(walk.Steps(corner.At, 1).Count > 0);   // the path goes on past it
+            start = Math.Floor(corner.At / .033) * .033;
+            if (start == corner.At) start -= .033;
+            double tick = start;
+            // A cancelled action's stop, and a Move onto the walker's own cell: the same stop.
+            if (order) { var own = walk.Position(tick); walk.Order(own.X, own.Y, tick + .001); }
+            else walk.Cancel(tick + .001);
+            start = tick + .099;
+            Assert.Equal(corner.Cell, walk.Position(start));
+            Assert.False(walk.Moving(start));
+            walk.Order(0, 0, start);
+            float step = (float)(walk.Steps(start, start + 1)[1].At - walk.Steps(start, start + 1)[0].At);
+            Assert.Equal(start + step, walk.Steps(start, start + 1)[0].At, 5);
+        }
+
         // A stop keeps the time since the last step, and the next walk from the stand starts with it (40 cells a second:
         // 25 ms a step; the client's accumulator 16 ms, + 33 ms is one step, + 33 ms two more).
         start = 0; walk = Walker(40);

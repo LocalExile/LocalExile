@@ -465,7 +465,7 @@ static partial class Game
             bool walking = walk.ArrivesAt > end;
             if (InGoal(walk.Position(end)))
             {
-                walk.StopAfter(walking ? end + length : walk.ArrivesAt);
+                walk.StopAfter(walking ? end + length : walk.ArrivesAt, end);
                 return (WalkUpResult.Swings, timerFrom);
             }
             if (walking)
@@ -484,7 +484,7 @@ static partial class Game
                 // frame being sent).
                 bool met = walk.ReachedGoal;
                 walk.Restore(before);
-                walk.StopAfter(end + length);
+                walk.StopAfter(end + length, end);
                 return (met ? WalkUpResult.Swings : WalkUpResult.Fails, end);
             }
             walk.Approach(target.X, target.Y, up.Reach, Math.Max(walk.ArrivesAt, start), up.Tolerance, walk.Precision);

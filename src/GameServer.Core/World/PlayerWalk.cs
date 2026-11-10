@@ -146,9 +146,13 @@ public sealed class PlayerWalk
     /// spent and the walker stands there at once: <paramref name="until"/> is that step's time. The steps up to then stay,
     /// so a position asked for an earlier time is still the walked cell, and the time since the last step stays for the
     /// next walk as after any stop that waits for a tick (the stop clears only the step time, 0x141e32710); none when the
-    /// walk's own steps ended by then (the step loop ended it).</summary>
-    public void StopAfter(double until)
+    /// walk's own steps ended by then (the step loop ended it). A stop that waits for the tick from
+    /// <paramref name="from"/> ends at the first waypoint that tick steps into, as at a path's end: the walker stands
+    /// there, does not go on into the next piece, and keeps nothing of the step time (<see cref="WaypointIn"/>).</summary>
+    public void StopAfter(double until, double? from = null)
     {
+        bool atWaypoint = false;
+        if (from is { } tick && WaypointIn(tick, until) is { } waypoint) (until, atWaypoint) = (waypoint, true);
         var kept = new List<Segment>();
         double last = _segments.Count > 0 ? _segments[0].T0 : until;
         bool beyond = false;
@@ -170,10 +174,25 @@ public sealed class PlayerWalk
         _rest = kept.Count > 0 ? kept[^1].Cells[^1] : _segments.Count > 0 ? _segments[0].From : _rest;
         _restSince = until;
         _segments = kept;
-        _kept = beyond ? (Math.Max(0, until - last), until) : default;
+        _kept = beyond && !atWaypoint ? (Math.Max(0, until - last), until) : default;
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
+    }
+
+    // When the tick from `from` to `until` steps the walker into a waypoint (the end of a piece of its path), if it does.
+    // A stop pending in that tick ends the walk there: the client's step loop finds the piece done and no next one set
+    // up, as at a path's end, and leaves the accumulator at zero (tick traces 2026-11-10: 19 of 19 such stops, where 31
+    // of 31 that ended mid-piece kept the time since their last step).
+    private double? WaypointIn(double from, double until)
+    {
+        foreach (var s in _segments)
+        {
+            if (s.Cells.Length == 0 || s.End <= from) continue;
+            if (s.End > until) break;
+            if (!s.Joined) return s.End;
+        }
+        return null;
     }
 
     /// <summary>Ends the walk for an action that cancels it at <paramref name="now"/> (a hit's recovery, 0x141e95e60): the
@@ -182,7 +201,7 @@ public sealed class PlayerWalk
     /// (<see cref="StopAfter"/>); without frames it stands where it is. Returns where it stands.</summary>
     public (int X, int Y) Cancel(double now)
     {
-        if (FrameOf?.Invoke(now) is { } frame) StopAfter(frame.End);
+        if (FrameOf?.Invoke(now) is { } frame) StopAfter(frame.End, frame.Start);
         else
         {
             var here = At(now, out _);
@@ -444,8 +463,10 @@ public sealed class PlayerWalk
         {
             // Predictive uses a continuous clock: its frame boundary is unknown, but the same stop retains time.
             double stopAt = FrameOf?.Invoke(now)?.End ?? now;
-            var stop = At(stopAt, out _);
-            var kept = (Phase(stopAt).Into, stopAt);
+            // On frames the tick ends the walk at a waypoint it steps into, with no time kept (WaypointIn).
+            double? waypoint = FrameOf is null ? null : WaypointIn(now, stopAt);
+            var stop = At(waypoint ?? stopAt, out _);
+            var kept = waypoint is null ? (Phase(stopAt).Into, stopAt) : default;
             Teleport(stop.X, stop.Y, now);
             // At its goal only when it was in range where it stood, not when the search found no path (ReachedGoal).
             _goalReached = reached;

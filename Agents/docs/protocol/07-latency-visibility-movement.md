@@ -239,7 +239,11 @@ segments (a segment's setup, `0x141e4d180`, rescales it by new/old only when the
 1 627 mid-walk re-orders rescaled, all 3 231 segment transitions carried) and is zeroed when the step loop ends the
 walk (its path's end, a blocked step), not by a stop: in per-frame traces of six fights (2026-11-04), 28 of 28 player
 walks from a stand an action's stop left mid-step started with it unscaled, and 43 of 43 after a path's end or a
-blocked step started at 0. A walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo
+blocked step started at 0. The stop's own tick is a step loop too: when it steps the walker into a waypoint (the end of
+a piece of its path) the walk ends there as at a path's end, with the accumulator at zero and no step into the next
+piece (tick traces 2026-11-10: 19 of 19 such stops, where 31 of 31 that ended mid-piece kept it). The estimate kept the
+fraction there and stepped a frame early on the next walk, which a walker with a step time near the frame's length
+shows at once. A walk set up in the stop's own frame is not traced: by the decompile the client's MoveTo
 then clears the deferred stop (`0x141e34400`) and rescales the step time still set (`0x141e4d180`). The estimate gives
 such a walk no kept time, and Shield Charge (`0x141a6bae0` → `0x141e9a3c0`, its first step from a stand not traced)
 none at all. Each step's
