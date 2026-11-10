@@ -81,6 +81,9 @@ sealed class ItemCatalog
     {
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+        /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's
+        /// walk to it takes as the target's size (a Scroll of Wisdom 1, a Rustic Sash 2, a Plate Vest 3).</summary>
+        public byte GroundSize { get; init; } = 1;
 
         /// <summary>A quest item's Quest component (its .it, item-types.json "quest"), or null for other items.</summary>
         public QuestItemFlags? Quest { get; init; }
@@ -719,6 +722,8 @@ sealed class ItemCatalog
                     Tags = new HashSet<string>([.. itemTags.GetValueOrDefault(id) ?? [],
                         .. r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.GetProperty("ModDomain").GetInt32(),
+                    GroundSize = r.TryGetProperty("SizeOnGround", out var ground) && ground.ValueKind == JsonValueKind.Number
+                        ? (byte)ground.GetInt32() : (byte)1,
                     Quest = questFlags.GetValueOrDefault(id),
                     ClassRow = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cr ? cr.GetInt32() : -1,
                     Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||

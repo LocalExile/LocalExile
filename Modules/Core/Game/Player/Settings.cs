@@ -41,10 +41,15 @@ static partial class Game
     // fixed height, 0x7fffffff = none, follow the terrain. 0 pinned a moving projectile under the ground (live 2026-10-18).
     internal const uint TerrainHeight = 0x7fffffff;
     // How close (cells, centre to centre) the player must be to pick an item up from the ground: WorldItem.ot's
-    // InteractionAction interaction_distance_override = 20 grid cells. The client's MoveTo has max range 20 and tolerance 1
-    // (traced live 2026-11-01, Frida), so the walk ends on the first cell within 21.
+    // InteractionAction interaction_distance_override = 20 grid cells. The client's MoveTo has max range 20 and the
+    // item's size on the ground as its tolerance (BaseItemTypes SizeOnGround, 1 to 3: PickupToleranceOf), so the walk
+    // ends on the first cell within 21, 22 or 23. Traced live 2026-11-10 with the path search hooked, eight base types:
+    // a Scroll of Wisdom, an Iron Ring, a Driftwood Wand and Iron Greaves 1, a Rustic Sash and a Long Bow 2, a Plate
+    // Vest and a Gnarled Branch 3, each the row's value; the inventory size is not it. The 2026-11-01 trace that gave
+    // "tolerance 1" used a size 1 item.
     internal const double PickupReach = 20;
-    internal const int PickupTolerance = 1;
+
+    internal static int PickupToleranceOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.GroundSize ?? 1;
     // How close (cells, centre to centre) gold on the ground is picked up by itself (RunPlayerTick): our own number, a
     // little inside a click's PickupReach.
     // A monster's second skill, after its attack (SkillCatalog.FirstSkillId): a boss's stage skill (BossFights). 0x0103

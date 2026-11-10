@@ -657,10 +657,10 @@ Divine/Mirror and `AlertSound_03.ogg` for the Medicine Chest, without server-sel
 
 Clicking it sends C→S 0x24 on the object (skill 0x0266, Interaction). **Flag 0x0002 = the inventory panel is open**
 (0x040a vs 0x0408): the item goes to the cursor instead of the first free cell. The Gateway echoes the interaction at
-once (0x1ab aimed at the object, from the player's current cell) and picks the item up when its walk estimate is within
-**22 cells**: WorldItem.ot `InteractionAction interaction_distance_override = 20` is in grid cells, plus both radii
-(object_size 2). Measured with Frida (Positioned grid position at `+0x294/+0x298`): the client stopped 20.9 cells from
-the item, on the first step inside the range.
+once (0x1ab aimed at the object, from the player's current cell) and picks the item up when its walk estimate is in
+reach: WorldItem.ot `InteractionAction interaction_distance_override = 20` is in grid cells, and the client's walk adds
+the item's size on the ground (BaseItemTypes `SizeOnGround`, 1 to 3) as its tolerance, so it stops on the first cell
+within 21, 22 or 23 ([07](07-latency-visibility-movement.md) Pickups).
 
 Dying monsters drop items as WorldItems around the corpse (`DropLoot`, [15](15-progression.md) §3).
 

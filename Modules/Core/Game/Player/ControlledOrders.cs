@@ -131,7 +131,7 @@ static partial class Game
             var ground = conn.Instance.Ground.Get(intent.Target);
             if (ground is null || !conn.SeenGround.Contains(intent.Target)
                 || Dist((ground.GridX, ground.GridY), leader.Walk.Position(now)) > ControlledFollowerLeash
-                || !conn.Walk.InReachOf(here, (ground.GridX, ground.GridY), (int)PickupReach, PickupTolerance))
+                || !conn.Walk.InReachOf(here, (ground.GridX, ground.GridY), (int)PickupReach, PickupToleranceOf(conn, ground.Item)))
             {
                 FinishControlledIntent(conn, intent, "rejected", "Loot is unseen, gone or outside nearby pickup reach.", now);
                 return true;

@@ -405,8 +405,9 @@ Step, Ambush), and channelled ones, which report their own way: none of these mo
 **Ranged monsters** keep Move orders and `skill_is_non_pathing`: on the attack-aimed chase the client walks a Sand Spitter
 well inside its reach of 30, so its stand-off needs the server's slots.
 
-**Pickups.** The client's walk to a ground item has max range 20 and tolerance 1 (traced live with real clicks), so it
-ends on the first cell within 21 of the item.
+**Pickups.** The client's walk to a ground item has max range 20 and the item's size on the ground as its tolerance
+(BaseItemTypes `SizeOnGround`, 1 to 3), so it ends on the first cell within 21, 22 or 23 of the item (path search
+hooked, eight base types, 2026-11-10: each got its row's value; the inventory size is not it).
 
 **Blockers.** Totems and the tutorial chest block paths as the client's other objects do.
 
@@ -679,7 +680,7 @@ An object use (a pickup, a chest, a quest object) likewise gets its one
 0x1ab from the frame pass, and its handler sends none of its own (`UseSkillOnObject.Started`): the handler's second
 start put the client back on its from cell and had it path again, two cells and a frame lost on every pickup (live
 2026-11-03; the client's pickup walk, max
-range 20 and tolerance 1, otherwise ends on the Gateway's stop cell, 21 cells from the item, 0.07 s after the Gateway's
+range 20 and its tolerance, otherwise ends on the Gateway's stop cell, 21 cells from a size 1 item, 0.07 s after the Gateway's
 pickup). Before 2026-11-03 it answered only at its own swing, with the walk-up's end as the position: the client
 played its last Move meanwhile and was then put on that cell, up to 35 cells away (live, a bow at 33 cells), and the held
 skill's repeats came at the attack time from the request, each cancelling the walk-up before it. Live after: 18 bow

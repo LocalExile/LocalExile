@@ -186,6 +186,17 @@ public class LockstepTests : IDisposable
         start = .099; walk.Order(100, 0, .099);
         start = .165; Assert.Equal((5, 0), walk.Position(.165));
 
+        // A walk to a ground item ends on the first cell within its range of 20 and the item's size on the ground, the
+        // search's tolerance (BaseItemTypes SizeOnGround): 21 cells from a Scroll of Wisdom, 22 from a Rustic Sash, 23
+        // from a Plate Vest.
+        var itemTypes = new ItemCatalog();
+        foreach (var (name, size) in new[] { ("Scroll of Wisdom", 1), ("Rustic Sash", 2), ("Plate Vest", 3) })
+        {
+            Assert.Equal(size, itemTypes.Find(name)!.GroundSize);
+            start = 0; walk = Walker(40);
+            Assert.Equal((38 - 20 - size, 0), walk.Approach(38, 0, 20, 0, size).Stop);
+        }
+
         // Kept time longer than the new step (30.6 ms into a 35.4 ms diagonal step, then 25 ms straight ones): the step
         // already due comes in the order's frame, not before it; the client steps 2, 1 and 2 cells in the next frames.
         start = 0; walk = Walker(40);
