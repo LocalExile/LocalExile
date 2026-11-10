@@ -12,7 +12,12 @@ using GameServer.Modding;
 public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadContext> dependencies)
     : AssemblyLoadContext($"mod {id}", isCollectible: true)
 {
-    static readonly string CopyRoot = Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
+    /// <summary>Where the private copy of every loaded assembly is written: the machine's temp by default, or
+    /// <c>Game_MODULE_COPY_ROOT</c> when it is set. The override exists because a process whose file access is confined
+    /// to its own folder cannot write the machine's temp, and then nothing loads (Agents/docs/dev/modules.md).</summary>
+    static readonly string CopyRoot = Environment.GetEnvironmentVariable("Game_MODULE_COPY_ROOT") is { Length: > 0 } configured
+        ? Path.GetFullPath(configured)
+        : Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
     /// <summary>Only Windows refuses to delete a loaded assembly. Elsewhere this file, locked for as long as a copy is in
     /// use, is what keeps <see cref="DeleteOldCopies"/> from it; the system releases it however the process ends.</summary>
     const string InUseFile = "in-use";
