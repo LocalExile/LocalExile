@@ -62,6 +62,7 @@ public static partial class Game
             if (!Current()) return;
             await tick(remote, stream, ciphers, conn, now);
         }
+        lock (conn.Monsters) MinionUtilityTick(conn, now);
         await GolemsTick(remote, stream, ciphers, conn, now);
         await SummonsTick(remote, stream, ciphers, conn, now);
         await ReservationSkillsTick(remote, stream, ciphers, conn, now);

@@ -9,8 +9,12 @@ public static partial class Game
         var sources = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
         if (SkillsFor(conn).CooldownMs(effect, level) <= 0 || sources.Length != 1) return null;
         var supported = SupportedSkill(conn, sources[0].Id);
+        var player = CharacterPlayerStats(conn);
+        if (SkillsFor(conn).EffectId(effect) is "Convocation" or "ConvocationOld"
+            && Stats.Key("base_cooldown_speed_+%") is uint recovery)
+            supported.Stats[recovery] = supported.Stats.GetValueOrDefault(recovery) + GolemStat(player, "convocation_cooldown_speed_+%");
         return WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, supported.Level,
-            CharacterPlayerStats(conn), supported.Stats));
+            player, supported.Stats));
     }
 
     public static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
