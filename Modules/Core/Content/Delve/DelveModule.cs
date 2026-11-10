@@ -89,7 +89,7 @@ public sealed partial class DelveModule : IModule
         });
         GameEvents.AreaHeader.Add(module.Manifest.Id, conn => PlayerOf(conn).AreaId switch
         {
-            "Delve_Main" => new AreaHeader(DelveTerrain.Data(PlayerOf(conn).Seed), [2]) { Level = MineLevel(module, PlayerOf(conn)) },
+            "Delve_Main" => MineHeader(module, PlayerOf(conn)),
             HubId => new AreaHeader(null, [2]),
             _ => null,
         });

@@ -793,6 +793,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
     int? Height = null)
 {
     public string? AnimatedObject { get; init; }
+    public StateMachineData? StateMachine { get; init; }
     /// <summary>Animated in the object's component order (Positioned, Animated, BaseEvents).</summary>
     public const byte AnimatedComponentIndex = 1;
 
@@ -807,6 +808,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
         if (Height is int h) w.I32(-h).F32(h * 7.8125f);           // h = z / 7.8125 (z points down): i32 -h, f32 z
         if (AnimatedObject is null) w.U8(0x40);                    // Animated: Projectiles.dat AOFiles
         else w.U8(1).WStr32(AnimatedObject);                        // Explicit art, the same Animated reader as effects.
+        StateMachine?.Write(w);                                    // Derived projectile types may append this component.
         w.U8(0);                                                   // tasks
         return w.ToArray();
     }
