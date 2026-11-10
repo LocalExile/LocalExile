@@ -754,6 +754,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Kinetic Bolt (ZigZagProjectile) creates ZigZagWandProjectile (3.29.3c RE); its transfigured/internal variants share
     // the same ActionType and primary projectile row.
     // Essence Drain keeps its old name's row, Siphon (Metadata/Effects/Spells/siphon), as do its transfigured versions.
+    // Splitting Steel's is ImpactingSteelProjectile: the skill's own row name is gone from 3.29 Projectiles.dat, whose only
+    // steel-family rows are this one, ImpactingSteelProjectileSecondary (its split shards), ShatteringSteelProjectile
+    // (Shattering Steel, still a separate effect and gem) and the Lancing Steel ones. The skill's own art still carries the
+    // name: ActiveSkills splitting_steel (+ its two transfigured variants) draws ImpactingSteelSkill.dds, and the gem's
+    // ItemVisualIdentity SkillGemSplittingSteel is Art/2DItems/Gems/ImpactingSteelGem.dds (the archive has no
+    // SplittingSteel art at all). Without it every use was refused (live 2026-11-09).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
