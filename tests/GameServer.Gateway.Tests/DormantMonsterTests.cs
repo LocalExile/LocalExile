@@ -191,6 +191,31 @@ public class DormantMonsterTests
             Assert.Null(conn.MonsterBody(0x3050, dying, 1.165));
             conn.ReleaseCorpseBody(0x3050, dying);
             conn.Monsters.Remove(0x3050);
+
+            // The death message can be written before the kill has kept the corpse, and twice (the periodic view of
+            // the monsters writes it too, a frame before or after the hit's own). The client's monster dies with the
+            // first one, so the corpse begins there: the second message and the kill's own keeping start nothing
+            // again, and a kill that comes after the body is gone keeps none.
+            var early = new SpawnedMonster("early", new PlayerWalk(120, 100, 8), 60, 2, 23) { Life = 0 };
+            conn.Monsters[0x3051] = early;
+            var written = conn.WorldOutput.PublishedObject(0x3051);
+            OutputBatch Life(uint life) => new(OutputRecord.World(written, WorldOrder.First, GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(0x3051, life)));
+            conn.LockstepFrame = (2.0, 2.033);
+            Game.CorpseDeathsWritten(conn, Life(0));
+            Assert.True(conn.CorpseWalks(0x3051, early));
+            Assert.False(conn.CorpseAwaitsDeath);
+            conn.LockstepFrame = (2.033, 2.066);
+            Game.CorpseDeathsWritten(conn, Life(0));
+            Assert.True(conn.RetainCorpseBody(0x3051, early, 5));
+            Assert.False(conn.CorpseAwaitsDeath);
+            Assert.False(conn.CorpseClears(0x3051, 2.099));
+            Assert.True(conn.CorpseClears(0x3051, 2.132));   // the fifth tick from 2.0, not from 2.033
+            conn.ReleaseCorpseBody(0x3051, early);
+            Assert.False(conn.RetainCorpseBody(0x3051, early, 5));
+            Game.CorpseDeathsWritten(conn, Life(5));         // alive again: its next death is a first one
+            Assert.True(conn.RetainCorpseBody(0x3051, early, 5));
+            conn.ReleaseCorpseBody(0x3051, early);
+            conn.Monsters.Remove(0x3051);
             conn.LockstepFrame = (0, .033);
 
             // A nonblocking mover must still take collision-checked movement turns. Without StepWalkers admitting

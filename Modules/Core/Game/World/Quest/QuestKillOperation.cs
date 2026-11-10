@@ -101,7 +101,7 @@ static partial class Game
             atGate = admission =>
             {
                 var batch = project(admission);
-                if (batch is not null && conn.CorpseAwaitsDeath) CorpseDeathsWritten(conn, batch);
+                if (batch is not null) CorpseDeathsWritten(conn, batch);
                 return batch;
             };
         }

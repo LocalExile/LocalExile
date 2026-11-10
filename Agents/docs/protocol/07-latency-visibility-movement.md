@@ -754,7 +754,11 @@ death message by 4 or 5 frames for a 150 ms clip, by 0 for a clip without the ev
 The Gateway keeps the corpse as the client has it (`ClientState.Corpse`): from the kill the monster keeps its walker
 and its body, the frame its death message is written in ends the walk and starts the clip's count
 (`CorpseDeathsWritten`, in the send gate of whatever writes the 0x1b1), the body leaves in the monster's turn of the
-clip's last tick, and the 0x2b0 goes out one frame later, where the client has cleared it already. Before, the body
+clip's last tick, and the 0x2b0 goes out one frame later, where the client has cleared it already. A monster's death
+is written twice, by the hit and by the periodic view of the monsters, in either order and up to a frame apart, and
+either can leave before the kill's own bookkeeping runs: the client's monster dies with the first, so the corpse is
+kept and its count started there, whoever wrote it (live 2026-11-10: counted from the second, the corpse blocked a
+frame longer than the client's and a monster standing against it took another way round). Before, the body
 stood on the cell of the kill's commit (a projectile's is a frame before its messages) and left at the 0x2b0's send
 gate, 165 ms of wall time later: the corpse was a cell behind the client's when the monster died walking, and a Move
 planned in the 0x2b0's own frame still went round it (two of eight wand fights, 2026-11-10). Not traced: an event

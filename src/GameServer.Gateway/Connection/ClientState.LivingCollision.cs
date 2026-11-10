@@ -20,18 +20,38 @@ sealed partial class ClientState
 
     readonly Dictionary<uint, Corpse> corpses = [];
     int corpsesAwaitingDeath;
+    // The monsters whose death message this lockstep client has been written, by id (DeathWritten).
+    readonly Dictionary<uint, SpawnedMonster> deathsWritten = [];
 
     /// <summary>Whether a kill is committed whose death message is not written yet (read without the lock).</summary>
     public bool CorpseAwaitsDeath => Volatile.Read(ref corpsesAwaitingDeath) > 0;
 
     // A dead actor remains in the native pathfinder until its death clip clears its body there. It keeps its walker
-    // meanwhile (CorpseWalks): the body is where the client's monster stands. Under Monsters.
-    public void RetainCorpseBody(uint id, SpawnedMonster monster, int ticks)
+    // meanwhile (CorpseWalks): the body is where the client's monster stands. Whether a corpse is kept for the monster
+    // after the call: one kept already stays as it is, and none is made for a monster without a body or for one whose
+    // death was written before (its body has come and gone). Under Monsters.
+    public bool RetainCorpseBody(uint id, SpawnedMonster monster, int ticks)
     {
-        if (!LockstepClient || LivingCollision.Size(monster) < 0 || monster.Variety?.PositionedBlocking == false) return;
+        if (!LockstepClient || LivingCollision.Size(monster) < 0 || monster.Variety?.PositionedBlocking == false) return false;
+        if (CorpseWalks(id, monster)) return true;
+        if (DeathWritten(id, monster)) return false;
         ReleaseCorpseBody(id);
         corpses[id] = new(monster, ticks);
         corpsesAwaitingDeath++;
+        return true;
+    }
+
+    /// <summary>Whether a death message of this monster has been written to this client. The client's monster dies with
+    /// the first one, whichever producer writes it (the hit, or the periodic view of the monsters, which can come a
+    /// frame before or after it); a later one changes nothing there. Under Monsters.</summary>
+    public bool DeathWritten(uint id, SpawnedMonster monster) =>
+        deathsWritten.TryGetValue(id, out var written) && ReferenceEquals(written, monster);
+
+    /// <summary>A life message of the monster is being written: its death (0), or life again after one. Under Monsters.</summary>
+    public void NoteLifeWritten(uint id, SpawnedMonster monster, uint life)
+    {
+        if (life == 0) deathsWritten[id] = monster;
+        else deathsWritten.Remove(id);
     }
 
     public void ReleaseCorpseBody(uint id, SpawnedMonster monster)

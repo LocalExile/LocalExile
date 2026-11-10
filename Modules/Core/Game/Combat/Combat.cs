@@ -1991,26 +1991,31 @@ static partial class Game
 
     // The client keeps routing around a corpse until its body is cleared. A predictive client is told 165 ms after the
     // kill (S→C 0x2b0, as GGG sends it). A lockstep client's copy is exact: its monster walks until the death message's
-    // frame and its body lasts the death clip's ticks from there (ClientState.Corpse), so the body is kept at the kill,
-    // its clock starts where the death is written (CorpseDeathsWritten), and the 0x2b0 follows in the frame after the
-    // client's own clear, where it changes nothing.
+    // frame and its body lasts the death clip's ticks from there (ClientState.Corpse), so the body is kept at the kill
+    // or at the death message, whichever comes first (KeepCorpseLocked), its clock starts where the death is written
+    // (CorpseDeathsWritten), and the 0x2b0 follows in the frame after the client's own clear, where it changes nothing.
     // Differs from GGG: its 0x2b0 comes 4 or 5 frames after a 150 ms death, 0 after one without the event and 54 or 55
     // after Hillock's 1833 ms, by its own world's count of the clip; ours counts as the client does and sends it a frame
     // after that (5, 0 and 56 frames).
     internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
+        bool kept;
+        lock (conn.Monsters) kept = KeepCorpseLocked(remote, stream, ciphers, conn, id, m);
+        if (!kept) SendAfter(CorpseBlockDelaySeconds, () => CorpseCleared(remote, stream, ciphers, conn, id, m));
+    }
+
+    // Keeps the killed monster's body on a lockstep client and starts what ends it: the wait for its death message's
+    // frame and, a death clip later, the 0x2b0. Called by the kill and by the death message's own write, in whichever
+    // order they come: the periodic view of the monsters can write the death a frame before the hit's own message, and
+    // either can go out before the kill's bookkeeping gets here (live 2026-11-10: a corpse whose clock started with the
+    // second message blocked a frame longer than the client's, and a monster standing against it took another way
+    // round; two whose messages both went out first blocked for the guard's whole second). False when there is no body
+    // to keep, or its death was written and its body is gone again. Under conn.Monsters.
+    static bool KeepCorpseLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    {
+        if (conn.CorpseWalks(id, m)) return true;
         int ticks = CorpseBodyTicks(m.Variety is { } variety ? Monsters.CorpseUnblockMs(variety.Id) : 150);
-        Task<double>? death;
-        lock (conn.Monsters)
-        {
-            conn.RetainCorpseBody(id, m, ticks);
-            death = conn.CorpseDeath(id, m);
-        }
-        if (death is null)
-        {
-            SendAfter(CorpseBlockDelaySeconds, Clear);
-            return;
-        }
+        if (!conn.RetainCorpseBody(id, m, ticks) || conn.CorpseDeath(id, m) is not { } death) return false;
         _ = Task.Run(async () =>
         {
             try
@@ -2024,12 +2029,15 @@ static partial class Game
                         }
                 if (!death.IsCompletedSuccessfully) return;
                 await conn.FrameFrom(death.Result + ticks * (FrameMs / 1000d));
-                await Clear();
+                await CorpseCleared(remote, stream, ciphers, conn, id, m);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });
+        return true;
+    }
 
-        Task Clear() => SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
+    static Task CorpseCleared(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m) =>
+        SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
         {
             using (ProjectileMutation(conn, phase: "send"))
             {
@@ -2043,23 +2051,26 @@ static partial class Game
                 return InstanceProtocol.StopBlocking(id);
             }
         });
-    }
 
-    // In a lockstep client's send gate, for the records about to be admitted to the frame being sent: a kept corpse
-    // whose life reaches 0 in one of them dies on the client in this frame (the client applies the 0x1b1 before the
-    // frame's ticks). Its walk is stepped up to the frame and ends with the frame's steps, and its body's clock starts.
+    // In a lockstep client's send gate, for the records about to be admitted to the frame being sent: a monster whose
+    // life reaches 0 in one of them dies on the client in this frame (the client applies the 0x1b1 before the frame's
+    // ticks), if this is the first such message it is written. Its corpse is kept here when the kill has not kept it
+    // yet; its walk is stepped up to the frame and ends with the frame's steps, and its body's clock starts.
     internal static void CorpseDeathsWritten(ClientState conn, OutputBatch batch)
     {
+        if (!batch.Records.Any(record => record.LifeWritten is not null)) return;
         lock (conn.Monsters)
         {
             if (conn.LockstepFrame is not { } frame) return;
             foreach (var record in batch.Records)
             {
-                if (record.Kind is not (OutputRecord.RecordKind.World or OutputRecord.RecordKind.AfterBirth)
-                    || record.Object is not { } target || !conn.CorpseAwaitsDeathOf(target.Id)) continue;
-                var bytes = record.CopyBytes();
-                if (bytes.Length < 16 || System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(bytes) != InstanceProtocol.LifeUpdateId
-                    || System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12)) != 0) continue;
+                if (record.LifeWritten is not { } life || record.Object is not { } target
+                    || !conn.Monsters.TryGetValue(target.Id, out var m)) continue;
+                var wire = conn.Wire;
+                bool kept = life == 0 && !conn.DeathWritten(target.Id, m)
+                    && KeepCorpseLocked(wire.Remote, wire.Stream, wire.Ciphers, conn, target.Id, m);
+                conn.NoteLifeWritten(target.Id, m, life);
+                if (!kept || !conn.CorpseAwaitsDeathOf(target.Id)) continue;
                 StepWalkers(conn, frame.Start);
                 conn.CorpseDied(target.Id, frame);
             }

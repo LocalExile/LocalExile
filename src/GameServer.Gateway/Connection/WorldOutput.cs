@@ -61,6 +61,11 @@ sealed class OutputRecord
             throw new ArgumentException("Removals require an explicit lifecycle record.", nameof(bytes));
     }
     internal byte[] CopyBytes() => bytes.ToArray();
+    /// <summary>The life this record gives its object's life pool (S→C 0x1b1 with pool 0); null for any other record.
+    /// 0 is the object's death on a client whose copy lived.</summary>
+    internal uint? LifeWritten => Kind is RecordKind.World or RecordKind.AfterBirth && bytes.Length >= 21
+        && BinaryPrimitives.ReadUInt16BigEndian(bytes) == 0x1b1 && bytes[20] == 0
+        ? BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12)) : null;
     internal OutputRecord AsSharedView() => new(Kind, bytes, Log, Object, Order, sharedView: true);
     public static OutputRecord Immediate(byte[] bytes, string? log = null) => new(RecordKind.Immediate, bytes, log);
     public static OutputRecord World(WorldObject target, WorldOrder order, byte[] bytes, string? log = null) =>
