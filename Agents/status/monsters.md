@@ -144,6 +144,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
   Docs: [11](../docs/protocol/11-skills.md) §6.
+- The Pantheon's campaign bosses (Tukohama, Abberath and his enraged form, Ryslatha, Greust, Gruthkul, Arakaali,
+  Yugul, Solaris and Lunaris, Shakari and her second form, Garukhan) fight with their own kits instead of one plain
+  swing, after the Atlas bosses' pattern (the Brine King already had his own controller). All are scripted (the
+  ordinary AI skips them), own their whole `GrantedEffectsKeys` list on the actor under ids 0x4030 + the index in
+  the kit — never a gem id — and rotate it from one controller per monster: the melee keeps the variety's own
+  attack time and reach, the slams (Tukohama's totem slam, Abberath's meteor upheaval, Gruthkul's upheaval, Shakari's
+  tail strike, Garukhan's combo, Yugul's chomp, the Leap Slams) hit harder than the plain swing at their clip's cast
+  time, a marker row (a hide, a burrow, a dodge, a spawner trigger, Solaris' and Lunaris' transform) carries no hit,
+  and each skill's ground art was checked against the client's metadata. Tukohama raises his shielding totem (the
+  cannot-be-damaged buff while its beam plays); Shakari burrows, blinks to the player and emerges with a tail sweep;
+  Ryslatha slides away from the player before spitting again; Arakaali (MovementSpeed 0) fights from her web.
+  Behind the generic cannot-be-damaged buff (BuffDefinitions row 350: no Pantheon boss has a shield row of its own)
+  at 75/50/25%, an intermission teleports to the arena's `ArenaMiddle` and plays the boss's signature move. Damage
+  comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
+  none, scaled for the slams). Not yet: Arakaali's laser turrets as separate objects, her adds from the egg mortars,
+  Tukohama's totem as a targetable monster, Garukhan's charged-dash shadow clones. Code:
+  `Modules/Core/Game/Monster/PantheonBosses.cs` (wired in `Monsters.cs` and `GameModule.cs`), over
+  `AtlasBossFight.cs`. Tests: `PantheonBossSkillTests.cs`.
 
 ## Partly working
 
