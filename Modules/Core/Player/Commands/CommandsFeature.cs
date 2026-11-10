@@ -7,6 +7,7 @@ using Progression = GameServer.Core.World.Progression;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamageType = GameServer.Core.World.DamageType;
 using static Program;
+using GameServer.Core;
 
 static class CommandsFeature
 {
@@ -237,7 +238,7 @@ static class CommandsFeature
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
                 InstanceMonsterStatue.Blob(x, y, variety.Hash16, 100, variation)),
-                $"0x02b9 monster statue of {variety} at ({x}, {y})");
+                $"0x02bb monster statue of {variety} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
                 $"0x01a9 monster statue 0x{id:x} enters wake zone");
             await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
@@ -405,9 +406,9 @@ static class CommandsFeature
                 _ => throw new ArgumentException(usage),
             };
             conn.MoveWaypoint(changed);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(WaypointCatalog.ObjectId), "0x02bb remove the waypoint (/wp_state)");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(WaypointCatalog.ObjectId), "0x02bd remove the waypoint (/wp_state)");
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(WaypointCatalog.ObjectId,
-                InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02b9 create waypoint {changed} (/wp_state)");
+                InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), changed.Blob()), $"0x02bb create waypoint {changed} (/wp_state)");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId), null);
             await conn.Commands!.Reply($"Waypoint recreated: active {changed.Active}, model {changed.Model}");
         })
@@ -762,7 +763,7 @@ static class CommandsFeature
             uint id = conn.NextObjectId++;
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
                 new MapPortalObject(x, y, 0, type, created, Rotation: conn.PortalRotationRadians).Blob()),
-                $"0x02b9 create test portal 0x{id:x} type {type}, transitionable {created}, at ({x}, {y})");
+                $"0x02bb create test portal 0x{id:x} type {type}, transitionable {created}, at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             lock (conn.MapPortals) conn.MapPortals[id] = (x, y, -1);
             if (openMs >= 0) OpenMapPortalLater(remote, stream, ciphers, conn, id, openMs);
@@ -992,24 +993,7 @@ static class CommandsFeature
                 await conn.Commands!.Reply($"{chosen.Name} is already your main ascendancy.");
                 return;
             }
-            AscendancyProgress next;
-            lock (conn.Monsters)
-            {
-                using var availability = AscendancyPolicies.Enter(conn, chosen.Identity);
-                next = Saves.Atomically(() =>
-                {
-                    var saved = CharacterSaves.Load(CharacterName(conn));
-                    return CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                    {
-                        var candidate = Game.AscendancyRules.Select(baseClass, latest, chosen.Identity);
-                        ValidateOrdinaryPassives(conn, saved?.Passives ?? [], candidate);
-                        return candidate;
-                    });
-                });
-                conn.MainAscendancy = next;
-                AscendancyPolicies.SelectionChanged(conn);
-                conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
-            }
+            Game.SelectMainAscendancy(conn, chosen);
             await conn.Commands!.Reply($"Main ascendancy selected - {chosen.Name}. Reloading the area to show its tree.");
             await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"ascendancy {chosen.Name}");
         })
@@ -1017,24 +1001,8 @@ static class CommandsFeature
         {
             if (args.Length != 1) throw new ArgumentException("a Labyrinth tier or all");
             string tier = args[0].ToLowerInvariant();
-            byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
-            AscendancyProgress next;
-            lock (conn.Monsters)
-            {
-                using var availability = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
-                next = CharacterSaves.ChangeMainAscendancy(CharacterName(conn), latest =>
-                {
-                    AscendancyPolicies.RequireCurrentSelection(conn.MainAscendancy.Selection, latest.Selection);
-                    foreach (string award in tier == "all" ? global::AscendancyRules.AwardKeys : [tier])
-                        latest = Game.AscendancyRules.Award(baseClass, latest, award);
-                    return latest;
-                });
-                conn.MainAscendancy = next;
-                AscendancyPolicies.SelectionChanged(conn);
-                conn.SavedPassiveProgress = new(next, conn.Passives, conn.MasteryEffects, conn.RefundPoints);
-            }
-            await SendPassives(remote, stream, ciphers, conn);
-            await conn.Commands!.Reply($"Ascendancy points earned - {next.EarnedPoints}; each tier can be earned once.");
+            int earned = await Game.AwardAscendancyPoints(remote, stream, ciphers, conn, tier == "all" ? global::AscendancyRules.AwardKeys : [tier]);
+            await conn.Commands!.Reply($"Ascendancy points earned - {earned}; each tier can be earned once.");
         })
         .Add("reset_ascendancy", "/reset_ascendancy (refund all ascendancy nodes; five refund points per node/effect, choice shells are free)", async _ =>
         {
@@ -1046,7 +1014,7 @@ static class CommandsFeature
         {
             if (args.Length == 0 || !long.TryParse(args[0], out long delta)) throw new ArgumentException("an amount of gold (negative takes gold)");
             uint gold = PersonalStashOf(conn).AddGold(delta);
-            await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02a9 gold: {gold} (/gold {delta})");
+            await Send(remote, stream, ciphers, InstanceEntities.Gold(gold), $"0x02aa gold: {gold} (/gold {delta})");
             await conn.Commands!.Reply($"Gold: {gold}");
         })
         .Add("add_passive_points", "/add_passive_points <n> (dev: add n extra passive skill points, saved)", async args =>
@@ -1374,9 +1342,9 @@ static class CommandsFeature
             {
                 conn.ReplaceAreaTransition(id, changed);
                 at = changed;
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove area transition 0x{id:x}");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove area transition 0x{id:x}");
                 await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(at.Type), at.Blob()),
-                    $"0x02b9 create area transition {at}");
+                    $"0x02bb create area transition {at}");
                 await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 area transition 0x{id:x} enters wake zone");
             }
             await conn.Commands!.Reply($"Area transition 0x{id:x} at ({at.GridX}, {at.GridY}), {at.Rotation * 180 / MathF.PI:0.#} degrees, " +
@@ -1409,10 +1377,11 @@ static class CommandsFeature
             await conn.Commands!.Reply($"Trials done ({which}): {own} of {trials.Count} by the character's quest flag, {league} by the league's.");
             await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window (/trials)");
         })
-        .Add("lab_layout", "/lab_layout [1|2|3|4] (dev: today's Labyrinth layout of a tier, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play that room with its node)", async args =>
+        .Add("lab_layout", "/lab_layout [1|2|3|4] [yyyy-mm-dd] (dev: today's Labyrinth layout of a tier, or another day's, 1 Normal by default: each room's area, section, connections and secrets; /goto a listed area to play today's room with its node)", async args =>
         {
             int tier = args.Length > 0 && int.TryParse(args[0], out int n) && n is >= 1 and <= 4 ? n : 1;
-            uint seed = LabyrinthDay.Seed;
+            string? date = args.FirstOrDefault(a => a.Contains('-'));
+            uint seed = date is null ? LabyrinthDay.Seed : LabyrinthDay.SeedOf(DateOnly.ParseExact(date, "yyyy-MM-dd"));
             await conn.Commands!.Reply($"Labyrinth day {seed}, tier {tier}:");
             foreach (var line in LabyrinthDay.Describe(seed, tier)) await conn.Commands!.Reply(line);
         })
@@ -1534,7 +1503,7 @@ static class CommandsFeature
             if (what.Equals("status", StringComparison.OrdinalIgnoreCase)) { await conn.Commands!.Reply(CaptureTour.Status(character)); return; }
             string path = string.Join(' ', args);
             if (!AreaLayouts.Recording) { await conn.Commands!.Reply("A tour needs the walk-map recorder: start the servers with live.ps1 -Walkmaps."); return; }
-            if (!File.Exists(path)) { await conn.Commands!.Reply($"No file {path} (relative to the Gateway's directory, the repository root)."); return; }
+            if (!ClientTables.Exists(path)) { await conn.Commands!.Reply($"No file {path} (relative to the Gateway's directory, the repository root)."); return; }
             await conn.Commands!.Reply(CaptureTour.Start(character, path));
             // Not awaited: a step waits for the client to arrive or to fail.
             _ = ContinueTour(remote, stream, ciphers, conn, starting: true);
@@ -1555,7 +1524,7 @@ static class CommandsFeature
             ushort Key(string s) => HideoutCatalog.Hideouts.FirstOrDefault(h => h.AreaId.Equals(s, StringComparison.OrdinalIgnoreCase)) is { } h ? h.Hash16
                 : ushort.TryParse(s.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out var k) ? k : (ushort)0;
             ushort a = args.Length > 0 ? Key(args[0]) : (ushort)0, b = args.Length > 1 ? Key(args[1]) : (ushort)0;
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, a, b), $"0x02ba player hideout keys 0x{a:x4} 0x{b:x4}");
+            await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, a, b), $"0x02bc player hideout keys 0x{a:x4} 0x{b:x4}");
             await Send(remote, stream, ciphers, InstanceChat.ChatLine($"Hideout keys 0x{a:x4} 0x{b:x4}."), "0x0017 chat line: hideout keys");
         })
         .Add("waypoints", "/waypoints [all | reset] (list the activated waypoints; dev: activate all and visit every pinned area, or keep only the towns')", async args =>
@@ -1596,7 +1565,7 @@ static class CommandsFeature
             var (x, y) = NextToPlayer(conn);
             await SpawnNpc(remote, stream, ciphers, conn, npc, x, y, (deg ?? 0) * MathF.PI / 180);
         }, "npc")
-        // Turns an NPC: it is created again with the new facing (0x2bb, then 0x2b9).
+        // Turns an NPC: it is created again with the new facing (0x2bd, then 0x2bb).
         .Add("npc_place", "/npc_place <name> <x> <y> <degrees> (dev: move and turn an NPC here)", async args =>
         {
             if (args.Length < 4 || !int.TryParse(args[^3], out int x) || !int.TryParse(args[^2], out int y)) throw new ArgumentException("/npc_place <name> <x> <y> <degrees>");
@@ -1607,7 +1576,7 @@ static class CommandsFeature
             if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
             lock (conn.Npcs) conn.Npcs.Remove(found.Key);
             conn.RemoveBlocker(found.Key);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bd remove npc 0x{found.Key:x} {npc.Npc.Name}");
             await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, x, y, deg * MathF.PI / 180);
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({x}, {y}), {deg}°");
         })
@@ -1621,7 +1590,7 @@ static class CommandsFeature
             if (found.Value is not { } npc) { await conn.Commands!.Reply($"No NPC {name} here."); return; }
             lock (conn.Npcs) conn.Npcs.Remove(found.Key);
             conn.RemoveBlocker(found.Key);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bb remove npc 0x{found.Key:x} {npc.Npc.Name}");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(found.Key), $"0x02bd remove npc 0x{found.Key:x} {npc.Npc.Name}");
             float rad = deg * MathF.PI / 180;
             await SpawnNpc(remote, stream, ciphers, conn, npc.Npc, npc.X, npc.Y, rad);
             await conn.Commands!.Reply($"{npc.Npc.Name} at ({npc.X}, {npc.Y}) faces {deg}° ({rad:0.###} rad).");
@@ -1651,253 +1620,24 @@ static class CommandsFeature
             Console.WriteLine($"[gateway] {remote} /pos ({x}, {y}) in {conn.Layout.Id}");
             await conn.Commands!.Reply($"({x}, {y}) in {conn.Layout.Id}");
         })
-        .Add("game_data", "/game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | unique_weight <name> <weight> [ruthless] | clear_unique_weight <name> | unique_weights [filter] | settings | list (dev: SQLite game-data overrides; no restart)", async args =>
+        .Add("reload", "/reload (dev: read world.db again: settings, catalogues, drop tables, unique weights, overrides; no restart)", async _ =>
         {
-            if (args.Length == 0)
+            if (GameData.Store is null)
             {
-                await conn.Commands!.Reply("Usage: /game_data reload | reference | mod <mod> <stat> <min> <max> | clear_mod <mod> [stat] | " +
-                    "limit <key> <value> | clear_limit <key> | setting <key> <value> | clear_setting <key> | " +
-                    "unique_weight <name> <weight> [ruthless] | clear_unique_weight <name> | unique_weights [filter] | settings | list");
+                await conn.Commands!.Reply("world.db is not open");
                 return;
             }
-            if (GameData.Store is not { } store)
-            {
-                await conn.Commands!.Reply("The game-data store is not open");
-                return;
-            }
-            string action = args[0].ToLowerInvariant();
             try
             {
-                switch (action)
-                {
-                    case "reload":
-                        GameData.Reload("command");
-                        await conn.Commands!.Reply($"Game data reloaded: revision {GameData.Current.Revision}");
-                        return;
-                    case "reference":
-                        bool seeded = GameDataReference.Seed(store, force: true);
-                        bool weightsSeeded = GameDataWeights.Seed(store, force: true);
-                        GameDataWeights.Reload(store);
-                        var (stats, mods, modStats) = store.ReferenceCounts();
-                        var (weights, weightOverrides) = store.UniqueWeightCounts();
-                        await conn.Commands!.Reply(seeded
-                            ? $"Reference tables rebuilt: {stats} stat(s), {mods} mod(s), {modStats} default mod stat row(s); " +
-                              (weightsSeeded ? $"{weights} unique weight(s)" : "unique weights need VillageUniqueDisenchantValues.json")
-                            : "Reference tables need the extracted game tables (scripts/dev/extract-data.ps1)");
-                        if (weightOverrides > 0) await conn.Commands!.Reply($"  {weightOverrides} unique weight override(s) kept");
-                        return;
-                    case "unique_weight":
-                        {
-                            if (args.Length < 3)
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data unique_weight <name> <weight 0..1> [ruthless 0..1]");
-                                return;
-                            }
-                            static bool TryWeight(string text, out double value) =>
-                                double.TryParse(text, System.Globalization.NumberStyles.Float,
-                                    System.Globalization.CultureInfo.InvariantCulture, out value);
-                            int valueCount = 0;
-                            double normal, ruthless;
-                            if (args.Length >= 4 && TryWeight(args[^1], out double last) && TryWeight(args[^2], out double second))
-                            {
-                                normal = second;
-                                ruthless = last;
-                                valueCount = 2;
-                            }
-                            else if (TryWeight(args[^1], out double one))
-                            {
-                                normal = ruthless = one;
-                                valueCount = 1;
-                            }
-                            else
-                            {
-                                await conn.Commands!.Reply("Unique weight must be a number 0..1");
-                                return;
-                            }
-                            string name = string.Join(' ', args[1..^valueCount]);
-                            if (name.Length == 0 || !double.IsFinite(normal) || !double.IsFinite(ruthless)
-                                || normal is < 0 or > 1 || ruthless is < 0 or > 1)
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data unique_weight <name> <weight 0..1> [ruthless 0..1]");
-                                return;
-                            }
-                            var all = store.LoadUniqueWeights();
-                            var match = all.FirstOrDefault(row => row.Name.Equals(name, StringComparison.OrdinalIgnoreCase))
-                                ?? all.FirstOrDefault(row => row.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
-                            if (match is null)
-                            {
-                                await conn.Commands!.Reply($"No unique weight \"{name}\"");
-                                return;
-                            }
-                            store.SetUniqueWeight(match.Name, normal, ruthless);
-                            GameData.Reload("unique weight");
-                            await conn.Commands!.Reply($"{match.Name}: {normal} normal, {ruthless} Ruthless");
-                            return;
-                        }
-                    case "clear_unique_weight":
-                        {
-                            if (args.Length < 2)
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data clear_unique_weight <name>");
-                                return;
-                            }
-                            string name = string.Join(' ', args[1..]);
-                            store.ClearUniqueWeight(name);
-                            GameData.Reload("clear unique weight");
-                            await conn.Commands!.Reply($"Cleared the unique weight override for {name}");
-                            return;
-                        }
-                    case "unique_weights":
-                        {
-                            var all = store.LoadUniqueWeights();
-                            var overrides = store.LoadUniqueWeightOverrides()
-                                .ToDictionary(row => row.Name, row => row, StringComparer.OrdinalIgnoreCase);
-                            string filter = args.Length > 1 ? string.Join(' ', args[1..]) : "";
-                            var matches = all.Where(row => filter.Length == 0
-                                || row.Name.Contains(filter, StringComparison.OrdinalIgnoreCase)).ToList();
-                            await conn.Commands!.Reply($"{matches.Count} unique weight(s)" +
-                                (filter.Length > 0 ? $" matching \"{filter}\"" : "") +
-                                (overrides.Count > 0 ? $", {overrides.Count} override(s)" : ""));
-                            foreach (var row in matches.Take(40))
-                            {
-                                var effective = overrides.GetValueOrDefault(row.Name) ?? row;
-                                await conn.Commands!.Reply($"  {row.Name}: {effective.Weight} normal, " +
-                                    $"{effective.RuthlessWeight} Ruthless" + (overrides.ContainsKey(row.Name) ? " (override)" : ""));
-                            }
-                            if (matches.Count > 40) await conn.Commands!.Reply("  ... use a filter to narrow the list");
-                            return;
-                        }
-                    case "mod":
-                        {
-                            if (args.Length != 5 || !int.TryParse(args[2], out int stat) || !int.TryParse(args[3], out int min)
-                                || !int.TryParse(args[4], out int max))
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data mod <mod> <stat> <min> <max>");
-                                return;
-                            }
-                            if (ItemsFor(conn).Mods.Find(args[1]) is not { } mod)
-                            {
-                                await conn.Commands!.Reply($"No mod \"{args[1]}\"");
-                                return;
-                            }
-                            if (stat < 0 || stat >= mod.Stats.Count)
-                            {
-                                await conn.Commands!.Reply($"{mod.Id} has stats 0..{mod.Stats.Count - 1}");
-                                return;
-                            }
-                            if (min > max)
-                            {
-                                await conn.Commands!.Reply("minimum is above maximum");
-                                return;
-                            }
-                            store.SetModRange(mod.Id, stat, min, max);
-                            GameData.Reload("mod range");
-                            var range = mod.RangeAt(stat);
-                            await conn.Commands!.Reply($"{mod.Id} stat {stat} ({mod.Stats[stat].Id}) range {range.Min}..{range.Max}; " +
-                                "new rolls use it, existing items keep their values");
-                            return;
-                        }
-                    case "clear_mod":
-                        {
-                            if (args.Length is < 2 or > 3 || (args.Length == 3 && !int.TryParse(args[2], out _)))
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data clear_mod <mod> [stat]");
-                                return;
-                            }
-                            string modId = ItemsFor(conn).Mods.Find(args[1])?.Id ?? args[1];
-                            store.ClearModRange(modId, args.Length == 3 ? int.Parse(args[2]) : null);
-                            GameData.Reload("clear mod range");
-                            await conn.Commands!.Reply($"Cleared the range override for {modId}" +
-                                (args.Length == 3 ? $" stat {args[2]}" : ""));
-                            return;
-                        }
-                    case "limit":
-                        {
-                            if (args.Length != 3 || !int.TryParse(args[2], out int value) || value < 0)
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data limit <key> <value> (0 = unlimited)");
-                                return;
-                            }
-                            store.SetLimit(args[1], value);
-                            GameData.Reload("limit");
-                            await conn.Commands!.Reply($"Limit {args[1]} = {value}" + (value == 0 ? " (unlimited)" : ""));
-                            return;
-                        }
-                    case "clear_limit":
-                        if (args.Length != 2)
-                        {
-                            await conn.Commands!.Reply("Usage: /game_data clear_limit <key>");
-                            return;
-                        }
-                        store.ClearLimit(args[1]);
-                        GameData.Reload("clear limit");
-                        await conn.Commands!.Reply($"Cleared the limit override for {args[1]}");
-                        return;
-                    case "setting":
-                        {
-                            if (args.Length == 2)
-                            {
-                                if (!SystemSettings.Seeds.ContainsKey(args[1]))
-                                {
-                                    await conn.Commands!.Reply($"unknown setting \"{args[1]}\"");
-                                    return;
-                                }
-                                await conn.Commands!.Reply($"{args[1]} = {SystemSettings.Default.Get(args[1])}");
-                                return;
-                            }
-                            if (args.Length != 3 || !double.TryParse(args[2], System.Globalization.NumberStyles.Float,
-                                System.Globalization.CultureInfo.InvariantCulture, out double setting))
-                            {
-                                await conn.Commands!.Reply("Usage: /game_data setting <key> [value]");
-                                return;
-                            }
-                            if (!SystemSettings.Validate(args[1], setting, out string? settingError))
-                            {
-                                await conn.Commands!.Reply(settingError!);
-                                return;
-                            }
-                            store.SetSetting(args[1], setting);
-                            GameData.Reload("setting");
-                            await conn.Commands!.Reply($"{args[1]} = {SystemSettings.Default.Get(args[1])}");
-                            return;
-                        }
-                    case "clear_setting":
-                        if (args.Length != 2)
-                        {
-                            await conn.Commands!.Reply("Usage: /game_data clear_setting <key>");
-                            return;
-                        }
-                        store.DeleteSetting(args[1]);
-                        GameData.Reload("clear setting");
-                        await conn.Commands!.Reply($"Cleared {args[1]}; it falls back to {SystemSettings.Seeds.GetValueOrDefault(args[1])}");
-                        return;
-                    case "settings":
-                        foreach (var (key, value) in SystemSettings.Default.Values.OrderBy(kv => kv.Key))
-                            await conn.Commands!.Reply($"  {key} = {value}");
-                        return;
-                    case "list":
-                        await conn.Commands!.Reply($"Game data revision {GameData.Current.Revision}: " +
-                            $"{GameData.Current.ModRanges.Count} mod range override(s), {GameData.Current.Limits.Count} limit override(s), " +
-                            $"{SystemSettings.Default.Values.Count} system setting(s); " + GameDataCatalog.Summary);
-                        var reference = store.ReferenceCounts();
-                        await conn.Commands!.Reply($"  reference: {reference.Stats} stat(s), {reference.Mods} mod(s), " +
-                            $"{reference.ModStats} default mod stat row(s)");
-                        var uniqueWeights = store.UniqueWeightCounts();
-                        await conn.Commands!.Reply($"  unique weights: {uniqueWeights.Weights} row(s), " +
-                            $"{uniqueWeights.Overrides} override(s)");
-                        foreach (var (key, range) in GameData.Current.ModRanges.OrderBy(kv => kv.Key.ModId).ThenBy(kv => kv.Key.Index))
-                            await conn.Commands!.Reply($"  mod {key.ModId}[{key.Index}] = {range.Min}..{range.Max}");
-                        foreach (var (key, value) in GameData.Current.Limits.OrderBy(kv => kv.Key))
-                            await conn.Commands!.Reply($"  limit {key} = {value}" + (value == 0 ? " (unlimited)" : ""));
-                        return;
-                    default:
-                        await conn.Commands!.Reply("Unknown /game_data action; use reload, reference, mod, clear_mod, limit, clear_limit, setting, clear_setting, unique_weight, clear_unique_weight, unique_weights, settings or list");
-                        return;
-                }
+                GameData.Reload("command");
+                await conn.Commands!.Reply($"Game data reloaded: revision {GameData.Current.Revision}; {SystemSettings.Default.Values.Count} " +
+                    $"setting(s), {GameData.Current.ModRanges.Count} mod range override(s), {GameData.Current.Limits.Count} limit " +
+                    $"override(s); {GameDataCatalog.Summary}");
             }
-            catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or ArgumentException)
+            catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException
+                or System.Text.Json.JsonException)
             {
-                await conn.Commands!.Reply($"Game data change failed: {e.Message}");
+                await conn.Commands!.Reply($"Reload failed, the previous data stays: {e.Message}");
             }
         })
         .Add("lastpackets", "/lastpackets [n] (dev: the connection's last n messages, both directions, to the Gateway log; default 64)", async args =>
@@ -1935,7 +1675,7 @@ static class CommandsFeature
                 bool removed;
                 lock (conn.Monsters) removed = conn.Monsters.Remove(id) || MonsterEmerge.Buried(conn).Remove(id);
                 if (!removed) { await conn.Commands!.Reply($"No monster 0x{id:x}."); continue; }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb remove monster 0x{id:x}");
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove monster 0x{id:x}");
             }
         })
         // Movement probes: walk (0x1ba, Positioned move with a speed) or teleport (0x1b7) a monster to a few cells from the player.

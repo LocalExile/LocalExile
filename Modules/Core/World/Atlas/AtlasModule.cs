@@ -160,7 +160,7 @@ static class AtlasFeature
     ];
 
     /// <summary>Map-device beacons and Maven invitation gates (Player +0x1d0, bit = id − 1). Applied onto
-    /// <see cref="ClientState.LeagueQuestFlags"/> before the player object is built so a later 0x02ba does not toast.
+    /// <see cref="ClientState.LeagueQuestFlags"/> before the player object is built so a later 0x02bc does not toast.
     /// AtlasMavenFightComplete1–4 (979–982) make Kirac's "Invitation: The Atlas" the fifth fight; 885 MavenBossComplete
     /// is omitted so the Nucleus still has its later phases.</summary>
     internal static readonly int[] UnlockLeagueFlags =
@@ -202,7 +202,7 @@ static class AtlasFeature
         {
             await Send(remote, stream, ciphers,
                 InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
-                "0x02ba Atlas league flags");
+                "0x02bc Atlas league flags");
             n++;
         }
         return n;

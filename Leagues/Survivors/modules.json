@@ -2,6 +2,7 @@
   "modules": [
     "Core/Game",
     "Core/Item/Cosmetics",
+    "Core/Player/Chat",
     "Core/Player/Commands",
     "Survivors/SurvivorsSkills",
     "Survivors/SurvivorsRewards",

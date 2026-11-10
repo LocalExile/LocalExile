@@ -222,8 +222,8 @@ sealed class AnimationContacts(string folder = "data")
     {
         string path = Path.Combine(folder, "animation-contacts.json");
         var result = new Dictionary<string, ActorAnimations>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!GameServer.Core.ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(path));
         foreach (var ao in d.RootElement.EnumerateObject())
         {
             var positions = new Dictionary<string, ContactPoint>(StringComparer.Ordinal);
@@ -318,7 +318,7 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     public double CutInSeconds(double attackSeconds) => PlayedAt(CancelMs ?? ContactMs, attackSeconds);
 
     /// <summary>
-    /// When the client's own shot leaves, on the clip clock it sets up (<c>0x141b0ac20</c> → <c>0x141b0a9b0</c>): a clip
+    /// When the client's own shot leaves, on the clip clock it sets up (<c>0x141b0d690</c> → <c>0x141b0d420</c>): a clip
     /// without a budget that is shorter than the attack plays at its own speed outside its slow span, and the span takes
     /// up the rest, at most 8 times its length (the 600 ms wand clip's contact at 300, span 150–235, leaves 0.367 s into a
     /// 0.667 s attack). A budgeted clip, or one no shorter than the attack, leaves at <see cref="ContactSeconds"/>.

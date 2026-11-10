@@ -15,7 +15,7 @@ EXPECTED = '78A0E227189C263658A7F65A02F086428B859BFC114AE8E7CE8AAB721EBD48D5'
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--client', type=Path, required=True, help='Official 3.29.3b PathOfExile.exe to observe')
+    parser.add_argument('--client', type=Path, required=True, help='Official 3.29.3c PathOfExile.exe to observe')
     parser.add_argument('--out', type=Path, default=Path('Tools/re/out/vendor-research/capture'))
     args = parser.parse_args()
     client, out = args.client.resolve(), args.out

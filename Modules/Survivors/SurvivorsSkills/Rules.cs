@@ -8,6 +8,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 using GameServer.Modules.Survivors;
+using GameServer.Core;
 
 
 namespace GameServer.Modules.Survivors;
@@ -79,11 +80,11 @@ static partial class SurvivorsSkills
     {
         var result = new Dictionary<int, int>();
         string folder = Path.Combine("data", "tables");
-        if (!File.Exists(Path.Combine(folder, "GrantedEffects.json")) || !File.Exists(Path.Combine(folder, "ActiveSkills.json"))
-            || !File.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
-        using var actives = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
-        using var buffs = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
+        if (!ClientTables.Exists(Path.Combine(folder, "GrantedEffects.json")) || !ClientTables.Exists(Path.Combine(folder, "ActiveSkills.json"))
+            || !ClientTables.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
+        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
+        using var actives = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
+        using var buffs = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
         var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < buffs.RootElement.GetArrayLength(); i++)
             if (buffs.RootElement[i].TryGetProperty("Id", out var id) && id.GetString() is { } name) byId[name] = i;
@@ -119,7 +120,7 @@ static partial class SurvivorsSkills
     }
 
     // A run skill's stats: the gem's own at its rank. The client creates the bar's cooldown record only with a stored use
-    // and the record's duration (0x141eea6a0), and the run pays no mana.
+    // and the record's duration (0x141ef0f00), and the run pays no mana.
     internal static IReadOnlyList<(uint, int)> SurvivorsSkillStats(ClientState conn, SurvivorsSkill skill, int rank)
     {
         var stats = SkillsFor(conn).EffectStats(skill.Effect, rank).ToDictionary(s => s.Item1, s => s.Item2);
@@ -148,7 +149,7 @@ static partial class SurvivorsSkills
         float remaining = (float)Math.Clamp(interval, 0, total);
         await Send(remote, stream, ciphers,
             InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
-            $"0x02ba survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
+            $"0x02bc survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
     }
 
     /// <summary>True when a skill id is one of the run's skills: a click on its bar slot must not become a walk.</summary>
@@ -619,7 +620,7 @@ static partial class SurvivorsSkills
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, ao).Blob()),
-            $"0x02b9 survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
+            $"0x02bb survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
         _ = Task.Run(async () =>
         {
@@ -684,7 +685,7 @@ static partial class SurvivorsSkills
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, SurvivorsOrbArt) { Scale = SurvivorsOrbScale }.Blob()),
-            $"0x02b9 survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
+            $"0x02bb survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
             still: () => StateOf(conn).Survivors is not null);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
@@ -766,7 +767,7 @@ static partial class SurvivorsSkills
         await Send(remote, stream, ciphers,
             InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, SurvivorsDeathZoneArt).Blob()),
-            $"0x02b9 survivors death zone 0x{id:x} at ({x}, {y})",
+            $"0x02bb survivors death zone 0x{id:x} at ({x}, {y})",
             still: () => StateOf(conn).Survivors is not null);
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
@@ -887,7 +888,6 @@ static partial class SurvivorsSkills
             int baseDamage = SurvivorsRules.SkillDamage(roster.WeaponDamage, rank);
             var heraldRaw = DamagePacket.Of(skill.Type, baseDamage, baseDamage);
             heraldRaw = DamageStats.RawAdded(heraldRaw, Get, spell: true, effectiveness: 1.0);
-            heraldRaw = SurvivorsGlobalAdded(heraldRaw, Get, 10_000);
             var pulse = PlayerHitDamage.Resolve(heraldRaw, Get, conversion, spell: true, area: true, projectile: false,
                 supportModifiers: supportMods);
             if (pulse.IsZero) return null;
@@ -908,14 +908,12 @@ static partial class SurvivorsSkills
                 // once, below, to the whole hit, so the power curve is the reference's and the gem stays itself.
                 own = SkillsFor(conn).HitDamage(skill.Effect, 1);
                 own = DamageStats.RawAdded(own, Get, spell: true, effectiveness / 10_000.0);
-                own = SurvivorsGlobalAdded(own, Get, effectiveness);
                 own = own.Scale(roster.SkillScale);
             }
             else if (armedAttack)
             {
                 // The equipped weapon's own hit (local damage, local added, attack added) at the gem's effectiveness.
                 own = SupportedAttackDamage.Raw(weapon, Get);
-                own = SurvivorsGlobalAdded(own, Get, 10_000);
                 own = SpellDamage.WithEffectiveness(own, effectiveness);
             }
             else
@@ -924,7 +922,6 @@ static partial class SurvivorsSkills
                 var nominal = unarmed ? DamagePacket.Empty
                     : DamagePacket.Of(DamageType.Physical, roster.WeaponDamage * 0.45, roster.WeaponDamage * 0.9);
                 var added = DamageStats.RawAdded(DamagePacket.Empty, Get, spell: false);
-                added = SurvivorsGlobalAdded(added, Get, 10_000);
                 added = SpellDamage.WithEffectiveness(added, effectiveness);
                 own = SpellDamage.WithEffectiveness(nominal, effectiveness)
                     .Add(added.Scale(roster.SkillScale));
@@ -1119,23 +1116,6 @@ static partial class SurvivorsSkills
         DamageType.Physical => "physical", DamageType.Lightning => "lightning", DamageType.Cold => "cold",
         DamageType.Fire => "fire", _ => "chaos",
     };
-
-    /// <summary>
-    /// The "global" added damage ranges (Added Cold/Lightning Support, a unique's "Adds X to Y Damage"): PoB's
-    /// ModParser adds them to spells and attacks alike, scaled by the skill's damage effectiveness like any other
-    /// added range.
-    /// </summary>
-    internal static DamagePacket SurvivorsGlobalAdded(DamagePacket raw, Func<string, int> get, int effectivenessPermyriad)
-    {
-        double effectiveness = Math.Max(0, effectivenessPermyriad / 10_000.0);
-        foreach (var type in new[] { DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire, DamageType.Chaos })
-        {
-            string slug = SurvivorsDamageSlug(type);
-            var added = new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage"));
-            if (!added.IsZero) raw = raw.Add(type, added.Scale(effectiveness));
-        }
-        return raw;
-    }
 
     /// <summary>
     /// The gem mechanics the shared profile rules do not carry: Ice Spear's second form, Ball Lightning's repeated

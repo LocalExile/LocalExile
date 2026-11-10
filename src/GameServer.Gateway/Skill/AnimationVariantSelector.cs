@@ -1,8 +1,8 @@
 /// <summary>
-/// The client's animation-choice RNG and ACT-order weighted reservoir (3.29.3b: 0x140e0bec0,
-/// 0x140484fe0, 0x140484fa0, 0x141e991e0). This is deliberately the literal native algorithm:
+/// The client's animation-choice RNG and ACT-order weighted reservoir (3.29.3c: 0x140e0a760,
+/// 0x1404855a0, 0x140485560, 0x141e9fa80). This is deliberately the literal native algorithm:
 /// its state transition shifts x right, unlike the commonly published TinyMT32 transition.
-/// The same generator, seeded from a key (0x1413cbe50) and drawn in a range (0x1404d03d0), rolls each monster's
+/// The same generator, seeded from a key (0x1413ce240) and drawn in a range (0x1404d0990), rolls each monster's
 /// movement speed (MonsterSpeedRoll.cs).
 /// </summary>
 static class AnimationVariantSelector
@@ -39,7 +39,7 @@ static class AnimationVariantSelector
         }
 
         /// <summary>
-        /// The state seeded from a key (0x1413cbe50: TinyMT32 init_by_array, the published initializer with this
+        /// The state seeded from a key (0x1413ce240: TinyMT32 init_by_array, the published initializer with this
         /// client's mat1/mat2/tmat, no period certification, then eight native transitions). The client's copy is
         /// specialised to the two-word key [object id, type word] of the monster speed roll.
         /// </summary>
@@ -119,7 +119,7 @@ static class AnimationVariantSelector
         }
 
         /// <summary>
-        /// A uniform integer in [min, max] (0x1404d03d0): the bounded draw over max − min + 1 values plus min, or a
+        /// A uniform integer in [min, max] (0x1404d0990): the bounded draw over max − min + 1 values plus min, or a
         /// raw word when the range covers every value.
         /// </summary>
         public int Uniform(int min, int max)
@@ -129,7 +129,7 @@ static class AnimationVariantSelector
         }
 
         /// <summary>
-        /// The float range (0x1404ce3f0): N = (int)(max − min + 1) × 1000, k uniform in [0, N], k / N × (max − min) + min
+        /// The float range (0x1404ce9b0): N = (int)(max − min + 1) × 1000, k uniform in [0, N], k / N × (max − min) + min
         /// in single precision; a zero-width range still draws.
         /// </summary>
         public float Range(float min, float max)

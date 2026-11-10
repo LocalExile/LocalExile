@@ -1,10 +1,10 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The vertex ground stages of <c>0x142116600</c> between the edge tiling and the overlays, on the map's
+/// <summary>The vertex ground stages of <c>0x14211cf00</c> between the edge tiling and the overlays, on the map's
 /// view (the graph's area, <paramref name="offsetX"/>, <paramref name="offsetY"/> in from the map's corner): written vertices are locked, the grounds
-/// of placed tiles flood out over unwritten vertices (<c>0x142110a20</c>), the vertices still unwritten take the
-/// graph's ground (<c>0x142110d60</c>), and the edge tiles of types listed with the fill tiles get their open sides
-/// filled (<c>0x141feed20</c>); then the locks go.</summary>
+/// of placed tiles flood out over unwritten vertices (<c>0x142117320</c>), the vertices still unwritten take the
+/// graph's ground (<c>0x142117660</c>), and the edge tiles of types listed with the fill tiles get their open sides
+/// filled (<c>0x141ff5540</c>); then the locks go.</summary>
 sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, int height, TerrainCache files)
 {
     static readonly (int X, int Y)[] Dir = [(0, -1), (1, 0), (0, 1), (-1, 0)];
@@ -17,7 +17,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
 
     static (int W, int H) Size(TileEntry e) => Orientation.Size(e.Orientation, e.Tile.Width, e.Tile.Height);
 
-    /// <summary>0x142116600 before 0x142110a20: flag 4 on every vertex with a ground written, off on the others.</summary>
+    /// <summary>0x14211cf00 before 0x142117320: flag 4 on every vertex with a ground written, off on the others.</summary>
     public void Lock()
     {
         for (int y = 0; y <= grid.Height; y++)
@@ -28,14 +28,14 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             }
     }
 
-    /// <summary>0x142116600 after 0x141feed20: flag 4 off everywhere.</summary>
+    /// <summary>0x14211cf00 after 0x141ff5540: flag 4 off everywhere.</summary>
     public void Unlock()
     {
         for (int y = 0; y <= grid.Height; y++)
             for (int x = 0; x <= grid.Width; x++) grid.Corner(x, y).Flags &= unchecked((byte)~4);
     }
 
-    /// <summary><c>0x142110a20</c>: for every tile in the view (origin entries, x outer, y inner), every vertex on its
+    /// <summary><c>0x142117320</c>: for every tile in the view (origin entries, x outer, y inner), every vertex on its
     /// border floods outwards: the top and bottom rows upwards and downwards, then the left and right columns.</summary>
     public void Flood()
     {
@@ -57,7 +57,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             }
     }
 
-    /// <summary><c>0x142110630</c>: a ground with flag 2 spreads from vertex (x, y) in direction d, breadth first
+    /// <summary><c>0x142116f30</c>: a ground with flag 2 spreads from vertex (x, y) in direction d, breadth first
     /// (each step goes on straight or turns, never back), over vertices without a ground written (a flag-8 ground
     /// also over ones written with none), stopping where a tile's edge or interior is in the way.</summary>
     void FloodFrom(int x, int y, string? ground, int d)
@@ -83,7 +83,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
         }
     }
 
-    /// <summary><c>0x1420281e0</c> ("EdgeInTheWay"): from a tile's interior only into its interior; into an interior
+    /// <summary><c>0x14202ea30</c> ("EdgeInTheWay"): from a tile's interior only into its interior; into an interior
     /// always; otherwise not across a tile edge on the segment between the two vertices.</summary>
     bool InTheWay(int fx, int fy, int tx, int ty, int d)
     {
@@ -98,11 +98,11 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
         };
     }
 
-    /// <summary><c>0x142027df0</c>: the vertex lies strictly inside a tile (the entry it is the top-left of belongs
+    /// <summary><c>0x14202e640</c>: the vertex lies strictly inside a tile (the entry it is the top-left of belongs
     /// to a tile that also covers the entries above and to the left).</summary>
     bool Interior(int x, int y) => Entry(x, y) is { } e && e.OffsetX > 0 && e.OffsetY > 0;
 
-    /// <summary><c>0x142027bd0</c>: the tile at entry (x, y) has an edge (not a wildcard) whose edge point on side s
+    /// <summary><c>0x14202e420</c>: the tile at entry (x, y) has an edge (not a wildcard) whose edge point on side s
     /// lies on this entry (point / 3 = the entry's place along the side; a virtual edge either of its two points).</summary>
     bool Crosses(int x, int y, int s)
     {
@@ -117,8 +117,8 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
         return type.Virtual && key.PointB[s] / 3 == along;
     }
 
-    /// <summary><c>0x142110d60</c>: with heights, the vertices on the highest level take the graph's first ground (+0xa0)
-    /// and those on the lowest its second (+0xa8), where they have no ground written (<c>0x142110f70</c>; a first ground
+    /// <summary><c>0x142117660</c>: with heights, the vertices on the highest level take the graph's first ground (+0xa0)
+    /// and those on the lowest its second (+0xa8), where they have no ground written (<c>0x142117870</c>; a first ground
     /// with the highest level 0 skips both; without a first ground the second needs a highest level of 1 or more).
     /// Then every vertex of the view with no ground written, or written with none, takes <paramref name="ground"/>
     /// (the graph's third ground, +0xb0).</summary>
@@ -144,19 +144,19 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             }
     }
 
-    /// <summary><c>0x1420289a0</c> (the primary subgraph): the view's unwalkable part, vertex flag 8. From every border
-    /// vertex inwards (<c>0x142029d30</c>, a vertex with a walkable ground — no flag 4, not
-    /// <paramref name="impassable"/> — stops it) a breadth-first flood (<c>0x142029ab0</c>) gives vertices without a
-    /// ground written the impassable ground, flags them and goes on straight or turning (<c>0x142029770</c>), never across
+    /// <summary><c>0x14202f1f0</c> (the primary subgraph): the view's unwalkable part, vertex flag 8. From every border
+    /// vertex inwards (<c>0x142030580</c>, a vertex with a walkable ground — no flag 4, not
+    /// <paramref name="impassable"/> — stops it) a breadth-first flood (<c>0x142030300</c>) gives vertices without a
+    /// ground written the impassable ground, flags them and goes on straight or turning (<c>0x14202ffc0</c>), never across
     /// a tile edge (<see cref="InTheWay"/>) nor into the interior of a tile with an AreaTransition
     /// (<paramref name="transition"/>); a walkable vertex it meets is flagged and its four neighbours with walkable
-    /// grounds too (<c>0x142029990</c>). Then the border is flagged; every inner vertex already impassable starts a flood
-    /// of its own (unless it touches a transition tile, <c>0x142027ee0</c>); inner walkable vertices beside a flagged one
+    /// grounds too (<c>0x1420301e0</c>). Then the border is flagged; every inner vertex already impassable starts a flood
+    /// of its own (unless it touches a transition tile, <c>0x14202e730</c>); inner walkable vertices beside a flagged one
     /// are flagged; a tile whose border is all flagged, without a tag (tile data +0x10), real edges or different corner grounds, is
-    /// flagged whole (<c>0x142028510</c>; one with an area transition is fatal, "Area transition tile is inaccessible", except
+    /// flagged whole (<c>0x14202ed60</c>; one with an area transition is fatal, "Area transition tile is inaccessible", except
     /// in a town: area data +0x14, WorldAreas IsTown). "No walkable area in the level" with fewer than max(10, w · h / 500) inner
     /// open vertices left.</summary>
-    /// <summary><c>0x142028870</c>: flag 8 on the view's border vertices.</summary>
+    /// <summary><c>0x14202f0c0</c>: flag 8 on the view's border vertices.</summary>
     public void FlagBorder()
     {
         for (int x = 0; x <= width; x++)
@@ -184,7 +184,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             if (InVertices(x, y)) Corner(x, y).Flags |= 8;
         }
         bool InsideTransition(int x, int y) => Interior(x, y) && Entry(x, y) is { } e && transition(e.Tile);
-        // 0x142029770.
+        // 0x14202ffc0.
         void Step(int x, int y, int d)
         {
             int nx = x + Dir[d].X, ny = y + Dir[d].Y;
@@ -197,7 +197,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             }
             if (!InTheWay(x, y, nx, ny, d)) queue.Enqueue((nx, ny, d));
         }
-        // 0x142029ab0.
+        // 0x142030300.
         void Flood()
         {
             while (queue.Count > 0)
@@ -213,14 +213,14 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
                 Step(x, y, (d - 1) & 3);
                 Step(x, y, (d + 1) & 3);
             }
-            // 0x142029990.
+            // 0x1420301e0.
             foreach (var (x, y) in met)
                 foreach (var (dx, dy) in new[] { (-1, 0), (1, 0), (0, -1), (0, 1) })
                     if (InVertices(x + dx, y + dy) && Corner(x + dx, y + dy).Ground is { } g && (Flags(g) & 4) == 0)
                         Flag(x + dx, y + dy);
             met.Clear();
         }
-        // 0x142029d30.
+        // 0x142030580.
         void Seed(int x, int y, int d)
         {
             var g = Corner(x, y).Ground;
@@ -249,7 +249,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             Flag(0, y);
             Flag(width, y);
         }
-        // 0x142027ee0: one of the entries around the vertex holds a transition tile.
+        // 0x14202e730: one of the entries around the vertex holds a transition tile.
         bool TouchesTransition(int x, int y) =>
             new[] { (x, y), (x - 1, y), (x, y - 1), (x - 1, y - 1) }.Any(p => Entry(p.Item1, p.Item2) is { } e && transition(e.Tile));
         for (int y = 1; y < height; y++)
@@ -271,7 +271,7 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
                 beside.Add((x, y));
             }
         foreach (var (x, y) in beside) Flag(x, y);
-        // 0x142028510 (with 0x142028380 and 0x14201d800).
+        // 0x14202ed60 (with 0x14202ebd0 and 0x142024050).
         for (int y = 0; y < height; y++)
             for (int x = 0; x < width; x++)
             {
@@ -297,8 +297,8 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
         throw new InvalidOperationException("No walkable area in the level");
     }
 
-    /// <summary><c>0x141fef240</c>, the fill object's tile listener (called after each tile that room tilising and the
-    /// fill place, once <c>0x142116600</c> has stored the levels at +0x90 / +0x94, just before the overlays): with
+    /// <summary><c>0x141ff5a60</c>, the fill object's tile listener (called after each tile that room tilising and the
+    /// fill place, once <c>0x14211cf00</c> has stored the levels at +0x90 / +0x94, just before the overlays): with
     /// heights, a highest level other than 0 and a top or bottom ground, every vertex of the placed tile (view
     /// coordinates) with no ground or a flag-8 one takes the top ground at or above the highest level, else the bottom
     /// ground at or below the lowest.</summary>
@@ -331,11 +331,11 @@ sealed class GroundStages(TileGrid grid, int offsetX, int offsetY, int width, in
             }
     }
 
-    /// <summary><c>0x141feed20</c>: each edge tile recorded for an EdgePoints edge type (<see cref="EdgePoint"/>)
+    /// <summary><c>0x141ff5540</c>: each edge tile recorded for an EdgePoints edge type (<see cref="EdgePoint"/>)
     /// whose key has that type on exactly two sides: on each side without an edge, the neighbouring entry gets a fill
     /// tile for the side's ground (mode 2: the side's first corner; otherwise the type's first (mode 0) or second
     /// ground, when both corners of the side have it and the entry lies in the view), at the tile's height plus that
-    /// corner's, unless the entry has a tile (<c>0x141fed640</c>, <see cref="Fill.FillSide"/>).</summary>
+    /// corner's, unless the entry has a tile (<c>0x141ff3e60</c>, <see cref="Fill.FillSide"/>).</summary>
     public void EdgePoints(IReadOnlyList<(int X, int Y, int Index)> records, IReadOnlyList<EdgePoint> points,
         Action<int, int, string?, short, int> fill)
     {

@@ -9,7 +9,7 @@ Code: `src/GameServer.Core/Protocol/Instance/InstanceItems.cs` (`Item`, `Visible
 
 An item's type is a **BaseItemTypes row**. The client's `Metadata/ItemTypeRegister` files each row under its `HASH32`
 column, which is MurmurHash2 of the row's Id: the same hash as object types (`InstanceEntities.ObjectTypeHash`;
-`Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1` → 3652280879). Lookup: `0x1421ec390` → `0x141fa5290` (sorted array of
+`Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1` → 3652280879). Lookup: `0x1421f2d00` → `0x141fabcc0` (sorted array of
 0x30-byte entries keyed by the u32).
 
 Components come from the `.it` files, merged like `.ot` files ([04](04-player-entity.md), `scripts/re/ot_components.py`)
@@ -37,31 +37,31 @@ belong to the original LocalExile revisions. Standard/Ruthless comparisons descr
 game-mode support or a fresh client run on this branch. See [the port record](../dev/issue75-port.md) for current
 automated validation and exclusions; source `artifacts/issue75-completion/` evidence remains in LocalExile.
 
-Write `0x1421ec1d0` → `0x1421ec010`, read `0x1421ec2c0` → `0x1421ec390`. Wrapped in a **u16 big-endian length**; inside,
+Write `0x1421f2b40` → `0x1421f2980`, read `0x1421f2c30` → `0x1421f2d00`. Wrapped in a **u16 big-endian length**; inside,
 everything is little-endian (memcpy):
 
 ```
 u32  type hash (BaseItemTypes HASH32)
-u16  flags            bits 0-8 → item +0x28..+0x2f (bit 4 also to the ctor 0x1421ebf10); bit 9 → u64 follows
+u16  flags            bits 0-8 → item +0x28..+0x2f (bit 4 also to the ctor 0x1421f2880); bit 9 → u64 follows
 ...  each component's data, in the type's order: vtable slot 5 (+0x28) reads, slot 4 (+0x20) writes
-u16  only for the four type hashes in 0x1421ebe90 (0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6)
+u16  only for the four type hashes in 0x1421f2800 (0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6)
 ```
 
-Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` (`0x1400f0f00`) carry nothing:
+Item component vtables (slot 4 write / slot 5 read). The ones with a bare `ret` (`0x1400f1180`) carry nothing:
 
 | Component | Vtable | Read | Data |
 |---|---|---|---|
-| Base | `0x1435e0168` | `0x1421e69c0` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 the influences (§2f) |
-| Mods | `0x1435df838` | `0x1421df6e0` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (§2f: bit1 mirrored, bit2 split, bit4 relic, bit5 synthesised, bit6 incubator u16 u16 u8 and then bit4's u8, bit7 → 0x1c8 record `0x1424b70c0`), base magic properties `0x142201d70` (rarity, identified, mod lists: §2a), u8, u8 |
-| Quality | `0x14363acd8` | `0x1424aec50` | u8 |
-| Charges | `0x143639a48` | `0x14249d4b0` | signed compact (`0x141e490e0`) |
-| Stack | `0x143634b10` | `0x1423f4b30` | u16 stack size (§4a) |
-| SkillGem | `0x143637298` | `0x14246eb00` | i32 experience (-1: one level over the cap), u32 +0x3c the variant, u8 +0x10 flags (bit 2: level locked), u16 +0x40 |
-| Sockets | `0x1435df9a0` | `0x1421e2e20` | u8 = bit0/bit1 (special: nothing more) \| socket count << 2 \| link group count << 5; per socket u8 colour << 1 \| has gem, then the gem's item data **without** the length prefix; then a u8 per link group (its socket count). Colours: 1 red, 2 green, 3 blue, 4 white (all seen live 2026-10-26) |
-| Transformed | `0x14363a3c8` | `0x1424a5760` | original item's unframed payload; u32 hash 0 represents an omitted original |
-| Armour | `0x14363ad40` | `0x1424affc0` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
-| MapKey | `0x14363abd8` | `0x1424ae7c0` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
-| LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x14363ab88`, `0x1435dfb80` … | `ret` | nothing |
+| Base | `0x1435eabe0` | `0x1421ed330` | u16 ItemVisualIdentity **HASH16** (unknown → "Attempt to set visual identity to NULL"), u8 +0xc0, u8 +0xc7 flags, u16 flags (low bit0 → u8, bit1 flavour text u16, bit2 wide string, bit3 u32, bit4 wide string, bit5 u8 n × (u32, i32), bit6 nested item, bit7 u8 n × (u32 item type, compact); high bits 0-2 → +0xc4, bit4 → 2 × u32), u8 +0xc6 the influences (§2f) |
+| Mods | `0x1435ea350` | `0x1421e6050` | u8 +0x2b8 (item level), u8 +0x2bc (the level requirement, kept as sent: §2d), u16 flags (§2f: bit1 mirrored, bit2 split, bit4 relic, bit5 synthesised, bit6 incubator u16 u16 u8 and then bit4's u8, bit7 → 0x1c8 record `0x1424bdb90`), base magic properties `0x142208700` (rarity, identified, mod lists: §2a), u8, u8 |
+| Quality | `0x143645898` | `0x1424b5720` | u8 |
+| Charges | `0x1436445f8` | `0x1424a3f80` | signed compact (`0x141e4c7e0`) |
+| Stack | `0x14363f6e8` | `0x1423fb5f0` | u16 stack size (§4a) |
+| SkillGem | `0x143641ec0` | `0x1424755d0` | i32 experience (-1: one level over the cap), u32 +0x3c the variant, u8 +0x10 flags (bit 2: level locked), u16 +0x40 |
+| Sockets | `0x1435ea420` | `0x1421e9790` | u8 = bit0/bit1 (special: nothing more) \| socket count << 2 \| link group count << 5; per socket u8 colour << 1 \| has gem, then the gem's item data **without** the length prefix; then a u8 per link group (its socket count). Colours: 1 red, 2 green, 3 blue, 4 white (all seen live 2026-10-26) |
+| Transformed | — | — | original item's unframed payload; u32 hash 0 represents an omitted original |
+| Armour | `0x143645930` | `0x1424b6a90` | u8 shared roll 0..31 (stored at +0x28); 32 (0x20) is a special minimum-base flag, which also sets +0x2a |
+| MapKey | `0x1436457f8` | `0x1424b5290` | u8 flags: bit0 → u32, bit1 → u16, bit2 → u8; zeros carry no override, so a generic `MapKeyTierN` base supplies its tier |
+| LocalStats, AttributeRequirements, Weapon, Usable, Flask, Quest, Shield, RenderItem | `0x143645740`, `0x1435ea600` … | `ret` | nothing |
 
 Minimal item the server sends: flags 0, Base with only the visual identity, Mods identified and normal with no mods.
 
@@ -71,11 +71,11 @@ Minimal item the server sends: flags 0, Base with only the visual identity, Mods
 Ordinary values 0 through 31 select `round(minimum + (maximum - minimum) * roll / 31)`.
 The interpolated base rounds halfway up before local modifiers, separately from the final item rounding.
 Raw wire value 32 sets the native special flag and uses minimum bases; it is not a maximum roll.
-The flag hides tooltip defences (`0x1416d8c67`, `ItemViewDefencesNotShown`) but does not prevent Sacred Orb use.
+The flag hides tooltip defences (`0x1416da9e7`, `ItemViewDefencesNotShown`) but does not prevent Sacred Orb use.
 It survives wire/save round trips but is never generated for ordinary new items.
 Values above 32 are refused by the server model instead of silently aliasing another roll.
 The native derived byte at Armour `+0x29` is a display percentile, not an independent saved roll.
-Reader/writer: `0x1424affc0` / `0x1424aff60`; base getters: `0x1424af890`, `0x1424af910`, `0x1424af990`.
+Reader/writer: `0x1424b6a90` / `0x1424b6a30`; base getters: `0x1424b6360`, `0x1424b63e0`, `0x1424b6460`.
 
 Fresh armour items from `ItemCatalog.Create` sample a uniform ordinary roll once.
 This is the local server's generation policy; the official server's distribution has not been measured.
@@ -104,7 +104,7 @@ ES uses that same final half-up rounding instead of truncating between local inc
 `ItemDefences.Calculate` supplies the shared local item values to equipment.
 `local_no_energy_shield` and `local_unique_tabula_rasa_no_requirement_or_energy_shield` force this item's ES to zero,
 overriding its base, flat/increased mods and quality without removing armour, evasion or another item's ES.
-The native ES getter `0x1424af430` tests these flags before the base, flat modifiers, increases or quality.
+The native ES getter `0x1424b5f00` tests these flags before the base, flat modifiers, increases or quality.
 Supported equipment ES-to-Life conversion and conditional ES increases are described in §2c.
 Sacred Orbs reroll the saved shared base roll through the currency handler (see "Sacred Orb" in §4).
 
@@ -115,14 +115,14 @@ Typed shield increases are `shield_physical_damage_reduction_rating_+%` (495),
 These add to the applicable global increase bucket on the shield contribution only, before global more multipliers.
 They do not change item tooltips, other equipment, independent flat defences or ES converted into Life.
 `combined_shield_defences_+%` (9865) is a derived stat, not a second additive source for stat 24.
-The native combined calculators are `0x142724c50`, `0x14272f680`, `0x142727dd0` and `0x14252f6a0`.
+The native combined calculators are `0x14272b800`, `0x142736230`, `0x14272e980` and `0x142536250`.
 Iron Reflexes applies both typed shield armour/evasion increases to converted shield evasion, counting stat 24 once.
 `minions_get_shield_stats_instead_of_you` and `gain_no_defences_from_equipped_shield` remove the shield's local
 contribution from player pools as well as ES-to-Life conversion.
 Full minion redirection of other shield modifiers and Devotion-dependent shield scaling remain separate mechanics.
 Fractional contributions survive slot scaling and Iron Reflexes until one final half-up round for each rating.
-Native final rounding is at `0x142732ee7` (AR), `0x14272a59b` (EV) and `0x14252c6e7` (ES).
-The ES path calls signed rounding helper `0x142513810`; it no longer truncates an ordinary final pool.
+Native final rounding is at `0x142739a97` (AR), `0x14273114b` (EV) and `0x142533297` (ES).
+The ES path calls signed rounding helper `0x14251a3c0`; it no longer truncates an ordinary final pool.
 
 Variable-base native checks verified Plate Vest rolls 0, 8, 16 and 31 as 19, 21, 23 and 27 armour.
 Raw 32 arrived as stored roll zero with special flag one and minimum armour 19, including after relog.
@@ -145,7 +145,7 @@ Automated tests also cover global modifiers, disabled equipment, Iron Reflexes, 
 
 ## 2a. Mods: rarity and mod lists
 
-The Mods component's base magic properties are ObjectMagicProperties, read by `0x142201d70` (decompiled:
+The Mods component's base magic properties are ObjectMagicProperties, read by `0x142208700` (decompiled:
 `Tools/re/out/omp.c`). Code: `MagicProperties.cs` (also a monster's, [14](14-monster-packs.md) §5), Mods.dat in the
 Gateway's `ModCatalog.cs`.
 
@@ -160,10 +160,10 @@ identified only:
   bit 5: explicit list
 ```
 
-A list is u8 count + mods. A mod (`0x142430380`): **u16 Mods.dat HASH16**, then one signed compact value
-(`0x141e490e0`) per stat of the row. The client counts the stats itself (`0x142430710`, StatsKey1..8 up to the first
+A list is u8 count + mods. A mod (`0x142436e50`): **u16 Mods.dat HASH16**, then one signed compact value
+(`0x141e4c7e0`) per stat of the row. The client counts the stats itself (`0x1424371e0`, StatsKey1..8 up to the first
 empty one; no Mods.dat row has a gap), so the count must match. An unknown hash throws "Deserialised a mod that we don't
-recognise". After reading, `0x1421ff3c0` adds the "magic" / "rare" tag and gives each list to `0x1421ff8f0` with its
+recognise". After reading, `0x142205d50` adds the "magic" / "rare" tag and gives each list to `0x142206280` with its
 kind (implicit 1, explicit 2, enchant 3, scourge and hidden without one).
 
 Indexed descriptions in 3.29.3b: `0x1424c6020` cases `0x27`, `0x28`, `0x3a` look up the stat value by
@@ -265,8 +265,9 @@ changes nothing. Nessa's **Identify Items** identifies the whole main inventory 
 
 ## 2c. Mods on the character
 
-`ItemModStats.cs`. The items in the worn equipment rows (Inventories.dat 1-10: body armour, the first weapon set,
-helmet, amulet, rings, gloves, boots, belt; not the second weapon set or the flasks) count, with every mod list. The
+`ItemModStats.cs`. The items in the worn equipment rows (Inventories.dat rows 1-10: body armour, the first weapon set,
+helmet, amulet, rings, gloves, boots and belt, and row 102 Ring3, the third ring slot the client shows while The Unseen
+Hand's `enable_ring_slot_3` stat is set; not the second weapon set or the flasks) count, with every mod list. The
 client does not let the player equip an unidentified item, so only identified items reach these rows. A stat that
 Stats.dat marks **IsLocal** belongs to its item; every other stat is the character's: it is added to the allocated
 passives' stats (`CharacterStatSources`), so it reaches the pools (`PassiveBonus` → `CharacterStats.For`: life, mana,
@@ -289,7 +290,7 @@ damage on the wand raising Fireball's damage (11-skills.md §9).
 final local ES into base Life before character-wide Life increases.
 `gain_maximum_life_instead_of_maximum_es_from_armour` selects 100% and takes precedence over
 `gain_maximum_life_instead_of_maximum_es_from_armour_at_x%_of_the_value`.
-Each item's percentage contribution truncates separately before summing (native consumer `0x142523ab0`).
+Each item's percentage contribution truncates separately before summing (native consumer `0x14252a660`).
 Conversion removes all equipment ES even when the Life gained is only a percentage of its value.
 Independent global and aura ES remains ES; global ES increases do not scale the converted Life.
 Shields excluded from the player's defences also contribute no converted Life.
@@ -312,21 +313,21 @@ Other unique and conditional defence mechanics remain separate work (#60).
 
 **Attribute requirements are computed by the client from the item type and the mods; the level requirement is sent.**
 
-- **Attributes** (`0x1424a6d90`, per attribute, read by the equip check `0x1402ce5f0`): the type's
+- **Attributes** (`0x1424ad860`, per attribute, read by the equip check `0x1402ceb80`): the type's
   AttributeRequirements value plus the item's flat requirement stats (`local_strength_and_intelligence_requirement_+` …),
   × (100 + `local_attribute_requirements_+%` + the attribute's own %) / 100, at least 0;
   `local_no_attribute_requirements` and `local_unique_tabula_rasa_no_requirement_or_energy_shield` make it 0. The check
   compares it × (100 + the player's `global_item_attribute_requirements_+%`) / 100 with
   `virtual_*_for_requirements`, and the client refuses the move itself.
-- **Level** (Mods component +0x2bc). **This one is sent:** the Mods reader `0x1421df6e0` stores the byte it receives,
-  and the client only recomputes it (`0x1421e03d0`) when an item's mods change on its side (crafting paths
-  `0x1421e0600`, `0x1421e00d0` …). The tooltip shows that byte, and the client's use check `0x1421eca50` refuses an
+- **Level** (Mods component +0x2bc). **This one is sent:** the Mods reader `0x1421e6050` stores the byte it receives,
+  and the client only recomputes it (`0x1421e6d40`) when an item's mods change on its side (crafting paths
+  `0x1421e6f70`, `0x1421e6a40` …). The tooltip shows that byte, and the client's use check `0x1421f33c0` refuses an
   item when it is above the player's level (Player +0x1ac, derived from the experience). With 0 (as we used to send)
   nothing shows and nothing is checked. The client's formula, which the Gateway uses (`ItemModStats.LevelRequirement`,
   sent through `Item.LevelRequirementOf`): 0 for types with the flag at type data +0xcb; else
   `local_level_requirement_override` if non-zero; else max(the type's level, Mods.dat Level × 4 / 5 for every mod in all
   five lists) + `local_level_requirement_+`, at least 0. Gems send 0: their requirement comes from the SkillGem
-  component (`0x14246fff0` for the level, `0x14246fc40` per attribute; [19](19-gems.md) §2). The server also refuses
+  component (`0x142476ac0` for the level, `0x142476710` per attribute; [19](19-gems.md) §2). The server also refuses
   0x2a / 0x4a into equipment rows below it (`LevelTooLow`).
 
 **Inactive items** (`ItemModStats.Inactive`): a worn item whose requirements stop being met (an attribute item taken
@@ -388,8 +389,8 @@ The export ties an implicit to any row with that text, often an old base's, so a
 unless a line names a unique's own row, the base has none, or the implicit is Eldritch; `Definition.Implicits` replaces
 them on 9 uniques. `Definition.Ranges` holds a roll that differs from the Mods.dat row, per list since a mod can be in
 both, and the generator's `STALE_ROLLS` drops the export's rolls where the row and poedb agree against it.
-Divine and Blessed Orbs reroll in these ranges (`UniqueCatalog.RollsOf`), and an admin's `/game_data mod` range wins over
-them. `Definition.Fractured` counts the fractured explicits, which come first (6 uniques).
+Divine and Blessed Orbs reroll in these ranges (`UniqueCatalog.RollsOf`), and a range in world.db's `mod_stat_overrides` wins
+over them. `Definition.Fractured` counts the fractured explicits, which come first (6 uniques).
 It writes no item level: a definition uses 86, and drops use their own. Item text the export has instead of a mod id
 resolves through `ModTextMap.lua` when a unique mod's roll fits; the rest is left out and listed by the run (the
 timeless jewels and Pure Talent, which have their own code, and about 25 lines of other uniques).
@@ -457,8 +458,8 @@ the sum (slightly above the game's). The loss on an area change is a limit: the 
 ## 2f. Item states
 
 What an item is besides its mods, and where each state travels.
-Fields come from the client's readers and its debug dumps of the two components, Base `0x1421e7570` and Mods
-`0x1421e1190`, which print each field's name.
+Fields come from the client's readers and its debug dumps of the two components, Base `0x1421edee0` and Mods
+`0x1421e7b00`, which print each field's name.
 A refusal code near a check names it too: the code is a ClientStrings row + 1 (`0x1762` is
 `ItemErrorFailedRerollVariableDefence`, row `0x1761`).
 
@@ -477,8 +478,8 @@ A refusal code near a check names it too: the code is a ClientStrings row + 1 (`
 **Influence bits.** Bit n is Influence n of `InfluenceTags.dat` and `InfluenceExalts.dat`: 0 Shaper, 1 Elder, 2 Crusader,
 3 Redeemer, 4 Hunter, 5 Warlord.
 Each bit was sent alone and the client's Ctrl+C text named that influence (live 2026-10-30; below).
-The client tests `+0xc6` for zero in its crafting checks (`0x141d57ea0` "Item has influence", `0x141f85860` "Item has no
-influence") and reads each bit when it draws the item (`0x1415703a0`).
+The client tests `+0xc6` for zero in its crafting checks (`0x141d5b530` "Item has influence", `0x141f8c130` "Item has no
+influence") and reads each bit when it draws the item (`0x1415726d0`).
 
 **Influence mods** are ordinary prefixes and suffixes behind a tag per item class: `InfluenceTags.dat` gives 24 classes a
 tag per influence (boots_shaper, ring_eyrie, body_armour_adjudicator …), and 1,446 Mods.dat rows spawn only with one.
@@ -486,15 +487,15 @@ tag per influence (boots_shaper, ring_eyrie, body_armour_adjudicator …), and 1
 `shaper_item` and `elder_item` exist in Tags.dat, but no mod's spawn weights use them.
 
 **Other Mods flags.** Bit 3 `disable_mirrored_visuals` (`+0x2e1`), bit 4 relic (`+0x2e3`, a foil look) with a
-RelicItemEffectVariations row as a u8 after the incubator data, bit 6 incubator, bit 7 the 0x1c8 record `0x1424b70c0`, bit 10
+RelicItemEffectVariations row as a u8 after the incubator data, bit 6 incubator, bit 7 the 0x1c8 record `0x1424bdb90`, bit 10
 vestigial (`+0x2e7`, `ItemErrorCannotApplyToVestigialItem`).
 Bits 0, 8 and 9 are unnamed.
-`+0x2e2` is no wire field: it marks the client's lazily built caches (`0x1421e1930`).
+`+0x2e2` is no wire field: it marks the client's lazily built caches (`0x1421e82a0`).
 
-**Other Base `+0xc7` bits.** Bit 2 locked to character, bit 3 locked to account (`0x1421e7570`); bit 5 changes what the
-writer `0x1421e64a0` sends.
+**Other Base `+0xc7` bits.** Bit 2 locked to character, bit 3 locked to account (`0x1421edee0`); bit 5 changes what the
+writer `0x1421ece10` sends.
 
-Display kinds of a mod line (`0x1424df5c0`): 2 crafted, 3 fractured, 4 mutated (Foulborn), 7 divergent.
+Display kinds of a mod line (`0x1424e6250`): 2 crafted, 3 fractured, 4 mutated (Foulborn), 7 divergent.
 
 `/item_state [state …]` switches corrupted, mirrored, split, synthesised and each influence on the held item, and `clear`
 removes them all (`ItemStates`).
@@ -523,7 +524,7 @@ foil, Foulborn and vestigial items.
 ## 3. Inventories with items (S→C 0xc0) and changes (S→C 0xbf)
 
 0xc0 ([05](05-inventories-and-ui.md) §2) carries the items after the inventory header: compact count, then per item
-(`0x1421f5680`) **u32 id, u8 x, u8 y, item**. Ids identify items within an inventory (the client keeps a map and drops
+(`0x1421fc010`) **u32 id, u8 x, u8 y, item**. Ids identify items within an inventory (the client keeps a map and drops
 duplicates); the Gateway gives every item a character-wide id and keeps it when the item moves.
 
 The 0xc0 **flags** byte: bit 0 (+0x148) = Inventories.dat column 3, a single-item slot drawn as one box (equipment, the
@@ -531,8 +532,8 @@ cursor; without it an equipment slot is a grid of cells); bit 1 (+0x149) = colum
 (equipment, flask bar). With bit 1 the client checks what may go in: the slot's item classes (a wand is red over the body
 armour slot) and the attribute requirements (§6).
 
-**S→C 0xbf** changes one inventory (dispatcher case 0x34, class `0x1435dbd28`, write `0x1421a37f0` → `0x1425079a0`,
-handler `0x141d62550` → `0x1421f5160`):
+**S→C 0xbf** changes one inventory (dispatcher case 0x34, class `0x1435e6c28`, write `0x1421aa160` → `0x14250e550`,
+handler `0x141d65be0` → `0x1421fbaf0`):
 
 ```
 u8   manager (0 = the player's)
@@ -544,31 +545,31 @@ u8   1 → 4 × u32 follow (the 0xc0 flag-bit-4 block)
 ```
 
 Removal runs before addition, so "remove id N, add id N" replaces an item in place (sockets). The other inventory
-messages: 0xc1 removes an inventory ("…inventory set remove…", class `0x1435c0898`: u8 manager, u32 id; the Gateway unloads stash tabs with it, [18](18-stash.md) §3), 0xc2 sets
-+0x160/+0x161 ("…permissions change…", class `0x1435dc660`: u8, u32, u8, u8).
+messages: 0xc1 removes an inventory ("…inventory set remove…", class `0x1435cb2d0`: u8 manager, u32 id; the Gateway unloads stash tabs with it, [18](18-stash.md) §3), 0xc2 sets
++0x160/+0x161 ("…permissions change…", class `0x1435e7560`: u8, u32, u8, u8).
 
 ## 4. Moving items (C→S)
 
-All senders sit together at `0x14215f300`… and queue through `0x14216e940`.
+All senders sit together at `0x142165c70`… and queue through `0x1421752b0`.
 
 | Id | Bytes | Class / write | Meaning | Server answer |
 |---|---|---|---|---|
-| 0x28 | 13 | `0x1435bf5f0` / `0x141fa0d00` | click on an item: pick it up. u32 inventory id **with HNC side-channel bits 21-29** (mask `0xc01fffff`, reader `0x141fa0ea0`), u32 item id, u8 (3), u8, u8 | 0xbf remove from the inventory, 0xbf add to the cursor (row 12) at (0, 0) |
-| 0x2a | 18 | `0x1435bf710` / `0x141f8feb0` | put the held item down: u32 inventory id, u32 x, u32 y (0, 0 for equipment), u8 Shift (1: one of a held stack, §4a), u8 (3), u8, u8. Sent for a click while holding on a cell; a click on an item sends 0x4a | 0xbf target (remove the displaced item, add the held one), 0xbf cursor (remove the held one, add the displaced one) |
-| 0x30 | 16 | `0x1435c0838` / `0x141f90650` | put the held gem into a socket: u32 inventory id, u32 item id, u32 socket index, u8, u8 | 0xbf cursor, 0xbf replacing the item |
+| 0x28 | 13 | `0x1435ca008` / `0x141fa7730` | click on an item: pick it up. u32 inventory id **with HNC side-channel bits 21-29** (mask `0xc01fffff`, reader `0x141fa78d0`), u32 item id, u8 (3), u8, u8 | 0xbf remove from the inventory, 0xbf add to the cursor (row 12) at (0, 0) |
+| 0x2a | 18 | `0x1435ca128` / `0x141f967a0` | put the held item down: u32 inventory id, u32 x, u32 y (0, 0 for equipment), u8 Shift (1: one of a held stack, §4a), u8 (3), u8, u8. Sent for a click while holding on a cell; a click on an item sends 0x4a | 0xbf target (remove the displaced item, add the held one), 0xbf cursor (remove the held one, add the displaced one) |
+| 0x30 | 16 | `0x1435cb270` / `0x141f96f40` | put the held gem into a socket: u32 inventory id, u32 item id, u32 socket index, u8, u8 | 0xbf cursor, 0xbf replacing the item |
 | 0x2f | 17 | — | take a socketed gem onto the empty cursor: u32 inventory id, u32 item id, u32 socket index, 3 bytes | 0xbf replacing the item, 0xbf cursor |
 | 0x31 | 14 | not traced | the **"+"** on a socketed gem ([19](19-gems.md) §4): u32 inventory id, u32 item id, u32 socket index | 0xbf replacing the item with the experience at the next level's threshold (the client derives the level), the 0x20 Actor update |
 | 0xd7 | 15 | not traced | a right-click on a socketed gem toggles its **level lock** ([19](19-gems.md) §4): u32 inventory id, u32 item id, u32 socket index, u8 locked | 0xbf replacing the item with SkillGem +0x10 bit 2 set or cleared |
-| 0x29 | 2 | `0x14316c930` (id only), sender `0x140117b80` | drop the held item into the world | 0xbf cursor, then a WorldItem (§5) |
-| 0x16 | 5 + n | `0x1435bff00` / `0x141f91480` | a Commands.dat command: u8 command (row + 1), u16 byte count + UTF-8 argument. The town popup's Destroy sends **9** (row 8 DestroyCursorItem, `/destroy`) | 0xbf cursor (the item is gone) |
-| 0x2d | 8 | `0x1435c02b8` / `0x141f90340`, senders `0x14215f520` / `0x14215f570` | inventory request, not mapped: u8, u32, u8 flag (0 / 1 by sender) | not handled |
-| 0x58 | 10 | `0x1435bf8a8` / `0x141f926a0` | use an item that needs no target (right-click): u32 inventory id, u32 item id, both big-endian | an Orb of Regret loses one item and adds one refund point (0xbf the stack, 0x33 the tree) |
+| 0x29 | 2 | `0x1431768d8` (id only), sender `0x140117ee0` | drop the held item into the world | 0xbf cursor, then a WorldItem (§5) |
+| 0x16 | 5 + n | `0x1435ca938` / `0x141f97d70` | a Commands.dat command: u8 command (row + 1), u16 byte count + UTF-8 argument. The town popup's Destroy sends **9** (row 8 DestroyCursorItem, `/destroy`) | 0xbf cursor (the item is gone) |
+| 0x2d | 8 | `0x1435cacf0` / `0x141f96c30`, senders `0x142165e90` / `0x142165ee0` | inventory request, not mapped: u8, u32, u8 flag (0 / 1 by sender) | not handled |
+| 0x58 | 10 | `0x1435ca2c0` / `0x141f98f90` | use an item that needs no target (right-click): u32 inventory id, u32 item id, both big-endian | an Orb of Regret loses one item and adds one refund point (0xbf the stack, 0x33 the tree) |
 | 0x71 | 18 | not traced | use an item on an item (right-click it, then click the target): u32 inventory id, u32 item id of the used item, then of the target, all big-endian (live 2026-10-20); the first inventory id is a stash tab (e.g. 2053) when the currency is right-clicked in the open stash (live 2026-10-23): one is taken off that tab's stack; the target inventory id can be a stash tab too, e.g. the currency tab's crafting slot (live 2026-10-23: currency in its slot used on the item in the crafting slot, both inventory ids 2053). `ItemMoves.UseAcross`: the currency and the target saved together, one 0xbf per place changed (one for both when they share it) | a Scroll of Wisdom identifies the target (§2b); a Chromatic Orb uses the 3.29 rule (`CurrencyEffects.Chromatic`, below): one socket is forced non-white, the rest roll normally, gems and links stay: 0xbf with the stack and the target |
 | 0x72 | 23 | not traced | the held currency used again with **Shift** (the client keeps it on the cursor while the inventory has more, live 2026-10-21): u32 its BaseItemTypes HASH32 (the type, not an item), u32 inventory id and u32 item id of the target, all big-endian, then u32 0, u8 1, u8 0, u8 7, u16 2 (unknown) | as 0x71, with a stack of that type from the inventories (the main inventory first), then from the stash tabs |
-| 0x4a | 14 | `0x1435bf6d0` / `0x141fa08d0`, sender `0x14215f5c0` | the held item clicked **on an item** (§4a): u32 inventory id with HNC bits from bit 20 (mask `0xc00fffff`), u32 the clicked item's id, u8 flags (bit 2 = Shift; HNC bits 3-7), u8 (3), u16 (low byte first, differs every click, unknown) | a merge (0xbf the stack, 0xbf cursor), else a swap as 0x2a |
-| 0x7c | 17 | `0x1435bfdd8` / `0x141f90870`, sender `0x142165640` | split a stack (§4a): u32 inventory id, u32 item id, u32 amount, u8 (3), u16 (unknown); no HNC bits | 0xbf the stack (same id, smaller), 0xbf cursor (a new item with the amount) |
+| 0x4a | 14 | `0x1435ca0e8` / `0x141fa7300`, sender `0x142165f30` | the held item clicked **on an item** (§4a): u32 inventory id with HNC bits from bit 20 (mask `0xc00fffff`), u32 the clicked item's id, u8 flags (bit 2 = Shift; HNC bits 3-7), u8 (3), u16 (low byte first, differs every click, unknown) | a merge (0xbf the stack, 0xbf cursor), else a swap as 0x2a |
+| 0x7c | 17 | `0x1435ca810` / `0x141f97160`, sender `0x14216bff0` | split a stack (§4a): u32 inventory id, u32 item id, u32 amount, u8 (3), u16 (unknown); no HNC bits | 0xbf the stack (same id, smaller), 0xbf cursor (a new item with the amount) |
 
-Dropping: `0x140117b80` sends 0x29 at once outside town. In town (and for quest items) it opens the Keep / Destroy popup
+Dropping: `0x140117ee0` sends 0x29 at once outside town. In town (and for quest items) it opens the Keep / Destroy popup
 instead and sends nothing unless Destroy is chosen (0x16 command 9).
 
 Rules the Gateway applies (`PlayerInventories.Place`): grids need the item inside the grid. When exactly one item is in
@@ -590,9 +591,9 @@ calculators ([04](04-player-entity.md) §4.1a), so the client derives neither, n
 character held `is_dual_wielding` 1 and skills only the off hand fits were greyed out
 ([11](11-skills.md) §10a: Shield Charge with a sceptre and a shield).
 
-The values, decoded from the 3.29.3b stat calculators that test them (`is_wielding_sword` 0x1428abac0, `_mace`
-0x1428ac240, `_axe` 0x1428abe80, `_dagger`, `_claw`, `attack_damage_is_wand_damage`, `virtual_total_quality_from_shield`
-and the off-hand "while holding a shield" calculators, `is_dual_wielding` 0x142521190):
+The values, decoded from the 3.29.3c stat calculators that test them (`is_wielding_sword` 0x1428b2680, `_mace`
+0x1428b2e00, `_axe` 0x1428b2a40, `_dagger`, `_claw`, `attack_damage_is_wand_damage`, `virtual_total_quality_from_shield`
+and the off-hand "while holding a shield" calculators, `is_dual_wielding` 0x142527d40):
 
 | Value | Weapon | Value | Weapon |
 |---|---|---|---|
@@ -609,13 +610,13 @@ and the off-hand "while holding a shield" calculators, `is_dual_wielding` 0x1425
 `is_wielding_mace` takes 3 and 5 in either hand and 4 in the main hand only; no calculator tells 3 from 5, so which is
 the sceptre is inferred from the swords' order. A quiver's value is not decoded: the Gateway sends it as an empty hand.
 
-`is_dual_wielding` (calculator 0x142521190, inputs 3, 4, `unarmed_counts_as_dual_wielding` 0x2b33 and 1): 1 when the
+`is_dual_wielding` (calculator 0x142527d40, inputs 3, 4, `unarmed_counts_as_dual_wielding` 0x2b33 and 1): 1 when the
 main hand is 14, the off hand is 14 and `unarmed_counts_as_dual_wielding` is set; otherwise 1 when the byte table
-0x142fdd728 is set for both hands' values and the off hand is not 14. The table is set for every weapon above and clear
+0x142fe77c0 is set for both hands' values and the off hand is not 14. The table is set for every weapon above and clear
 for 13 and 14.
 
 `FinalPlayerStats` sends all three from the active hands (`WeaponTypeStats`; an item whose requirements are not met is an
-empty hand; a value /set_stat set wins). The quiver check `FUN_1421eca50` reads stat 3 directly: a quiver (ItemClasses
+empty hand; a value /set_stat set wins). The quiver check `FUN_1421f33c0` reads stat 3 directly: a quiver (ItemClasses
 row + 1 = 21) needs **9**, a bow, in the main hand, or inventory quivers stay red and placement requests are never sent.
 Weapon swaps physically exchange rows 2/3 with 14/15. Verified live 2026-11-01 (Shield Charge, sceptre and shield):
 `is_dual_wielding` 0 reached the client and the skill became usable.
@@ -654,7 +655,7 @@ tables; it changes nothing itself, the server's 0xbf does.
   (fullest first), then as new stacks of at most the max in free cells. A ground stack is picked up only when all of it
   fits (`Fits`).
 
-The 0x4a writer `0x141fa08d0` packs the HNC side-channel bits into the inventory id from bit 20 and into the flags byte
+The 0x4a writer `0x141fa7300` packs the HNC side-channel bits into the inventory id from bit 20 and into the flags byte
 from bit 3, like 0x28. The framing table had 0x4a at 12 bytes (it is 14) and did not know 0x7c; both would have split
 the next message. Verified live on 2026-10-19: merge, split (10 off 35), Shift one into a cell and onto a stack, 5
 Scroll Fragments → a Scroll of Wisdom.
@@ -662,9 +663,14 @@ Scroll Fragments → a Scroll of Wisdom.
 ## 5. Items on the ground
 
 `Metadata/MiscellaneousObjects/WorldItem` (`WorldItemObject`): Positioned, BaseEvents (nothing), Animated (u8 0),
-WorldItem, InteractionAction (u8 0). WorldItem `0x141ea10a0`: u32 a (non-zero → one more u32), u8 (+0x50), u32
-ItemVisualIdentity HASH16 override (0 = the item's), then the item data without its length prefix. Created with 0x2b9 +
-wake zone 0x1a9 at the player's estimated cell, removed with 0x2bb.
+WorldItem, InteractionAction (u8 0). WorldItem `0x141ea7950`: u32 a (non-zero → one more u32), u8 (+0x50), u32
+ItemVisualIdentity HASH16 override (0 = the item's), then the item data without its length prefix. Created with 0x2bb +
+wake zone 0x1a9 at the player's estimated cell, removed with 0x2bd.
+The WorldItem u8 at +0x50 marks a fresh drop: `0x141ea7e50` dispatches it through the client override
+`0x1415e5c50`, which permits drop audio only when non-zero. Fresh drops send 1; area replay and partial-stack
+replacement send 0 so already-grounded items do not replay their sound. Filter rules still decide alert/suppression.
+Filter playback is `0x140c9b550` → `0x14010a2b0`; native NeverSink traces requested `AlertSound_06.ogg` for
+Divine/Mirror and `AlertSound_03.ogg` for the Medicine Chest, without server-selected sound IDs.
 
 Clicking it sends C→S 0x24 on the object (skill 0x0266, Interaction). **Flag 0x0002 = the inventory panel is open**
 (0x040a vs 0x0408): the item goes to the cursor instead of the first free cell. The Gateway echoes the interaction at
@@ -894,7 +900,7 @@ Mods, quality, rarity, identification, sockets, gems, links, names and fractured
 The existing atomic inventory/stash mutation saves the stack and target together and sends their 0xbf replacements.
 Rerolling worn equipment refreshes the character's shared defence pools and panel.
 
-The native target validator `0x141f83050` requires Armour and Mods components and rejects mirrored items.
+The native target validator `0x141f89920` requires Armour and Mods components and rejects mirrored items.
 The ordinary crafting protection also refuses corrupted targets.
 At least one native base-defence range must vary; otherwise it returns `0x1762`,
 `ItemErrorFailedRerollVariableDefence`: "Target item has no modifiable base defence."
@@ -973,7 +979,7 @@ nothing is spent. A mirrored item takes no currency at all, including a Scroll o
 modelled. Using a Mirror from a stash tab is a local limitation, not a game rule.
 
 `Item.Mirrored` (saved) is sent as the Mods component's u16 flags bit 1 (`+0x2df`, a plain bool with no data after
-it): the client's crafting check refuses an item with it (`0x141d68f9b`); the tooltip shows
+it): the client's crafting check refuses an item with it (`0x141d6c62b`); the tooltip shows
 "Mirrored". See [the game rules](../re/fracturing-mirror-mechanics.md).
 
 ### Hinekora's Lock (2026-10-31, server rules verified live)
@@ -985,22 +991,22 @@ reads the flag at item `+0x2c0` and shows the purple glow and the Lock tooltip t
 (`ItemErrorAlreadyHasHinekorasLock`, 6984); normal, magic, gem, corrupted, mirrored, unmodifiable and
 already-foreseeing items are refused before spending. `Item.Foreseeing`/`ForeseeSeed` are saved with the item.
 
-When a currency is used on a foreseeing item the client sends an **unframed C→S 0x029c** (20 bytes):
+When a currency is used on a foreseeing item the client sends an **unframed C→S 0x029d** (20 bytes):
 
 ```
-u16 0x029c, u16 key (BE, the client's +0xe1fa counter), u32 currency inventory, u32 currency item,
+u16 0x029d, u16 key (BE, the client's +0xe1fa counter), u32 currency inventory, u32 currency item,
 u32 target inventory, u32 target item (all BE)
 ```
 
 Captured: `029C 0001 00000001 0000054D 00000001 0000054F` = key 1, Orb of Alchemy 1357 on wand 1359. Sender
-`0x14216d5f0`, reader `0x141f9e8a0`; it only sends when both inventories are the player inventory (`client+0xc9d0`).
-The client sends 0x71 immediately after the 0x29c on the same use: 0x29c asks for the preview, 0x71 is the commit.
+`0x142173fa0`, reader `0x141fa52d0`; it only sends when both inventories are the player inventory (`client+0xc9d0`).
+The client sends 0x71 immediately after the 0x29d on the same use: 0x29d asks for the preview, 0x71 is the commit.
 
-The answer is **S→C 0x029f CurrencyApplicationForesightResult**: `u16 0x029f`, `u16 BE keyA` (the 0x29c key),
+The answer is **S→C 0x02a0 CurrencyApplicationForesightResult**: `u16 0x02a0`, `u16 BE keyA` (the 0x29d key),
 `u16 raw status` (0: preview, non-zero: failure; 0x04FA is the client's own fail code), `u64 raw count`, then
-`count × item` (u16 BE length + `Item.Payload`). Handler `0x1421544c1`, reader `0x141fa1c50`, writer
-`0x141fa1b50`. The handler builds `{keyA, status, vector<Item>}` and dispatches it to the item popup's listener
-`0x1402d0120`; the client logs `CurrencyApplicationForesightResult recieved` (`0x1435d96a0`). The key must match
+`count × item` (u16 BE length + `Item.Payload`). Handler `0x14215ae11`, reader `0x141fa8680`, writer
+`0x141fa8580`. The handler builds `{keyA, status, vector<Item>}` and dispatches it to the item popup's listener
+`0x1402d06b0`; the client logs `CurrencyApplicationForesightResult recieved` (`0x1435e3b30`). The key must match
 the request: a response with the target id in keyA is logged but not matched. Status 0 shows the preview and loads
 `HinekorasLockFutureSight`/`HinekorasLockLoop`; any non-zero status plays `HinekorasLockFail`.
 
@@ -1010,15 +1016,15 @@ preview item and the committed item are byte-for-byte the same payload. Bench, H
 currency clear the state; a refused modification keeps it.
 
 The client's preview popup is the item popup's foresight element (`HinekoraForesightPopupIcon`,
-`HinekorasLockFutureSight`). The item popup's controller sends 0x29c when a currency is used in use mode on a
-foreseeing item; 0x29f status 0 shows the preview, any non-zero status plays `HinekorasLockFail`. The server-side
+`HinekorasLockFutureSight`). The item popup's controller sends 0x29d when a currency is used in use mode on a
+foreseeing item; 0x2a0 status 0 shows the preview, any non-zero status plays `HinekorasLockFail`. The server-side
 preview/commit identity and all refusal/persistence rules are covered by the Gateway tests. See
 [the evidence](../re/hinekora-lock.md).
 
 ### Vaal Orb and corruption (2026-10-21, verified live)
 
 **Corrupted** is bit 0 of the Base component's u8 `+0xc7` (the second u8 after the visual identity): the client's
-crafting checks read it ("input_is_corrupted" at `0x141d68e64`, `test byte ptr [base+0xc7], 1`). `Item.Corrupted` writes
+crafting checks read it ("input_is_corrupted" at `0x141d6c4f4`, `test byte ptr [base+0xc7], 1`). `Item.Corrupted` writes
 it and is saved with the item. A corrupted item takes no currency but a Scroll of Wisdom (there is no corrupted
 currency yet), and nothing removes corruption.
 
@@ -1107,23 +1113,23 @@ item overrides remain open. No extracted-data changes are required.
 
 ## 6. Equipment on the character: visuals, attributes, gem skills
 
-**What the model wears** is the player's Inventories component (index 8, reader `0x141e1ee30`, also as a 0x2ba update):
-u8 n × (u8 slot, record `0x1424f44e0`), then u8 m × u16. The slot is Inventories.dat column 7 (Weapon1 0, Offhand1 1,
+**What the model wears** is the player's Inventories component (index 8, reader `0x141e22490`, also as a 0x2bc update):
+u8 n × (u8 slot, record `0x1424fb090`), then u8 m × u16. The slot is Inventories.dat column 7 (Weapon1 0, Offhand1 1,
 BodyArmour1 2, Helm1 4, Gloves1 5, Boots1 6, Ring1 8, Ring2 9, Belt1 10, Amulet1 11). The record: u8 type (**0 = empty**,
-nothing more; else the item's ItemClasses row + 1, the weapon type skills check, 11-skills.md §10a), two (u16 ItemVisualIdentity HASH16, u32 TieredMicrotransactions key, u8) references (`0x1424f3fc0`,
-`0x1424f4250`), u8 ItemStances row (`0x1424f4b10`; the row's ItemStance, else its class's: Wand = 2), u16
-ItemVisualIdentity HASH16 (`0x1424f4730`), u8. The Gateway sends every visible slot, empty ones with tag 0: a slot left
+nothing more; else the item's ItemClasses row + 1, the weapon type skills check, 11-skills.md §10a), two (u16 ItemVisualIdentity HASH16, u32 TieredMicrotransactions key, u8) references (`0x1424fab70`,
+`0x1424fae00`), u8 ItemStances row (`0x1424fb6c0`; the row's ItemStance, else its class's: Wand = 2), u16
+ItemVisualIdentity HASH16 (`0x1424fb2e0`), u8. The Gateway sends every visible slot, empty ones with tag 0: a slot left
 out keeps what the model showed before (the unequipped wand stayed in the hand).
 The player object's own list does not set how a two-handed weapon is held: after every area load it was held one-handed
-(live 2026-10-22). The Gateway sends the same list again as a 0x2ba update right after the player and the skill bar, as
+(live 2026-10-22). The Gateway sends the same list again as a 0x2bc update right after the player and the skill bar, as
 after an equip (verified live 2026-10-22).
 
-**Weapon swap (verified with a live trace, 2026-10-22).** The client sends C→S 0xdd (3 bytes, `0x1421690f0`): u8 the
+**Weapon swap (verified with a live trace, 2026-10-22).** The client sends C→S 0xdd (3 bytes, `0x14216faa0`): u8 the
 set it wants (1 the second, sent as "the current set is the first"), then waits (session +0xcfa4 = 1): no other 0xdd
-and no skill input (`FUN_14011d660`, `FUN_14215f700`) until the server answers. **S→C 0xde** (u8 flags, dispatcher case
-0x42 at `0x14214eb65`) answers: bit 0 is the active set (session +0xcd31, which the inventory panel shows,
-`FUN_1408f52e0`; a change tells the listeners), bit 1 keeps the wait (+0xcfa4 = 2), else it ends (0). S→C 0x21 carries
-the set on entry as its flag bit 0. Watch out: in the dispatcher `0x14214a190` r13 is the session object + 8, so its
+and no skill input (`FUN_14011d9c0`, `FUN_1421660b0`) until the server answers. **S→C 0xde** (u8 flags, dispatcher case
+0x42 at `0x1421554b5`) answers: bit 0 is the active set (session +0xcd31, which the inventory panel shows,
+`FUN_1408f3520`; a change tells the listeners), bit 1 keeps the wait (+0xcfa4 = 2), else it ends (0). S→C 0x21 carries
+the set on entry as its flag bit 0. Watch out: in the dispatcher `0x142150ae0` r13 is the session object + 8, so its
 "[r13+0xcd29]" is the session's +0xcd31 and "[r13+0xcf9c]" is +0xcfa4 (a Frida trace of both places showed it; reading
 the offsets as they stand had suggested only a reconnect could swap). The panel always shows the hands' rows (Weapon1 /
 Offhand1, rows 2 and 3) as the active set and rows 14 / 15 as the other one, under the I / II tab the flag selects
@@ -1131,15 +1137,15 @@ Offhand1, rows 2 and 3) as the active set and rows 14 / 15 as the other one, und
 0xdd by trading the items of rows 2 ↔ 14 and 3 ↔ 15 (`PlayerInventories.SwapWeaponSets`, saved, ids and cells kept), a
 0xbf with the new contents of each of the four, then 0xde with the set and the equipment update.
 
-**Attribute requirements** are checked (`0x1402ce5f0`) against `virtual_strength_for_requirements`,
+**Attribute requirements** are checked (`0x1402ceb80`) against `virtual_strength_for_requirements`,
 `virtual_dexterity_for_requirements` and `virtual_intelligence_for_requirements` (keys 0x3d1b-0x3d1d), cached on the Player
-component by `0x141e80340`; `global_no_attribute_requirements` (0x2ee3) skips the check and
+component by `0x141e86a30`; `global_no_attribute_requirements` (0x2ee3) skips the check and
 `global_item_attribute_requirements_+%` (0x51a) scales it. The character panel shows `strength` / `dexterity` /
-`intelligence` (575 / 581 / 578), which a UI cache (`0x141e802d0`) reads when it is built. With only those three the
+`intelligence` (575 / 581 / 578), which a UI cache (`0x141e869c0`) reads when it is built. With only those three the
 panel said 32 Int while "Requires 14 Int" stayed red. The Gateway sends all six from Characters.dat (BaseStrength …), in
 the creation blob and again as 0x1b3 after entering. A gem's attribute requirement is not the item curve: it is the
-client's own formula from the SkillGem component (`0x14246fc40`, [19](19-gems.md) §2), checked against the same three
-stats (the socket check at `0x1402ce738`).
+client's own formula from the SkillGem component (`0x142476710`, [19](19-gems.md) §2), checked against the same three
+stats (the socket check at `0x1402cecc8`).
 
 **The class byte** of the Player component is Characters.dat **IntegerId** (Marauder 1, Witch 3), not the row: with row
 1 the panel showed Marauder.
@@ -1147,8 +1153,8 @@ stats (the socket check at `0x1402ce738`).
 **Gem skills:** each active gem socketed in an equipped item grants its skill (SkillGems → the gem's GemEffects variant →
 GrantedEffect at the gem's level, `ItemCatalog.GemEffects`; [19](19-gems.md) §3), sent in the Actor skill list after the
 default attack. **Support
-gems must not be granted:** a support's effect in the list crashed the client in the skill reader (`0x141ee795a`, via
-`0x142197b59` → `0x141eea955`). Supports and links do nothing yet. Gem skills carry their level's stats and can be cast
+gems must not be granted:** a support's effect in the list crashed the client in the skill reader (`0x141eee1ba`, via
+`0x14219e4c9` → `0x141ef11b5`). Supports and links do nothing yet. Gem skills carry their level's stats and can be cast
 ([11](11-skills.md) §9–10).
 
 ## 7. Start kit, saves and dev command
@@ -1168,10 +1174,10 @@ The kit is built once, when the character has no save, and saved at once: admiss
 (`PlayerInventories.SetClass`) and passes its read-only progress preflight first, because a kit built without the class
 would be the Witch's. Without `data/tables` (`Characters.json`,
 `SkillGems.json`) and `data/item-types.json` it is empty, the Gateway logs `start kit is empty`, and the character keeps
-the empty kit: remove its row from the `characters` table of `data/saves.db` (with the Gateway stopped) to give it the kit
+the empty kit: remove its row from the `characters` table of `data/characters.db` (with the Gateway stopped) to give it the kit
 again.
 
-**Saves.** Every inventory change writes the character's items to its row in `data/saves.db` (`CharacterSaves`,
+**Saves.** Every inventory change writes the character's items to its row in `data/characters.db` (`CharacterSaves`,
 git-ignored): per Inventories.dat row the item ids, cells and items by BaseItemTypes HASH32 with level, quality, charges,
 stack size, sockets (with their gems), links and gem experience. A saved character loads from it instead of the start
 kit, so items and equipment survive Gateway restarts and logins (live 2026-10-18). The save also holds the skill bar
@@ -1244,7 +1250,7 @@ Otherwise:
    (`base_life_recovery_per_minute_from_flask`, 70 × 60 / 3 = 1400 for the Small Life Flask). Live 2026-10-20: without
    that value the client misread the message and showed no life change from then on, although the server sent every
    0x1b1. `Game_FLASK_BUFFS=0` recovers without the buffs. The buff carries the duration in flags bit1's field, which
-   the reader `0x141fdf870` keeps as an **f32 in seconds** (+0x68; without the bit it is +infinity, `0x14015a670`), and
+   the reader `0x141fe6090` keeps as an **f32 in seconds** (+0x68; without the bit it is +infinity, `0x14015a9b0`), and
    the flask-bar cell as its source skill (u16 +0x60) (`Flasks.Buff`). Until 2026-10-25 a u32 3000 (milliseconds) went
    there, which the client read as a float of almost 0 s. `Game_FLASK_BUFF_DURATION=0` sends no duration. The life orb
    rose as before with the f32 duration (live 2026-10-25); the life and mana buffs are invisible and draw no timer bar.
@@ -1321,7 +1327,7 @@ the Ruthless uses; verifier code/review was completed after capture. Earlier 18 
 All test stock, cells and charges were restored, representative level100 relogs passed in both modes, and the
 post-run audit preserved all eight identities, both original probes, both stash banks/40 tabs and untouched level20
 saves. Only normal participant last-played timestamps changed. Source/build/input hashes held, observers detached,
-the client closed, and the normal `data/saves.db` services were restored. Source removal/zero next-use controls,
+the client closed, and the normal `data/characters.db` services were restored. Source removal/zero next-use controls,
 active-use source changes, local/magic composition, named-unique acquisition and tooltip parity remain separate.
 Local receipts are under `artifacts/issue75-completion/flask-effect2-native/` (captures, operation journal, verdicts
 and cleanup), `flask-effect2-native-assessment/` (frozen policy and reviewed verifier revisions), and
@@ -1349,7 +1355,7 @@ an official rounding claim. The separate ordinary heal/hit/use bootstrap was cap
 
 The final recovery3 session logged out/detached cleanly with 769 frozen inputs unchanged, preserved original saves
 and all six canonical full inventories, and was followed by parent-verified client closure and normal
-`data/saves.db` restoration. Earlier recovery1 binding failures, recovery2 Life-readiness failure and its vendor
+`data/characters.db` restoration. Earlier recovery1 binding failures, recovery2 Life-readiness failure and its vendor
 response failure remain recorded separately. These results do not prove every zero row, legal acquisition of the
 controlled modifier carriers, a complete on-kill engine or the full native matrix.
 
@@ -1437,7 +1443,7 @@ A use:
    `CharacterPlayerStats` adds `UtilityFlasks.RawStats` (the maximum resistances, which the client adds to its own 75;
    increased critical strike chance; increased damage; cast speed; item rarity; phasing; the panel-only stats).
    `ApplyMovementSpeed` changes the walk estimate (Quicksilver: 37 × 1.4 = 51.8 cells/s) and the stats go to the client
-   (S→C 0x1b3: `movement_velocity_+%` 40 reached the client's stat setter `0x1424cfaf0`, live 2026-10-25). So
+   (S→C 0x1b3: `movement_velocity_+%` 40 reached the client's stat setter `0x1424d65c0`, live 2026-10-25). So
    `/defences`, `/resistances`, `/hit` and the character panel see them. The effect starts and ends under the
    connection's Monsters lock with the pools recomputed in the same block (`UtilityFlasks.Start` / `EndDue`), as every
    pools writer takes it (`SendEquipment` too, which now also applies the walk speed);
@@ -1492,8 +1498,8 @@ mods or the jewel's stats, where the player or the struck monster stands (radii 
   `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` keeps the buff and stats for that long after
   the last moment any of the player's grounds covered him (left, or the ground ended); a death ends it.
 - A stationary player with `consecrated_ground_while_stationary_radius` (or its Strength or Crusader variant, the
-  largest as the client's 0x1428d43a0) has one consecrated ground of that radius where he stands: made when his walk
-  ends, removed (0x2bb) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
+  largest as the client's 0x1428db1d0) has one consecrated ground of that radius where he stands: made when his walk
+  ends, removed (0x2bd) when he walks, dies or is in a town. `RunPlayerTick` starts the ticker while the radius is set.
   Rational Doctrine's `consecrated_ground_while_stationary_radius_if_highest_attribute_is_strength` is that Strength
   variant; `your_consecrated_ground_effect_lingers_for_ms_after_leaving_the_area` keeps its effect on the player for
   the listed time after he leaves the ground.
@@ -1506,7 +1512,7 @@ mods or the jewel's stats, where the player or the struck monster stands (radii 
 - Basalt (`local_flask_taunt_enemies_on_use_radius` 30): taunts the hostile monsters around for 3 s (the reminder
   text), through the player's shared taunt (`TauntLocked`, [11](11-skills.md) §12), which shows `taunted` (408).
   Row 408 is IsRecovery, so its 0x1c1 carries `taunt_target_id` and `is_taunted`; the flask used to send it without
-  them, which the 0x1c1 reader (0x141fdf870) reads past the end of the message.
+  them, which the 0x1c1 reader (0x141fe6090) reads past the end of the message.
   With one player, the taunt matters only for `taunted_enemies_damage_taken_+%` (Paladin's Bring the Battle).
 - Aquamarine's chilled ground (`local_flask_chilled_ground_on_flask_use_radius` 28) is not made: chilling monsters needs
   their slower walks and attacks to match on the client, which is not done. The ground shows the GroundEffects art
@@ -1517,7 +1523,7 @@ mods or the jewel's stats, where the player or the struck monster stands (radii 
   100 ms of game time.
 
 **Quartz Flask's phasing.** The client's Pathfinding keeps "Phase Through Objects" (+0x52e) from the player's
-`virtual_phase_through_objects` (`0x141e9cd68`) and picks its blocker filter with it (`0x141e7b77c`). The Gateway sends
+`virtual_phase_through_objects` (`0x141ea3618`) and picks its blocker filter with it (`0x141e81e6c`). The Gateway sends
 `virtual_phase_through_objects` 1 while a Quartz Flask runs (live: the client's stat setter got 1), and its walk
 estimate then does not count monsters as blockers (`ClientState.Phasing`); NPCs and stashes still block, since which
 objects the client's filter lets through is not traced.
@@ -1606,15 +1612,15 @@ The server must also send the item-use result, only after a successful use:
 Evidence: official 3.28 captures in the older project's `out/capture_stream.jsonl` contain
 `0263403b9b3b0000000c00000002000000000000` (life) and
 `026393c8c37f0000000c00000004000000000000` (mana).
-The current 3.29.3b reader `0x1421aded0` confirms the same layout, including the **four-byte** wire result
+The current 3.29.3c reader `0x1421b4840` confirms the same layout, including the **four-byte** wire result
 which it truncates into the message's u16 field at `+0x40`.
-Dispatcher case `0xc6` at `0x14215391b` fires the instance's `+0x3c78` listeners through `0x142171890`.
-UI callbacks `0x140d95a70` / `0x140ddcd60` use the type hash to look up BaseItemTypes and its use sound.
+Dispatcher case `0xc6` at `0x14215a26b` fires the instance's `+0x3c78` listeners through `0x142178200`.
+UI callbacks `0x140d931e0` / `0x140dda620` use the type hash to look up BaseItemTypes and its use sound.
 With an empty override and result zero, the sound comes from the base row's `+0x58` reference, then its `+0x10` path.
 A nonzero result takes the failure branch instead; `0x4e2` is used for full-pool refusals without a drinking sound.
 
 Live verification on 3.29.3b: normal C→S `0x70` requests for Small Life and Small Mana Flasks reached
-`0x140ddcd60`, selected `Audio/Sound Effects/ItemSounds/flaskdrink.ogg`, and submitted it to audio `0x140ff6320`.
+`0x140dda620`, selected `Audio/Sound Effects/ItemSounds/flaskdrink.ogg`, and submitted it to audio `0x140ff86e0`.
 The read-only probe is `scripts/re/frida/trace-flask-use.js` (load after `common.js`).
 Tests compare `InstanceItems.ItemUsed` against both official capture payloads.
 
@@ -1664,8 +1670,8 @@ Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`); test
   corrupted / crafted / influenced item mechanics (#60), beyond the implemented weapon and defence rules in §2;
   unexplained ObjectMagicProperties bit 9, unsupported quality effects and remaining meanings of
   Base +0xc0, Base +0xc7 bits 1, 4, 6, 7 and Mods flags bits 0, 8, 9 (§2f).
-- C→S 0x2d and 0x12 (5 bytes, seen once); 0x4a's flag bit 1, its u16 and its other callers (`0x140b34140`,
-  `0x14031c0a0`: probably currency use on an item).
+- C→S 0x2d and 0x12 (5 bytes, seen once); 0x4a's flag bit 1, its u16 and its other callers (`0x140b33690`,
+  `0x14031c630`: probably currency use on an item).
 - Unsupported currencies beyond those implemented in §4.
   Ctrl + click of a stack between inventories; a ground stack that only partly fits stays
   on the ground whole (the real game takes what fits).

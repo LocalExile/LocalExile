@@ -260,7 +260,7 @@ the keys were offered).
 | What | Type / BIT | Where | Server today | Needed |
 |---|---|---|---|---|
 | Sewer Keys | `Metadata/Items/QuestItems/SewerKeys` BIT 1549 | offer 19 (QuestRewards: SewerKeys, level 1) | reward builder makes gems/currency/flasks only | build quest items as rewards; `.it` grant `a3q11-HaveSewerKeys`, remove `a3q11-UsedSewerKeys` |
-| Sewer grating | `QuestObjects/Sewers/SewersLockedDoor` (`object_size 5`, InteractionAction, Transitionable, MinimapIcon show `a3q11-HaveSewerKeys` / hide `-UsedSewerKeys`) | tile `slum_sewer_entrance_v02_01.tdt` rec. `slum_sewer_entrance_v02_01_sewergrating2` (1_3_2 and 1_3_5) | not created; type missing in `object-types.json` | Glyph Wall pattern: use with the keys carried -> take keys, set flag, 0x2ba Transitionable 1 -> 2 |
+| Sewer grating | `QuestObjects/Sewers/SewersLockedDoor` (`object_size 5`, InteractionAction, Transitionable, MinimapIcon show `a3q11-HaveSewerKeys` / hide `-UsedSewerKeys`) | tile `slum_sewer_entrance_v02_01.tdt` rec. `slum_sewer_entrance_v02_01_sewergrating2` (1_3_2 and 1_3_5) | not created; type missing in `object-types.json` | Glyph Wall pattern: use with the keys carried -> take keys, set flag, 0x2bc Transitionable 1 -> 2 |
 | Sewer entrance | `QuestObjects/Sewers/SewersLockedTransition` (AreaTransition + Transitionable, untargetable until transitioned) | same tile, rec. `slum_sewer_entrance_v02_01_area_transition` | not created | create as a plain AreaTransition once `a3q11-UsedSewerKeys` (as `WaterCaveAreaTransition`) |
 
 ### Gates

@@ -12,6 +12,7 @@ static partial class Game
     // The real connection's admission path, shared with regression tests before any area packets are published.
     internal static int PrepareCharacterForArea(string remote, ClientState conn, int level)
     {
+        conn.Instance?.Ground.Observe(conn);
         lock (conn.Monsters)
         {
             using var availability = AscendancyPolicies.Enter(conn,

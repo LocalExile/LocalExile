@@ -49,16 +49,16 @@ static class Shared
         return root;
     }
 
-    /// <summary>The LCG draws that object scripts make when a doodad is created: 0x142063a60 (call site 0x142063b9c), an
+    /// <summary>The LCG draws that object scripts make when a doodad is created: 0x14206a2d0 (call site 0x14206a40c), an
     /// animated entity's random start time (rand() bits × length / 256); RandomElement in the Animated object actions
-    /// 0x1420aa460 (0x1420aa41b), 0x1420d6780 (0x1420d67eb) and 0x1420d7050 (0x1420d70db, KalguuranSettlersLeague); 0x142bc8ee0's bits (0x142be7a0b). They read only the
-    /// LCG, which 0x142046a70 reseeds from the MT before each pick, so they move nothing in the generation. Also
-    /// 0x141dc4d50 (0x141dc4e2b): an object whose .ao has an AOSet takes a uniform child by the same LCG (the Heist areas
+    /// 0x1420b0d60 (0x1420b0d1b), 0x1420dd080 (0x1420dd0eb) and 0x1420dd950 (0x1420dd9db, KalguuranSettlersLeague); 0x142bd2360's bits (0x142bf0e8b). They read only the
+    /// LCG, which 0x14204d2c0 reseeds from the MT before each pick, so they move nothing in the generation. Also
+    /// 0x141dc83b0 (0x141dc848b): an object whose .ao has an AOSet takes a uniform child by the same LCG (the Heist areas
     /// cards and props), a visual variant only; the LCG also moves with rand() calls the trace does not see, so the port
-    /// cannot draw it. And 0x140e3b3f0 (0x140e3b43f), the rand() ranges the vtable callers 0x1420e0d00 / 0x1420e2e10 /
-    /// 0x1420e42b0 draw after the seams (the Aqueducts, KalguuranSettlersLeague): LCG only, no MT draw between them, and
+    /// cannot draw it. And 0x140e3d710 (0x140e3d75f), the rand() ranges the vtable callers 0x1420e7600 / 0x1420e9710 /
+    /// 0x1420eabb0 draw after the seams (the Aqueducts, KalguuranSettlersLeague): LCG only, no MT draw between them, and
     /// the tiles and doodads after them match.</summary>
-    static readonly HashSet<string> ObjectScriptDraws = ["0x142063b9c", "0x1420aa41b", "0x1420d67eb", "0x142be7a0b", "0x141dc4e2b", "0x140e3b43f", "0x1420d70db"];
+    static readonly HashSet<string> ObjectScriptDraws = ["0x14206a40c", "0x1420b0d1b", "0x1420dd0eb", "0x142bf0e8b", "0x141dc848b", "0x140e3d75f", "0x1420dd9db"];
 
     /// <summary>The trace's 'n' / 'u' / 'l' draws, without <see cref="ObjectScriptDraws"/>.</summary>
     public static List<(char Kind, string Caller, uint Arg, uint Result)> TraceDraws(JsonElement t) =>
@@ -66,9 +66,9 @@ static class Shared
             .Where(d => d[0].GetString() is "n" or "u" or "l" && !ObjectScriptDraws.Contains(d[1].GetString()!))
             .Select(d => (Kind: d[0].GetString()![0], Caller: d[1].GetString()!, Arg: d[2].GetUInt32(), Result: d[3].GetUInt32())).ToList();
 
-    /// <summary>The local client's version. Its sessions log the patch root as https://patch.poecdn.com/3.29.3.3/
+    /// <summary>The local client's version. Its sessions log the patch root as https://patch.poecdn.com/3.29.3.4/
     /// or, started by live.ps1, our patch server's http://127.0.0.1:8080/ (no version in it).</summary>
-    public const string LocalVersion = "3.29.3.3";
+    public const string LocalVersion = "3.29.3.4";
 
     /// <summary>The (area, seed) → (level, tile hash) pairs the client logged, only from the local client's sessions:
     /// Client/logs/Client-*-archive.txt (older log parts kept aside, in log order) and then Client/logs/Client.txt. Each

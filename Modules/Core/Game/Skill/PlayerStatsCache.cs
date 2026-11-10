@@ -14,7 +14,7 @@ static partial class Game
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
-        public long Golems;
+        public long Golems, Slayer;
         public int Overrides, Auras;
         public bool Moving;
         public Dictionary<uint, int>? Stats;
@@ -42,12 +42,14 @@ static partial class Game
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
+            Slayer = global::Slayer.Revision(conn),
         };
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
-        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems;
+        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
+        && a.Slayer == b.Slayer;
 
     internal static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
@@ -97,7 +99,7 @@ static partial class Game
 
     // ---- the skill list ----
 
-    // The last full skill list (0x2ba, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
+    // The last full skill list (0x2bc, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
     sealed class SentSkillList { public byte[]? Bytes; }

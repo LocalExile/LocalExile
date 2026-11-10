@@ -1,6 +1,6 @@
 # Releases
 
-A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3b
+A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3c
 client Windows players need nothing else; Linux players also need umu-launcher and Python 3.
 Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../../GettingStarted.md)).
 
@@ -20,14 +20,16 @@ To build it again, delete the draft and start the workflow again.
 The same package builds by hand in a clean checkout: `.\scripts\release\build-release.ps1 -Version 0.2.0`
 (in `artifacts\release\`; it needs the .NET SDK and npm).
 Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the system's Python,
-the client under Proton through umu-run, no `LocalExileGUI`.
+the client under Proton through umu-run.
 
 ## Versions
 
 SemVer, `0.x` for now: the minor for a release with features or anything that breaks, the patch for fixes.
 The workflow prints the bump the commits suggest; the version used is always the one typed.
-The client it supports (3.29.3b) is in the notes and `release.json`.
+The client it supports (3.29.3c) is in the notes and `release.json`.
 Dev builds keep the default version and no commit, so a commit does not restart a watched Gateway.
+`GameServer.Modding` keeps assembly version 1.0.0.0 in every build: mods are built against main, and a release-numbered
+copy would refuse them.
 
 ## Commits and notes
 
@@ -44,7 +46,6 @@ Merge commits stay; no history is rewritten.
 | Path | What |
 |---|---|
 | `LocalExile.exe` | the launcher (`src/LocalExile`), one self-contained file |
-| `LocalExileGUI.exe` | a window over the launcher (`src/LocalExileGui`), for .NET Framework 4.8, which Windows 10/11 has |
 | `app/` | self-contained win-x64: the Auth, Patch and Gateway servers and the extraction tools, sharing one runtime |
 | `Modules/`, `Mods/Binaries/`, `Leagues/` | built modules and mods; leagues as source, which the Gateway compiles when it starts |
 | `Tools/python/`, `Tools/node/`, `Tools/ooz/` | the embeddable Python and Node (pinned by hash in `build-release.ps1`), ooz-wasm |
@@ -53,7 +54,7 @@ Merge commits stay; no history is rewritten.
 | `licenses/`, `README.txt`, `release.json` | licenses and the commit it was built from, the player's guide, the version |
 
 The Linux zip is the same without `.exe`: `LocalExile` and `app/` are self-contained linux-x64, `Tools/node/` holds Linux
-Node, and it has no `LocalExileGUI.exe` and no `Tools/python/`, since the system's Python runs the extraction.
+Node, and it has no `Tools/python/`, since the system's Python runs the extraction.
 `release.json` names its `runtime`.
 
 It keeps a checkout's relative paths, so the servers and tools run unchanged, with the install as working directory.
@@ -76,7 +77,7 @@ Any other start can update it. The version check needs both the login key blobs 
 
 The login list is the one client archive write, the same as `live.ps1`'s: only when it does not already name the local
 server, with the original kept in `data/gateway_list.original.txt`. That is why copying is the default: with
-`--client-mode link` it writes to the player's only copy of 3.29.3b.
+`--client-mode link` it writes to the player's only copy of 3.29.3c.
 
 `LocalExile.exe --help` lists the commands. `setup` does everything before the servers, `stop` ends this install's
 processes, `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
@@ -102,15 +103,6 @@ Exit codes: 0 done, 1 unexpected, 2 usage, 3 client not usable, 4 extraction fai
 already running, 7 input needed, 8 the client failed to start.
 A GUI keeps the process running while the game runs: ending it ends the servers and the client.
 `--password-stdin` takes the new account's password as the first line of standard input.
-
-`LocalExileGUI.exe` is that GUI: tabs to play (or run only the servers), set up (client folder, copy or link, account),
-turn mods on and off (`mod-state.txt`, as `/mod_enable` keeps it), create accounts and change passwords
-(`app\GameServer.Auth.exe passwd`), and check every part of the install. Its text is English, Simplified or Traditional
-Chinese (`Strings.cs`; the system's language unless one is picked), and its settings are in `LocalExileGUI.ini` beside it.
-It is C# 5 for the compiler in .NET Framework 4.x (`build.ps1`), so it ships no runtime.
-It does not run `LocalExile.exe stop`: that ends every process that runs from the install, the GUI's own tree included,
-and fails. It ends the `LocalExile.exe` it started, whose job ends the servers and the client, then what else runs from
-the install, as `stop` does.
 
 ## Limits
 

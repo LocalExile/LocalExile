@@ -30,7 +30,7 @@ built-in league quest flag list, [21](../../protocol/21-hideouts.md) §1). Not n
 ## 2. Unlocking gods in the campaign
 
 A god is unlocked when the character has the row's `QuestFlag`: the client reads it from the quest flags it already
-receives (S→C 0x2ba Player). Every unlock flag is a boss kill the act's quest engine sets anyway:
+receives (S→C 0x2bc Player). Every unlock flag is a boss kill the act's quest engine sets anyway:
 
 | Panel row | God | Major | Unlock flag | Quest | Boss kill (MonsterVarieties Id under `Metadata/Monsters/`, area): placement in the act file |
 |---|---|---|---|---|---|
@@ -72,7 +72,7 @@ not need the arena Sins: the unlock flags come from the kills, and the choice is
 - The town Sins' "Open Pantheon" / "View Pantheon" rows (NPCTalk 972, 1004, 1109, 1203, 1349, 1471, 1512 …, category
   38 = 0x26, need `a6q3-KilledBoss`, not `HardMode`) are handled by the client itself (it sends no 0x82 for category
   0x26, [17](../../protocol/17-npcs.md) §"C→S 0x82").
-- The server can open it: S→C 0x7b kind **0x14** (`PantheonScreen` in the client's screen table at `0x142fc5920`), what
+- The server can open it: S→C 0x7b kind **0x14** (`PantheonScreen` in the client's screen table at `0x142fd89f0`), what
   the Sin scripts' `SendOpenScreen(PantheonScreen)` does.
 
 ## 4. Choosing a god: C→S 0x1ee
@@ -80,11 +80,11 @@ not need the arena Sins: the unlock flags come from the kills, and the choice is
 | Field | Value |
 |---|---|
 | Message | instance C→S **0x1ee**, 3 bytes: u16 id, **u8 = PantheonPanelLayout row + 1** |
-| Sender | `0x14097dfc0` (the panel's select handler); class vtable `0x14345ef10`, writer `0x140e29080` (the shared u8 writer also used by 0x1a) |
-| Encoding | the byte is `(selected row pointer − table base) / 286 + 1` (row size 0x11e), computed at `0x14097e21a` … `0x14097e241` |
+| Sender | `0x14097fb20` (the panel's select handler); class vtable `0x14346cd80`, writer `0x140e27920` (the shared u8 writer also used by 0x1a) |
+| Encoding | the byte is `(selected row pointer − table base) / 286 + 1` (row size 0x11e), computed at `0x14097fd7a` … `0x14097fda1` |
 | One message for both | the row's `IsMajorGod` tells whether it replaces the major or the minor god |
 
-**Client-side gate** (before the send, `0x14097e000` … `0x14097e08d`): the client sends only when the current area is a
+**Client-side gate** (before the send, `0x14097fb60` … `0x14097fbed`): the client sends only when the current area is a
 town or a hideout (area data `+0x14`, `+0x14e`), the Rogue Harbour (HASH16 `0xb5be` HeistHub, `0x3064`
 HeistHubEndless), or when a session condition holds (`+0xd7`, and a lookup of hash `0xb1362a5d`; most likely
 `CanChangePantheon`). Otherwise it shows ClientStrings row 2925 `PantheonLocationRestrictionWarning` ("You cannot change
@@ -101,16 +101,16 @@ your selected Pantheon Powers at this location …"; looked up with the 1-based 
 
 ## 5. Showing the choice: Player component bytes +0x1ae / +0x1ad
 
-The Player component stores the selection in two bytes (debug dump `0x141e80603` … `0x141e80661`: "Minor Pantheon: "
+The Player component stores the selection in two bytes (debug dump `0x141e86cf3` … `0x141e86d51`: "Minor Pantheon: "
 `+0x1ad`, "Major Pantheon: " `+0x1ae`):
 
 - **Creation blob** ([04](../../protocol/04-player-entity.md) §4.6): the five u8 after the WashedUp byte are `+0x1ae`
   (major), `+0x1ad` (minor), `+0x1b0`, `+0x1af`, `+0x238`. `PlayerObject` writes the saved gods into the first two (`PantheonMajor`,
   `PantheonMinor`: the row + 1, 0 for none) and zeros into the rest.
-- **Update** S→C 0x2ba to the Player component (index 6): u16 flag word **0x0080**, then u8 → `+0x1ae` (major), u8 →
-  `+0x1ad` (minor) (reader `0x141e7ee30`, the bit test at `0x141e7f22c`); the reader then calls the component's vtable
+- **Update** S→C 0x2bc to the Player component (index 6): u16 flag word **0x0080**, then u8 → `+0x1ae` (major), u8 →
+  `+0x1ad` (minor) (reader `0x141e85520`, the bit test at `0x141e8591c`); the reader then calls the component's vtable
   +0x138 (refresh).
-- The panel reads both bytes at `0x14097c83f` and passes them to a virtual (major, minor). The value is very likely the
+- The panel reads both bytes at `0x14097e39f` and passes them to a virtual (major, minor). The value is very likely the
   same 1-based row as 0x1ee (0 = none): **verify live** (send 0x0080 with 1, 12 → The Brine King and Tukohama
   highlighted).
 

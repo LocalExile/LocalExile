@@ -6,9 +6,11 @@ using LocalExile;
 // It always works from its own folder, whatever folder it was started in: the servers' paths are relative to it.
 //   run (default)  everything above, until the client closes
 //   setup          everything above except the servers and the client
-//   check          say whether a folder holds the 3.29.3b client; changes nothing
+//   check          say whether a folder holds the 3.29.3c client; changes nothing
 //   stop           stop this install's servers and client
 //   account create <name>
+//   migrate-saves  split a data\saves.db from an older release into data\auth.db and data\characters.db (the
+//                  servers also do it on their first start)
 //   version | client-command | help
 // Options: --client <folder> --client-mode copy|link --no-client --port-base <n> --account <name> --password-stdin
 //          --no-update-check --json
@@ -16,8 +18,9 @@ using LocalExile;
 const string Usage = """
     LocalExile.exe [run|setup|check|stop|version|client-command|help] [options]
     LocalExile.exe account create <name> [--password-stdin]
+    LocalExile.exe migrate-saves            move an older release's data\saves.db into the new databases
 
-      --client <folder>       the Path of Exile 3.29.3b install to use
+      --client <folder>       the Path of Exile 3.29.3c install to use
       --client-mode <mode>    copy (a separate copy, the default) or link (use the folder itself; its data is changed)
       --no-client             start only the servers
       --port-base <n>         with --no-client: five ports in a row from n instead of the defaults
@@ -57,13 +60,16 @@ try
             log.Value("client-command", ClientLaunch.CommandLine(ports.Patch));
             return 0;
         case "check":
-            ClientInstall.Check(options.Client ?? "Client", log);
+            ClientInstall.Check(options.Client ?? GameServer.Core.ServerConfig.ClientFolder, log);
             return 0;
         case "stop":
             Servers.StopInstall(root, log);
             return 0;
         case "account":
             Accounts.Create(options.AccountName!, options, log);
+            return 0;
+        case "migrate-saves":
+            Accounts.MigrateSaves(log);
             return 0;
     }
 

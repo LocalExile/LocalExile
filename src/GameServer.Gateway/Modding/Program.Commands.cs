@@ -37,9 +37,10 @@ partial class Program
             ServerModules.Reload(id);
             await conn.Commands!.Reply(id is null ? "Modules reloaded (/module for the list)." : $"Module {id} reloaded (/module for the list).");
         })
-        .Add("mod", "/mod (the mods in Mods/Binaries/: loaded ones with their version, kind and hooks, and why the others are not)", async _ =>
+        .Add("mod", "/mod (the mods in Mods/Binaries/: loaded ones first, with their version, kind and hooks, then why the others are not)", async _ =>
         {
-            var mods = ServerMods.Mods();
+            // Loaded first, then the rest; each group keeps the host's order.
+            var mods = ServerMods.Mods().OrderBy(m => m.Error is not null).ToList();
             await conn.Commands!.Reply(mods.Count == 0 ? $"No mods in {ServerMods.Folder}/ (Agents/docs/dev/modding.md)."
                 : string.Join('\n', mods.Select(m => m.Error is { } error ? $"{m.Id} - not loaded, {error}"
                     : $"{m.Id} {m.Version} - {m.Kind?.ToString().ToLowerInvariant()}, {m.Hooks} hook(s)").Prepend($"--- Mods in {ServerMods.Folder}/ ---")));

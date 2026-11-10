@@ -4,8 +4,8 @@ namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Changing area through an area transition, and the instance chooser (Agents/docs/protocol/09-area-change.md).
-/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b2 (change area: the client shows the loading screen and
-/// answers C→S 0x2cb, built by 0x142148690) → S→C 0x27 (the destination instance's address, ticket and key, on the
+/// <para>Flow: C→S 0x24 (use skill on the area transition object) → S→C 0x2b4 (change area: the client shows the loading screen and
+/// answers C→S 0x2cd, built by 0x14214efe0) → S→C 0x27 (the destination instance's address, ticket and key, on the
 /// current instance connection) → the client connects to it. In game nothing listens to login 0x14 (the login
 /// connection's listener list at +0x298 is empty), so an area change cannot come from Auth.
 /// With Ctrl held the 0x24 flags carry 0x0004, and the server answers 0xae (instance list) instead, which opens the
@@ -13,10 +13,10 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceTransfer
 {
-    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b2, InstanceListId = 0xae, LeaveAreaAckId = 0x2cb,
+    public const ushort UseSkillOnObjectId = 0x24, ChangeAreaId = 0x2b4, InstanceListId = 0xae, LeaveAreaAckId = 0x2cd,
         ConnectInstanceId = 0x27, ChooseInstanceId = 0xaf;
 
-    /// <summary>The length of a C→S 0x2cb at the start of <paramref name="data"/> (writer 0x141f9fa50): u16 id, u16 BE byte
+    /// <summary>The length of a C→S 0x2cd at the start of <paramref name="data"/> (writer 0x141fa6480): u16 id, u16 BE byte
     /// count, then that many bytes (u16 6 and 0x360 bytes: 870 in all). Null until its header has arrived.</summary>
     public static int? LeaveAreaAckLength(ReadOnlySpan<byte> data) =>
         data.Length < 4 ? null : 4 + System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(data[2..]);
@@ -53,21 +53,21 @@ public static class InstanceTransfer
     }
 
     /// <summary>
-    /// S→C 0x2b2 (class 0x1435bfee0, write 0x141f92980; dispatcher case 0xe8): u16 destination WorldAreas.HASH16, u16
+    /// S→C 0x2b4 (class 0x1435ca918, write 0x141f99270; dispatcher case 0xe8): u16 destination WorldAreas.HASH16, u16
     /// LoadingScreenOverrides row (1-based, 0 = the area's default). The handler notifies the loading-screen listeners
-    /// (+0x6d70) and calls 0x142148690, which sends C→S 0x2cb once and flushes. An unknown hash is fatal ("Instance sent
+    /// (+0x6d70) and calls 0x14214efe0, which sends C→S 0x2cd once and flushes. An unknown hash is fatal ("Instance sent
     /// change area notification that does not exist").
     /// </summary>
     public static byte[] ChangeArea(ushort destinationHash16, ushort loadingScreen = 0) =>
         new LoginWriter().U16(ChangeAreaId).U16(destinationHash16).U16(loadingScreen).ToArray();
 
     /// <summary>
-    /// S→C 0x27 (class vtable 0x1435dc280, write 0x14219ddf0, read 0x14219df90; dispatcher case 0xe): connect to another
+    /// S→C 0x27 (class vtable 0x1435e7180, write 0x1421a4760, read 0x1421a4900; dispatcher case 0xe): connect to another
     /// instance. Fields in wire order: str host (+0x10), u16 port (+0x86), u32 IPv4 (+0x30), u32 (+0x34, not passed on),
     /// u16 area HASH16 (+0x84), u32 ticket (+0x38), u8 (+0x88), u8 (+0x89), 64-byte instance key (+0x3c), 8 bytes
-    /// (+0x7c). The handler builds the same instance-details object as login 0x14 (0x142173680: host, port, ip, ticket,
+    /// (+0x7c). The handler builds the same instance-details object as login 0x14 (0x142179ff0: host, port, ip, ticket,
     /// area, key, data8, u8 +0x89) and hands it to the game state's listener at instance+0xa00, which calls
-    /// 0x140d59b70 ("Got Instance Details from login server") and opens the new instance connection.
+    /// 0x140d57090 ("Got Instance Details from login server") and opens the new instance connection.
     /// </summary>
     public static byte[] ConnectInstance(string host, ushort port, uint ticket, ushort areaHash16, byte[] key64)
     {
@@ -82,7 +82,7 @@ public static class InstanceTransfer
     public sealed record InstanceListEntry(ulong CreatedUnix, uint SecondsLeft, byte U8, IReadOnlyList<string> Players);
 
     /// <summary>
-    /// S→C 0xae (class 0x1435dca40, write 0x1421a2300; dispatcher case 0x2e → listeners +0x6cf0): u16 area HASH16, u8
+    /// S→C 0xae (class 0x1435e7900, write 0x1421a8c70; dispatcher case 0x2e → listeners +0x6cf0): u16 area HASH16, u8
     /// (+0x14), u8 n entries; each: raw u64 (+0x00, created, unix seconds), u32 BE (+0x08, seconds left), u8 (+0x0c),
     /// u8 m + m × wstr (+0x10, player names).
     /// </summary>

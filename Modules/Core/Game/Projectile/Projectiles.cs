@@ -81,7 +81,11 @@ static partial class Game
             lock (Conn.Monsters)
             {
                 if (!Active) { Invalidate(); return; }
-                if (!Conn.Paused) Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                if (!Conn.Paused)
+                {
+                    TickChannelTriggers(Conn, this, Conn.Clock.Elapsed.TotalSeconds);
+                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                }
             }
         }
 
@@ -209,6 +213,8 @@ static partial class Game
                 result.Add(new(Key(id, monster), monster.Hostile ? 2 : 1,
                     t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = LivingCollision.Size(monster) });
             }
+            foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
+                result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
                 result.Add(new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
@@ -293,7 +299,7 @@ static partial class Game
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
-            var player = CharacterPlayerStats(Conn);
+            var player = shot.ActualCaster ?? CharacterPlayerStats(Conn);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
@@ -321,20 +327,23 @@ static partial class Game
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
-                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
+                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
+                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
+                target.Walk.Position(at), at);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
-            if (hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
+            if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
-            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
+            if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled)) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
-            RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
+            if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
-            ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
+            if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
             InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
@@ -361,9 +370,10 @@ static partial class Game
                 int ex = x, ey = y;
                 if (spawn && presentation.SpawnAtCaster)
                 {
-                    var caster = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
-                    ex = (int)Math.Round((double)caster.X);
-                    ey = (int)Math.Round((double)caster.Y);
+                    var caster = p.Use.Emitter.Id == PlayerId
+                        ? Vector(Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond)) : p.Use.Origin;
+                    ex = (int)Math.Round(caster.X);
+                    ey = (int)Math.Round(caster.Y);
                 }
                 Effect(ex, ey, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null, presentation.AttachEffect,
@@ -411,7 +421,7 @@ static partial class Game
                 });
                 // No 0x1a9: an object created with the header's u32 at 0xffffffff is in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
-                // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x14012946a
+                // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
                 // on an object that was gone (live 2026-11-04 and 2026-11-05, with traps firing).
                 if (presentation.FlightClip is { } clip)
                     Packet(() => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);

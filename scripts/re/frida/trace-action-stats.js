@@ -1,7 +1,7 @@
 // Self-contained (Frida 17 gives each script its own scope). Which stats an action reads that ordinary play does not:
 // for the first BASELINE_MS every (stat key, caller) pair the stat getters see is learned; after that only new pairs are
 // sent, once each, with the value returned. Walk around during the baseline, then use the skill under study.
-// Getters: 0x1424fc1e0 (stats object, runs no calculator: 11-skills.md) and 0x1424cfa40 (network Stats provider,
+// Getters: 0x142502d90 (stats object, runs no calculator: 11-skills.md) and 0x1424d6510 (network Stats provider,
 // 04-player-entity.md §4.1a). Keys are Stats.dat row + 1.
 const BASELINE_MS = 20000;
 const m = Process.getModuleByName('Game.patched.exe');
@@ -10,7 +10,7 @@ const va = p => (p.compare(m.base) >= 0 && p.compare(m.base.add(m.size)) < 0) ? 
 const start = Date.now();
 const known = new Set();
 let announced = false;
-for (const [addr, getter] of [['0x1424fc1e0', 'stats'], ['0x1424cfa40', 'network']])
+for (const [addr, getter] of [['0x142502d90', 'stats'], ['0x1424d6510', 'network']])
   Interceptor.attach(at(addr), {
     onEnter(args) { this.key = args[1].toUInt32(); this.caller = this.returnAddress; },
     onLeave(ret) {

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Utility flasks (Agents/docs/protocol/13-items.md §8a): Quicksilver, Granite, Jade, Ruby, Sapphire, Topaz, Amethyst,
@@ -122,7 +123,7 @@ static class UtilityFlasks
     {
         var result = new Dictionary<int, Utility>();
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !File.Exists(Table(t)))) return result;
+        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !ClientTables.Exists(Table(t)))) return result;
         var stats = new StatCatalog(folder);
         string StatName(JsonElement row) => stats.Name((uint)row.GetInt32() + 1);
 
@@ -415,8 +416,8 @@ static class UtilityFlasks
                 // own sources, so the stat does not count it twice.
                 "attack_speed_+%" => "attack_speed_+%",
                 "life_regeneration_rate_per_minute_%" => stat,   // consecrated ground (FlaskGrounds)
-                // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141e9cd68: +0x52e "Phase Through
-                // Objects", which picks its blocker filter, 0x141e7b77c).
+                // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
+                // Objects", which picks its blocker filter, 0x141e81e6c).
                 "phase_through_objects" => "virtual_phase_through_objects",
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat) => stat,
                 _ => null,

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Unique items the server can create. The client data has a unique's name (<c>Words</c>) and artwork
@@ -31,33 +32,6 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
 
-    /// <summary>The curated entries whose 3.29 data differs from the PoB export used for the full catalogue.</summary>
-    static readonly Definition[] Curated =
-    [
-        // Mageblood (Heavy Belt): the +25-35 Strength is the Heavy Belt implicit; the rest are the unique's mods.
-        new("Mageblood", "Metadata/Items/Belts/Belt4",
-            ["DexterityUnique__3", "FireResistUnique__24", "ColdResistUnique__34",
-             "MagicUtilityFlasksCannotUseUnique__1____", "MagicUtilityFlasksCannotRemoveUnique__1",
-             "MagicUtilityFlasksAlwaysApplyUnique__1"]),
-        // Crown of Eyes (3.29): use the current attack-leech mods, not the old physical-only variants.
-        new("Crown of Eyes", "Metadata/Items/Armours/Helmets/HelmetInt7",
-            ["IncreasedAccuracyUniqueHelmetInt7", "LocalIncreasedEnergyShieldUniqueHelmetInt7",
-             "FireResistUniqueHelmetInt7", "LifeLeechPermyriadUniqueHelmetInt7",
-             "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
-        // That Which Was Taken: a Crimson Jewel that rolls four random charm modifiers. Its modifiers are chosen in
-        // Create rather than listed here; the definition carries the base type, name and item level.
-        new("That Which Was Taken", "Metadata/Items/Jewels/JewelStr", [], 83),
-    ];
-
-    /// <summary>The generated full PoB catalogue (see scripts/re/unique_items.py), with the curated entries first so
-    /// the existing item tests and name lookup keep their 3.29 definitions.</summary>
-    internal static readonly Definition[] Seed =
-    [
-        .. Curated,
-        .. UniqueItemSeed.All.Where(entry => Curated.All(curated =>
-            !curated.Name.Equals(entry.Name, StringComparison.OrdinalIgnoreCase))),
-    ];
-
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
     /// rows: poedb's item cards give each unique's own requirement, which can be lower than the base type's level
@@ -69,6 +43,10 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         ["Blackheart|Metadata/Items/Rings/Ring1"] = ["LevelRequirementOverrideUnique__1"],
         ["Cragfall|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
         ["Craghead|Metadata/Items/Quivers/Quiver6"] = ["LevelRequirementOverrideUnique__4"],
+        // 3.29.0: these three uniques have a hidden property forbidding white sockets (PoEDB version history).
+        // Existing items keep their sockets; only newly generated ones are affected.
+        ["Dialla's Malefaction|Metadata/Items/Armours/BodyArmours/BodyInt8"] = ["LocalNoWhiteSocketsUnique__1"],
+        ["Skin of the Loyal|Metadata/Items/Armours/BodyArmours/BodyInt1"] = ["LocalNoWhiteSocketsUnique__1"],
         ["Doedre's Damning|Metadata/Items/Rings/Ring3"] = ["LevelRequirementOverrideUnique__1"],
         ["Kalandra's Touch|Metadata/Items/Rings/MirrorRing"] = ["LevelRequirementOverrideUnique__1"],
         ["Kaom's Sign|Metadata/Items/Rings/Ring2"] = ["LevelRequirementOverrideUnique__1"],
@@ -82,6 +60,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         ["Sidhebreath|Metadata/Items/Amulets/Amulet1"] = ["LevelRequirementOverrideUnique__1"],
         ["Stone of Lazhwar|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
         ["Sudden Dawn|Metadata/Items/Armours/Helmets/HelmetInt7"] = ["LevelRequirementOverrideUnique__3"],
+        ["Tabula Rasa|Metadata/Items/Armours/BodyArmours/BodyInt1"] = ["RemoveStatsFromTabulaRasa", "LevelRequirementOverrideUnique__1"],
         ["Tear of Purity|Metadata/Items/Amulets/Amulet5"] = ["LevelRequirementOverrideUnique__5"],
     };
 
@@ -166,7 +145,66 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
-        return item with { Mods = mods };
+        item = item with { Mods = mods };
+        if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
+            && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")
+            return item with
+            {
+                Sockets = Enumerable.Range(0, 6).Select(_ => new ItemSocket(SocketColour.White)).ToArray(),
+                Links = [6],
+            };
+        // The seed omits layout metadata, so the layout comes from the modifiers the client itself reads.
+        var local = ItemModStats.Local(item, items.Mods);
+        bool noWhite = local.ContainsKey("local_sockets_cannot_be_white");
+        bool abyss = local.Keys.Any(id => id is "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets");
+        if (local.ContainsKey("local_has_no_sockets")) return item;
+        if (!abyss && local.ContainsKey("local_six_linked_random_sockets"))
+        {
+            int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));
+            if (count == 0) return item;
+            var requirements = items.Requirements(type);
+            return item with
+            {
+                Sockets = [.. Enumerable.Range(0, count).Select(_ =>
+                    new ItemSocket(SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, noWhite: noWhite)))],
+                Links = [(byte)count],
+            };
+        }
+        // "Has X Sockets" rows add up: Voidfletcher's implicit gives one and its own mod two more (3.29, three sockets).
+        // The same row can be both the base's implicit and one of the unique's mods; count each row once.
+        int FixedSockets(ItemMod mod)
+        {
+            if (items.Mods.ByHash(mod.Hash) is not { } row) return 0;
+            int total = 0;
+            for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+                if (row.Stats[s].Id == "local_has_X_sockets") total += mod.Values[s];
+            return total;
+        }
+        int fixedSockets = item.Mods.GroupBy(mod => mod.Hash).Sum(group => FixedSockets(group.First()));
+        bool allWhite = local.ContainsKey("local_all_sockets_are_white");
+        if (!abyss && fixedSockets > 0 && type.Components.Contains("Sockets"))
+        {
+            // A fixed count overrides the class cap (rings and quivers are not in the socket settings but can carry
+            // sockets); 6 is the client's own maximum. Link groups use the same approximation as Jeweller's Orb: the
+            // exact unique link distribution is not known.
+            int count = Math.Clamp(fixedSockets, 0, SocketLayout.MaximumSockets);
+            var requirements = items.Requirements(type);
+            var fixedList = new List<ItemSocket>(count);
+            var fixedLinks = new List<byte> { 1 };
+            for (int i = 0; i < count; i++)
+            {
+                fixedList.Add(new(allWhite ? SocketColour.White
+                    : SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, noWhite: noWhite)));
+                if (i == 0) continue;
+                if (random.Next(2) == 0) fixedLinks[^1]++;
+                else fixedLinks.Add(1);
+            }
+            return item with { Sockets = fixedList, Links = count > 0 ? fixedLinks : null };
+        }
+        if (local.Keys.Any(id => id is "local_has_X_sockets" or "local_all_sockets_are_white"
+            or "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets")) return item;
+        var (sockets, links) = items.DefaultSockets(type, item.ItemLevel, item.Quality, random, noWhite);
+        return item with { Sockets = sockets, Links = links };
     }
 
     IEnumerable<ItemMod> Rolled(Definition definition, string[] ids, ModSection section, Random random)
@@ -176,7 +214,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
                 yield return mod.Roll(section, random, stat => RollOf(definition, mod, section, stat));
     }
 
-    /// <summary>The definition's roll of one stat. An admin's range for the mod (/game_data mod) comes first.</summary>
+    /// <summary>The definition's roll of one stat. A range for the mod in world.db's mod_stat_overrides comes first.</summary>
     static (int Min, int Max)? RollOf(Definition definition, ModCatalog.Mod mod, ModSection section, int stat) =>
         !mod.RangeOverridden(stat) && definition.Ranges?.FirstOrDefault(range => range.Mod == mod.Id && range.Stat == stat
             && range.Implicit == (section == ModSection.Implicit)) is { } own ? (own.Min, own.Max) : null;
@@ -226,7 +264,7 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(Table("Words")) || !File.Exists(Table("UniqueStashLayout")) || !File.Exists(Table("ItemVisualIdentity")))
+        if (!ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("UniqueStashLayout")) || !ClientTables.Exists(Table("ItemVisualIdentity")))
             return result;
         using var words = GameTables.Open(Table("Words"));
         using var layout = GameTables.Open(Table("UniqueStashLayout"));

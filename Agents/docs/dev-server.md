@@ -4,11 +4,11 @@ A playable server core that does **not** speak the official client's protocol. I
 characters, a world and instances over one-JSON-object-per-line TCP, for building and testing game logic.
 
 ```powershell
-dotnet run --project src/GameServer.Host            # 127.0.0.1:7000, accounts in data/saves.db
+dotnet run --project src/GameServer.Host            # 127.0.0.1:7000, accounts in data/characters.db
 dotnet run --project src/GameServer.DevClient       # interactive client
 ```
 
-Env: `Game_DEV_PORT`, `Game_DEV_BIND`, `Game_SAVES_DB` (the database), `Game_DEV_DB` (an older accounts.json, imported once).
+Env: `Game_DEV_PORT`, `Game_DEV_BIND`, `Game_CHARACTERS_DB` (the database), `Game_DEV_DB` (an older accounts.json, imported once).
 
 ## Ops (request `{"op":...}` → reply `{"ok":true,...}` or `{"ok":false,"error":"..."}`)
 
@@ -49,7 +49,7 @@ Separate from the dev protocol: this is the start of serving the real client. It
 key exchange (Agents/docs/re/008), then decodes the client's messages with `LoginCodec` (Agents/docs/re/009) and logs one line per
 message. After an id it doesn't know, it can't find the next message boundary (there's no length prefix), so it
 hex-dumps the rest of that connection. It answers account login (0x03 → 0x04) against the same account store as
-`GameServer.Host` (`data/saves.db`, [saves](saves.md)), so register accounts with the dev client first. Each account also stores a verifier
+`GameServer.Host` (`data/characters.db`, [saves](saves.md)), so register accounts with the dev client first. Each account also stores a verifier
 for the client's SHA-256 password digest, and accounts made before that get it on their next dev-protocol login. Don't
 change accounts in Host and Auth at the same time: each keeps its own in-memory copy of the file.
 

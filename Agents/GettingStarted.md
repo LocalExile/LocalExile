@@ -21,7 +21,7 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 5. **Run `live.ps1` directly** (`.\scripts\dev\live.ps1` in a PowerShell session). Do not wrap it in a pipe or
    capture its output (for example `powershell -File live.ps1 | Out-String`). The servers it starts keep the pipe
    open, so the call never returns. Read `logs\` instead.
-6. **The client must be version 3.29.3b.** The login patch and several protocol constants are specific to that build.
+6. **The client must be version 3.29.3c.** The login patch and several protocol constants are specific to that build.
    Any other version fails at step 4 or 5, with a clear error.
 
 ## What you need
@@ -31,16 +31,16 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | Windows 10/11 x64, or Linux ([below](#linux)) | the steps below are written for Windows | |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --version` prints `10.x` |
 | PowerShell 5.1+ | runs `live.ps1` | `$PSVersionTable.PSVersion` |
-| Path of Exile **3.29.3b**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
+| Path of Exile **3.29.3c**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
 | [Node.js](https://nodejs.org) (Node 24) + `npm install` in `Tools\ooz` (npm package `ooz-wasm` 2.x) | decompresses the game's bundles for the data extraction (step 7) | `node --version`; `Tools\ooz\node_modules\ooz-wasm` exists |
-| Python 3.9+ | the data extraction (step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
+| Python 3.9+ | the full data extraction (maintainers, step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
 
 **Steam installs do not work as is.** The Steam layout has no `Content.ggpk`, and its executables have other names.
 Use the standalone layout.
 
-**Getting 3.29.3b:** this repository cannot provide the client. The official launcher always updates to the newest
-version, so you need a copy that is still at 3.29.3b. Never let a newer launcher touch your copy.
+**Getting 3.29.3c:** this repository cannot provide the client. The official launcher always updates to the newest
+version, so you need a copy that is still at 3.29.3c. Never let a newer launcher touch your copy.
 
 ### Linux
 
@@ -67,7 +67,7 @@ runs under Proton, through [umu-launcher](https://github.com/Open-Wine-Component
 
 ### Third-party tools (only to extend the server)
 
-Playing needs nothing beyond the table above (step 7 extracts the game data with Node and Python). To work out more of the protocol, as
+Playing needs nothing beyond the table above (step 7 extracts the game data with Node). To work out more of the protocol, as
 [docs/re/tooling.md](docs/re/tooling.md) describes, you also need these. Apart from the dat-schema file, none of them are in the repository; install
 them yourself. Programs go under `Tools\` at the repository root (git-ignored), where the scripts look for them.
 
@@ -171,7 +171,7 @@ it.
 | Problem | Meaning |
 |---|---|
 | `data/login-keys.json exists` | keys already made; keep them (the patched client from step 5 trusts exactly these keys) |
-| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3b `PathOfExile.exe` |
+| `login verify key not found in client image` | `Client\Game.exe` is not the 3.29.3c `PathOfExile.exe` |
 
 ## 5. Patch the client to trust your keys
 
@@ -200,79 +200,57 @@ The lines printed after it all contain `127.0.0.1:20493`.
 
 ## 7. Extract the game data
 
-The Gateway reads the game's tables, object types, hideouts and more from files extracted from `Client\Content.ggpk`
-into `data\` (all git-ignored: they are game data). One script makes all of them:
+The servers read the client's tables and the files generated from them (object types, area transitions, hideouts, the
+stat descriptions, ...) from `data\client.db`, which they build from `sql\` in git (step "The databases" below). From
+your own `Client\Content.ggpk` they need two files, extracted into `data\` (git-ignored: game data):
 
 ```powershell
-.\scripts\dev\extract-data.ps1
+.\scripts\dev\extract-data.ps1 -Servers
 ```
 
 `live.ps1` (step 10) runs it on every start, so you may skip this and let `live.ps1` do it. The first run takes a few
 minutes; later runs only check stamps and finish at once. It reads the GGPK and never writes it, and does not need the
-client closed.
-
-Success: one `extracting <name> ...` and `done in N s` per file, then `game data extracted: tables, object-types, ...`.
-A second run prints `game data up to date`.
+client closed. A second run prints `game data up to date`.
 
 | File | Feature without it |
 |---|---|
-| `data\tables\*.json` (about 940, report in `data\extract-report.json`) | almost everything: stats, areas, waypoints, items, monsters, NPCs |
-| `data\object-types.json` | monsters, NPCs, area transitions |
-| `data\item-types.json` | items (characters start with none, `/item` is off) |
-| `data\area-transitions.json` | the area transitions of fixed layouts |
-| `data\room-points.json` | unique bosses |
-| `data\hideouts.json` | hideouts |
-| `data\animation-contacts.json` | each class's spell timing and where its arrows and wand bolts leave |
-| `data\monster-contacts.json` | when and from where monster projectiles leave (the Sand Spitter's mortar) |
-| `data\projectile-clips.json` | the flight and impact clips of projectile objects (monster mortars are invisible without them) |
-| `data\game-files.zip` (about 126 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
-| `data\client-constants.json` | the Gateway does not start; the Patch server closes each client's connection |
+| `data\game-files.zip` (about 121 MB) | the levels the Gateway generates itself, the Phrecia classes' passive graph check |
+| `data\client-constants.json` | the root hash of your GGPK: the Patch server closes each client's connection |
 
 After extraction the servers never open `Client\` or need Node: `data\` is enough to run them (`live.ps1 -NoClient`).
 Only the client, its setup steps and this extraction use `Client\`. To run servers on another machine, copy `data\`
-(`data\saves.db` holds the accounts and characters). The capture tour's debug tooling also reads the client's log.
+(`data\auth.db` and `data\characters.db` hold the accounts and characters). The capture tour's debug tooling also reads the client's log.
+
+Without `-Servers` the script runs the whole manifest: `data\tables\*.json` and every generator's file. That is the
+maintainer's input to `scripts\dev\client-sql.ps1 diff` after a client patch or a generator change, which writes the SQL
+for what changed ([databases](docs/dev/databases.md)); it needs Python as well.
 
 How it decides: the manifest at the top of `scripts\dev\extract-data.ps1` gives each file its command and a version
 number. The script runs every entry whose file is missing or whose stamp (`data\extract-stamps.json`) has another
 version, and the entries that need one that ran (everything needs the tables). A pull that changes a file's format
-bumps its version, and your next run regenerates it. Options: `-Force` (everything), `-Only hideouts,room-points`
-(just these), `-List` (each entry's state; runs nothing). Each run's output is in `logs\extract-<name>.log`. It
-builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with `dotnet run --no-build`.
+bumps its version, and your next run regenerates it. Options: `-Servers` (only what the servers read), `-Force`
+(everything), `-Only hideouts,room-points` (just these), `-List` (each entry's state; runs nothing). Each run's output
+is in `logs\extract-<name>.log`. It builds each .NET tool once (`logs\extract-build-<project>.log`) and runs it with
+`dotnet run --no-build`.
 
 | Problem | Meaning |
 |---|---|
 | `setup incomplete: Node.js not found` / `Tools\ooz\node_modules missing` | install Node, then `cd Tools\ooz; npm install` |
 | `setup incomplete: Python 3.9+ ...` | install Python from python.org (see step 9 for the Store alias) |
-| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3b |
+| `extract-data: <name> failed` | read `logs\extract-<name>.log`; the tables report `schema mismatch: 0` when the client is 3.29.3c |
 | `extract-data: building <project> failed` | read `logs\extract-build-<project>.log`; a build error there is a code problem in that tool, not in the game data |
 
-### Game data in the save database
+### The databases
 
-`extract-data.ps1` writes JSON under `data\`; it does not create the SQLite file. The first Gateway start (step 10, or
-`live.ps1 -Only Gateway`) creates `data\saves.db` (or `Game_SAVES_DB`) and seeds the game-data overlay from those tables:
+`extract-data.ps1` writes files under `data\`; it creates no database. Each server builds its SQLite files under `data\`
+from the SQL in `sql\` when it starts ([databases](docs/dev/databases.md)): `auth.db` and `characters.db` (accounts and
+characters), `client.db` (the client's tables, about 16 s the first time) and `world.db` (the game content: settings,
+unique weights, the item and jewel catalogues, drop tables). A pull that brings new update files applies them on the
+next start. The Gateway log shows the files applied (`[sql] world: 18 file(s) applied`) and the content it loaded
+(`[gateway] game data: revision 1, ... 1299 unique item(s), ...`).
 
-| Table | Rows on 3.29.3b | From |
-|---|---:|---|
-| `catalog_entries` | 1,299 uniques, 76 radius/threshold jewels, 43 unique jewels, 6 timeless jewels, 48 tattoo effects, 190 jewel art rows | the code arrays and the generated PoB unique catalogue |
-| `system_settings` | 51 | the code defaults |
-| `stats` / `mods` / `mod_stats` | 23,346 / 40,355 / 60,695 | `data\tables\Stats.json` and `data\tables\Mods.json` |
-| `unique_weights` | 1,527 | `data\tables\VillageUniqueDisenchantValues.json` and `Words.json` |
-| `effective_mod_stats` | view | `mod_stats` with `mod_stat_overrides` applied |
-
-The same file holds characters, accounts and stashes; deleting it resets them too. The Gateway log shows
-`[gateway] game data reference: 23346 stat(s), 40355 mod(s), 60695 default mod stat row(s)`; if that line says `empty`,
-the extraction is missing `Stats.json`/`Mods.json`: run `extract-data.ps1` and restart, or use `/game_data reference`
-while connected. `/game_data list` prints the row counts.
-
-To fill the database without starting the servers (for an editor, or to check a fresh setup), run:
-
-```powershell
-dotnet run --project src/GameServer.Gateway -- seed-game-data
-```
-
-It creates the overlay tables in `data\saves.db` (or `Game_SAVES_DB`), prints the counts and exits. Run it while the
-Gateway is stopped; a running Gateway needs `/game_data reload` to see a change made by another process. See
-[editable game data](docs/dev/editable-game-data.md) for the overlay, its reload rules and the `/game_data` commands.
+To change the content, add an update file in `sql\updates\pending_world\`; `/reload` in game reads world.db again without
+a restart. See [editable game data](docs/dev/editable-game-data.md) for what can be content.
 
 ## 8. Create an account and a character
 
@@ -282,7 +260,7 @@ Start the dev account service in one terminal:
 dotnet run --project src/GameServer.Host
 ```
 
-Success: `[host] listening on 127.0.0.1:7000, db=data\saves.db`.
+Success: `[host] listening on 127.0.0.1:7000, db=data\characters.db`.
 
 In a second terminal:
 
@@ -310,7 +288,7 @@ Every reply should contain `"ok":true`; the last one lists your character.
 - Only the Witch is supported for now. Other classes can be created, but in game you appear as a Witch (with your
   character's name).
 - Then close both: an empty line quits the dev client, and Ctrl+C stops the host. You can keep `GameServer.Host`
-  running while you play: it and the login server share the accounts in `data/saves.db`, and neither caches them.
+  running while you play: it and the login server share the accounts in `data/auth.db`, and neither caches them.
 
 ## 9. (Optional) Walk maps
 
@@ -446,14 +424,15 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | `port 8080 is used by <program>` | another program (often a web server) holds a dev port | close it, or set `Game_PATCH_URL=http://127.0.0.1:<port>/` |
 | `patch server did not start` | `Client\Content.ggpk` missing, locked or unreadable | close every client, check the path |
 | Client shows a patching/update screen or downloads | started without `live.ps1`, or the patch server is not running | close it immediately; start only through `live.ps1` |
+| "Checking resources", then "Disconnected from patching server"; `live-patch.log` shows `root hash 0000…` | `Content.ggpk` has a zero root hash (left by the official patcher or a GGPK tool) | start again: `live.ps1` and `LocalExile.exe` repair it while the client is closed |
 | "The password is not correct for this account" | wrong password, or an account created after the login server started | check the password; restart with `live.ps1` (it reloads accounts) |
 | "Account does not exist" | the name in the Email field does not match `register name=` | use the registered name |
 | Login hangs, no "Connected to login server" | gateway list not patched (step 6), or the login server is not running | redo step 6; check `logs\live-auth.log` |
-| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data/tables` and `data/item-types.json` existed, and that empty kit was saved in `data\saves.db` | extract them, stop the Gateway, delete that character's row from `data\saves.db` (or move the whole DB aside to start over), run `live.ps1` again |
+| A new character has no items, no weapon on the ground (`start kit is empty` in `live-gateway.log`) | it first logged in before `data\client.db` had the tables and item types, and that empty kit was saved in `data\characters.db` | extract them, stop the Gateway, delete that character's row from `data\characters.db` (or move the whole DB aside to start over), run `live.ps1` again |
 | Character select shows no characters | the character was created after the login server started | run `live.ps1` again |
 | `dotnet build` / `dotnet test` fails with `MSB3027` ... `locked by: ".NET Host"` | the servers `live.ps1` started are running from the same `bin\` folders | let `live.ps1` rebuild them (`-Only Gateway` …), or build and test elsewhere with a short path: `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` |
 | Stuck after Play (no area) | `Game_GATEWAY_ENTER` was set to something other than `1` | unset it; `live.ps1` sets it to `1` |
-| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3b | use the right client version |
+| `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3c | use the right client version |
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
 | Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |
@@ -462,16 +441,23 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 
 ## Configuration
 
+The servers' addresses and ports, and the client folder, are in `Config\localexile.conf` under the repository root (or
+the release folder). The servers write it with every key at its default, and what each does, on their first start; change
+what you need. The file is yours (git-ignored); delete it to get the current defaults back. To accept players from other machines, set `Login.BindAddress` and
+`Gateway.BindAddress` to `0.0.0.0` and `Gateway.PublicAddress` to the address they reach you at. Each key's environment
+variable (named in the file) wins over it; `Game_CONF` names another file.
+
 Environment variables, read when each server starts:
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `Game_GATEWAY_ENTER` | `1` (set by `live.ps1`) | `1` = enter the area after creating the player |
-| `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on |
-| `Game_LOGIN_PORT` | 20493 | login server port (must match step 6) |
-| `Game_GATEWAY_PORT` | 6112 | instance server port |
-| `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change |
-| `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port (localhost only) |
+| `Game_BIND` | `127.0.0.1` | address Auth and Gateway listen on (`Login.BindAddress`, `Gateway.BindAddress`) |
+| `Game_LOGIN_PORT` | 20493 | login server port, must match step 6 (`Login.Port`) |
+| `Game_GATEWAY_PORT` | 6112 | instance server port (`Gateway.Port`) |
+| `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change (`Gateway.PublicAddress`) |
+| `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port, localhost only (`AuthControl.Port`) |
+| `Game_CONF` | `Config\localexile.conf` | the server configuration file |
 | `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |
 | `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |
@@ -488,7 +474,8 @@ Environment variables, read when each server starts:
 | `Game_MOVE_MODE` | `echo` | `echo`, `move` or `teleport` |
 | `Game_WALK_SPEED` | 37 | walk speed in cells per second, used for position estimates |
 | `Game_DEV_DB` | `data/accounts.json` | an account store from before the save database, imported once |
-| `Game_SAVES_DB` | `data/saves.db` | character saves and stashes (Gateway, Auth) |
+| `Game_CHARACTERS_DB` | `data/characters.db` | character saves and stashes (Gateway, Auth) |
+| `Game_AUTH_DB` | `data/auth.db` (beside a characters database elsewhere: `<name>-auth.db`) | accounts (Auth, Gateway, Host) |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | instance key secret (created on first start) |
 | `Game_PATCH_URL` | `http://127.0.0.1:8080/` | patch web server address |
 | `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
@@ -505,7 +492,7 @@ Environment variables, read when each server starts:
 | `data\login-keys.json` | your login server keys | never |
 | `data\instance-secret.bin` | instance key secret | never |
 | `data\accounts.json.imported` | the account store from before the save database, kept after its import | never |
-| `data\saves.db` (with `-wal`, `-shm` while the servers run) | accounts, characters, their saves and stashes, and the game-data overlay (catalogues, settings, `stats`/`mods`/`mod_stats`) ([saves](docs/saves.md)) | never |
+| `data\auth.db`, `data\characters.db` (with `-wal`, `-shm` while the servers run) | accounts; characters, their saves and stashes ([saves](docs/saves.md), [databases](docs/dev/databases.md)) | never |
 | `data\gateway_list.original.txt` | backup for `gateway --restore` | no need |
 | `data\tables\`, `data\*-types.json`, `data\hideouts.json` … | extracted game data (step 7) and their stamps, `data\extract-stamps.json` | no (game data) |
 | `data\walkability\` | captured walk maps | no (derived from game data) |

@@ -3,7 +3,7 @@ using GameServer.Core.Saves;
 using GameServer.Storage;
 
 /// <summary>
-/// The Gateway's save database (data/saves.db, <c>Game_SAVES_DB</c>; <see cref="SaveDatabase"/>): characters
+/// The Gateway's player databases (data/characters.db, <c>Game_CHARACTERS_DB</c>, with data/auth.db; <see cref="SaveDatabase"/>): characters
 /// (<see cref="CharacterSaves"/>) and account stashes (<see cref="AccountStash"/>).
 /// <para>Every change is saved at once, in a transaction. A change that touches several saves or several parts of one
 /// (an item from the stash to the cursor, a purchase, a currency item used on an item) runs in one

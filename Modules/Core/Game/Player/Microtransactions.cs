@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>
@@ -7,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// resolve, which the client's Microtransactions panel (N) and the store's ALREADY OWNED marks read
 /// (23-microtransactions.md). A record's <c>MtxTypeHash</c> is the row's HASH32 and its <c>Id</c> the row index + 1,
 /// unique per record as the client's model needs. The panel looks each hash up in <c>MTXTypeGameSpecific.dat</c>
-/// (0x1408e4fb0 → 0x142222170), and a hash that is not there leaves a null the row build faults on (live 2026-10-23:
+/// (0x1408e1550 → 0x142228b00), and a hash that is not there leaves a null the row build faults on (live 2026-10-23:
 /// all 8411 MtxTypes rows crashed the client; 690 of them have no MtxTypeGameSpecific row), so only rows with one are
 /// sent. Names stay empty: the client names a record from its catalogue.
 /// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
@@ -26,6 +27,12 @@ sealed class MtxCatalog(string folder = "data")
     /// <summary>The owned record of a MtxTypes HASH32, or null.</summary>
     public InstanceMicrotransactions.Record? ByHash(uint hash) => Owned.FirstOrDefault(r => r.MtxTypeHash == hash);
 
+    /// <summary>The owned record a saved pick names: by its hash, or for a pick a 3.29.3b build saved (no hash) by its
+    /// record moved to the 3.29.3c MtxTypes rows (<see cref="CosmeticMigration"/>). Null when it no longer exists.</summary>
+    public InstanceMicrotransactions.Record? Resolve(CharacterSaves.SavedCosmetic saved) =>
+        saved.Hash is uint hash ? ByHash(hash)
+        : CosmeticMigration.Record3293c(saved.Record) is uint record ? Find(record) : null;
+
     /// <summary>
     /// The worn table 0x1f3 carries for <paramref name="worn"/> (MicrotransactionSlot Id → saved pick): a pick whose
     /// record no longer exists (another game version's data) is left out, so the client never gets a hash it cannot
@@ -33,7 +40,7 @@ sealed class MtxCatalog(string folder = "data")
     /// </summary>
     public List<InstanceMicrotransactions.Equipped> Equipped(IReadOnlyDictionary<byte, CharacterSaves.SavedCosmetic> worn) =>
         [.. worn.Where(w => w.Key < InstanceMicrotransactions.SlotCount)
-            .Select(w => (w.Key, w.Value, Record: Find(w.Value.Record)))
+            .Select(w => (w.Key, w.Value, Record: Resolve(w.Value)))
             .Where(w => w.Record is not null)
             .OrderBy(w => w.Key)
             .Select(w => new InstanceMicrotransactions.Equipped(w.Key, w.Record!.Id, w.Record.MtxTypeHash, w.Record.Qword, w.Value.Option))];
@@ -54,8 +61,8 @@ sealed class MtxCatalog(string folder = "data")
     /// <summary>Each row's HASH32 in table order (null for a row without one), or null without the file.</summary>
     internal static List<uint?>? Hashes(string path)
     {
-        if (!File.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return null;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray().Select(r =>
             r.TryGetProperty("HASH32", out var hash) && hash.TryGetUInt32(out uint h) ? h : (uint?)null)];
     }
@@ -97,7 +104,7 @@ sealed class CosmeticEffects(string folder = "data")
 
     public sealed record SkillRestriction(int SlotType, IReadOnlyList<int> Gems, IReadOnlyList<int> Classes);
 
-    // The same eligibility fields the client checks in 0x1424ac1e0. In particular a record from a stale picker
+    // The same eligibility fields the client checks in 0x1424b2cb0. In particular a record from a stale picker
     // must not attach A's art to B merely because it is an owned record.
     public bool FitsSkill(uint hash, ItemCatalog.BaseType gem, byte slotType) =>
         Of(hash)?.Skill is { } skill && skill.SlotType == slotType
@@ -153,7 +160,7 @@ sealed class CosmeticEffects(string folder = "data")
         }
         // Pets have no ItemisedVisualEffect row; each Pet row names its MtxTypeGameSpecific row. The server spawns the
         // pet object (PetObject); the player's pet_slot1 / pet_slot2 stat (a Pet.dat row + 1) is what the client's
-        // talking-pet audio reads (0x1401093a0 → 0x14010f530).
+        // talking-pet audio reads (0x1401096e0 → 0x14010f890).
         var petTypes = PetTypes(folder);
         int petRow = 0;
         foreach (var row in Rows(Path.Combine(dir, "Pet.json")))
@@ -189,7 +196,7 @@ sealed class CosmeticEffects(string folder = "data")
     {
         var types = new Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)>();
         string path = Path.Combine(folder, "object-types.json");
-        if (!File.Exists(path)) return types;
+        if (!ClientTables.Exists(path)) return types;
         using var doc = GameTables.Open(path);
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
@@ -211,14 +218,14 @@ sealed class CosmeticEffects(string folder = "data")
         row.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array
             ? [.. p.EnumerateArray().Select(v => v.GetInt32())] : [];
 
-    static List<ushort>? Hash16s(string path) => File.Exists(path)
+    static List<ushort>? Hash16s(string path) => ClientTables.Exists(path)
         ? [.. Rows(path).Select(r => Int(r, "HASH16") is int h ? (ushort)h : (ushort)0)]
         : null;
 
     static List<JsonElement> Rows(string path)
     {
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())];
     }
 }
@@ -235,6 +242,12 @@ sealed class SkillArt(string folder = "data")
     readonly Lazy<(Dictionary<(string, int), string> Animated, Dictionary<(string, int), ushort> BuffVisuals,
         Dictionary<(string, int), string> Projectiles)> _data = new(() => Load(folder));
     readonly Lazy<Dictionary<string, int>> _radii = new(() => Radii(folder));
+    readonly Lazy<Dictionary<string, int>> _miscRows = new(() => Rows(Path.Combine(folder, "tables", "MiscAnimated.json"))
+        .Select((row, i) => (Id: row.TryGetProperty("Id", out var id) ? id.GetString() : null, Row: i))
+        .Where(r => r.Id is { Length: > 0 }).GroupBy(r => r.Id!).ToDictionary(g => g.Key, g => g.First().Row));
+
+    /// <summary>The MiscAnimated row of this Id, or null: what an Animated component sends in place of an .ao path.</summary>
+    public int? MiscAnimatedRow(string id) => _miscRows.Value.TryGetValue(id, out int row) ? row : null;
 
     /// <summary>
     /// The radius an area art is drawn at, at scale 1, in world units: MiscAnimated <c>__col4</c> of the rows drawing
@@ -295,7 +308,7 @@ sealed class SkillArt(string folder = "data")
                 && pa[0].GetInt32() is int pr && pr < projectileRows.Count && projectileRows[pr].GetProperty("Id").GetString() is { Length: > 0 } pid)
                 projectiles.TryAdd((row.GetProperty("Id").GetString() ?? "", v), pid);
         string dir = Path.Combine(folder, "tables"), miscPath = Path.Combine(dir, "MiscAnimated.json");
-        var misc = File.Exists(miscPath) ? Rows(miscPath) : [];
+        var misc = ClientTables.Exists(miscPath) ? Rows(miscPath) : [];
         foreach (var row in Rows(Path.Combine(dir, "MiscAnimatedArtVariations.json")))
             if (Int(row, "Variant") is int v && row.GetProperty("Animation") is { ValueKind: JsonValueKind.Array } a && a.GetArrayLength() > 0
                 && a[0].GetInt32() is int m && m < misc.Count && misc[m].GetProperty("AOFile").GetString() is { Length: > 0 } ao)
@@ -311,8 +324,8 @@ sealed class SkillArt(string folder = "data")
 
     static List<JsonElement> Rows(string path)
     {
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())];
     }
 }

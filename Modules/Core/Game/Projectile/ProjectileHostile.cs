@@ -16,7 +16,7 @@ static partial class Game
     /// other shots target the player's current cell. A
     /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
     /// actors) are in its way, never the other monsters. A monster's action releases a projectile of the client's own only
-    /// with a count on its skill record (the mortar attack's release, 0x141ba51a0): a <c>monster_mortar_attack</c>
+    /// with a count on its skill record (the mortar attack's release, 0x141ba7c30): a <c>monster_mortar_attack</c>
     /// record carries one and the client draws it (MonsterProjectileProfile); any other shot's, a spell mortar's included,
     /// carries none, and the server's object is the projectile the player sees.</summary>
     internal static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,

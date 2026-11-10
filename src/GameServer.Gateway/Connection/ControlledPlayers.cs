@@ -13,6 +13,18 @@ interface IControlledPlayerRules
     Task ControlledCompletion(ClientState player);
 }
 
+// Optional command boundary supplied by a game module. The transport does not implement gameplay rules.
+sealed record ControlledPlayerIntent(string Id, string Action, double Until, ushort Skill = 0,
+    uint Target = 0, int X = 0, int Y = 0, int Flask = 0, long WallDeadline = 0);
+
+interface IControlledPlayerCommands
+{
+    double MaximumLeaderDistance { get; }
+    void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent);
+    void ClearControlledIntent(ClientState player);
+    object ObserveControlledPlayer(ClientState player, ClientState leader);
+}
+
 static class ControlledPlayers
 {
     static readonly ConditionalWeakTable<ConnectionCiphers, object> Transports = new();

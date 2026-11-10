@@ -32,6 +32,8 @@ static class VendorsFeature
         var items = ItemsOf(conn);
         var stash = StashOf(conn);
         var catalog = ItemsFor(conn);
+        if (row is byte requested && LevelTooLow(conn, requested, offer.Item.Item) is { } low)
+        { await conn.Commands!.Reply(low); return; }
         var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
         bool finite = shop.Finite.TryGetValue(id,out var token);
         bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(conn),key,token,PersonalStashOf(conn));
@@ -43,12 +45,25 @@ static class VendorsFeature
         foreach (var payment in purchase.Payments) await SendStashPayment(remote,stream,ciphers,conn,stash,payment.Stash);
         await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
             items.NextRevision(PlayerInventories.MainInventory),before,items.Items(PlayerInventories.MainInventory)),"0x00bf vendor payment and purchase");
-        if (row is byte destination && destination != PlayerInventories.MainInventory)
+        if (purchase.Equipped is { } equipped)
+        {
+            if (equipped.Row == PlayerInventories.Flask)
+                equipped = equipped with { Placed = EmptyIfEquippedInHostileArea(conn, items, equipped.Placed) };
+            await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(equipped.Row),
+                items.NextRevision(equipped.Row),equipped.Displaced is { } old ? [old.Id] : [],[equipped.Placed]),
+                "0x00bf vendor item equipped");
+            if (equipped.Displaced is { } displaced)
+                await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                    items.NextRevision(PlayerInventories.Cursor),[],[displaced]),"0x00bf replaced equipment to cursor");
+            await SendEquipment(remote,stream,ciphers,conn,items);
+            if (equipped.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote,stream,ciphers,conn);
+        }
+        else if (row is byte destination && destination != PlayerInventories.MainInventory)
             await Send(remote,stream,ciphers,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
                 items.NextRevision(destination),[],purchase.Bought),"0x00bf vendor item to cursor");
         await Send(remote,stream,ciphers,InstanceItems.InventoryChange(offer.Tab,shop.NextRevision(offer.Tab),[id],
             finite ? [] : [offer.Item],NpcShops.Manager),"0x00bf vendor offer updated");
-        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02a9 vendor gold balance");
+        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02aa vendor gold balance");
         Console.WriteLine($"[gateway] {remote} vendor purchased {id} from {shop.Npc.Npc.Name}; finite={finite}");
     }
 
@@ -245,9 +260,9 @@ static class VendorsFeature
                 NpcShops.Manager, tabs[i].Items, nativeTabs ? (byte)0x60 : null),
                 $"0x00c0 shop tab {ids[i]} \"{tabs[i].Name}\" (manager {NpcShops.Manager}) of {npc.Npc.Name}: {tabs[i].Items.Count} items");
         conn.InNpcTalk = false;
-        // 0x8c's u16 is the window kind (0x14073ee60, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
-        // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073d570). The NPC's DialogueStyle
-        // picks the window, not the u8 (0x140dcccf0). A tab's compact value is its colour (0x14073d570: ARGB, 0 the default).
+        // 0x8c's u16 is the window kind (0x140740840, +0x5f0: 0 buy, 1-4 haggle/deal/exchange/expedition, 9 Azmeri, 10 black
+        // market, 11 unset), its u8 the async trade mode ("Merchant" title, +78 height, 0x14073ef50). The NPC's DialogueStyle
+        // picks the window, not the u8 (0x140dca580). A tab's compact value is its colour (0x14073ef50: ARGB, 0 the default).
         await Send(remote, stream, ciphers, InstanceNpcs.Dialogue(npcObject, 0, false, ids,
             nativeTabs ? [] : [.. tabs.Select(t => new InstanceNpcs.Choice(unchecked((int)t.TabColour), t.Name))]),
             $"0x008c open the buy window of {npc.Npc.Name} with tabs {string.Join(", ", tabs.Select(t => t.Name))}");
@@ -283,7 +298,7 @@ static class VendorsFeature
         });
         if (window is null) { await conn.Commands!.Reply($"Kirac's refresh costs {KiracProgress.For(PersonalStashOf(conn)).ShopRerollCost} Gold."); return; }
         var (remote,stream,ciphers) = conn.Wire;
-        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02a9 Kirac refresh");
+        await Send(remote,stream,ciphers,InstanceEntities.Gold(PersonalStashOf(conn).Gold),"0x02aa Kirac refresh");
         uint npcObject = conn.Npcs.FirstOrDefault(p => p.Value == shop.Npc).Key;
         await OpenNpcShop(remote,stream,ciphers,conn,npcObject,shop.Npc,window);
     }

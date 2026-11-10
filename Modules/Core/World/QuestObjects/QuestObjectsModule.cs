@@ -135,7 +135,10 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                     {
                         Act3Objects.LabyrinthPlaque => () => QuestobjectsRules.UseSarnPlaque(remote, stream, ciphers, conn),
                         Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(remote, stream, ciphers, conn),
-                        Act3Objects.ReturnPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
+                        Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
+                        Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(remote, stream, ciphers, conn),
+                        Act7Objects.Orrery => () => Send(remote, stream, ciphers,
+                            InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,
                     });
                 return true;
@@ -152,6 +155,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 await UseGlyphWall(remote, stream, ciphers, conn, use);
                 return true;
             }
+            // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
+            if (QuestobjectsRules.PickLabyrinthStash(conn, use.TargetId)) return false;
             return await UseTrialObject(remote, stream, ciphers, conn, use);
         });
     }

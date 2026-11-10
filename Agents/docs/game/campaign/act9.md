@@ -18,7 +18,9 @@ grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom 
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act9.cs`, [12](../../protocol/12-quests.md) §18), with
 driver steps `a9q3`, `a9q5`, `a9q4`, `a9q2`, `a9q1`. Played live on 2026-10-31 before the game moved into modules; on
-the modules the oracle (`QuestEngineTests`) and the offline exit audit check it, not yet the client. The sections
+the modules the oracle (`QuestEngineTests`) and the offline exit audit check it; the Rotting Core's portals,
+Trinity encounter and blood landing are also verified with the 3.29.3c client. The remaining modular quests have
+not been replayed live. The sections
 after the status are the research done before the act was built. What differs from the sections below:
 - Every boss is placed (the numbered boss points: Shakari's two stages, the three spirits and the Trinity at their
   numbered points). The Basilisk drops its acid, Garukhan the Sekhema Feather, Boulderback the calendar (no table names
@@ -90,12 +92,12 @@ with `a9q1-PortalsOpen` missing. No reward offer.
 | SinQuarry | `Metadata/NPC/Act9/SinQuarry` (NPCs 289; StateMachine `open_animation`) | room line (166, 90) of `Act9/Area8/Rooms/exit.arm` | **not created (out-of-town NPC)** | create; row 1376's script |
 | Beast membrane | `Metadata/QuestObjects/Act9/BeastMembraneTransition` (AreaTransition + Transitionable; MinimapIcon `show_flag = SinEnterBeast`; client Timer 4.3 s) and `BeastMembraneAnimated` (server_only, Transitionable) | tile `Mountain/Quarry/Feature/BeastMembrane.tdt` records `…_membrane_transition` / `…_BeastMembrane` | not created | quest-gated transition into 2_9_10_1 (`FlagToEnter(2_9_8 → 2_9_10_1)` = `SinEnterBeast`), created transitioned when the flag is set |
 | Membrane blockers | `Metadata/QuestObjects/Act9/BeastMembraneBlocker` ×7 (`blocking`, `unblock_quest_flag = SinEnterBeast`, no_serialise) | room lines of `exit.arm` (125, 105…140) | client-side | close the server walk estimate (QuestBarriers) until the flag |
-| SinCore | `Metadata/NPC/Act9/SinCore` (NPCs 292; StateMachine `open_portals`, `dark_ember`) | room line (329, 268) of `IntroRooms/Unique/boss_2.arm` | **not created** | create; scripts of 1386/1388 |
-| Sub-boss portals | `Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioSubBossPortal` ×3 (AreaTransition + Transitionable), return `PortalToggleable` ×3 | room lines | not created | in-area teleports (the driver can `/tp` to the souls) |
-| Seed of corruption | `Metadata/QuestObjects/Act9/HarvestFinalBossTransition` (AreaTransition + Transitionable; Timer unread) + `HarvestFinalBossAnimate` | room line (310, 294) of `boss_2.arm` | not created | in-area teleport to the Trinity arena (driver: `/tp`) |
-| The three spirits | MV 6159, 6175, 6169 | `mapboss2`, `mapboss3`, `mapboss4` of the organ rooms | NOT placed (point names) | `mapboss<N>` placement; kill flags |
-| The Depraved Trinity | MV 6192 (ActBoss; Transitionable: untargetable until transitioned; StateMachine `visible`) | `mapboss1` of `boss_3.arm` | NOT placed (point name) | place (after 1386 or always) in Transitionable state 2 so it is targetable; kill flag |
-| Lilly | `Metadata/NPC/Act9/Lilly` (NPCs 293) | room line (312, 236) of `IntroRooms/Unique/weylam.arm` | **not created** | create; row 1395's `AreaTransitionTo` script |
+| SinCore | `Metadata/NPC/Act9/SinCore` (NPCs 292; StateMachine `open_portals`, `dark_ember`) | room line (329, 268) of `IntroRooms/Unique/boss_2.arm` | created; scripts of 1386/1388 | per-instance portal deaths also gate access for characters replaying completed quests |
+| Sub-boss portals | `Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioSubBossPortal` ×3, return `PortalToggleable` ×3 | placed organ rooms | routed by portal identity and placed boss; return opens on that instance's kill | both ends reuse the same art; persistent kill flags cannot substitute for this instance's three deaths |
+| Seed of corruption | `HarvestFinalBossTransition` + `HarvestFinalBossAnimate` | room line (310, 294) of `boss_2.arm` | animated; routes to the placed Trinity point after the three kills and Sin's opening | `.ot` opens the model with clip 2, then queues clip 1 |
+| The three spirits | MV 6159, 6175, 6169 | `mapboss2`, `mapboss3`, `mapboss4` | placed, kill flags and next form | summoned leftovers retire with their dead parent |
+| The Depraved Trinity | MV 6192, Transitionable and `visible` StateMachine | `mapboss1` of `boss_3.arm` | created after three deaths; native skill set, two six-aberration phases, blood passage | official AI decision weights / exact cascade geometry remain unverified |
+| Lilly | `Metadata/NPC/Act9/Lilly` (NPCs 293) | `weylam.arm` | created after victory; blood takes the player and public arena loot to `UnholyTrioLootLocator` | the landing is within the same area; row 1395 alone sails to Act 10 |
 
 ### Gates
 `SinEnterBeast`: EndQuestFlags of 2_9_10_1 and 2_9_10_2. `a9q1-KilledBoss`: EndQuestFlags of 2_10_town, 2_10_1, 2_10_2,

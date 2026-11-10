@@ -1,4 +1,4 @@
-// Self-contained. In lockstep (network mode 2) the world (0x142183930, vtable 0x1435da318) runs its world messages one
+// Self-contained. In lockstep (network mode 2) the world (0x14218a2a0, vtable 0x1435e4db8) runs its world messages one
 // server frame at a time from a queue of frame lengths (+0x9c0 deque, count +0x9d8) and a message list (+0x9e0/+0x9e8).
 // This finds who fills them: hardware watchpoints on +0x9d8 and +0x9e8 report the writing instruction and a backtrace.
 //   python scripts/re/frida/run.py Game.patched.exe --log logs/lockstep-world.jsonl scripts/re/frida/watch-lockstep-world.js
@@ -31,7 +31,7 @@ function arm() {
   send({armed: world.toString(), frames: world.add(0x9d8).readU64().toString()});
 }
 
-Interceptor.attach(at('0x142183930'), {
+Interceptor.attach(at('0x14218a2a0'), {
   onEnter(a) {
     if (world === null) { world = a[0]; setTimeout(arm, 0); }
   }

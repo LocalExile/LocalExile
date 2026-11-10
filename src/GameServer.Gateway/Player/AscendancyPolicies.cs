@@ -81,8 +81,7 @@ static class AscendancyPolicies
     public static void RequireCurrentSelection(AscendancyIdentity? expected, AscendancyIdentity? durable)
     {
         if (expected is null && durable is null) return;
-        if (expected is not null && durable is not null && expected.Family == durable.Family
-            && expected.Id == durable.Id && expected.Revision == durable.Revision) return;
+        if (AscendancyCatalog.SameChoice(expected, durable)) return;
         throw new PassiveProgressConflictException();
     }
 

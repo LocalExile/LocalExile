@@ -38,7 +38,7 @@ static partial class Game
             }
             return;
         }
-        bool following = KeepControlledFollowerNear(conn, leader, now);
+        bool following = KeepControlledFollowerNear(conn, leader, now, ControlledExternalMovement(conn, leader, now));
         if (now < conn.ControlledNextAction) return;
         conn.ControlledNextAction = now + .35;
         if (conn.Passives.Count < conn.Pools.Level - 1)
@@ -56,6 +56,7 @@ static partial class Game
             }
             await SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, "bot allocates earned passive points");
         }
+        if (await ExecuteControlledIntent(conn, leader, now, following)) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillHitPlan.ForSkill(SkillsFor(conn), g.Effect, g.Level, g.Quality).CanHit
             && GemSkillInstanceDisabled(conn, g.Effect, g.Id) is null);
         bool onTheMove = following || leader.Walk.Moving(now);

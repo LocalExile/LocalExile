@@ -1,0 +1,20 @@
+-- Client table BloodTypes: all 18 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "BloodTypes" ("_row", "Id", "ImpactSoundCrit", "ImpactSoundGoreCrit", "Animation", "ImpactSoundGoreHit", "__col5", "__col6", "EffectSmall", "EffectLarge", "EffectCrit", "EffectGoreSmall", "EffectGoreLarge", "EffectGoreCrit", "EffectFirstBloodSmall", "EffectFirstBloodLarge", "EffectFirstBloodCrit") VALUES
+(0, 'PlayerBlood', NULL, NULL, '[207,208,209,210,211,212]', NULL, NULL, NULL, 84, 84, 85, 86, 87, 88, 89, 89, 90),
+(1, 'MonsterRedBlood', 0, 7, '[207,208,209,210,211,212]', 6, NULL, NULL, 91, 92, 93, 86, 87, 88, 89, 89, 90),
+(2, 'ZombieBlood', 0, 7, '[213,214,215,216,217,218]', 6, NULL, NULL, 94, 95, 96, 97, 98, 99, 100, 100, 101),
+(3, 'GreenGhost', 1, 8, '[]', NULL, NULL, NULL, 102, 102, 103, 103, 103, 103, NULL, NULL, NULL),
+(4, 'PurpleGhost', 1, 8, '[]', NULL, NULL, NULL, 104, 104, 105, 105, 105, 105, NULL, NULL, NULL),
+(5, 'Mud', 2, 9, '[]', NULL, NULL, NULL, 106, 106, 108, 108, 108, 108, NULL, NULL, NULL),
+(6, 'Stone', 2, 9, '[]', NULL, NULL, NULL, 107, 107, 108, 108, 108, 108, NULL, NULL, NULL),
+(7, 'SpiderBlood', 0, 7, '[219,220,221,222,223,224]', 6, NULL, NULL, 109, 110, 111, 112, 113, 114, 115, 115, 116),
+(8, 'Bones', 3, 10, '[]', NULL, NULL, NULL, 117, 117, 118, 118, 118, 118, NULL, NULL, NULL),
+(9, 'Water', 4, 11, '[]', NULL, NULL, NULL, 119, 119, 120, 120, 120, 120, NULL, NULL, NULL),
+(10, 'NoBlood', NULL, NULL, '[]', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL),
+(11, 'LargeSpiderBlood', 0, 7, '[219,220,221,222,223,224]', 6, NULL, NULL, 121, 122, 111, 112, 113, 114, 115, 115, 116),
+(12, 'AfflictionBlood', 1, 8, '[]', 8, NULL, NULL, 123, 124, 125, 124, 124, 124, NULL, NULL, NULL),
+(13, 'HeistRobotBlood', 5, 5, '[]', NULL, NULL, NULL, 126, 127, 128, 126, 127, 128, NULL, NULL, NULL),
+(14, 'MtxMagmaBlood', NULL, NULL, '[]', NULL, NULL, NULL, 130, 130, 131, NULL, NULL, NULL, NULL, NULL, NULL),
+(15, 'BarkskinBlood', NULL, NULL, '[]', NULL, NULL, NULL, 145, 145, 145, NULL, NULL, NULL, NULL, NULL, NULL),
+(16, 'LotusPetalBlood', NULL, NULL, '[]', NULL, NULL, NULL, 146, 146, 147, NULL, NULL, NULL, NULL, NULL, NULL),
+(17, 'AbyssBlood', 0, 7, '[]', 6, NULL, NULL, 158, 159, 160, NULL, NULL, NULL, NULL, NULL, NULL);

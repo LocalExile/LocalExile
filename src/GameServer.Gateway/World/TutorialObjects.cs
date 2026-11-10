@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core;
 
 /// <summary>Opening objects use fitted .arm placements and captured .tmd placements, never seed-specific coordinates.</summary>
 static class TutorialObjects
@@ -13,12 +14,12 @@ static class TutorialObjects
     // TalkToWoundedExile(8.2,22.8) supplies the two voice lengths, not two stages of one scene.
     // NPCTalk options 2/3 play DBG_03 (22.763 s) / DBG_02 (7.951 s). The rig's bite clip lasts 3.1 s.
     public const double BiteSeconds = 3.1;
-    // Interaction's MoveTo uses max range 6 and tolerance 3 (0x141e8eb60 -> 0x141e7b530),
+    // Interaction's MoveTo uses max range 6 and tolerance 3 (0x141e95400 -> 0x141e81c20),
     // distinct from this chest's blocking footprint of 1. WalkUpTo adds 3 to this interaction size.
     public const int ChestInteractionSize = 3;
     // ActionTypes WashedUp HASH16 47065, masked to its basic-action skill id.
     public const ushort WashedUpSkillId = 0x37d9;
-    // An action the server starts itself has the sequence's top bit set (0x141e94fc0); this is the character's first.
+    // An action the server starts itself has the sequence's top bit set (0x141e9b860); this is the character's first.
     public const ushort GetUpSequence = 0x8001;
     public static (byte Option, double? BiteAt) Dialogue(bool armed, bool weaponPromptHeard) =>
         !armed ? ((byte)1, null) : weaponPromptHeard ? ((byte)3, 8.2) : ((byte)2, 22.8);
@@ -55,7 +56,7 @@ static class TutorialObjects
     {
         string file=Path.Combine(folder,$"{area}_seed{seed}.rooms.json");
         // Without a capture, an area the Gateway generates itself has the same rooms from the port (ServerLevels).
-        if(generated || !File.Exists(file))
+        if(generated || !ClientTables.Exists(file))
             return ServerLevels.InPlaceOf(folder,area,seed) is { } level
                 ? level.Rooms.Where(r=>string.Equals(r.Path,path,StringComparison.OrdinalIgnoreCase))
                     .Select(r=>new RoomPlacement(r.X,r.Y,r.Width,r.Height,r.Code)).Distinct().ToList()
@@ -63,7 +64,7 @@ static class TutorialObjects
         // It runs while the area's layout is built (room points): a broken capture means no placement, not an error.
         try
         {
-            using var doc=JsonDocument.Parse(File.ReadAllBytes(file));var root=doc.RootElement;
+            using var doc=JsonDocument.Parse(ClientTables.ReadAllBytes(file));var root=doc.RootElement;
             if(root.GetProperty("area").GetString()!=area || root.GetProperty("seed").GetUInt32()!=seed) return [];
             return root.GetProperty("rooms").EnumerateArray().Where(r=>string.Equals(r.GetProperty("path").GetString(),path,StringComparison.OrdinalIgnoreCase))
                 .Select(r=>new RoomPlacement(r.GetProperty("x").GetInt32(),r.GetProperty("y").GetInt32(),r.GetProperty("width").GetInt32(),r.GetProperty("height").GetInt32(),r.GetProperty("code").GetInt32()))
@@ -104,11 +105,11 @@ static class TutorialObjects
     {
         string file = Path.Combine(folder, $"{area}_seed{seed}.objects.json");
         // Without a capture, an area the Gateway generates itself has the same chest from the port (ServerLevels).
-        if (!File.Exists(file))
+        if (!ClientTables.Exists(file))
             return ServerLevels.InPlaceOf(folder, area, seed)?.QuestObjects.FirstOrDefault(o => o.Type == Chest) is { } made
                 ? new(Chest, made.Model, made.X, made.Y, made.Rotation)
                 : null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
         var root = doc.RootElement;
         if (root.GetProperty("area").GetString() != area || root.GetProperty("seed").GetUInt32() != seed) return null;
         foreach (var r in root.GetProperty("objects").EnumerateArray())
@@ -117,7 +118,7 @@ static class TutorialObjects
         return null;
     }
 
-    // Chest reader 0x141e138b0 consumes three bytes: four flags, u8 +0x16c, u8 +0x16d.
+    // Chest reader 0x141e16f10 consumes three bytes: four flags, u8 +0x16c, u8 +0x16d.
     public static byte[] ChestBlob(Placement p, bool opened)
     {
         var w = new BlobWriter().U8(0).U8(0);

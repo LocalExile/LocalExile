@@ -40,7 +40,7 @@ function noteActor(actor, id) {
 }
 
 // Actor messages: the 0x1ab action (skill/seq/from/to) and any other message for the tracked actor id.
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(args) {
     const actor = args[0], m = args[1];
     const op = u16(m, 8), id = u32(m, 0x10);
@@ -55,7 +55,7 @@ Interceptor.attach(at('0x1421940a0'), {
 });
 
 // Positioned messages: 0x1b7 teleport, 0x1ba move-to and 0x1b9 orientation. Read the Positioned object's cell.
-Interceptor.attach(at('0x141e30c90'), {
+Interceptor.attach(at('0x141e33fd0'), {
   onEnter(args) {
     const pos = args[0], m = args[1];
     const op = u16(m, 8), id = u32(m, 0x10);
@@ -68,7 +68,7 @@ Interceptor.attach(at('0x141e30c90'), {
 });
 
 // The position tick: report a cell change (and the step timer) as the client actually applies it.
-Interceptor.attach(at('0x141e32710'), {
+Interceptor.attach(at('0x141e35a50'), {
   onEnter(args) {
     if (kingPos === null || !args[0].equals(kingPos)) return;
     const cell = xy(args[0]);
@@ -80,7 +80,7 @@ Interceptor.attach(at('0x141e32710'), {
 });
 
 // Actor setup: identify VoodooKingBoss2 before its first action, so the trace starts at spawn.
-Interceptor.attach(at('0x141e9ca20'), {
+Interceptor.attach(at('0x141ea32d0'), {
   onEnter(args) {
     const actor = args[0];
     const ent = ptrAt(actor, 8), type = ent ? ptrAt(ent, 0x78) : null;

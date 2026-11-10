@@ -21,6 +21,7 @@
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
     <ProjectReference Include="..\..\Modules\POB\POB.csproj" />
+    <ProjectReference Include="..\..\Modules\PlayerBots\PlayerBots.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
     <ProjectReference Include="..\..\Modules\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />

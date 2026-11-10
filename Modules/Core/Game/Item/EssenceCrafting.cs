@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>Essences.dat's exact class-specific affix keys, resolved against this client's Mods.dat.</summary>
@@ -58,8 +59,8 @@ sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder
     static IReadOnlyList<Essence> Load(ItemCatalog catalog, string folder)
     {
         string path = Path.Combine(folder, "tables", "Essences.json");
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         var result = new List<Essence>();
         foreach (var row in doc.RootElement.EnumerateArray())
         {

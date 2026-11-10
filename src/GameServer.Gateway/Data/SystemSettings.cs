@@ -2,69 +2,11 @@ using GameServer.Core.World;
 using GameServer.Storage;
 
 /// <summary>
-/// Numeric server settings that used to be constants in code. The SQLite <c>system_settings</c> table is seeded with
-/// the defaults on the first run; the in-memory snapshot is replaced on <c>/game_data reload</c>. Unknown keys fall back
-/// to the seed, so deleting a row restores the code default.
+/// Numeric server settings by key: world.db's <c>system_settings</c> rows, read at startup and on <c>/reload</c>. A key
+/// with no row reads 0. Every row is checked on load; a bad value keeps the previous settings.
 /// </summary>
 sealed class SystemSettings
 {
-    public static readonly IReadOnlyDictionary<string, double> Seeds = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase)
-    {
-        ["socket_max_wand"] = 3,
-        ["socket_max_one_hand_sword"] = 3,
-        ["socket_max_thrusting_one_hand_sword"] = 3,
-        ["socket_max_one_hand_axe"] = 3,
-        ["socket_max_one_hand_mace"] = 3,
-        ["socket_max_sceptre"] = 3,
-        ["socket_max_dagger"] = 3,
-        ["socket_max_rune_dagger"] = 3,
-        ["socket_max_claw"] = 3,
-        ["socket_max_two_hand_sword"] = 6,
-        ["socket_max_two_hand_axe"] = 6,
-        ["socket_max_two_hand_mace"] = 6,
-        ["socket_max_bow"] = 6,
-        ["socket_max_staff"] = 6,
-        ["socket_max_warstaff"] = 6,
-        ["socket_max_body_armour"] = 6,
-        ["socket_max_helmet"] = 4,
-        ["socket_max_gloves"] = 4,
-        ["socket_max_boots"] = 4,
-        ["socket_max_shield"] = 3,
-        ["socket_max_belt"] = 0,
-        ["rare_max_prefixes"] = 3,
-        ["rare_max_suffixes"] = 3,
-        ["rare_jewel_max_prefixes"] = 2,
-        ["rare_jewel_max_suffixes"] = 2,
-        ["passive_points_per_level"] = 1,
-        ["gold_drop_multiplier"] = 1,
-        ["gold_drop_chance_multiplier"] = 1,
-        ["gold_auto_loot_radius"] = 15,
-        // The client caps one projectile movement instance at 150 units = 15 m (10 units per metre). Cells use the
-        // same scale: 150 cells = 15 m. Fork, chain and split start a new instance with a fresh budget.
-        ["projectile_maximum_range_cells"] = 150,
-        ["drop_multiplier_currency"] = 1,
-        ["drop_multiplier_equipment"] = 1,
-        ["drop_multiplier_flasks"] = 1,
-        ["drop_multiplier_gems"] = 1,
-        ["drop_multiplier_maps"] = 1,
-        ["drop_multiplier_unique_rarity"] = 1,
-        ["monster_pack_density_multiplier"] = 1,
-        ["monster_pack_size_multiplier"] = 1,
-        ["experience_multiplier"] = 1,
-        ["max_level"] = 100,
-        ["tattoo_total_limit"] = 50,
-        ["tattoo_group_limit"] = 1,
-        ["timeless_jewel_limit"] = 1,
-        ["impossible_escape_limit"] = 1,
-        ["radius_jewel_default_limit"] = 0,
-        ["grace_period_seconds"] = 60,
-        ["delve_reward_min_items"] = 15,
-        ["delve_reward_max_items"] = 20,
-        ["delve_reward_quantity_per_depth_pct"] = 10,
-        ["delve_reward_rarity_per_depth_pct"] = 5,
-        ["delve_reward_item_cap"] = 250,
-    };
-
     static readonly Dictionary<string, string> SocketKeys = new(StringComparer.Ordinal)
     {
         ["Wand"] = "socket_max_wand",
@@ -99,7 +41,7 @@ sealed class SystemSettings
     public IReadOnlyDictionary<string, double> Values => Volatile.Read(ref _values);
 
     public double Get(string key) =>
-        Values.TryGetValue(key, out double value) ? value : Seeds.GetValueOrDefault(key, 0);
+        Values.GetValueOrDefault(key, 0);
 
     public int GetInt(string key) => (int)Math.Round(Get(key), MidpointRounding.AwayFromZero);
 
@@ -151,9 +93,9 @@ sealed class SystemSettings
     public void Replace(IReadOnlyDictionary<string, double> values) =>
         Volatile.Write(ref _values, new Dictionary<string, double>(values, StringComparer.OrdinalIgnoreCase));
 
-    public static void ResetToSeeds()
+    public static void Reset()
     {
-        Default.Replace(Seeds);
+        Default.Replace(Empty);
         Progression.PassivePointsPerLevel = 1;
         Progression.ExperienceMultiplier = 1;
         Progression.MaxLevel = Progression.MaxLevelCeiling;
@@ -161,35 +103,28 @@ sealed class SystemSettings
 
     public static void Reload(GameDataStore store)
     {
-        // Add keys introduced by a newer build without overwriting an edited row. The seeded flag is informational;
-        // the missing-key check is what makes an upgrade fill the new rows.
-        var existing = store.LoadSettings().Select(row => row.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var (key, value) in Seeds)
-            if (!existing.Contains(key)) store.SetSetting(key, value);
-        if (!store.SettingsSeeded()) store.MarkSettingsSeeded();
         var loaded = store.LoadSettings().ToDictionary(row => row.Key, row => row.Value, StringComparer.OrdinalIgnoreCase);
+        foreach (var (key, value) in loaded)
+            if (!Validate(key, value, loaded, out string? error))
+                throw new InvalidOperationException($"system_settings {key} = {value}: {error}");
         Default.Replace(loaded);
         Progression.PassivePointsPerLevel = Default.PassivePointsPerLevel;
         Progression.ExperienceMultiplier = Default.ExperienceMultiplier;
         Progression.MaxLevel = Default.MaxLevel;
     }
 
-    public static bool Validate(string key, double value, out string? error)
+    /// <summary>Whether a row's value is in its range; <paramref name="values"/> are the other rows loaded with it.</summary>
+    public static bool Validate(string key, double value, IReadOnlyDictionary<string, double> values, out string? error)
     {
         error = null;
-        if (!Seeds.ContainsKey(key))
-        {
-            error = $"unknown setting \"{key}\"";
-            return false;
-        }
         if (key.StartsWith("delve_reward_", StringComparison.OrdinalIgnoreCase))
         {
             bool percentage = key.EndsWith("_pct", StringComparison.OrdinalIgnoreCase);
             if (!double.IsFinite(value) || value < (percentage ? 0 : 1) || value > (percentage ? 1000 : 2000)
                 || (!percentage && value != Math.Round(value)))
                 error = "Delve reward counts are integers 1..2000; percentages are finite numbers 0..1000";
-            if (key == "delve_reward_min_items" && value > Default.Get("delve_reward_max_items")) error = "minimum exceeds maximum";
-            if (key == "delve_reward_max_items" && value < Default.Get("delve_reward_min_items")) error = "maximum is below minimum";
+            if (key == "delve_reward_min_items" && value > values.GetValueOrDefault("delve_reward_max_items", double.MaxValue)) error = "minimum exceeds maximum";
+            if (key == "delve_reward_max_items" && value < values.GetValueOrDefault("delve_reward_min_items", 0)) error = "maximum is below minimum";
         }
         else if (key.StartsWith("socket_max_", StringComparison.OrdinalIgnoreCase))
         {
@@ -222,7 +157,9 @@ sealed class SystemSettings
                 error = "gold_drop_multiplier is a number 0..10000";
         }
         else if (key.Equals("gold_drop_chance_multiplier", StringComparison.OrdinalIgnoreCase)
-            || key.Equals("gold_auto_loot_radius", StringComparison.OrdinalIgnoreCase))
+            || key.Equals("gold_auto_loot_radius", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_scarab_chance_pct", StringComparison.OrdinalIgnoreCase)
+            || key.Equals("drop_card_chance_pct", StringComparison.OrdinalIgnoreCase))
         {
             if (!double.IsFinite(value) || value < 0 || value > 100)
                 error = $"{key} is a number 0..100";

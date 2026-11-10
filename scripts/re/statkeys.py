@@ -1,6 +1,6 @@
 """Where the client reads a stat: `mov edx, <key>` followed within a few instructions by a call (the stats getter is
 mostly called through the stats object's vtable: `mov rax, [rcx]; call [rax]` for the int value, `call [rax+8]` for
-the bool, or directly 0x1424cfa40).
+the bool, or directly 0x1424d6510).
 
 Usage: python -I scripts/re/statkeys.py <key> [key ...]
 Prints, per key, each site, the call and the function it is in (nearest preceding int3 padding, approximate).

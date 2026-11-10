@@ -12,6 +12,7 @@ GEMINI.md @Wrathen
 
 # Guides with the commands and workflows agents follow
 /README.md @Wrathen
+/CONTRIBUTING.md @Wrathen
 /Agents/GettingStarted.md @Wrathen
 /Agents/docs/README.md @Wrathen
 
@@ -19,9 +20,6 @@ GEMINI.md @Wrathen
 /.github/ @Wrathen
 /.gitattributes @Wrathen
 /.gitignore @Wrathen
-
-# Scripts and tools people and agents run
-/src/LocalExileGui/build.ps1 @Wrathen
 
 # What runs during a build, or adds a dependency
 Directory.Build.props @Wrathen
@@ -36,8 +34,14 @@ global.json @Wrathen
 
 # What ships to players, starts processes, or could make the client contact the official servers
 /src/LocalExile/ @Wrathen
-/src/LocalExileGui/ @Wrathen
 /src/GameServer.Patch/ @Wrathen
+
+# What every player's server runs on their accounts and saves at its next start (game content updates stay open)
+/sql/base/ @Wrathen
+/sql/updates/auth/ @Wrathen
+/sql/updates/pending_auth/ @Wrathen
+/sql/updates/characters/ @Wrathen
+/sql/updates/pending_characters/ @Wrathen
 
 # What loads and runs compiled code
 /src/GameServer.Gateway/Modding/ @Wrathen

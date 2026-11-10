@@ -1,12 +1,12 @@
 using GameServer.Core.Projectiles;
 
 /// <summary>
-/// Spark's wander, as the client draws its own sparks (3.29.3b, Spark action vtable 0x14350ca90). Each spark seeds the
-/// client's small generator (0x14146d8f0, TinyMT32's key initializer) from [use sequence, 2 + its index in the volley,
-/// the cast's repeats left (+0x2d0, SpellRepeats), owner id] (Frida 2026-10-31: 524 sparks). Its first leg (0x141b35a10) draws its life, a 15–25-cell length toward
-/// its aim point and a 0.8–1.2 speed factor; each later leg (0x141b358c0) draws a turn of ±45°, or of 0–360° after
-/// terrain stopped it (0x141b35e80), a length (0x141b360f0) and a speed factor (0x141b36080). Every draw is the
-/// client's float range (0x1404ce3f0), all in single precision as the client computes it.
+/// Spark's wander, as the client draws its own sparks (3.29.3c, Spark action vtable 0x1435172b0). Each spark seeds the
+/// client's small generator (0x14146fcd0, TinyMT32's key initializer) from [use sequence, 2 + its index in the volley,
+/// the cast's repeats left (+0x2d0, SpellRepeats), owner id] (Frida 2026-10-31: 524 sparks). Its first leg (0x141b384a0) draws its life, a 15–25-cell length toward
+/// its aim point and a 0.8–1.2 speed factor; each later leg (0x141b38350) draws a turn of ±45°, or of 0–360° after
+/// terrain stopped it (0x141b38910), a length (0x141b38b80) and a speed factor (0x141b38b10). Every draw is the
+/// client's float range (0x1404ce9b0), all in single precision as the client computes it.
 /// </summary>
 sealed class SparkLegs : IProjectileLegs
 {

@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>How a monster type starts: as usual, or waiting to rise (MonsterEmerge).</summary>
@@ -26,7 +27,7 @@ enum EmergeKind
 /// script (BossFights), not a proximity rise.
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
-/// Transitionable → 2 (0x2ba; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
+/// Transitionable → 2 (0x2bc; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
 /// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
 /// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
 /// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
@@ -37,6 +38,14 @@ sealed class MonsterEmerge(string folder = "data")
     /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
     /// on screen.</summary>
     public const int Range = 24;
+
+    // Eight 3.29.3b opening-capture events support this bounded calibration.
+    internal const int StrandDrownedRange = 60;
+
+    static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
+        areaId == TutorialObjects.Strand && variety?.Id.StartsWith(
+            "Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake", StringComparison.Ordinal) == true
+            ? StrandDrownedRange : Range;
 
     /// <summary>How long a monster without a known Emerge clip takes to rise.</summary>
     public const double DefaultSeconds = 1.5;
@@ -77,7 +86,7 @@ sealed class MonsterEmerge(string folder = "data")
     public uint? ClipIndex(MonsterCatalog.Variety v) =>
         _clips.Value.TryGetValue(v.Id, out var clip) && clip.Index >= 0 ? (uint)clip.Index : null;
 
-    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2ba), then the Emerge action in place aimed
+    /// <summary>The rise, in GGG's order and tick: the Transitionable step (0x2bc), then the Emerge action in place aimed
     /// at the monster itself, with the 0x1ac that starts its clip.</summary>
     public static byte[][] RiseMessages(uint id, (int X, int Y) at, ushort skill, ushort sequence, byte transitionableIndex, byte state) =>
     [
@@ -135,7 +144,8 @@ sealed class MonsterEmerge(string folder = "data")
         {
             at = m.Walk.Position(now);
             double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            return d <= (m.AggroRange > 0 ? Math.Min(Range, m.AggroRange) : Range);
+            int range = WakeRange(conn.Layout.Id, m.Variety);
+            return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
         foreach (var (id, m) in conn.DormantMonsters)
@@ -208,7 +218,7 @@ sealed class MonsterEmerge(string folder = "data")
     static Dictionary<string, EmergeKind> LoadTypes(string folder)
     {
         string path = Path.Combine(folder, "object-types.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         var types = new Dictionary<string, EmergeKind>();
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
@@ -221,7 +231,7 @@ sealed class MonsterEmerge(string folder = "data")
     static Dictionary<string, (double Seconds, int Index)> LoadClips(string folder)
     {
         string path = Path.Combine(folder, "monster-takehit.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         using var doc = GameTables.Open(path);
         var clips = new Dictionary<string, (double, int)>();
         foreach (var p in doc.RootElement.EnumerateObject())
@@ -235,8 +245,8 @@ sealed class MonsterEmerge(string folder = "data")
     static ushort? LoadAction(string folder)
     {
         string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!File.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return null;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.TryGetProperty("Id", out var id) && id.GetString() == "Emerge" && r.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number)
                 return (ushort)h.GetInt32();

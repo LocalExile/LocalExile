@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/GameServer.Auth/GameServer.Auth.csproj" />
+    <Project Path="src/GameServer.Chat/GameServer.Chat.csproj" />
     <Project Path="src/GameServer.Core/GameServer.Core.csproj" />
     <Project Path="src/GameServer.Data/GameServer.Data.csproj" />
     <Project Path="src/GameServer.Gateway/GameServer.Gateway.csproj" />
@@ -17,6 +18,7 @@
     <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
     <Project Path="Modules/Core/Content/Heist/Heist.csproj" />
     <Project Path="Modules/Core/World/HideoutEditing/HideoutEditing.csproj" />
+    <Project Path="Modules/Core/Player/Chat/Chat.csproj" />
     <Project Path="Modules/Core/Player/Commands/Commands.csproj" />
     <Project Path="Modules/Core/Player/Pantheon/Pantheon.csproj" />
     <Project Path="Modules/Core/NPC/Vendors/Vendors.csproj" />
@@ -28,6 +30,7 @@
     <Project Path="Modules/Core/Item/Bench/Bench.csproj" />
     <Project Path="Modules/Core/World/Atlas/Atlas.csproj" />
     <Project Path="Modules/Core/Player/Social/Social.csproj" />
+    <Project Path="Modules/Core/NPC/CurrencyExchange/CurrencyExchange.csproj" />
     <Project Path="Modules/Core/NPC/NpcDialogue/NpcDialogue.csproj" />
     <Project Path="Modules/Ruthless/Ruthless.csproj" />
     <Project Path="Modules/NessaDevelopmentTabs/NessaDevelopmentTabs.csproj" />
@@ -36,15 +39,6 @@
     <Project Path="Modules/Survivors/SurvivorsRewards/SurvivorsRewards.csproj" />
     <Project Path="Modules/Survivors/SurvivorsRun/SurvivorsRun.csproj" />
     <Project Path="Modules/PhreciaAscendancies/PhreciaAscendancies.csproj" />
-  </Folder>
-  <Folder Name="/Mods/Source/">
-    <Project Path="Mods/Source/BossLoot/BossLoot.csproj" />
-    <Project Path="Mods/Source/DoubleExperience/DoubleExperience.csproj" />
-    <Project Path="Mods/Source/Example/Example.csproj" />
-    <Project Path="Mods/Source/FastCampaign/FastCampaign.csproj" />
-    <Project Path="Mods/Source/Hello/Hello.csproj" />
-    <Project Path="Mods/Source/ItemQuantity/ItemQuantity.csproj" />
-    <Project Path="Mods/Source/ItemRarity/ItemRarity.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/GameServer.Data.Tests/GameServer.Data.Tests.csproj" />

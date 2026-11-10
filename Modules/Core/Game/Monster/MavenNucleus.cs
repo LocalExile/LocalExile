@@ -65,8 +65,8 @@ static partial class Game
                     || id.Contains("Daemon", StringComparison.Ordinal)
                     || id.Contains("MemoryGame", StringComparison.Ordinal)
                     // A bond, mark or soul skill links the monster to a second object the server does not create: Dominus'
-                    // first effect, DominusChillingBond, as his plain attack crashed the client at 0x14012946a when the
-                    // client linked it to entity 0 (0x141a291a0, live 2026-11-05). His DominusLightningSlam is the swing.
+                    // first effect, DominusChillingBond, as his plain attack crashed the client at 0x1401297ca when the
+                    // client linked it to entity 0 (0x141a2bbb0, live 2026-11-05). His DominusLightningSlam is the swing.
                     || id.Contains("Bond", StringComparison.Ordinal)
                     || id.Contains("Mark", StringComparison.Ordinal)
                     || id.Contains("Souls", StringComparison.Ordinal))) continue;

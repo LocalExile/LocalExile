@@ -20,10 +20,12 @@ static class SocketColours
         Math.Clamp(0.05 + 0.0025 * Math.Clamp(itemLevel, 0, 100)
             + (chromatic ? 0.0025 * Math.Clamp(quality, 0, 100) : 0), 0.05, 0.6);
 
-    /// <summary>One freshly generated socket: white, or one of the three colours at the item's chance.</summary>
+    /// <summary>One freshly generated socket: white, or one of the three colours at the item's chance.
+    /// <paramref name="noWhite"/> is the 3.29 hidden property some uniques carry (<c>local_sockets_cannot_be_white</c>),
+    /// which makes every socket one of the three colours.</summary>
     public static SocketColour Roll((int Str, int Dex, int Int) requirements, int itemLevel, int quality, Random random,
-        bool chromatic = false) =>
-        random.NextDouble() < NonWhiteChance(itemLevel, quality, chromatic)
+        bool chromatic = false, bool noWhite = false) =>
+        noWhite || random.NextDouble() < NonWhiteChance(itemLevel, quality, chromatic)
             ? Colour(requirements, random) : SocketColour.White;
 
     /// <summary>A forced colour: red, green or blue, weighted by the base's strength, dexterity and intelligence

@@ -192,6 +192,23 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         }
     }
 
+    // The state file again: the mods it now turns off unload (with their dependents), the ones it turns on load.
+    // False when the file could not be read yet.
+    bool ChoicesChanged()
+    {
+        var before = new Dictionary<string, bool>(_choices, StringComparer.Ordinal);
+        _choices.Clear();
+        try { ReadChoices(); }
+        catch (IOException) { foreach (var choice in before) _choices[choice.Key] = choice.Value; return false; }
+        if (before.Count == _choices.Count && !before.Except(_choices).Any()) return true;
+        foreach (var mod in _loaded.Values.ToList())
+            if (!_choices.GetValueOrDefault(mod.Manifest.Id, mod.Manifest.Enabled) && _loaded.ContainsKey(mod.Manifest.Id))
+                foreach (string affected in UnloadOrder(Dependents(mod.Manifest.Id))) Unload(affected);
+        foreach (string id in before.Keys.Union(_choices.Keys)) _failed.Remove(id);
+        LoadMissing();
+        return true;
+    }
+
     void ReadChoices()
     {
         string path = Path.Combine(Folder, StateFile);
@@ -368,7 +385,9 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         if (modules && !leagues && Dirs().FirstOrDefault(d => (path + Path.DirectorySeparatorChar).StartsWith(Path.GetFullPath(d) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) is { } moduleDir)
             parts = [Path.GetFileName(moduleDir), .. Path.GetRelativePath(moduleDir, path).Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)];
         string id = parts[0];
-        if (id is "" or "." or ".." or StateFile || relative.StartsWith("..", StringComparison.Ordinal)) return;
+        if (id is "" or "." or ".." || relative.StartsWith("..", StringComparison.Ordinal)) return;
+        // Choices written by another program (a launcher's switch) apply like /mod_enable and /mod_disable.
+        if (id == StateFile) { if (!modules && parts.Length == 1) Later(StateFile, busy: 0); return; }
         // A module's source and its build's scratch are not the module: its build's output is.
         // A league's own compile writes its Binaries/.
         if (leagues && parts is [_, "Binaries", ..]) return;
@@ -399,6 +418,7 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
             pending.Timer.Dispose();
             tries = pending.Busy;
             if (modules) busy = HotReload(id);
+            else if (id == StateFile) busy = !ChoicesChanged();
             else
             {
                 foreach (string affected in UnloadOrder(Dependents(id))) Unload(affected);
@@ -819,6 +839,24 @@ sealed class ModHost(string folder, Action<string> log, bool modules = false, bo
         public IDisposable ModifyDrops(Action<DropRoll> modify) => Add(host._drops, modify);
         public IDisposable ModifyExperience(Action<ExperienceGain> modify) => Add(host._experience, modify);
         public IDisposable ModifyStats(Action<StatSheet> modify) => Add(host._stats, modify);
+
+        public IDisposable UseChatServer(string host, int port)
+        {
+            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+            return mod.Lifetime.Own(ChatRoutes.Use(host, port));
+        }
+
+        public IDisposable UseExchangeOptions(ExchangeOptions options)
+        {
+            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+            return mod.Lifetime.Own(ExchangeRateStore.Use(options));
+        }
+
+        public void PublishExchangeRates(string json)
+        {
+            if (mod.Unloaded) throw new InvalidOperationException($"mod {mod.Manifest.Id} is unloaded");
+            ExchangeRateStore.Publish(json);
+        }
 
         string ValuesPath => Path.Combine(host.SettingsFolder, mod.Manifest.Id + ".json");
 

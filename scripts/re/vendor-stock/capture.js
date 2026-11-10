@@ -1,8 +1,8 @@
-// 3.29.3b: message readers use the network stream, not a component blob reader.
+// 3.29.3c: message readers use the network stream, not a component blob reader.
 const module = Process.getModuleByName('PathOfExile.exe');
 const at = va => module.base.add(ptr(va).sub(ptr('0x140000000')));
 const active = new Map();
-Interceptor.attach(at('0x140dfb630'), {
+Interceptor.attach(at('0x140df9ed0'), {
     onEnter(args) {
         this.frame = active.get(this.threadId);
         if (!this.frame || !args[0].equals(this.frame.stream)) return;
@@ -19,7 +19,7 @@ Interceptor.attach(at('0x140dfb630'), {
         } catch (e) { this.frame.error = String(e); }
     }
 });
-for (const [kind, address] of [['shop', '0x1421a1f60'], ['inventory', '0x140b18360']]) {
+for (const [kind, address] of [['shop', '0x1421a88d0'], ['inventory', '0x140b17970']]) {
     Interceptor.attach(at(address), {
         onEnter(args) {
             this.frame = {kind, stream: args[1], chunks: [], length: 0};

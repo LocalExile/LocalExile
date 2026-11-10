@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     // The taunted buff (BuffDefinitions 408) is IsRecovery (+0x7c), so 0x1c1 carries one u32 per GrantedStats entry
-    // (taunt_target_id, is_taunted; reader 0x141fdf870): the taunter and 1.
+    // (taunt_target_id, is_taunted; reader 0x141fe6090): the taunter and 1.
     static readonly IReadOnlyList<uint> TauntedBuffValues = [PlayerId, 1];
 
     /// <summary>How long the player's taunts last: 3 s (wiki Taunt; the Basalt Flask's reminder text), raised by

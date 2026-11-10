@@ -47,7 +47,7 @@ static partial class Game
         return (armour, evasion, (int)Math.Min(int.MaxValue, energyShield), ward);
     }
 
-    // Native 0x142523ab0: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
+    // Native 0x14252a660: flag selects 100%, otherwise use the percentage; truncate each item's local ES separately.
     // The conversion removes all armour-item ES, even when the Life gained is only 50% of its value.
     internal static (int Life, int EnergyShield) ConvertEquipmentEnergyShield(ClientState conn, Func<string, int> get, int energyShield)
     {
@@ -104,7 +104,7 @@ static partial class Game
         return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
         {
             LocalDamage = local.Damage, LocalSources = ItemModStats.Local(item, catalog.Mods).ToFrozenDictionary(),
-            WieldingWand = type.Class == "Wand", Melee = type.Class is not ("Wand" or "Bow"),
+            WieldingWand = type.Class == "Wand", Bow = type.Class == "Bow", Melee = type.Class is not ("Wand" or "Bow"),
         };
     }
 
@@ -268,7 +268,7 @@ static partial class Game
     internal static IEnumerable<(uint Stat, int Value)> CosmeticScaleSources(ClientState conn) =>
         CosmeticStats(conn).Where(s => ActorScale.IsInput(s.Stat));
 
-    // What the player wears changed (an item went into or out of a visible equipment row): 0x2ba Inventories for the model,
+    // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
     internal static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
     {
@@ -291,7 +291,7 @@ static partial class Game
     {
         conn.ModelHands = HandsKey(equipped);
         await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
-            $"0x02ba player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
+            $"0x02bc player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
     }
 
     // The hands' part of the model (main hand 0, off hand 1, a bow's quiver 7) as it was last sent.

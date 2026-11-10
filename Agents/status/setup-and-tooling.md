@@ -5,6 +5,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
+  waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08). Both 3.29.3c builds
+  work with the same code: the release (build 327984) and the 3.29.3.5 hotfix (build 328126; login, zones, combat,
+  items and waypoints live 2026-11-09).
+  Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` (run by `live.ps1` on every start,
   `-NoExtract` to skip) regenerates each data file that is missing or whose manifest version changed (stamps in
   `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
@@ -19,15 +24,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
-- `LocalExileGUI.exe` in a release: a window over `LocalExile.exe --json` to play, set up, switch mods, create accounts,
-  change passwords and check the install, in English, Simplified or Traditional Chinese. It builds with the compiler of
-  .NET Framework 4.x and ships no runtime.
-  Tried on a set-up PC's install: a servers-only run and its stop, the full check, the mod list, all three languages.
-  Not tried from it: the setup, a client start, an account creation, a password change.
-  Code: `src/LocalExileGui`, `scripts/release/build-release.ps1`.
-  Docs: [releases](../docs/dev/releases.md) ("For a GUI").
-- Local patching server: the client never contacts the official patch servers.
-  Code: `GameServer.Patch`.
+- Local patching server: the client never contacts the official patch servers. A GGPK whose root hash is zero (the
+  client then always patches and times out at "Checking resources") gets one on each start (`root-hash --repair`).
+  Code: `GameServer.Patch`, `GgpkMaintenance.RepairRootHash`.
   Docs: [01](../docs/protocol/01-login.md) §1, [GettingStarted](../GettingStarted.md) step 6.
 - Dev account service: register, log in, create characters, list every account (JSON-lines over TCP).
   Code: `GameServer.Host`, `GameServer.DevClient`.
@@ -36,7 +35,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `live.ps1 -ClientOnly -Walkmaps` (the client and its walk-map recorder against running servers), the
   Gateway's `commands` and `values <kind>` modes (its chat commands, their argument kinds and values, as JSON lines),
   its `crafter` mode with `/item_give` (an item crafter's bases, mod pools and English stat descriptions, and the item
-  it composed: [item-crafter.md](../docs/dev/item-crafter.md)), and the dev host's `accounts`.
+  it composed: [item-crafter.md](../docs/dev/item-crafter.md)), its `labyrinth [yyyy-mm-dd | seed]` mode (a day's four
+  Labyrinths: rooms with their map positions, connections and secrets, `LabyrinthDay.Listing`), and the dev host's `accounts`.
   Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
   the account list from the real save database.
   Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
@@ -61,6 +61,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
+  [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 943 tables, 97 MB of
+  SQL, and the 14 generated files the servers read, 70 MB) and `world.db` (game content) are built and updated from
+  `sql/` by each server at startup, one transaction per
+  file, a changed merged file refused. `Config/localexile.conf` (written with the defaults on the first start) holds the addresses, ports and client folder. CI builds every
+  database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
+  databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
+  migrated and played on. Not yet: the pending rename on `main` (set up with a deploy key, not yet run), and the generated files
+  served from `client.db` in a real-client session.
+  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
@@ -69,7 +79,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `scripts/dev/platform-linux.ps1`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
-  `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`).
+  `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
+  applies that file when a launcher rewrites it).
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
   Settings: a mod's or module's `settings.json` declares what can be tuned (ten types, defaults, limits); the user's values
@@ -81,12 +92,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  `Mods/Source/` has seven examples, all off by default; five show settings.
-  `FastCampaign` (experience and movement speed, `/fast`, three languages) loaded as a script in a running Gateway and read
-  its `settings.txt`; not tried with the client, nor built as a project (no SDK on that PC).
+  The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
+  (2026-11-07); Waypoint installs them. A release ships no mods.
   Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
-  `live.ps1` builds `Mods\Source\` (the example mod: 100x item quantity, `/example`) into `Mods\Binaries\`.
+  `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
@@ -97,7 +107,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (fallback, required features, tunables, scoped hooks) and built-ins.
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
-  `Program.ModuleWorld.cs`, `Modules/`, `Mods/Source/`.
+  `Program.ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
@@ -128,7 +138,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   one) and plays the quest order through the control bridge with `/god immune`, teleports and `/kill`; quest progress
   comes from the quest engine reacting to the real kills, pickups, object use and NPC talk. Resumable (done quests and
   steps are skipped), with diagnostics and recoveries for stuck steps; servers on its ports that are not the
-  checkout's, a missing `Game_SAVES_DB` (unless `-AllowDefaultSaves`), a Gateway on another save database and a second
+  checkout's, a missing `Game_CHARACTERS_DB` (unless `-AllowDefaultSaves`), a Gateway on another save database and a second
   run on the same session stop the run. Step files: Act 1 (a1q1-a1q9); the later acts' quests are "not implemented" until their act
   is on the quest engine. Dev commands `/state`, `/kill`, `/quest_preset`, `/god immune`; `/tp` also finds the ids
   `/state` reports and the objects quest rules watch.
@@ -189,7 +199,8 @@ away from unrelated catalogue-load/GC contention. Individual concurrency tests s
 
 ## Tooling
 
-Pull request checks: a scan of added lines for hidden text, and files only the maintainer approves ([docs](../docs/dev/pr-checks.md)).
+Pull request checks: a scan of added lines for hidden text, the SQL rules and a from-scratch build of every database, and
+files only the maintainer approves ([docs](../docs/dev/pr-checks.md)).
 
 Everything used to work out the protocol is in the repository: the Ghidra, Frida and Python scripts in `scripts/re/`,
 our own tools in `Tools/`, and how to install the third-party ones in [GettingStarted](../GettingStarted.md)
@@ -200,13 +211,13 @@ if something is missing, fix the guide.
 Every network message of the client is listed, in both directions, generated from the binary.
 S→C: [schema.md](../docs/protocol/schema.md), the four factories (instance 272, world 63, login 27, patch 6 classes),
 each equal to its factory switch's explicit cases.
-C→S: [c2s.md](../docs/protocol/c2s.md), instance 352, login 28 and patch 4 ids, from every caller of the stream flush.
-Its exact lengths match all 61 comparable ids of the Gateway's `KnownClientLength`.
+C→S: [c2s.md](../docs/protocol/c2s.md), instance 354, login 28 and patch 4 ids, from every caller of the stream flush.
+Its exact lengths match all 87 comparable ids of the Gateway's `KnownClientLength`.
 Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_md.py`, `c2s_md.py`.
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated
 UI input.
-It targets the copied standalone 3.29.3b client and local services only.
+It targets the copied standalone 3.29.3c client and local services only.
 Login keeps waiting within its existing timeout when success 0 precedes authenticated state 3.
 Mocked execute/RPC regressions cover this wait, rejection 6 and timeouts; this fix has no new native verification.
 It also creates and deletes characters, travels by waypoint (by WorldAreas Id too), waits for an area and knows the

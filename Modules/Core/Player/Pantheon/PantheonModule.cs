@@ -67,7 +67,7 @@ static class PantheonRules
     static readonly HashSet<ushort> Hubs = [0xb5be, 0x3064];
 
     /// <summary>Where a god may be chosen: a town, a hideout, the Rogue Harbour, or with CanChangePantheon set (the
-    /// client's own gate before it sends 0x1ee, 0x14097e000).</summary>
+    /// client's own gate before it sends 0x1ee, 0x14097fb60).</summary>
     internal static bool CanChoose(ClientState conn) =>
         InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null || Hubs.Contains(conn.Layout.Hash)
         || ClientHasQuestFlag(conn, CanChangePantheon);
@@ -107,7 +107,7 @@ static class PantheonRules
         byte major, minor;
         lock (conn.Monsters) (major, minor) = (catalog.Wire(conn.PantheonMajor), catalog.Wire(conn.PantheonMinor));
         await Send(remote, stream, ciphers, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
-            $"0x02ba player Pantheon: major {major}, minor {minor} ({why})");
+            $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose

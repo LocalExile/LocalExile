@@ -24,7 +24,7 @@ static class AuraCatalog
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
                 player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
                 // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
-                // from the first two list entries without checking its length (0x1417a4380).
+                // from the first two list entries without checking its length (0x1417a9410).
                 list: aura.EffectId switch
                 {
                     "TempestShield" => [0u, 0u],

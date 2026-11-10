@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Act 6 Lioneye's Watch has personal and guild stashes at user-confirmed positions (329, 408) and (318, 408).
+- Campaign towns in Acts 2–9 have personal and guild stashes at player-confirmed positions.
 - Delve stash correction: publishes the native 41 × 4 inventory bounds;
   all fossil/resonator slots retain the 5000 limit.
   Empty legacy resonators migrate to stackable types with 1–4 independent yellow/orange Delve sockets.
@@ -31,7 +31,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   slot picks up the stack; the tab settings' affinities (0xd3) are saved;
   the stash reopens on the account's last tab after a relog (0x7b affinity on the first open per connection) and keeps
   the panel's own tab while the connection lasts; tabs and items are account-wide (the account's row in
-  `data/saves.db`).
+  `data/characters.db`).
   Verified live with normal, premium and the currency lifeforce slot; other special-tab slots need further checks.
   Guild stash: a second object in every hideout opens the guild stash panel (0x7b kind 2) with its own tabs (manager
   2), one per account until there are guilds (verified live).

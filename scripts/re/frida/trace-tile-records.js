@@ -1,19 +1,19 @@
 // Every tile object record (.tmd) of every placed tile while the client generates an area, with its world placement
-// computed the way 0x14202f1c0 does it, for all types: also the server-side ones (AreaTransition, Waypoint …) that the
+// computed the way 0x142035a10 does it, for all types: also the server-side ones (AreaTransition, Waypoint …) that the
 // client skips. Load after common.js.
 //
-// 0x141d7f700 walks a placed tile's records (0x58 bytes each) and calls 0x1420415e0(ctx, record) for each:
+// 0x141d82d90 walks a placed tile's records (0x58 bytes each) and calls 0x142047e30(ctx, record) for each:
 //   ctx[1]: the placed tile: +0x30 i16 height offset (steps of 7.8125), +0x36 u8 rotation/flip code 0..7
 //   ctx[2]: → i32 x, i32 y: the tile's grid origin
 //   ctx[3]: → handle; *(handle)+0x28 → +0x60 u8 width, +0x61 u8 height (tiles of 23 cells)
 //   record: i32 x, i32 y (tile-local cell), f32[2] offset, f32 z (+0x10), f32 angle (+0x14), f32 scale (+0x18),
 //           u8 flip (+0x1c), …, +0x30 type handle, +0x38 .ao handle (handle+8 → object, +8 → std::wstring path)
-// Placement (0x14202f1c0): a = [w*23 - x - 1, x, h*23 - y - 1, y]; T = the 3-byte rows at 0x142fa04b0 per code;
+// Placement (0x142035a10): a = [w*23 - x - 1, x, h*23 - y - 1, y]; T = the 3-byte rows at 0x142faa4d8 per code;
 //   gx = a[T1 + 2*T0] + ox, gy = a[(T0 == 0 ? 2 : 0) + T2] + oy; angle → 2π - angle when code >= 4, then
-//   + (code & 3) * 0x1436a3318, wrapped to [0, 2π]; z = record z - height offset * 7.8125 (unless the "none" value).
+//   + (code & 3) * 0x1436ae110, wrapped to [0, 2π]; z = record z - height offset * 7.8125 (unless the "none" value).
 const WANT = typeof WANT_OVERRIDE !== 'undefined' ? WANT_OVERRIDE : /AreaTransition|Waypoint/;
-const T = Array.from(new Uint8Array(at('0x142fa04b0').readByteArray(24)));
-const QUARTER = at('0x1436a3318').readFloat(), TWO_PI = at('0x1436a3674').readFloat(), NO_Z = at('0x1436a48d4').readFloat();
+const T = Array.from(new Uint8Array(at('0x142faa4d8').readByteArray(24)));
+const QUARTER = at('0x1436ae110').readFloat(), TWO_PI = at('0x1436ae46c').readFloat(), NO_Z = at('0x1436af6cc').readFloat();
 function wstr(p) {
   const len = p.add(0x10).readU64().toNumber(), cap = p.add(0x18).readU64().toNumber();
   return (cap > 7 ? p.readPointer() : p).readUtf16String(len);
@@ -50,7 +50,7 @@ function handlePath(h) {
   return null;
 }
 let tiles = 0, dumps = 0;
-Interceptor.attach(at('0x1420415e0'), {
+Interceptor.attach(at('0x142047e30'), {
   onEnter(a) {
     try {
       const ctx = a[0], rec = a[1];

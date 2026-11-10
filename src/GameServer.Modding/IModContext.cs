@@ -58,6 +58,17 @@ public interface IModContext
     /// (<c>Stats.dat</c>, as /set_stat takes them). Asked again whenever the server rebuilds the character's stats.</summary>
     IDisposable ModifyStats(Action<StatSheet> modify);
 
+    /// <summary>Global, trade and whisper chat go through this chat server until the handle is disposed or the mod unloads, then
+    /// back to the Gateway's local one. The players in game move at once.</summary>
+    IDisposable UseChatServer(string host, int port);
+
+    /// <summary>The Currency Exchange trades by these options until the handle is disposed or the mod unloads.</summary>
+    IDisposable UseExchangeOptions(ExchangeOptions options);
+
+    /// <summary>New rates for the Currency Exchange, as JSON (<c>GameServer.Core.Trade.ExchangeRates</c>). The Gateway saves them, so they outlast the mod.</summary>
+    /// <exception cref="FormatException">They are not rates.</exception>
+    void PublishExchangeRates(string json);
+
     /// <summary>The settings its <c>settings.json</c> declares, with the user's values (<c>data/mods/&lt;id&gt;.json</c>, for a
     /// module <c>data/modules/&lt;id&gt;.json</c>) over the defaults, read into <typeparamref name="T"/> by name (case does not
     /// matter). A value that does not fit its declaration is logged and its default used. A change to either file reloads
@@ -70,6 +81,32 @@ public interface IModContext
     /// its declaration.</summary>
     void SaveSettings<T>(T settings);
 }
+
+/// <summary>The official league whose Currency Exchange prices are traded at.</summary>
+public enum ExchangeRatesLeague
+{
+    /// <summary>The current challenge league.</summary>
+    Current,
+    /// <summary>Standard.</summary>
+    Standard,
+}
+
+/// <summary>How the Currency Exchange trades; these are its values without a mod.</summary>
+/// <param name="StandardPrices">The official league whose prices the Standard league here trades at.</param>
+/// <param name="LeaguePrices">The official league whose prices every other league here trades at.</param>
+/// <param name="OrderSlots">How many orders a player can have.</param>
+/// <param name="SpreadScale">Multiplies how far from the price Faustus trades: 1% for the busiest items, up to 10% for the rarest.</param>
+/// <param name="VolumeShare">How much of an item's official hourly trade an hour offers; 0: no limit.</param>
+/// <param name="PatientRange">How much of the way from the market's price to the other side's an order fills with time; 1 as a live market, about 0.5 no profit
+/// from the spread, 0 none.</param>
+/// <param name="PatientSpeed">Divides how long such an order waits.</param>
+/// <param name="CatchUpHours">How many hours away an order catches up on; 0: only the current hour.</param>
+/// <param name="GoldFee">Multiplies the gold an order pays.</param>
+/// <param name="MaxRateAgeDays">Older rates are not traded at.</param>
+/// <param name="FaustusSpeaks">He speaks when an order is placed or filled.</param>
+public sealed record ExchangeOptions(ExchangeRatesLeague StandardPrices = ExchangeRatesLeague.Standard, ExchangeRatesLeague LeaguePrices = ExchangeRatesLeague.Current,
+    int OrderSlots = 20, double SpreadScale = 1, double VolumeShare = .1, double PatientRange = 1, double PatientSpeed = 1, int CatchUpHours = 168, double GoldFee = 1,
+    double MaxRateAgeDays = 7, bool FaustusSpeaks = true);
 
 /// <summary>What a module (or a league's own code) can do: everything a mod can, and overhauls. It runs only for the players of
 /// leagues that list it. The hooks of the league run first, then its modules', then mods'.</summary>

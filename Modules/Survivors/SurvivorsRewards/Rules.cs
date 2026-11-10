@@ -191,7 +191,7 @@ static partial class SurvivorsRewards
         {
             if (!ownership.Commit(() => conn.Instance.Ground.Take(id))) return;
             await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
-                $"0x02bb survivors hide world item 0x{id:x}", still: () => ownership.Current);
+                $"0x02bd survivors hide world item 0x{id:x}", still: () => ownership.Current);
         }
     }
 

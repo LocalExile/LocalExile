@@ -281,7 +281,7 @@ def save_doodads(out, batch):
 
 
 def save_cell_heights(out, info, cells):
-    """Every cell's ground height (i16, row by row, the client's 0x141d84a10) of one generated area:
+    """Every cell's ground height (i16, row by row, the client's 0x141d880a0) of one generated area:
     <area>_seed<seed>.heights.bin, named like the generation trace."""
     if not info.get("area"):
         return

@@ -1,5 +1,5 @@
 """a2q6 "Intruders in Black": in The Chamber of Sins Level 2 Helena hangs below the ledge while Fidelitas guards her.
-His death lets her climb up; her "Rescued" opens the Strange Device, which holds the Baleful Gem. In town Helena, then
+His death lets her climb up and opens the Strange Device, which holds the Baleful Gem. In town Helena, then
 Greust's reward (offer 13, skill gems)."""
 QUEST = "a2q6"
 DONE = "a2q6-QuestRewardTaken"

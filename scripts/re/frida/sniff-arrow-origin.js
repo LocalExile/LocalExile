@@ -1,5 +1,5 @@
 // Arrow Nova origin probe (read-only). Tags the rain rig and split-arrow entities from their Animated paths, then
-// samples the attached position (Positioned +0x2b8) and the local-to-world output (0x141e361b0) so the caster-side
+// samples the attached position (Positioned +0x2b8) and the local-to-world output (0x141e394f0) so the caster-side
 // arrow origin can be compared between the official and local clients.
 // Run: python scripts/re/frida/run.py <pid> --seconds 0 --log logs/arrow-origin.jsonl scripts/re/frida/sniff-arrow-origin.js
 'use strict';
@@ -12,7 +12,7 @@ const positioned = new Map(); // entity -> Positioned component
 const tagged = new Map();     // entity -> { label, path, pos, comp }
 
 // Positioned deserializer: remember each entity's Positioned component.
-Interceptor.attach(at('0x141e2f0b0'), {
+Interceptor.attach(at('0x141e323f0'), {
   onEnter(args) { this.c = args[0]; },
   onLeave() {
     try {
@@ -23,7 +23,7 @@ Interceptor.attach(at('0x141e2f0b0'), {
 });
 
 // Animated deserializer: tag the rain rig and split-arrow entities by their .ao path.
-Interceptor.attach(at('0x141e56a80'), {
+Interceptor.attach(at('0x141e5afd0'), {
   onEnter(args) {
     this.c = args[0];
     try {
@@ -64,7 +64,7 @@ Interceptor.attach(at('0x141e56a80'), {
 });
 
 // Local-to-world: the output at r8 is the object's rendered world position (two ints).
-Interceptor.attach(at('0x141e361b0'), {
+Interceptor.attach(at('0x141e394f0'), {
   onEnter(args) {
     try {
       const entity = args[0].add(8).readPointer().toString();

@@ -20,6 +20,10 @@ static class StashCatalog
         [LioneyesWatchAct6] = new(329, 408, 0),
         // The Menagerie (Menagerie_Hub): placed live with /stash_place 455 480 0 (2026-10-30).
         [MenagerieHub] = new(455, 480, 0),
+        // Oriath Docks (2_10_town): dock_town.arm's own object line, at its room cell. The room's placement code is 0 with
+        // its origin at (0, 0) (TownNpcs), so a room cell is an area cell: the stash (532, 296), the guild stash (542,
+        // 276) and the crafting bench (507, 300) stand as the client's room puts them, left to right on screen.
+        [OriathDocks] = new(532, 296, -0.800368f),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
         [SanctumHub] = new(116, 160, 0),
         // Kingsmarch: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
@@ -42,6 +46,7 @@ static class StashCatalog
         HeistHub => new(-6, 8, 0),
         ChayulaHub => new(-6, 8, 0),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
+        OriathDocks => new(542, 276, -MathF.PI),
         SarnEncampment => new(285, 418, 28 * MathF.PI / 180),
         LioneyesWatchAct6 => new(318, 408, 0),
         _ => null,
@@ -49,6 +54,9 @@ static class StashCatalog
 
     /// <summary>HASH16 of Act 6 Lioneye's Watch (WorldAreas 2_6_town).</summary>
     public const ushort LioneyesWatchAct6 = 0xb0fb;
+
+    /// <summary>HASH16 of Oriath Docks (WorldAreas 2_10_town).</summary>
+    public const ushort OriathDocks = 0x95b0;
 
     /// <summary>HASH16 of the Sarn Encampment (WorldAreas 1_3_town).</summary>
     public const ushort SarnEncampment = 0x0431;

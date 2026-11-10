@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
@@ -87,8 +88,8 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     static IReadOnlySet<int> HardModeGemRows(string folder)
     {
-        using var index = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
-        using var gems = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
+        using var index = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
+        using var gems = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
         return index.RootElement.EnumerateArray().Where(r => r.GetProperty("IndexRuthless").ValueKind == System.Text.Json.JsonValueKind.Number)
             .SelectMany(r => r.GetProperty("SkillGem2").EnumerateArray().Select(x => x.GetInt32()))
             .Where(row => row >= 0 && row < gems.RootElement.GetArrayLength())

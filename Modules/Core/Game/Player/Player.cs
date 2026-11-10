@@ -34,6 +34,8 @@ static partial class Game
         if (conn.Closed || conn.LeavingArea || conn.RageRetired || InTown(conn)) return [];
         var wanted = saved.Select(AuraCatalog.Family).ToHashSet(StringComparer.Ordinal);
         conn.Stance = CharacterSaves.Load(CharacterName(conn))?.Stance == "Sand" ? "Sand" : "Blood";
+        wanted.ExceptWith(conn.Auras.Values.Select(a => AuraCatalog.Family(a.EffectId)));
+        if (wanted.Count == 0) return [];
         var candidates = new List<AuraCatalog.Aura>();
         foreach (var gem in GemSkillEffects(conn))
             if (SkillsFor(conn).EffectId(gem.Effect) is { } effect && wanted.Contains(AuraCatalog.Family(effect)) && AuraCatalog.Supported(effect)
@@ -298,39 +300,65 @@ static partial class Game
     internal static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
+    // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
+    static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
+        out Dictionary<uint, int> player)
+    {
+        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        cost = 0;
+        life = 0;
+        player = [];
+        if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
+            return false;
+        player = SupportedStats(conn, skillId);
+        cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
+        // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
+        if (cost > 0 && BloodCharges.Uses(Own))
+            cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
+        // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
+        int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
+        if (cost > 0 && inspirationCost != 0)
+            cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
+                MidpointRounding.AwayFromZero));
+        // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
+        // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
+        // it would divide no longer exists.
+        bool bloodMagic = Stats.Key("keystone_blood_magic") is uint bloodKey && player.GetValueOrDefault(bloodKey) != 0;
+        if (bloodMagic)
+        {
+            life = (int)Math.Min(cost, int.MaxValue);
+            cost = 0;
+        }
+        else if (Lifetap.ConvertsCostToLife(own))
+        {
+            // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
+            // therefore zero: the two conversions do not stack into 140%.
+            life = (int)Math.Min(cost, int.MaxValue);
+            cost = 0;
+        }
+        else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
+        return conn.PlayerMana >= cost && !(life > 0 && conn.PlayerLife <= (uint)life);
+    }
+
+    // Whether the player can pay a use of the skill now: checked before a use's admission spends a cooldown use or a
+    // bypass charge, or moves the player (TryBeginCooldownUseCore), so a refused payment leaves them as they were.
+    internal static bool CanPaySkillCost(ClientState conn, ushort skillId)
+    {
+        var own = SupportedSkill(conn, skillId).Stats;
+        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _);
+    }
+
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
     // Blood's base life cost while it runs and the player is not on Low Life. Lifetap Support replaces the whole
     // mana cost with Life. False when the player lacks the pool it actually uses.
     internal static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
-        var own = SupportedSkill(conn, skillId).Stats;
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
-        cost = (uint)Math.Max(0, Own("mana_cost"));
+        var supported = SupportedSkill(conn, skillId);
+        var own = supported.Stats;
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
-            { cost = 0; return false; }
-            var player = SupportedStats(conn, skillId);
-            cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
-            // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
-            if (cost > 0 && BloodCharges.Uses(Own))
-                cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
-            // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
-            int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
-            if (cost > 0 && inspirationCost != 0)
-                cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
-                    MidpointRounding.AwayFromZero));
-            int life;
-            if (Lifetap.ConvertsCostToLife(own))
-            {
-                // Lifetap pays the whole cost as Life. Petrified Blood's share of a Mana cost that no longer exists is
-                // therefore zero: the two conversions do not stack into 140%.
-                life = (int)Math.Min(cost, int.MaxValue);
-                cost = 0;
-            }
-            else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
-            if (conn.PlayerMana < cost || life > 0 && conn.PlayerLife <= (uint)life) return false;
+            if (!SkillCostLocked(conn, skillId, own, out cost, out int life, out var player)) return false;
             conn.PlayerMana -= cost;
             if (life > 0)
             {
@@ -340,6 +368,7 @@ static partial class Game
             }
             ManaSpentLocked(conn, cost, player);
             SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
+            ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
     }
@@ -366,7 +395,7 @@ static partial class Game
         Stats.Key("cast_speed_+%") is uint k ? stats.GetValueOrDefault(k) : 0;
 
     // "More" cast speed on the summed increases (the skill's own included), as the client's cast_speed_+% calculator
-    // 0x142709610: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x142708190)
+    // 0x1427101c0: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x14270ed40)
     // multiplies max(0, 1 + v / 100) of each source below in single precision and in this order, then rounds:
     // Spell Echo's support_multicast_cast_speed_+%_final, Screaming Reels' only for main_hand_weapon_type 15 (a fishing
     // rod), the totem supports' only off a totem, Fanaticism's only for a hand-cast spell, the Frostbolt one at most
@@ -410,7 +439,7 @@ static partial class Game
     internal static int SkillArtVariation(ClientState conn, uint gem) =>
         Stats.Key("skill_art_variation") is not uint key ? 0
         : CharacterSaves.SkillCosmetics(CharacterName(conn)).Where(kv => CharacterSaves.SkillCosmeticGem(kv.Key) == gem)
-            .SelectMany(kv => Mtx.Find(kv.Value.Record) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
+            .SelectMany(kv => Mtx.Resolve(kv.Value) is { } r && MtxEffects.Of(r.MtxTypeHash) is { } fx ? fx.Stats : [])
             .Where(st => st.Stat == key).Select(st => st.Value).FirstOrDefault();
 
     internal static async Task ActivateRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, ushort skillId,
@@ -458,7 +487,7 @@ static partial class Game
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ringAo) ?? 400));
         var ringObject = new EffectObject(at.X, at.Y, ringAo) { Parent = PlayerId, Scale = scale };
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(ring, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), ringObject.Blob()),
-            $"0x02b9 create effect 0x{ring:x} {ringAo} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}");
+            $"0x02bb create effect 0x{ring:x} {ringAo} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}");
         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(ring), null);
     }
 
@@ -477,7 +506,7 @@ static partial class Game
         await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, rf.Buff), $"0x01c2 player buff {rf.Buff}: righteous_fire ends ({why})");
         await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, rf.SelfAura), null);
         if (rf.Ring is uint ring)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(ring), $"0x02bb remove effect 0x{ring:x} (Righteous Fire's ring)");
+            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(ring), $"0x02bd remove effect 0x{ring:x} (Righteous Fire's ring)");
         foreach (var (monster, buff) in auras)
             await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(monster, buff), null);
     }
@@ -544,6 +573,7 @@ static partial class Game
                 await SendRecentEnemyHits(remote, stream, ciphers, conn);
                 await SendAttackerSlows(remote, stream, ciphers, conn);
                 await SendLifetap(remote, stream, ciphers, conn);
+                lock (conn.Monsters) _ = CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds);
                 await SendSupportGemBuffs(remote, stream, ciphers, conn);
                 await SendLeechBuffs(remote, stream, ciphers, conn);
                 await SendPetrifiedBloodLoss(remote, stream, ciphers, conn);
@@ -573,9 +603,15 @@ static partial class Game
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
                 if (rf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "death");
                 if (!PlayerUpdatesCurrent(conn, updates)) return;
+                await EndBladefallTrarthus(remote, stream, ciphers, conn, "death");
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
                 continue;
             }
             if (rf is not null && !InGracePeriod(conn)) await BurnAround(remote, stream, ciphers, conn, rf, seconds);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
+            // Bladefall of Trarthus stops when its mana is spent (RunResourceRecovery takes it).
+            if (conn.BladefallTrarthus is not null && conn.PlayerMana == 0)
+                await EndBladefallTrarthus(remote, stream, ciphers, conn, "out of mana");
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // The character panel's Spell Suppression chance again (0x1b3 with only its stats) when a condition changed
             // it: full life lost or regained, a walk started or ended, an enemy hit 4 s ago.
@@ -785,7 +821,7 @@ static partial class Game
                         RecordHardcoreDeath(conn);
                     }
                     bool survived = CompleteResourceRecoveryLocked(conn, recoveryFrom, now, recoveryStats,
-                        mana + manaRate * seconds + leeched.Mana, manaBefore, manaCap, ref manaCarry);
+                        mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds), manaBefore, manaCap, ref manaCarry);
                     lifeAfter = conn.PlayerLife;
                     if (!survived)
                     {
@@ -1158,7 +1194,7 @@ static partial class Game
         var cls = SkillsFor(conn).ClassFor(classRow);
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);
         conn.PeerType = type;
-        const string creationLabel = "0x02b9 create current player";
+        const string creationLabel = "0x02bb create current player";
         var messages = new List<(string Name, byte[] Bytes)>
         {
             ("0x01f6 campaign hideout unlocks", InstanceMicrotransactions.HideoutUnlocks(
@@ -1187,14 +1223,14 @@ static partial class Game
         foreach (var (id, transition) in layout.AreaTransitions.Where(t => TransitionShown(conn, t.Id, t.Transition)))
         {
             lock (conn.ShownTransitions) conn.ShownTransitions.Add(id);
-            messages.Add(($"0x02b9 create area transition 0x{id:x} {transition}",
+            messages.Add(($"0x02bb create area transition 0x{id:x} {transition}",
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(transition.Type), transition.Blob())));
         }
         foreach (var (id, effect) in layout.Effects)
-            messages.Add(($"0x02b9 create transition effect 0x{id:x} {effect}",
+            messages.Add(($"0x02bb create transition effect 0x{id:x} {effect}",
                 InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(effect.Type), effect.Blob())));
         if (layout.Waypoint is { } waypoint)
-            messages.Add(($"0x02b9 create waypoint 0x{WaypointCatalog.ObjectId:x} {waypoint}",
+            messages.Add(($"0x02bb create waypoint 0x{WaypointCatalog.ObjectId:x} {waypoint}",
                 InstanceEntities.CreateObject(WaypointCatalog.ObjectId, InstanceEntities.ObjectTypeHash(WaypointObject.MetadataPath), waypoint.Blob())));
         if (Environment.GetEnvironmentVariable("Game_GATEWAY_ENTER") == "1")
         {
@@ -1225,7 +1261,7 @@ static partial class Game
             foreach (var (id, _) in layout.Effects)
                 messages.Add(($"0x01a9 transition effect 0x{id:x} enters wake zone", InstanceProtocol.EnterWakeZone(id)));
             if (layout.Waypoint is not null) messages.Add(($"0x01a9 waypoint 0x{WaypointCatalog.ObjectId:x} enters wake zone", InstanceProtocol.EnterWakeZone(WaypointCatalog.ObjectId)));
-            // The attributes once more as a stats update. UI built on entering caches them (0x141e802d0 reads the Stats
+            // The attributes once more as a stats update. UI built on entering caches them (0x141e869c0 reads the Stats
             // component's getter); live 2026-10-18 the cache held 0 while the getter returned 14/14/32.
             messages.Add(("0x01b3 class attributes", []));
         }

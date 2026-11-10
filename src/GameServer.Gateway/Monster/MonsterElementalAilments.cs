@@ -79,10 +79,10 @@ sealed class MonsterElementalAilments
 
     /// <summary>
     /// virtual_{kind}_proliferation_radius as the client's calculators build it, the largest of its sources. Shock
-    /// (0x142828340): the gloves', Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, itself the larger
+    /// (0x14282eef0): the gloves', Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, itself the larger
     /// of its two sources), Vinktar's flask's, the ascendancy's and the mastery's radius, and 15 with
-    /// shock_proliferation_radius_is_at_least_15 (Within the Tempest). Freeze (0x142828810): Elemental Proliferation's, 12
-    /// with spread_freeze_to_nearby_enemies, the gloves', the ascendancy's and the amulet's. Chill (0x142828c00): Elemental
+    /// shock_proliferation_radius_is_at_least_15 (Within the Tempest). Freeze (0x14282f3c0): Elemental Proliferation's, 12
+    /// with spread_freeze_to_nearby_enemies, the gloves', the ascendancy's and the amulet's. Chill (0x14282f7b0): Elemental
     /// Proliferation's and the ascendancy's. The calculators scale none of them by area of effect; <see cref="SpreadRadius"/>
     /// does.
     /// </summary>
@@ -303,8 +303,12 @@ sealed class MonsterElementalAilments
     /// under 0.3 s discarded, the target's immunity. Null when it does not apply. The attacker's increase and the
     /// target's increase on itself add up (PoB CalcOffence: Enemy…Duration INC + Self…Duration INC); a positive
     /// base_self_*_duration_-% is a reduction.</summary>
+    /// <summary>No chill, freeze or shock lands while set (an encounter's grace: SpawnedMonster.EntranceGrace).</summary>
+    public bool Grace { get; set; }
+
     Effect? Apply(Effect effect, Func<string, int> attacker, Func<string, int> target)
     {
+        if (Grace) return null;
         var (kind, now) = (effect.Kind, effect.From);
         double seconds = (effect.Until - now) * Math.Max(0, 1 + (attacker($"virtual_{Name(kind)}_duration_+%")
             - target($"base_self_{Name(kind)}_duration_-%")) / 100.0);

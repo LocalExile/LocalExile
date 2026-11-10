@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>The copied client's HardMode purchase costs. Unmodelled/multi-currency costs are omitted, never free.</summary>
 sealed class HardModeShopPrices
@@ -8,7 +9,7 @@ sealed class HardModeShopPrices
 
     public HardModeShopPrices(ItemCatalog items, string folder = "data")
     {
-        JsonDocument Read(string name) => JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables", name + ".json")));
+        JsonDocument Read(string name) => JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables", name + ".json")));
         using var costs = Read("ItemCosts");
         using var levels = Read("ItemCostPerLevel");
         using var maps = Read("Maps");

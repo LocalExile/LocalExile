@@ -9,7 +9,7 @@ using GameServer.Storage;
 
 /// <summary>
 /// A character's saved state: its items per inventory (Inventories.dat row), its skill bar and its progress, one row per
-/// character in the save database (<see cref="Saves"/>, data/saves.db, git-ignored). Items are stored by BaseItemTypes
+/// character in the save database (<see cref="Saves"/>, data/characters.db, git-ignored). Items are stored by BaseItemTypes
 /// HASH32 and rebuilt through the <see cref="ItemCatalog"/>, so the save holds no client-side layout. Every change is a
 /// transaction: it reads the row, changes one part and writes it back, and nothing else writes in between.
 /// </summary>
@@ -37,8 +37,10 @@ static class CharacterSaves
     /// <summary>A Monster Statue decoration: the MonsterVarieties HASH16 and the actor variation (5 the stone pose).</summary>
     public sealed record SavedMonsterStatue(int X, int Y, float Rotation, ushort MonsterHash16, ushort Scale = 100, byte Variation = 5);
 
-    /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1) and the 0x1f9 option byte it was picked with.</summary>
-    public sealed record SavedCosmetic(uint Record, byte Option = 0);
+    /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1), the 0x1f9 option byte it was picked with and the
+    /// record's MtxTypes HASH32, which names it in every game version. A save without the hash was written by a 3.29.3b
+    /// build: its record is a 3.29.3b row (<see cref="CosmeticMigration"/>).</summary>
+    public sealed record SavedCosmetic(uint Record, byte Option = 0, uint? Hash = null);
 
     /// <summary>Skill bar: slot index → a GrantedEffects Id (skill ids change with the socketed gems, effects do not),
     /// "Action/&lt;ActionTypes Id&gt;" for a basic action ("Action/Move") or "" for a cleared slot. Experience: the

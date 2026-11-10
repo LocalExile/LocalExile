@@ -81,7 +81,7 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         return Result<Session>.Success(NewSession(acc));
     }
 
-    /// <summary>What the official client sends for a password: SHA-256 over its UTF-16LE text (client 0x140d05f70 → 0x140e23290).</summary>
+    /// <summary>What the official client sends for a password: SHA-256 over its UTF-16LE text (client 0x140d060a0 → 0x140e21b30).</summary>
     public static byte[] ClientPasswordDigest(string password) => SHA256.HashData(Encoding.Unicode.GetBytes(password));
 
     /// <summary>Persistent device-bound credential for the client's Remember Password path.

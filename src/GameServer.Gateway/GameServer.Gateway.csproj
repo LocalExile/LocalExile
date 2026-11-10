@@ -18,9 +18,11 @@
     <InternalsVisibleTo Include="game" />
     <InternalsVisibleTo Include="atlas" />
     <InternalsVisibleTo Include="bench" />
+    <InternalsVisibleTo Include="chat" />
     <InternalsVisibleTo Include="commands" />
     <InternalsVisibleTo Include="cosmetics" />
     <InternalsVisibleTo Include="delve" />
+    <InternalsVisibleTo Include="currencyexchange" />
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />
     <InternalsVisibleTo Include="hideoutediting" />

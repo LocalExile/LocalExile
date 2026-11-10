@@ -1,6 +1,8 @@
+using GameServer.Core;
 /// <summary>
 /// The game data the Gateway reads from data/ (extracted from Client/Content.ggpk by scripts/dev/extract-data.ps1,
-/// which live.ps1 runs on every start). Each feature turns itself off without its file; this lists the missing ones in
+/// which live.ps1 runs on every start; the tables and generated files come from client.db through ClientTables). Each
+/// feature turns itself off without its file; this lists the missing ones in
 /// one startup warning. Keep in step with extract-data.ps1's manifest.
 /// </summary>
 static class GameDataFiles
@@ -55,14 +57,13 @@ static class GameDataFiles
         ("data/monster-contacts.json", "monster projectile release timing/points and boss stage contacts"),
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
         ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
-        ("data/phrecia-passive-skillgraph.psg", "merged passive graph analysis artifact (not installed)"),
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
         ("data/client-constants.json", "the Gateway does not start without its HNC mask"),
         ("data/stat-descriptions.txt", "mod wording for tools' item crafter (the crafter mode)"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>
-        All.Where(f => !File.Exists(Path.Combine(root, f.File)));
+        All.Where(f => !ClientTables.Exists(Path.Combine(root, f.File)));
 
     /// <summary>Generated files whose older versions still load but lack what a feature reads (extract-data.ps1's manifest
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
@@ -73,7 +74,7 @@ static class GameDataFiles
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 4, "class rig animation indices for 0x1b2 cast clips: without them run casts have no character animation"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
-        ("object-types", 6, "quest objects and chests (rooms' server objects, quest tile and room types): without them they get the wrong blob or none"),
+        ("object-types", 8, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals): without them they get the wrong blob or none"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older
@@ -81,18 +82,25 @@ static class GameDataFiles
     public static IEnumerable<(string Entry, int Have, int Version, string Feature)> Outdated(string root = ".")
     {
         string file = Path.Combine(root, "data", "extract-stamps.json");
-        if (!File.Exists(file)) yield break;
+        if (!ClientTables.Exists(file)) yield break;
         Dictionary<string, int> stamps = [];
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file).TrimStart('﻿'));
+            using var doc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllText(file).TrimStart('\uFEFF'));
             foreach (var e in doc.RootElement.EnumerateObject())
                 if (e.Value.ValueKind == System.Text.Json.JsonValueKind.Object && e.Value.TryGetProperty("version", out var v) && v.TryGetInt32(out int n))
                     stamps[e.Name] = n;
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException) { stamps.Clear(); }
         foreach (var (entry, version, feature) in Needed)
-            if (stamps.TryGetValue(entry, out int have) && have < version) yield return (entry, have, version, feature);
+            if (stamps.TryGetValue(entry, out int have) && have < version && !InClientDb(root, entry)) yield return (entry, have, version, feature);
+    }
+
+    // An entry whose output the servers read from client.db (built from sql/, whatever the local extraction's version).
+    static bool InClientDb(string root, string entry)
+    {
+        string file = Path.Combine(root, entry == "tables" ? "data/tables/WorldAreas.json" : $"data/{entry}.json");
+        return ClientTables.TryTable(file, out string table) ? ClientTables.Has(table) : ClientTables.TryFile(file, out _);
     }
 
     /// <summary>One warning naming every generated file older than a feature needs, or null.</summary>
