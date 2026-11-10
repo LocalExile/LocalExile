@@ -152,14 +152,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   attack time and reach, the slams (Tukohama's totem slam, Abberath's meteor upheaval, Gruthkul's upheaval, Shakari's
   tail strike, Garukhan's combo, Yugul's chomp, the Leap Slams) hit harder than the plain swing at their clip's cast
   time, a marker row (a hide, a burrow, a dodge, a spawner trigger, Solaris' and Lunaris' transform) carries no hit,
-  and each skill's ground art was checked against the client's metadata. Tukohama raises his shielding totem (the
-  cannot-be-damaged buff while its beam plays); Shakari burrows, blinks to the player and emerges with a tail sweep;
+  and each skill's ground art was checked against the client's metadata. The monsters the fights raise are real
+  varieties, spawned owned by the boss and retired with it: Tukohama stands behind his own `TukohamaShieldTotem`
+  (cannot be damaged while it lives, and killing or outlasting it is what exposes him), Arakaali's egg mortars land
+  `SpiderlingEggArakaali` eggs that hatch `SpiderArakaaliHatch` broodlings when their time comes or when the player
+  breaks them (her own 7799 names no summon row, so the controller hatches them), and Garukhan's cascade raises
+  `GarukhanMinionSmall` warriors from the sand. Shakari burrows, blinks to the player and emerges with a tail sweep;
   Ryslatha slides away from the player before spitting again; Arakaali (MovementSpeed 0) fights from her web.
   Behind the generic cannot-be-damaged buff (BuffDefinitions row 350: no Pantheon boss has a shield row of its own)
   at 75/50/25%, an intermission teleports to the arena's `ArenaMiddle` and plays the boss's signature move. Damage
   comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
-  none, scaled for the slams). Not yet: Arakaali's laser turrets as separate objects, her adds from the egg mortars,
-  Tukohama's totem as a targetable monster, Garukhan's charged-dash shadow clones. Code:
+  none, scaled for the slams). Not yet: Arakaali's laser turret daemons and Abberath's spawner daemons as separate
+  casters (their beams and fireballs play from the boss's own rows), Garukhan's charged-dash shadow clones, the
+  Tukohama map variants' extra rows (3561/3562). Checked by the build, the three suites and the data (every raised
+  variety resolves and is Supported); not yet with the client. Code:
   `Modules/Core/Game/Monster/PantheonBosses.cs` (wired in `Monsters.cs` and `GameModule.cs`), over
   `AtlasBossFight.cs`. Tests: `PantheonBossSkillTests.cs`.
 

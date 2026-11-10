@@ -53,6 +53,17 @@ public class PantheonBossSkillTests
         // The Brine King stays out (BrineKing.cs owns him); ordinary monsters stay out too.
         Assert.False(PantheonBosses.IsBoss(monsters.Find(PantheonBosses.BrineKingId)));
         Assert.False(PantheonBosses.IsBoss(monsters.Find("Metadata/Monsters/Zombie/Zombie")));
+        // The monsters the fights raise are real varieties too: a summon the catalog cannot create is a skill that
+        // silently does nothing (MonsterSummon logs exactly that).
+        foreach (string raised in new[] { PantheonBosses.TotemVariety, PantheonBosses.EggVariety,
+            PantheonBosses.SpiderHatch, PantheonBosses.GarukhanMinion })
+        {
+            var variety = monsters.Find(raised);
+            Assert.NotNull(variety);
+            Assert.True(variety!.Supported, raised);
+            // None of them is a boss of its own: the AI drives them, the controllers do not.
+            Assert.False(PantheonBosses.IsBoss(variety), raised);
+        }
     }
 
     [Fact]

@@ -48,6 +48,13 @@ static class PantheonBosses
     internal const int BearMeleeEffect = 420;   // Gruthkul's claw (DespairBear rows)
     internal const int CleaveEffect = 208;      // Arakaali's melee (no Default Attack in her row)
 
+    // The monsters the bosses raise, all real varieties the client can draw (checked with MonsterCatalog.Find:
+    // every one is Supported). Tukohama's is the fight: while it stands he cannot be damaged.
+    internal const string TotemVariety = "Metadata/Monsters/Tukohama/TukohamaShieldTotem";
+    internal const string EggVariety = "Metadata/Monsters/SpiderlingEgg/SpiderlingEggArakaali";
+    internal const string SpiderHatch = "Metadata/Monsters/SpiderPlague/SpiderArakaaliHatch";
+    internal const string GarukhanMinion = "Metadata/Monsters/Garukhan/GarukhanMinionSmall";
+
     // The merged kit of each boss, in its MonsterVarieties row order (the client plays the clip the 0x1ab
     // names; the order is stable, so an id always means one clip).
     internal static readonly int[] TukohamaEffects = [406, 5373, 5302, 6664, 6665];
@@ -320,6 +327,8 @@ static class PantheonBosses
             try
             {
                 await fight.Bind(conn);
+                // The boss is gone: whatever he raised goes with him (his controller will not step again).
+                if (monster.Dead || monster.Life == 0) await fight.RetireAdds(conn);
                 if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds);
             }
             finally { fight.Gate.Release(); }
@@ -336,7 +345,7 @@ static class PantheonBosses
         public void Dispose()
         {
             foreach (var pair in Fights)
-                foreach (var fight in pair.Value.Values) fight.Stop();
+                foreach (var fight in pair.Value.Values) { fight.RetireAll(); fight.Stop(); }
         }
     }
 
@@ -355,8 +364,20 @@ static class PantheonBosses
         (int X, int Y)? stage;
 
         readonly Dictionary<int, double> ready = [];
-        // Tukohama's shielding totem: while it stands he cannot be damaged; the totem's lifetime is its own.
+        // The monsters a boss raises: Tukohama's shield totem, Arakaali's eggs, Garukhan's sand warriors. All are
+        // real varieties (TukohamaShieldTotem, SpiderlingEggArakaali, GarukhanMinionSmall) owned by this boss and
+        // retired with it; the ordinary AI runs them once they exist.
+        readonly List<uint> adds = [];
+        // A cast whose monsters arrive with it rather than at once: a mortar's eggs land when its clip does, the
+        // warriors rise out of the cascade a moment after it. (Due, variety, X, Y, is the shield totem.)
+        readonly List<(double Due, string Variety, int X, int Y, bool Totem)> pending = [];
+        readonly List<(uint Id, double HatchAt, int X, int Y)> eggs = [];
+        // Tukohama's shield totem: while one of his stands he cannot be damaged, and killing it is what lets the
+        // fight continue (BuffDefinitions row 350, the buff the intermission shield uses too).
+        uint totem;
+        ushort totemBuff;
         double totemUntil;
+        int hatchlings;
         // Shakari's underground travel: she submerges, blinks to the player and emerges.
         bool burrowed;
         // The per-boss signature skill each intermission plays once the shield is up.
@@ -364,14 +385,34 @@ static class PantheonBosses
 
         protected override async Task Ticks(ClientState conn, double now)
         {
-            // Tukohama's totem expires: the shield comes down and the clip's surge plays.
-            if (totemUntil > 0 && now >= totemUntil)
+            // Monsters a cast of this fight raises, once their own moment comes.
+            foreach (var spawn in pending.Where(p => p.Due <= now).ToArray())
             {
-                totemUntil = 0;
-                lock (conn.Monsters) boss.LifePhases?.Finish();
-                var at = boss.Walk.Position(now);
+                pending.Remove(spawn);
+                uint raised = await Add(conn, spawn.Variety, (spawn.X, spawn.Y));
+                if (!spawn.Totem || raised == 0) continue;
+                totem = raised;
+                totemUntil = now + 20;
+                await TotemShield(conn, true);
+                Console.WriteLine($"[{Name}] 0x{id:x}: the shielding totem rises (0x{raised:x})");
+            }
+            // The shield totem came down (killed, or left standing too long): his immunity goes with it.
+            if (totem != 0 && (now >= totemUntil || !Alive(conn, totem)))
+            {
+                uint gone = totem;
+                totem = 0;
+                var at = Position(conn, gone) ?? boss.Walk.Position(now);
+                await TotemShield(conn, false);
                 await Effect(conn, at, TukohamaArt + "sunder_surge.ao", 1.2);
-                Console.WriteLine($"[{Name}] 0x{id:x}: the shielding totem falls");
+                await Retire(conn, gone);
+                Console.WriteLine($"[{Name}] 0x{id:x}: the shielding totem falls, Tukohama is exposed");
+            }
+            // An egg hatches when its time comes or when the player breaks it open.
+            foreach (var egg in eggs.Where(e => e.HatchAt <= now || !Alive(conn, e.Id)).ToArray())
+            {
+                eggs.Remove(egg);
+                if (hatchlings < 12 && await Add(conn, SpiderHatch, (egg.X, egg.Y)) != 0) hatchlings++;
+                await Retire(conn, egg.Id);
             }
             if (burrowed)
             {
@@ -462,13 +503,23 @@ static class PantheonBosses
             }
             switch (effect)
             {
-                // Tukohama's shielding totem: the shield comes up for 5 s while the totem's beam plays.
+                // Tukohama's shielding totem: a real monster of his own stands beside him for the fight to break.
                 case 5373:
-                    totemUntil = now + 5;
-                    await Effect(conn, pos, TukohamaArt + "shieldingtotem/shieldingbeam.ao", 5);
-                    lock (conn.Monsters) boss.LifePhases?.Begin(boss.Life, boss.MaxLife);
-                    await All(InstanceEntities.AddBuff(id, conn.NextBuff++, ImmunityRow, id), monster: true);
-                    Console.WriteLine($"[{Name}] 0x{id:x}: the shielding totem rises");
+                    if (totem != 0) return;   // one already stands: he waits behind it instead of raising another
+                    pending.Add((now + Math.Max(0.8, attack.Seconds), TotemVariety,
+                        pos.X + (player.X >= pos.X ? 5 : -5), pos.Y, true));
+                    return;
+                // Arakaali's egg mortar: the eggs land where the mortar does and hatch into her broodlings.
+                case 5221 or 5222:
+                    SwingWith(conn, attack, effect, area: true, radius: attack.Range);
+                    if (eggs.Count < 4) pending.Add((now + Math.Max(1, attack.Seconds), EggVariety, player.X, player.Y, false));
+                    return;
+                // Garukhan's cascade: the sand it throws up is what her warriors rise out of.
+                case 8445:
+                    SwingWith(conn, attack, effect, area: true, radius: attack.Range);
+                    if (AliveAdds(conn) < 4)
+                        for (int k = 0; k < 2; k++)
+                            pending.Add((now + Math.Max(1, attack.Seconds), GarukhanMinion, player.X + 3 * k, player.Y, false));
                     return;
                 // Shakari's burrow: submerge, blink to the player; the emerge's sweep lands in Ticks.
                 case 8802 or 6099 or 6100:
@@ -490,6 +541,90 @@ static class PantheonBosses
                     SwingWith(conn, attack, effect, area: !MeleeLike(variety) && effect != BasicEffect(variety),
                         radius: attack.Range);
                     return;
+            }
+        }
+
+        /// <summary>Raises one of the boss's monsters where the cast put it. It is a summon of this fight: the
+        /// instance's own monster (not a player's minion), owned through <see cref="SpawnedMonster.SummonerId"/> so a
+        /// departed boss takes it with him, and it drops nothing.</summary>
+        async Task<uint> Add(ClientState conn, string varietyId, (int X, int Y) at)
+        {
+            if (Monsters.Find(varietyId) is not { Supported: true } variety) return 0;
+            at = conn.Layout.Near(at);
+            var (remote, stream, ciphers) = conn.Wire;
+            uint raised;
+            try
+            {
+                raised = await SpawnMonster(remote, stream, ciphers, conn, variety, boss.Level, MonsterRarity.Normal,
+                    at.X, at.Y, owned: (_, m) => { m.SummonerId = id; m.NoRewards = true; });
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or OperationCanceledException)
+            {
+                return 0;
+            }
+            if (raised != 0) { lock (conn.Monsters) adds.Add(raised); }
+            return raised;
+        }
+
+        bool Alive(ClientState conn, uint monster)
+        {
+            lock (conn.Monsters) return conn.Monsters.TryGetValue(monster, out var m) && !m.Dead && m.Life > 0;
+        }
+
+        (int X, int Y)? Position(ClientState conn, uint monster)
+        {
+            lock (conn.Monsters)
+                return conn.Monsters.TryGetValue(monster, out var m)
+                    ? m.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : null;
+        }
+
+        int AliveAdds(ClientState conn)
+        {
+            lock (conn.Monsters) return adds.Count(a => Alive(conn, a));
+        }
+
+        /// <summary>Takes one of the boss's monsters out of the world the way the campaign's controllers do
+        /// (DoedreSewers.ClearHazards): dead server-side, then removed for every player.</summary>
+        async Task Retire(ClientState conn, uint monster)
+        {
+            lock (conn.Monsters)
+            {
+                adds.Remove(monster);
+                if (conn.Monsters.TryGetValue(monster, out var m)) { m.Dead = true; m.Life = 0; m.ActionGeneration++; }
+                conn.Monsters.Remove(monster);
+                conn.Instance.World.MonsterOrigins.TryRemove(monster, out _);
+            }
+            await All(InstanceProtocol.RemoveObject(monster));
+        }
+
+        /// <summary>Every monster this fight raised goes with it: the instance is unloaded or the boss died.</summary>
+        internal async Task RetireAdds(ClientState conn)
+        {
+            if (totem != 0) { totem = 0; await TotemShield(conn, false); }
+            foreach (uint add in adds.ToArray()) await Retire(conn, add);
+            pending.Clear();
+            eggs.Clear();
+        }
+
+        // The instance is being unloaded: the same, on whoever is still connected.
+        internal void RetireAll()
+        {
+            if (players.FirstOrDefault(p => !p.Closed) is { } conn) _ = RetireAdds(conn);
+        }
+
+        /// <summary>Tukohama's immunity while his shield totem stands: row 350's buff on him, its own instance id so
+        /// it stays independent of an intermission shield that is up at the same time.</summary>
+        async Task TotemShield(ClientState conn, bool on)
+        {
+            if (on)
+            {
+                lock (conn.Monsters) totemBuff = conn.NextBuff++;
+                await All(InstanceEntities.AddBuff(id, totemBuff, ImmunityRow, id), monster: true);
+            }
+            else if (totemBuff != 0)
+            {
+                await All(InstanceEntities.RemoveBuff(id, totemBuff), monster: true);
+                totemBuff = 0;
             }
         }
     }
