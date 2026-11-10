@@ -310,7 +310,7 @@ static partial class Game
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.
-            ClientPredicted = spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
+            ClientPredicted = totem is not null || spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only

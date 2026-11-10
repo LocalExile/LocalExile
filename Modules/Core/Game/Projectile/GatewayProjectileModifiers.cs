@@ -80,6 +80,8 @@ static class GatewayProjectileModifiers
         if (p.TravelEmission is { } travelEmission)
             p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
+        if (get("projectiles_can_shotgun") != 0)
+            p = p with { HitRule = new(ProjectileHitScope.Projectile) };
         return p;
     }
 

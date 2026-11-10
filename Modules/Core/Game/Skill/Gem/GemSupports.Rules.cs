@@ -235,7 +235,7 @@ static partial class Game
         SupportedAttackSecondsFor(conn, skillId, offHand);
 
     internal static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick = true)
+        bool clampToTick = true, bool proxy = false)
     {
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -253,12 +253,17 @@ static partial class Game
                 && stats.GetValueOrDefault(rampageSpeed) is int perTen and > 0)
                 stats[final] += conn.Rampage.Current.Stacks / 10 * perTen;
         }
+        if (proxy && Stats.Key("main_hand_attack_speed_+%") is uint proxySpeed)
+            stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get("totem_skill_attack_speed_+%")
+                + Get("totems_attack_speed_+%_per_active_totem") * conn.Totems.Living(conn.Clock.Elapsed.TotalSeconds).Count()
+                + Get("attack_speed_+%_per_maximum_totem") * TotemLimit(conn, skillId);
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get("support_melee_physical_damage_attack_speed_+%_final") / 100.0)
             * Math.Max(.01, 1 + Get("support_multiple_attacks_melee_attack_speed_+%_final") / 100.0)
             // Pulverise: "15% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_pulverise_attack_speed_+%_final") / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
+        if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
@@ -273,7 +278,7 @@ static partial class Game
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats) : DualWieldPanel.OffHandSeconds(offHand, baseSpeed);
         // Preserve the weapon timing's existing minimum, but compose MORE through the native integer final percent.
         double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
-            / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / PlayerActionFactor(conn);
+            / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / (proxy ? 1 : PlayerActionFactor(conn));
         return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
     }
 

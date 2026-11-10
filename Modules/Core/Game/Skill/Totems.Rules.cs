@@ -70,12 +70,12 @@ static partial class Game
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
             && TotemVarieties.Value.TryGetValue(effect, out int native))
             return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
-        if (!SpellTotemEffect(conn, effect)) return null;
-        // Prefer a dedicated native skin when the tables have one; other spell totems use intelligence skin 3.
+        if (!SpellTotemEffect(conn, effect) && !BallistaEffect(conn, effect)) return null;
+        // Prefer a dedicated native skin; generic spell/ballista proxies use intelligence/dexterity skins 3/2.
         if (TotemVarieties.Value.TryGetValue(effect, out int specific)
             && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
         using var variations = GameTables.Open("data/tables/SkillTotemVariations.json");
-        var skin = variations.RootElement.EnumerateArray().FirstOrDefault(v => v.GetProperty("SkillTotemsKey").GetInt32() == 3
+        var skin = variations.RootElement.EnumerateArray().FirstOrDefault(v => v.GetProperty("SkillTotemsKey").GetInt32() == (BallistaEffect(conn, effect) ? 2 : 3)
             && v.GetProperty("TotemSkinId").GetInt32() == 0);
         return skin.ValueKind == JsonValueKind.Object
             && Monsters.Find(skin.GetProperty("MonsterVarietiesKey").GetInt32().ToString()) is { Supported: true } spell ? spell : null;
@@ -83,20 +83,22 @@ static partial class Game
 
     internal static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
         || PlacedKind(SupportedSkill(conn, skill)) is (false, false)
-            && TotemVariety(conn, effect) is not null && BaseTotemsAllowed
-            + GolemStat(SupportedStats(conn, skill), "number_of_additional_totems_allowed") > 0
+            && TotemVariety(conn, effect) is not null && TotemLimit(conn, skill) > 0
             && (TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
-                || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null);
+                || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null
+                || BallistaPathAvailable(conn, skill));
 
-    // A totem skill's use, after its mana: the totem rises at the aimed point once the summon ends (GrantedEffects
-    // CastTime, 0.6 s, over totem placement speed and action speed; wiki Totem: cast speed does not apply).
+    // After placement pays its cost, the totem rises at the aimed point. Placement speed and owner action speed
+    // scale this delay; the proxy's spell/weapon speed only controls its subsequent attacks.
     static async Task PlaceTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
     {
         double factor, speed;
         lock (conn.Monsters) factor = conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds);
         speed = Stats.Key("summon_totem_cast_speed_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0;
-        double basis = SpellTotemEffect(conn, effect) ? .6 : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
+        // 3.28 changed ranged totem placement from 0.35 to 0.5 seconds (PoEDB version notes).
+        double basis = BallistaEffect(conn, effect) ? .5 : SpellTotemEffect(conn, effect) ? .6
+            : SkillsFor(conn).CastTimeMs(effect) / 1000.0;
         double seconds = basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
         var lifetime = CombatLifetime;
         var source = SupportedSkill(conn, skillId);
@@ -129,7 +131,7 @@ static partial class Game
         var stats = SupportedStats(conn, skillId);
         var own = SupportedSkill(conn, skillId).Stats;
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
-        int limit = BaseTotemsAllowed + Get("number_of_additional_totems_allowed");
+        int limit = TotemLimit(conn, skillId);
         if (limit < 1) return null;
         byte level = (byte)Math.Clamp(Get("totem_support_gem_level") is > 0 and var supportLevel
             ? supportLevel : SkillsFor(conn).PlayerLevelReq(effect, gemLevel), 1, 100);
@@ -149,7 +151,8 @@ static partial class Game
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, conn.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, conn.Layout.GridH - 1)));
         var playerStats = CharacterPlayerStats(conn);
-        bool spellTotem = SpellTotemEffect(conn, effect) && IsTotemSkill(conn, skillId);
+        bool ballista = BallistaEffect(conn, effect) && GolemStat(own, "is_ranged_attack_totem") != 0;
+        bool spellTotem = (SpellTotemEffect(conn, effect) || ballista) && IsTotemSkill(conn, skillId);
         var sourceGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(conn, skillId) : null;
         if (spellTotem && proxy is null) return null;
@@ -171,8 +174,11 @@ static partial class Game
                 var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
                 { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                     SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
+                int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed"), 0, int.MaxValue);
+                placed.Ballista = ballista;
+                placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
                 if (spellTotem) BindTotemSource(conn, placed);
-                var replaced = conn.Totems.Place(placed, limit, now);
+                var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
                 if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
                 // A totem blocks paths on the client as any body does.
                 if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);

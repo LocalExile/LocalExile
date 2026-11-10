@@ -212,6 +212,104 @@ public sealed class SpellTotemExecutionTests
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!);
             TestEnvironment.ReleaseSaves(path);
         }
+        await VerifyBallistas();
+    }
+    static async Task VerifyBallistas()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"ballista-{Guid.NewGuid():N}.db");
+        var previous = Program.GameLogicOrNull; var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game"); Game.CombatLifetime = lifetime;
+        Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("Ballista" + Guid.NewGuid().ToString("N")); conn.Clock.Stop();
+        var items = Game.ItemsOf(conn);
+        var body = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        { Sockets = [new(SocketColour.White, Gem("SkillGemBurningArrow")), new(SocketColour.White, Gem("SupportGemRangedAttackTotem")),
+            new(SocketColour.White, Gem("SkillGemSiegeBallista")), new(SocketColour.White, Gem("SkillGemShrapnelBallista"))], Links = [2, 1, 1] };
+        items.Add(PlayerInventories.BodyArmour, 0, 0, body);
+        var bow = items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
+        using var wire = new Wire();
+        var session = new Game.ProjectileSession("ballista-test", wire.Stream, wire.Ciphers, conn); conn.ProjectileRuntime = session;
+        try
+        {
+            var burning = Game.GemSkillEffects(conn).Single(s => s.Name == "Burning Arrow");
+            var siege = Game.GemSkillEffects(conn).Single(s => s.Name == "Siege Ballista");
+            var shrapnel = Game.GemSkillEffects(conn).Single(s => s.Name == "Shrapnel Ballista");
+            foreach (var skill in new[] { burning, siege, shrapnel })
+            {
+                Assert.True(Game.BallistaPathAvailable(conn, skill.Id), $"{skill.Name} effect={Game.BallistaEffect(conn, skill.Effect)} ranged={Game.SupportedSkill(conn, skill.Id).Stats.GetValueOrDefault(Program.Stats.Key("is_ranged_attack_totem")!.Value)} weapon={Game.WeaponRestricted(conn, skill.Effect)} recipe={Game.ResolveProjectileDefinition(skill.Effect)?.Metadata}");
+                Assert.True(Game.ProjectilePathAvailable("test", conn, skill.Id, skill.Effect));
+                Assert.NotNull(Game.TotemVariety(conn, skill.Effect)); Assert.Equal(3, Game.TotemLimit(conn, skill.Id));
+            }
+            Assert.Equal(60, Game.TotemTargetRange(conn, burning.Id));
+            Assert.Equal(80, Game.TotemTargetRange(conn, siege.Id));
+            Assert.Equal(40, Game.TotemTargetRange(conn, shrapnel.Id));
+            Assert.Equal(Game.SupportedAttackSeconds(conn, burning.Id) * 2, Game.TotemAttackSeconds(conn, burning.Id), 5);
+            for (int i = 0; i < 4; i++)
+                Assert.NotNull(await Game.CreateTotem("ballista-test", wire.Stream, wire.Ciphers, conn, burning.Id,
+                    burning.Effect, burning.Level, Game.TotemVariety(conn, burning.Effect)!, (100 + i, 20)));
+            Assert.Equal(3, conn.Totems.Living(0).Count());
+            var placed = conn.Totems.Living(0).Last(); Assert.True(placed.Ballista);
+            conn.PlayerStats[StatKeys.SpellSkillsDealNoDamage] = 1;
+            var use = Game.CaptureGemProjectile(conn, session, burning.Id, burning, (130, 20), new(0), totem: placed);
+            var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+            Assert.False(shot.Spell); Assert.NotNull(shot.AccuracyProfile); Assert.NotNull(shot.ActualCaster);
+            Assert.Equal(Game.SupportedProjectileHit(conn, burning.Id, false).MaxTotal * .64, shot.Hit.MaxTotal, 5);
+            Assert.True(new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster!).Hit(shot.Hit).MaxTotal > 0);
+            Assert.Equal(placed.Id, use.Emitter.Id); Assert.Equal(103, use.Origin.X);
+            Assert.NotNull(Game.TotemProxy(conn, burning.Id));
+            conn.Clock.Start();
+            var target = new SpawnedMonster("ballista-target", new(125, 20, 0), 0, 0, 100000) { Hostile = true };
+            var friendly = new SpawnedMonster("ballista-friendly", new(125, 20, 0), 0, 0, 100000) { Hostile = false };
+            conn.Monsters[901] = target; conn.Monsters[902] = friendly;
+            uint mana = conn.PlayerMana;
+            session.Schedule(0, () => true, () => use); session.AdvanceTo(ProjectileRuntime.Time(1));
+            Assert.True(target.Life < 100000); Assert.Equal(100000u, friendly.Life); Assert.Equal(mana, conn.PlayerMana);
+            // Two bonus ballista slots coexist with the ordinary totem slot.
+            var state = new TotemState();
+            for (uint i = 1; i <= 3; i++) state.Place(new(i, burning.Id, (0, 0), 10, 10, null)
+                { Ballista = true, BonusSlots = 2 }, 3, 0, 1);
+            state.Place(new(10, burning.Id, (0, 0), 10, 10, null), 1, 0, 1);
+            Assert.Equal(3, state.Living(0).Count()); Assert.Equal(2, state.Living(0).Count(t => t.Ballista));
+            state.Place(new(11, burning.Id, (0, 0), 10, 10, null), 1, 0, 1);
+            Assert.Equal(3, state.Living(0).Count()); Assert.Equal(2, state.Living(0).Count(t => t.Ballista));
+            // Native Shrapnel has three individually admitted arrows, not the normal one-hit-per-emission policy.
+            var source = Game.SupportedSkill(conn, shrapnel.Id);
+            var shardTotem = new TotemState.Totem(800, shrapnel.Id, (100, 20), 100, 100, null)
+            { Effect = shrapnel.Effect, SourceGem = shrapnel.Gem, SourceHost = source.Host, SourceItem = source.SourceGem, Ballista = true };
+            var shards = Game.CaptureGemProjectile(conn, session, shrapnel.Id, shrapnel, (102, 20), new(0), totem: shardTotem);
+            Assert.Equal(3, shards.Profile.Count); Assert.Equal(ProjectileHitScope.Projectile, shards.Profile.HitRule.Scope);
+            var fixedShot = (ProjectileOffense)shards.Payload!;
+            shards = shards with { Payload = fixedShot with { Hit = DamagePacket.Of(DamageType.Physical, 100, 100),
+                CriticalChance = 0, AccuracyProfile = new(100000, CannotBeEvaded: true) } };
+            var close = new SpawnedMonster("shotgun-target", new(102, 20, 0), 0, 0, 100000) { Hostile = true };
+            conn.Monsters.Clear(); conn.Monsters[903] = close;
+            session.Schedule(session.Runtime.Now, () => true, () => shards);
+            session.AdvanceTo(ProjectileRuntime.Time(2)); Assert.Equal(99700u, close.Life);
+            items.Change(PlayerInventories.Weapon1, bow.Id, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            Assert.False(Game.BallistaPathAvailable(conn, burning.Id)); Assert.False(Game.SpellTotemCurrent(conn, placed));
+            items.Change(PlayerInventories.Weapon1, bow.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+            var host = items.Items(PlayerInventories.BodyArmour).Single();
+            items.Change(PlayerInventories.BodyArmour, host.Id, _ => body with
+            { Sockets = [new(SocketColour.White, Gem("SkillGemKineticBlast")),
+                new(SocketColour.White, Gem("SupportGemRangedAttackTotem"))], Links = [2] });
+            var wandSkill = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
+            Assert.True(Game.BallistaPathAvailable(conn, wandSkill.Id));
+            items.Change(PlayerInventories.BodyArmour, host.Id, _ => body with
+            { Sockets = [new(SocketColour.White, Gem("SkillGemArtilleryBallista"))], Links = [1] });
+            var artillery = Game.GemSkillEffects(conn).Single();
+            Assert.False(Game.BallistaEffect(conn, artillery.Effect));
+            items.Change(PlayerInventories.Weapon1, bow.Id, _ => ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
+            items.Change(PlayerInventories.BodyArmour, host.Id, _ => body with
+            { Sockets = [new(SocketColour.White, Gem("SkillGemSiegeBallista")),
+                new(SocketColour.White, Gem("SupportGemFocusedBallista"))], Links = [2] });
+            var focused = Game.GemSkillEffects(conn).Single();
+            Assert.False(Game.BallistaPathAvailable(conn, focused.Id));
+        }
+        finally
+        {
+            session.Invalidate(); conn.Closed = true; lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
+            PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+        }
     }
     sealed class Wire : IDisposable
     {
