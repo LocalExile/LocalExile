@@ -92,8 +92,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
-  (2026-11-07); Waypoint installs them. A release ships no mods.
+  The example mods moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (2026-11-07), where
+  `example`, `hello`, `bossloot` and `doubleexperience` were later removed; Waypoint installs mods. A release ships none.
   A mod reaches what a module reaches (the Gateway and Game are public; `GameEvents` reach a loaded mod in every league;
   `depends` may name a module), beside `GameServer.Modding`'s chat commands, player tick, client messages, area
   generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
