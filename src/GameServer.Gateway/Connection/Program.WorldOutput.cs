@@ -71,7 +71,10 @@ partial class Program
             lock (conn.Monsters)
             {
                 ObjectDisposedException.ThrowIf(conn.Closed || conn.WorldOutput.Closed, conn.WorldOutput);
-                double first = conn.Clock.Elapsed.TotalSeconds;
+                // Frames start on the instance clock's own grid (whole frame lengths), so every connection of an instance
+                // ends its frames at the same instants, as the clients of one stepped world do: what one of them is sent
+                // in a frame can then reach the others exactly one frame later (ClientState.FrameFrom).
+                double first = Math.Ceiling(conn.Clock.Elapsed.TotalSeconds / frameSeconds) * frameSeconds;
                 conn.WorldOutput.Begin(conn.ServerFrame);
                 if (conn.LockstepClient) conn.LockstepFrame = (first, first + frameSeconds);
                 return first;
@@ -107,6 +110,7 @@ partial class Program
                 if (conn.LockstepClient) conn.LockstepFrame = next;
                 committed = true;
             }
+            conn.TurnFrame();
             foreach (var packet in frame.Packets)
                 await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, packet.Bytes, packet.Log, packet);
             await WritePacket(wire.Remote, wire.Stream, wire.Ciphers, InstanceProtocol.FrameEnd(), null);

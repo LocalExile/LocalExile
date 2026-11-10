@@ -1056,6 +1056,38 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public double LockstepNextProbeAt;
     // The frame now being sent, on Clock (PlayerWalk.FrameOf).
     public (double Start, double End)? LockstepFrame;
+    // Completed and replaced at every frame end (Program.EndWorldFrame): what waits for this connection's next frame.
+    TaskCompletionSource frameTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal void TurnFrame() =>
+        Interlocked.Exchange(ref frameTurn, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+    /// <summary>Completes once the frame this connection is sending starts at or after <paramref name="start"/> (Clock
+    /// seconds): at once for a connection that runs no lockstep frames, and when it closes. Every connection of an
+    /// instance ends its frames on the instance's one grid (Program.BeginWorldFrames), so a record another connection
+    /// wrote in its frame n can be given to this one in frame n + 1 exactly.</summary>
+    internal async Task FrameFrom(double start)
+    {
+        while (true)
+        {
+            var turn = Volatile.Read(ref frameTurn).Task;
+            lock (Monsters)
+                if (Closed || WorldOutput.Closed || LockstepFrame is not { } frame || frame.Start >= start - 1e-6) return;
+            await Task.WhenAny(turn, WorldOutput.ClosedTask);
+        }
+    }
+    // What other connections show this client of their players, in the order they made it (SharedMonsters.cs): each
+    // piece may wait for a frame, and the next must not overtake it.
+    readonly object mirrorOrder = new();
+    Task mirrorTail = Task.CompletedTask;
+    internal Task Mirror(Func<Task> work)
+    {
+        lock (mirrorOrder) return mirrorTail = After(mirrorTail, work);
+        static async Task After(Task before, Func<Task> work)
+        {
+            try { await before; } catch { }
+            try { await work(); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
+    }
     // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
     public double LockstepActionTail => LockstepClient ? .066 : 0;
     (double Start, double End)? LockstepFrameOf(double at) =>

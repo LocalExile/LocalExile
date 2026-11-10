@@ -211,12 +211,16 @@ static partial class Game
                     const ushort Move = 0x2909;
                     var destination = peer.Destination ?? (peer.X, peer.Y);
                     var heading = previous!.Destination ?? (previous.X, previous.Y);
-                    if (destination != heading && destination != (peer.X, peer.Y))
+                    // A player on a connection of its own walks here by the orders its client is sent (SharedMonsters.cs
+                    // MirrorPlayerAction), and its copy stops where those end. Only a player without one (a
+                    // server-driven one) is walked from its published pose.
+                    bool ordered = peer.Owner is { } owner && Program.InGame.ContainsKey(owner);
+                    if (!ordered && destination != heading && destination != (peer.X, peer.Y))
                         packets.World(peer.Id, InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
                     else if (destination == (peer.X, peer.Y) && (previous.X, previous.Y) != (peer.X, peer.Y)
                         && Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20 && heading == (previous.X, previous.Y))
                         packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
-                    else if (destination == (peer.X, peer.Y) && heading != destination)
+                    else if (!ordered && destination == (peer.X, peer.Y) && heading != destination)
                     {
                         // Stopped short of where it was going (a body in the way): the observers' walk stops there too.
                         packets.World(peer.Id, InstanceProtocol.ActionEnded(peer.Id));

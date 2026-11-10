@@ -229,10 +229,12 @@ static partial class Game
         finally { Mirroring.Value = false; }
     }
 
-    // A player's own action confirmed to their client (the 0x1ab echo of a skill use, Messages.cs; its 0x1ac end): on
-    // the other clients the player's object, as they know it (PeerId), plays it too. Walks are left: SyncInstancePlayers
-    // shows them, and a second order would restart them. The sequence is the owner's prediction; elsewhere it is a
-    // server action (0xffff).
+    // A player's own actions as their client is sent them (the 0x1ab that starts a walk or a skill use, Lockstep.cs and
+    // Messages.cs; its 0x1ac end): on the other clients the player's object, as they know it (PeerId), is the same actor
+    // and gets the same orders with the same sequences. GGG's recordings show it so: 851 orders to other players, their
+    // sequences the owners' own, never 0xffff, 844 of them from the cell the receiving client had the player on. A walk
+    // is one of them. It used to come from the player's published pose instead (SyncInstancePlayers): a later order from
+    // a sampled cell, which restarted the walk a few cells off (a third of those orders matched the receiver's cell).
     static void MirrorPlayerAction(ConnectionCiphers ciphers, byte[] bytes)
     {
         ClientState? conn = null;
@@ -240,42 +242,91 @@ static partial class Game
         if (conn is null || conn.Closed || conn.LeavingArea) return;
         var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
         if (others.Length == 0) return;
-        byte[] copy = (byte[])bytes.Clone();
-        if ((copy[0] << 8 | copy[1]) == InstanceProtocol.ActionStartedId)
+        // One 0x1ab, with the 0x1ac of the same tick after it, or one 0x1ac: each goes on as a message of its own.
+        var records = new List<byte[]>();
+        if ((bytes[0] << 8 | bytes[1]) == InstanceProtocol.ActionStartedId)
         {
-            if (copy.Length < 18) return;
-            int at = 14 + ((copy[13] & 0x80) != 0 ? 4 : 0);
-            for (int i = 0; i < 4 && at < copy.Length; i++)
-                at += copy[at] switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
-            if (at + 4 > copy.Length) return;
-            ushort skill = (ushort)(copy[at] << 8 | copy[at + 1]);
-            bool move = SkillsFor(conn).ActionName(skill) == "Move";
-            conn.PeerActing = !move;
-            if (move) return;
-            copy[at + 2] = 0xff; copy[at + 3] = 0xff;
+            if (bytes.Length < 18) return;
+            bool targeted = (bytes[13] & 0x80) != 0;
+            int at = 14 + (targeted ? 4 : 0);
+            for (int i = 0; i < 4 && at < bytes.Length; i++)
+                at += bytes[at] switch { < 0x80 => 1, < 0xc0 => 2, < 0xe0 => 3, < 0xf0 => 4, _ => 5 };
+            if (at + 4 > bytes.Length) return;
+            byte[] start = bytes[..(at + 4)];
+            // An action on the player themself names them as the others know them.
+            if (targeted && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(start.AsSpan(14)) == PlayerId)
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(start.AsSpan(14), conn.PeerId);
+            records.Add(start);
             // Anything after it (an 0x1ac in the same tick) is the player's own too.
-            for (int next = at + 4; next + 12 <= copy.Length; next += 12)
-                if ((copy[next] << 8 | copy[next + 1]) == 0x1ac) System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(next + 2), conn.PeerId);
+            int next = at + 4;
+            for (; next + 12 <= bytes.Length; next += 12)
+                if ((bytes[next] << 8 | bytes[next + 1]) == 0x1ac
+                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(next + 2)) == PlayerId)
+                    records.Add(bytes[next..(next + 12)]);
                 else return;
+            if (next != bytes.Length) return;
+            conn.PeerActing = true;
         }
         else
         {
-            if (copy.Length != 12 || !conn.PeerActing) return;
+            if (bytes.Length != 12 || !conn.PeerActing) return;
             conn.PeerActing = false;
+            records.Add((byte[])bytes.Clone());
         }
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(2), conn.PeerId);
+        foreach (var record in records)
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(record.AsSpan(2), conn.PeerId);
+        var source = Program.WritingWorldRecord;
+        double? after = FrameAfterWrite(conn, source);
         Mirroring.Value = true;
         try
         {
             foreach (var peer in others)
             {
-                if (peer.Owner is not { Outbox: { } outbox } other || other.Closed || other.LeavingArea) continue;
+                if (peer.Owner is not { Outbox: not null } other || other.Closed || other.LeavingArea) continue;
                 bool knows;
                 try { knows = other.SeenPlayers.ContainsKey(conn.PeerId); } catch (InvalidOperationException) { knows = false; }
-                if (knows) _ = MirrorWorldRecord(other, conn.PeerId, (byte[])copy.Clone());
+                if (knows) _ = MirrorPlayerRecords(other, conn.PeerId, records, after, source);
             }
         }
         finally { Mirroring.Value = false; }
+    }
+
+    // The frame after the one a lockstep owner's record is being written with (Program.EndWorldFrame has moved the
+    // connection on to it by then); null for what goes out at once.
+    static double? FrameAfterWrite(ClientState conn, WorldOutput.Packet? source)
+    {
+        if (!conn.LockstepClient || source is not { IsWorld: true }) return null;
+        lock (conn.Monsters) return conn.LockstepFrame?.Start;
+    }
+
+    // One player's records to another client, in the order they were made (ClientState.Mirror). A lockstep client gets
+    // what the owner was sent in frame n as records of its own frame n + 1, on the grid both connections' frames end on
+    // (Program.BeginWorldFrames): its copy of the player then runs the owner's orders one frame later, step for step, and
+    // each order's from cell is the cell that copy stands on. Sent into whichever frame was open, an order landed in the
+    // same frame or the next by turns and the copy lost or gained a step. A predictive client gets them at once.
+    // Differs from GGG: there every client's frame is the same tick of one world, so its copy is not a frame behind.
+    static Task MirrorPlayerRecords(ClientState other, uint id, IReadOnlyList<byte[]> records, double? after, WorldOutput.Packet? source)
+    {
+        // A record keyed by its own object keeps that key under the object's id here.
+        bool keyed = source is { IsWorld: true }
+            && source.Order.Key == System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(source.Bytes.AsSpan(2));
+        byte[][] copies = [.. records.Select(r => (byte[])r.Clone())];
+        return other.Mirror(async () =>
+        {
+            if (other.Closed || other.LeavingArea) return;
+            if (!other.LockstepClient)
+            {
+                if (other.Outbox is { } outbox) foreach (var bytes in copies) await outbox(bytes, null);
+                return;
+            }
+            if (after is { } start) await other.FrameFrom(start);
+            var wire = other.Wire;
+            foreach (var bytes in copies)
+            {
+                if (keyed) System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), id);
+                await SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, bytes, null);
+            }
+        });
     }
 
     // A player's hit on an instance monster (0x1af: u16 id, object, u32 0, u16 0, u16 sequence, u8, u8, u32 target, u16
@@ -293,16 +344,19 @@ static partial class Game
         ClientState? conn = null;
         foreach (var c in InGame.Keys) if (ReferenceEquals(c.Wire.Ciphers, ciphers)) { conn = c; break; }
         if (conn is null || conn.Closed || conn.LeavingArea || !conn.Instance.World.MonsterOrigins.ContainsKey(target)) return;
+        // The hit keeps the sequence of the action it belongs to, as that action does on the other clients
+        // (MirrorPlayerAction; GGG's hits carry their attack's sequence, never 0xffff), and follows it in the same order.
         byte[] copy = (byte[])bytes.Clone();
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(copy.AsSpan(2), conn.PeerId);
-        copy[12] = 0xff; copy[13] = 0xff;
+        var source = Program.WritingWorldRecord;
+        double? after = FrameAfterWrite(conn, source);
         Mirroring.Value = true;
         try
         {
             foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
-                if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea
+                if (peer.Owner is { Outbox: not null } other && !other.Closed && !other.LeavingArea
                     && Array.BinarySearch(other.AwakeMonsters, target) >= 0)
-                    _ = MirrorWorldRecord(other, conn.PeerId, (byte[])copy.Clone());
+                    _ = MirrorPlayerRecords(other, conn.PeerId, [copy], after, source);
         }
         finally { Mirroring.Value = false; }
     }

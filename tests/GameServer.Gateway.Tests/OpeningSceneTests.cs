@@ -149,9 +149,50 @@ public class OpeningSceneTests
             sender.Conn.PeerActing = true;
             await Check(InstanceProtocol.ActionEnded(0x1000), InstanceProtocol.ActionEnded(sender.Conn.PeerId),
                 packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+            // The other clients run the player's own orders: the hit keeps its action's sequence, and a walk goes to them
+            // as the same Move with the owner's sequence instead of being left to the published pose.
             await Check(InstanceProtocol.ActionHit(0x1000, 12, id, kind: 1),
-                InstanceProtocol.ActionHit(sender.Conn.PeerId, 0xffff, id, kind: 1),
+                InstanceProtocol.ActionHit(sender.Conn.PeerId, 12, id, kind: 1),
                 packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+            byte[] walk = InstanceProtocol.ActionStarted(0x1000, 10, 10, 30, 12, 0x2909, 0x8005, 0x0408);
+            byte[] walked = InstanceProtocol.ActionStarted(sender.Conn.PeerId, 10, 10, 30, 12, 0x2909, 0x8005, 0x0408);
+            await Check(walk, walked, packet => Game.MirrorSharedMonsters(sender.Ciphers, packet));
+
+            // A lockstep client's frames end on the instance's grid, and it is given what the owner was sent in a frame as
+            // records of the frame after it: nothing while it still sends the owner's frame, the order once that ends.
+            using var stepped = new Wire(sender.Conn.Instance);
+            stepped.Conn.LockstepClient = true;
+            stepped.Conn.Wire = ("fanout-test", stepped.Stream, stepped.Ciphers);
+            stepped.Conn.Outbox = (_, _) => Task.CompletedTask;
+            stepped.Conn.SeenPlayers[sender.Conn.PeerId] = new(sender.Conn.PeerId, 7, new("Owner", 1, 10, 10, 50, 40), 10, 10, 50, sender.Conn);
+            sender.Conn.Instance.PublishPlayer(new(stepped.Conn.PeerId, 7, new("Peer", 1, 10, 10, 50, 40), 10, 10, 50, stepped.Conn));
+            // World records are admitted under the running game logic, whatever an earlier test class left set.
+            var logic = Program.GameLogicOrNull;
+            var combat = Game.CombatLifetime;
+            var lifetime = new ModuleLifetime("Game");
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+            try
+            {
+                double began = await Program.BeginWorldFrames(stepped.Conn, .033);
+                Assert.Equal(Math.Round(began / .033), began / .033, 6);
+                var sending = stepped.Conn.LockstepFrame!.Value;
+                sender.Conn.LockstepClient = true;
+                sender.Conn.LockstepFrame = (sending.End, sending.End + .033);   // the owner's frame end has just been written
+                Program.WritingWorldRecord = new(walk, null, WorldOrder.First);
+                try { Game.MirrorSharedMonsters(sender.Ciphers, walk); }
+                finally { Program.WritingWorldRecord = null; sender.Conn.LockstepClient = false; }
+                Assert.Empty(stepped.Conn.WorldOutput.TakeFrame().Packets);
+                await Program.EndWorldFrame(stepped.Conn, (sending.End, sending.End + .033));
+                await stepped.Conn.Mirror(() => Task.CompletedTask);
+                Assert.Equal(walked, Assert.Single(stepped.Conn.WorldOutput.TakeFrame().Packets).Bytes);
+            }
+            finally
+            {
+                lifetime.Stop(ex => throw ex);
+                Game.CombatLifetime = combat;
+                if (logic is not null) Program.SetGameLogic(logic);
+            }
         }
         finally { Program.InGame.TryRemove(sender.Conn, out _); }
 

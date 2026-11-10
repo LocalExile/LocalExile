@@ -839,6 +839,16 @@ That correction has native stop/restart evidence and automated coverage; its ful
 Explicit frame ordering and birth dependencies have deterministic coverage. Complete live nonregression,
 producer coverage and skill/network parity remain unverified.
 
+**Other players.** A player's own orders go to every other client that shows the player as the same 0x1ab and 0x1ac
+with the owner's sequences, walks included, and the player's hits (0x1af) keep their action's sequence
+(`MirrorPlayerAction`). GGG's recordings show it so: 851 orders to other players, none with 0xffff, 844 of them from
+the cell the receiving client had the player on. Every connection of an instance ends its frames on one grid of the
+instance clock (`BeginWorldFrames`), and a lockstep client is given what the owner was sent in frame n as records of its
+own frame n + 1 (`ClientState.FrameFrom`): its copy runs the owner's orders one frame later, step for step. Before, a
+walk reached the others as a Move from the player's published pose with sequence 0xffff, and about a third of those
+orders matched the receiver's cell (bench 2026-11-09). Only a server-driven player, which has no connection of its
+own, is still walked from its pose.
+
 **Where the Gateway differs from GGG**, on purpose (`Lockstep.Differences.cs`, `LockstepLatency`; `Lockstep.cs` and
 `LockstepHold` follow GGG):
 
@@ -848,7 +858,8 @@ producer coverage and skill/network parity remain unverified.
 | New monster and totem placement searches for a nearby clear cell | The authoritative spawn-placement algorithm is not established here | Existing placement policy, separate from runtime bodies; restoring saved actors keeps their established cells |
 | The client's cell for a target is estimated: the lowest round trip and two frames ago | Its frames say which it was | A lockstep request carries no frame |
 | Sends 0x194 to time a lockstep client | Not seen in any session; by its handler, an idle timeout | It is the one message found that the client answers by itself |
-| Frames laid over a clock, late ones sent at once | Frames are ticks of its world | The walks run on the clock |
+| Frames laid over a clock, late ones sent at once, on one grid for everyone in an instance | Frames are ticks of its world | The walks run on the clock |
+| Another player's orders reach a lockstep client one frame after the owner's | In the same tick | Each connection's frame goes out by itself; the next frame is the first that can hold every order of the owner's frame |
 | Orders a walking monster again only at a frame start right after its estimate's step | On its cadence, from its own simulation | A set after an order whose from cell is off zeroes the client's step accumulator while the estimate keeps its fraction; right after the estimate's step there is under a frame to lose |
 | Sends 0x2b6 | Never | The client's default is not traced |
 | Puts a monster back on its cell with 0x1b7 when it returns to the wake zone | Nothing: out of the zone it stands on the server too | Ours stands out there too now (its walk ends at the 0x1aa, no order until it is back); 0x128 is skipped here, so the return places it with LockstepPlace |
