@@ -11,16 +11,16 @@ public sealed class PortraitFrameTests
     public void KnownPlayerCarriesTheClassFrameAndPortrait()
     {
         // In the order the client reads them (0x141f96140).
-        var r = new LoginReader(InstanceSocial.KnownPlayer("Account", "Character", 90, packedClass: 3, frame: 12, portrait: 7));
+        var r = new LoginReader(InstanceSocial.KnownPlayer("Account", "Character", 90, packedClass: 3, frame: 12, portrait: 7, areaHash: 0xf00a));
 
         Assert.Equal(InstanceSocial.KnownPlayerId, r.U16());
         Assert.Equal("Account", r.WStr());
         Assert.Equal("", r.WStr());
         Assert.Equal(0x06, r.U8());      // bit 1 the frame and portrait, bit 2 the character section
         Assert.Equal("Character", r.WStr());
-        r.U8();
+        Assert.Equal(90, r.U8());        // +0xb9 the level (the Social rows, 0x140af7970)
         Assert.Equal(3, r.U8());         // +0xb8
-        Assert.Equal(90, r.U16());       // +0xa8
+        Assert.Equal(0xf00a, r.U16());   // +0xa8 the area's HASH16
         r.U16();
         r.WStr();
         r.U8();

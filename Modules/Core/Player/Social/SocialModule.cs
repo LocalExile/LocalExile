@@ -126,7 +126,7 @@ static class SocialFeature
     // Each side must know the other (0xa7) before 0xb8: the request is looked up by character name in that table.
     internal static async Task Introduce(ClientState to, ClientState about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Account ?? CharacterName(about), CharacterName(about), about.Pools.Level,
-            PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
+            PackedClass(about), about.PortraitFrame, WornPortrait(about), about.Layout.Hash), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
     // inventories must exist (inventory 0 crashed both clients at 0x1402d1029 through the grid 0x140317a44). A fresh

@@ -32,7 +32,7 @@ static class FriendsFeature
     static ClientState? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
     // Online, or between two connections of an area change (as the connection it left had them).
     static byte[] Details(Account a) => (Connected(a.Name) ?? Changing(a.Name)) is { } c
-        ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Pools.Level, PackedClass(c), c.PortraitFrame, WornPortrait(c))
+        ? InstanceSocial.KnownPlayer(a.Name, CharacterName(c), c.Pools.Level, PackedClass(c), c.PortraitFrame, WornPortrait(c), c.Layout.Hash)
         : InstanceSocial.OfflinePlayer(a.Name);
 
     public static IEnumerable<(string Log, byte[] Message)> Enter(ClientState c)
