@@ -794,7 +794,10 @@ The TakeHit also ends the monster's running action (`0x141e95e60`), and a cancel
 stop as any other (`0x141e350e0`): the walker still takes the steps due in the 0x1d1's frame, stands a cell further on
 when one was due, and keeps the time since that step. The Gateway ends the walk the same way (`PlayerWalk.Cancel`).
 Standing the monster on its cell at the frame's start left the next order one cell behind the client's monster, along
-its path, after 9 of 54 recoveries of walking monsters (bench 2026-11-10); none was off any other way.
+its path, after 9 of 54 recoveries of walking monsters (bench 2026-11-10); none was off any other way. On a monster
+that already stands the stop does nothing (it acts only on a walker with a step time), so the time its last stop kept
+is still there for its next walk (tick trace 2026-11-10: 38.9 ms kept through a TakeHit, the next walk's first step a
+frame sooner than the estimate's, which had cleared it).
 
 The player's own 0x1d1 does the same to a lockstep client's player, and nothing takes the walk up again: it stood from
 the 0x1d1's frame to its next order, 14 frames later (tick trace 2026-11-10), where a predictive client goes on with its
