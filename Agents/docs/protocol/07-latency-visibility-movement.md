@@ -700,6 +700,16 @@ tolerance -1 and precision 1 (`0x141e7b530`): live, an aim 17 cells right and 9 
 The tutorial support chest's Interaction uses MoveTo max range 6, tolerance 3, precision 1. Its blocking footprint
 is only 1; using that footprint for interaction makes the server walk four cells past the native stopping point.
 
+**When an action ends.** The Actor counts an action's time down by the frame's length in each tick from the order's own
+frame on and ends it in the tick that uses it up: frame n + f - 1 for an order applied in frame n, f being the frames
+whose time (33 ms as float seconds each) covers the duration. Tick trace 2026-11-10: a 0.99 s attack ended in n + 30,
+a 3.333 s Emerge in n + 101 and a 3.533 s one in n + 107. An order that comes in the end frame waits for that tick,
+after the walker's own, so its walk gains its first step time a frame later than one started at the frame's start (a
+chase sent in n + 101 and n + 107 did; one sent in n + 108 started at once). The Gateway keeps an emerging monster
+busy to the end of that frame (`EmergeStartsLocked`); before, its first chase could go out in the end frame, and the
+estimate then ran a frame ahead of the client's monster until its next order. A hit's recovery differs: its own frame
+does not count (below).
+
 **A walk under an in-place action.** An in-place action (a Sand Spitter's shot) does not touch the walker: a Move
 under way goes on under it, path pieces and searches included. When the Actor ends the action it stops that walk with
 the stop that waits for the tick, from its own tick, after Positioned's, so the walk ends with the next frame's steps.

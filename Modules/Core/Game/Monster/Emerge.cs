@@ -59,6 +59,19 @@ static partial class Game
         }
     }
 
+    // The Emerge action's 0x1ab is being written (its send gate, under conn.Monsters). A lockstep client's Actor counts
+    // the action's time down by the frame's length in each tick from the order's own frame on and ends it in the tick
+    // that uses it up; an order that comes in that frame waits for that tick, so its walk takes its first step time a
+    // frame later than one started at the frame's start. The monster is therefore busy to the end of that frame, and its
+    // first order goes out in the next one. Tick trace 2026-11-10: a 3.333 s Emerge ordered in frame n took a chase
+    // sent in n + 101 only after its walker's tick, as did a 3.533 s one for n + 107, and one sent in n + 108 at once;
+    // a Sand Spitter's 0.99 s attack ended in n + 30 (LockstepCountdownFrames less the order's own frame, each time).
+    internal static void EmergeStartsLocked(ClientState conn, SpawnedMonster m, double seconds)
+    {
+        if (conn.LockstepClient && conn.LockstepFrame is { } frame && LockstepCountdownFrames((float)seconds) is { } frames)
+            m.BusyUntil = Math.Max(m.BusyUntil, frame.Start + frames * (frame.End - frame.Start));
+    }
+
     internal static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
@@ -74,9 +87,13 @@ static partial class Game
             // Predictive mode waits for 0x1ac in the pending-action gate (0x141e94720); lockstep starts directly.
             // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e934b0).
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
-            await Send(remote, stream, ciphers, messages[1],
+            await Send(remote, stream, ciphers, [],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",
-                still: Still);
+                still: Still, atGate: () =>
+                {
+                    lock (conn.Monsters) EmergeStartsLocked(conn, m, seconds);
+                    return messages[1];
+                });
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {

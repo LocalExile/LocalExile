@@ -105,6 +105,12 @@ public class DormantMonsterTests
                 Assert.Equal(1.866, strider.BusyUntil);
                 Assert.False(MonsterAiCadence.Due(1.865, strider.BusyUntil));
                 Assert.True(MonsterAiCadence.Due(1.866, strider.BusyUntil));
+                // A lockstep client ends the Emerge in the tick that uses its time up, the order's own frame counted
+                // (27 frames of 33 ms for 0.866 s), and an order sent in that frame would wait for that tick: the
+                // monster is busy to that frame's end. A predictive client's time is left as it is.
+                rising.LockstepFrame = (1.023, 1.056);
+                Game.EmergeStartsLocked(rising, strider, rise.Seconds);
+                Assert.Equal(lockstep ? 1.023 + 27 * 0.033 : 1.866, strider.BusyUntil, 9);
             }
 
             first.Life = 0;
