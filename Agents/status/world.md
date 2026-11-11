@@ -218,10 +218,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   He holds the day's official weapon and uses its skills (Ground Slam, Spikes, Leap Slam, Sunder, Divine Slash, Shield
   Bash) with their art and damage, and walks through his minions; cooldowns and hit shapes are ours. Checked live
   2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
-  Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
+  Normal's last two mechanics: the Chrono Statues' idols rise with him, fill and cast their circles, and go down when he
+  leaves; the Lieutenants rise one at a time with their weapons and skills. Checked live 2026-11-11.
+  Not yet: the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
-  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`), `Act3.cs`, `Act8.cs`.
+  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
+  `Rules.IzaroChronos.cs`, `Rules.IzaroLieutenants.cs`), Game `IzaroIdols.cs`, `Act3.cs`, `Act8.cs`.
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest
