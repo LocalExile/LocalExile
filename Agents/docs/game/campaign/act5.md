@@ -32,15 +32,34 @@ Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts
 `a5q2`, `a5q4`, `a5q5`, `a5q7`, `a5q6`) before the game moved into modules; on the modules the oracle
 (`QuestEngineTests`) plays it after Act 4: every quest of the act complete, `a5q6-CompletedBoss`, arrival in Lioneye's
 Watch. What differs from the sections below:
-- Kitava never dies: `On.Threshold` sets `a5q6-CompletedBoss` when a hit (or `/kill`) takes him to 50 % and he leaves;
-  the −30 % is the Game module's `ResistancePenalty` (`ResistancePenaltyAct5`). The Sign in its socket (`ArenaSocket`, placed from the server's own rooms) wakes
-  him there; the area does not place him.
+- Kitava's socket starts the encounter at `force:mapboss`, not at the socket itself. `KitavaActFive` owns the
+  body/heart sequence and completes the quest after Sign destruction and Sin's rescue. The −30 % resistance penalty
+  refreshes the character panel immediately; Sin's dialogue does not stack it, and earned Act 10 completion adds −30 %.
 - The Templar Courts door, the Ossuary tomb and the socket take their items; the Control Blocks' and the Chamber's
   exits, the court gate and Lilly follow their serialisation flags; Innocence appears where Avarius dies, Sin where
   Innocence dies (also on a later visit until `a5q6-QuestReceived`); Bannon appears after Avarius, Utula leaves town.
 - `a5q4-QuestReceived` (no setter in the data) is set with the door. Reward gear (magic and rare rings, jewels,
   weapons) is built with the standard rolls; an offer with nothing buildable still sets its taken flag.
 - Lilly's "Sail to Wraeclast" runs its `AreaTransitionTo` (NPCTalk scripts, 17-npcs.md).
+
+### Rooftop client findings (3.29.3c)
+
+`Kitava1`, `Kitava2` and `Kitava3` are distinct native actors; their ACT files supply the emerge, beam-hit,
+recovery and destruction actions. The first two have eleven and fourteen granted effects respectively. The last
+uses the `KitavaDestroySign` basic action. The heart is a separate target with guards, not an attackable body overlay.
+AMD contact points are model coordinates, converted with `WorldUnits.PerCell` and the placed actor's rotation.
+
+The `PortalToggleable` in `bossentry.arm` uses Steam portal art: exposing it as a generic telepad draws a blue
+portal in the arena. It stays hidden; the ladder becomes usable after completion. `LandingZone` in `sin_dock.arm`
+is Sin's rescue destination, and Lilly's option 893 then sails to `2_6_town`.
+Procedural packs can occupy the dock: retire hostiles along the landing/Sin/Lilly corridor without death rewards,
+including on completed-area reentry; otherwise they attack during the departure dialogue.
+
+Only existing archive assets may be sent as effect models. There is no `X_skill/marker.ao`: requesting it causes a
+fatal native resource error, rather than a recoverable missing visual. `X_skill/explosionx.ao` exists.
+
+Official phase thresholds and AI weights are not encoded by these client animations and remain uncalibrated.
+The detailed discovery tables below retain their original implementation snapshot; the status above supersedes it.
 
 ## Areas
 

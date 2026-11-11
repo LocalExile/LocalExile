@@ -94,17 +94,21 @@ public sealed partial class InstanceState
         lock (_states) return _states.Contains(state);
     }
 
-    readonly HashSet<(int X, int Y)> _openedChests = [];
+    readonly HashSet<(int X, int Y, string? Owner)> _openedChests = [];
 
     /// <summary>Opens the quest chest standing at this cell (a Rhoa Nest): true the first time in this instance.</summary>
-    public bool OpenChest(int x, int y)
+    public bool OpenChest(int x, int y) => OpenChest(x, y, null);
+
+    public bool OpenChest(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Add((x, y));
+        lock (_openedChests) return _openedChests.Add((x, y, owner));
     }
 
-    public bool ChestOpened(int x, int y)
+    public bool ChestOpened(int x, int y) => ChestOpened(x, y, null);
+
+    public bool ChestOpened(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Contains((x, y));
+        lock (_openedChests) return _openedChests.Contains((x, y, owner));
     }
 
     readonly HashSet<(string Type, int X, int Y)> _transitioned = [];
@@ -199,6 +203,12 @@ public sealed class InstanceGround
     public WorldItemObject? Get(uint id)
     {
         lock (_items) return _items.GetValueOrDefault(id);
+    }
+
+    /// <summary>An id this ground issued whose item has since gone; permits repairing an older client's stale label.</summary>
+    public bool WasTaken(uint id)
+    {
+        lock (_items) return id >= FirstItemId && id < _nextId && !_items.ContainsKey(id);
     }
 
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>
