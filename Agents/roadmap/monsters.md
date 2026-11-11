@@ -16,6 +16,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   emerge monsters rise near the player ([10](../docs/protocol/10-chat-and-commands.md) §5).
   Act 2's Oversoul has its campaign attack set and altar/exit lifecycle; official decision weights/cooldowns still need
   a reference capture ([status](../status/monsters.md#partly-working)).
+  Act 10 has three heart intervals and the allied finale; calibrate HP thresholds, AI weights and hazard geometry.
   Act 5 Kitava has the body/heart and rescue sequence; calibrate phase thresholds and AI weights against a reference.
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
