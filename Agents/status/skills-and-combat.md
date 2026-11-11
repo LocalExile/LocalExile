@@ -371,7 +371,5 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10f.
 - Where Flicker Strike lands beside the monster is the server's guess, and its buff ignores increased buff effect.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Holy Sweep's hammers deal no damage: the server has no hammerfall hits.
-  Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Effects attached to bones (Righteous Fire's orbs) are not sent; banners and combat auras are not implemented.
   Docs: [11](../docs/protocol/11-skills.md) §12.
