@@ -305,6 +305,7 @@ public static partial class Game
         var suppressedSmalls = new HashSet<ushort>();
         foreach (var (socket, conversion) in radiusJewels)
         {
+            if (!allocated.Contains(socket)) continue;
             var affected = tree.NodesInRadius(socket, conversion.Radius).ToList();
             if (conversion.EffectPct != 0 || conversion.SuppressNotables || conversion.SuppressAllocatedSmalls)
                 foreach (ushort node in affected)

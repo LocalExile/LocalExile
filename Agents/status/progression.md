@@ -147,6 +147,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Warrior's Tale scales tattoo stats within its socket radius. Grand Spectrum rolls one of three current variants
   per base and scales by the total equipped across bases (limit three). Inspired Learning's rare-mod steal, the melee
   weapon conversion and skill-specific threshold consumers remain partial. The socket/save path,
+  radius now converts melee and melee-weapon stats with native bow equivalents, including physical damage, attack
+  speed and critical modifiers. Conditional modifiers without a mapped bow stat still need individual consumers.
+  Inspired Learning and Warrior's Tale remain inactive; the missing layers are the melee/weapon flag model, the
+  rare-mod steal, tattoos and the skill-specific threshold consumers. The socket/save path,
   `PassiveTree.NodesInRadius`/`NodesInRing`, the timeless per-node pattern and the art table are reused. The radius
   suite has 98 tests.
 

@@ -326,8 +326,8 @@ public static class RadiusJewelCatalogue
                         AddMove(moves, "maximum_energy_shield_+%", "physical_damage_reduction_rating_+%", 2);
                         break;
                     case "local_unique_jewel_melee_applies_to_bow":
-                        // Needs melee/weapon flags on each modifier, not just a stat-key move; not in this pilot.
-                        return null;
+                        if (mod.Values[i] != 0) moves.AddRange(MeleeToBow.Value);
+                        break;
                 }
             }
         }
@@ -376,6 +376,40 @@ public static class RadiusJewelCatalogue
             if (key == dexterity || key == intelligence) total += value;
         return total;
     }
+
+    // These families encode their weapon applicability in the stat ID itself. Only move a stat if both
+    // rows exist in this client. An unrelated stat on the same passive retains its exact original key.
+    static readonly Lazy<List<Move>> MeleeToBow = new(() =>
+    {
+        var result = new List<Move>();
+        foreach (string weapon in new[] { "claw", "dagger", "sword", "axe", "mace", "staff" })
+        {
+            foreach (string suffix in new[] { "damage_+%", "hit_and_ailment_damage_+%", "ailment_damage_+%",
+                "elemental_damage_+%", "attack_speed_+%", "accuracy_rating", "accuracy_rating_+%",
+                "critical_strike_chance_+%", "critical_strike_multiplier_+", "stun_duration_+%",
+                "stun_threshold_reduction_+%", "steal_power_frenzy_endurance_charges_on_hit_%" })
+                AddMove(result, $"{weapon}_{suffix}", $"bow_{suffix}");
+            AddMove(result, $"physical_{weapon}_damage_+%", "physical_bow_damage_+%");
+            AddMove(result, $"global_critical_strike_chance_+%_while_holding_{weapon}", "global_critical_strike_chance_+%_while_holding_bow");
+            AddMove(result, $"global_critical_strike_multiplier_+_while_holding_{weapon}", "global_critical_strike_multiplier_+_while_holding_bow");
+            AddMove(result, $"with_{weapon}_additional_block_%", "with_bow_additional_block_%");
+            AddMove(result, $"spell_block_with_{weapon}_%", "spell_block_with_bow_%");
+            AddMove(result, $"knockback_on_crit_with_{weapon}", "knockback_on_crit_with_bow");
+        }
+        AddMove(result, "melee_damage_+%", "bow_damage_+%");
+        AddMove(result, "melee_physical_damage_+%", "physical_bow_damage_+%");
+        AddMove(result, "melee_attack_speed_+%", "bow_attack_speed_+%");
+        AddMove(result, "melee_critical_strike_chance_+%", "bow_critical_strike_chance_+%");
+        AddMove(result, "melee_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        AddMove(result, "mace_or_staff_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
+        AddMove(result, "axe_or_sword_ailment_damage_+%", "bow_ailment_damage_+%");
+        AddMove(result, "melee_weapon_ailment_damage_+%", "bow_ailment_damage_+%");
+        AddMove(result, "melee_weapon_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        AddMove(result, "melee_skills_area_of_effect_+%", "area_of_effect_+%_with_bow_skills");
+        AddMove(result, "melee_attacks_usable_without_mana_cost", "bow_attacks_usable_without_mana_cost");
+        AddMove(result, "staff_block_%", "with_bow_additional_block_%");
+        return result;
+    });
 
     static void AddMove(List<Move> moves, string from, string to, int factor = 1)
     {
