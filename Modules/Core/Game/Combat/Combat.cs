@@ -1204,6 +1204,15 @@ public static partial class Game
         // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
         var discharge = DischargeUseFor(conn, gem.Effect, gem.Level, gem.Quality);
         bool darkBargain = IsDarkBargain(conn, gem.Effect);
+        // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
+        if (IsStormCall(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            for (int repeat = 0; repeat <= spellRepeats; repeat++)
+                foreach (var area in cascadeAreas.Prepend(to))
+                    jobs.Add(PlaceStormCall(remote, stream, ciphers, conn, skillId, gem, area, repeat, actionToken, cooldownUse,
+                        criticalRoll, addedChaos));
+            return Task.WhenAll(jobs);
+        }
         for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
         {
             // Dark Bargain explodes at skeletons (or the player), not at the aim: each repeat pays and chains again.
