@@ -81,7 +81,7 @@ public sealed class ReservationCurseSummonTests
                 Assert.NotEmpty(Game.GolemNativeSkills(conn, 70, abilities));
             }
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSummonSkeletons")!);
-            var weapon = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with { Sockets = [new(SocketColour.White, gem)] };
+            var weapon = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with { Sockets = [new(SocketColour.White, gem)] };
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon);
             var source = Game.GemSkillEffects(conn).Single(g => Program.Skills.EffectId(g.Effect) == "SummonSkeletons");
             var skeleton = catalog.Find("SummonSkeletons")!;
