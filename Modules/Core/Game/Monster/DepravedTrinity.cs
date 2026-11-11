@@ -96,10 +96,10 @@ public static class DepravedTrinity
         var w = c.Wire;
         foreach (int n in new[] { 0, 1 })
         {
-            if (e.Buffs[n] != 0) await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[n]), null);
+            if (e.Buffs[n] != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[n]), null);
             int count = n == 0 ? e.Red.Count : e.Purple.Count;
             e.Buffs[n] = count == 0 ? (ushort)0 : c.NextBuff++;
-            if (count != 0) await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.AddBuff(PlayerId, e.Buffs[n], (ushort)(n == 0 ? 832 : 834), stacks: (ushort)count), "[Rotting Core] effluent");
+            if (count != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[n], (ushort)(n == 0 ? 832 : 834), stacks: (ushort)count), "[Rotting Core] effluent");
         }
         lock (c.Monsters) { c.Pools = PoolsFor(c, c.Pools.Level); c.ApplyMovementSpeed(); }
         if (!c.Closed && !c.LeavingArea) await SendPlayerStatSnapshot(w.Remote, w.Stream, w.Ciphers, c, () => PlayerStatsUpdateAtGate(c, PlayerStatsWithCleared(c)), null);
@@ -191,7 +191,7 @@ public static class DepravedTrinity
         if (!TransitionShown(c, use.TargetId, gate)) return true;
         if (!TryBeginObjectWalk(c, requestedAt, gate.GridX, gate.GridY, AreaTransitionObjectSize, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk; var w = c.Wire;
-        if (!use.Started) await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, gate.GridX, gate.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null, still: () => PlayerActionCurrent(c, action));
+        if (!use.Started) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, gate.GridX, gate.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null, still: () => PlayerActionCurrent(c, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(c, action)) return true;
         try
@@ -199,9 +199,9 @@ public static class DepravedTrinity
             if (!CurrentGameWork || !TransitionShown(c, use.TargetId, gate)
                 || !PlayerWalk.InWalkUpRange(stop, (gate.GridX, gate.GridY), AreaTransitionObjectSize)) return true;
             lock (c.Monsters) c.Walk.Teleport(destination.X, destination.Y, ProjectileWorldTime(c));
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.Teleport(PlayerId, destination.X, destination.Y), $"[Rotting Core] gate 0x{use.TargetId:x} -> {destination}", still: () => PlayerActionCurrent(c, action));
+            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.Teleport(PlayerId, destination.X, destination.Y), $"[Rotting Core] gate 0x{use.TargetId:x} -> {destination}", still: () => PlayerActionCurrent(c, action));
         }
-        finally { await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(c, action)); }
+        finally { await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(c, action)); }
         return true;
     }
     public static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety variety, byte level, int effect)
@@ -544,7 +544,7 @@ public static class DepravedTrinity
             if (Stopped || !CurrentGameWork || p.Closed || p.LeavingArea || p.PlayerLife == 0) return;
             var w = p.Wire;
             lock (p.Monsters) { Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, ProjectileWorldTime(p)); }
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Rotting Core] blood carried {CharacterName(p)} to Lilly at {to}");
+            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Rotting Core] blood carried {CharacterName(p)} to Lilly at {to}");
             await Fx(p, to, Art + "blood_vortex/rig.ao", p.Clock.Elapsed.TotalSeconds + 4, 1);
         }
     }

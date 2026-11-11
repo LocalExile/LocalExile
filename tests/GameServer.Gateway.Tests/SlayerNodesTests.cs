@@ -34,6 +34,10 @@ public sealed class SlayerNodesTests
         // Impact: min(50, X x killed recently) (client 0x14274c820).
         Assert.Equal(15, Slayer.AreaFromKills(With((Slayer.AreaPerEnemyKilled, 5), (Slayer.EnemiesKilledRecently, 3))));
         Assert.Equal(50, Slayer.AreaFromKills(With((Slayer.AreaPerEnemyKilled, 5), (Slayer.EnemiesKilledRecently, 40))));
+        // The tick's counts stop where the capped products do, so a count past the cap resends nothing.
+        Assert.Equal(10, Slayer.UpToCap(15, 10, 100));
+        Assert.Equal(7, Slayer.UpToCap(7, 10, 100));
+        Assert.Equal(17, Slayer.UpToCap(40, 3, 50));
         var state = new Slayer.State();
         foreach (double at in new[] { 0.0, 1, 3.9 }) state.Kills.Enqueue(at);
         Assert.Equal(3, state.KilledWithin(3.95));

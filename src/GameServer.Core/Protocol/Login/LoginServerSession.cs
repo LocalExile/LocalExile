@@ -9,6 +9,8 @@ namespace GameServer.Core.Protocol.Login;
 /// </summary>
 public sealed class LoginServerSession(AccountService accounts)
 {
+    /// <summary>The class byte from saved progression, including the main ascendancy.</summary>
+    public Func<Character, byte> CharacterListClass { get; init; } = c => (byte)c.Class;
     /// <summary>0x04 result codes. 0 moves the client to logged-in state 3 (0x142145ae0 case 4). Non-zero codes are
     /// BackendErrors rows + 1: the client showed 5 as "The specified account does not exist." (row 4, live 2026-10-16),
     /// so 6 is row 5 InvalidPassword.</summary>
@@ -256,5 +258,5 @@ public sealed class LoginServerSession(AccountService accounts)
             // The character screen draws U46 (+0x46), the portrait variation, in U44 (+0x44), the frame (0x140841260 →
             // 0x14242d610, 0x1408406b0).
             new ListEntry15(c.Name, c.League, (byte)(c.HardcoreDeath?.PermanentlyDead == true || !HardcoreDeathRules.CanEnter(c) || !Leagues.CanEnter(c.League) ? 1 : 0), 0,
-                (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, c.PortraitFrame, c.Portrait, 0, 0))];
+                (byte)Math.Clamp(c.Level, 0, 255), 0, CharacterListClass(c), c.PortraitFrame, c.Portrait, 0, 0))];
 }

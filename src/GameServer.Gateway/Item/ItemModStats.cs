@@ -50,9 +50,15 @@ public static class ItemModStats
     static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
-        foreach (var item in items)
+        var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
+        foreach (var item in equipment)
             foreach (var value in Values(item, mods, local, subject, statExists))
-                yield return value;
+            {
+                if (local || !InfluencedItemConditions.Read(value.Id, out string target, out var influence, out int required))
+                    yield return value;
+                else if (equipment.Count(equipped => (equipped.Influences & influence) != 0) >= required)
+                    foreach (string stat in InfluencedItemConditions.Targets(target)) yield return (stat, value.Value);
+            }
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the

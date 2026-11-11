@@ -115,7 +115,7 @@ static class CosmeticsFeature
         if (pick.Slot == PortraitSlot)
         {
             ushort portrait = WornPortrait(conn);
-            await Send(remote, stream, ciphers, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02bc player portrait {portrait}");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerPortraitUpdate(PlayerId, portrait), $"0x02bc player portrait {portrait}");
             // The character screen's list comes from Auth's account store.
             var told = await InstanceControl.CallAsync(new ControlRequest { Op = "set_portrait", Ticket = conn.Ticket, Portrait = portrait });
             if (!told.Ok) Console.WriteLine($"[gateway] {remote} set_portrait {portrait}: {told.Error}");
@@ -137,7 +137,7 @@ static class CosmeticsFeature
         List<uint> old;
         lock (conn.Pets) { old = [.. conn.Pets.Keys]; conn.Pets.Clear(); }
         foreach (uint id in old)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
         double now = conn.Clock.Elapsed.TotalSeconds;
         var (px, py) = conn.Walk.Position(now);
         foreach (var worn in WornCosmetics(conn).Where(w => w.Slot is 18 or 19))
@@ -151,9 +151,9 @@ static class CosmeticsFeature
             var (x, y) = PetSpot(conn, (px, py), worn.Slot == 18 ? 1 : -1);
             uint id = conn.NextObjectId++;
             var pet = new PetObject(x, y, PlayerId, fx.PetComponents, fx.PetStates);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
                 $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }
         if (!conn.PetFollowRunning) { conn.PetFollowRunning = true; _ = RunPetFollow(remote, stream, ciphers, conn); }
@@ -193,7 +193,7 @@ static class CosmeticsFeature
                         orders.Add((id, pet.Walk.Order(to.X, to.Y, now), to));
                     }
                 foreach (var (id, from, to) in orders)
-                    await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408), null);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408), null);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
