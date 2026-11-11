@@ -4984,6 +4984,7 @@ public partial class ConditionalItemStatsTests
 
     void Per_charge_leaves_reach_existing_final_consumers()
     {
+        Charge_presence_conditions_follow_real_counts_minima_and_conversion();
         var exists = (string name) => Program.Stats.Has(name);
         var cases = new (string Source, string Mod, string[] Targets, ChargeType Type)[]
         {

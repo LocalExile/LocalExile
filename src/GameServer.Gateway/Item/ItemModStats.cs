@@ -100,6 +100,7 @@ public static class ItemModStats
                         if (state is StatConditions.State.Holds && statExists is not null
                             && StatConditions.FoldAll(id, statExists) is { Count: > 0 } targets)
                         {
+                            value = StatConditions.ValueForFold(id, value);
                             foreach (string target in targets) yield return (target, value);
                         }
                         else yield return (id, value);

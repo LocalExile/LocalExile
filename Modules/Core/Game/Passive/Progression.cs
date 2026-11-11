@@ -699,6 +699,19 @@ public static partial class Game
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
         GrandSpectrum.Apply(sources, Stats);
+        // The first snapshot after equipment/point changes must use the new limits and conversion, before the charge
+        // ticker observes them. Rebuild the conditional sum from its inputs, never add a second folded contribution.
+        for (int pass = 0; pass < 4; pass++)
+        {
+            var chargeFlags = RequalifyChargeConditions(conn, conditionFlags, sources, dev);
+            if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
+            conditionFlags = chargeFlags;
+            sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats,
+                ConditionSubject(rawAttributes, active)));
+            DevotionStats.Apply(sources, Stats);
+            GrandSpectrum.Apply(sources, Stats);
+        }
+        sourcesKey = sourcesKey with { Flags = conditionFlags };
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);

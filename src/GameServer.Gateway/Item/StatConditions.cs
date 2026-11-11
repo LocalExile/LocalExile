@@ -101,6 +101,10 @@ public static class StatConditions
         "_while_using_flask", "_if_affected_by_no_flasks",
         "_while_bleeding", "_while_poisoned", "_while_on_consecrated_ground",
         "_while_cursed", "_while_not_cursed",
+        .. new[] { "frenzy", "power", "endurance" }.SelectMany(type => new[]
+        {
+            $"_while_no_{type}_charges", $"_while_you_have_no_{type}_charges", $"_while_have_any_{type}_charges",
+        }),
         "_while_onslaught_is_active", "_while_have_onslaught", "_while_channelling", "_while_not_channelling",
         "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
         "_while_unhinged", "_while_not_unhinged",
@@ -244,7 +248,8 @@ public static class StatConditions
                 => "base_energy_shield_regeneration_rate_per_minute_%",
             "life_gain_per_target" => "base_life_gain_per_target",
             "damage_taken_+%" => "base_damage_taken_+%",
-            "critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
+            "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
+            "extra_damage_taken_from_crit_+%" => "base_self_critical_strike_multiplier_-%",
             "additional_critical_strike_chance_permyriad" => "additional_base_critical_strike_chance",
             "critical_strike_chance_+%_for_spells" => "spell_critical_strike_chance_+%",
             "critical_strike_multiplier_+_for_spells" => "spell_critical_strike_multiplier_+",
@@ -307,6 +312,9 @@ public static class StatConditions
             return [.. new[] { "base_immune_to_freeze", "base_immune_to_chill" }.Where(exists)];
         return Fold(statId, exists) is { } plain ? [plain] : [];
     }
+
+    public static int ValueForFold(string statId, int value) =>
+        PlainOf(statId) == "extra_damage_taken_from_crit_+%" ? ActorScale.Saturate(-(long)value) : value;
 
     // Suffixes that name a weapon/shield subject. Checked longest first so the specific one wins.
     const string DualWield = "_while_dual_wielding";

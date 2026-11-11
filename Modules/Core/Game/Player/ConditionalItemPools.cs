@@ -116,9 +116,8 @@ public static partial class Game
         var charges = ChargesOf(conn);
         foreach (var type in Charges.Types)
         {
-            int maximum = charges.Limits(type).Maximum;
-            flags["_while_at_maximum_" + type.ToString().ToLowerInvariant() + "_charges"] =
-                !charges.Converted(type) && maximum > 0 && charges.Effective(type) >= maximum;
+            SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
+                charges.Converted(type), alive);
         }
         return flags;
     }
