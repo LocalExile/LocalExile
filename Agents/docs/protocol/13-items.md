@@ -108,6 +108,10 @@ The native ES getter `0x1424b5f00` tests these flags before the base, flat modif
 Supported equipment ES-to-Life conversion and conditional ES increases are described in §2c.
 Sacred Orbs reroll the saved shared base roll through the currency handler (see "Sacred Orb" in §4).
 
+**Body armour only:** body-only ES increases add only to the body's own global increase bucket. The Body Armour
+doubling also covers Iron Reflexes' converted body evasion, and the no-body-Armour flag removes those sources while
+keeping ordinary evasion and ES.
+
 **Shield-specific character increases:** retain the active shield's final local AR/EV/ES as separate inputs.
 `shield_armour_+%` (24) increases all three shield defences despite its name.
 Typed shield increases are `shield_physical_damage_reduction_rating_+%` (495),

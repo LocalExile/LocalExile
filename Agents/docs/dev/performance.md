@@ -127,6 +127,12 @@ starting an Oodle worker. The old runtime decoder timer, bundle release and HNC 
 The measurements below predate that migration; they are historical comparisons, not measurements of current main.
 The `single` and `area` scenarios use the extracted pack and no longer measure runtime decoder caches.
 
+Combat caches: message/frame and per-release projectile snapshots; skill and equipment caches checked against their
+inputs, which ignore gem XP within a level and extended recent windows; reused item-local stats, condition parsers and
+projectile recipes. Aura reconciliation compares live sources, restrictions, equipment and reservation; support
+resolution shares raw gem sources, and projectile motion is reused only until the next contact
+(`PlayerStatsCache.cs`, `OwnAuras.cs`, `GemLevels.cs`, `ProjectileRuntime.cs`, `StatConditions.cs`).
+
 ## One player per stack (2026-10-31, before the extracted-pack migration)
 
 The target is one server stack and one client per worktree, eight of them on one PC, so a stack's idle and

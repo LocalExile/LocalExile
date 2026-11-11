@@ -925,6 +925,7 @@ mechanics remain open; source IDs, support lifecycle and parsed contact tests ar
 - Critical elemental hits with `critical_strikes_ignore_elemental_resistances` use effective resistance zero,
   including when the target's resistance or maximum is negative; ignore overrides penetration.
   `attack_critical_strikes_ignore_elemental_resistances` covers attacks only.
+  Inevitable Judgement (graph node 48214) grants the generic ignore and 10 non-critical penetration.
   Non-critical elemental hits add `non_critical_strikes_penetrate_elemental_resistances_%` to general penetration.
   Player and skill contributions to the same key sum; the prohibition suppresses all elemental penetration and ignore.
   Physical, chaos and DoT keep their separate rules.
