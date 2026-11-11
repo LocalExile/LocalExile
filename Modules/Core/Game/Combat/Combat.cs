@@ -661,8 +661,11 @@ public static partial class Game
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
         if (flickers && spellAcknowledged)
+        {
+            await FlickerArt(remote, stream, ciphers, conn, gem.Gem, stand, landing);
             await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, landing.X, landing.Y),
                 $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
+        }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
