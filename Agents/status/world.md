@@ -94,7 +94,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
   Ground/object spells retain fractional holds; Fireball/Freezing Pulse allow Move and early spell replacement.
   Repeated uses hold through every cast, with first-cast early and final-repeat late cancellation windows.
-  Channels retain activity and releases; spell channels use cast speed without a frame cap. Full validation remains open.
+  Channels retain activity and releases; spell channels use cast speed without a frame cap.
+  Other players are copies stepped in the observer's own frames. Corpses block for their death clip's time, attack in
+  place, walks left under an in-place action, pick-up reach by item size, and phasing and immobile monster types
+  follow the client. Held walks and pack fights stay on the client's cells on the local bench; bosses with scripted
+  movement, the remaining skills and a real network link are not validated.
   Instant replies share the player's sequence, suppress local action events and let native execution consume cooldowns.
   The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
   Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.

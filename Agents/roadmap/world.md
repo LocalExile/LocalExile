@@ -164,8 +164,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
     Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.
     Predictive stops retain elapsed step time as the client does; full comparison of this correction remains pending.
-    Natural Slums arrival and complete boss synchronization still need correction and validation.
-    Earlier held-walk player and all-monster sync bars passed; the combined current changes still need those checks.
+    Natural Slums arrival, a dense area, pick-ups, spells after a Move, a reconnect and two players are followed in
+    single probes; the King in the Mists moves during its skills on the client and its estimate does not.
+    Held-walk and pack-fight sync bars pass with the current rules. Left: steps that fall exactly on a frame's end
+    (the client decides them with its float accumulator) and two places where the generated walk grid is not the
+    client's.
     Broader coverage and adjusted crowd comparisons remain incomplete
     ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
   - **Start:** validate explicit frame records and birth dependencies together in both modes. Deterministic
