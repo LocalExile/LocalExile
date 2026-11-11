@@ -393,7 +393,8 @@ entry, on `/gold` and after a gold respec. A character save from before this sti
 account at the character's next login (`CharacterSaves.TakeGold`). Gold coins on the ground are the item
 `Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound).
 Monsters drop gold piles (`ItemDrops.Gold`, our own numbers): normal 40%, magic 75%, rare and unique always, each
-(3 + 1.2 × level) × 1/2/5/15 by rarity. Gold within the `gold_auto_loot_radius` setting (default 20 cells) is picked up
+(3 + 1.2 × level) × 1/2/5/15 by rarity. Gold within the `gold_auto_loot_radius` setting (default 20 cells) is
+picked up
 by itself on the player tick, in full and without late-drop ghosts. Every league has its own stash and gold; Standard
 keeps the account's stash from before (`AccountStash.Key`).
 
