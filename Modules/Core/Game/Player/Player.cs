@@ -1172,6 +1172,7 @@ public static partial class Game
                     var leeched = leech.TakeRecovery(now);
                     int IncomingStat(string name) => RecoveryStat(name);
                     double takenFactor = Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.TakenStat) / 100.0)
+                        * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.ConditionalTakenStat) / 100.0)
                         * Math.Max(0, 1 - IncomingResourceDefences.LessTakenPct(conn.Pools, IncomingStat) / 100.0);
                     double trapTakenFactor = takenFactor
                         * Math.Max(0, 1 + IncomingStat(IncomingResourceDefences.UnhingedSaneDamageFinal) / 100.0);

@@ -2,6 +2,7 @@
 public static class IncomingResourceDefences
 {
     public const string TakenStat = "harbinger_channel_buff_damage_taken_+%_final";
+    public const string ConditionalTakenStat = "damage_taken_+%_final";
     public const string UnhingedSaneDamageFinal = "physical_and_chaos_damage_taken_+%_final_while_not_unhinged";
     public const string BypassStat = "base_non_chaos_damage_bypass_energy_shield_%";
 
@@ -19,8 +20,9 @@ public static class IncomingResourceDefences
     static int Per(int attribute, int per) => per > 0 ? Math.Clamp(attribute / per, 0, 100) : 0;
 
     public static int Taken(int damage, Func<string, int> get, int lessPct = 0) =>
-        (int)Math.Clamp(Math.Max(0L, damage) * Math.Max(0L, 100L + get(TakenStat))
-            * Math.Max(0L, 100L - Math.Clamp(lessPct, 0, 100)) / 10000, 0, int.MaxValue);
+        (int)Math.Clamp(Math.Max(0, damage) * Math.Max(0m, 1 + get(TakenStat) / 100m)
+            * Math.Max(0m, 1 + get(ConditionalTakenStat) / 100m)
+            * (1 - Math.Clamp(lessPct, 0, 100) / 100m), 0, int.MaxValue);
 
     public static int Damage(EnergyShield shield, int damage, int bypassPercent, double now)
     {
@@ -35,6 +37,7 @@ public static class IncomingResourceDefences
             * Math.Max(0, 1 + (get("damage_taken_+%") + typedIncreasedPct) / 100.0)
             * Math.Max(0, 1 - Math.Clamp(reductionPct, 0, 100) / 100.0)
             * Math.Max(0, 1 + get(TakenStat) / 100.0)
+            * Math.Max(0, 1 + get(ConditionalTakenStat) / 100.0)
             * Math.Max(0, 1 + finalTakenPct / 100.0)
             * Math.Max(0, 1 - Math.Clamp(lessPct, 0, 100) / 100.0) + carry;
         int whole = (int)Math.Min(int.MaxValue, Math.Floor(earned + 1e-9));

@@ -144,6 +144,19 @@ public class ConditionalItemStatsTests
         Assert.Equal(11, recovery.GetValueOrDefault("life_recovery_rate_+%"));
         Assert.Equal(11, recovery.GetValueOrDefault("energy_shield_recovery_rate_+%"));
         Assert.False(recovery.ContainsKey(bothRecovery));
+        const string kintsugi = "damage_taken_+%_if_not_hit_recently_final";
+        var kintsugiMod = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == kintsugi));
+        var kintsugiItem = WithMod(kintsugiMod.Id, -35);
+        var history = new RecentEvents();
+        foreach (var (at, expected) in new[] { (10d, 65), (10.1, 100), (14.1, 65) })
+        {
+            if (at == 10.1) history.Record(StatConditions.BeenHit, at);
+            var values = ItemModStats.Sum([kintsugiItem], Program.Items.Mods,
+                subject: new(Recent: history.Snapshot(at)), statExists: Program.Stats.Has);
+            Assert.Equal(expected, IncomingResourceDefences.Taken(100, values.GetValueOrDefault));
+            double carry = 0;
+            Assert.Equal(expected, IncomingResourceDefences.TakenOverTime(100, values.GetValueOrDefault, ref carry));
+        }
 
         foreach (var (source, target) in new[]
                  {
