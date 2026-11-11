@@ -49,7 +49,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   requests native Actor TakeHit recovery (S→C 0x1d1, animation type 5).
   Stun immunity, a boss's 4 s immunity, an absent TakeHit profile or an existing recovery prevents it.
   A killing blow gets no flinch.
-  [Chance and duration](../docs/game/juggernaut.md#stun) follow the wiki and `Character.ot`, not a clip's length.
+  [Chance](../docs/game/juggernaut.md#stun) follows the wiki and `Character.ot`; the duration follows it too, but is
+  never shorter than the variety's own TakeHit clip, which the client plays in full for the recovery it is sent.
   The actor's native ACT selects and fits the presented clip; the server does not force a rig index.
   Recovery stops server and client movement, holds AI and invalidates old ordinary swing echoes and contacts.
   Historical LocalExile moving-Drowned samples held one cell through recovery, then resumed a fresh AI walk.

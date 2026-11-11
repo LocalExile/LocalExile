@@ -18,6 +18,9 @@ public static class HitReaction
 {
     const double BaseSeconds = .35;
     const double BossImmunitySeconds = 4;
+    /// <summary>The recovery of a variety whose extraction carries no TakeHit clip length (MonsterCatalog.TakeHit: "A
+    /// clip without a length has 0 s, so the 0.4 s minimum applies").</summary>
+    const double MinimumSeconds = .4;
 
     /// <summary>The hit's damage as the stun chance counts it, by Metadata/Characters/Character.ot:
     /// melee_hit_damage_stun_multiplier_+% 25, non_physical_hit_damage_stun_multiplier_+% -25 and
@@ -38,8 +41,22 @@ public static class HitReaction
     }
 
     // Character.ot's object_inherent_melee_hit_stun_duration_+%_final is 50.
-    static double Seconds(StunHit hit, SpawnedMonster m) => BaseSeconds * Math.Max(0, 1 + hit.DurationPct / 100.0)
-        * (hit.Melee ? 1.5 : 1) / Math.Max(.01, 1 + m.Mods.Effects["base_stun_recovery_+%"] / 100.0);
+    // The client plays the monster's own TakeHit clip (MonsterCatalog.TakeHit, its Index and Seconds) for the recovery
+    // it is sent and cuts the clip short when the recovery ends sooner, so the recovery is at least that clip's length —
+    // the wiki duration alone (0.35 s x 1.5 melee) cut every clip longer than 0.525 s in half (a Str rig's maul attack
+    // against a Rhoa, whose flinch runs 1.0 s: live 2026-11-07, "the monster does not pause"). A multi-clip pool (26
+    // varieties: flinch_small_01/flinch_large_01) takes its first clip until the .act's duration threshold is read.
+    static double Seconds(StunHit hit, SpawnedMonster m) => Math.Max(ClipSeconds(m),
+        BaseSeconds * Math.Max(0, 1 + hit.DurationPct / 100.0) * (hit.Melee ? 1.5 : 1)
+            / Math.Max(.01, 1 + m.Mods.Effects["base_stun_recovery_+%"] / 100.0));
+
+    /// <summary>The TakeHit clip this flinch presents, or null when the variety's extraction has none: the clip the
+    /// recovery's duration bounds and the index S→C 0x1b2 kind 0 plays. Call under the Monsters lock.</summary>
+    public static HitAnimation? Clip(SpawnedMonster m) =>
+        m.HitAnimations is { Count: > 0 } clips ? clips[0] : null;
+
+    static double ClipSeconds(SpawnedMonster m) =>
+        Clip(m) is { } clip ? Math.Max(MinimumSeconds, clip.Seconds) : MinimumSeconds;
 
     /// <summary>Rolls the stun; true when a new recovery started (<c>FlinchUntil</c>), to present. Call under the Monsters lock.</summary>
     public static bool TryFlinch(SpawnedMonster m, StunHit hit, double now, Random random)

@@ -35,10 +35,12 @@ public sealed class JuggernautNodesTests
 
         var boss = new SpawnedMonster("boss", new(0, 0, 0), 0, 0, 1000) { Rarity = MonsterRarity.Unique, HitAnimations = [new(0, 2)] };
         Assert.True(HitReaction.TryFlinch(boss, new(500, DurationPct: 100, Melee: true, Owner: conn), 10, new Random(1)));
-        Assert.Equal(11.05, boss.FlinchUntil, 6);   // .35 x 2 x 1.5
-        Assert.False(HitReaction.TryFlinch(boss, new(500), 15.04, new Random(1)));   // 4 s after the stun ended
-        Assert.True(HitReaction.TryFlinch(boss, new(500), 15.06, new Random(1)));
-        Assert.Equal(15.41, boss.FlinchUntil, 6);
+        // The recovery is the wiki's .35 x 2 x 1.5 = 1.05 s, but never shorter than the monster's own TakeHit clip
+        // (this boss's runs 2 s), so the client does not cut the clip it is playing in half.
+        Assert.Equal(12, boss.FlinchUntil, 6);
+        Assert.False(HitReaction.TryFlinch(boss, new(500), 15.96, new Random(1)));   // 4 s after the stun ended
+        Assert.True(HitReaction.TryFlinch(boss, new(500), 16.06, new Random(1)));
+        Assert.Equal(18.06, boss.FlinchUntil, 6);
 
         charges.Step(16, stats, () => default, alive: true, moving: false, inTown: false, new Random(1));
         Assert.Equal(1, charges.Effective(ChargeType.Endurance));

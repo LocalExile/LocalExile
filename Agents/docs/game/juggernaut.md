@@ -32,6 +32,8 @@ A blocked hit counts as hit for when-hit gains and "hit recently" (wiki Blocking
 Chance: 200 x stunning damage / (maximum life x (1 - reduction)); 20% or less is ignored.
 A reduction R above 75 becomes `75 + 25 x (R - 75) / (R - 50)`.
 Duration: 350 ms x (100 + attacker's increases) / (100 + defender's recovery).
+The client plays the monster's own TakeHit clip for the recovery it is sent and cuts it short when the recovery ends
+sooner, so the recovery is never shorter than that clip (a variety with no clip length gets the 0.4 s minimum).
 A boss cannot be stunned while stunned or for 4 s after.
 A critical strike that deals cold damage cannot stun.
 
