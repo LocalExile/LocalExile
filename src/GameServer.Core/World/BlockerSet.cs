@@ -53,6 +53,18 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
             blocker.CollisionRadius is double r ? (int)Math.Ceiling(r) : 0));
     }
 
+    /// <summary>Takes a blocker out of every query. Its slot stays, so the other indexes and the views hold; a list
+    /// read finds a body off the map that blocks nothing.</summary>
+    public void Remove(int index)
+    {
+        var previous = all[index];
+        long key = Key(Floor(previous.X), Floor(previous.Y));
+        if (buckets.TryGetValue(key, out var list) && list.Remove(index) && list.Count == 0) buckets.Remove(key);
+        all[index] = Gone;
+    }
+
+    static readonly ClientPathfinder.Blocker Gone = new(int.MinValue / 2, int.MinValue / 2, -1);
+
     public int Count => all.Count;
     public ClientPathfinder.Blocker this[int index] => all[index];
     public IEnumerator<ClientPathfinder.Blocker> GetEnumerator() => all.GetEnumerator();

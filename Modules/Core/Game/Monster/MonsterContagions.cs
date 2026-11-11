@@ -129,10 +129,10 @@ static partial class Game
         return null;
     }
 
-    /// <summary>A monster died: if it was affected by Contagion, a fresh Contagion goes on every other live hostile monster
-    /// within the cast's radius of where it fell (Subsiding's at three quarters of the damage), and with it the monster's
-    /// Essence Drain debuff, at its full damage for the time it had left ("The debuff is spread by Contagion"). Returns where
-    /// it spread from, the radius and the art; null when the monster was not affected.</summary>
+    /// <summary>A monster died: if it was affected by Contagion with time left, that Contagion goes on every other live hostile
+    /// monster within the cast's radius of where it fell, for the time it had left (Subsiding's at three quarters of the
+    /// damage), and with it the monster's Essence Drain debuff, at its full damage for the time it had left ("The debuff is
+    /// spread by Contagion"). Returns where it spread from, the radius and the art; null when the monster was not affected.</summary>
     internal static ((int X, int Y) At, int Radius, string Ao)? SpreadContagion(ClientState conn, uint id, SpawnedMonster m)
     {
         int spread = 0;
@@ -141,10 +141,11 @@ static partial class Game
         MonsterEssenceDrain.Cast? drain;
         using (ProjectileMutation(conn))
         {
-            cast = m.Contagion.TakeSpread();
-            if (cast is null) return null;
             double now = ProjectileWorldTime(conn);
             drain = m.EssenceDrain.TakeSpread(now);
+            // PoE1: the spread carries the time the dead monster's Contagion had left; nothing spreads with none left.
+            cast = m.Contagion.TakeSpread(now);
+            if (cast is null) return null;
             at = m.Walk.Position(now);
             var next = cast with { DamagePerSecond = cast.DamagePerSecond * cast.SpreadMore };
             foreach (var (otherId, other) in conn.Monsters)
@@ -166,18 +167,28 @@ static partial class Game
     internal static async Task ShowContagionSpread(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) at, int radius, string ao)
     {
-        uint effect;
-        lock (conn.Monsters) effect = conn.NextObjectId++;
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? 180));
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
-            $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-        SendAfter(ContagionSpreadArtSeconds, async () =>
+        // Every player in the instance sees it: the killer through this connection, the others through their own sends,
+        // each under an object id of its own client.
+        var viewers = new List<(ClientState Viewer, Func<byte[], string?, Task> Send)>
+            { (conn, (bytes, log) => Send(remote, stream, ciphers, bytes, log)) };
+        foreach (var peer in conn.Instance?.Presence.PlayersExcept(conn.PeerId) ?? [])
+            if (peer.Owner is { Outbox: { } outbox } other && !other.Closed && !other.LeavingArea && other.PlayerSent)
+                viewers.Add((other, outbox));
+        foreach (var (viewer, send) in viewers)
         {
-            if (conn.Closed || conn.LeavingArea) return;
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null);
-        });
+            uint effect;
+            lock (viewer.Monsters) effect = viewer.NextObjectId++;
+            await send(InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
+                $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
+            await send(InstanceProtocol.EnterWakeZone(effect), null);
+            SendAfter(ContagionSpreadArtSeconds, async () =>
+            {
+                if (viewer.Closed || viewer.LeavingArea) return;
+                await send(InstanceProtocol.RemoveObject(effect), null);
+            });
+        }
     }
 
     internal static async Task TickContagions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -197,14 +208,16 @@ static partial class Game
                 else damage = m.Contagion.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
                 if (damage > 0)
                 {
+                    uint lifeBefore = m.Life;
                     (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
                         CollectVaalSoulAtDeathLocked(conn, m);
-                        // Its own damage killed it: the cast spreads even if this tick also ended it.
-                        m.Contagion.Died();
+                        // Its own damage killed it partway through the tick: what affected it then spreads, with the
+                        // time it had left then (also when this tick ended it).
+                        m.Contagion.Died(Math.Min(1.0, (double)lifeBefore / damage));
                     }
                     hits.Add((id, m, m.Life, damage));
                     if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);

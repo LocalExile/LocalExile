@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using GameServer.Core;
@@ -8,9 +6,6 @@ namespace GameServer.Modules.Delve;
 
 public sealed partial class DelveModule
 {
-    /// <summary>The characters who chose a route in the encampment: their trip starts when the mine is generated.</summary>
-    readonly ConcurrentDictionary<string, byte> _pendingTrips = new(StringComparer.Ordinal);
-
     // Two events settle the paused interpolation's previous/target values while leaving its current value for the
     // next UI tick. A third event overwrites current too, suppressing the fill-change event that repositions the label.
     static async Task RefreshGauge(IPlayer player, IPlayerWorld world)
@@ -20,83 +15,78 @@ public sealed partial class DelveModule
             await player.Send(InstanceDelve.SulphiteChanged(amount, amount), "Synchronize Delve sulphite gauge");
     }
 
-    async Task RequestTrip(IPlayer player, IReadOnlyList<InstanceDelve.RoutePoint> route)
+    async Task RequestTrip(IModuleContext module, IPlayer player, IReadOnlyList<InstanceDelve.RoutePoint> route)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
         if (!conn.PlayerSent || conn.LeavingArea || conn.Closed || conn.PlayerLife == 0
             || conn.Layout.Hash is not (Hub or InstanceDelve.MineArea)) return;
-        // Only the first quest cell has terrain and an encounter implementation. Never charge an arbitrary chart path.
-        if (route.Count != 2 || route[0] != new InstanceDelve.RoutePoint(0, 0, 2, 0)
-            || route[1] != new InstanceDelve.RoutePoint(0, 0, 2, 1))
-        {
-            await player.Tell("Only the first Azurite quest route is available."); return;
-        }
-        if (conn.Layout.Hash == Hub)
-        {
-            if (!_pendingTrips.TryAdd(CharacterName(conn), 0)) return;
-            try
-            {
-                await ChangeArea(remote, stream, ciphers, conn,
-                    new PendingTransfer(InstanceDelve.MineArea, 0, false, AtSpawn: true) { Seed = 1 }, "Selected first Delve route");
-            }
-            finally { if (!conn.LeavingArea) _pendingTrips.TryRemove(CharacterName(conn), out _); }
-        }
-        else await StartTrip(player);
+        var world = WorldOf(player);
+        var mine = Mine(module, player);
+        var plan = mine.Select(route, Price, out string why);
+        if (plan is null) { await player.Tell(why); return; }
+        if (mine.Pending?.Id == plan.Id) return;
+        if (Sulphite(world.CharacterData) < plan.Cost)
+        { await player.Tell($"This trip requires {plan.Cost} sulphite."); return; }
+        var attempt = new Attempt(plan, world.AccountData) { Player = player, Owner = CharacterName(conn) };
+        _attempts[plan.Id] = attempt;
+        if (!DelveMine.Change(world.AccountData, m => m.Pending is null && m.Current == plan.From ? m with { Pending = plan } : null))
+        { _attempts.TryRemove(plan.Id, out _); return; }
+        try { await TransferChunk(module, player, attempt); }
+        catch { await AbortTrip(module, player, attempt, "departure failed"); throw; }
     }
 
-    async Task StartPendingTrip(IPlayer player)
+    async Task StartPendingTrip(IModuleContext module, IPlayer player)
     {
-        var conn = ConnOf(player);
-        if (conn.Layout.Hash == InstanceDelve.MineArea && _pendingTrips.TryRemove(CharacterName(conn), out _))
-            await StartTrip(player);
+        if (player.AreaId != "Delve_Main") return;
+        var mine = Mine(module, player);
+        if (mine.Pending is not { } plan || !_attempts.TryGetValue(plan.Id, out var attempt) || attempt.Seed != ConnOf(player).Seed) return;
+        if (attempt.Owner != CharacterName(ConnOf(player))) return;
+        attempt.Player = player;
+        try { await StartTrip(module, player, attempt); }
+        catch { await AbortTrip(module, player, attempt, "route could not start"); throw; }
     }
 
-    async Task StartTrip(IPlayer player)
+    async Task StartTrip(IModuleContext module, IPlayer player, Attempt attempt)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
         var world = WorldOf(player);
         var state = _states.GetOrCreateValue(player);
-        if (state.Journey is not null || state.Crawler == 0 || conn.Layout.Walkable is null) return;
-        if (!ClientTables.Exists("data/tables/DelveLevelScaling.json"))
+        var rail = state.Rail ??= DelveRailRoute.Load(conn.Layout.Id, conn.Seed);
+        if (state.Journey is not null || state.Crawler == 0 || conn.Layout.Walkable is null || rail is null)
         {
-            await player.Tell("Delve trip scaling data is unavailable; no sulphite was spent."); return;
+            await AbortTrip(module, player, attempt, "native rail geometry unavailable");
+            await player.Tell("The mine geometry is unavailable. The trip was reset; no additional sulphite was spent.");
+            if (!conn.Closed && !conn.LeavingArea)
+                await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(Hub, 0, false, AtWaypoint: true), "Return to camp: mine rails unavailable");
+            return;
         }
-        var rail = DelveRailRoute.Load(conn.Layout.Id, conn.Seed);
-        if (rail is null) { await player.Tell("The mine rail capture is unavailable; no sulphite was spent."); return; }
-        using var scaling = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/DelveLevelScaling.json"));
-        // 0x141ea9bb0 prices path points after the origin. BlockY*8 + CellY + 1 = 2 for the first quest destination.
-        var depth = scaling.RootElement.EnumerateArray().First(r => r.GetProperty("Depth").GetInt32() == 2);
-        int cost = depth.GetProperty("SulphiteCost").GetInt32();
-        byte level = depth.GetProperty("MonsterLevel").GetByte();
-        var trip = new DelveJourney(rail.Points, cost);
-        if (Sulphite(world.CharacterData) < cost)
-        {
-            await player.Tell($"This trip requires {cost} sulphite."); return;
-        }
+        int depth = attempt.Plan.Depth, cost = attempt.Plan.Cost;
+        byte level = DelveMine.MonsterLevel(depth);
+        var trip = new DelveJourney(rail.Points, cost, depth);
         lock (conn.Monsters)
         {
-            if (state.Journey is not null || conn.LeavingArea || conn.Closed || conn.PlayerLife == 0) return;
-            if (Sulphite(world.CharacterData) < cost) return;
+            if (attempt.Cancelled || conn.LeavingArea || conn.Closed || conn.PlayerLife == 0) return;
             state.Journey = trip;
         }
+        await ResetScene(module, player, state);
         // Moving blockers are removed before departure. The authored Crawler type itself is nonblocking.
         foreach (uint blocker in state.Blockers)
         {
             world.RemoveBlocker(blocker);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(blocker), null);
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, blocker, null);
         }
         state.Blockers.Clear();
         var start = trip.At(0).At;
         state.CrawlerCell = start;
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
-            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(id, start.X, start.Y, 0x7fffffff), "Place Crawler at rail start");
-        await Send(remote, stream, ciphers, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.Teleport(id, start.X, start.Y, 0x7fffffff), "Place Crawler at rail start");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 0), "Close chart for Delve departure");
         Console.WriteLine($"[gateway] {remote} Delve trip armed (smooth motion + trail): {rail.Points.Count} rail points, {trip.Length:0.0} cells, cost {cost}, monster level {level}");
-        _ = RunTrip(player, state, trip, level, rail.Encounters);
+        _ = RunTrip(module, player, state, trip, level, rail.Encounters, attempt);
     }
 
-    static async Task RunTrip(IPlayer player, State state, DelveJourney trip, byte level, IReadOnlyList<DelveRailRoute.Encounter> encounters)
+    async Task RunTrip(IModuleContext module, IPlayer player, State state, DelveJourney trip, byte level, IReadOnlyList<DelveRailRoute.Encounter> encounters, Attempt attempt)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
         var character = WorldOf(player).CharacterData;
@@ -117,26 +107,22 @@ public sealed partial class DelveModule
         try
         {
             using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(50));
-            while (await timer.WaitForNextTickAsync())
+            while (await timer.WaitForNextTickAsync(module.Lifetime.Stopping))
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 double seconds = Math.Clamp(now - previous, 0, .25); previous = now;
-                bool valid() => !conn.Closed && !conn.LeavingArea && conn.ProjectileEpoch == epoch && ReferenceEquals(state.Journey, trip);
+                bool valid() => module.Lifetime.IsActive && !attempt.Cancelled && !conn.Closed && !conn.LeavingArea && conn.ProjectileEpoch == epoch && ReferenceEquals(state.Journey, trip);
                 if (!valid() || conn.PlayerLife == 0) return;
                 if (conn.Paused || seconds <= 0) continue;
-                var at = trip.At(trip.Travelled).At;
+                double departed = trip.Travelled;
                 (int X, int Y) position;
                 lock (conn.Monsters) position = conn.Walk.Position(now);
-                // Wait for an escort who is behind; accelerate when the player leads. The target remains the rail path.
-                double separation = DelveRailRoute.Distance(at, position);
-                var ahead = trip.At(Math.Min(trip.Length, trip.Travelled + 40)).At;
-                bool leading = DelveRailRoute.Distance(ahead, position) < separation;
-                const float speed = 24;
-                bool advance = DelveJourney.EscortMoving(moving, separation, leading);
+                double step = trip.EscortStep(position, seconds, moving);
+                bool advance = step > .001;
                 if (moving != advance)
                 {
                     moving = advance;
-                    await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, advance ? 1u : 0u, 1), null, valid);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, advance ? 1u : 0u, 1), null, valid);
                 }
                 if (!advance) continue;
                 ushort before = 0, after = 0;
@@ -145,7 +131,7 @@ public sealed partial class DelveModule
                 {
                     if (!valid() || conn.PlayerLife == 0) return;
                     if (conn.Paused) continue;
-                    paid = trip.Advance(seconds * speed, amount => character.Change(SulphiteKey, text =>
+                    paid = trip.Advance(step, amount => character.Change(SulphiteKey, text =>
                     {
                         if (!ushort.TryParse(text, out ushort balance) || balance < amount) return null;
                         before = balance; after = (ushort)(before - amount);
@@ -153,26 +139,26 @@ public sealed partial class DelveModule
                     }));
                     state.CrawlerCell = trip.At(trip.Travelled).At;
                 }
-                if (!paid) return;
+                if (!paid) { await AbortTrip(module, player, attempt, "insufficient sulphite"); return; }
                 var target = state.CrawlerCell;
                 if (before != after)
                     await Send(remote, stream, ciphers, InstanceDelve.SulphiteChanged(before, after),
                         $"Delve sulphite {before}->{after}; route {trip.Travelled:0.0}/{trip.Length:0.0}; Crawler {target}", valid);
                 // Positioned uses atan2(dx,-dy). Follow the current rail tangent without a delayed turn.
-                heading = trip.Heading(trip.Travelled);
-                await Send(remote, stream, ciphers, InstanceProtocol.Orientation(state.Crawler, heading, locked: true), null, valid);
+                heading = trip.Heading(departed);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, heading, locked: true), null, valid);
                 // Bone-attached parts follow the body; separate MoveTo packets can fight their attachment transform.
-                await Send(remote, stream, ciphers, InstanceProtocol.MoveTo(state.Crawler, target.X, target.Y, .12f, 0x7fffffff), null, valid);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.MoveTo(state.Crawler, target.X, target.Y, (float)seconds, 0x7fffffff), null, valid);
                 while (nextLamp <= trip.Travelled)
                 {
                     var lampAt = trip.At(nextLamp).At;
                     uint lamp;
                     lock (conn.Monsters) lamp = conn.NextObjectId++;
-                    await Send(remote, stream, ciphers, InstanceEntities.CreateObject(lamp,
+                    await global::Game.SendWorldCreate(remote, stream, ciphers, conn, lamp, InstanceEntities.CreateObject(lamp,
                         InstanceEntities.ObjectTypeHash(DelveTrailLightObject.MetadataPath),
                         new DelveTrailLightObject(lampAt.X, lampAt.Y, previousLamp).Blob()), $"Delve trail lamp {lamp} at {lampAt}, link {previousLamp}", valid);
-                    await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(lamp), null, valid);
-                    previousLamp = lamp; nextLamp += 30;
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, lamp, InstanceProtocol.EnterWakeZone(lamp), null, valid);
+                    state.Trail.Add(lamp); previousLamp = lamp; nextLamp += 30;
                 }
                 // Reveal authored room spawn points as the Crawler lights them, once per journey.
                 for (int encounterIndex = 0; encounterIndex < encounters.Count; encounterIndex++)
@@ -196,12 +182,26 @@ public sealed partial class DelveModule
                         PackCatalog.Pack? pack = encounter.Pack.Length > 0 ? Packs.Find(encounter.Pack) : null;
                         if (encounter.Pack.Length == 0 && questPacks.Length > 0) pack = questPacks[Random.Shared.Next(questPacks.Length)];
                         if (pack is not null)
-                            for (int i = 0, count = Random.Shared.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1); i < count; i++)
+                            for (int i = 0, count = (int)Math.Min(100, Math.Ceiling(Random.Shared.Next(pack.MinCount, Math.Max(pack.MinCount, pack.MaxCount) + 1) * DelveMine.PackMultiplier(trip.Depth))); i < count; i++)
                                 if (valid() && Monsters.Find(pack.PickVariety(Random.Shared).ToString()) is { Supported: true } variety)
                                 {
                                     var spawn = conn.Layout.Near((encounter.X, encounter.Y));
                                     uint monster = await SpawnMonster(remote, stream, ciphers, conn, variety, level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, spawn.X, spawn.Y);
-                                    lock (conn.Monsters) trip.EncounterMonsters.Add(monster);
+                                    lock (conn.Monsters)
+                                    {
+                                        trip.EncounterMonsters.Add(monster);
+                                        if (encounter.Destination) trip.DestinationMonsters.Add(monster);
+                                    }
+                                    if (!valid())
+                                    {
+                                        lock (conn.Monsters)
+                                        {
+                                            if (conn.Monsters.Remove(monster, out var retired)) { retired.Life = 0; retired.Dead = true; retired.ActionGeneration++; }
+                                            conn.Instance.World.MonsterOrigins.TryRemove(monster, out _);
+                                        }
+                                        if (!conn.Closed && !conn.LeavingArea) await RemoveSceneObject(player, monster);
+                                        return;
+                                    }
                                 }
                     }
                 }
@@ -209,51 +209,58 @@ public sealed partial class DelveModule
                 {
                     await spawnWork;
                     await SpawnEncounters(spawnQueue);
-                    await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), "Delve Crawler arrived", valid);
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), "Delve Crawler arrived", valid);
                     Console.WriteLine($"[gateway] {remote} Delve trip finished at {target}, sulphite {trip.Charged}/{trip.Cost}");
-                    await BlockCrawler(player, state, target.X, target.Y, heading);
-                    // Arrival alone is not victory: finish the route's own encounter before opening its reward.
+                    await BlockCrawler(module, player, state, target.X, target.Y, heading);
+                    // Only the destination's defenders gate victory. Stragglers in the travelled tunnel are optional.
                     while (valid() && conn.PlayerLife > 0)
                     {
                         bool alive;
-                        lock (conn.Monsters) alive = trip.EncounterMonsters.Any(id => conn.Monsters.TryGetValue(id, out var m) && m.Life > 0);
-                        if (!conn.Paused && !alive)
+                        lock (conn.Monsters) alive = !trip.DestinationCleared(id => conn.Monsters.TryGetValue(id, out var m)
+                            && m.Hostile && !m.Dead && m.Life > 0);
+                        // A menu may pause combat after the last kill. Committing an already won encounter must
+                        // still refresh the chart while it is open; no movement or combat advances here.
+                        if (!alive)
                         {
-                            await CompleteTrip(player, character, state, trip, level, valid);
-                            if (trip.Completed) break;
+                            await CompleteTrip(module, player, character, state, trip, level, valid, attempt);
+                            if (trip.Completed) { _attempts.TryRemove(attempt.Plan.Id, out _); break; }
                         }
-                        await Task.Delay(200);
+                        await Task.Delay(200, module.Lifetime.Stopping);
                     }
                     return;
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException)
         {
             Console.WriteLine($"[gateway] {remote} Delve trip stopped: {ex.Message}");
         }
         finally
         {
-            // Keep the terminal journey on the connection so duplicate requests cannot charge the trip twice.
+            if (!trip.Completed && !conn.LeavingArea)
+                await AbortTrip(module, player, attempt, conn.PlayerLife == 0 ? "player died" : "journey interrupted");
             if (!conn.Closed && !conn.LeavingArea)
-                try { await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), null); }
-                catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                try { await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), null); }
+                catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
         }
     }
 
-    static async Task CompleteTrip(IPlayer player, ISavedData character, State state, DelveJourney trip, byte level, Func<bool> valid)
+    async Task CompleteTrip(IModuleContext module, IPlayer player, ISavedData character, State state, DelveJourney trip, byte level, Func<bool> valid, Attempt attempt)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
-        var reward = DelveRewards.Current().Roll(trip.Depth, Random.Shared);
+        var reward = attempt.Plan.Reward ? DelveRewards.Current().Roll(trip.Depth, Random.Shared) : (Count: 0, Rarity: 0, QuantityPercent: 0d);
         var drops = Environment.GetEnvironmentVariable("Game_DROPS") == "0" ? []
             : DropsFor(conn).Container(level, reward.Count, reward.Rarity, Random.Shared);
         var groundItems = new List<(uint Id, WorldItemObject Ground)>();
         lock (conn.Monsters)
         {
-            if (!valid() || conn.PlayerLife == 0 || conn.Paused || trip.Completed || !trip.Finished
-                || trip.EncounterMonsters.Any(id => conn.Monsters.TryGetValue(id, out var m) && m.Life > 0)) return;
+            if (!valid() || conn.PlayerLife == 0 || trip.Completed || !trip.Finished
+                || !trip.DestinationCleared(id => conn.Monsters.TryGetValue(id, out var m)
+                    && m.Hostile && !m.Dead && m.Life > 0)) return;
+            if (!DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m.Finish(attempt.Plan.Id) : null)) return;
             character.Change(DepthKey, text => Math.Max(int.TryParse(text, out int deepest) ? deepest : 0, trip.Depth).ToString());
             if (!trip.TryComplete(false)) return;
+            conn.Instance.SetState(DestinationFlag(player));
             var at = state.CrawlerCell;
             for (int i = 0; i < drops.Count; i++)
             {
@@ -264,11 +271,16 @@ public sealed partial class DelveModule
                 groundItems.Add((conn.Instance.Ground.Add(ground, conn), ground));
             }
         }
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler + 4, InstanceEntities.TransitionableUpdate(state.Crawler + 4, 3, 2),
+            "Activate completed Delve checkpoint", valid);
+        // The roaming native type has no Targetable. Once parked, give the same cart its stationary chart interaction.
+        await CreateCrawlerBody(player, state, state.CrawlerCell.X, state.CrawlerCell.Y, trip.Heading(trip.Length), roaming: false);
+        await PublishChart(module, player);
         foreach (var (id, ground) in groundItems)
         {
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)), "Delve completion reward", valid);
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, valid);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null, valid);
         }
         Console.WriteLine($"[gateway] {remote} Delve depth {trip.Depth} completed: {groundItems.Count} items, +{reward.QuantityPercent}% quantity, +{reward.Rarity}% rarity");
     }

@@ -25,9 +25,9 @@ static class QuestObjectsFeature
         {
             if (ClientHasQuestFlag(conn, flag!)) continue;
             var blocker = new BlockerObject(o.X, o.Y, o.Angle, o.Scale);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
                 $"0x02bb create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             // The server's own wall: the walkable cells across the way (QuestBarriers).
             var guarded = conn.Layout.AreaTransitions.Where(t => TransitionFlag(conn, t.Transition) == flag)
                 .Select(t => conn.Layout.Near((t.Transition.GridX, t.Transition.GridY))).ToList();
@@ -62,9 +62,9 @@ static class QuestObjectsFeature
             else
             {
                 conn.TutorialSceneId = conn.NextObjectId++;
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(conn.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceEntities.CreateObject(conn.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
                     TutorialObjects.SceneBlob(spawn.X,spawn.Y,spawn.Angle)), "0x02bb opening bite zombie scene");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(conn.TutorialSceneId), null);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceProtocol.EnterWakeZone(conn.TutorialSceneId), null);
                 await Send(remote, stream, ciphers, TutorialObjects.BiteAnimation(conn.TutorialSceneId,0), "0x01b2 opening zombie paused at bite start");
             }
         }
@@ -98,12 +98,12 @@ static class QuestObjectsFeature
         if (!TryBeginObjectWalk(conn, requestedAt, chest.X, chest.Y, TutorialObjects.ChestInteractionSize, out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await Send(remote,stream,ciphers,InstanceProtocol.ActionStarted(PlayerId,here.X,here.Y,chest.X,chest.Y,use.SkillId,use.Sequence,use.Flags,targetObjectId:use.TargetId),null,still:()=>PlayerActionCurrent(conn,action));
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId,here.X,here.Y,chest.X,chest.Y,use.SkillId,use.Sequence,use.Flags,targetObjectId:use.TargetId),null,still:()=>PlayerActionCurrent(conn,action));
         if(arrive>now) await Task.Delay(TimeSpan.FromSeconds(arrive-now));
         if(!PlayerActionCurrent(conn,action) || conn.Closed) return;
         if(GameServer.Core.World.PlayerWalk.InWalkUpRange(stop,(chest.X,chest.Y),TutorialObjects.ChestInteractionSize))
             await OpenTutorialChestCore(remote,stream,ciphers,conn,use.TargetId,chest);
-        await Send(remote,stream,ciphers,InstanceProtocol.ActionEnded(PlayerId),null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId),null);
     }
 
     // The support gem chest opens (walked up to, or a warcry with open_nearby_chests_on_warcry): saved first, once.
@@ -113,9 +113,9 @@ static class QuestObjectsFeature
         // The walk-up and a warcry can both get here at once: only the first opens it.
         if(Interlocked.Exchange(ref conn.TutorialChestOpening,1)==1) return false;
         CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { ChestOpened=true });
-        await Send(remote,stream,ciphers,InstanceProtocol.RemoveObject(id),null);
-        await Send(remote,stream,ciphers,InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02bb opened support gem chest");
-        await Send(remote,stream,ciphers,InstanceProtocol.EnterWakeZone(id),null);
+        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id,null);
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02bb opened support gem chest");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),null);
         await DropTutorialGem(remote,stream,ciphers,conn,true,chest.X,chest.Y);
         return true;
     }
@@ -129,13 +129,13 @@ static class QuestObjectsFeature
         double now = conn.Clock.Elapsed.TotalSeconds;
         var (here, stop, arrive) = conn.Walk.WalkUpTo(at.X, at.Y, GlyphQuest.NestSize, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, at.X, at.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player opens Rhoa Nest 0x{use.TargetId:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (conn.ActionCount != action || conn.Closed) return;
         if (GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (at.X, at.Y), GlyphQuest.NestSize))
             await OpenRhoaNestCore(remote, stream, ciphers, conn, use.TargetId, nest);
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
     }
 
     // A Rhoa Nest opens (walked up to, or a warcry with open_nearby_chests_on_warcry): once per instance.
@@ -151,10 +151,10 @@ static class QuestObjectsFeature
         lock (conn.GlyphNests) { conn.GlyphNests.Remove(id); conn.GlyphNests[opened] = nest; }
         conn.RemoveBlocker(id);
         conn.SetBlocker(opened, at.X, at.Y, GlyphQuest.NestSize);
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
+        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, opened, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
             $"0x02bb opened Rhoa Nest 0x{opened:x} (was 0x{id:x})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(opened), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, opened, InstanceProtocol.EnterWakeZone(opened), null);
         await DropGlyph(remote, stream, ciphers, conn, nest);
         return true;
     }
@@ -168,7 +168,7 @@ static class QuestObjectsFeature
         double now = conn.Clock.Elapsed.TotalSeconds;
         var (here, stop, arrive) = conn.Walk.WalkUpTo(wall.X, wall.Y, GlyphQuest.WallSize, now);
         if (!use.Started)   // a lockstep client got its start from the frame pass
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, wall.X, wall.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, wall.X, wall.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player uses the Glyph Wall from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (conn.ActionCount != action || conn.Closed) return;
@@ -179,7 +179,7 @@ static class QuestObjectsFeature
                 await PlaceGlyphs(remote, stream, ciphers, conn);
         }
         else Console.WriteLine($"[gateway] {remote} Glyph Wall out of reach from ({stop.X}, {stop.Y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(PlayerId), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
     }
 
 

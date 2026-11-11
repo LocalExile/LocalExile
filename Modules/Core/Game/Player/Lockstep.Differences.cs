@@ -20,7 +20,7 @@ public static partial class Game
         try
         {
             await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
-            double frame = FrameMs / 1000d, first = conn.Clock.Elapsed.TotalSeconds;
+            double frame = FrameMs / 1000d, first = await BeginWorldFrames(conn, FrameMs / 1000d);
             long ended = 0;
             while (!conn.Closed)
             {
@@ -36,23 +36,8 @@ public static partial class Game
                 if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 if (now < first + (ended + 1) * frame) continue;
-                for (; first + (ended + 1) * frame <= now; ended++)
-                {
-                    // The frame advances in the frame end's send gate, under the combat lock: an order written after the
-                    // 0x2b7 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
-                    // the lock sees one frame throughout.
-                    long ending = ended;
-                    await Send(remote, stream, ciphers, [], null, atGate: () =>
-                    {
-                        lock (conn.Monsters)
-                        {
-                            conn.ServerFrame++;
-                            // A predictive client ignores the frames, so its timings keep the server's clock.
-                            if (conn.LockstepClient) conn.LockstepFrame = (first + (ending + 1) * frame, first + (ending + 2) * frame);
-                        }
-                        return InstanceProtocol.FrameEnd();
-                    });
-                }
+                if (await EndWorldFramesThrough(conn, first, frame, ended, now) is not { } completed) return;
+                ended = completed;
                 await ProbeLockstepLatency(remote, stream, ciphers, conn);
                 SendLockstepDefaultAttack(remote, stream, ciphers, conn);
                 await StartLockstepActions(remote, stream, ciphers, conn, first + ended * frame);
@@ -64,9 +49,9 @@ public static partial class Game
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the
-    // client sorted or the rest of the frame waits for its end (0x14218aff0), and everything else the Gateway sends is key
-    // 0 in no set order, so ours is key 0 too: applied before the objects tick, which fits a walk starting at the frame's
-    // start.
+    // client sorted or the rest of the frame waits for its end (0x14218aff0). The frame queue now enforces that order;
+    // this producer retains key 0, applied before object ticks. Moving it into the player tick needs a separate
+    // action-timing trace, since the server currently starts the walk at the frame start.
     static byte[] LockstepActionStart(ClientState conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, target.X, target.Y, conn.LockstepHold.Skill, sequence, conn.LockstepHold.Flags);
 
@@ -105,9 +90,6 @@ public static partial class Game
             try
             {
                 await OnClientMessages(remote, stream, ciphers, [(InstanceProtocol.UseSkillAtLocationId, use)], [], conn);
-                lock (conn.Monsters)
-                    if (!LockstepRepeats(conn, request.Skill) && conn.ChannelSkill == request.Skill && conn.ChannelSkillSequence == sequence)
-                        request.Channelling(sequence);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         });
