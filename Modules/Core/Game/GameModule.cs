@@ -28,7 +28,7 @@ public sealed class GameModule : IModule
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DepravedTrinity.Leaving(conn));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id,global::BrineKing.PlayerStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
@@ -36,6 +36,9 @@ public sealed class GameModule : IModule
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
+        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::Hierophant.PlayerStats));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
     }
 }

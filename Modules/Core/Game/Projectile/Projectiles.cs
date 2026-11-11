@@ -380,6 +380,7 @@ public static partial class Game
             if (hit is null) return ProjectileHitResult.Miss;
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
+            else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -430,11 +431,11 @@ public static partial class Game
                     spawn ? presentation.SpawnAnimationValue : 0, spawn ? presentation.SpawnAnimatedId : 0);
             }
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
-            // areas and continuation children, which do get objects).
+            // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
-            if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
-                && p.Use.Payload is ProjectileOffense primary
-                && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect))) return;
+            if (value.Kind == ProjectileEventKind.Spawn && p.Use.Payload is ProjectileOffense primary
+                && ((p.ParentId == 0 && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect)))
+                    || (primary.ClientPredicted && p.Profile.HidePredictedVisual))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;

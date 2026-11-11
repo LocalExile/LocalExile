@@ -27,6 +27,8 @@ public static partial class Game
         var caster = new Dictionary<uint, int>(owner);
         // This prohibition belongs to the owner (Ancestral Bond); type prohibitions remain inherited.
         caster.Remove(StatKeys.SpellSkillsDealNoDamage);
+        // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
+        if (Stats.Key(ArcaneSurgeSpellMore) is uint arcane) caster.Remove(arcane);
         return caster;
     }
 
@@ -38,8 +40,11 @@ public static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         // is_totem describes the placement skill. The proxy casts the underlying spell with its support penalty.
         int Read(string name) => name == "is_totem" ? 0 : Get(name);
+        // The owner's Arcane Surge cast speed is his buff's, not the totem's.
+        var owner = CharacterPlayerStats(conn);
         int speed = FinalCastSpeedPct(Read, () => HoldingFishingRod(conn),
-            CastSpeedPct(CharacterPlayerStats(conn)) + GolemStat(gem.Stats, "base_cast_speed_+%") + Get("totem_skill_cast_speed_+%"));
+            CastSpeedPct(owner) - GolemStat(owner, "arcane_surge_cast_speed_+%")
+            + GolemStat(gem.Stats, "base_cast_speed_+%") + Get("totem_skill_cast_speed_+%"));
         return SpellCastTiming.ForSkill(SkillsFor(conn), gem.Effect, speed)?.DurationMilliseconds is int ms
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }

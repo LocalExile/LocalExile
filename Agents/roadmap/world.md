@@ -161,11 +161,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     its float accumulator); two places where the generated walk grid is not the client's; the King in the Mists,
     which moves during its skills on the client; monsters' and minions' hits, still written at the frame's start;
     a held skill's repeat, one frame later than the client would take it; attack in place for a predictive client.
-  - **Start:** measure on 3.29.3c. Then move the encounters added since (Izaro's arena, Doedre's sewers, the
-    Depraved Trinity, the Vaal Oversoul, Bladefall of Trarthus) and the gm-commands mod to world records
-    (`Game.SendWorldCreate`, `SendWorldRecord`, `SendWorldRemoval`): their own objects' messages still go out
-    outside the frame's records. Then special action producers, sequence wrap, ranged chase behavior and the
-    remaining skills and world interactions.
+  - **Start:** measure on 3.29.3c. Then move the encounters and skills added since (Izaro's arena, Doedre's
+    sewers, the Depraved Trinity, the Vaal Oversoul; Bladefall of Trarthus, Winter Orb, Storm Call, Discharge, Dark
+    Bargain, Flicker Strike's effects) and the gm-commands mod to world records (`Game.SendWorldCreate`,
+    `SendWorldRecord`, `SendWorldRemoval`): their own objects' messages still go out outside the frame's records.
+    Then special action producers, sequence wrap, ranged chase behavior and the remaining skills and world
+    interactions.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
     walking per speed, the player standing and walking, and snap episodes.

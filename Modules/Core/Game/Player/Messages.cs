@@ -75,7 +75,8 @@ public static partial class Game
             }
             // Native TakeHit blocks predicted action starts too. Buffered normal actions must not restart the server's
             // movement/cast timeline during that same recovery. Flasks and instant skills retain their own paths.
-            if (id is InstanceProtocol.UseSkillAtLocationId or InstanceTransfer.UseSkillOnObjectId or InstanceProtocol.ChannelUpdateId)
+            if (id is InstanceProtocol.UseSkillAtLocationId or InstanceTransfer.UseSkillOnObjectId or InstanceProtocol.ChannelUpdateId
+                or InstanceProtocol.ChannelUpdateAltId)
             {
                 // The client buffers a click from the last part of a hold and sends it as its own hold ends, which can be a
                 // few ms before the server's. On localhost it arrives inside them: dropped, the client acts alone.
@@ -89,7 +90,7 @@ public static partial class Game
                     if (PlayerActionBlocked(conn, conn.ClockAt(readAt), conn.Clock.Elapsed.TotalSeconds))
                     {
                         // The client starts the newest click when it can again: the server walks it then (ReleaseHeldMove).
-                        if (id != InstanceProtocol.ChannelUpdateId)
+                        if (!InstanceProtocol.IsChannelUpdate(id))
                             conn.HeldMove = id == InstanceProtocol.UseSkillAtLocationId && InstanceProtocol.ReadUseSkillAtLocation(bytes) is var held
                                 && SkillsFor(conn).ActionName(held.SkillId) == "Move" ? held : null;
                         continue;
@@ -269,13 +270,16 @@ public static partial class Game
                 if (!projectileRuntime && !acknowledged) continue;
                 if (cooldownUse?.Current(conn) == false) continue;
                 if (flickerTo is { } flickerDestination)
+                {
+                    await FlickerArt(remote, stream, ciphers, conn, gem.Gem, (px, py), flickerDestination.Landing);
                     await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, flickerDestination.Landing.X, flickerDestination.Landing.Y),
                         $"0x01b7 {gem.Name} to ({flickerDestination.Landing.X}, {flickerDestination.Landing.Y}) for monster 0x{flickerDestination.Id:x} "
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
+                }
                 if (flicker) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
                 // Flicker Strike strikes from where it lands, at the monster it went to (or the point, when none was in range).
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
-                if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, sequence: use.Slot,
+                if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
                 // often does neither, live 2026-11-01): the resync settles which, once the action is over.
@@ -532,10 +536,11 @@ public static partial class Game
                 int moved = target.SetPositions(order);
                 Console.WriteLine($"[gateway] {remote} <= 0x00cc stash {kind} tab order: {string.Join(", ", order.Select(o => $"{o.Index}->{o.Position}"))} ({moved} moved, saved)");
             }
-            else if (id == InstanceProtocol.ChannelUpdateId)
+            else if (InstanceProtocol.IsChannelUpdate(id))
             {
-                // A channelled skill (Cyclone) goes on, aimed at this cell: Cyclone walks toward it (ChannelAimedAt). Its hits
-                // run on their own timer (RunChannel), at the skill's attack rate, wherever the player is.
+                // A channelled skill (Cyclone, Winter Orb) goes on, aimed at this cell: Cyclone walks toward it
+                // (ChannelAimedAt). Its hits run on their own timer (RunChannel), at the skill's attack rate, wherever the
+                // player is. Without this update the channel counts as silent and ends (ChannelSilenceSeconds).
                 var (cx, cy) = InstanceProtocol.ReadChannelUpdate(bytes);
                 double t = conn.ClockAt(readAt);
                 using (ProjectileMutation(conn))

@@ -148,6 +148,7 @@ static async Task Serve(LoginServerKeys keys)
         Fixed = fixedSeed,
     };
     using var progress = new SaveDatabase(SaveDatabase.DefaultPath);
+    var characterListClass = new CharacterListClass(progress);
     var registry = new GameServer.Core.World.InstanceRegistry
     {
         SeedFor = seeds.For,
@@ -163,7 +164,7 @@ static async Task Serve(LoginServerKeys keys)
     while (true)
     {
         var tcp = await listener.AcceptTcpClientAsync();
-        _ = Task.Run(() => HandleConnection(tcp, keys, accounts, keyring, directory));
+        _ = Task.Run(() => HandleConnection(tcp, keys, accounts, keyring, directory, characterListClass));
     }
 }
 
@@ -191,7 +192,7 @@ static T Isolated<T>(Func<T> load)
     return result;
 }
 
-static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountService accounts, InstanceKeyring keyring, InstanceDirectory directory)
+static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountService accounts, InstanceKeyring keyring, InstanceDirectory directory, CharacterListClass characterListClass)
 {
     string peer = tcp.Client.RemoteEndPoint?.ToString() ?? "?";
     Console.WriteLine($"[auth] {peer} connected");
@@ -219,7 +220,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts) { InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
+            var session = new LoginServerSession(accounts) { CharacterListClass = characterListClass.For, InstanceHost = GatewayEndpoint.Host, InstancePort = GatewayEndpoint.Port, Keyring = keyring, Leagues = LeagueCatalog.Startup, CharacterDeleted = SetSaveAside, Assign = s => directory.AssignStart(s, link!) };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer);
             byte[] rest = buf[used..have];
             try

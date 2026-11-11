@@ -10,8 +10,13 @@ static class UniqueBeltsFeature
     internal static void StealMonsterMods(ClientState conn, SpawnedMonster m)
     {
         if (m.Rarity != MonsterRarity.Rare || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
-        if (Stats.Key(StolenMods.SourceStat) is not uint key || CharacterPlayerStats(conn).GetValueOrDefault(key) <= 0) return;
-        conn.StolenMods.Steal(m.Mods, ItemsFor(conn).Mods, conn.Clock.Elapsed.TotalSeconds);
+        var stats = CharacterPlayerStats(conn);
+        var catalog = ItemsFor(conn).Mods;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (Stats.Key(StolenMods.SourceStat) is uint belt && stats.GetValueOrDefault(belt) > 0)
+            conn.StolenMods.Steal(m.Mods, catalog, now);
+        else if (Stats.Key(StolenMods.RandomSourceStat) is uint jewel)
+            conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(jewel), now, Random.Shared);
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>

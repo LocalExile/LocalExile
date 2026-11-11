@@ -1820,13 +1820,20 @@ public static partial class Game
         RecordHardcoreDeath(conn);
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(conn, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - conn.PlayerLife));
-        uint life = conn.PlayerLife;
         PlayerRecoveryIntent? recovery = null;
-        if (!blocked && !a.Ranged && life > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))
+        if (!blocked && !a.Ranged && conn.PlayerLife > 0 && a.Damage.Components.All(c => c.Type == DamageType.Physical))
             recovery = CommitPlayerHitRecoveryLocked(conn, damage, now);
         else if (Stats.Key(AntiquarianEffects.StunRecoverySource) is uint turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
-                + $"alive={life > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
+                + $"alive={conn.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
+        if (recovery is not null && StatOf("damage_taken_%_recovered_as_life_from_stunning_hits") is > 0 and var recoverPct
+            && StatOf("cannot_recover_life") == 0)
+        {
+            double carry = 0;
+            conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife, (long)damage * recoverPct / 100, ref carry);
+            TrimLeechLocked(conn);
+        }
+        uint life = conn.PlayerLife;
         RageWhenHitLocked(conn);
         if (!blocked && conn.PlayerLife > 0 && m.Effects["global_chance_to_blind_on_hit_%"] is > 0 and var blindChance
             && (blindChance >= 100 || conn.IncomingHitRandom.Next(100) < blindChance))

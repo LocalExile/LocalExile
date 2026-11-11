@@ -6,7 +6,7 @@ three allocation/tree-rule jewels and three special/global-only jewels (Might in
 Ignition) are implemented (`/radius_jewel`). The 33 threshold rows now have generated item sources, the client applies
 their local threshold mods and the server counts the radius attributes and adds the mapped target stats; the
 skill-specific consumers remain partial. Lioneye's Fall has an item source and client conversion, but its server flag
-model is missing; Inspired Learning and Warrior's Tale remain research/design. Impossible Escape is a generated special
+model is missing; Inspired Learning's rare-mod steal remains open. Impossible Escape is a generated special
 outside the 78-row PoB list and is implemented with 48 keystone variants (`/impossible_escape`).** The socket, save and global-stat path
 already works,
 and the timeless jewels provide a reusable
@@ -83,8 +83,7 @@ read **unallocated** nodes:
   passive-effect/notable-suppression, three allocation/tree-rule and three special/global-only jewels have
   `/radius_jewel` (`RadiusJewelCatalogue`), and their server-side effects run in `EquipmentStatSources`. The 33
   threshold items are generated into `ThresholdJewelCatalogue`; the client applies their local 40-attribute mods, while
-  the server threshold layer is still partial. Lioneye's Fall, Inspired Learning and Warrior's Tale still have no item
-  source.
+  the server threshold layer is still partial. All three special jewels (Lioneye's Fall, Inspired Learning and Warrior's Tale) have item sources.
 
 A hand-made/saved item with plain global mods would already apply those mods; a threshold item's client mods are now
 present, but the server's own threshold counting is not. This is why the generated list distinguishes the 42 rows with
@@ -524,9 +523,8 @@ copies (50% + 50% = 100%), and a notable is suppressed even if another radius je
 modifiers for 20 seconds. Needs a count of allocated notables in radius, the rare monster's mod list, a timed buff and a
 way to apply the stolen mod to the player. The server has monster mods and buffs, but not this steal-and-apply flow.
 
-**Warrior's Tale** (Crimson, Medium, limit 1): `100% increased effect of Tattoos in Radius`. Tattoos are a separate
-mechanic; the 100-item catalogue, target/limit rules and implementation plan are in [tattoos.md](tattoos.md). The
-server has no tattoo model yet, so keep this jewel out of scope until the tattoo apply/remove flow exists.
+**Warrior's Tale** (Crimson, Medium, limit 1) increases numeric tattoo effects on affected passives. The tattoo rules
+and catalogue are in [tattoos.md](tattoos.md).
 
 **Might in All Forms** (Crimson, Medium): implemented. The item carries
 `DexterityAndIntelligenceGiveStrengthMeleeBonusInRadiusUniqueJewel55`; `ReadConversion` sets `StrengthMeleeBonus`, and
@@ -550,9 +548,7 @@ are ordinary global stats and the radius label is unused.
 
 1. **Item catalogue and dev source.** The 42 server-side definitions live in `RadiusJewelCatalogue` and the 33
    threshold items in the generated `ThresholdJewelCatalogue`; `/radius_jewel` creates all of them with the existing
-   `UniqueJewelVisuals` art, the ordinary passive-jewel socket path and the unique item limits. Only Inspired Learning
-   and Warrior's Tale have no item source yet; Lioneye's Fall's item source is present, but its server flag model is
-   missing.
+   `UniqueJewelVisuals` art, the ordinary passive-jewel socket path and the unique item limits. The ordinary unique generator also creates Inspired Learning and Warrior's Tale.
 2. **Radius query.** The 1500 disc for the pilot uses `PassiveTree.NodesInRadius`; add
    `NodesInRing(socket, inner, outer)` for Thread of Hope and expose the `PassiveJewelRadii` values. Reuse the timeless
    exclusions and skip conquered nodes. Test a known socket at Small/Medium/Large and the five Thread of Hope rings.
@@ -573,8 +569,7 @@ are ordinary global stats and the radius label is unused.
    (neighbours become reachable), the ring variants use `NodesInRing`, and taking the jewel out is refused while a
    bypass-allocated passive remains. Unnatural Instinct's small swap is separate and implemented in the stat layer.
 7. **Special.** Might in All Forms (Strength melee bonus) and the two global-only items (Pitch Darkness, Sudden
-   Ignition) are implemented. Inspired Learning and Warrior's Tale remain; each needs a different subsystem (rare mod
-   steal, tattoos).
+   Ignition) are implemented. Inspired Learning's rare-mod steal remains open.
 
 ## Tests and acceptance
 

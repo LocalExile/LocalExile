@@ -237,6 +237,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
+    public (int X, int Y)? KnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
     public double HallowingFlameUntil = double.NegativeInfinity;
     public double HallowingFlamePct;

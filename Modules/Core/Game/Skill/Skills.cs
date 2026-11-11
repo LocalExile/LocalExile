@@ -391,7 +391,7 @@ public static partial class Game
     {
         int Get(string name) => RageStat(stats, name);
         var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
-            conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingWand: weapon.WieldingWand);
+            conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
 
@@ -581,6 +581,12 @@ public static partial class Game
             foreach (var (key, worn) in skillCosmetics)
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(worn) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) stats[k] = v;
+            // A Crucible weapon's "Flicker Strike and Vigilant Strike's Cooldown can be bypassed by Power Charges": the client
+            // reads only the skill's own override (CooldownBypass.FlickerVigilantPowerOverride), so it goes on these skills.
+            if (Stats.Key(CooldownBypass.FlickerVigilantPowerOverride) is uint crucibleKey && playerStats.GetValueOrDefault(crucibleKey) != 0
+                && CooldownBypass.FlickerVigilantOverride(SkillsFor(conn).EffectId(effect), SkillsFor(conn).CooldownBypassType(effect, level))
+                && Stats.Key(CooldownBypass.PowerOverride) is uint overrideKey)
+                stats[overrideKey] = 1;
             // The worn effect's skill_art_variation counts from the skill's own (SkillArtBase: Holy Sweep's is 2).
             if (Stats.Key("skill_art_variation") is uint artKey
                 && SkillArtBase.Variation(SkillsFor(conn).EffectId(effect), stats.GetValueOrDefault(artKey)) is int art and not 0)
@@ -736,6 +742,8 @@ public static partial class Game
                 stats[showAverage] = Get("base_skill_show_average_damage_instead_of_dps") != 0 ? 1 : 0;
             stats[OwnAuraRestriction.BaseAura] = own.GetValueOrDefault(OwnAuraRestriction.BaseAura);
             OwnAuraRestriction.PublishSkill(stats, OwnAuraRestrictionValue(conn));
+            if (OwnAuraRestriction.IsAura(stats) && SublimeDisables(conn, effect, playerStats))
+                stats[OwnAuraRestriction.SkillDisabled] = 1;
             // Published like the own-aura reason (never zero over another); the client also derives it (FUN_1428d6330).
             if (CastingSpell(conn, effect) && Stats.Key("your_spells_are_disabled") is uint spellsOff
                 && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
@@ -949,7 +957,8 @@ public static partial class Game
 
     public static bool OwnAuraSkillRestricted(ClientState conn, int effect, ushort? skillId)
     {
-        if (OwnAuraRestrictionValue(conn) == 0) return false;
+        var sources = CharacterStatSources(conn).Stats;
+        if (OwnAuraRestrictionValue(conn, new(sources)) == 0 && !SublimeDisables(conn, effect, sources)) return false;
         if (SkillsFor(conn).IsAura(effect)) return true;
         if (skillId is not ushort id) return false;
         var gem = SupportedSkill(conn, id);
