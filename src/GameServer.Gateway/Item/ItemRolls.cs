@@ -267,11 +267,28 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return item with { Mods = mods, FracturedCount = 1 };
     }
 
-    /// <summary>Mirror of Kalandra: a mirrored copy of a non-unique equipment item that is not corrupted, mirrored or
+    HashSet<uint>? _mirrorMapTypes;
+
+    bool MirrorTarget(ItemCatalog.BaseType type)
+    {
+        if (type.CanBeMirrored || type.Components.Contains("Flask")) return true;
+        if (!type.Components.Contains("Map") && !type.Components.Contains("MapKey")) return false;
+        return LazyInitializer.EnsureInitialized(ref _mirrorMapTypes, () =>
+        {
+            // Older instances predate the primary-constructor field added by hot reload.
+            string mapFolder = folder ?? "data";
+            var atlas = new AtlasCatalog(catalog, mapFolder);
+            var maps = MapDevice.Load(mapFolder, row => catalog.Row(row)?.Hash, catalog);
+            return [.. catalog.All.Where(t => (atlas.TierOf(t.Hash) ?? maps.AreaOf(t.Hash)?.Tier) is >= 1 and <= 16)
+                .Select(t => t.Hash)];
+        }).Contains(type.Hash);
+    }
+
+    /// <summary>Mirror of Kalandra: a mirrored copy of non-unique equipment, a flask or a tier 1-16 map, not corrupted, mirrored or
     /// unmodifiable, with every property kept (mods and their values, fractured mods, quality, sockets, links, socketed
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
-        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && type.CanBeMirrored
+        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
             ? item with { Mirrored = true } : null;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)

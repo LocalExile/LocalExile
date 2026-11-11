@@ -96,7 +96,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the gem), a2q8 (the Ancient Seal, the Dark Altar, the Vaal Oversoul, the pyramid's exit), a3q1–a3q5, a3q8, a3q9,
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
-  Act 2/3 quest log at "Quest Complete".
+  Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
+  are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.

@@ -142,7 +142,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
   36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
   `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
-  (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and
+  (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. First Snow and Frozen Trail add projectiles, Omen on the Winds grants Ice Shot pierce,
+  and Hazardous Research and Ring of Blades enable circular volleys for their respective skills. Other skill-specific consumers remain partial and
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
   radius now converts melee and melee-weapon stats with native bow equivalents, including physical damage, attack
@@ -213,8 +214,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary Juggernaut selection after a full refund restores the Default graph.
   Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
 - Juggernaut: all 14 ordinary nodes apply and passed native acceptance, [node by node](../docs/game/juggernaut.md).
-- Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech
-  and the while-leeching defences, [node by node](../docs/game/slayer.md).
+- Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech,
+  [node by node](../docs/game/slayer.md).
 
 - Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
   Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.
@@ -353,11 +354,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tattoos: the 100-item 3.29.3b catalogue, protocol and implementation groups are documented in
   [tattoos](../docs/game/tattoos.md). The client flow is implemented: C->S `0x77` names the inventory, item and
   passive; `0x33`'s fifth list carries `node | PassiveSkillOverrides.HASH16 << 16`; the item is consumed and the
-  map is saved independently of allocation. **66 rows are client-verified**: the ten pilot, 22 plain stats, the
-  nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows (attribute notables
-  included), nine Makanga gates, three Journey tattoos and Journey Makanui; Ancestral Bloodlines is partial
-  (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also survived relog and was removed
-  with an Orb of Scouring. The Makanga gate, Journey counting and the five `PassiveSkillOverrides.Limit` groups are
-  enforced server-side; Makanui stores its random keystone in `TattooKeystones`. 31 rows remain not implemented:
-  the nine ailment and avoidance rows, five rows that need new consumers (corpse consumption, Fortify-on-stun,
-  guard duration, hinder and herald effect), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.
+  map is saved independently of allocation. **75 rows are client-verified**: the ten pilot, 22 plain stats, the
+  nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row, the eleven
+  Honoured rows (attribute notables included), nine Makanga gates, three Journey tattoos and Journey Makanui;
+  Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also
+  survived relog and was removed with an Orb of Scouring. The Makanga gate, Journey counting and the five
+  `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its random keystone in
+  `TattooKeystones`. The nine ailment and avoidance rows need no engine change: the Panels stage publishes each
+  display total with its `base_*` sources summed in, so the existing ailment, avoidance, stun-recovery and bleed
+  readers already see the replacement stat (`TattooAilmentTests`). 22 rows remain not implemented: five rows that
+  need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect), the ten
+  Loyalty summons and the seven Forbidden ascendancy tattoos.
