@@ -12,7 +12,7 @@ using GameServer.Core;
 /// raise skill gems only, so EffectiveGemLevel excludes supports when the bonus is applied.
 /// Reads data/tables (game data, loaded on first use); without them no stat has members.
 /// </summary>
-sealed class SkillGemFamilies(string folder = "data")
+public sealed class SkillGemFamilies(string folder = "data")
 {
     readonly Lazy<Dictionary<int, HashSet<int>>> _members = new(() => Load(folder));
 

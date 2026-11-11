@@ -1,5 +1,5 @@
 /// <summary>A paid skill's finite recovery, integrated once on the owner's pausable clock.</summary>
-sealed class TimedLifeRecovery
+public sealed class TimedLifeRecovery
 {
     public double Until { get; private set; }
     double last, rate, pending;

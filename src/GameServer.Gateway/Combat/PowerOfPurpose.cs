@@ -1,7 +1,7 @@
 using System.Numerics;
 
 /// <summary>Power of Purpose's explicit PoB-based model, not a recovered official server algorithm.</summary>
-static class PowerOfPurpose
+public static class PowerOfPurpose
 {
     public const string RawFlag = "keystone_mental_conditioning";
 

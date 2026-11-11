@@ -5,7 +5,7 @@ using GameServer.Storage;
 /// The item and jewel catalogues: world.db's <c>catalog_entries</c> rows (one JSON payload per entry and kind). Each
 /// kind is loaded at startup and replaced atomically after <c>/reload</c>.
 /// </summary>
-static class GameDataCatalog
+public static class GameDataCatalog
 {
     public sealed record TattooStatRow(string Stat, int Value);
     public sealed record TattooEffectRow(string Name, TattooStatRow[] Stats);

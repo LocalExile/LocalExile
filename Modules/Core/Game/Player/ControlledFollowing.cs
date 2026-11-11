@@ -1,8 +1,8 @@
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal const double ControlledFollowerLeash = 60;
+    public const double ControlledFollowerLeash = 60;
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, ControlledFollowing> FollowerPlans = new();
     sealed class ControlledFollowing
     {
@@ -13,7 +13,7 @@ static partial class Game
         public uint Target;
     }
 
-    internal static (int X, int Y) ControlledFollowerPoint(ClientState conn, ClientState leader, bool arrival = false, double? atTime = null)
+    public static (int X, int Y) ControlledFollowerPoint(ClientState conn, ClientState leader, bool arrival = false, double? atTime = null)
     {
         double now = atTime ?? conn.Clock.Elapsed.TotalSeconds;
         var origin = leader.Walk.Position(now);
@@ -47,7 +47,7 @@ static partial class Game
         return origin;
     }
 
-    internal static bool KeepControlledFollowerNear(ClientState conn, ClientState leader, double now, bool externalMovement = false)
+    public static bool KeepControlledFollowerNear(ClientState conn, ClientState leader, double now, bool externalMovement = false)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         var here = conn.Walk.Position(now);
@@ -113,7 +113,7 @@ static partial class Game
         plan.IdleAt = now + 14 + seed % 18;
     }
 
-    internal static void IdleControlledFollower(ClientState conn, ClientState leader, double now)
+    public static void IdleControlledFollower(ClientState conn, ClientState leader, double now)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         plan.Target = 0;
@@ -147,19 +147,19 @@ static partial class Game
         }
     }
 
-    internal static double ControlledAhead((int X, int Y) bot, (int X, int Y) leader, (int X, int Y) goal)
+    public static double ControlledAhead((int X, int Y) bot, (int X, int Y) leader, (int X, int Y) goal)
     {
         double dx = goal.X - leader.X, dy = goal.Y - leader.Y, length = Math.Sqrt(dx * dx + dy * dy);
         return length > 0 ? ((bot.X - leader.X) * dx + (bot.Y - leader.Y) * dy) / length : 0;
     }
 
-    internal static bool ControlledFollowAttackFits(double gap, double leaderSpeed, double seconds, double ahead = 0)
+    public static bool ControlledFollowAttackFits(double gap, double leaderSpeed, double seconds, double ahead = 0)
     {
         double after = ahead - Math.Max(0, leaderSpeed) * seconds;
         return gap <= 48 && Math.Max(0, gap * gap - ahead * ahead) + after * after <= 55 * 55;
     }
 
-    internal static void HoldControlledFollowerAttack(ClientState conn, double now, double seconds, uint target)
+    public static void HoldControlledFollowerAttack(ClientState conn, double now, double seconds, uint target)
     {
         var plan = FollowerPlans.GetOrCreateValue(conn);
         plan.Target = target;

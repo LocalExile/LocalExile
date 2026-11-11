@@ -1,7 +1,7 @@
 using System.Text.Json;
 using GameServer.Core;
 
-static class KiracProgress
+public static class KiracProgress
 {
     public sealed record Level(int MapAreaLevelOffered, int MapCompletion, int ShopRerollCost)
     {

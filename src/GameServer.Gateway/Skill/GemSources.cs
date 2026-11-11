@@ -8,7 +8,7 @@ using GameServer.Core;
 /// QuestRewardOffers gems of every class, each class's starting gems (Characters StartSkillGem/StartSupportGem) and the
 /// drop-only exceptional supports (Empower, Enhance, Enlighten).
 /// </summary>
-static class GemSources
+public static class GemSources
 {
     static readonly string[] DropOnlySupports = ["Empower Support", "Enhance Support", "Enlighten Support"];
 

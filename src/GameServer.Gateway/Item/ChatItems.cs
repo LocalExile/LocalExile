@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Items linked in chat as they travel through a chat server: the saved form, not the client's bytes, since a chat
 /// server is open to anyone and the client stops at an item it cannot read. Each Gateway builds the bytes itself, from what
 /// its own game data knows.</summary>
-static class ChatItems
+public static class ChatItems
 {
     const int MaxSockets = 6;
 

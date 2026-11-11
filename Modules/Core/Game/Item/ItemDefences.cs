@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 
 /// <summary>The native item-tooltip defences, before character-wide modifiers and slot conversions.</summary>
-static class ItemDefences
+public static class ItemDefences
 {
     public static (int Armour, int Evasion, int EnergyShield) Calculate(Item item, ItemCatalog.BaseDefences defences,
         ModCatalog mods, byte? baseRoll = null) =>

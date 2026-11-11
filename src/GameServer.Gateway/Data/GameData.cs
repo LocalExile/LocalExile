@@ -5,7 +5,7 @@ using GameServer.Storage;
 /// <c>/reload</c>, published as atomically swapped snapshots the catalogues read. A reload that fails keeps the
 /// previous snapshots.
 /// </summary>
-static class GameData
+public static class GameData
 {
     public sealed record Snapshot(int Revision,
         IReadOnlyDictionary<(string ModId, int Index), (int Min, int Max)> ModRanges,

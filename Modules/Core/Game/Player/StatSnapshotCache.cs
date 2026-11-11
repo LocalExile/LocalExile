@@ -1,7 +1,7 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // The player stat snapshot (CharacterPlayerStatsSnapshot) in two parts. Its head gathers the stat sources and runs the
     // side effects that go with them (pool rebuilds, the charge, fortification and Antiquarian observations, the leech and
@@ -13,7 +13,7 @@ static partial class Game
     // most of those reuse the tail. Agents/docs/dev/character-stat-lifecycle.md ("Snapshot cache").
 
     /// <summary>Everything the tail reads. Equal inputs (Matches) give an equal result, in the same order.</summary>
-    internal sealed record StatSnapshotTailInputs
+    public sealed record StatSnapshotTailInputs
     {
         /// <summary>The head's stats, in their order (a dictionary's order is what the packets built from it list).</summary>
         public required Dictionary<uint, int> Stats;
@@ -84,7 +84,7 @@ static partial class Game
     }
 
     /// <summary>Same keys and values in the same enumeration order.</summary>
-    internal static bool SameInOrder<TKey>(Dictionary<TKey, int> a, Dictionary<TKey, int> b) where TKey : notnull
+    public static bool SameInOrder<TKey>(Dictionary<TKey, int> a, Dictionary<TKey, int> b) where TKey : notnull
     {
         if (a.Count != b.Count) return false;
         using var x = a.GetEnumerator();
@@ -99,21 +99,21 @@ static partial class Game
 
     // One per connection: the last tail's inputs (a copy of the head's stats) and its result. Both are never changed
     // after they are published, so any thread may read them; a caller gets a copy of the result.
-    internal sealed record StatSnapshotTail(StatSnapshotTailInputs Inputs, Dictionary<uint, int> Result);
-    internal sealed class StatSnapshotTailSlot { public volatile StatSnapshotTail? Last; }
-    internal enum StatSnapshotStage { Panels, Offence, Critical }
-    internal sealed class StatSnapshotTailSlots
+    public sealed record StatSnapshotTail(StatSnapshotTailInputs Inputs, Dictionary<uint, int> Result);
+    public sealed class StatSnapshotTailSlot { public volatile StatSnapshotTail? Last; }
+    public enum StatSnapshotStage { Panels, Offence, Critical }
+    public sealed class StatSnapshotTailSlots
     {
         public readonly StatSnapshotTailSlot[] Stages = [new(), new(), new()];
     }
-    internal static readonly ConditionalWeakTable<ClientState, StatSnapshotTailSlots> StatSnapshotTails = new();
+    public static readonly ConditionalWeakTable<ClientState, StatSnapshotTailSlots> StatSnapshotTails = new();
 
     /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): every reused tail is also computed again and compared, in order.</summary>
-    internal static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
-    internal static long StatSnapshotTailHits, StatSnapshotTailMisses, StatSnapshotTailMismatches;
+    public static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";
+    public static long StatSnapshotTailHits, StatSnapshotTailMisses, StatSnapshotTailMismatches;
 
     // Reads the tail's inputs. Called where the tail starts, after the head; stats is the head's (not copied).
-    internal static StatSnapshotTailInputs ReadStatSnapshotTailInputs(ClientState conn, Dictionary<uint, int> stats,
+    public static StatSnapshotTailInputs ReadStatSnapshotTailInputs(ClientState conn, Dictionary<uint, int> stats,
         Dictionary<uint, int> rawOverrides, HashSet<uint> devSet, Dictionary<string, int> mainLocal, Dictionary<string, int> offLocal,
         double lifeRegenerationToEnergyShield, bool moving)
     {
@@ -144,7 +144,7 @@ static partial class Game
     }
 
     // The tail on stats (the head's, changed in place): the last result when the inputs are the same, else computed.
-    internal static Dictionary<uint, int> StatSnapshotTailFor(ClientState conn, StatSnapshotTailInputs inputs, StatSnapshotStage stage)
+    public static Dictionary<uint, int> StatSnapshotTailFor(ClientState conn, StatSnapshotTailInputs inputs, StatSnapshotStage stage)
     {
         var slot = StatSnapshotTails.GetValue(conn, _ => new()).Stages[(int)stage];
         if (slot.Last is { } last && last.Inputs.Matches(inputs))

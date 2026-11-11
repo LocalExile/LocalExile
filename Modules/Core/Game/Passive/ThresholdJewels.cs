@@ -10,7 +10,7 @@ using GameServer.Core.Protocol.Instance;
 /// The stat keys are the client's skill stats; the server's damage consumers currently read only some of them.
 /// Unknown targets (for example the <c>*_final</c> more-multiplier rows without a matching stat) are skipped.
 /// </summary>
-static class ThresholdJewels
+public static class ThresholdJewels
 {
     [Flags]
     public enum Attributes

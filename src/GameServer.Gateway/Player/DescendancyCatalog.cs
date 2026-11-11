@@ -5,7 +5,7 @@ using System.Text.Json;
 /// the row). Affliction's Wildwood specialisations (Warden of the Maji, Warlock of the Mists, Wildwood Primalist) and the
 /// 3.29 Bloodline classes are its rows; each node's <c>DescendancyKey</c> in PassiveSkills.dat names its row.
 /// </summary>
-sealed class DescendancyCatalog(string folder = "data")
+public sealed class DescendancyCatalog(string folder = "data")
 {
     /// <summary>One row. <paramref name="Index"/> is the table row, the byte 0x33 carries; 0 is none.</summary>
     public sealed record Row(byte Index, string Id, string Name);

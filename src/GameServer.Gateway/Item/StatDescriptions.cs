@@ -5,7 +5,7 @@
 /// "5" exactly, "1|#" at least 1, "#|-1" at most -1, "!0" not 0), and its handlers ("negate 1") change a value before it
 /// is shown. Tools read them through the Gateway's `crafter` mode; the server itself words nothing with them.
 /// </summary>
-sealed class StatDescriptions
+public sealed class StatDescriptions
 {
     public const string DefaultFile = "data/stat-descriptions.txt";
 

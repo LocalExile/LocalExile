@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>
     /// The Offence tab's secondary-damage rows (issue #75) for a selected skill that is neither an attack nor a spell
@@ -11,7 +11,7 @@ static partial class Game
     /// Damage per Use (these skills ask for the average, not DPS) and the secondary ailment rows. Display rows only:
     /// the trap's and herald's actual hits are not executed by the server.
     /// </summary>
-    internal static List<(string Stat, int Value)> SecondaryPanelRows(ClientState conn, Func<string, int> get,
+    public static List<(string Stat, int Value)> SecondaryPanelRows(ClientState conn, Func<string, int> get,
         IReadOnlyDictionary<uint, int> player, SupportedGem supported, DamagePacket secondaryBase)
     {
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;

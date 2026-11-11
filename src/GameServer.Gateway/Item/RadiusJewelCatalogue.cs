@@ -9,7 +9,7 @@ using GameServer.Core;
 /// same stat move to the allocated passives in the item's radius. Lioneye's Fall is not in this catalogue yet: its
 /// melee-to-bow change needs the weapon/melee modifier flags the server's stat model does not carry.
 /// </summary>
-static class RadiusJewelCatalogue
+public static class RadiusJewelCatalogue
 {
     public sealed record Variant(string Name, string ModId, int? Value = null);
     public sealed record Entry(string Name, string Base, string[] GlobalMods, string ConversionMod,
@@ -66,7 +66,7 @@ static class RadiusJewelCatalogue
         int Ring = 0,
         bool SuppressAllocatedSmalls = false,
         bool CopyUnallocatedSmalls = false,
-        bool StrengthMeleeBonus = false)
+        bool StrengthMeleeBonus = false, int TattooEffectPct = 0)
     {
         public uint? From => Moves.Count > 0 ? Moves[0].From : Swap?.From;
         public uint? To => Moves.Count > 0 ? Moves[0].To : Swap?.To;
@@ -179,7 +179,7 @@ static class RadiusJewelCatalogue
         var additionStats = new List<(uint Key, int Value)>();
         var scalingStats = new List<ScalingStat>();
         ResistanceAddition? resistance = null;
-        int radius = 0, effectPct = 0, ring = 0;
+        int radius = 0, effectPct = 0, ring = 0, tattooEffectPct = 0;
         bool physicalToCold = false, coldToPhysical = false, suppressNotables = false;
         bool allocateDisconnected = false, suppressAllocatedSmalls = false, copyUnallocatedSmalls = false;
         bool strengthMeleeBonus = false;
@@ -189,6 +189,11 @@ static class RadiusJewelCatalogue
             for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
             {
                 string id = row.Stats[i].Id;
+                if (id == "local_unique_jewel_tattoos_in_radius_effect_+%")
+                {
+                    tattooEffectPct += mod.Values[i];
+                    continue;
+                }
                 if (id == "local_jewel_effect_base_radius")
                 {
                     radius = mod.Values[i];
@@ -321,8 +326,8 @@ static class RadiusJewelCatalogue
                         AddMove(moves, "maximum_energy_shield_+%", "physical_damage_reduction_rating_+%", 2);
                         break;
                     case "local_unique_jewel_melee_applies_to_bow":
-                        // Needs melee/weapon flags on each modifier, not just a stat-key move; not in this pilot.
-                        return null;
+                        if (mod.Values[i] != 0) moves.AddRange(MeleeToBow.Value);
+                        break;
                 }
             }
         }
@@ -339,7 +344,7 @@ static class RadiusJewelCatalogue
         if (moves.Count == 0 && swap is null && notableStats.Count == 0 && additionStats.Count == 0
             && resistance is null && scalingStats.Count == 0 && effectPct == 0 && !suppressNotables
             && !allocateDisconnected && ring == 0 && !suppressAllocatedSmalls && !copyUnallocatedSmalls
-            && !strengthMeleeBonus)
+            && !strengthMeleeBonus && tattooEffectPct == 0)
             return null;
         return new(moves, swap, radius,
             notableStats.Count > 0 ? notableStats : null,
@@ -352,12 +357,12 @@ static class RadiusJewelCatalogue
             ring,
             suppressAllocatedSmalls,
             copyUnallocatedSmalls,
-            strengthMeleeBonus);
+            strengthMeleeBonus, tattooEffectPct);
     }
 
     /// <summary>Path of Building's <c>ScaleAddList</c> scales integer stats and truncates toward zero; 50% on 5
     /// therefore gives 7, not 8.</summary>
-    internal static int ScaleEffect(int value, int pct) =>
+    public static int ScaleEffect(int value, int pct) =>
         (int)Math.Truncate(value * (100 + pct) / 100.0);
 
     /// <summary>Might in All Forms: the Dexterity plus Intelligence on a passive, counted toward the Strength melee
@@ -371,6 +376,40 @@ static class RadiusJewelCatalogue
             if (key == dexterity || key == intelligence) total += value;
         return total;
     }
+
+    // These families encode their weapon applicability in the stat ID itself. Only move a stat if both
+    // rows exist in this client. An unrelated stat on the same passive retains its exact original key.
+    static readonly Lazy<List<Move>> MeleeToBow = new(() =>
+    {
+        var result = new List<Move>();
+        foreach (string weapon in new[] { "claw", "dagger", "sword", "axe", "mace", "staff" })
+        {
+            foreach (string suffix in new[] { "damage_+%", "hit_and_ailment_damage_+%", "ailment_damage_+%",
+                "elemental_damage_+%", "attack_speed_+%", "accuracy_rating", "accuracy_rating_+%",
+                "critical_strike_chance_+%", "critical_strike_multiplier_+", "stun_duration_+%",
+                "stun_threshold_reduction_+%", "steal_power_frenzy_endurance_charges_on_hit_%" })
+                AddMove(result, $"{weapon}_{suffix}", $"bow_{suffix}");
+            AddMove(result, $"physical_{weapon}_damage_+%", "physical_bow_damage_+%");
+            AddMove(result, $"global_critical_strike_chance_+%_while_holding_{weapon}", "global_critical_strike_chance_+%_while_holding_bow");
+            AddMove(result, $"global_critical_strike_multiplier_+_while_holding_{weapon}", "global_critical_strike_multiplier_+_while_holding_bow");
+            AddMove(result, $"with_{weapon}_additional_block_%", "with_bow_additional_block_%");
+            AddMove(result, $"spell_block_with_{weapon}_%", "spell_block_with_bow_%");
+            AddMove(result, $"knockback_on_crit_with_{weapon}", "knockback_on_crit_with_bow");
+        }
+        AddMove(result, "melee_damage_+%", "bow_damage_+%");
+        AddMove(result, "melee_physical_damage_+%", "physical_bow_damage_+%");
+        AddMove(result, "melee_attack_speed_+%", "bow_attack_speed_+%");
+        AddMove(result, "melee_critical_strike_chance_+%", "bow_critical_strike_chance_+%");
+        AddMove(result, "melee_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        AddMove(result, "mace_or_staff_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
+        AddMove(result, "axe_or_sword_ailment_damage_+%", "bow_ailment_damage_+%");
+        AddMove(result, "melee_weapon_ailment_damage_+%", "bow_ailment_damage_+%");
+        AddMove(result, "melee_weapon_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        AddMove(result, "melee_skills_area_of_effect_+%", "area_of_effect_+%_with_bow_skills");
+        AddMove(result, "melee_attacks_usable_without_mana_cost", "bow_attacks_usable_without_mana_cost");
+        AddMove(result, "staff_block_%", "with_bow_additional_block_%");
+        return result;
+    });
 
     static void AddMove(List<Move> moves, string from, string to, int factor = 1)
     {
@@ -531,7 +570,7 @@ static class RadiusJewelCatalogue
 
     static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
 
-    internal static uint? WordHash(string name, string folder) =>
+    public static uint? WordHash(string name, string folder) =>
         folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)

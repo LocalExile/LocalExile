@@ -3,28 +3,28 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>ItemClasses row 13 is Bow. A gem skill fires arrows only while the active main hand is a bow; its
     /// additional-arrow stats use the native arrow alias rather than the generic projectile count alone.</summary>
-    internal const int BowClassRow = 13;
+    public const int BowClassRow = 13;
 
-    internal static bool ArrowsFor(ClientState conn, int effect) =>
+    public static bool ArrowsFor(ClientState conn, int effect) =>
         SkillsFor(conn).IsAttack(effect) && WeaponProfileFor(conn, activeSet: true).Bow;
 
-    internal static bool ArrowsForSkill(int effect) =>
+    public static bool ArrowsForSkill(int effect) =>
         Skills.IsAttack(effect) && Skills.WeaponRestrictions(effect).Contains(BowClassRow);
 
     /// <summary>Tornado Shot's primary arrow travels only to the targeted location, then releases its child group;
     /// it must not keep flying to the generic projectile range. Arrow Nova's payload arrow lands at the aim before its
     /// volley, so it stops there too. Other projectiles keep their full range.</summary>
-    internal static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
+    public static double PrimaryRange(string? effect, double range, double targetDistance, bool toTarget = false) =>
         toTarget || effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY"
             ? Math.Min(range, Math.Max(.001, targetDistance)) : range;
 
     /// <summary>The shared client fan for a multi-arrow use. Attack gems and ordinary bow shots otherwise used the
     /// fixed 30-degree server spread, which could send an arrow past the point where the client's own arrow burst.</summary>
-    internal static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
+    public static ProjectileProfile NativeVolley(ProjectileProfile profile, Func<string, int> get)
     {
         if (get("support_parallel_projectile_number_of_points_per_side") != 0) return profile;
         return profile with
@@ -40,17 +40,17 @@ static partial class Game
         };
     }
 
-    internal static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
+    public static bool UsesProjectileRuntime(int effect) => Skills.IsProjectile(effect)
         || ProjectileDefinition(Skills.EffectId(effect) ?? "") is not null;
 
     // Presentation only: Burning Arrow's real local input emits its own primary. Keep its existing simulation
     // geometry separate from ClientPredicted, which also selects native range/contact/volley specialization.
-    internal static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
+    public static bool ClientDrawsPrimaryProjectile(bool predicted, string? effect) =>
         predicted || effect == "BurningArrow";
 
     // Validate adopted paths before accepting an action, spending mana or reserving a cooldown.
     // Release still resolves again: equipment/stats may change during the ordinary cancellable windup.
-    internal static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
+    public static bool ProjectilePathAvailable(string remote, ClientState conn, ushort skillId, int effect)
     {
         if (!TotemPathAvailable(conn, skillId, effect)) return false;
         if (!UsesProjectileRuntime(effect)) return true;
@@ -76,7 +76,7 @@ static partial class Game
         }
     }
 
-    internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
         ushort sequence = 0, double? swingAt = null)
@@ -150,6 +150,14 @@ static partial class Game
                 }
             };
         }
+        if (GatewayProjectileSkillProfiles.IsKineticBolt(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+        {
+            return use with
+            {
+                Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
+                Profile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(use.Profile, sequence)
+            };
+        }
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")) return use;
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
         double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
@@ -176,7 +184,7 @@ static partial class Game
     // contact from the row's radii and the target's size instead of the server's 4-cell stand-in, its return rolls, and
     // its volley: 0x141bb3e30 picks parallel (0x141bbb460) and random directions (0x141bbbd10) before nova and fan.
     // shortcut: parallel keeps the server's fan until it is ported.
-    internal static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
+    public static ProjectileProfile ClientDrawnProfile(ClientState conn, ProjectileProfile profile, Func<string, int> get,
         ushort sequence, ProjectileVector aim, uint repeatsLeft = 0, uint? emitter = null)
     {
         double range = get("projectile_maximum_range_override") is > 0 and var maximum ? maximum
@@ -195,7 +203,7 @@ static partial class Game
     // by a 0–2π draw. A single projectile (0x141bb3e30) seeds 0x141a0f3e0 from its detached copy, [sequence, 2, +0x458
     // (0), +0x2d0, owner], and flies along (sin a, cos a) whatever the aim. +0x2d0 is the cast's repeats left
     // (SpellRepeats), which the copy (0x1419e5750) keeps.
-    internal static double[] RandomVolleyAngles(ushort sequence, int count, uint owner, ProjectileVector aim, uint repeatsLeft = 0)
+    public static double[] RandomVolleyAngles(ushort sequence, int count, uint owner, ProjectileVector aim, uint repeatsLeft = 0)
     {
         const float Tau = 6.2831855f;
         if (count == 1)
@@ -213,7 +221,7 @@ static partial class Game
     // (0x1404d0990) from a generator seeded (0x1419c73c0) with [sequence, +0x11c (2 + its index, as Spark's), owner,
     // +0x2d0 (the repeats left), byte +0x2b8, 0, 0, 0] and returns when the roll is under the chance.
     // shortcut: +0x2b8 is taken as 0 (only its decrement, 0x141ba70b0, was found); check it live with a return chance.
-    internal static int[] ReturnRolls(ushort sequence, int count, uint owner, uint repeatsLeft = 0)
+    public static int[] ReturnRolls(ushort sequence, int count, uint owner, uint repeatsLeft = 0)
     {
         var rolls = new int[count];
         for (int i = 0; i < count; i++)
@@ -221,7 +229,7 @@ static partial class Game
         return rolls;
     }
 
-    internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
+    public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null)
     {
@@ -312,7 +320,9 @@ static partial class Game
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.
-            ClientPredicted = totem is not null || spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
+            // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
+            ClientPredicted = totem is not null || spell
+                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only

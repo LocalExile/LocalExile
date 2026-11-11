@@ -1,7 +1,7 @@
 using System.Text.Json;
 
 
-static class AntiquarianEffects
+public static class AntiquarianEffects
 {
     public const string AdrenalineSource = "gain_adrenaline_when_ward_breaks_ms";
     public const string StunRecoverySource = "regenerate_%_life_over_1_second_when_stunned";

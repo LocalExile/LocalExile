@@ -7,7 +7,7 @@ using GameServer.Core;
 /// components (data/object-types.json), and where each town's NPCs stand: the NPC lines of the town's room (.arm) through
 /// the client's room placement (TownNpcs, 17-npcs.md §2).
 /// </summary>
-sealed class NpcCatalog
+public sealed class NpcCatalog
 {
     /// <summary>An NPCs.dat row. <paramref name="ShopRow"/>: the NPCShop row of its ShopSet (NPCShopSets.Shop), −1 for none.</summary>
     public sealed record Npc(int Row, string Id, string Name, IReadOnlyList<string>? Components, StateMachineData? StateMachine,

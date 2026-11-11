@@ -4,22 +4,21 @@ using System.Runtime.Loader;
 using GameServer.Modding;
 
 /// <summary>
-/// One mod's assemblies, collectible: unloading the mod lets the runtime free them once nothing holds one of its objects.
-/// A mod sees the framework, the shared contracts (GameServer.Modding, the host's own copy, so <see cref="IMod"/> is one
-/// type for every mod), the assemblies of the mods it depends on, and the files in its own folder. Not the server's other
-/// assemblies: the Gateway, Core and Data are internal to it.
+/// One mod's or module's assemblies, collectible: unloading it lets the runtime free them once nothing holds one of its objects.
+/// It sees the framework, the server's own assemblies (GameServer.*, the host's copies, so <see cref="IMod"/> and every server
+/// type are one type for all), the assemblies of the mods and modules it depends on, and the files in its own folder. A mod
+/// can alter the game as fully as a module (Agents/docs/dev/modding.md).
 /// </summary>
-sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList<ModLoadContext> dependencies)
+public sealed class ModLoadContext(string id, string folder, IReadOnlyList<ModLoadContext> dependencies)
     : AssemblyLoadContext($"mod {id}", isCollectible: true)
 {
-    static readonly string Contracts = typeof(IMod).Assembly.GetName().Name!;
     static readonly string CopyRoot = Path.Combine(Path.GetTempPath(), "localexile-mod-copy");
     /// <summary>Only Windows refuses to delete a loaded assembly. Elsewhere this file, locked for as long as a copy is in
     /// use, is what keeps <see cref="DeleteOldCopies"/> from it; the system releases it however the process ends.</summary>
     const string InUseFile = "in-use";
     static readonly ConcurrentDictionary<string, FileStream> Holding = new(StringComparer.Ordinal);
     readonly Lock copyGate = new();
-    internal string CopyDirectory { get; } = Path.Combine(CopyRoot, Guid.NewGuid().ToString("N"));
+    public string CopyDirectory { get; } = Path.Combine(CopyRoot, Guid.NewGuid().ToString("N"));
 
     void Hold()
     {
@@ -41,10 +40,8 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
 
     protected override Assembly? Load(AssemblyName name)
     {
-        // A module can alter the game fully: the server's assemblies are the host's own copies.
-        if (name.Name == Contracts || (module && name.Name?.StartsWith("GameServer.", StringComparison.Ordinal) == true)) return null;
-        if (name.Name?.StartsWith("GameServer.", StringComparison.Ordinal) == true)
-            throw new FileNotFoundException($"a mod can use GameServer.Modding, not {name.Name} (the server's own code)");
+        // A mod or module can alter the game fully: the server's assemblies are the host's own copies.
+        if (name.Name?.StartsWith("GameServer.", StringComparison.Ordinal) == true) return null;
         foreach (var dependency in dependencies)
             if (dependency.Assemblies.FirstOrDefault(a => a.GetName().Name == name.Name) is { } shared) return shared;
         // Beside its manifest, or in its build's output (a module). null: the default context's (the framework).
@@ -73,7 +70,7 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
     }
 
     // Called only after the context is collected and its copied modules have released their file handles.
-    internal static bool TryDeleteCopy(string directory)
+    public static bool TryDeleteCopy(string directory)
     {
         string full = Path.GetFullPath(directory);
         if (!string.Equals(Path.GetDirectoryName(full), Path.GetFullPath(CopyRoot), StringComparison.OrdinalIgnoreCase)
@@ -86,7 +83,7 @@ sealed class ModLoadContext(string id, string folder, bool module, IReadOnlyList
 
     /// <summary>Deletes what earlier runs left behind (a stopped Gateway collects nothing). A copy a running Gateway has
     /// loaded is skipped: its assembly cannot be deleted on Windows, and elsewhere it is held. Recent ones may be a starting Gateway's, before it loaded them.</summary>
-    internal static void DeleteOldCopies()
+    public static void DeleteOldCopies()
     {
         if (!Directory.Exists(CopyRoot)) return;
         var before = DateTime.UtcNow - TimeSpan.FromMinutes(10);

@@ -8,7 +8,7 @@ using GameServer.Core;
 /// the Gateway's `crafter` mode prints (the bases, the mods each can have, their stat descriptions, the rare name words),
 /// and <see cref="Build"/> turns the item a tool composed into an <see cref="Item"/> for /item_give.
 /// </summary>
-static class ItemCrafter
+public static class ItemCrafter
 {
     /// <summary>The influences a tool may switch, by their /item_state names.</summary>
     static readonly ItemInfluence[] Influences =

@@ -1,7 +1,7 @@
 
 
 /// <summary>Ordinary weapon-based attack timing with the gem's inherent GEPL attack-speed multiplier.</summary>
-static class SkillAttackTiming
+public static class SkillAttackTiming
 {
     public static double ForSkill(SkillCatalog skills, int effect, int level, SkillCatalog.Unarmed weapon,
         IReadOnlyDictionary<uint, int> player) => skills.IsAttack(effect)

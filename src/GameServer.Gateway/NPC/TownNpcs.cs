@@ -17,7 +17,7 @@
 /// and Act 8's Sin) or on edge cells (Tarkleigh, Eramir, Silk, Helena, Irasha …). They are placed as the room has them;
 /// <see cref="NpcCatalog.Placement.FromRoom"/> keeps the Gateway from warning about them.</para>
 /// </summary>
-static class TownNpcs
+public static class TownNpcs
 {
     /// <summary>A town room as the client places it: its size in cells (the .arm's own key line, tiles × 23), the
     /// placement code of the .dgr node's rotation (I = 0, R270 = 3, as <c>TilePlacement.FromGraphRotation</c>) and the

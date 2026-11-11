@@ -24,6 +24,11 @@ ActiveSkillInstance (base vtable `0x1435c19f0`, 400-byte `make_shared` block, vt
 | +0x42 | u16 **action id**: an ActionTypes `HASH16` |
 | +0x48 | the GrantedEffectsPerLevel reference (row handle, then the effect, its `Id` string) |
 
+Hybrid gems must classify each `GrantedEffects` row, not only `SkillGems.IsSupport`.
+Automation's second effect is `SupportAutomation`, with `IsSupport=true` and null `ActiveSkill`.
+Sending it as an Actor skill dereferences a support-only row rather than an active skill.
+Keep the physical gem and its support data, but publish only effects with an actual `ActiveSkill` row.
+
 ## 2. Basic actions: from the object type
 
 The `ClientActor` constructor (`0x1421991d0`) walks a u16 list on the Actor type (`type+0xf8..+0x100`) and calls
@@ -1689,7 +1694,9 @@ each use gives it for the skill's duration, and its bonus is in the movement spe
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
-2026-10-23). 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
+2026-10-23). A channelled spell that stands still sends the same 10 bytes as **C→S 0x198** instead (Winter Orb, live
+2026-11-09: same class and handler, and unregistered it was dropped as an unknown message, so the silence below ended
+the channel one second in); both forms refresh the channel's liveness. 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
 after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
 (live 2026-11-08). Taken as the player's cell it put Cyclone's sweeps around the cursor. Cyclone's player walks toward
 it, an order re-aimed on each update, at the movement speed with the gem's `cyclone_movement_speed_+%_final`

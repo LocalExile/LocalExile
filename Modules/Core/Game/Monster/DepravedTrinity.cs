@@ -6,11 +6,11 @@ using static Game;
 using static Program;
 
 /// <summary>The campaign's organ gates and Black Heart encounter, not the map or gauntlet variants.</summary>
-static class DepravedTrinity
+public static class DepravedTrinity
 {
-    internal const string Area = "2_9_10_2", Boss = "Metadata/Monsters/UnholyTrio/UnholyTrio";
+    public const string Area = "2_9_10_2", Boss = "Metadata/Monsters/UnholyTrio/UnholyTrio";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act9/The_Trio/";
-    internal static readonly string[] Souls = ["Metadata/Monsters/Doedre/DoedreSoul", "Metadata/Monsters/Maligaro/MaligaroSoul", "Metadata/Monsters/Shavronne/ShavronneSoul"];
+    public static readonly string[] Souls = ["Metadata/Monsters/Doedre/DoedreSoul", "Metadata/Monsters/Maligaro/MaligaroSoul", "Metadata/Monsters/Shavronne/ShavronneSoul"];
     static readonly string[] PortalNames = ["DoedrePortal", "MaligaroPortal", "ShavronnePortal"];
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
     static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
@@ -106,18 +106,18 @@ static class DepravedTrinity
     }
     public static Task Leaving(ClientState c) => !Exposures.TryGetValue(c, out _) ? Task.CompletedTask : ExposureUpdate(c, false, false, 0, clear: true);
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
-    internal static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
+    public static bool IsBoss(MonsterCatalog.Variety? variety) => variety?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     static SpawnedMonster? Soul(ClientState c, int n) => c.Monsters.Values.FirstOrDefault(m => m.Variety?.Id == Souls[n]);
     static bool Dead(SpawnedMonster? m) => m is not null && (m.Dead || m.Life == 0);
-    internal static int Portal(string? model) => Array.FindIndex(PortalNames, n => model?.Contains(n, StringComparison.OrdinalIgnoreCase) == true);
+    public static int Portal(string? model) => Array.FindIndex(PortalNames, n => model?.Contains(n, StringComparison.OrdinalIgnoreCase) == true);
     static int ReturnPortal(ClientState c, AreaTransitionObject t)
     {
         if (Portal(t.Model) < 0 && t.SourceType?.Contains("PortalToggleable", StringComparison.Ordinal) != true
             && t.SourceType?.EndsWith("UnholyTrioSubbossPortal", StringComparison.OrdinalIgnoreCase) != true) return -1;
         return Enumerable.Range(0, 3).FirstOrDefault(i => Soul(c, i) is { } m && Distance(m.Walk.Position(c.Clock.Elapsed.TotalSeconds), (t.GridX, t.GridY)) < 180, -1);
     }
-    internal static bool? GateShown(ClientState c, uint id, AreaTransitionObject t)
+    public static bool? GateShown(ClientState c, uint id, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area) return null;
         lock (c.Monsters)
@@ -131,9 +131,9 @@ static class DepravedTrinity
         }
         return null;
     }
-    internal static (int X, int Y)? Landing(ClientState c) => c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
+    public static (int X, int Y)? Landing(ClientState c) => c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
         o.Type == "Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioLootLocator") is { } point ? c.Layout.Near((point.X, point.Y)) : null;
-    internal static void CarryLoot(ClientState c, (int X, int Y) from, (int X, int Y) to)
+    public static void CarryLoot(ClientState c, (int X, int Y) from, (int X, int Y) to)
     {
         var ground = c.Instance.Ground;
         foreach (var (id, item) in ground.Within(from.X, from.Y, 160, _ => true))
@@ -146,7 +146,7 @@ static class DepravedTrinity
             ground.Add(item with { GridX = at.X, GridY = at.Y }, null, shared: true, justDropped: false);
         }
     }
-    internal static List<uint> RetireCreatures(ClientState c)
+    public static List<uint> RetireCreatures(ClientState c)
     {
         (int X, int Y)[] safe;
         lock (c.Npcs) safe = [.. c.Npcs.Values.Where(n => n.Npc.Id is "Metadata/NPC/Act9/SinCore" or "Metadata/NPC/Act9/Lilly").Select(n => (n.X, n.Y))];
@@ -165,7 +165,7 @@ static class DepravedTrinity
             return [.. gone.Select(m => m.Key)];
         }
     }
-    internal static (int X, int Y)? Destination(ClientState c, AreaTransitionObject t)
+    public static (int X, int Y)? Destination(ClientState c, AreaTransitionObject t)
     {
         if (c.Layout.Id != Area) return null;
         lock (c.Monsters)
@@ -204,7 +204,7 @@ static class DepravedTrinity
         finally { await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.ActionEnded(PlayerId), null, still: () => PlayerActionCurrent(c, action)); }
         return true;
     }
-    internal static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety variety, byte level, int effect)
+    public static MonsterAttack Attack(ClientState c, MonsterCatalog.Variety variety, byte level, int effect)
     {
         var catalog = Game.SkillsFor(c); var native = Native(c, effect, level); int l = native.Level;
         int Raw(string name) => Stats.Key(name) is uint key ? native.Stats.GetValueOrDefault(key) : 0;
@@ -230,7 +230,7 @@ static class DepravedTrinity
             ? new(effect == 5573 ? "Metadata/Projectiles/TrioMortarRed" : "Metadata/Projectiles/TrioMortarPurple", 750, true, 2)
             : catalog.MonsterProjectile(effect) };
     }
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level) => !IsBoss(v) ? null
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level) => !IsBoss(v) ? null
         : [.. Effects.Select(e => Game.SkillsFor(c).FindByRow(Skill(e), e, Game.SkillsFor(c).MaxLevelAt(e, level),
             WithBehaviourVariation(c, e, MonsterProjectileSkillStats(c, e, Game.SkillsFor(c).MaxLevelAt(e, level), Attack(c, v, level, e))))).OfType<GrantedSkill>()];
     public static async Task Tick(ClientState c)
@@ -276,7 +276,7 @@ static class DepravedTrinity
         (int X, int Y)? Facing = null, double VisualSeconds = 1);
     sealed record Ground((int X, int Y) At, double Radius, double Until, int Colour);
     sealed record Visual(uint Id, (int X, int Y) At, string Model, double Until, uint Animation);
-    internal sealed class Fight
+    public sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1);
         public bool Stopped;

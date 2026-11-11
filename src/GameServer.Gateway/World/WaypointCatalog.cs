@@ -8,7 +8,7 @@ using GameServer.Core;
 /// <see cref="WorldAreaWaypoints"/>), and where an area's waypoint stands: the tile object scripts/walkmaps captured
 /// for the (area, seed), like the area transitions (08-area-transitions.md §7), or Lioneye's Watch's known place.
 /// </summary>
-static class WaypointCatalog
+public static class WaypointCatalog
 {
     const string Folder = "data/walkability";
 

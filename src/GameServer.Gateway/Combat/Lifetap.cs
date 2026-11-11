@@ -3,7 +3,7 @@
 /// <summary>Lifetap Support's buff and spent-Life counter. Supported skills pay Life instead of Mana; spending
 /// enough Life on their upfront costs grants the Lifetap buff (BuffDefinitions row 1846), which lasts four seconds
 /// (longer with the support's quality) and adds more damage and flask Life recovery while it runs.</summary>
-sealed class LifetapState
+public sealed class LifetapState
 {
     /// <summary>When the buff ends (Clock seconds). A refresh moves it later; 0 means neither running nor shown.</summary>
     public double Until;
@@ -37,7 +37,7 @@ sealed class LifetapState
 /// <summary>Lifetap Support (`SupportLifetap`, GrantedEffects 11905): the data and the pure calculations. The support's
 /// stat set carries `base_skill_cost_life_instead_of_mana`, the spent-Life threshold, the more-damage value while buffed
 /// and the 4000 ms base duration (plus its quality duration).</summary>
-static class Lifetap
+public static class Lifetap
 {
     /// <summary>BuffDefinitions row <c>lifetap_buff</c> (the table's 1846th row).</summary>
     public const ushort BuffRow = 1846;

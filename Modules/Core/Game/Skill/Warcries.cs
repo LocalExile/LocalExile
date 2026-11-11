@@ -3,11 +3,11 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // What every warcry does at its release besides its own effect, within its own radius around where it was used: the
     // client's warcry action (0x141abfb30) scans that radius for Chest objects and corpses when Deathrattle's stats are set.
-    internal const string CorpseExplosionStat = "nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry",
+    public const string CorpseExplosionStat = "nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry",
         OpenChestsStat = "open_nearby_chests_on_warcry";
 
     // Path of Building's EnemyExplode radius (skill("radius", 22)), grown by area of effect.
@@ -15,10 +15,10 @@ static partial class Game
 
     // shortcut: the generic gore burst (MiscAnimated SuicideExplodeNoGibs) at its own size; which art the client's warcry
     // wave (0x141abfea0) plays for an exploding corpse is not found yet. Upgrade once that consumer is traced.
-    internal const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
+    public const string CorpseExplosionAo = "Metadata/Effects/Spells/monsters_effects/gore_explode/gore_explosion_no_gibs.ao";
     const int CorpseExplosionArtMs = 2000;
 
-    internal static async Task WarcryReleased(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task WarcryReleased(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) at, int radius, int epoch)
     {
         lock (conn.Monsters)
@@ -43,7 +43,7 @@ static partial class Game
     // The explosion's hit before the target's mitigation: the corpse's maximum Life x percent as physical damage, with the
     // owner's global increases and more multipliers, then his global conversion and gain as extra (poewiki Explode: global,
     // not attack or spell, stats apply). Increases apply before conversion, as for every hit on the server.
-    internal static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<string, int> get, DamageConversion conversion)
+    public static DamagePacket CorpseExplosionHit(uint corpseMaxLife, int percent, Func<string, int> get, DamageConversion conversion)
     {
         double damage = corpseMaxLife * (double)percent / 100;
         long increased = (long)get("damage_+%") + get("physical_damage_+%") + get("area_damage_+%");

@@ -99,7 +99,7 @@ its Area1/Area2. The AtlasNode Ids are saved per character (module data `complet
 | `/atlas_reset` | empty 0x1a3 | clear the two sets |
 
 `Game.ExtraPlayerMessages` is the early slot (`Player.cs`, after the 0x3d presets, before transitions and 0x21).
-`OnEnterMessages` runs after 0x21 and must not restore Atlas progress.
+`GameEvents.EnterMessages` runs after 0x21 and must not restore Atlas progress.
 
 ## 6. Still open
 

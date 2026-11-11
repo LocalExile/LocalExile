@@ -4,7 +4,7 @@ using GameServer.Modding;
 
 /// <summary>What the framework asks of the game. The <c>Game</c> module (Modules/Core/Game) gives it when it loads: the Gateway holds the
 /// connections, the state and the saves, and the module the rules. Agents/docs/dev/modules.md.</summary>
-interface IGameLogic
+public interface IGameLogic
 {
     /// <summary>Claim this already active area's player updates after entry or game replacement.</summary>
     void ResumePlayerUpdates(ClientState conn) { }
@@ -36,13 +36,13 @@ interface IGameLogic
 }
 
 /// <summary>A player as mods see it, with its connection.</summary>
-interface IConnectionPlayer : IPlayer
+public interface IConnectionPlayer : IPlayer
 {
     ClientState Conn { get; }
 }
 
 /// <summary>A connection's projectile runtime, which belongs to the game module.</summary>
-interface IProjectileRuntime
+public interface IProjectileRuntime
 {
     bool Active { get; }
     void Invalidate();
@@ -51,7 +51,7 @@ interface IProjectileRuntime
 }
 
 /// <summary>Transient rule-owned work. Retirement retains only primitive cleanup receipts in the connection.</summary>
-interface ITransientCombatState
+public interface ITransientCombatState
 {
     void Clear();
     IReadOnlyCollection<uint> RetiredObjects => [];

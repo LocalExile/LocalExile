@@ -11,7 +11,7 @@ using GameServer.Data.Terrain.Generation;
 /// the seed is the UTC day's number since 1970, the same for every tier (<c>Game_LAB_SEED</c> overrides it), and a room's
 /// area is one of its LabyrinthAreas row's areas for the difficulty (<see cref="LabyrinthLayout.AreaPick"/>).
 /// </summary>
-static class LabyrinthDay
+public static class LabyrinthDay
 {
     static readonly ConcurrentDictionary<(uint Seed, int Difficulty), Day> Days = new();
 
@@ -134,7 +134,7 @@ static class LabyrinthDay
     /// <summary>The layout index of the room an exit of room <paramref name="index"/> leads to, or -1. Two exits can lead
     /// to rooms played in the same area, so the exit's entranceN names its neighbour (the N-th connection); without one (a
     /// passage secret's way, counted after the connections) it is the neighbour played in the exit's area.</summary>
-    internal static int Neighbour(Day day, int index, string? area, int? entrance)
+    public static int Neighbour(Day day, int index, string? area, int? entrance)
     {
         var links = day.Layout.Nodes[index].Links;
         return entrance is int n && n >= 1 && n <= links.Count && links[n - 1] >= 0 && day.Areas[links[n - 1]] == area

@@ -2,19 +2,19 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     sealed class TriggeredGuard(int epoch, object? rules)
     {
-        internal readonly int Epoch = epoch;
-        internal readonly object? Rules = rules;
-        internal double Until, ReadyAt, RecoverySeconds;
-        internal int Percent, Remaining, Absorbed, Armour, Reflection;
-        internal double Physical = 1, Elemental = 1;
-        internal ushort Buff, Skill;
-        internal string Effect = "";
-        internal SupportedGem? Gem;
-        internal ProjectileSession? Session;
+        public readonly int Epoch = epoch;
+        public readonly object? Rules = rules;
+        public double Until, ReadyAt, RecoverySeconds;
+        public int Percent, Remaining, Absorbed, Armour, Reflection;
+        public double Physical = 1, Elemental = 1;
+        public ushort Buff, Skill;
+        public string Effect = "";
+        public SupportedGem? Gem;
+        public ProjectileSession? Session;
     }
     static readonly ConditionalWeakTable<ClientState, TriggeredGuard> TriggeredGuards = new();
     static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
@@ -29,7 +29,7 @@ static partial class Game
         if (guard.Until > 0 && now >= guard.Until) EndTriggeredGuard(conn, guard, guard.Until);
         return guard;
     }
-    internal static bool TriggerGuardReady(ClientState conn, double now) => CurrentTriggeredGuard(conn, now)
+    public static bool TriggerGuardReady(ClientState conn, double now) => CurrentTriggeredGuard(conn, now)
         is not { } guard || guard.Until == 0 && now >= guard.ReadyAt;
 
     static void EndTriggeredGuard(ClientState conn, TriggeredGuard guard, double now)
@@ -76,7 +76,7 @@ static partial class Game
     }
 
     // Called immediately after the trigger's successful payment, under the connection lock.
-    internal static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
+    public static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
     {
         var gem = SupportedSkill(conn, skill);
         if (!TriggerGuardReady(conn, now)) return;
@@ -128,7 +128,7 @@ static partial class Game
         session.Packet(TriggeredGuardPresentation(conn, now), $"triggered guard {guard.Effect} ({duration:0.###} s)");
     }
 
-    internal static byte[] TriggeredGuardPresentation(ClientState conn, double now)
+    public static byte[] TriggeredGuardPresentation(ClientState conn, double now)
     {
         if (CurrentTriggeredGuard(conn, now) is not { Until: > 0 } guard) return [];
         ushort row = guard.Effect switch { "ImmortalCall" => 110, "MoltenShell" => 114, _ => 1302 };
@@ -140,7 +140,7 @@ static partial class Game
             list: [(uint)guard.Remaining]);
     }
 
-    internal static Dictionary<uint, int> WithTriggeredGuard(ClientState conn, Dictionary<uint, int> stats)
+    public static Dictionary<uint, int> WithTriggeredGuard(ClientState conn, Dictionary<uint, int> stats)
     {
         if (CurrentTriggeredGuard(conn, conn.Clock.Elapsed.TotalSeconds) is not { Until: > 0 } guard) return stats;
         void Add(string name, int value)
@@ -153,7 +153,7 @@ static partial class Game
         return stats;
     }
 
-    internal static (int Physical, int Other, int Chaos) TriggeredGuardHit(ClientState conn,
+    public static (int Physical, int Other, int Chaos) TriggeredGuardHit(ClientState conn,
         int physical, int other, int chaos, double at)
     {
         if (CurrentTriggeredGuard(conn, at) is not { Until: > 0 } guard) return (physical, other, chaos);

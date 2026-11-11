@@ -1,19 +1,19 @@
 using System.Runtime.CompilerServices;
 
-static partial class Game
+public static partial class Game
 {
     sealed class ChannelTrigger(LinkedTriggerSource source, int action, int generation, double interval,
         double at, (int X, int Y) aim)
     {
-        internal readonly LinkedTriggerSource Source = source;
-        internal readonly int Action = action, Generation = generation;
-        internal readonly double Interval = interval;
-        internal double NextAt = at + interval;
-        internal (int X, int Y) Aim = aim;
+        public readonly LinkedTriggerSource Source = source;
+        public readonly int Action = action, Generation = generation;
+        public readonly double Interval = interval;
+        public double NextAt = at + interval;
+        public (int X, int Y) Aim = aim;
     }
     static readonly ConditionalWeakTable<ClientState, ChannelTrigger> ChannelTriggers = new();
 
-    internal static void BeginChannelTriggers(ClientState conn, ProjectileSession session, ushort skill,
+    public static void BeginChannelTriggers(ClientState conn, ProjectileSession session, ushort skill,
         int action, int generation, (int X, int Y) aim, double at)
     {
         ChannelTriggers.Remove(conn);
@@ -27,13 +27,13 @@ static partial class Game
             action, generation, milliseconds / 1000d, at, aim));
     }
 
-    internal static void AimChannelTriggers(ClientState conn, (int X, int Y) aim)
+    public static void AimChannelTriggers(ClientState conn, (int X, int Y) aim)
     {
         if (ChannelTriggers.TryGetValue(conn, out var state)) state.Aim = aim;
     }
 
     // Runs on the existing projectile pump, independently of channel attack/cast speed and monster contact.
-    internal static void TickChannelTriggers(ClientState conn, ProjectileSession session, double at)
+    public static void TickChannelTriggers(ClientState conn, ProjectileSession session, double at)
     {
         lock (conn.Monsters)
         {

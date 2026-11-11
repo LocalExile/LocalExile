@@ -12,29 +12,25 @@ public sealed class CosmeticsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnAreaGenerated(player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(player);
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
-        module.OnPacket(InstanceMicrotransactions.RequestId, async p =>
+        GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            var asked = InstanceMicrotransactions.ReadRequest(p.Bytes.ToArray());
-            module.Log($"{p.Player.Character}: microtransaction lists asked: {asked}");
+            var asked = InstanceMicrotransactions.ReadRequest(bytes);
+            module.Log($"{PlayerOf(conn).Character}: microtransaction lists asked: {asked}");
             await CosmeticsFeature.AnswerMtxRequest(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, asked);
             return true;
         });
-        module.OnPacket(InstanceMicrotransactions.SlotId, async p =>
+        GameEvents.Packet(InstanceMicrotransactions.SlotId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await CosmeticsFeature.PickCosmetic(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceMicrotransactions.ReadSlot(p.Bytes.ToArray()));
+            await CosmeticsFeature.PickCosmetic(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceMicrotransactions.ReadSlot(bytes));
             return true;
         });
-        module.OnPacket(InstanceMicrotransactions.SkillPickId, async p =>
+        GameEvents.Packet(InstanceMicrotransactions.SkillPickId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await CosmeticsFeature.PickSkillCosmetic(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceMicrotransactions.ReadSkillPick(p.Bytes.ToArray()));
+            await CosmeticsFeature.PickSkillCosmetic(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceMicrotransactions.ReadSkillPick(bytes));
             return true;
         });
     }

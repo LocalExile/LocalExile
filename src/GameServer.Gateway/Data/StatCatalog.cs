@@ -5,7 +5,7 @@ using GameServer.Core;
 /// Stat names and the client's stat keys: key = Stats.dat row + 1 (Agents/docs/protocol/11-skills.md §5). Reads
 /// data/tables/Stats.json (game data, loaded on first use); without it only numeric keys work.
 /// </summary>
-sealed class StatCatalog(string folder = "data")
+public sealed class StatCatalog(string folder = "data")
 {
     private readonly Lazy<List<string>> _names = new(() =>
     {
