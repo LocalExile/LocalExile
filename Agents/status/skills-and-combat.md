@@ -1125,7 +1125,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   effects.
   Not in town, the grace period, while frozen, stunned or dead, nor with spells disabled; a movement skill's blink is
   no walk, and so is Shield Charge's, which the wiki says triggers it (a known gap).
-  A landed hit ignites the monster with its 25% chance or a critical strike (the player's ignites on monsters below).
+  Captured raw/conversion profiles apply pre-hit Blind increases to hits, Ignite and Poison; a spell cannot bleed.
   The radius comes from the explosion art (no table gives one), and other passive-granted skills do nothing yet.
   Gateway coverage only, not checked with the real client.
   Code: Gateway (`PassiveGrantedSkills`, `RunFootstepSkills`, `TriggerFootstepSkill`).
@@ -1243,7 +1243,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   automated coverage. Representative same-head native acceptance covers activation, switching, 95% Mana reservation,
   Scorpion's Call consumers, expiry, relog, area transition and source removal; normal gameplay and Flesh and Stone
   remain separate, with the latter not advertised until its enemy-distance executor exists.
-  Not modelled: Heralds, banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
+  Not modelled: banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
   masteries 1/2/6, party/minion auras and reservation-declining/special supports
   Aspect of the Cat cycles its phases; original Farrul's Fur grants charges on Stealth entry and independent Phasing.
   Replica Farrul's Fur extends Agility and grants maximum Frenzy and Endurance charges on Agility entry; its
@@ -1253,14 +1253,16 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation, with pre-hit Blind damage profiles.
   Tempest Shield and Temporal Rift supply required native behaviour data on both source and received buffs.
-  Herald kill/poison procs use
-  the ordinary damage/minion pipeline. Temporal Rift recalls position/resources from four seconds ago, with native proof.
+  Herald of Ice/Thunder use pre-hit Blind profiles for hits and ailments; secondary poison excludes attack/spell chance.
+  Herald of Ash uses direct-hit overkill and damage prohibitions without treating its burn as an ailment.
+  Temporal Rift recalls position/resources from four seconds ago, with native proof.
   Nearby player auras reach allies and controlled fighters using caster effect; duplicate families select each stat's
   strongest value. Life reservation uses an independent budget, Arrogance and pool/recovery caps; curse auras use
   the hex lifecycle. Skitterbots apply scaled chill/shock and trigger placed traps/mines, rearming a mine once;
   full trap/mine skill-specific payloads, banner/Vaal executors and Agony's retail Virulence decay remain partial.
   ([11](../docs/protocol/11-skills.md) 13).
-- Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
+- Summon/mine/trap input and cleanup work; placed spell snapshots select pre-hit Blind for hit, Ignite and Poison.
+  Fire Trap's non-ailment ground stays separate; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
 - **Totems (Rejuvenation Totem only).** The gem's use summons its totem after the 0.6 s summon, at the aimed cell:
   a team-0 monster object with the variety's minion Life at the gem's level requirement, its duration and the limit

@@ -315,8 +315,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
   the others (Overwhelm, the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
-  Fire's); banners and unsupported conditional effects. Verify the complete herald combat matrix,
-  retail Virulence decay and the skill-specific trap/mine payloads beyond the shared Skitterbot trigger/rearm lifecycle.
+  Fire's); banners and unsupported conditional effects. Complete the remaining herald combat matrix and
+  retail Virulence decay; shared placed spell hit/ailment profiles work, while skill-specific payloads remain partial.
   The skill-bar indicator's buff association is implemented (0x1c1 bit3; live check pending, see Status).
   Support gems come with the gem system ("Gems" below); life reservation has automated owner and consumer coverage
   and awaits native acceptance; party and minion auras need their own systems.
