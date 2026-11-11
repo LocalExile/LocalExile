@@ -1892,7 +1892,25 @@ sealed class DungeonLayout(TerrainCache files, LevelRandom rng, List<string> not
         var (bx, by) = Cell(e.B.X, e.B.Y);
         bool inA = map.Inside(ax, ay), inB = map.Inside(bx, by);
         if (!inA && !inB) return true;
-        if (!inA || !inB) throw new NotSupportedException($"{e}: dungeon edges leaving the map (0x142101300) are not ported");
+        if (!inA || !inB)
+        {
+            int k = inA ? map[ax, ay] : map[bx, by];
+            var room = map.RoomAt(k);
+            int ox = inA ? bx : ax, oy = inA ? by : ay;
+            var exits = new List<int>();
+            for (int i = 0; i < room.Exits.Length; i++)
+            {
+                bool boundary = ox < 0 ? room.X == 0 && i >= 2 * room.Width + room.Height
+                    : ox >= map.Width ? room.X + room.Width == map.Width && i >= room.Width && i < room.Width + room.Height
+                    : oy < 0 ? room.Y == 0 && i < room.Width
+                    : room.Y + room.Height == map.Height && i >= room.Width + room.Height && i < 2 * room.Width + room.Height;
+                if (boundary && (room.Exits[i].Type is null || string.Equals(room.Exits[i].Type, e.Type, StringComparison.OrdinalIgnoreCase))) exits.Add(i);
+            }
+            if (exits.Count == 0) throw new NotSupportedException($"{e}: no compatible boundary exit");
+            if (exits.Count != 1) throw new NotSupportedException($"{e}: ambiguous boundary exit");
+            SetDoor(room.Exits[exits[0]], e.Type, inA ? e.Chirality == 0 : e.Chirality != 0);
+            return true;
+        }
         int start = map[ax, ay], target = map[bx, by];
         if (start == 1 || target == 1) throw new InvalidOperationException("Tried to connect from a void room");
         var level = Math.Max(map.RoomAt(target).Level, map.RoomAt(start).Level);

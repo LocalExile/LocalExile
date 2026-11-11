@@ -29,6 +29,7 @@ public static class GameDataFiles
         ("data/tables/DelveUpgrades.json", "Delve equipment upgrade prices, limits and stats"),
         ("data/delve-paths.json", "authored Delve rail routes"),
         ("data/tables/DelveLevelScaling.json", "Delve trip costs and monster levels"),
+        ("data/tables/DelveResourcePerLevel.json", "sulphite deposits' native area-level rewards"),
         ("data/tables/DelveFlares.json", "Delve flare prices"),
         ("data/tables/DelveDynamite.json", "Delve dynamite prices"),
         ("data/tables/UniqueMaps.json", "unique map shop identities"),
@@ -52,7 +53,7 @@ public static class GameDataFiles
         ("data/area-transitions.json", "area transitions of fixed layouts"),
         ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
         ("data/hideouts.json", "hideouts and native stationary model collision radii"),
-        ("data/animation-contacts.json", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing and the bow/wand release points"),
+        ("data/animation-contacts.json", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
         ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
         ("data/monster-contacts.json", "monster projectile release timing/points and boss stage contacts"),
         ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
@@ -69,10 +70,11 @@ public static class GameDataFiles
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
+        ("game-pack", 4, "native Delve encounter rooms for procedural mine terrain"),
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 7, "class rig animation indices and spell cancellation events: without them cast movement waits for the full spell"),
+        ("animation-contacts", 8, "class rig animation indices, spell cancellation events and every contact frame of a clip for multi-strike skills: without them cast movement waits for the full spell and later strikes fall back to a half-attack gap"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("object-types", 9, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),

@@ -184,7 +184,8 @@ static int Dispatch(string[] args)
                 break;
             case "generate":
                 // generate <area id> <seed> [trace.gen.json]: the server's generation, compared with a client trace when given.
-                Generate(args[1], uint.Parse(args[2]), args.Length > 3 ? args[3] : null);
+                Generate(args[1], uint.Parse(args[2]), args.Length > 3 ? args[3] : null,
+                    args.Length > 4 ? Convert.FromHexString(args[4]) : null);
                 break;
             case "walk":
                 // walk [<area id> <seed>]: the port's walkability and projectile grids against the walk-map capture
@@ -758,7 +759,7 @@ static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string 
     Compare("projectile", walk.Projectile, stem + ".projectile.bin");
 }
 
-static void Generate(string areaId, uint seed, string? tracePath)
+static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveTerrain = null)
 {
     string root = Root();
     var fs = OpenGame();
@@ -803,7 +804,7 @@ static void Generate(string areaId, uint seed, string? tracePath)
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode); }
+    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);

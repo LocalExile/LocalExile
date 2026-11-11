@@ -54,6 +54,7 @@ public static partial class Game
         Put("skill_projectiles_cannot_return", profile.CannotReturn ? 1 : 0);
         Put("returning_projectiles_always_pierce", !profile.CannotReturn && !profile.CannotPierce
             && (profile.Returns || profile.ReturnChancePercent > 0) && profile.PierceAllOnReturn ? 1 : 0);
+        if (profile.NativeVolley?.Nova == true) Put("projectiles_nova", 1);
         parameters.PanelStats?.Invoke(profile, stats);
 
         void Put(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }

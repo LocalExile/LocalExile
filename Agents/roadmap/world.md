@@ -53,14 +53,16 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   - Delve (82): the mine cells and biomes (`Delve_*`); the client needs the server's cell data.
     An initial Delve_Main block, hub entrance and mine return gate now work with native generation and captured movement.
     The initial Crawler has attached wheels, engine idle and a torch; the hub's native equipment console is placed.
-    Equipment purchases/upgrades have account/league persistence. The first quest trip has a bounded authored-rail
-    implementation with gradual exact-total debit, escort pacing and tutorial pack reveals. Native checks confirmed movement/light/combat and exact debit using assisted escort.
-    Remaining: validate/price general routes against a persistent mine graph, original biome population and encounter
-    wave scripts, darkness stacks/resistance and flare/dynamite use. Initial victory rewards and highest completed
-    depth now persist; general node-specific rewards and the mine graph still need implementation. Finish chart continuity inside the mine
-    restore laid lamp/cable trails on re-entry, and verify a continuous walking escort without debug teleports.
-    Also finish shared sulphite migration, equipment cable visual tiers and other biome sections.
-    This does not add Delve to the server level generator's supported areas.
+    Equipment and completed chart points/edges persist per account/league; each trip saves one destination and parks
+    for manual selection. Unfinished trips reset on interruption/death.
+    Escort pacing, depth levels/packs/rewards, exact gradual
+    sulphite debit, native walking/combat and the full chart inside the mine are implemented.
+    Fresh server-generated Mines checkpoint windows replace the entrance layout after the first trip, with durable
+    scene/route history and five-second final waves gating checkpoint saves.
+    Remaining: native topology validation and physical biomes beyond the procedural Mines rooms,
+    original biome populations, node-specific rewards, darkness stacks/resistance and consumable use.
+    Restore laid trails on reentry, finish shared sulphite migration and equipment cable visual tiers.
+    The ordinary Mines cell pass is ported; the initial entrance still uses its capture.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
   - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded

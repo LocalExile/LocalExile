@@ -162,6 +162,19 @@ public static partial class Game
     public static string SkillClipName(string effectId) =>
         new([.. effectId.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
 
+    public static (double Gap, bool Keyframe) GemAttackStrikeGap(ClientState conn, string? contactClip)
+    {
+        if (contactClip is not null)
+        {
+            string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+            var weapon = WeaponProfileFor(conn, activeSet: true);
+            if (Animations.SkillAttackContactAt(ao, weapon, contactClip, 0) is { } first
+                && Animations.SkillAttackContactAt(ao, weapon, contactClip, 1) is { } second && second.Contact > first.Contact)
+                return (second.Contact - first.Contact, true);
+        }
+        return (0.5, false);
+    }
+
     // PlayerActionCurrent's state half, without its action-token test: a gem melee swing keeps its hit when the player
     // only walks on (AreaSkillHit's holdsItsSwing), while a death, an area change, a retirement, a pause, a freeze or a
     // stun's hit recovery still ends it.
@@ -1425,13 +1438,24 @@ public static partial class Game
     // (SkillCatalog.HitDamage) with the player's stats; both convert, crit and roll per monster. An attack's hit carries
     // the skill's damage effectiveness (SkillCatalog.DamageEffectiveness). Not modelled yet: the skills' own shapes (waves,
     // cones, chains) and stun.
-    public static async Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
         double radiusMore = 1, int addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null,
-        DischargeUse? discharge = null)
+        DischargeUse? discharge = null) =>
+        AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
+            melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
+            repeatDelay, radiusMore, addedChaos, swingAt, triggeredCurrent, discharge, 0, null, null, null);
+
+    private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
+        bool immediate, ushort sequence, int? actionToken, CooldownUseTicket? cooldownUse, bool? melee,
+        double damageMore, uint excludeMonster, SkillCriticalRoll? criticalRoll, int? channelGeneration,
+        uint targetId, int repeat, int? radiusOverride, ISet<uint>? once, double repeatDelay,
+        double radiusMore, int addedChaos, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
+        int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1441,7 +1465,8 @@ public static partial class Game
         // queued order, not a replacement of the swing. Everything else keeps the action-token rule (a Move cancels the
         // swing), and a real interruption (death, area change, pause, freeze, stun recovery) still ends this one.
         bool holdsItsSwing = !spell && !immediate && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
-        bool TokenCurrent() => holdsItsSwing
+        bool preservesSwing = strikeIndex > 0 && !spell && channelGeneration is null && SkillsFor(conn).IsMelee(gem.Effect);
+        bool TokenCurrent() => holdsItsSwing || preservesSwing
             ? PlayerStateAllowsAction(conn)
             : cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
         bool Current() => (triggeredCurrent?.Invoke() ?? true) && TokenCurrent()
@@ -1468,7 +1493,8 @@ public static partial class Game
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
         if (castDuration is null) return;
         // Ruthless: whether this use is its skill's Ruthless Blow, counted as it starts.
-        double ruthless = spell ? 1 : RuthlessBlowMore(conn, skillId, Stat);
+        ruthlessMore ??= spell ? 1 : RuthlessBlowMore(conn, skillId, Stat);
+        double ruthless = ruthlessMore.Value;
         double delay;
         // A spell lands at its area cast clip's contact keyframe (a repeat a whole cast later each), an attack at its
         // swing's own clip (GemAttackContactDelay; the player swings where it stands, so without the walk-in offset).
@@ -1503,7 +1529,7 @@ public static partial class Game
             if (triggeredCurrent is not null || cooldownUse?.Instant == true || conn.ActionCount == action) return false;
             // A gem melee swing survives the Move the client queued behind its swing (holdsItsSwing): the walk order
             // stands, the hit still lands, and only a real interruption (which PlayerStateAllowsAction refuses) drops it.
-            if (holdsItsSwing && PlayerStateAllowsAction(conn))
+            if ((holdsItsSwing || preservesSwing) && PlayerStateAllowsAction(conn))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the swing keeps its hit over the "
                     + $"queued move order (action {action} -> {conn.ActionCount})");
@@ -1519,7 +1545,7 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null)
+        if (!spell && channelGeneration is null && strikeIndex == 0)
             using (ProjectileMutation(conn))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(conn));
@@ -1534,6 +1560,10 @@ public static partial class Game
             await WhilePaused(conn);
             if (Replaced() || conn.Closed || !Current()) return;
         }
+        double contactAt = firstContactAt ?? conn.Clock.Elapsed.TotalSeconds;
+        int strikes = SkillMultiStrike.StrikeCount(SkillsFor(conn).EffectId(gem.Effect), Stat("base_skill_number_of_additional_hits"),
+            immediate, channelGeneration is not null, spell, wave);
+        ISet<uint>? alreadyHit = priorTargets ?? SkillMultiStrike.SnapshotPriorTargets(once, strikes);
         List<(uint Id, SpawnedMonster M)> targets;
         int sweep;
         // Melee Splash victims and their damage multiplier (see MeleeSplash).
@@ -1557,7 +1587,8 @@ public static partial class Game
             var found = conn.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, centre)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
-                    && e.Distance <= (wave ? waveLength : radius) && once?.Contains(e.Key) != true
+                    && e.Distance <= (wave ? waveLength : radius)
+                    && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength)))
                 .ToList();
             // Hits that may reach each monster only once across several sweeps record it here.
@@ -1602,7 +1633,6 @@ public static partial class Game
         }
         bool fortificationGranted = false; // One simultaneous sweep, independent of notification latency.
         bool rageGranted = false; // Only a positive gain takes this sweep's latch.
-        // Reap's Blood Charges: the charges held scale this sweep's hits; the hits that land and the kills settle them.
         double bloodMore = BloodChargeDamageMore(conn, Stat);
         int landed = 0;
         // One sweep, one hit: its offensive inputs are read once, at the first contact (inside the projectile mutation, after
@@ -1649,7 +1679,7 @@ public static partial class Game
                 // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
                 // player moves on: its action was checked at the release.
                 if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
+                    || !(ring || wave) && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
                 if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 bool freshPlayer = player is null;
                 if (player is null)
@@ -1810,6 +1840,22 @@ public static partial class Game
             bool changed;
             lock (conn.Monsters) changed = conn.PlayerLife > 0 && SettleBloodChargesLocked(conn, player, deaths.Count, landed - deaths.Count);
             if (changed) await SendBloodCharges(remote, stream, ciphers, conn, $"{gem.Name}: {landed} hit, {deaths.Count} killed");
+        }
+        if (strikeIndex == 0 && strikes > 1)
+        {
+            (double gap, bool keyframe) = GemAttackStrikeGap(conn, contactClip);
+            double next = contactAt + gap * SupportedAttackSeconds(conn, skillId);
+            await Task.Delay(TimeSpan.FromSeconds(Math.Max(0, next - conn.Clock.Elapsed.TotalSeconds)));
+            await WhilePaused(conn);
+            if (Replaced() || conn.Closed || !Current()) return;
+            Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: strike 2 at {next:0.000} "
+                + $"({(keyframe ? contactClip : "modelled half-attack gap")})");
+            await AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate: true,
+                sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, melee: melee, damageMore: damageMore,
+                excludeMonster: excludeMonster, criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId,
+                repeat: repeat, radiusOverride: radiusOverride, once: null, repeatDelay: repeatDelay, radiusMore: radiusMore,
+                addedChaos: addedChaos, swingAt: null, triggeredCurrent: triggeredCurrent, discharge: discharge,
+                strikeIndex: 1, firstContactAt: next, ruthlessMore: ruthlessMore, priorTargets: alreadyHit);
         }
     }
 
@@ -2353,9 +2399,8 @@ public static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02bb create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
+                $"0x02bb create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})", justDropped: true);
         }
     }
 }

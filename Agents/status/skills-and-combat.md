@@ -397,6 +397,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   raise both named elements; the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value
   uses Path of Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
   used by Righteous Fire's self-burn and `/hit`; `/resistances` shows modifier, penalty and final.
+  The character panel refreshes the capped and uncapped values immediately when either earned penalty changes.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Spell Suppression: the passive `base_spell_suppression_chance_%` is capped at 100% and a successful suppress takes
@@ -711,6 +712,24 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Ice Shot primary projectile resolution uses IceArrow; 3.29.3c protocol-driven primary-hit controls pass; cone splash remains open.
+- Multi-strike skills: a gem attack whose StatSet carries `base_skill_number_of_additional_hits` repeats its whole
+  sweep once per strike, so Double Strike (1) lands its second hit in the same use. Each strike is its own hit — its own
+  target scan, hit chance, damage roll, on-hit effects and ailments — and shares the use's one critical strike roll:
+  poewiki's Double Strike says the attack "can hit the same target twice", that "each hit is independent for the
+  purposes of damage and on-hit behaviours", and that "each use of Double Strike does share the same critical strike
+  roll for all its hits". Both swings of one use use the same weapon (`both swings from one attack will use the same
+  weapon`), so the dual-wield off-hand pipeline is not involved. The server's current gem-hit path reads the main-hand weapon
+  for both hits; per-use main/off-hand alternation is not implemented here. The second strike lands on the skill clip's own
+  next contact keyframe, which the rigs give per class and weapon
+  (doublestrike_sword: 300 and 666 of 1000 ms on the Str rig, 299 and 899 of 1133 on the Dex one), read from
+  `data/animation-contacts.json`'s `contacts` key; without that key (an older extract) it is modelled half an attack
+  later and the log says so. Spells, channels and Ground Slam's wave never repeat this way, and no other multi-strike
+  skill is enabled: a clip's number of contact frames is not evidence that each one deals damage (Cyclone's `whirl_*`
+  has two per loop and its channel already sweeps on its own cadence). Not implemented: the non-`base_` variant
+  `skill_number_of_additional_hits` (usually from supports) is not read, as no source shows whether the two add.
+  Automated tests cover the per-frame read, the Dex rig's different second frame, and the older-extract fallback.
+  Code: `Combat.cs` (`AreaSkillHit`, `GemAttackStrikeGap`), `SkillMultiStrike.cs`, `AnimationContacts.cs`, `scripts/re/anim_contacts.py`;
+  wiki [Double Strike](https://www.poewiki.net/wiki/Double_Strike).
 
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile

@@ -135,23 +135,30 @@ Part of [Status](../Status.md); what to build next in this area is in
   The hub waypoints stay unlit (client area-type rule); The Sovereign (Deepwater) has no layout yet.
   The upper hub entrance now reaches an initial Delve_Main mine section and its return gate leads back to the hub.
   Native entry, ordinary walking and return were verified; see the initial terrain block below.
-  General mine progression remains unimplemented; the first quest trip is described below.
+  Account checkpoint progression is implemented; physical terrain and encounter limitations are described below.
   See [16](../docs/protocol/16-waypoints.md) §4.
   See [21](../docs/protocol/21-hideouts.md).
 - **Delve sulphite and the Crawler (verified live, 2026-10-29).**
   - The character's Voltaxic Sulphite is saved, sent on entering the Mine Encampment or a Delve area (S→C 0x228), and
     shown by the Subterranean Chart's gauge. `/sulphite <n>` sets it.
+    Sulphite scarabs guarantee three shared, single-use map deposits with Niko; native area-level rewards scale with
+    map quantity and the owner's legacy scarab bonus, cap at equipment capacity, and survive reentry/module reload.
+    Fumes adds mine guards and a native enrage visual with +50% item quantity on affected monsters; its radius,
+    guard placement and exact official combat tuning remain server approximations.
     Full resource snapshots are followed by 0x226 gauge updates on entry and chart opening.
     Two unchanged-value updates settle the paused chart and invalidate its label position; the number follows the fill edge.
     A third update suppresses the native invalidation. Both the fill and label were verified without client changes.
-  - The HUD gauge shows only in WorldAreas type 27, the mine areas; the encampment is type 15 in the client data, so
-    there the gauge is the chart's.
+  - The native HUD gauge is permanent in mine areas (type 27). Niko maps now keep its transient display visible
+    with resource refreshes at the real saved balance, without gain popups. Native checks confirmed visibility
+    across waiting and a deposit credit up to capacity. Wild Niko follows terrain height instead of a fixed Z.
+    The encampment (type 15) still shows sulphite in its chart.
   - `/delve_crawler [x y degrees]` creates the stationary Crawler in the encampment or initial mine section,
     or moves and turns it.
-    It uses the native DelveMapViewer interaction type with the Crawler model, highlights on hover and opens the chart
-    on a real mouse click; the roaming DelveRobot serializer remains separate.
+    While parked it uses the native DelveMapViewer interaction type with the Crawler model and robot map icon,
+    highlights on hover and opens the chart on a real mouse click. Moving carts use DelveRobot with native turning
+    wheels; separate stationary chart pads carry the circular start/destination markers and original floor model.
     Repeated creation is idempotent; client/server blockers follow relocation and chart use checks walk-up range.
-    Attached wheel meshes and a powered torch use the original body bones; explicit looping idle runs the engine.
+    Hub wheel meshes and the powered torch use the original body bones; explicit looping idle runs the engine.
     The user confirmed the engine animation after restarting the client.
   - The Voltaxic Generator console and its cables occupy their native hub-room positions.
     Walking up and clicking opens the native Delve upgrades tab with resources, upgrade prices and purchase buttons.
@@ -159,28 +166,28 @@ Part of [Status](../Status.md); what to build next in this area is in
     Azurite, upgrade levels and flare/dynamite counts persist per account/league with atomic costs, caps and rollback.
     Server transactions have automated coverage; live purchases remain unverified because the current balance is zero.
     Equipment stats are sent in Delve areas; darkness damage and consumable use remain unimplemented.
-  - The first mine area receives a 1×2 Delve terrain block with an entrance and an Azurite quest room.
-    Delve_Main's copied hub is excluded from arrival selection; the actual mine-side transition is the return to camp.
-    The real client generated the section, accepted walking within it and returned through that gate.
-    Geometry uses client walk-map capture.
-    The chart's native route request is parsed; unsupported routes report unavailable without spending sulphite.
-    The first quest trip now resolves authored rails, waits for an escort, keeps a constant travel speed, moves its attached
-    light and stops at the quest room. Sulphite is debited by cumulative distance with an exact endpoint total of 24.
-    The motion loop is separated from pack creation, with buffered 50 ms updates, locked forward heading and
-    stop/resume hysteresis. Powered lamps remain every 30 path cells and native cables join them; illumination behind
-    the Crawler was verified live. Trails currently belong to the visit and are not restored on re-entry.
-    Room spawn points reveal supported Weta/Spider quest packs; general biome pools and encounter scripts remain partial.
-    Native checks confirmed rail travel, escort waiting, moving illumination and exact 300 -> 276 debit.
-    A normal Leap Slam killed 18 route monsters with drops. Debug server teleports assisted the escort; a full walking
-    run remains unverified. Start the route from the hub chart; the mine chart currently shows only its terrain preview.
-    The Crawler now faces the current rail tangent using native Positioned angles (atan2(dx,-dy)), retaining its
-    facing while stopped. Original Delve waypoint art marks the endpoint. Once the Crawler arrives and its spawned
-    encounters are dead, a single reward scatters ordinary pickable world items around it. Base count is 15–20;
-    the first physical depth (2) adds 10% quantity and 5% increased rarity. Each deeper depth adds the same increments,
-    with a configurable 250-item cap. Highest completed depth persists without reducing other character progress;
-    repeating the same depth does not increase its bonuses. Full graph persistence and darkness remain unfinished.
-    Native acceptance confirmed the endpoint pad, stopped forward-facing Crawler, exact 24 sulphite debit, a single
-    22-item victory reward and normal pickup into the saved inventory (assisted escort).
+  - Delve chart routes now persist completed points/edges and the last successful checkpoint per account/league.
+    The entrance layout is used only for the first trip; later edges connect two mine checkpoint rooms in the selected
+    direction. Later trips generate fresh native Mines windows with new seeds, varied rooms and authored rail shapes;
+    account history rejects repeated geometry/routes and prevents minimap reuse. Other biomes remain unfinished. Successful destinations expand
+    chart blocks down and sideways. A complete neighbour halo preserves the native five-cell fog fade across block corners.
+    Each confirmation reaches its selected node, then the Crawler parks.
+    Intermediate corridor cells are part of that journey and never become separate checkpoint stops.
+    Arrival starts three defence waves over five unpaused seconds, using the route's monster pool. Only after every
+    wave has spawned and all destination defenders are dead does the point save and refresh the chart.
+    Tunnel stragglers do not block completion; the next direction requires a new selection.
+    Death, leaving or module reload discards the unfinished trip, retains spent sulphite and restores the saved point.
+    The Crawler follows authored rails, waits at 70 cells (resumes below 60), and speeds up along the rails when led.
+    The Crawler's own forward axis leads each rail segment; rounded cells do not change its heading, and only clear
+    sleeve connections are smoothed. Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
+    Supported Weta/Spider packs
+    scale with depth (up to 100 per authored pack); levels rise from 34 at depth 1 to 86 at depth 150, then stay 86.
+    Kill rewards and 15–20 base completion items gain depth IIQ/IIR; the existing configurable item cap remains.
+    Newly opened destinations receive one completion reward; revisiting opened points cannot farm free rewards.
+    Native walking/Kinetic Blast completed a route with exact 24 sulphite debit and one reward. Native checks also
+    confirmed cross-character checkpoint sharing and unfinished-trip death reset.
+    Chart continuity inside the mine requires the now-sent DelveOwner flag.
+    General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
     The Sarn Encampment has them at (295, 423) and (285, 418), facing 28° (2026-11-04).

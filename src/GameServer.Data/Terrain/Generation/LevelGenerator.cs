@@ -85,7 +85,8 @@ public static class LevelGenerator
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
     /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
-        List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null)
+        List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null,
+        byte[]? delveTerrain = null)
     {
         rng ??= new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
         notes ??= [];
@@ -102,7 +103,8 @@ public static class LevelGenerator
         // 0x142050dc0's adds: the rolled features' rows wait in the extra room pool (generator +0x40).
         var pool = ExtraRoomPool.Create(files.Raw, features);
         bool hideout = features.Any(f => f.Name == ExtraTerrainFeatures.DiscoverableHideout);
-        var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes);
+        var secondaries = SubAreas(files, area, topology.Graph, hideout, topologyVariant, pool, rng, notes, delveTerrain is not null);
+        var delve = delveTerrain is null ? null : new DelveGeneration(files, delveTerrain);
         var labyrinth = area.IsLabyrinth ? new LabyrinthPass(files.Raw, area.Id, area.IsLabyrinthBoss, labyrinthNode) : null;
         // A tile graph with sub-areas goes through the subgraph records too (0x142050560), as their primary.
         bool dgr = topology.Graph.EndsWith(".dgr", StringComparison.OrdinalIgnoreCase) || secondaries.Count != 0;
@@ -112,7 +114,7 @@ public static class LevelGenerator
         {
             var tiler = new DungeonTiler(files, rng, notes, pool)
             {
-                Hideout = hideout, Labyrinth = labyrinth, Secondaries = secondaries, Master = area.Master, Town = area.IsTown,
+                Hideout = hideout, Labyrinth = labyrinth, Delve = delve, Secondaries = secondaries, Master = area.Master, Town = area.IsTown,
                 VaalSideArea = features.Any(f => f.Name == ExtraTerrainFeatures.VaalSideArea),
             };
             grid = tiler.Generate(topology.Graph, orientation);
@@ -146,10 +148,11 @@ public static class LevelGenerator
     /// mask. The node filter <c>0x14203cce0</c> (league= nodes) is left to <see cref="TileGraphGenerator.Prepare"/>,
     /// which stops on them.</summary>
     static List<(string Graph, int Orientation)> SubAreas(TerrainCache files, AreaInfo area, string graphPath, bool hideout, int variant,
-        ExtraRoomPool pool, LevelRandom rng, List<string> notes)
+        ExtraRoomPool pool, LevelRandom rng, List<string> notes, bool delve = false)
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
         var ids = new List<string>();
+        if (delve && area.Id == "Delve_Main") ids.Add("Delve_Hub");
         foreach (var n in graph.Nodes)
             foreach (var d in n.Descriptions)
             {
@@ -191,6 +194,7 @@ public static class LevelGenerator
 /// border slots, the fill, <c>0x14202bc90</c> seams), then the outer ground (<c>0x1420243d0</c>).</summary>
 sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> notes, ExtraRoomPool pool)
 {
+    public DelveGeneration? Delve { get; init; }
     /// <summary>The discoverable hideout rolled (generator +0xb).</summary>
     public bool Hideout { get; init; }
 
@@ -273,6 +277,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         // a group of the first record's FileGroups (master +0x268): its masters that no record uses yet (0x1420572d0),
         // Next(count) picks one (MapWorldsShapersRealm's "BossArenas" and "Gauntlets", 2026-10-27).
         string masterPath = parent < 0 && Master is not null ? Master : TerrainText.Resolve(graphPath, graph.MasterFile);
+        masterPath = Delve?.Master(graphPath, masterPath) ?? masterPath;
         if (parent >= 0 && records is { Count: > 0 } && !graph.MasterFile.EndsWith(".tsi", StringComparison.OrdinalIgnoreCase)
             && records[0].Master.TryGetValue("FileGroups", out var fgp)
             && FileGroups(TerrainText.Resolve(records[0].MasterPath, fgp)).GetValueOrDefault(graph.MasterFile) is { } group)
@@ -284,6 +289,11 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         var master = TerrainText.KeyValues(files.Text(masterPath) ?? throw new FileNotFoundException(masterPath));
         int unit = int.Parse(master.GetValueOrDefault("RoomUnitSize", "1")), overlap = int.Parse(master.GetValueOrDefault("RoomOverlap", "1"));
         int w = (unit - overlap) * graph.Width + overlap, h = (unit - overlap) * graph.Height + overlap;
+        if (Delve is not null)
+        {
+            var size = Delve.Size(graphPath, graph.Width, graph.Height);
+            w = (unit - overlap) * size.W + overlap; h = (unit - overlap) * size.H + overlap;
+        }
         if (graphPath.EndsWith(".tgr", StringComparison.OrdinalIgnoreCase)) (w, h) = (graph.Width, graph.Height);
         if ((orientation & 1) != 0 && orientation < 8) (w, h) = (h, w);
         var m = Margins(master);
@@ -390,7 +400,8 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             }
             else
             {
-                var t = i == 0 ? this : new DungeonTiler(files, rng, notes, pool) { Hideout = Hideout, Labyrinth = Labyrinth, Town = Town, _records = records, _areaMaster = _areaMaster, _fixHeights = _fixHeights };
+                var t = i == 0 ? this : new DungeonTiler(files, rng, notes, pool) { Hideout = Hideout, Labyrinth = Labyrinth, Delve = Delve, Town = Town, _records = records, _areaMaster = _areaMaster,
+                    _fixHeights = Delve is not null && r.Path == DelveGeneration.CellGraph ? new(false) : _fixHeights };
                 t.Tilise(r, grid, records, i);
                 store = t._store;
                 roomsOf.Add(t._placed);
@@ -400,6 +411,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
             PostUniqueTiles.Run(rng, grid, vx, vy, vw, vh, store, notes);
         }
         LevelGenerator.HeightStage?.Invoke("outer<", grid);
+        Delve?.Join(grid, rng);
         for (int i = records.Count - 1; i >= 0; i--) outers[i]();
         LevelGenerator.HeightStage?.Invoke("outer>", grid);
         // 0x14204b780 then: the walkability pass (0x14202f1f0) over the rectangle of each primary record (generator
@@ -475,7 +487,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         _fills = master.TryGetValue("FillTiles", out var gft) ? files.FillTiles(TerrainText.Resolve(masterPath, gft)) : [];
         int unit = int.Parse(master.GetValueOrDefault("RoomUnitSize", "1"));
         int raised = grid.RaisedPlacements;
-        var map = Layout(r.Path, r.Orientation, masterPath, master, unit, index == 0, r.Parent <= 0);
+        var map = Layout(r.Path, r.Orientation, masterPath, master, unit, index == 0, r.Parent <= 0, index);
         // Room k starts at the view's corner plus (unit − overlap) × its cell.
         int step = unit - map.Overlap;
         _ox = r.X + r.Margins.Left;
@@ -576,6 +588,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     void Outer(Subgraph r)
     {
         _view = (r.X + r.Margins.Left, r.Y + r.Margins.Top, r.X + r.W - r.Margins.Right, r.Y + r.H - r.Margins.Bottom);
+        if (Delve is not null && r.Path == DelveGeneration.CellGraph) _fixHeights.Value = false;
         OuterGround(r.Master, r.MasterPath);
         if (r.Margins == (0, 0, 0, 0)) return;
         new OuterBuffer(files, rng, new OuterBuffer.View(_grid, r.X, r.Y, r.W, r.H), _view.X0 - r.X, _view.Y0 - r.Y,
@@ -598,9 +611,10 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
     /// <summary><c>0x142043150</c> for a graph of several nodes: the exist rolls (as for tile graphs), then the rooms
     /// on a grid of the graph's size in room units (<c>0x14210a1d0</c>).</summary>
     DungeonMap Layout(string graphPath, int graphOrientation, string masterPath, Dictionary<string, string> master, int unit, bool primary,
-        bool share = true)
+        bool share = true, int record = -1)
     {
         var graph = TileGraph.Parse(files.Text(graphPath) ?? throw new FileNotFoundException(graphPath));
+        Delve?.Prepare(graph, graphPath, record, rng);
         // A Sanctum floor's .dgr is one node tagged "land"; the client rebuilds the first graph (0x141f65080): 6 × 4
         // cells of 23 units, a node at cell (0, 0) with "default" for the server's first room and one at (4, 2) for its
         // second (0x141f65300: the room's .arm tag, any orientation). Without server data both are SanctumRooms row 0,
@@ -619,6 +633,7 @@ sealed class DungeonTiler(TerrainCache files, LevelRandom rng, List<string> note
         _graphGrounds = (Ground(graph.TopGround), Ground(graph.BottomGround), Ground(graph.DefaultGround));
         notes.Add($"dungeon graph {graphPath}: {graph.Nodes.Count} nodes, {graph.Edges.Count} edges after exist rolls");
         var roomSet = RoomSetOf(master, masterPath);
+        Delve?.Inject(roomSet, record);
         var map = new DungeonMap(graph.Width, graph.Height, unit, int.Parse(master.GetValueOrDefault("RoomOverlap", "1")));
         var swap = (master.TryGetValue("SwapDungeonDoorsFrom", out var from) ? TerrainText.Resolve(masterPath, from) : null,
             master.TryGetValue("SwapDungeonDoorsTo", out var to) ? TerrainText.Resolve(masterPath, to) : null);

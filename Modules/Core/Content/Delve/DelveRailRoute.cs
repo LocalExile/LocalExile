@@ -2,11 +2,45 @@ using System.Text.Json;
 
 namespace GameServer.Modules.Delve;
 
-/// <summary>The first authored mine trip. Rail links come from room objects, never a path toward the player.</summary>
+/// <summary>A mine checkpoint connection. Rail links come from room objects, never a path toward the player.</summary>
 sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
 {
-    public sealed record Encounter(string Pack, int X, int Y);
+    public sealed record Encounter(string Pack, int X, int Y, int Room = -1, bool Destination = false);
     public IReadOnlyList<Encounter> Encounters { get; init; } = [];
+    public string Shape()
+    {
+        var trip = new DelveJourney(Points, 0);
+        var first = Points.Zip(Points.Skip(1), (a, b) => (X: b.X - a.X, Y: b.Y - a.Y)).First(d => d != (0, 0));
+        double angle = Math.Atan2(first.Y, first.X), cos = Math.Cos(angle), sin = Math.Sin(angle);
+        var shape = new List<int> { (int)Math.Round(trip.Length / 23) };
+        for (int i = 1; i <= 16; i++)
+        {
+            var p = trip.At(trip.Length * i / 16).At;
+            double x = p.X - Points[0].X, y = p.Y - Points[0].Y;
+            shape.Add((int)Math.Round((x * cos + y * sin) / 23));
+            shape.Add((int)Math.Round((y * cos - x * sin) / 23));
+        }
+        return "v1:" + string.Join(",", shape);
+    }
+    public static bool Similar(string a, string b)
+    {
+        if (a == b) return true;
+        if (!a.StartsWith("v1:", StringComparison.Ordinal) || !b.StartsWith("v1:", StringComparison.Ordinal)) return false;
+        var left = a[3..].Split(','); var right = b[3..].Split(',');
+        if (left.Length != 33 || right.Length != 33) return false;
+        var x = new int[33]; var y = new int[33];
+        for (int i = 0; i < 33; i++)
+            if (!int.TryParse(left[i], out x[i]) || !int.TryParse(right[i], out y[i])) return false;
+        if (Math.Abs((long)x[0] - y[0]) * 6 > Math.Max(x[0], y[0])) return false;
+        double normal = 0, reflected = 0;
+        for (int i = 1; i < 33; i += 2)
+        {
+            double dx = (double)x[i] - y[i], dy = (double)x[i + 1] - y[i + 1], mirror = (double)x[i + 1] + y[i + 1];
+            normal += dx * dx + dy * dy; reflected += dx * dx + mirror * mirror;
+        }
+        // Translation, rotation, mirroring and small bends must not disguise a substantially repeated journey.
+        return Math.Min(normal, reflected) / 16 <= 16;
+    }
     public static DelveRailRoute? Load(string area, uint seed, string folder = "data")
     {
         try { return LoadCore(area, seed, folder); }
@@ -21,14 +55,18 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
     {
         string graphFile = Path.Combine(folder, "delve-paths.json");
         string roomsFile = Path.Combine(folder, "walkability", $"{area}_seed{seed}.rooms.json");
-        if (!GameServer.Core.ClientTables.Exists(graphFile) || !File.Exists(roomsFile)) return null;
+        var generated = folder == "data" ? ServerLevels.For(area, seed) : null;
+        if (!GameServer.Core.ClientTables.Exists(graphFile) || generated is null && !File.Exists(roomsFile)) return null;
         using var graphs = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(graphFile));
-        using var rooms = JsonDocument.Parse(File.ReadAllBytes(roomsFile));
+        using var rooms = JsonDocument.Parse(generated is null ? File.ReadAllBytes(roomsFile)
+            : JsonSerializer.SerializeToUtf8Bytes(new { area, seed, rooms = generated.Rooms.Select(r => new {
+                path = r.Path, x = r.X, y = r.Y, width = r.Width, height = r.Height, code = r.Code }) }));
         var capture = rooms.RootElement;
         if (capture.GetProperty("area").GetString() != area || capture.GetProperty("seed").GetUInt32() != seed) return null;
         var nodes = new List<((int X, int Y) At, string Type, int Room)>();
         var links = new List<(int A, int B)>();
         var encounters = new List<Encounter>();
+        var checkpoints = new List<int>();
         int start = -1, end = -1, roomNumber = 0;
         var byPath = graphs.RootElement.GetProperty("rooms").EnumerateObject().ToDictionary(p => p.Name, p => p.Value, StringComparer.OrdinalIgnoreCase);
         foreach (var room in capture.GetProperty("rooms").EnumerateArray())
@@ -42,7 +80,7 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
             {
                 string name = spawn.GetProperty("Name").GetString()!;
                 var p = placement.Place(new(name, (int)Math.Round(spawn.GetProperty("X").GetSingle()), (int)Math.Round(spawn.GetProperty("Y").GetSingle())));
-                encounters.Add(new(name, p.X, p.Y));
+                encounters.Add(new(name, p.X, p.Y, roomNumber));
             }
             foreach (var node in graph.GetProperty("nodes").EnumerateArray())
             {
@@ -53,13 +91,26 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
                 nodes.Add(((p.X, p.Y), type, roomNumber));
                 if (type.Contains("/DelveNode", StringComparison.Ordinal))
                 {
-                    if (path.EndsWith("/entrance_up.arm", StringComparison.Ordinal)) start = index;
-                    if (path.EndsWith("/encounter_major_azurite_1_Q.arm", StringComparison.Ordinal)) end = index;
+                    if (path.Contains("/entrance_", StringComparison.Ordinal)) start = index;
+                    else if (path.Contains("/encounter_", StringComparison.Ordinal)) checkpoints.Add(index);
                 }
             }
             foreach (var link in graph.GetProperty("links").EnumerateArray())
                 if (indexes.TryGetValue(link[0].GetInt32(), out int a) && indexes.TryGetValue(link[1].GetInt32(), out int b)) links.Add((a, b));
             roomNumber++;
+        }
+        if (ServerLevels.DelveTerrain(seed) is { } terrain)
+        {
+            bool InCell(int i, (int X, int Y)? at) => at is { } p && nodes[i].At.X >= p.X && nodes[i].At.X < p.X + 25 * 23
+                && nodes[i].At.Y >= p.Y && nodes[i].At.Y < p.Y + 25 * 23;
+            start = checkpoints.Single(i => InCell(i, DelveTerrain.Anchor(terrain, false)));
+            end = checkpoints.Single(i => InCell(i, DelveTerrain.Anchor(terrain, true)));
+        }
+        else if (start >= 0 && checkpoints.Count > 0) end = checkpoints[^1];
+        else if (checkpoints.Count >= 2)
+        {
+            var ordered = checkpoints.OrderBy(i => DelveTerrain.Progress(seed, nodes[i].At)).ToArray();
+            start = ordered[0]; end = ordered[^1];
         }
         if (start < 0 || end < 0) return null;
         // The rooms overlap one tile (23 cells). Only authored endpoints may bridge that seam.
@@ -105,11 +156,16 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
                 previous[b] = a; distance[b] = next; queue.Enqueue(b, next);
             }
         }
-        if (!double.IsFinite(distance[end])) return null;
+        if (!double.IsFinite(distance[end]))
+        {
+            Console.WriteLine($"[gateway] Delve rail graph disconnected: seed {seed}, {nodes.Count} nodes, from {nodes[start].At} to {nodes[end].At}");
+            return null;
+        }
         var points = new List<(int X, int Y)>();
         for (int i = end; i >= 0; i = previous[i]) points.Add(nodes[i].At);
         points.Reverse();
-        return new(points) { Encounters = encounters };
+        return new(points) { Encounters = encounters.Where(e => seed == 1 || e.Room != nodes[start].Room)
+            .Select(e => e with { Destination = e.Room == nodes[end].Room && Distance((e.X, e.Y), nodes[end].At) <= 60 }).ToArray() };
     }
 
     internal static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
@@ -117,10 +173,11 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
     static List<(int X, int Y)>? Sleeve(string area, uint seed, (int X, int Y) a, (int X, int Y) b, string folder)
     {
         string prefix = Path.Combine(folder, "walkability", $"{area}_seed{seed}");
-        if (!File.Exists(prefix + ".bin") || !File.Exists(prefix + ".json")) return null;
-        using var meta = JsonDocument.Parse(File.ReadAllBytes(prefix + ".json"));
-        int w = meta.RootElement.GetProperty("w").GetInt32(), h = meta.RootElement.GetProperty("h").GetInt32();
-        var cells = File.ReadAllBytes(prefix + ".bin");
+        var generated = folder == "data" ? ServerLevels.For(area, seed) : null;
+        if (generated is null && (!File.Exists(prefix + ".bin") || !File.Exists(prefix + ".json"))) return null;
+        using var meta = generated is null ? JsonDocument.Parse(File.ReadAllBytes(prefix + ".json")) : null;
+        int w = generated?.Width ?? meta!.RootElement.GetProperty("w").GetInt32(), h = generated?.Height ?? meta!.RootElement.GetProperty("h").GetInt32();
+        var cells = generated?.Walk ?? File.ReadAllBytes(prefix + ".bin");
         if (w <= 0 || h <= 0 || cells.LongLength != (long)w * h) return null;
         var previous = new Dictionary<(int X, int Y), (int X, int Y)> { [a] = a };
         var queue = new Queue<(int X, int Y)>(); queue.Enqueue(a);
@@ -131,7 +188,17 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
                 var path = new List<(int X, int Y)> { b };
                 while (p != a) { p = previous[p]; path.Add(p); }
                 if (path.Count > 500) return null;
-                path.Reverse(); return path;
+                path.Reverse();
+                // A four-neighbour search makes diagonal sleeves into one-cell zigzags. Keep only clear straight
+                // sections so the Crawler does not turn 90 degrees at every grid cell or slow at artificial knots.
+                var smooth = new List<(int X, int Y)> { path[0] };
+                for (int i = 0; i < path.Count - 1;)
+                {
+                    int j = path.Count - 1;
+                    while (j > i + 1 && !Clear(path[i], path[j])) j--;
+                    smooth.Add(path[j]); i = j;
+                }
+                return smooth;
             }
             foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
             {
@@ -144,5 +211,20 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
             }
         }
         return null;
+
+        bool Clear((int X, int Y) from, (int X, int Y) to)
+        {
+            int steps = Math.Max(Math.Abs(to.X - from.X), Math.Abs(to.Y - from.Y)) * 2;
+            var last = from;
+            bool Open(int x, int y) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= 5;
+            for (int k = 1; k <= steps; k++)
+            {
+                int x = (int)Math.Round(from.X + (to.X - from.X) * (double)k / steps);
+                int y = (int)Math.Round(from.Y + (to.Y - from.Y) * (double)k / steps);
+                if (!Open(x, y) || x != last.X && y != last.Y && (!Open(x, last.Y) || !Open(last.X, y))) return false;
+                last = (x, y);
+            }
+            return true;
+        }
     }
 }
