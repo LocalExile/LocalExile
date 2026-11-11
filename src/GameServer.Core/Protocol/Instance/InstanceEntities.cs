@@ -628,6 +628,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init; }
+    /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
+    public bool HasDialogue { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -700,7 +702,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
                 // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
                 // no component that must be alive (+0x21 0xff), 17-npcs.md.
-                case "NPC": w.U8(0).U8(0xff); break;
+                case "NPC": w.U8(HasDialogue ? (byte)1 : (byte)0).U8(0xff); break;
                 // 0x141e218a0: u8 flags (bit 2 adds a u8 and a u16); 0, as NpcObject and AreaTransitionObject write it.
                 case "InteractionAction": w.U8(0); break;
                 // Timer (0x1435ab790): slot 17 is `ret`, nothing to write.
@@ -821,6 +823,8 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
 public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 {
     public const string TypePath = "Metadata/Effects/PermanentServerEffect";
+    /// <summary>World facing for effects whose mesh contains an oriented area or beam.</summary>
+    public float Rotation { get; init; }
     const string RootBone = "<root>";
     // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5f300).
     // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
@@ -875,7 +879,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         var w = new BlobWriter();
         bool scaled = Scale != 1;
         w.U8(0).U8(0);                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
         if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native animation fields
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
         w.U8(0).U8(1);
