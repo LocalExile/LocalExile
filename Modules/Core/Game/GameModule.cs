@@ -26,6 +26,9 @@ public sealed class GameModule : IModule
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DepravedTrinity.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DepravedTrinity.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DepravedTrinity.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::KitavaActFive.Tick(conn));
+        module.Lifetime.Own(global::KitavaActFive.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActFive.Leaving(conn));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);

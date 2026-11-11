@@ -394,6 +394,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   raise both named elements; the two Kitava quest penalties (-30% each) are mirrored from quest flags, and the final value
   uses Path of Building's floor -200 / default max 75 / absolute cap 90 (`DamageModel`);
   used by Righteous Fire's self-burn and `/hit`; `/resistances` shows modifier, penalty and final.
+  The character panel refreshes the capped and uncapped values immediately when either earned penalty changes.
   Code: `CharacterStats.cs`, `DamageModel.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §12.
 - Spell Suppression: the passive `base_spell_suppression_chance_%` is capped at 100% and a successful suppress takes
