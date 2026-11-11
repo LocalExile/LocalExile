@@ -39,7 +39,7 @@ public static partial class Game
             m.Life = (uint)Math.Max(0, (long)m.Life - burning);
             if (burning > 0) conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             if (!g.Burns.Burning && g.Burns.Buff is ushort old)
-            { conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(g.Id, old), null)); g.Burns.Buff = null; }
+            { conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(g.Id, old), null, WorldId: g.Id)); g.Burns.Buff = null; }
             if (m.Life == 0) { GolemDieLocked(conn, g, now); return; }
         }
         GolemHazardsLocked(remote, stream, ciphers, conn, g, now);
@@ -75,7 +75,7 @@ public static partial class Game
             m.Walk = conn.NewMonsterWalk(g.Id, at.X, at.Y, m.Mods.Effects.MovementSpeed(m.Variety!.MovementSpeed)
                 * MonsterSpeedRoll.Factor(m.SpeedRoll), LivingCollision.Size(m), false);
             m.ActionGeneration++; m.LastTarget = null;
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, at.X, at.Y), "golem follows owner", g.Id, m, WorldId: g.Id));
             return;
         }
         if (InTown(conn)) { GolemFollowLocked(conn, g, owner, now); return; }
@@ -150,7 +150,7 @@ public static partial class Game
         conn.Minions.OutputQueue.Add(new([], $"golem {g.Id:x} uses {ability.Id}", g.Id, m, PlayerMinions.OutputKind.GolemAction, Action: generation));
     }
 
-    static byte[]? GolemActionPresentation(ClientState conn, PlayerMinions.Output output)
+    static byte[][]? GolemActionRecords(ClientState conn, PlayerMinions.Output output)
     {
         if (output.TargetId is not uint id || OwnedFighter(conn, id) is not { } g || !GolemCurrent(conn, g)
             || g.Monster.Dead || g.Pending is not { Started: false } pending || pending.Generation != output.Action
@@ -173,7 +173,7 @@ public static partial class Game
             ? InstanceProtocol.InstantAction(id, a.Skill, pending.Aim.X, pending.Aim.Y)
             : InstanceProtocol.ActionStarted(id, from.X, from.Y, pending.Aim.X, pending.Aim.Y, a.Skill,
                 0xffff, 0x0408, targetObjectId: pending.Target == 0 ? null : pending.Target);
-        return [.. InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(conn, g.Monster.Level, [a]), []), .. action];
+        return [InstanceEntities.PlayerSkillsChange(id, GolemNativeSkills(conn, g.Monster.Level, [a]), []), action];
     }
 
     static void GolemFollowLocked(ClientState conn, GolemState.Golem g, (int X, int Y) owner, double now)
@@ -197,7 +197,7 @@ public static partial class Game
         m.LastTarget = to; g.NextMove = now + .5; int generation = ++m.ActionGeneration;
         m.Walk.Order(to.X, to.Y, now);
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(g.Id, from.X, from.Y, to.X, to.Y,
-            0x2909, conn.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation));
+            0x2909, conn.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation, WorldId: g.Id));
     }
 
     static void GolemAbilityContactLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -209,7 +209,7 @@ public static partial class Game
             if (conn.Layout.WalkableFor(action.Aim.X, action.Aim.Y, LivingCollision.Size(g.Monster)))
             {
                 g.Monster.Walk = conn.NewMonsterWalk(g.Id, action.Aim.X, action.Aim.Y, g.Monster.Walk.Speed, LivingCollision.Size(g.Monster), false);
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, action.Aim.X, action.Aim.Y), null, g.Id, g.Monster));
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, action.Aim.X, action.Aim.Y), null, g.Id, g.Monster, WorldId: g.Id));
             }
             // GA is the ultimate's contact payload, not an independently animated GroundSlam action on the reaper rig.
             GolemAbilityContactLocked(remote, stream, ciphers, conn, g,
@@ -232,8 +232,8 @@ public static partial class Game
         {
             uint obj = conn.NextObjectId++;
             var orb = new EffectObject(action.Aim.X, action.Aim.Y, "Metadata/Effects/Spells/monsters_effects/lightning_elemental/orb/orb.ao");
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), orb.Blob()), "lightning golem orb"));
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), orb.Blob()), "lightning golem orb", WorldId: obj, CreatesObject: true));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
             g.Hazards.Add(new(a.Effect, action.Aim, now + 8, 40, 0, DamageType.Lightning) { LastAt = now, Object = obj }); return;
         }
         if (a.Projectile is not null)
@@ -266,7 +266,7 @@ public static partial class Game
             if (conn.Layout.WalkableFor(end.X, end.Y, Math.Max(0, LivingCollision.Size(g.Monster))))
             {
                 g.Monster.Walk = conn.NewMonsterWalk(g.Id, end.X, end.Y, g.Monster.Walk.Speed, LivingCollision.Size(g.Monster), false);
-                conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, end.X, end.Y), null, g.Id, g.Monster));
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.Teleport(g.Id, end.X, end.Y), null, g.Id, g.Monster, WorldId: g.Id));
                 centre = end;
             }
         }
@@ -351,7 +351,7 @@ public static partial class Game
         if (hit.StageStarts)
         { CommitBossStage(remote, stream, ciphers, conn, id, target, now); hit = hit with { StageStarts = false }; }
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(g.Id, 0xffff, id, flags: (ushort)(0x4601 | (critical ? 0x20 : 0)), kind: 2,
-            u34: 450), null, id, target));
+            u34: 450), null, id, target, WorldId: g.Id));
         CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}");
         if (!target.Dead)
         {
@@ -434,7 +434,7 @@ public static partial class Game
             }
             if (now >= hazard.Until)
             {
-                if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null));
+                if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true));
                 g.Hazards.Remove(hazard);
             }
         }

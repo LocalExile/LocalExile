@@ -250,7 +250,7 @@ static partial class SurvivorsRunRules
                 if (conn.Layout.GridW > 0 && (x < 0 || y < 0 || x >= conn.Layout.GridW || y >= conn.Layout.GridH)) continue;
                 if (!conn.Layout.WalkableFor(x, y, 0) || conn.Barrier.Contains((x, y))) continue;
                 lock (conn.Monsters) boss.Walk.Teleport(x, y, now);
-                await Send(remote, stream, ciphers, InstanceProtocol.Teleport(bossId, x, y),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, bossId, InstanceProtocol.Teleport(bossId, x, y),
                     $"0x0054 survivors boss {kit.Name} blinks to ({x}, {y})");
                 return;
             }

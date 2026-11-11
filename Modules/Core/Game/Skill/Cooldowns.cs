@@ -111,8 +111,11 @@ public static partial class Game
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => skillId is ushort id ? g.Id == id : g.Effect == effect);
         if (gem.Name is null || gem.Effect != effect) return null;
-        return CooldownBypass.Charge(SkillsFor(conn).CooldownBypassType(effect, gem.Level),
-            GolemStat(SupportedSkill(conn, gem.Id).Stats, CooldownBypass.PowerOverride) != 0);
+        int type = SkillsFor(conn).CooldownBypassType(effect, gem.Level);
+        bool power = GolemStat(SupportedSkill(conn, gem.Id).Stats, CooldownBypass.PowerOverride) != 0
+            || CooldownBypass.FlickerVigilantOverride(SkillsFor(conn).EffectId(effect), type)
+                && GolemStat(CharacterPlayerStats(conn), CooldownBypass.FlickerVigilantPowerOverride) != 0;
+        return CooldownBypass.Charge(type, power);
     }
 
     public static void RefreshSingleUseCooldowns(ClientState conn)

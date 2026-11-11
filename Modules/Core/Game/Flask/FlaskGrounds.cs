@@ -53,8 +53,8 @@ public static partial class Game
         var effect = new EffectObject(at.X, at.Y, art.Ao) { Flags0 = EffectObject.FixedRotation, Scale = scale };
         var packets = Automation(conn).Packets;
         packets.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
-            $"0x02bb create effect 0x{obj:x} {art.Ao} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}"));
-        packets.Add(InstanceProtocol.EnterWakeZone(obj));
+            $"0x02bb create effect 0x{obj:x} {art.Ao} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}", WorldId: obj, CreatesObject: true));
+        packets.Add(new(InstanceProtocol.EnterWakeZone(obj), WorldId: obj));
         return obj;
     }
 
@@ -71,7 +71,7 @@ public static partial class Game
             var pending = Automation(conn);
             foreach (var ground in state.Expire(now))
                 if (ground.Object is uint obj) pending.Packets.Add(new(InstanceProtocol.RemoveObject(obj),
-                    $"0x02bd remove effect 0x{obj:x} ({ground.Kind} ends)"));
+                    $"0x02bd remove effect 0x{obj:x} ({ground.Kind} ends)", WorldId: obj, RemovesObject: true));
             foreach (uint gone in state.BlindedMonsters().Except(conn.Monsters.Keys)) state.SetBlinded(gone, false, () => 0);
             foreach (uint gone in state.ProfaneMonsters().Except(conn.Monsters.Keys))
                 state.SetProfane(gone, false, false, now, () => 0);
@@ -83,20 +83,20 @@ public static partial class Game
                     pending.Packets.Add(new(change.Added
                         ? InstanceEntities.AddBuff(id, change.Buff, FlaskGrounds.BlindedBuffRow, PlayerId)
                         : InstanceEntities.RemoveBuff(id, change.Buff),
-                        $"0x{(change.Added ? "01c1" : "01c2")} monster 0x{id:x} {(change.Added ? "blinded in the smoke cloud" : "no longer blinded")}"));
+                        $"0x{(change.Added ? "01c1" : "01c2")} monster 0x{id:x} {(change.Added ? "blinded in the smoke cloud" : "no longer blinded")}", WorldId: id));
                 bool aliveMonster = monster.Hostile && !monster.Dead && monster.Life > 0;
                 bool inProfane = aliveMonster && state.Covers(FlaskGrounds.Kind.ProfaneGround, monster.Walk.Position(now));
                 if (state.SetProfane(id, inProfane, aliveMonster, now, () => conn.NextBuff++) is { } profane)
                     pending.Packets.Add(new(profane.Added
                         ? InstanceEntities.AddBuff(id, profane.Buff, FlaskGrounds.ProfaneBuffRow, PlayerId)
                         : InstanceEntities.RemoveBuff(id, profane.Buff),
-                        $"profane ground monster 0x{id:x}: {profane.Added}"));
+                        $"profane ground monster 0x{id:x}: {profane.Added}", WorldId: id));
             }
             bool alive = conn.PlayerLife > 0;
             var here = conn.Walk.Position(now);
             var (stale, make) = state.Stationary(alive && !conn.Walk.Moving(now) && !InTown(conn), here);
             if (stale?.Object is uint old) pending.Packets.Add(new(InstanceProtocol.RemoveObject(old),
-                $"0x02bd remove effect 0x{old:x} (stationary consecrated ground)"));
+                $"0x02bd remove effect 0x{old:x} (stationary consecrated ground)", WorldId: old, RemovesObject: true));
             if (make > 0) state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
                 double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make)));
             if (state.SetConsecrated(state.OnConsecrated(alive, here, now), () => conn.NextBuff++) is { } consecrated)
@@ -104,7 +104,7 @@ public static partial class Game
                 pending.Packets.Add(new(consecrated.Added
                     ? InstanceEntities.AddBuff(PlayerId, consecrated.Buff, FlaskGrounds.ConsecratedBuffRow, PlayerId)
                     : InstanceEntities.RemoveBuff(PlayerId, consecrated.Buff),
-                    $"0x{(consecrated.Added ? "01c1" : "01c2")} player {(consecrated.Added ? "on" : "off")} consecrated ground"));
+                    $"0x{(consecrated.Added ? "01c1" : "01c2")} player {(consecrated.Added ? "on" : "off")} consecrated ground", WorldId: PlayerId));
                 pending.StatRevision++;
             }
             state.StopTickerIfIdle();

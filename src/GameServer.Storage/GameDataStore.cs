@@ -20,7 +20,7 @@ public sealed class GameDataStore : IDisposable
         int DropLevel, bool Enabled, string Confidence, string Source, string? Notes);
     public sealed record BossRow(string BossId, string BossName, string? AreaId, string Category, bool Enabled);
     public sealed record BossItemRow(string BossId, string ItemId, string ItemKind, double? Chance,
-        string Confidence, string Source, string? Notes);
+        string Confidence, string Source, string? Notes, double? OverrideChance = null);
     public sealed record CardAreaRow(string AreaId, string AreaName, string CardId, int MinMapTier, string Source);
     public sealed record CardSourceRow(string CardId, string SourceKind, string SourceId, int? MinMapTier,
         int DropLevel, string Confidence, string Source, string? Notes);
@@ -204,15 +204,17 @@ public sealed class GameDataStore : IDisposable
         lock (_gate)
         {
             using var command = Command("""
-                SELECT boss_id, item_id, item_kind, chance, confidence, source, notes
-                FROM drop_boss_items ORDER BY boss_id, item_kind, item_id
+                SELECT d.boss_id, d.item_id, d.item_kind, d.chance, d.confidence, d.source, d.notes, o.chance
+                FROM drop_boss_items AS d LEFT JOIN encounter_jewel_drop_overrides AS o
+                  ON d.boss_id = o.boss_id AND d.item_id = o.item_id
+                ORDER BY d.boss_id, d.item_kind, d.item_id
                 """);
             using var reader = command.ExecuteReader();
             var rows = new List<BossItemRow>();
             while (reader.Read())
                 rows.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2),
                     reader.IsDBNull(3) ? null : reader.GetDouble(3), reader.GetString(4), reader.GetString(5),
-                    reader.IsDBNull(6) ? null : reader.GetString(6)));
+                    reader.IsDBNull(6) ? null : reader.GetString(6), reader.IsDBNull(7) ? null : reader.GetDouble(7)));
             return rows;
         }
     }

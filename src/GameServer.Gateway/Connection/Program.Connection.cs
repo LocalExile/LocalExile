@@ -365,6 +365,7 @@ public partial class Program
     /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
     /// clients); it must copy what it keeps.</summary>
     public static Action<ConnectionCiphers, byte[]>? Outgoing;
+    [ThreadStatic] public static WorldOutput.Packet? WritingWorldRecord;
 
     // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
     // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
@@ -400,23 +401,8 @@ public partial class Program
             }
             // Nothing to send (a sync with no change): nothing written, nothing in the history.
             if (bytes.Length == 0) return;
-            if (log is not null)
-            {
-                string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
-                // Explicit traces retain synchronous output; normal summaries cannot stall the wire on disk IO.
-                if (ServerTrace.Packets) Console.WriteLine(line);
-                else PacketSummaries.Value.Write(line);
-            }
-            if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
-                Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
-            HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
-            sentId = (ushort)(bytes[0] << 8 | bytes[1]);   // Temporary lag instrumentation: the id, read before Write encrypts it
-            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
-            if (Outgoing is { } outgoing) outgoing(ciphers, bytes);
-            string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
-                ? Convert.ToHexString(bytes) : null;
-            await Write(stream, ciphers, bytes);
-            if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
+            sentId = (ushort)(bytes[0] << 8 | bytes[1]);
+            await WritePacket(remote, stream, ciphers, bytes, log);
         }
         finally
         {
@@ -433,6 +419,31 @@ public partial class Program
                     + (log is null ? " at=" + string.Join(" <- ", new StackTrace(1, false).GetFrames()
                         .Take(4).Select(frame => frame.GetMethod()?.Name ?? "?")) : ""));
         }
+    }
+
+    // Called under SendGate. Diagnostics and the shared-object observer see actual transmission, not queueing.
+    public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        byte[] bytes, string? log, WorldOutput.Packet? record = null)
+    {
+            if (log is not null)
+            {
+                string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
+                // Explicit traces retain synchronous output; normal summaries cannot stall the wire on disk IO.
+                if (ServerTrace.Packets) Console.WriteLine(line);
+                else PacketSummaries.Value.Write(line);
+            }
+            if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
+                Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
+            HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
+            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
+            var previousRecord = WritingWorldRecord;
+            WritingWorldRecord = record;
+            try { if (Outgoing is { } outgoing) outgoing(ciphers, bytes); }
+            finally { WritingWorldRecord = previousRecord; }
+            string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
+                ? Convert.ToHexString(bytes) : null;
+            await Write(stream, ciphers, bytes);
+            if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
     }
 
     // A run of sends that each would take the send gate on their own (the player tick's eleven state publications: Antiquarian,

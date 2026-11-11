@@ -26,7 +26,7 @@ public static partial class Game
             int generation = ++enemy.ActionGeneration; enemy.LastTarget = to;
             enemy.Walk.Order(aim.Item1, aim.Item2, now);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(id, here.X, here.Y, aim.Item1, aim.Item2,
-                0x2909, conn.NextActionSequence(), 0x0408), null, id, enemy, Action: generation));
+                0x2909, conn.NextActionSequence(), 0x0408), null, id, enemy, Action: generation, WorldId: id));
             return true;
         }
         int action = ++enemy.ActionGeneration;
@@ -137,14 +137,14 @@ public static partial class Game
                 : IgniteIncreases.Contains(n) ? 0 : source.Effects[n];
             if (IgniteFromHit(fire, critical, IgniteStat, 1, m, Random.Shared) is { } ignite && g.Burns.Add(now, ignite.DamagePerSecond, ignite.RemainingSeconds))
             {
-                if (g.Burns.Buff is ushort old) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(g.Id, old), null));
+                if (g.Burns.Buff is ushort old) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(g.Id, old), null, WorldId: g.Id));
                 g.Burns.Buff = conn.NextBuff++;
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(g.Id, g.Burns.Buff.Value, IgnitedBuffRow, attacker,
-                    u68: BitConverter.SingleToUInt32Bits((float)ignite.RemainingSeconds)), null));
+                    u68: BitConverter.SingleToUInt32Bits((float)ignite.RemainingSeconds)), null, WorldId: g.Id));
             }
         }
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
-            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m));
+            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m, WorldId: attacker));
         conn.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
         if (m.Life == 0) GolemDieLocked(conn, g, now);
         else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)
@@ -165,7 +165,7 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
-        foreach (var hazard in g.Hazards) if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null));
+        foreach (var hazard in g.Hazards) if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true));
         g.Hazards.Clear(); g.Pulses.Clear(); g.Burns.Clear();
         // Local gameplay rule: a successfully activated golem returns after two game seconds while its source remains valid.
         g.ReviveAt = g.Definition.IsGolem ? now + 2 : double.PositiveInfinity;

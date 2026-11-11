@@ -87,7 +87,7 @@ public static partial class Game
                 conn.Minions.Remove(minion.Id);
                 if (minion.OwnerBuff != 0)
                 {
-                    conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff), "minion owner aura ends"));
+                    conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, minion.OwnerBuff), "minion owner aura ends", WorldId: PlayerId));
                     aurasChanged = true;
                 }
                 if (!current) continue;
@@ -100,7 +100,7 @@ public static partial class Game
                 }
                 m.Aggro = false; m.Dead = true; m.Life = 0;
                 conn.Minions.Bodies.Add((minion.Id, m, now + 1));
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]), "minion ends", minion.Id, m));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(minion.Id, [(StatKeys.HideMiniLifeBar, 1)]), "minion ends", minion.Id, m, WorldId: minion.Id));
                 conn.Minions.OutputQueue.Add(new([], "minion life 0", minion.Id, m, PlayerMinions.OutputKind.Life));
             }
             if (linksEnded) { LinksChangedLocked(conn); aurasChanged = true; }

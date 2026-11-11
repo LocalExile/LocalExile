@@ -128,12 +128,14 @@ public sealed partial class InstanceState
         lock (_transitioned) return transitioned ? _transitioned.Add((type, x, y)) : _transitioned.Remove((type, x, y));
     }
 
-    public uint? PlaceTutorialItem(string key, WorldItemObject item)
+    public uint? PlaceTutorialItem(string key, WorldItemObject item, ClientState recipient)
     {
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(key, out var placed) && Ground.Get(placed.Id) is not null) return null;
-            uint id = Ground.Add(item);
+            // The initial recipient gets its create from the tutorial transaction. Shared-ground sync must not
+            // create the same awake object again (the native object table reports that replacement at 0x141ec6010).
+            uint id = Ground.Add(item, recipient);
             _startWeapons[key] = (id, item.Item);
             return id;
         }
