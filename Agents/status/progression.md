@@ -144,8 +144,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
   item source and client conversion are present (`/radius_jewel Lioneye's Fall`), but its server flag model is missing.
-  Inspired Learning and Warrior's Tale remain inactive; the missing layers are the melee/weapon flag model, the
-  rare-mod steal, tattoos and the skill-specific threshold consumers. The socket/save path,
+  Warrior's Tale scales tattoo stats within its socket radius. Grand Spectrum rolls one of three current variants
+  per base and scales by the total equipped across bases (limit three). Inspired Learning's rare-mod steal, the melee
+  weapon conversion and skill-specific threshold consumers remain partial. The socket/save path,
   `PassiveTree.NodesInRadius`/`NodesInRing`, the timeless per-node pattern and the art table are reused. The radius
   suite has 98 tests.
 

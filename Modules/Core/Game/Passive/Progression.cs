@@ -240,6 +240,21 @@ public static partial class Game
             if (tree.Find(node) is { } passive)
                 nodeStats[node] = passive.IsAscendancy && selectedDefinition is not null
                     ? AscendancyPolicies.NodeStats(conn, selectedDefinition, node, passive.Stats) : passive.Stats;
+        var radiusJewels = treeJewels
+            .Where(i => Passives.ClusterNodeForSlot(i.X) is null)
+            .Select(i => (Socket: tree.JewelNodeForSlot(i.X), Conversion: RadiusJewelCatalogue.ReadConversion(i.Item, catalog.Mods)))
+            .Where(x => x.Socket is not null && x.Conversion is not null)
+            .OrderBy(x => x.Socket)
+            .Select(x => (Socket: x.Socket!.Value, Conversion: x.Conversion!))
+            .ToList();
+        var tattooEffect = new Dictionary<ushort, int>();
+        foreach (var (socket, conversion) in radiusJewels)
+            if (conversion.TattooEffectPct != 0)
+                foreach (ushort node in tree.NodesInRadius(socket, conversion.Radius))
+                    if (tattoos.ContainsKey(node))
+                        tattooEffect[node] = tattooEffect.GetValueOrDefault(node) + conversion.TattooEffectPct;
+        IReadOnlyList<(uint Key, int Value)> TattooEffect(ushort node, IReadOnlyList<(uint Key, int Value)> stats) =>
+            tattooEffect.TryGetValue(node, out int pct) ? ScaleStats(stats, pct) : stats;
         // An applied tattoo replaces the allocated passive's stats. A timeless jewel that replaces the node still
         // wins (the tattoo is disabled); an augmenting timeless jewel adds its stats to the tattoo stats.
         // Makanga/Honoured Makanga tattoos are conditional on the number of allocated direct neighbours: when the
@@ -260,7 +275,8 @@ public static partial class Game
                     bool tattooActive = entry.RequiresAdjacent > 0
                         ? adjacent >= entry.RequiresAdjacent
                         : entry.MaxAdjacent <= 0 || adjacent <= entry.MaxAdjacent;
-                    nodeStats[node] = tattooActive ? tattooStats : [];
+                    nodeStats[node] = !tattooActive ? [] : name == "Journey Tattoo of Makanui"
+                        ? tattooStats : TattooEffect(node, tattooStats);
                 }
         var conquered = new HashSet<ushort>();
         if (timeless.Spec is { } timelessSpec)
@@ -280,13 +296,6 @@ public static partial class Game
         // passive additions and resistance additions; Might of the Meek's effect/suppression are collected here and
         // applied after the pass; the second pass computes the per-node scaling from the resulting stats. A passive
         // conquered by a timeless jewel is left alone, matching the client.
-        var radiusJewels = items.Items(PlayerInventories.PassiveJewels)
-            .Where(i => Passives.ClusterNodeForSlot(i.X) is null)
-            .Select(i => (Socket: tree.JewelNodeForSlot(i.X), Conversion: RadiusJewelCatalogue.ReadConversion(i.Item, catalog.Mods)))
-            .Where(x => x.Socket is not null && x.Conversion is not null)
-            .OrderBy(x => x.Socket)
-            .Select(x => (Socket: x.Socket!.Value, Conversion: x.Conversion!))
-            .ToList();
 
         // The first pass matches Path of Building's "Other" radius jewels: conversions, notable replacements,
         // passive additions and resistance-scaled additions. Might of the Meek's effect and suppression are
@@ -391,7 +400,7 @@ public static partial class Game
             if (suppressedNotables.Contains(node)) return [];
             // Unnatural Instinct grants a tattoo on an unallocated small passive, not the original passive.
             var stats = tattoos.TryGetValue(node, out string? tattooName) && TattooStats.For(tattooName) is { } tattoo
-                ? tattoo : passive.Stats;
+                ? TattooEffect(node, tattoo) : passive.Stats;
             return effectPct.TryGetValue(node, out int pct) && pct != 0 && !passive.IsKeystone
                 ? ScaleStats(stats, pct) : stats;
         }
@@ -442,7 +451,7 @@ public static partial class Game
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             }
         }
-        foreach (var (key, value) in TattooCountingStats(tattoos, allocated))
+        foreach (var (key, value) in TattooCountingStats(tattoos, allocated, tattooEffect))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in scalingStats)
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
@@ -596,6 +605,7 @@ public static partial class Game
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
+        GrandSpectrum.Apply(sources, Stats);
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);

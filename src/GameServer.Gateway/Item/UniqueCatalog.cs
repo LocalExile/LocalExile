@@ -112,6 +112,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
+        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } variant)
+            definition = definition with { Mods = [variant] };
         var mods = item.Mods.ToList();
         if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
         {
