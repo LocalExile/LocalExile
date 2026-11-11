@@ -8,7 +8,7 @@ static partial class Game
         bool Current(IModuleLifetime? owner = null) => rules is { IsActive: true }
             && ReferenceEquals(CombatLifetime, rules) && CurrentGameRules && !conn.Closed && !conn.RageRetired
             && conn.PlayerSent && !conn.LeavingArea && !conn.Paused && conn.PlayerLife > 0
-            && !HardcoreProgressBlocked(conn) && (owner?.IsActive ?? true);
+            && !HardcoreProgressBlocked(conn) && GameEvents.AllowsLoot(conn) && (owner?.IsActive ?? true);
 
         bool Visible(uint id)
         {

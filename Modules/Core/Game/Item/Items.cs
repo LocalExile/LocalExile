@@ -614,10 +614,8 @@ public static partial class Game
         conn.Instance.Ground.Observe(conn);
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
-            conn.SeenGround.Add(id);
-            await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
                 $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
-            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         }
     }
 
@@ -720,9 +718,8 @@ public static partial class Game
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
-        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+        await SendGroundItem(remote, stream, ciphers, conn, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
-        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
     }
 
     // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
@@ -736,9 +733,8 @@ public static partial class Game
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item) { PlayerDropped = true };
         uint id = conn.Instance.Ground.Add(ground, conn);
-        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-            $"0x02bb create world item 0x{id:x} at ({x}, {y})");
-        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
+        await SendGroundItem(remote, stream, ciphers, conn, id, ground,
+            $"0x02bb create world item 0x{id:x} at ({x}, {y})", justDropped: true);
     }
 
     // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
@@ -842,15 +838,36 @@ public static partial class Game
 
     public static bool IsGold(WorldItemObject ground) => Items.ByHash(ground.Item.TypeHash)?.Class == ItemDrops.GoldClass;
 
+    internal static async Task PickUpNearbyGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0
+            || !GameEvents.AllowsLoot(conn)) return;
+        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        foreach (var (id, gold) in conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold))
+        {
+            await PickUpGold(remote, stream, ciphers, conn, id, gold, "auto-looted");
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
+        }
+    }
+
     // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory.
     public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
-        GroundPickup? pickup;
-        lock (conn.Monsters)
+        await Send(remote, stream, ciphers, [], $"gold 0x{id:x} {how} (+{ground.Item.StackSize})", atGate: () =>
         {
-            if (HardcoreProgressBlocked(conn) || (pickup = TakeGroundStack(conn, id, ground)) is null) return;
-        }
-        await SendPickup(remote, stream, ciphers, conn, id, pickup);
+            lock (conn.Monsters)
+            {
+                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused
+                    || HardcoreProgressBlocked(conn) || !GameEvents.AllowsLoot(conn) || !IsGold(ground)) return null;
+                if (how == "auto-looted" && Dist(conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds), (ground.GridX, ground.GridY))
+                    > SystemSettings.Default.GoldAutoLootRadius) return null;
+                var (by, shared) = conn.Instance.Ground.Origin(id);
+                if (!shared && !ReferenceEquals(by, conn)) return null;
+                if (TakeGroundStack(conn, id, ground) is not { } pickup) return null;
+                conn.SeenGround.Remove(id);
+                return [.. InstanceProtocol.RemoveObject(id), .. pickup.Update];
+            }
+        });
     }
 
     sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
