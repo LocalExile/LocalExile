@@ -87,21 +87,22 @@ public static class ClusterJewelLayout
         // of it, whatever the jewel's own size.
         bool compressed = cellSize != 2;
 
+        int Offset(int index)
+        {
+            int position = ((index + start) % total + total) % total;
+            return compressed ? position / 2 : position;
+        }
+        // A single-keystone small cluster creates its only node at index zero, rotated by the cell start.
+        if (size == 0 && keystones == 1 && nodes == 1)
+            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, []);
+
         var kinds = new Dictionary<int, Kind>();
         var orders = new Dictionary<int, int>();
         void Put(int index, Kind kind, int order = -1)
         {
-            int position = ((index + start) % total + total) % total;
-            int offset = compressed ? position / 2 : position;
+            int offset = Offset(index);
             kinds[offset] = kind;
             if (order >= 0) orders[offset] = order;
-        }
-
-        // A single-keystone small cluster creates its only node at template index 0, rotated by the cell start.
-        if (size == 0 && keystones == 1 && nodes == 1)
-        {
-            Put(0, Kind.Keystone);
-            return new Layout(block, compressed ? total / 2 : total, kinds, orders);
         }
 
         if (treeSocket)
