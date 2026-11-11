@@ -19,6 +19,9 @@ static class TestEnvironment
                     GameServer.Storage.SqlUpdater.Update(GameServer.Core.ClientTables.DefaultPath, "client", log: _ => { });
                     // The game content (settings, catalogues, drop tables) from a scratch world.db, as the Gateway opens its own.
                     GameData.Open(ScratchWorld);
+                    // A test that loads a character's inventories expects a save store; the test order is not stable, so
+                    // open the scratch one before any test and let ReleaseSaves return to it.
+                    Saves.Open(ScratchSaves);
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout.");
