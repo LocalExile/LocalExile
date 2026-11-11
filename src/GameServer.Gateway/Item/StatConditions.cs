@@ -108,6 +108,7 @@ public static class StatConditions
         "_if_changed_stance_recently", "_while_changed_stance_recently",
         "_if_you_have_cat_aspect", "_while_you_have_cat_aspect", "_while_have_cat_aspect",
         "_if_you_have_cats_stealth", "_while_you_have_cats_stealth", "_while_have_cats_stealth",
+        "_while_you_have_cat_stealth",
         "_if_you_have_cats_agility", "_while_you_have_cats_agility", "_while_have_cats_agility",
         // The item mods spell the same life/mana states with "when" rather than "while" (Lioneye's Paws, Daresso's
         // Salute, Infernal Mantle); ConditionalItemPools publishes both keys for the same state.
@@ -121,9 +122,12 @@ public static class StatConditions
     static readonly string[] SlotConditionSuffixes =
         ["_while_off_hand_is_empty", "_while_off_hand_empty", MagicRingCondition, MagicItemCondition, NormalItemCondition];
 
-    static string? StateSuffix(string statId) => StateSuffixes.FirstOrDefault(s =>
-        statId.EndsWith(s, StringComparison.Ordinal) || statId.EndsWith(s + "_+%", StringComparison.Ordinal)
-        || statId.EndsWith(s + "_%", StringComparison.Ordinal));
+    static readonly string[] TrailingUnits = ["_permyriad", "_+%", "_%", "_+"];
+
+    static bool EndsWithCondition(string id, string condition) => id.EndsWith(condition, StringComparison.Ordinal)
+        || TrailingUnits.Any(unit => id.EndsWith(condition + unit, StringComparison.Ordinal));
+
+    static string? StateSuffix(string statId) => StateSuffixes.FirstOrDefault(s => EndsWithCondition(statId, s));
 
     /// <summary>The plain stat a conditional id names: <c>spell_damage_+%_while_dual_wielding</c> →
     /// <c>spell_damage_+%</c>, and <c>damage_+%_if_you_have_frozen_enemy_recently</c> → <c>damage_+%</c>. Null when the
@@ -180,7 +184,8 @@ public static class StatConditions
         foreach (string prefix in new[] { WhileAffectedBy, IfAffectedBy })
         {
             int at = statId.IndexOf(prefix, StringComparison.Ordinal);
-            if (at >= 0 && IsModelledAura(statId[(at + prefix.Length)..])) return statId[..at];
+            if (at >= 0 && TryAuraName(statId, out string family) && IsModelledAura(family))
+                return Trim(statId, at, at + prefix.Length + family.Length);
         }
         return null;
 
@@ -235,6 +240,21 @@ public static class StatConditions
             "fire_penetration_%" => "base_reduce_enemy_fire_resistance_%",
             "elemental_penetration_%" => "base_penetrate_elemental_resistances_%",
             "block_%" => "additional_block_%",
+            "chance_to_deal_triple_damage_%" => "base_chance_to_deal_triple_damage_%",
+            "burning_damage_+%" => "burn_damage_+%",
+            "attacks_bleed_on_hit" => "global_bleed_on_hit",
+            "gain_crimson_dance" => "keystone_crimson_dance",
+            "life_leech_from_fire_damage_permyriad" => "base_life_leech_from_fire_damage_permyriad",
+            "energy_shield_leech_from_lightning_damage_permyriad" => "base_energy_shield_leech_from_lightning_damage_permyriad",
+            "unaffected_by_bleeding" => "base_unaffected_by_bleeding",
+            "unaffected_by_poison" => "base_unaffected_by_poison",
+            "damage_removed_from_mana_before_life_%" => "base_damage_removed_from_mana_before_life_%",
+            "physical_damage_reduction_%" => "base_additional_physical_damage_reduction_%",
+            "minimum_added_cold_damage" => "global_minimum_added_cold_damage",
+            "maximum_added_cold_damage" => "global_maximum_added_cold_damage",
+            "minimum_added_fire_damage" => "global_minimum_added_fire_damage",
+            "maximum_added_fire_damage" => "global_maximum_added_fire_damage",
+            "number_of_additional_chains_for_projectiles" => "number_of_chains",
             "area_of_effect_+%" => "base_skill_area_of_effect_+%",
             "chaos_resistance_+" => "base_chaos_damage_resistance_%",
             "spell_block_%" or "chance_to_block_spells_%" => "base_spell_block_%",
@@ -264,6 +284,8 @@ public static class StatConditions
             return [.. new[] { "base_avoid_freeze_%", "base_avoid_chill_%" }.Where(exists)];
         if (PlainOf(statId) == "all_resistances_%")
             return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
+        if (PlainOf(statId) == "life_and_energy_shield_recovery_rate_+%")
+            return [.. new[] { "life_recovery_rate_+%", "energy_shield_recovery_rate_+%" }.Where(exists)];
         return Fold(statId, exists) is { } plain ? [plain] : [];
     }
 
@@ -617,6 +639,12 @@ public static class StatConditions
         }
         if (at < 0) return false;
         family = statId[(at + skip)..];
+        foreach (string unit in TrailingUnits)
+            if (family.EndsWith(unit, StringComparison.Ordinal))
+            {
+                family = family[..^unit.Length];
+                break;
+            }
         return family.Length > 0;
     }
 
@@ -671,11 +699,12 @@ public static class StatConditions
             ("has_cat_aspect", new[] { "_while_you_have_cat_aspect", "_while_have_cat_aspect",
                 "_if_you_have_cat_aspect", "_while_affected_by_cat_aspect", "_if_affected_by_cat_aspect" }),
             ("has_cats_stealth", new[] { "_while_you_have_cats_stealth", "_while_have_cats_stealth",
-                "_if_you_have_cats_stealth", "_while_affected_by_cats_stealth", "_if_affected_by_cats_stealth" }),
+                "_if_you_have_cats_stealth", "_while_affected_by_cats_stealth", "_if_affected_by_cats_stealth",
+                "_while_you_have_cat_stealth" }),
             ("has_cats_agility", new[] { "_while_you_have_cats_agility", "_while_have_cats_agility",
                 "_if_you_have_cats_agility", "_while_affected_by_cats_agility", "_if_affected_by_cats_agility" }),
         })
-            if (statId == flag || tokens.Any(token => statId.EndsWith(token, StringComparison.Ordinal)))
+            if (statId == flag || tokens.Any(token => EndsWithCondition(statId, token)))
                 return flag;
         return null;
     }

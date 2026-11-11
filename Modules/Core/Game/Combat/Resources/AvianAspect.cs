@@ -145,9 +145,10 @@ public static partial class Game
         {
             foreach (string element in new[] { "cold", "lightning" })
                 foreach (string bound in new[] { "minimum", "maximum" })
-                    foreach (string kind in new[] { "global", "attack", "spell" })
-                        Add($"{kind}_{bound}_added_{element}_damage",
-                            Get($"{bound}_added_{element}_damage_while_you_have_avians_might"));
+                    // RawAdded already includes global added damage for either attack or spell. Publishing typed
+                    // copies as well doubles the same Winds roll in both real hit paths.
+                    Add($"global_{bound}_added_{element}_damage",
+                        Get($"{bound}_added_{element}_damage_while_you_have_avians_might"));
         }
         if (ownFlight || receivedFlight)
         {

@@ -104,6 +104,7 @@ public static partial class Game
         flags["_while_you_have_cats_stealth"] = catsStealth;
         flags["_while_have_cats_stealth"] = catsStealth;
         flags["_if_you_have_cats_stealth"] = catsStealth;
+        flags["_while_you_have_cat_stealth"] = catsStealth;
         flags["_while_you_have_cats_agility"] = catsAgility;
         flags["_while_have_cats_agility"] = catsAgility;
         flags["_if_you_have_cats_agility"] = catsAgility;

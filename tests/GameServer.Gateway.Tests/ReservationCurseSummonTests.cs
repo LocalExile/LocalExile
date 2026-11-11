@@ -599,6 +599,29 @@ public sealed partial class ReservationCurseSummonTests
                         StatConditions.Of("_while_affected_by_cats_stealth", new StatConditions.Subject(Flags: flags)));
                     Assert.Equal(StatConditions.State.Fails,
                         StatConditions.Of("_while_affected_by_cats_agility", new StatConditions.Subject(Flags: flags)));
+                    void CheckPounce(bool stealth)
+                    {
+                        var pounce = new UniqueCatalog(Program.Items).Create("Farrul's Pounce", new Random(504))!;
+                        var placed = inventory.Add(PlayerInventories.Gloves, 0, 0, pounce);
+                        try
+                        {
+                            using var fresh = new Game.PlayerStatScope(catConn, fresh: true);
+                            var current = Game.CharacterPlayerStats(catConn);
+                            Assert.False(Game.IsInactive(catConn, placed.Id));
+                            Assert.Equal(stealth ? 1 : 0, Stat(current, "global_bleed_on_hit"));
+                            Assert.Equal(stealth ? 1 : 0, Stat(current, "keystone_crimson_dance"));
+                            var bleed = Game.BleedSettings([], "main_hand", name => Stat(current, name), null,
+                                melee: true, bow: false);
+                            Assert.Equal(stealth ? 100 : 0, bleed.Chance);
+                            Assert.Equal(stealth ? 8 : 1, bleed.Stacks);
+                        }
+                        finally { inventory.Remove(PlayerInventories.Gloves, placed.Id); }
+                        using var removedScope = new Game.PlayerStatScope(catConn, fresh: true);
+                        var removed = Game.CharacterPlayerStats(catConn);
+                        Assert.Equal(0, Stat(removed, "global_bleed_on_hit"));
+                        Assert.Equal(0, Stat(removed, "keystone_crimson_dance"));
+                    }
+                    CheckPounce(stealth: true);
                     int attackMsStealth = (int)Math.Round(Game.SupportedAttackSeconds(catConn, attackSource) * 1000);
 
                     // Actual Farrul's Bite: the accepted-hit ailment consumer passes its full captured critical Blind
@@ -1924,6 +1947,7 @@ public sealed partial class ReservationCurseSummonTests
                     Assert.Equal(1, Stat(agilityStats, "has_cat_aspect"));
                     Assert.Equal(0, Stat(agilityStats, "has_cats_stealth"));
                     Assert.Equal(1, Stat(agilityStats, "has_cats_agility"));
+                    CheckPounce(stealth: false);
                     Assert.True(Stat(agilityStats, "attack_speed_+%") >= 20);
                     Assert.True(Stat(agilityStats, "base_cast_speed_+%") >= 20);
                     Assert.True((int)Math.Round(Game.SupportedAttackSeconds(catConn, attackSource) * 1000) < attackMsStealth);

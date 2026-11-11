@@ -49,7 +49,7 @@ public class ConditionalItemStatsTests
     void Canonical_condition_aliases_reach_defence_recovery_and_spell_consumers()
     {
         string[] flags = ["_while_stationary", "_while_not_moving", "_while_frozen", "_while_shocked",
-            "_when_on_full_life", "_when_on_low_life", "_while_chilled"];
+            "_when_on_full_life", "_when_on_low_life", "_while_chilled", "_while_ignited", "_while_phasing"];
         var cases = new (string Source, string Target)[]
         {
             ("X_armour_if_you_have_blocked_recently", "base_physical_damage_reduction_rating"),
@@ -69,6 +69,20 @@ public class ConditionalItemStatsTests
             ("fire_penetration_%_if_you_have_blocked_recently", "base_reduce_enemy_fire_resistance_%"),
             ("elemental_penetration_%_while_chilled", "base_penetrate_elemental_resistances_%"),
             ("block_%_while_affected_by_determination", "additional_block_%"),
+            ("energy_shield_recovery_rate_while_affected_by_discipline_+%", "energy_shield_recovery_rate_+%"),
+            ("life_leech_from_fire_damage_while_ignited_permyriad", "base_life_leech_from_fire_damage_permyriad"),
+            ("burning_damage_+%_if_ignited_an_enemy_recently", "burn_damage_+%"),
+            ("chance_to_deal_triple_damage_%_while_at_least_400_strength", "base_chance_to_deal_triple_damage_%"),
+            ("energy_shield_leech_from_lightning_damage_permyriad_while_affected_by_wrath", "base_energy_shield_leech_from_lightning_damage_permyriad"),
+            ("unaffected_by_bleeding_while_affected_by_malevolence", "base_unaffected_by_bleeding"),
+            ("unaffected_by_poison_while_affected_by_malevolence", "base_unaffected_by_poison"),
+            ("damage_removed_from_mana_before_life_%_while_affected_by_clarity", "base_damage_removed_from_mana_before_life_%"),
+            ("physical_damage_reduction_%_while_affected_by_herald_of_purity", "base_additional_physical_damage_reduction_%"),
+            ("minimum_added_cold_damage_while_affected_by_hatred", "global_minimum_added_cold_damage"),
+            ("maximum_added_cold_damage_while_affected_by_hatred", "global_maximum_added_cold_damage"),
+            ("minimum_added_fire_damage_if_blocked_recently", "global_minimum_added_fire_damage"),
+            ("maximum_added_fire_damage_if_blocked_recently", "global_maximum_added_fire_damage"),
+            ("number_of_additional_chains_for_projectiles_while_phasing", "number_of_chains"),
         };
         var output = new Dictionary<string, Dictionary<string, int>>();
         foreach (var (source, target) in cases)
@@ -77,12 +91,12 @@ public class ConditionalItemStatsTests
             var item = WithMod(row.Id, 11);
             bool negative = source.Contains("havent_killed", StringComparison.Ordinal);
             var on = new StatConditions.Subject(
-                Recent: negative ? new HashSet<string>() : new HashSet<string> { StatConditions.Blocked, StatConditions.KilledEnemy },
-                Auras: new HashSet<string> { "determination", "discipline", "hatred", "anger", "wrath" },
-                Flags: flags.ToDictionary(s => s, _ => true));
+                Recent: negative ? new HashSet<string>() : new HashSet<string> { StatConditions.Blocked, StatConditions.KilledEnemy, StatConditions.IgnitedEnemy },
+                Auras: new HashSet<string> { "determination", "discipline", "hatred", "anger", "wrath", "malevolence", "clarity", "herald_of_purity" },
+                Flags: flags.ToDictionary(s => s, _ => true), Value: _ => 10000);
             var off = new StatConditions.Subject(
                 Recent: negative ? new HashSet<string> { StatConditions.KilledEnemy } : new HashSet<string>(),
-                Auras: new HashSet<string>(), Flags: flags.ToDictionary(s => s, _ => false));
+                Auras: new HashSet<string>(), Flags: flags.ToDictionary(s => s, _ => false), Value: _ => 0);
             Assert.Equal(StatConditions.State.Holds, StatConditions.Of(source, on));
             Assert.Equal(StatConditions.State.Fails, StatConditions.Of(source, off));
             var held = ItemModStats.Sum([item], Program.Items.Mods, subject: on, statExists: Program.Stats.Has);
@@ -105,6 +119,31 @@ public class ConditionalItemStatsTests
             .Where(p => Program.Stats.Key(p.Key) is not null).ToDictionary(p => Program.Stats.Key(p.Key)!.Value, p => p.Value);
         Assert.Equal(11, Penetration.Of(penetration, Program.Stats, attack: false).Fire);
         Assert.Equal(0, Penetration.Of(penetration, Program.Stats, attack: false).Cold);
+        Assert.Equal(11, GamblerModifiers.From(
+            name => Read("chance_to_deal_triple_damage_%_while_at_least_400_strength", name)).TripleDamageChance);
+        var fireLeech = LeechSources.From(name => Read("life_leech_from_fire_damage_while_ignited_permyriad", name), attack: false);
+        Assert.Equal(11, fireLeech.Life[GameServer.Core.World.DamageType.Fire].Min);
+        Assert.Equal(0, fireLeech.Life[GameServer.Core.World.DamageType.Physical].Min);
+        Assert.Equal(111, EnergyShield.RegenPerMinute(1000, name => name == "base_energy_shield_regeneration_rate_per_minute_%"
+            ? 10 : Read("energy_shield_recovery_rate_while_affected_by_discipline_+%", name)), precision: 8);
+        Assert.True(StatConditions.TryAuraName("energy_shield_recovery_rate_while_affected_by_discipline_+%", out string family));
+        Assert.Equal("discipline", family);
+        Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of("damage_while_affected_by_unknown_shrine_+%",
+            new StatConditions.Subject(Auras: new HashSet<string>())));
+        foreach (bool spell in new[] { false, true })
+        {
+            var added = DamageStats.RawAdded(GameServer.Core.World.DamagePacket.Empty,
+                name => Read("minimum_added_cold_damage_while_affected_by_hatred", name), spell);
+            Assert.Equal(11, added[GameServer.Core.World.DamageType.Cold].Min);
+            Assert.Equal(11, added[GameServer.Core.World.DamageType.Cold].Max);
+        }
+        const string bothRecovery = "life_and_energy_shield_recovery_rate_+%_while_affected_by_malevolence";
+        var recoveryMod = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == bothRecovery));
+        var recovery = ItemModStats.Sum([WithMod(recoveryMod.Id, 11)], Program.Items.Mods,
+            subject: new(Auras: new HashSet<string> { "malevolence" }), statExists: Program.Stats.Has);
+        Assert.Equal(11, recovery.GetValueOrDefault("life_recovery_rate_+%"));
+        Assert.Equal(11, recovery.GetValueOrDefault("energy_shield_recovery_rate_+%"));
+        Assert.False(recovery.ContainsKey(bothRecovery));
 
         foreach (var (source, target) in new[]
                  {

@@ -53,6 +53,11 @@ public sealed partial class ReservationCurseSummonTests
             int regenOff = Stat("base_life_regeneration_rate_per_minute");
             int manaRegenOff = Stat("base_mana_regeneration_rate_per_minute");
             int addedOff = Stat("spell_minimum_added_cold_damage");
+            var addedBefore = new Dictionary<bool, DamagePacket>
+            {
+                [false] = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell: false),
+                [true] = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell: true),
+            };
             Assert.True(await Game.ToggleAura("avian", wire.Stream, wire.Ciphers, conn,
                 source.Id, source.Effect, source.Name, cost, source.Level, source.Quality));
             Assert.Equal(ReservationState.AvianPhase.Might, conn.Reservations.Avian);
@@ -61,8 +66,16 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(10, Stat("minion_chance_to_deal_double_damage_%"));
             Assert.Equal(1, Stat("has_avians_might"));
             Assert.Equal(0, Stat("has_avians_flight"));
-            Assert.Equal(addedOff + Source("minimum_added_cold_damage_while_you_have_avians_might"),
-                Stat("spell_minimum_added_cold_damage"));
+            Assert.Equal(addedOff, Stat("spell_minimum_added_cold_damage"));
+            foreach (bool spell in new[] { false, true })
+            {
+                var added = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell);
+                foreach (var (element, type) in new[] { ("cold", DamageType.Cold), ("lightning", DamageType.Lightning) })
+                {
+                    Assert.Equal(addedBefore[spell][type].Min + Source($"minimum_added_{element}_damage_while_you_have_avians_might"), added[type].Min);
+                    Assert.Equal(addedBefore[spell][type].Max + Source($"maximum_added_{element}_damage_while_you_have_avians_might"), added[type].Max);
+                }
+            }
             Assert.Equal(movementOff, conn.Pools.MovementVelocityPct);
             double mightEnd = 100 + (4000 + Source("avians_might_duration_ms_+")) / 1000d;
             Assert.Equal(mightEnd, conn.Reservations.AvianDeadline, 6);
@@ -94,6 +107,12 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(6000 + regenOff, Stat("base_life_regeneration_rate_per_minute"));
             Assert.Equal(720 + manaRegenOff, Stat("base_mana_regeneration_rate_per_minute"));
             Assert.Equal(addedOff, Stat("spell_minimum_added_cold_damage"));
+            foreach (bool spell in new[] { false, true })
+            {
+                var added = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell);
+                foreach (var type in new[] { DamageType.Cold, DamageType.Lightning })
+                    Assert.Equal(addedBefore[spell][type], added[type]);
+            }
             int withoutFlight = Game.PoolsFor(conn, 100).MovementVelocityPct - 20;
             Assert.Equal(withoutFlight + 20, conn.Pools.MovementVelocityPct);
             minionMods = Game.GolemModifiers(conn, golem, Game.CharacterPlayerStats(conn));

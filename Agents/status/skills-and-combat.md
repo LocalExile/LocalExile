@@ -1301,8 +1301,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Aspect of the Cat cycles its phases; original Farrul's Fur grants charges on Stealth entry and independent Phasing.
   Replica Farrul's Fur extends Agility and grants maximum Frenzy and Endurance charges on Agility entry; its
   Cat-owned Onslaught applies while in Agility and composes with kill, Silver Flask and Mageblood sources.
-  Enemy stealth and other Cat parts remain unsupported.
-  Avian cycles Might/Flight for owner and minion damage/speed; Talons/Winds bonuses have automated coverage.
+  Farrul's Pounce gates guaranteed attack bleeding and Crimson Dance on Stealth; enemy stealth remains unsupported.
+  Avian cycles Might/Flight for owner and minion damage/speed; Winds adds its raw damage once for attacks and spells.
   Crab gains half-second barriers, mitigates physical damage and loses barriers on accepted physical hit damage.
   Crab equipment thresholds and loss protection have automated coverage.
   Native checks verify phases, pools, timed barriers, physical-hit loss and unequip cleanup; visuals remain unverified.
