@@ -9,6 +9,9 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class ItemModStats
 {
+    /// <summary>A rule's replacement for one modifier value, or null to use the existing effect calculation.</summary>
+    public delegate int? ModifierValueRule(ItemMod mod, ModCatalog.Mod row, int statIndex, long ordinaryEffect);
+
     /// <summary>The equipment rows whose items count: body armour, the first weapon set, helmet, amulet, rings, gloves,
     /// boots and belt (Inventories.dat rows 1-10), and the third ring slot (row 102, Ring3, shown by The Unseen Hand's
     /// <c>enable_ring_slot_3</c>). The second weapon set (14, 15) and the flasks (11) do not.</summary>
@@ -18,8 +21,6 @@ public static class ItemModStats
     /// or only that side (Simplex and Focused Amulets, the Simplex ring bases, Subsume the Source).</summary>
     const string ExplicitEffect = "local_explicit_mod_effect_+%", PrefixEffect = "local_prefix_mod_effect_+%",
         SuffixEffect = "local_suffix_mod_effect_+%";
-
-    readonly record struct Effects(long Explicit, long Prefix, long Suffix, Dictionary<string, long>? Heist);
 
     /// <summary>The summed values of the stats on these items' mods, by Stats.dat Id: global ones, or with
     /// <paramref name="local"/> the item's own. An explicit modifier counts with the item's increased effect applied
@@ -37,10 +38,13 @@ public static class ItemModStats
     /// </para></summary>
     public static Dictionary<string, int> Sum(IEnumerable<Item> items, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
+        => SumValues(Values(items, mods, local, subject, statExists, Program.GameLogicOrNull));
+
+    static Dictionary<string, int> SumValues(IEnumerable<(string Id, int Value)> values)
     {
         var sum = new Dictionary<string, int>();
         var attributes = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods, local, subject, statExists))
+        foreach (var (id, value) in values)
             if (AttributeModifiers.IsInput(id)) attributes[id] = attributes.GetValueOrDefault(id) + value;
             else sum[id] = ArcaneMight.Combine(id, sum.GetValueOrDefault(id), value);
         // This int API is a bounded view for existing stat consumers, not an attribute calculation source.
@@ -48,12 +52,12 @@ public static class ItemModStats
         return sum;
     }
 
-    static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false,
-        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
+    static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local,
+        StatConditions.Subject subject, Func<string, bool>? statExists, IGameLogic? game)
     {
         var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
         foreach (var item in equipment)
-            foreach (var value in Values(item, mods, local, subject, statExists))
+            foreach (var value in Values(item, mods, local, subject, statExists, game))
             {
                 if (local || !InfluencedItemConditions.Read(value.Id, out string target, out var influence, out int required))
                     yield return value;
@@ -63,14 +67,19 @@ public static class ItemModStats
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
-    /// item's own increased effect for its list (all, prefix or suffix) and matching Heist tags.
-    /// The effect stats themselves stay raw, as do the stats of implicits, enchants and the other lists.
+    /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
+    /// they never scale each other. Implicits, enchants and the other lists are unchanged.
     /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
     /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
     public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
+        => Values(item, mods, local, subject, statExists, Program.GameLogicOrNull);
+
+    static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local,
+        StatConditions.Subject subject, Func<string, bool>? statExists, IGameLogic? game)
     {
         var effect = Effect(item, mods);
+        var rule = game?.ItemModifierValues(item, mods);
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
             {
@@ -78,7 +87,7 @@ public static class ItemModStats
                 // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
                 // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
                 if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
-                var (ordinary, heist) = EffectPercent(mod, row, effect);
+                long percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local)
                     {
@@ -90,19 +99,18 @@ public static class ItemModStats
                         if (state is StatConditions.State.Holds && statExists is not null
                             && StatConditions.Fold(id, statExists) is { } plain)
                             id = plain;
-                        var stat = row.Stats[s];
-                        int value = IsEffectStat(stat.Id) ? mod.Values[s]
-                            : Scale(mod.Values[s], ordinary, stat.Scalable ? heist : 0);
+                        int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
+                            : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
                         yield return (id, value);
                     }
             }
     }
 
-    /// <summary>The item's own increased-effect stats, summed raw before applying any modifier magnitudes.</summary>
-    static Effects Effect(Item item, ModCatalog mods)
+    /// <summary>The item's own increased-effect stats, summed raw: explicit (every explicit modifier), prefix and
+    /// suffix (only that side). The stats are local, so they are read here rather than from the character's list.</summary>
+    static (long Explicit, long Prefix, long Suffix) Effect(Item item, ModCatalog mods)
     {
         long explicitAll = 0, prefix = 0, suffix = 0;
-        Dictionary<string, long>? heist = null;
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
@@ -111,39 +119,16 @@ public static class ItemModStats
                         case ExplicitEffect: explicitAll += mod.Values[s]; break;
                         case PrefixEffect: prefix += mod.Values[s]; break;
                         case SuffixEffect: suffix += mod.Values[s]; break;
-                        case var id when mod.Section == ModSection.Enchant && HeistTag(id) is { } tag:
-                            heist ??= new(StringComparer.Ordinal);
-                            heist[tag] = heist.GetValueOrDefault(tag) + mod.Values[s];
-                            break;
                     }
-        return new(explicitAll, prefix, suffix, heist);
+        return (explicitAll, prefix, suffix);
     }
 
-    static (long Ordinary, long Heist) EffectPercent(ItemMod mod, ModCatalog.Mod row, Effects effect)
-    {
-        if (mod.Section != ModSection.Explicit) return default;
-        long ordinary = effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
+    /// <summary>How much the item's effect stats raise this modifier: only explicit affixes are affected, by the
+    /// all-explicit stat plus the stat for their own side.</summary>
+    static long EffectPercent(ItemMod mod, ModCatalog.Mod row, (long Explicit, long Prefix, long Suffix) effect) =>
+        mod.Section != ModSection.Explicit ? 0
+        : effect.Explicit + (row.GenerationType == ItemRolls.Prefix ? effect.Prefix
             : row.GenerationType == ItemRolls.Suffix ? effect.Suffix : 0);
-        long heist = 0;
-        if (effect.Heist is { } byTag && !row.Unscalable && row.GrantedEffects == 0)
-            foreach (var (tag, percent) in byTag)
-                if (row.Tags.Contains(tag)) heist += percent;
-        return (ordinary, heist);
-    }
-
-    // The category in the stat id is also the native modifier tag, with two spelling differences.
-    static string? HeistTag(string id)
-    {
-        const string prefix = "heist_enchantment_", suffix = "_mod_effect_+%";
-        if (id.Length <= prefix.Length + suffix.Length || !id.StartsWith(prefix, StringComparison.Ordinal)
-            || !id.EndsWith(suffix, StringComparison.Ordinal)) return null;
-        return id[prefix.Length..^suffix.Length] switch
-        {
-            "defence" => "defences",
-            "casterdamage" => "caster_damage",
-            var tag => tag,
-        };
-    }
 
     /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
     /// (enemies or allies) or a debuff the wearer puts on them.</summary>
@@ -151,23 +136,18 @@ public static class ItemModStats
         && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
             || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
-    static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect || HeistTag(id) is not null;
+    static bool IsEffectStat(string id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
 
-    static int Scale(int value, long ordinary, long heist)
-    {
-        long percent = ordinary + heist;
-        if (percent == 0) return value;
-        decimal scaled = (decimal)value * (100 + percent) / 100;
-        // Heist rounds the magnitude down, retaining the sign. Ordinary effects keep their existing rounding.
-        decimal rounded = heist == 0 ? decimal.Floor(scaled) : decimal.Truncate(scaled);
-        return (int)Math.Clamp(rounded, int.MinValue, int.MaxValue);
-    }
+    /// <summary>The game's increased-effect multiplication on one integer value, rounded down like the Adorned's
+    /// jewel effect (Items.AdornedJewel).</summary>
+    static int Scale(int value, long percent) => percent == 0 ? value
+        : (int)Math.Clamp(Math.Floor((decimal)value * (100 + percent) / 100), int.MinValue, int.MaxValue);
 
     /// <summary>Wide per-key attribute totals: retain them until complete raw-key replacement and bucket scaling.</summary>
     public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods)
     {
         var raw = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods))
+        foreach (var (id, value) in Values(items, mods, false, default, null, Program.GameLogicOrNull))
             if (AttributeModifiers.IsInput(id)) raw[id] = raw.GetValueOrDefault(id) + value;
         return raw;
     }
@@ -179,12 +159,15 @@ public static class ItemModStats
         StatConditions.Subject subject = default)
     {
         var items = equipped.ToArray();
+        var game = Program.GameLogicOrNull;
         var result = new Dictionary<uint, int>();
-        foreach (var (id, value) in Sum(items, mods, subject: subject, statExists: stats.Has))
+        foreach (var (id, value) in SumValues(Values(items, mods, local: false,
+            subject: subject, statExists: stats.Has, game: game)))
             if (stats.Key(id) is uint key) result[key] = result.GetValueOrDefault(key) + value;
         // PoB Item.lua leaves ItemCondition-tagged increases in the character mod list, outside calcLocal.
         // This stat is marked IsLocal in Stats.dat, but affects global ES only while its source item is corrupted.
-        int conditionalES = Sum(items.Where(i => i.Corrupted), mods, local: true)
+        int conditionalES = SumValues(Values(items.Where(i => i.Corrupted), mods, local: true,
+            subject: default, statExists: null, game: game))
             .GetValueOrDefault("local_maximum_energy_shield_+%_if_item_corrupted");
         if (conditionalES != 0 && stats.Key("maximum_energy_shield_+%") is uint esKey)
             result[esKey] = (int)Math.Clamp((long)result.GetValueOrDefault(esKey) + conditionalES, int.MinValue, int.MaxValue);
@@ -197,14 +180,22 @@ public static class ItemModStats
     {
         public readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, LocalValues> Items = new();
     }
-    static System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalItems>? LocalCatalogs;
+    sealed class LocalRules
+    {
+        public readonly LocalItems Default = new();
+        public readonly System.Runtime.CompilerServices.ConditionalWeakTable<IGameLogic, LocalItems> Games = new();
+    }
+    static System.Runtime.CompilerServices.ConditionalWeakTable<ModCatalog, LocalRules>? LocalCatalogs;
 
     public static Dictionary<string, int> Local(Item item, ModCatalog mods)
     {
-        // Local rows use only this immutable item and catalogue, without a combat subject. A changed item or a different
-        // catalogue has a different key. Return a copy: callers merge their own values into these dictionaries.
-        var cache = System.Threading.LazyInitializer.EnsureInitialized(ref LocalCatalogs).GetOrCreateValue(mods).Items;
-        return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
+        // A replacement game supplies a new rule generation. Weak keys let its old load context be collected.
+        // Return a copy: callers merge their own values into these dictionaries.
+        var game = Program.GameLogicOrNull;
+        var rules = System.Threading.LazyInitializer.EnsureInitialized(ref LocalCatalogs).GetOrCreateValue(mods);
+        var cache = (game is null ? rules.Default : rules.Games.GetOrCreateValue(game)).Items;
+        return new(cache.GetValue(item, current => new(SumValues(
+            Values(current, mods, local: true, subject: default, statExists: null, game: game)))).Stats);
     }
 
     /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block

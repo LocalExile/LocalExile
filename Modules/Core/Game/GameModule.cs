@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 using Rules = global::Game;
@@ -54,6 +55,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
+    public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
+        HeistModifierMagnitudes.For(item, mods);
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);

@@ -57,6 +57,7 @@ public sealed class ItemModEffectTests
     [Fact]
     public void Heist_defence_magnitude_applies_to_eligible_explicit_mods_on_its_own_item()
     {
+        using var gameRules = new GameRules();
         var items = new ItemCatalog("data");
         var plain = ItemCatalog.Create(items.All.First(t => t.Name == "Twilight Regalia")) with { Mods = [] };
         plain = With(items, plain, "LocalIncreasedEnergyShield1", ModSection.Explicit, 100);
@@ -67,6 +68,10 @@ public sealed class ItemModEffectTests
         plain = With(items, plain, "LocalIncreasedEnergyShield2", ModSection.Implicit, 10);
         var item = With(items, plain, "ArmourEnchantmentHeistDefenceEffectAttributeRequirements1", ModSection.Enchant, 15, -25);
 
+        Program.SetGameLogic(null!);
+        Assert.Equal(110, ItemModStats.Local(item, items.Mods)["local_energy_shield"]);
+        Assert.Equal(50, ItemModStats.Sum([item], items.Mods)["global_defences_+%"]);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var local = ItemModStats.Local(item, items.Mods);
         Assert.Equal(125, local["local_energy_shield"]); // 115 from the explicit and 10 from the implicit.
         Assert.Equal(126, local["local_energy_shield_+%"]);
@@ -79,11 +84,18 @@ public sealed class ItemModEffectTests
         Assert.Equal(25, global["base_fire_damage_resistance_%"]);
         Assert.Equal(107, ItemModStats.Sum([item, plain], items.Mods)["global_defences_+%"]);
         Assert.Equal(new[] { 100, 110, 50, -50, 25, 10, 15, -25 }, item.Mods.SelectMany(mod => mod.Values));
+
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        Assert.Equal(125, ItemModStats.Local(item, items.Mods)["local_energy_shield"]);
+        Program.SetGameLogic(null!);
+        Assert.Equal(110, ItemModStats.Local(item, items.Mods)["local_energy_shield"]);
+        Assert.Equal(-50, ItemModStats.Sum([item], items.Mods)["maximum_energy_shield_+%"]);
     }
 
     [Fact]
     public void Heist_weapon_magnitudes_match_element_tags_and_combine_before_rounding()
     {
+        using var gameRules = new GameRules();
         var items = new ItemCatalog("data");
         var weapon = ItemCatalog.Create(items.All.First(t => t.Name == "Driftwood Wand")) with { Mods = [] };
         (string Element, string Affix, string Enchantment)[] variants =
@@ -124,5 +136,13 @@ public sealed class ItemModEffectTests
         Assert.Equal(22, penalized["local_attack_speed_+%"]);
         Assert.Equal(24, penalized["local_minimum_added_fire_damage"]);
         Assert.Equal(-120, penalized["local_weapon_no_physical_damage"]);
+    }
+
+    sealed class GameRules : IDisposable
+    {
+        readonly IGameLogic? previous = Program.GameLogicOrNull;
+
+        public GameRules() => Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        public void Dispose() => Program.SetGameLogic(previous!);
     }
 }
