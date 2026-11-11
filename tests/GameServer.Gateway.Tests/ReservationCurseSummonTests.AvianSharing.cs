@@ -84,6 +84,11 @@ public sealed partial class ReservationCurseSummonTests
             }
             int baseMove = receiver.Pools.MovementVelocityPct;
             int baseCold = Stat(receiver, "spell_minimum_added_cold_damage");
+            var addedBefore = new Dictionary<bool, DamagePacket>
+            {
+                [false] = DamageStats.RawAdded(DamagePacket.Empty, name => Stat(receiver, name), spell: false),
+                [true] = DamageStats.RawAdded(DamagePacket.Empty, name => Stat(receiver, name), spell: true),
+            };
             await Toggle(source, sourceWire);
             Publish();
             Assert.Single(receiver.Twister.Pending);
@@ -106,7 +111,16 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(1, Stat(receiver, "has_avians_might"));
             Assert.Equal(0, Stat(receiver, "has_avians_flight"));
             Assert.Equal(40, Minion(receiver, "chance_to_deal_double_damage_%"));
-            Assert.True(Stat(receiver, "spell_minimum_added_cold_damage") > baseCold);
+            Assert.Equal(baseCold, Stat(receiver, "spell_minimum_added_cold_damage"));
+            foreach (bool spell in new[] { false, true })
+            {
+                var added = DamageStats.RawAdded(DamagePacket.Empty, name => Stat(receiver, name), spell);
+                foreach (var (element, type) in new[] { ("cold", DamageType.Cold), ("lightning", DamageType.Lightning) })
+                {
+                    Assert.Equal(addedBefore[spell][type].Min + Stat(receiver, $"minimum_added_{element}_damage_while_you_have_avians_might"), added[type].Min);
+                    Assert.Equal(addedBefore[spell][type].Max + Stat(receiver, $"maximum_added_{element}_damage_while_you_have_avians_might"), added[type].Max);
+                }
+            }
             Assert.Equal(baseMove, receiver.Pools.MovementVelocityPct);
             // Own weaker Might and two stronger received Might sources still produce one strongest player buff.
             await Toggle(receiver, receiverWire);
@@ -126,6 +140,12 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(baseMove + 20, receiver.Pools.MovementVelocityPct);
             Assert.Equal(40, Minion(receiver, "base_movement_velocity_+%"));
             Assert.Equal(baseCold, Stat(receiver, "spell_minimum_added_cold_damage"));
+            foreach (bool spell in new[] { false, true })
+            {
+                var added = DamageStats.RawAdded(DamagePacket.Empty, name => Stat(receiver, name), spell);
+                foreach (var type in new[] { DamageType.Cold, DamageType.Lightning })
+                    Assert.Equal(addedBefore[spell][type], added[type]);
+            }
             Publish(1000);
             Assert.Empty(receiver.ReceivedAuras);
             Assert.Equal(baseMove, receiver.Pools.MovementVelocityPct);
