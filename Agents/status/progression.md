@@ -340,11 +340,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tattoos: the 100-item 3.29.3b catalogue, protocol and implementation groups are documented in
   [tattoos](../docs/game/tattoos.md). The client flow is implemented: C->S `0x77` names the inventory, item and
   passive; `0x33`'s fifth list carries `node | PassiveSkillOverrides.HASH16 << 16`; the item is consumed and the
-  map is saved independently of allocation. **66 rows are client-verified**: the ten pilot, 22 plain stats, the
-  nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows (attribute notables
-  included), nine Makanga gates, three Journey tattoos and Journey Makanui; Ancestral Bloodlines is partial
-  (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also survived relog and was removed
-  with an Orb of Scouring. The Makanga gate, Journey counting and the five `PassiveSkillOverrides.Limit` groups are
-  enforced server-side; Makanui stores its random keystone in `TattooKeystones`. 31 rows remain not implemented:
-  the nine ailment and avoidance rows, five rows that need new consumers (corpse consumption, Fortify-on-stun,
-  guard duration, hinder and herald effect), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.
+  map is saved independently of allocation. **75 rows are client-verified**: the ten pilot, 22 plain stats, the
+  nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row, the eleven
+  Honoured rows (attribute notables included), nine Makanga gates, three Journey tattoos and Journey Makanui;
+  Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also
+  survived relog and was removed with an Orb of Scouring. The Makanga gate, Journey counting and the five
+  `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its random keystone in
+  `TattooKeystones`. The nine ailment and avoidance rows need no engine change: the Panels stage publishes each
+  display total with its `base_*` sources summed in, so the existing ailment, avoidance, stun-recovery and bleed
+  readers already see the replacement stat (`TattooAilmentTests`). 22 rows remain not implemented: five rows that
+  need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect), the ten
+  Loyalty summons and the seven Forbidden ascendancy tattoos.

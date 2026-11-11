@@ -1,13 +1,13 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 66 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 75 tattoo rows client-verified).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Sixty-six rows are `works` (the ten pilot,
-22 plain stats, the nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows, nine
-Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral Bloodlines: ES recovery
-works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga) and 31 are
-`not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable, Ancestral,
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Seventy-five rows are `works` (the ten pilot,
+22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row,
+the eleven Honoured rows, nine Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral
+Bloodlines: ES recovery works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga)
+and 22 are `not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable, Ancestral,
 Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue, the client
 mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is per row;
 `Reason` names the missing layer.
@@ -23,10 +23,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 39 | 0 | 0 | 14 |
+| Current (drop-enabled) | 53 | 48 | 0 | 0 | 5 |
 | Drop-disabled | 40 | 27 | 1 | 2 | 10 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **66** | **1** | **2** | **31** |
+| **Total** | **100** | **75** | **1** | **2** | **22** |
 
 | Status | Meaning |
 |---|---|
@@ -43,7 +43,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row and the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers). Not implemented: the nine ailment and avoidance rows, and five rows that need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect). |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row and the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers). Not implemented: five rows that need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
@@ -279,9 +279,9 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
 | **Tattoo of the Arohongui Moonwarden** | +6% to Cold Resistance | Small Dexterity | Te Onui | works | client apply; cold 211% -> 217% |
-| **Tattoo of the Arohongui Scout** | 10% chance to Avoid being Chilled<br>10% chance to Avoid being Frozen | Small Dexterity | Te Onui | not implemented | needs chill/freeze avoidance rolls |
+| **Tattoo of the Arohongui Scout** | 10% chance to Avoid being Chilled<br>10% chance to Avoid being Frozen | Small Dexterity | Te Onui | works | live /stat base_avoid_chill_%/base_avoid_freeze_% = 10; the player-ailment roll reads the published panel totals |
 | **Tattoo of the Arohongui Shaman** | 5% increased Effect of Herald Buffs on you | Small Intelligence | Moti Aro | not implemented | needs Herald buff effect |
-| **Tattoo of the Arohongui Warmonger** | 5% chance to Freeze | Small Intelligence | Moti Aro | not implemented | needs freeze chance |
+| **Tattoo of the Arohongui Warmonger** | 5% chance to Freeze | Small Intelligence | Moti Aro | works | live /stat base_chance_to_freeze_% = 5; the published chance_to_freeze_% total reaches the freeze roll |
 | **Tattoo of the Arohongui Warrior** | 5% increased Cold Damage | Small Dexterity | Te Onui | works | client apply; +5% cold damage |
 
 ### Hinekora (5)
@@ -300,8 +300,8 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Kitava Blood Drinker** | 0.5% of Attack Damage Leeched as Life | Small Strength | Ngakanu | works | live /stat base_life_leech_from_attack_damage_permyriad = 50; LeechSources reads the attack coefficient |
 | **Tattoo of the Kitava Heart Eater** | Killing Blows have 4% chance to Consume corpses to recover 10% of Maximum Life | Small Intelligence | Moti Aro | not implemented | needs on-kill corpse consumption |
-| **Tattoo of the Kitava Rebel** | 10% chance to Avoid Bleeding | Small Strength | Ngakanu | not implemented | needs bleed avoidance |
-| **Tattoo of the Kitava Shaman** | Attacks have 5% chance to cause Bleeding | Small Strength | Ngakanu | not implemented | needs bleed chance |
+| **Tattoo of the Kitava Rebel** | 10% chance to Avoid Bleeding | Small Strength | Ngakanu | works | live /stat base_avoid_bleed_% = 10; the bleed path reads the published panel total |
+| **Tattoo of the Kitava Shaman** | Attacks have 5% chance to cause Bleeding | Small Strength | Ngakanu | works | live /stat bleed_on_hit_with_attacks_% = 5; the bleed settings consume it |
 | **Tattoo of the Kitava Warrior** | 5% increased Global Physical Damage | Small Strength | Ngakanu | works | client apply; +5% global physical damage |
 
 ### Ngamahu (5)
@@ -310,7 +310,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Ngamahu Firewalker** | +6% to Fire Resistance | Small Strength | Ngakanu | works | client 0x77 + 0x33 fifth list; apply/remove/relog verified |
 | **Tattoo of the Ngamahu Shaman** | 10% reduced Ignite Duration on you | Small Strength | Ngakanu | works | client apply; -10% ignite duration on you |
-| **Tattoo of the Ngamahu Warmonger** | 5% chance to Ignite | Small Strength | Ngakanu | not implemented | needs ignite chance |
+| **Tattoo of the Ngamahu Warmonger** | 5% chance to Ignite | Small Strength | Ngakanu | works | live /stat base_chance_to_ignite_% = 5; the ignite settings consume the published total |
 | **Tattoo of the Ngamahu Warrior** | 5% increased Fire Damage | Small Strength | Ngakanu | works | client apply; +5% fire damage |
 | **Tattoo of the Ngamahu Woodcarver** | 5% increased Totem Life | Small Strength | Ngakanu | works | live /stat totem_life_+% = 5; Totems.Rules scales the totem's life |
 
@@ -341,7 +341,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | **Tattoo of the Tasalio Bladedancer** | Attacks have 5% chance to Maim on Hit | Small Strength | Ngakanu | works | live /stat maim_on_hit_% = 5; HitDebuffs rolls it on a hit |
 | **Tattoo of the Tasalio Scout** | 4% increased Effect of your Marks | Small Dexterity | Te Onui | works | live /stat mark_skills_curse_effect_+% = 4; Curses adds it to a mark's effect |
 | **Tattoo of the Tasalio Shaman** | 5% chance to Hinder Enemies on Hit with Spells | Small Intelligence | Moti Aro | not implemented | needs hinder on spell hit |
-| **Tattoo of the Tasalio Tideshifter** | 10% chance to Avoid being Stunned | Small Dexterity | Te Onui | not implemented | needs stun avoidance |
+| **Tattoo of the Tasalio Tideshifter** | 10% chance to Avoid being Stunned | Small Dexterity | Te Onui | works | live /stat base_avoid_stun_% = 10; the stun-recovery path reads the published avoid_stun_% total |
 | **Tattoo of the Tasalio Warrior** | 5% chance to Blind Enemies on Hit with Attacks | Small Dexterity | Te Onui | works | live /stat attacks_chance_to_blind_on_hit_% = 5; HitDebuffs rolls it on an attack hit |
 
 ### Tawhoa (5)
@@ -350,8 +350,8 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Tawhoa Herbalist** | 4% increased Flask Effect Duration | Small Dexterity | Te Onui | works | live /stat flask_duration_+% = 4; the flask recovery and utility paths scale the duration |
 | **Tattoo of the Tawhoa Naturalist** | 8% increased Life Recovery from Flasks | Small Dexterity | Te Onui | works | live /stat flask_life_to_recover_+% = 8; FlaskRecovery scales the life restored |
-| **Tattoo of the Tawhoa Scout** | 10% chance to Avoid being Poisoned | Small Dexterity | Te Onui | not implemented | needs poison avoidance |
-| **Tattoo of the Tawhoa Shaman** | 5% chance to Poison on Hit | Small Intelligence | Moti Aro | not implemented | needs poison chance |
+| **Tattoo of the Tawhoa Scout** | 10% chance to Avoid being Poisoned | Small Dexterity | Te Onui | works | live /stat base_avoid_poison_% = 10; the poison path reads the published panel total |
+| **Tattoo of the Tawhoa Shaman** | 5% chance to Poison on Hit | Small Intelligence | Moti Aro | works | live /stat base_chance_to_poison_on_hit_% = 5; the poison settings consume the published total |
 | **Tattoo of the Tawhoa Warrior** | 5% increased Chaos Damage | Small Intelligence | Moti Aro | works | client apply; +5% chaos damage |
 
 ### Tukohama (5)
@@ -369,7 +369,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
 | **Tattoo of the Valako Scout** | 10% reduced Effect of Shock on you | Small Intelligence | Moti Aro | works | client apply; -10% shock effect on you |
-| **Tattoo of the Valako Shaman** | 5% chance to Shock | Small Intelligence | Moti Aro | not implemented | needs shock chance |
+| **Tattoo of the Valako Shaman** | 5% chance to Shock | Small Intelligence | Moti Aro | works | live /stat base_chance_to_shock_% = 5; the published chance_to_shock_% total reaches the shock roll |
 | **Tattoo of the Valako Shieldbearer** | +1% Chance to Block Attack Damage | Small Strength | Ngakanu | works | client apply; uncapped block 168% -> 169% |
 | **Tattoo of the Valako Stormrider** | +6% to Lightning Resistance | Small Intelligence | Moti Aro | works | client apply; lightning 211% -> 217% |
 | **Tattoo of the Valako Warrior** | 5% increased Lightning Damage | Small Intelligence | Moti Aro | works | client apply; +5% lightning damage |
@@ -646,6 +646,26 @@ Honoured rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Wit
   `GemLevels.EffectiveGemLevel` (the attribute gem-level stats on active gems); the other rows read stats that
   already had consumers (charge caps, the resistance cap, `fortify_on_hit` in `FortificationOnHitLocked`, aura
   effect and reservation efficiency). `TattooHonouredTests` covers the eleven rows and the three new consumers.
+
+Ailment and avoidance rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** the nine rows on allocated passives - Arohongui Warmonger on 21678 (Intelligence),
+  Valako Shaman on 32210 (Intelligence), Ngamahu Warmonger on 21301 (Strength), Tawhoa Shaman on 21678,
+  Arohongui Scout on 27659 (Dexterity), Tasalio Tideshifter on 27659, Tawhoa Scout on 27659, Kitava Rebel on 21301
+  and Kitava Shaman on 21301. `/stat` read each replacement stat after applying: base_chance_to_freeze_% 5,
+  base_chance_to_shock_% 5, base_chance_to_ignite_% 5, base_chance_to_poison_on_hit_% 5,
+  bleed_on_hit_with_attacks_% 5, base_avoid_chill_% 10, base_avoid_freeze_% 10, base_avoid_bleed_% 10,
+  base_avoid_stun_% 10 and base_avoid_poison_% 10.
+- **Refusal:** Arohongui Warmonger on a Strength node was refused ("replaces Small Intelligence, not Strength").
+- **Replacement and removal:** a second tattoo on the same node replaced the first, and the first stat returned to 0;
+  `/tattoo_remove` on each node restored every stat to 0.
+- **Consumers:** no code change was needed. The Panels stage already publishes each display total with its `base_*`
+  sources summed in (`StatSnapshotCache`), so `chance_to_freeze_%`, `chance_to_shock_%`, `avoid_chill_%`,
+  `avoid_stun_%`, `avoid_bleed_%` and the rest already carry the replacement stat into the existing freeze/shock
+  rolls, the player-ailment avoidance, the stun recovery and the bleed path. `TattooAilmentTests` covers the nine
+  catalogue rows and the published total's alias sum.
+- The right-click item flow is the `0x77` path verified for the earlier rows; these nine were applied through the dev
+  command so the same nodes can be reused without spending currency.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.
