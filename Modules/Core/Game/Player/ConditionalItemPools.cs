@@ -27,8 +27,7 @@ static partial class Game
             + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
             + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
         int manaReserved = (int)Math.Min(conn.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
-        var lowLifeSources = conn.StatSourcesCache is { } cached ? new Dictionary<uint, int>(cached.Sources) : [];
-        foreach (var (key, value) in conn.PlayerStats) lowLifeSources[key] = value;
+        var lowLifeSources = SelfCurseConditionInputs(conn, activeItems);
         bool lowLife = alive && CriticalOnLowLife(conn, lowLifeSources);
         var physicalAegis = PhysicalAegisStatus(conn, now);
         string stance = StanceCatalog.Selected(conn.Auras.Values);
@@ -39,7 +38,7 @@ static partial class Game
         bool catsAgility = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Agility;
         var flags = new Dictionary<string, bool>
         {
-            ["_while_on_full_life"] = alive && conn.PlayerLife >= conn.PlayerMaxLife,
+            ["_while_on_full_life"] = CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, lowLifeSources),
             ["_while_on_low_life"] = lowLife,
             ["_while_not_low_life"] = alive && !lowLife,
             ["_while_not_on_low_life"] = alive && !lowLife,
@@ -92,6 +91,8 @@ static partial class Game
         flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
         flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
         flags["has_cat_aspect"] = catAspect;
+        flags["cursed_by_vulnerability"] = Stats.Key("cursed_by_vulnerability") is uint curseKey
+            && lowLifeSources.GetValueOrDefault(curseKey) != 0;
         flags["has_cats_stealth"] = catsStealth;
         flags["has_cats_agility"] = catsAgility;
         flags["_while_you_have_cat_aspect"] = catAspect;

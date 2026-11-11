@@ -106,6 +106,7 @@ static partial class Game
         int Player(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
         int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
             attack ? effects["bleed_on_hit_with_attacks_%"] : 0);
+        if (attack) bleedChance += Player("receive_bleeding_chance_%_when_hit_by_attack");
         int poisonChance = Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
             effects["base_chance_to_poison_on_hit_%"]);
         if (attack) poisonChance = Math.Max(poisonChance,

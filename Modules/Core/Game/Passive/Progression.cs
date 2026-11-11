@@ -213,7 +213,7 @@ static partial class Game
         IReadOnlyDictionary<string, long> recentAmounts;
         lock (conn.Monsters)
         {
-            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
+            auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId));
             conditionNow = conn.Clock.Elapsed.TotalSeconds;
             recentEvents = conn.RecentEvents.Snapshot(conditionNow);
             recentExpiry = conn.RecentEvents.NextExpiry(conditionNow);
@@ -225,6 +225,9 @@ static partial class Game
             energyShield = (int)Math.Min(int.MaxValue, conn.Pools.EnergyShield);
             poisonStacks = conn.IncomingAilments.PoisonStacks(conditionNow);
             conditionFlags = ItemConditionFlags(conn, conditionNow, null, out lifeReservationConditions);
+            if (conditionFlags.GetValueOrDefault("cursed_by_vulnerability"))
+                auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability")
+                    .Select(a => a.EffectId).Append("Vulnerability"));
             var measured = conn.RecentEvents.Amounts(conditionNow);
             measured.TryAdd(StatConditions.KilledEnemy, 0);
             measured.TryAdd(StatConditions.SpentMana, 0);
@@ -641,6 +644,19 @@ static partial class Game
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.
         conditionFlags = RequalifyLifeReservation(conditionFlags, conn, active, lifeReservationConditions);
+        var curseInputs = SelfCurseConditionInputs(conn, active, passives);
+        bool cursed = Stats.Key("cursed_by_vulnerability") is uint cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
+        auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId)
+            .Concat(cursed ? ["Vulnerability"] : []));
+        bool lowLife = CriticalOnLowLife(conn, curseInputs);
+        conditionFlags = new Dictionary<string, bool>(conditionFlags)
+        {
+            ["_while_on_low_life"] = lowLife,
+            ["_while_not_low_life"] = conn.PlayerLife > 0 && !lowLife,
+            ["_while_not_on_low_life"] = conn.PlayerLife > 0 && !lowLife,
+            ["_while_on_full_life"] = CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, curseInputs),
+            ["cursed_by_vulnerability"] = cursed,
+        };
         int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
             ? dev.TryGetValue(itemReservationKey, out int replacement) ? replacement
                 : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
@@ -648,6 +664,7 @@ static partial class Game
         sourcesKey = sourcesKey with
         {
             Flags = conditionFlags,
+            Auras = auraEffects,
             QualifiedItemLifeReservationPercent = qualifiedItemReservationPercent,
         };
         // A stat whose id carries a condition only counts while that condition holds (issue #504). The subject answers

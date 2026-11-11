@@ -24,7 +24,7 @@ static partial class Game
     static bool CriticalOnLowLife(Func<uint> life, Func<uint> maximumLife, IReadOnlyDictionary<uint, int> player)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && life() < maximumLife()
+        bool counts = Get("you_count_as_low_life_while_not_on_full_life") != 0 && !CountsAsFullLife(life(), maximumLife(), player)
             || Get("you_count_as_low_life_while_affected_by_vulnerability") != 0
                 && (Get("cursed_by_vulnerability") != 0 || Get("you_are_cursed_with_vulnerability") != 0);
         return CriticalStrikePolicy.OnLowLife(life(), maximumLife(),

@@ -43,7 +43,7 @@ static partial class Game
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
-            FlaskRecovery.LowLife(target.Life, target.MaxLife), conn.PlayerLife >= conn.PlayerMaxLife,
+            FlaskRecovery.LowLife(target.Life, target.MaxLife), CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, CharacterPlayerStats(conn)),
             Lifetap.ActiveAt(conn, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
             ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now));
         var packet = more == 1 ? rolled : rolled.Scale(more);

@@ -226,6 +226,7 @@ static partial class Game
         PresentCatOnslaughtLocked(conn, packets);
         PresentAvianPhaseLocked(conn, packets);
         PresentCrabLocked(conn, packets);
+        PresentSelfVulnerabilityLocked(conn, packets);
         // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
         // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
         using var publicationStats = new PlayerStatScope(conn, fresh: true);

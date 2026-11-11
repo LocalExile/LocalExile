@@ -80,6 +80,8 @@ public static class StatConditions
         "enemies_explode_on_kill_while_unhinged",
         // Per-Rage item coefficients are multiplied by the authoritative effective Rage in RageStats, not folded.
         "bleed_dot_multiplier_+_per_rage_if_equipped_axe",
+        "you_count_as_low_life_while_affected_by_vulnerability",
+        "you_count_as_full_life_while_affected_by_vulnerability",
     };
 
     static readonly string[] StateSuffixes =
@@ -615,6 +617,7 @@ public static class StatConditions
         "clarity", "vitality", "precision", "haste", "determination", "grace", "discipline",
         "anger", "hatred", "wrath", "zealotry", "malevolence", "envy", "pride",
         "cat_aspect",
+        "vulnerability",
         "purity_of_elements", "purity_of_fire", "purity_of_ice", "purity_of_lightning",
         "a_herald", "herald_of_ash", "herald_of_ice", "herald_of_thunder", "herald_of_purity", "herald_of_agony",
     };

@@ -2449,6 +2449,7 @@ public sealed partial class ReservationCurseSummonTests
             await CatCoreFixture();
             await AvianAspectFixture(conn, lifetime);
             await CrabAspectFixture(conn, lifetime);
+            await SelfVulnerabilityFixture(conn, lifetime);
             DefaultMeleeBiteProfileFixture();
             await RealAreaSkillHitBiteDamageFixture();
             await SacrificePrepaidConsumerFixture();

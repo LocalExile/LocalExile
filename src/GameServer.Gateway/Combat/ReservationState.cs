@@ -19,6 +19,7 @@ sealed class ReservationState
     public ushort CrabBuff, PresentedCrabBuff;
     public long AspectRevision;
     public bool CrabPoolsDirty;
+    public ushort SelfVulnerabilityBuff;
     public readonly Queue<Echo> Echoes = new();
     public readonly Queue<Proc> Procs = new();
     public readonly List<Ice> Trail = [];

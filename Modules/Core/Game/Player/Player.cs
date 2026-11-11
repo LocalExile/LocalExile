@@ -1424,7 +1424,7 @@ static partial class Game
         bool fullLife, fullEnergyShield, hitRecently;
         lock (conn.Monsters)
         {
-            fullLife = conn.PlayerLife > 0 && conn.PlayerLife >= conn.PlayerMaxLife;
+            fullLife = CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, SelfCurseConditionInputs(conn));
             fullEnergyShield = conn.PlayerLife > 0 && conn.EnergyShield.Full;
             hitRecently = now - conn.LastEnemyHitAt <= RecentlySeconds;
         }

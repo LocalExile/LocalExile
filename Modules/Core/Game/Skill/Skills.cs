@@ -272,6 +272,7 @@ static partial class Game
             int FlaskGet(string name) => Stats.Key(name) is uint k ? built.GetValueOrDefault(k) : 0;
             UtilityFlasks.AddRawStats(built, UtilityStats(conn, FlaskGet)
                 .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
+            AddSelfVulnerabilityStats(conn, built);
             if (Stats.Key("currently_has_onslaught") is uint onslaughtFlag)
                 built[onslaughtFlag] = HasOnslaught(conn) ? 1 : 0;
             WithVaalPrevention(conn, built);

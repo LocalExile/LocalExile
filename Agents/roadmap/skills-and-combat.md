@@ -443,7 +443,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Focus/curse lifecycles and statistical RNG validation remain separate from the deterministic policy tests.
   Avian/Crab owner lifecycles and combat consumers have automated coverage and limited native representatives.
   Wider equipment, minion combat and visual verification remain open.
-  Avian ally sharing/Twister, Spider, Madness and equipment self-Vulnerability still need runtime consumers.
+  Equipment self-Vulnerability has runtime effects, Life predicates and limited native representatives.
+  Avian ally sharing/Twister, Spider and Madness still need runtime consumers.
   Ordinary generic/typed added BASE now follows intrinsic-base replacement and precedes increased chance, including
   native weapon-local flat-before-increase ordering and linked Increased Critical Strikes once.
   Mode-specific passive/item, source-removal, zero, prohibition and hitless controls have automated cases;
