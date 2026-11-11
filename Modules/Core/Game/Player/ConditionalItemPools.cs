@@ -53,7 +53,7 @@ static partial class Game
             ["_on_full_energy_shield"] = alive && conn.EnergyShield.Full,
             ["_while_no_energy_shield"] = conn.EnergyShield.Current == 0,
             ["_while_moving"] = moving, ["_while_stationary"] = !moving, ["_while_not_moving"] = !moving,
-            ["_while_phasing"] = conn.Phasing,
+            ["_while_phasing"] = conn.IsPhasing,
             ["_while_ignited"] = ailments.Ignite, ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_fortified"] = FortificationOf(conn).Read(now).Current > 0,
@@ -76,9 +76,7 @@ static partial class Game
         flags["_while_bleeding"] = conn.IncomingAilments.Bleeding(now);
         flags["_while_poisoned"] = conn.IncomingAilments.PoisonStacks(now) > 0;
         flags["_while_on_consecrated_ground"] = conn.FlaskGrounds.Consecrated;
-        bool onslaught = conn.UtilityFlaskEffects.ShowsOnslaught
-            || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null)
-            || KillOnslaughtOf(conn).Applied;
+        bool onslaught = HasOnslaught(conn);
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = conn.ChannelSkill != 0;

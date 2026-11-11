@@ -74,8 +74,21 @@ static partial class Game
     /// ones. Callers apply this once, not the two sets separately.</summary>
     internal static IReadOnlyList<(string Stat, int Value)> UtilityStats(ClientState conn, Func<string, int> character,
         int? playerLevel = null) =>
-        CombineUtilitySources(conn.UtilityFlaskEffects.Sources().Concat(KillOnslaughtSources(conn, character)),
+        CombineUtilitySources(conn.UtilityFlaskEffects.Sources()
+            .Concat(KillOnslaughtSources(conn, character))
+            .Concat(CatOnslaughtSources(conn, character)),
             MagebloodSources(conn, character, playerLevel));
+
+    /// <summary>Whether any modelled source currently grants Onslaught. Cat's owned effect is independent of the
+    /// kill/flask state and therefore remains true when either of those ends.</summary>
+    internal static bool HasOnslaught(ClientState conn)
+    {
+        lock (conn.Monsters)
+            return conn.UtilityFlaskEffects.ShowsOnslaught
+                || conn.MagebloodBuffs.Values.Any(b => b.Extra is not null)
+                || KillOnslaughtOf(conn).Applied
+                || CatOnslaughtActiveLocked(conn);
+    }
 
     /// <summary>Whether Mageblood forbids using this flask: magic utility flasks cannot be used while it is worn (normal and
     /// unique ones still can).</summary>

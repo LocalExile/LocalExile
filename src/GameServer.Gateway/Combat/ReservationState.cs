@@ -20,7 +20,15 @@ sealed class ReservationState
     public CatAspectOwner? CatOwner;
     public CatPhase Cat = CatPhase.None;
     public double CatPhaseStartedAt, CatPhaseDeadline;
-    public ushort CatPhaseBuff, PresentedCatPhaseBuff;
+    public double CatLastStealthStartedAt = double.NegativeInfinity;
+    public double CatObservedStealthEntryAt = double.NegativeInfinity;
+    public double CatLastAgilityStartedAt = double.NegativeInfinity;
+    public double CatObservedAgilityEntryAt = double.NegativeInfinity;
+    public double CatStealthGrantQualifiedSince = double.PositiveInfinity;
+    public double CatAgilityGrantQualifiedSince = double.PositiveInfinity;
+    public bool CatStealthGrantQualified, CatAgilityGrantQualified, CatOnslaughtQualified, CatPhasing;
+    public ushort CatPhaseBuff, PresentedCatPhaseBuff, CatOnslaughtBuff, PresentedCatOnslaughtBuff;
+    public ushort PresentedCatOnslaughtPhaseBuff;
     public ushort PresentedCatPhaseRow;
     public int PresentedCatValue1, PresentedCatValue2, PresentedCatValue3;
     public long CatRevision, PresentedCatRevision;

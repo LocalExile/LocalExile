@@ -4,6 +4,11 @@ static partial class Game
     internal const ushort CatAspectRootRow = 1036, CatsStealthRow = 1037, CatsAgilityRow = 1038;
     const string CatBuffEffect = "aspect_of_the_cat_buff_effect_+%";
     const string CatStealthDuration = "cats_stealth_duration_ms_+";
+    const string CatAgilityDuration = "aspect_of_the_cat_base_secondary_duration";
+    const string CatStealthCharges = "gain_maximum_frenzy_and_power_charges_when_you_gain_cats_stealth";
+    const string CatAgilityCharges = "gain_maximum_frenzy_and_endurance_charges_when_you_gain_cats_agility";
+    const string CatOnslaught = "gain_onslaught_while_you_have_cats_agility";
+    const string CatStealthPhasing = "gain_phasing_while_you_have_cats_stealth";
     const string CatCrit = "critical_strike_chance_+%";
     const string CatAvoid = "avoid_damage_%";
     const string CatStealth = "stealth_+%";
@@ -45,11 +50,19 @@ static partial class Game
     static void ClearCatRuntimeLocked(ClientState conn)
     {
         var state = conn.Reservations;
-        if (state.CatOwner is null && state.Cat == ReservationState.CatPhase.None && state.CatPhaseBuff == 0) return;
+        if (state.CatOwner is null && state.Cat == ReservationState.CatPhase.None && state.CatPhaseBuff == 0
+            && !state.CatStealthGrantQualified && !state.CatAgilityGrantQualified
+            && !state.CatOnslaughtQualified && !state.CatPhasing) return;
         state.CatOwner = null;
         state.Cat = ReservationState.CatPhase.None;
         state.CatPhaseStartedAt = state.CatPhaseDeadline = 0;
+        state.CatLastStealthStartedAt = state.CatObservedStealthEntryAt = double.NegativeInfinity;
+        state.CatLastAgilityStartedAt = state.CatObservedAgilityEntryAt = double.NegativeInfinity;
+        state.CatStealthGrantQualifiedSince = state.CatAgilityGrantQualifiedSince = double.PositiveInfinity;
+        state.CatStealthGrantQualified = state.CatAgilityGrantQualified = state.CatOnslaughtQualified = false;
+        state.CatPhasing = false;
         state.CatPhaseBuff = 0;
+        state.CatOnslaughtBuff = 0;
         state.CatRevision++;
         conn.AuraStatsDirty = true;
     }
@@ -81,9 +94,10 @@ static partial class Game
                 + Raw("support_reduced_duration_skill_effect_duration_+%_final")) / 100.0);
         int primary = Skill("base_skill_effect_duration");
         int secondary = Skill("base_secondary_skill_effect_duration");
-        // Fur's modifier extends the base Stealth phase before duration scaling.
+        // Each Fur modifier extends its own base phase before duration scaling. Replica Fur's modifier is additive
+        // seconds on the exported Agility base, not a replacement duration.
         primary = Math.Max(0, (primary > 0 ? primary : 4000) + Raw(CatStealthDuration));
-        secondary = secondary > 0 ? secondary : 6000;
+        secondary = Math.Max(0, (secondary > 0 ? secondary : 6000) + Raw(CatAgilityDuration));
         return (Scale(primary), Scale(secondary));
     }
 
@@ -121,24 +135,38 @@ static partial class Game
     {
         var state = conn.Reservations;
         var root = CatAspectRootLocked(conn);
-        if (root is null)
+        if (root is null || conn.PlayerLife == 0)
         {
-            bool wasActive = state.CatOwner is not null || state.Cat != ReservationState.CatPhase.None;
+            bool wasActive = state.CatOwner is not null || state.Cat != ReservationState.CatPhase.None
+                || state.CatPhaseBuff != 0 || state.CatPhasing
+                || state.CatStealthGrantQualified || state.CatAgilityGrantQualified
+                || state.CatOnslaughtQualified;
             ClearCatRuntimeLocked(conn);
             return wasActive;
         }
+        rawSources ??= CharacterStatSources(conn).Stats;
+        var qualifiedSources = conn.StatSourcesCache;
         var owner = new ReservationState.CatAspectOwner(root.SkillId, root.Buff);
+        double previousStartedAt = state.CatPhaseStartedAt;
         bool changed = false;
+        bool ownerStarted = false;
         if (state.CatOwner != owner || state.Cat == ReservationState.CatPhase.None)
         {
+            ownerStarted = true;
             state.CatOwner = owner;
             state.Cat = ReservationState.CatPhase.Stealth;
             state.CatPhaseStartedAt = now;
             state.CatPhaseDeadline = now + 4;
+            state.CatLastStealthStartedAt = now;
+            state.CatObservedStealthEntryAt = double.NegativeInfinity;
+            state.CatLastAgilityStartedAt = state.CatObservedAgilityEntryAt = double.NegativeInfinity;
+            state.CatStealthGrantQualifiedSince = state.CatAgilityGrantQualifiedSince = double.PositiveInfinity;
+            state.CatStealthGrantQualified = state.CatAgilityGrantQualified = false;
+            state.CatOnslaughtQualified = state.CatPhasing = false;
             state.CatPhaseBuff = 0;
+            state.CatOnslaughtBuff = 0;
             changed = true;
         }
-        rawSources ??= CharacterStatSources(conn).Stats;
         var (stealth, agility) = CatAspectDurationsLocked(conn, root, rawSources);
         double currentDuration = CatPhaseDuration(state.Cat, stealth, agility);
         double expectedDeadline = state.CatPhaseStartedAt + currentDuration;
@@ -147,12 +175,94 @@ static partial class Game
             state.CatPhaseDeadline = expectedDeadline;
             changed = true;
         }
-        var settled = SettleCatPhase(state.Cat, state.CatPhaseStartedAt, state.CatPhaseDeadline, now, stealth, agility);
+        var settled = SettleCatPhase(state.Cat, state.CatPhaseStartedAt, state.CatPhaseDeadline,
+            now, stealth, agility);
         if (settled.Phase != state.Cat || Math.Abs(settled.Deadline - state.CatPhaseDeadline) > 1e-9)
         {
             state.Cat = settled.Phase;
             state.CatPhaseStartedAt = settled.Started;
             state.CatPhaseDeadline = settled.Deadline;
+            changed = true;
+        }
+        if (!ownerStarted && settled.Started > previousStartedAt + 1e-9)
+        {
+            double lastStealthStarted = settled.Phase == ReservationState.CatPhase.Stealth
+                ? settled.Started : settled.Started - stealth;
+            if (Math.Abs(lastStealthStarted - state.CatLastStealthStartedAt) > 1e-9)
+            {
+                state.CatLastStealthStartedAt = lastStealthStarted;
+                changed = true;
+            }
+            double lastAgilityStarted = settled.Phase == ReservationState.CatPhase.Agility
+                ? settled.Started : settled.Started - agility;
+            if (double.IsFinite(lastAgilityStarted)
+                && Math.Abs(lastAgilityStarted - state.CatLastAgilityStartedAt) > 1e-9)
+            {
+                state.CatLastAgilityStartedAt = lastAgilityStarted;
+                changed = true;
+            }
+        }
+
+        bool stealthGrantQualified = CatQualifiedEquipmentValue(conn, qualifiedSources, CatStealthCharges) > 0;
+        bool agilityGrantQualified = CatQualifiedEquipmentValue(conn, qualifiedSources, CatAgilityCharges) > 0;
+        bool onslaughtQualified = CatQualifiedEquipmentValue(conn, qualifiedSources, CatOnslaught) > 0;
+        bool phasingQualified = CatQualifiedEquipmentValue(conn, qualifiedSources, CatStealthPhasing) > 0;
+        bool wasStealthGrantQualified = state.CatStealthGrantQualified;
+        bool wasAgilityGrantQualified = state.CatAgilityGrantQualified;
+        double previousStealthQualifiedSince = state.CatStealthGrantQualifiedSince;
+        double previousAgilityQualifiedSince = state.CatAgilityGrantQualifiedSince;
+        state.CatStealthGrantQualified = stealthGrantQualified;
+        state.CatStealthGrantQualifiedSince = stealthGrantQualified
+            ? wasStealthGrantQualified ? previousStealthQualifiedSince : now
+            : double.PositiveInfinity;
+        state.CatAgilityGrantQualified = agilityGrantQualified;
+        state.CatAgilityGrantQualifiedSince = agilityGrantQualified
+            ? wasAgilityGrantQualified ? previousAgilityQualifiedSince : now
+            : double.PositiveInfinity;
+        if (state.CatOnslaughtQualified != onslaughtQualified)
+        {
+            state.CatOnslaughtQualified = onslaughtQualified;
+            changed = true;
+        }
+        bool newStealthEntry = state.CatLastStealthStartedAt > state.CatObservedStealthEntryAt + 1e-9;
+        if (newStealthEntry)
+        {
+            double entryAt = state.CatLastStealthStartedAt;
+            bool qualifiedAtEntry = wasStealthGrantQualified && previousStealthQualifiedSince <= entryAt + 1e-9
+                || state.CatStealthGrantQualified && state.CatStealthGrantQualifiedSince <= entryAt + 1e-9;
+            state.CatObservedStealthEntryAt = entryAt;
+            if (stealthGrantQualified && qualifiedAtEntry)
+                GrantCatChargesLocked(conn, entryAt, now, rawSources, [ChargeType.Frenzy, ChargeType.Power],
+                    "Farrul's Fur: gained Cat's Stealth", "Cat's Stealth");
+            changed = true;
+        }
+        bool newAgilityEntry = state.CatLastAgilityStartedAt > state.CatObservedAgilityEntryAt + 1e-9;
+        if (newAgilityEntry)
+        {
+            double entryAt = state.CatLastAgilityStartedAt;
+            bool qualifiedAtEntry = wasAgilityGrantQualified && previousAgilityQualifiedSince <= entryAt + 1e-9
+                || state.CatAgilityGrantQualified && state.CatAgilityGrantQualifiedSince <= entryAt + 1e-9;
+            state.CatObservedAgilityEntryAt = entryAt;
+            if (agilityGrantQualified && qualifiedAtEntry)
+                GrantCatChargesLocked(conn, entryAt, now, rawSources, [ChargeType.Frenzy, ChargeType.Endurance],
+                    "Replica Farrul's Fur: gained Cat's Agility", "Cat's Agility");
+            changed = true;
+        }
+        bool phasing = phasingQualified && state.Cat == ReservationState.CatPhase.Stealth;
+        if (state.CatPhasing != phasing)
+        {
+            state.CatPhasing = phasing;
+            changed = true;
+        }
+        bool onslaught = state.Cat == ReservationState.CatPhase.Agility && state.CatOnslaughtQualified;
+        if (onslaught && state.CatOnslaughtBuff == 0)
+        {
+            state.CatOnslaughtBuff = conn.NextBuff++;
+            changed = true;
+        }
+        else if (!onslaught && state.CatOnslaughtBuff != 0)
+        {
+            state.CatOnslaughtBuff = 0;
             changed = true;
         }
         if (changed)
@@ -163,6 +273,55 @@ static partial class Game
         }
         return changed;
     }
+
+    static int CatQualifiedEquipmentValue(ClientState conn, StatSourcesResult? sources, string stat)
+    {
+        if (Stats.Key(stat) is not uint key) return 0;
+        if (conn.PlayerStats.TryGetValue(key, out int replacement)) return replacement;
+        sources ??= conn.StatSourcesCache;
+        if (sources is null) return 0;
+        var active = sources.Worn.Where(w => !sources.Inactive.Contains(w.Id)).Select(w => w.Item);
+        return ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(stat);
+    }
+
+    static void GrantCatChargesLocked(ClientState conn, double entryAt, double now,
+        IReadOnlyDictionary<uint, int> rawSources, IReadOnlyList<ChargeType> types, string source, string entryName)
+    {
+        var session = ChargesOf(conn);
+        int Get(string name) => Stats.Key(name) is uint key
+            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : rawSources.GetValueOrDefault(key)
+            : 0;
+        session.Observe(Get);
+        var grants = types.Select(type =>
+            new ChargeEvent.Grant(type, session.Limits(type).Maximum, source)).ToArray();
+        var existing = session.State.Carry(now).ToDictionary(c => c.Type);
+        var admitted = session.Admit(entryAt, grants, Get, () => WeaponProfileFor(conn), true, Random.Shared);
+        var aged = session.Refresh(now);
+        var merged = session.State.Carry(now).ToDictionary(c => c.Type);
+        foreach (var (type, carried) in existing)
+        {
+            if (merged.TryGetValue(type, out var live))
+                merged[type] = live with
+                {
+                    Held = Math.Max(live.Held, carried.Held),
+                    Remaining = Math.Max(live.Remaining, carried.Remaining),
+                };
+            else merged[type] = carried;
+        }
+        session.State.Restore(merged.Values, now);
+        var restored = session.Refresh(now);
+        foreach (string line in admitted.Log.Concat(aged.Log).Concat(restored.Log))
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} {line} ({entryName} entry {entryAt:0.###})");
+    }
+
+    internal static bool CatOnslaughtActiveLocked(ClientState conn) =>
+        conn.PlayerLife > 0 && CatAspectRootActiveLocked(conn)
+        && conn.Reservations.Cat == ReservationState.CatPhase.Agility && conn.Reservations.CatOnslaughtQualified;
+
+    internal static IEnumerable<UtilityFlasks.Source> CatOnslaughtSources(ClientState conn, Func<string, int> character) =>
+        CatOnslaughtActiveLocked(conn) && ItemsFor(conn).Onslaught is { } onslaught
+            ? UtilityFlasks.OnslaughtSources(onslaught,
+                Math.Max(0, 1 + character("onslaught_effect_+%") / 100.0)) : [];
 
     internal static CatAspectPhaseStats CatAspectPhaseStatsLocked(ClientState conn, int auraEffectPct,
         Func<string, int> raw)
@@ -219,6 +378,9 @@ static partial class Game
                     "has_cats_agility" => conn.Reservations.Cat == ReservationState.CatPhase.Agility,
                     _ => true,
                 } ? 1 : 0));
+        if (conn.Reservations.CatPhasing)
+            foreach (string stat in new[] { "phase_through_objects", "virtual_phase_through_objects" })
+                if (Stats.Key(stat) is uint key) result.Add((key, 1));
         return result;
     }
 }

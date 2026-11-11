@@ -313,11 +313,18 @@ public sealed class ReservationCurseSummonTests
                     var amulet = inventory.Add(5, 0, 0, astramentis);
                     inventory.Add(6, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(504))!);
                     inventory.Add(7, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(505))!);
+                    var darkray = new UniqueCatalog(Program.Items).Create("Darkray Vectors", new Random(504))!;
+                    var darkrayPlacement = inventory.Add(PlayerInventories.Boots, 0, 0, darkray);
                     catConn.Pools = Game.PoolsFor(catConn, 100);
                     catConn.PlayerLife = catConn.Pools.Life;
                     catConn.PlayerMana = catConn.Pools.Mana;
                     Assert.Empty(catConn.PlayerStats);
                     Assert.Equal(100, catConn.Pools.Level);
+                    Assert.False(Game.IsInactive(catConn, darkrayPlacement.Id));
+                    var replica = new UniqueCatalog(Program.Items).Create("Replica Farrul's Fur", new Random(504))!;
+                    var replicaMods = replica.Mods.Select(mod => Program.Items.Mods.ByHash(mod.Hash)!.Id).ToArray();
+                    Assert.Contains("CatsAgilityDurationUnique__1", replicaMods);
+                    Assert.DoesNotContain("CatsStealthDurationUnique__1_", replicaMods);
 
                     var fur = new UniqueCatalog(Program.Items).Create("Farrul's Fur", new Random(504))!;
                     var furPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, fur);
@@ -409,12 +416,124 @@ public sealed class ReservationCurseSummonTests
                         finally { Program.Outgoing = previous; }
                         return sent;
                     }
+                    static bool TryCompactUInt(ReadOnlySpan<byte> bytes, ref int at, out uint value)
+                    {
+                        value = 0;
+                        if (at >= bytes.Length) return false;
+                        uint first = bytes[at++];
+                        if (first < 0x80) { value = first; return true; }
+                        int following = first < 0xc0 ? 1 : first < 0xe0 ? 2 : first < 0xf0 ? 3 : 4;
+                        if (bytes.Length - at < following) return false;
+                        if (following == 1) value = (first & 0x3f) << 8 | bytes[at++];
+                        else if (following == 2) value = (first & 0x1f) << 16 | (uint)bytes[at++] << 8 | bytes[at++];
+                        else if (following == 3) value = (first & 0x0f) << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++];
+                        else value = (uint)bytes[at++] << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++];
+                        return true;
+                    }
+                    static bool TryCompactInt(ReadOnlySpan<byte> bytes, ref int at, out int value)
+                    {
+                        static int Signed(uint value, int bits) => (value & (1u << (bits - 1))) != 0
+                            ? (int)(value | ~((1u << bits) - 1)) : (int)value;
+                        value = 0;
+                        if (at >= bytes.Length) return false;
+                        uint first = bytes[at++];
+                        if (first < 0x80) { value = Signed(first & 0x7f, 7); return true; }
+                        int following = first < 0xc0 ? 1 : first < 0xe0 ? 2 : first < 0xf0 ? 3 : 4;
+                        if (bytes.Length - at < following) return false;
+                        if (following == 1) value = Signed((first & 0x3f) << 8 | bytes[at++], 14);
+                        else if (following == 2) value = Signed((first & 0x1f) << 16 | (uint)bytes[at++] << 8
+                            | bytes[at++], 21);
+                        else if (following == 3) value = Signed((first & 0x0f) << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++], 28);
+                        else value = (int)((uint)bytes[at++] << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++]);
+                        return true;
+                    }
+                    static IEnumerable<Dictionary<uint, int>> PublishedStats(IEnumerable<byte[]> packets)
+                    {
+                        var header = InstanceEntities.StatsUpdate(Program.PlayerId, []).AsSpan(0, 12).ToArray();
+                        foreach (var packet in packets)
+                        {
+                            int scan = 0;
+                            while (scan <= packet.Length - header.Length)
+                            {
+                                int found = packet.AsSpan(scan).IndexOf(header);
+                                if (found < 0) break;
+                                int start = scan + found;
+                                int cursor = start + header.Length;
+                                if (!TryCompactUInt(packet, ref cursor, out uint count) || count > 10_000)
+                                {
+                                    scan = start + 1;
+                                    continue;
+                                }
+                                var stats = new Dictionary<uint, int>();
+                                bool complete = true;
+                                for (uint i = 0; i < count; i++)
+                                {
+                                    if (!TryCompactUInt(packet, ref cursor, out uint key)
+                                        || !TryCompactInt(packet, ref cursor, out int value)
+                                        || !stats.TryAdd(key, value))
+                                    {
+                                        complete = false;
+                                        break;
+                                    }
+                                }
+                                if (!complete)
+                                {
+                                    scan = start + 1;
+                                    continue;
+                                }
+                                yield return stats;
+                                scan = cursor;
+                            }
+                        }
+                    }
+                    static void AssertPublished(IEnumerable<byte[]> packets,
+                        params (string Name, int Value)[] expected)
+                    {
+                        var snapshots = PublishedStats(packets).ToArray();
+                        Assert.NotEmpty(snapshots);
+                        var keys = expected.Select(row => (Key: Program.Stats.Key(row.Name)!.Value, row.Name, row.Value)).ToArray();
+                        Assert.True(snapshots.Any(snapshot => keys.All(row => snapshot.ContainsKey(row.Key))),
+                            "0x1b3 has no full snapshot with all selected stats: "
+                            + string.Join("; ", snapshots.Select(snapshot => $"[{string.Join(",", snapshot.Keys)}]")));
+                        foreach (var snapshot in snapshots)
+                            foreach (var (key, name, value) in keys)
+                            {
+                                if (!snapshot.TryGetValue(key, out int actual)) continue;
+                                Assert.True(actual == value,
+                                    $"0x1b3 published stat {key} ({name}) as {actual}, expected {value}");
+                            }
+                    }
 
                     var catState = catConn.Reservations;
-                    var initial = await Capture(async () => Assert.True(await Game.ToggleAura("test", catWire.Stream,
-                        catWire.Ciphers, catConn, catSource.Id, catSource.Effect, catSource.Name, catCost,
-                        catGrant.Level, 0)));
+                    int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
+                        stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                    List<byte[]> initial;
+                    using (new Game.PlayerStatScope(catConn, fresh: true))
+                    {
+                        var primedScope = Game.BuildScopeOf(catConn)!;
+                        _ = Game.FinalPlayerStats(catConn).ToList();
+                        var primedCharacter = primedScope.Stats;
+                        var primedFinal = primedScope.Final;
+                        Assert.Equal(0, Stat(primedCharacter, "has_cat_aspect"));
+                        initial = await Capture(async () => Assert.True(await Game.ToggleAura("test", catWire.Stream,
+                            catWire.Ciphers, catConn, catSource.Id, catSource.Effect, catSource.Name, catCost,
+                            catGrant.Level, 0)));
+                        var restoredScope = Game.BuildScopeOf(catConn);
+                        Assert.Same(primedScope, restoredScope);
+                        Assert.Equal(primedCharacter, restoredScope!.Stats);
+                        Assert.Equal(primedFinal, restoredScope.Final);
+                    }
+                    AssertPublished(initial, ("has_cat_aspect", 1), ("has_cats_stealth", 1),
+                        ("has_cats_agility", 0));
                     var catAura = Assert.Single(catConn.Auras.Values, aura => aura.EffectId == "AspectOfTheCat");
+                    var chargeSession = Game.ChargesOf(catConn);
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Power));
+                    Assert.False(catConn.IsPhasing);
                     Assert.Equal(1036, catAura.BuffRow);
                     Assert.Equal(catAura.Buff, catState.CatOwner!.Value.RootBuff);
                     Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
@@ -430,8 +549,6 @@ public sealed class ReservationCurseSummonTests
                         AuraCatalog.ReservedMana(catConn.Pools, catConn.Auras.Values));
 
                     var stealthStats = Game.CharacterPlayerStats(catConn);
-                    int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
-                        stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
                     Assert.Equal(1, Stat(stealthStats, "has_cat_aspect"));
                     Assert.Equal(1, Stat(stealthStats, "has_cats_stealth"));
                     Assert.Equal(0, Stat(stealthStats, "has_cats_agility"));
@@ -555,12 +672,228 @@ public sealed class ReservationCurseSummonTests
                     Assert.Equal(0, freeCatCost.ManaPercent);
                     Assert.Equal(0, freeCatCost.ManaFlat);
                     catConn.PlayerMana = 123;
-                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
-                        catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
+                    List<byte[]> chargedInitial;
+                    using (new Game.PlayerStatScope(catConn, fresh: true))
+                    {
+                        var primedScope = Game.BuildScopeOf(catConn)!;
+                        _ = Game.FinalPlayerStats(catConn).ToList();
+                        var primedCharacter = primedScope.Stats;
+                        var primedFinal = primedScope.Final;
+                        Assert.Equal(0, Stat(primedCharacter, "current_frenzy_charges"));
+                        Assert.Equal(0, Stat(primedCharacter, "current_power_charges"));
+                        Assert.Equal(0, Stat(primedCharacter, "virtual_phase_through_objects"));
+                        chargedInitial = await Capture(async () => Assert.True(await Game.ToggleAura("test",
+                            catWire.Stream, catWire.Ciphers, catConn, catSource.Id, catSource.Effect, catSource.Name,
+                            freeCatCost, catGrant.Level, 0)));
+                        var restoredScope = Game.BuildScopeOf(catConn);
+                        Assert.Same(primedScope, restoredScope);
+                        Assert.Equal(primedCharacter, restoredScope!.Stats);
+                        Assert.Equal(primedFinal, restoredScope.Final);
+                    }
+                    AssertPublished(chargedInitial, ("has_cat_aspect", 1), ("has_cats_stealth", 1),
+                        ("has_cats_agility", 0), ("current_frenzy_charges", 4), ("current_power_charges", 3),
+                        ("phase_through_objects", 1), ("virtual_phase_through_objects", 1));
                     Assert.Equal(123u, catConn.PlayerMana);
                     Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
                     Assert.Equal(6, catState.CatPhaseDeadline - catState.CatPhaseStartedAt, 3);
                     Assert.Equal(1036, catConn.PresentedAuras[catSource.Id].BuffRow);
+                    int maxFrenzy = chargeSession.Limits(ChargeType.Frenzy).Maximum;
+                    int maxPower = chargeSession.Limits(ChargeType.Power).Maximum;
+                    Assert.Equal(4, maxFrenzy);
+                    Assert.Equal(3, maxPower);
+                    Assert.Equal(maxFrenzy, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.Effective(ChargeType.Power));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+                    double frenzyExpiry = chargeSession.State.ExpiresAt(ChargeType.Frenzy);
+                    double powerExpiry = chargeSession.State.ExpiresAt(ChargeType.Power);
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
+                        frenzyExpiry, 3);
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Power).DurationMs / 1000.0,
+                        powerExpiry, 3);
+                    var chargedStats = Game.CharacterPlayerStats(catConn);
+                    Assert.Equal(maxFrenzy, Stat(chargedStats, "current_frenzy_charges"));
+                    Assert.Equal(maxPower, Stat(chargedStats, "current_power_charges"));
+                    Assert.Equal(1, Stat(chargedStats, "phase_through_objects"));
+                    Assert.Equal(1, Stat(chargedStats, "virtual_phase_through_objects"));
+                    Assert.True(catConn.IsPhasing);
+                    Assert.True(Game.SupportedAttackSeconds(catConn, attackSource) < attackMsStealth);
+                    Assert.True(Game.SupportedCriticalChance(catConn, attackSource) > attackChanceOff);
+
+                    catConn.PlayerSent = true;
+                    catConn.PlayerLife = catConn.Pools.Life;
+                    catConn.Walk.Teleport(51, 50, schedule.At);
+                    var blockingMonster = new SpawnedMonster("cat-phase-blocker", new(50, 50, 8), 60, 2, 23);
+                    lock (catConn.Monsters) catConn.Monsters[0x4050] = blockingMonster;
+                    var blockingBody = new ClientPathfinder.Blocker(50, 50, LivingCollision.Size(blockingMonster));
+                    lock (catConn.Monsters)
+                    {
+                        using var frame = catConn.BeginMonsterBlockerFrame(schedule.At);
+                        Assert.DoesNotContain(blockingBody, frame.ForPlayer);
+                    }
+
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    await Game.SendOwnAuraChanges("cat-core", catWire.Stream, catWire.Ciphers, catConn);
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy));
+                    Assert.Equal(powerExpiry, chargeSession.State.ExpiresAt(ChargeType.Power));
+
+                    inventory.Remove(PlayerInventories.Boots, darkrayPlacement.Id);
+                    Game.EnsureOwnAuraPools(catConn);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.True(catConn.IsPhasing);
+                    Assert.Equal(3, chargeSession.Limits(ChargeType.Frenzy).Maximum);
+                    Assert.Equal(3, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.Effective(ChargeType.Power));
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy));
+                    Assert.Equal(powerExpiry, chargeSession.State.ExpiresAt(ChargeType.Power));
+
+                    darkrayPlacement = inventory.Add(PlayerInventories.Boots, 0, 0, darkray);
+                    Game.EnsureOwnAuraPools(catConn);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.True(catConn.IsPhasing);
+                    Assert.Equal(maxFrenzy, chargeSession.Limits(ChargeType.Frenzy).Maximum);
+                    Assert.Equal(3, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy));
+                    Assert.Equal(powerExpiry, chargeSession.State.ExpiresAt(ChargeType.Power));
+
+                    // Replacing the root owner at the exact same game time is a new Stealth entry, while a
+                    // replacement that keeps it qualified grants the current maximum and preserves both charge types.
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
+                        catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
+                    Assert.Equal(3, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
+                        catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
+                    Assert.Equal(schedule.At, catState.CatPhaseStartedAt, 3);
+                    Assert.Equal(maxFrenzy, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.State.Held(ChargeType.Power));
+
+                    catConn.Phasing = true;
+                    catConn.PhasingUntil = 0;
+                    Assert.True(catConn.Phasing);
+                    Assert.True(catConn.IsPhasing);
+                    catConn.Phasing = false;
+                    catConn.PhasingUntil = catConn.Clock.Elapsed.TotalSeconds + 100;
+                    Assert.False(catConn.Phasing);
+                    Assert.True(catConn.IsPhasing);
+
+                    var fixedBody = new ClientPathfinder.Blocker(60, 50, 1);
+                    catConn.SetBlocker(0x4051, 60, 50, 1);
+                    lock (catConn.Monsters)
+                    {
+                        using var frame = catConn.BeginMonsterBlockerFrame(schedule.At);
+                        Assert.DoesNotContain(blockingBody, frame.ForPlayer);
+                        Assert.Contains(fixedBody, frame.ForPlayer);
+                    }
+
+                    double chargedStealthDeadline = catState.CatPhaseDeadline;
+                    schedule.At = chargedStealthDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
+                    Assert.False(catState.CatPhasing);
+                    Assert.False(catConn.Phasing);
+                    Assert.True(catConn.IsPhasing);
+                    Assert.Equal(0, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.State.Held(ChargeType.Power));
+                    Assert.Equal(schedule.At + 4, chargeSession.State.ExpiresAt(ChargeType.Power), 3);
+
+                    double lastStealthBeforeDurationReprice = catState.CatLastStealthStartedAt;
+                    double powerExpiryBeforeDurationReprice = chargeSession.State.ExpiresAt(ChargeType.Power);
+                    uint stealthDurationKey = Program.Stats.Key("cats_stealth_duration_ms_+")!.Value;
+                    catConn.PlayerStats[stealthDurationKey] = -2000;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
+                    Assert.Equal(lastStealthBeforeDurationReprice, catState.CatLastStealthStartedAt, 3);
+                    Assert.Equal(0, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(powerExpiryBeforeDurationReprice,
+                        chargeSession.State.ExpiresAt(ChargeType.Power), 3);
+                    catConn.PlayerStats.Remove(stealthDurationKey);
+
+                    lock (catConn.Monsters)
+                    {
+                        using var frame = catConn.BeginMonsterBlockerFrame(schedule.At);
+                        Assert.DoesNotContain(blockingBody, frame.ForPlayer);
+                        Assert.Contains(fixedBody, frame.ForPlayer);
+                    }
+                    double actualNow = catConn.Clock.Elapsed.TotalSeconds;
+                    Assert.True(Game.ItemConditionFlags(catConn, actualNow)["_while_phasing"]);
+                    catConn.PhasingUntil = 0;
+                    Assert.False(catConn.IsPhasing);
+                    Assert.False(Game.ItemConditionFlags(catConn, actualNow)["_while_phasing"]);
+                    lock (catConn.Monsters)
+                    {
+                        using var frame = catConn.BeginMonsterBlockerFrame(schedule.At);
+                        Assert.Contains(blockingBody, frame.ForPlayer);
+                        Assert.Contains(fixedBody, frame.ForPlayer);
+                    }
+
+                    double chargedAgilityDeadline = catState.CatPhaseDeadline;
+                    schedule.At = chargedAgilityDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.True(catState.CatPhasing);
+                    Assert.True(catConn.IsPhasing);
+                    Assert.Equal(maxFrenzy, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.Effective(ChargeType.Power));
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
+                        chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Power).DurationMs / 1000.0,
+                        chargeSession.State.ExpiresAt(ChargeType.Power), 3);
+                    lock (catConn.Monsters)
+                    {
+                        using var frame = catConn.BeginMonsterBlockerFrame(schedule.At);
+                        Assert.DoesNotContain(blockingBody, frame.ForPlayer);
+                        Assert.Contains(fixedBody, frame.ForPlayer);
+                    }
+
+                    double regrantedFrenzyExpiry = chargeSession.State.ExpiresAt(ChargeType.Frenzy);
+                    inventory.Remove(PlayerInventories.BodyArmour, furPlacement.Id);
+                    Game.EnsureOwnAuraPools(catConn);
+                    Assert.False(catConn.IsPhasing);
+                    var withoutFurStats = Game.CharacterPlayerStats(catConn);
+                    Assert.Equal(0, Stat(withoutFurStats, "phase_through_objects"));
+                    Assert.Equal(0, Stat(withoutFurStats, "virtual_phase_through_objects"));
+                    Assert.Equal(maxFrenzy, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.Effective(ChargeType.Power));
+                    furPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, fur);
+                    Game.EnsureOwnAuraPools(catConn);
+                    Assert.True(catConn.IsPhasing);
+                    Assert.Equal(regrantedFrenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy));
+                    Assert.Equal(maxFrenzy, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.State.Held(ChargeType.Power));
+
+                    // A bounded catch-up from the most recent missed Stealth cannot truncate an independently earned
+                    // later charge, and a charge whose own duration ended cannot be resurrected by that old entry.
+                    chargeSession.Refresh(1135);
+                    var catchupSources = Game.CharacterStatSources(catConn).Stats;
+                    int ChargeStat(string name) => Program.Stats.Key(name) is uint key
+                        ? catConn.PlayerStats.GetValueOrDefault(key, catchupSources.GetValueOrDefault(key)) : 0;
+                    chargeSession.Observe(ChargeStat);
+                    _ = chargeSession.Admit(1135,
+                        [new ChargeEvent.Grant(ChargeType.Frenzy, 1, "independent later gain")],
+                        ChargeStat, () => Game.WeaponProfileFor(catConn), true, new Random(504));
+                    Assert.Equal(1, chargeSession.State.Held(ChargeType.Frenzy));
+                    double laterExpiry = chargeSession.State.ExpiresAt(ChargeType.Frenzy);
+                    Assert.True(laterExpiry > 1135);
+
+                    schedule.At = 1135.5;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
+                    Assert.Equal(1125, catState.CatLastStealthStartedAt, 3);
+                    Assert.Equal(1, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(laterExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.State.Held(ChargeType.Power));
+
+                    schedule.At = 1137;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(1137, catState.CatLastStealthStartedAt, 3);
+                    Assert.Equal(maxFrenzy, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(maxPower, chargeSession.State.Held(ChargeType.Power));
+                    Assert.Equal(1137 + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
+                        chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(1137 + chargeSession.Limits(ChargeType.Power).DurationMs / 1000.0,
+                        chargeSession.State.ExpiresAt(ChargeType.Power), 3);
 
                     inventory.Remove(PlayerInventories.BodyArmour, furPlacement.Id);
                     Game.EnsureOwnAuraPools(catConn);
@@ -570,8 +903,28 @@ public sealed class ReservationCurseSummonTests
                     Assert.Equal(0, repriced.LifePercent);
 
                     var savedCatIntent = CharacterSaves.Load(character)!.ActiveAuras!.ToArray();
-                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn,
-                        catSource.Id, catSource.Effect, catSource.Name, catCost, catGrant.Level, 0));
+                    int earnedFrenzy = chargeSession.State.Held(ChargeType.Frenzy);
+                    int earnedPower = chargeSession.State.Held(ChargeType.Power);
+                    List<byte[]> catOff;
+                    using (new Game.PlayerStatScope(catConn, fresh: true))
+                    {
+                        var primedScope = Game.BuildScopeOf(catConn)!;
+                        _ = Game.FinalPlayerStats(catConn).ToList();
+                        var primedCharacter = primedScope.Stats;
+                        var primedFinal = primedScope.Final;
+                        Assert.Equal(1, Stat(primedCharacter, "has_cat_aspect"));
+                        catOff = await Capture(async () => Assert.True(await Game.ToggleAura("test", catWire.Stream,
+                            catWire.Ciphers, catConn, catSource.Id, catSource.Effect, catSource.Name, catCost,
+                            catGrant.Level, 0)));
+                        var restoredScope = Game.BuildScopeOf(catConn);
+                        Assert.Same(primedScope, restoredScope);
+                        Assert.Equal(primedCharacter, restoredScope!.Stats);
+                        Assert.Equal(primedFinal, restoredScope.Final);
+                    }
+                    AssertPublished(catOff, ("has_cat_aspect", 0), ("has_cats_stealth", 0),
+                        ("has_cats_agility", 0), ("phase_through_objects", 0),
+                        ("virtual_phase_through_objects", 0), ("current_frenzy_charges", earnedFrenzy),
+                        ("current_power_charges", earnedPower));
                     Assert.Equal(ReservationState.CatPhase.None, catState.Cat);
                     CharacterSaves.SetAuraActive(character, "AspectOfTheCat", true);
 
@@ -635,6 +988,590 @@ public sealed class ReservationCurseSummonTests
                 }
             }
             await CatCoreFixture();
+
+            async Task ReplicaFurFixture()
+            {
+                string character = "ReplicaFurRuntime" + Guid.NewGuid().ToString("N");
+                const byte witchRow = 1;
+                PlayerInventories.SetClass(character, witchRow);
+                CharacterSaves.Write(character, new(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>(),
+                    Experience: CharacterStats.ExperienceFor(100)));
+                var schedule = new CatClockSchedule { At = 200 };
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = Game.AreaUpdateContext.Value;
+                Game.AreaUpdateContext.Value = updates;
+                using var catWire = new Wire();
+                ClientState? catConnection = null;
+                ClientState? restoredConnection = null;
+                try
+                {
+                    catConnection = new ClientState(conn.Layout, 0xC480, 1)
+                    {
+                        Character = character, CharacterId = Guid.NewGuid(), Account = "replica-fur-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
+                        Experience = CharacterStats.ExperienceFor(100), LeagueModule = conn.LeagueModule,
+                        Wire = ("replica-fur", catWire.Stream, catWire.Ciphers), Pools = new(100, 1, 1, 0, 0),
+                    };
+                    var catConn = catConnection;
+                    var inventory = Game.ItemsOf(catConn);
+                    Item Gem(string name, int level)
+                    {
+                        var type = Program.Items.FindGem(name)!.Value;
+                        return ItemCatalog.Create(type.Type) with
+                        {
+                            GemVariant = type.Variant.Index,
+                            GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(level),
+                        };
+                    }
+                    var bow = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with
+                    {
+                        Sockets = [new(SocketColour.White, Gem("Tornado Shot", 1)),
+                            new(SocketColour.White, Gem("Fireball", 1))],
+                        Links = [2],
+                    };
+                    inventory.Add(PlayerInventories.Weapon1, 0, 0, bow);
+                    inventory.Add(5, 0, 0, new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    inventory.Add(6, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(504))!);
+                    inventory.Add(7, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(505))!);
+                    inventory.Add(PlayerInventories.Boots, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Darkray Vectors", new Random(504))!);
+                    var bite = new UniqueCatalog(Program.Items).Create("Farrul's Bite", new Random(504))!;
+                    var bitePlacement = inventory.Add(PlayerInventories.Helmet, 0, 0, bite);
+                    var replica = new UniqueCatalog(Program.Items).Create("Replica Farrul's Fur", new Random(504))!;
+                    var replicaMods = replica.Mods.Select(mod => Program.Items.Mods.ByHash(mod.Hash)!.Id).ToArray();
+                    Assert.Contains("CatsAgilityDurationUnique__1", replicaMods);
+                    Assert.DoesNotContain("CatsStealthDurationUnique__1_", replicaMods);
+                    var replicaPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, replica);
+                    catConn.Pools = Game.PoolsFor(catConn, 100);
+                    catConn.PlayerLife = catConn.Pools.Life;
+                    catConn.PlayerMana = catConn.Pools.Mana;
+                    Game.ReconcileOwnAuras(catConn, validateSkills: true);
+                    var catSource = Assert.Single(Game.GemSkillEffects(catConn), gem =>
+                        Game.SkillsFor(catConn).EffectId(gem.Effect) == "AspectOfTheCat");
+                    var catGrant = Assert.Single(Game.WornGrantedSkillsOf(catConn),
+                        grant => grant.EffectId == "AspectOfTheCat");
+                    var catCost = Game.SupportedReservationCost(catConn, catSource.Id)!.Value;
+                    Assert.Equal(0, catCost.ManaPercent);
+                    Assert.Equal(0, catCost.ManaFlat);
+
+                    var state = catConn.Reservations;
+                    int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
+                        stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                    static int Occurrences(IEnumerable<byte[]> packets, byte[] needle)
+                    {
+                        int count = 0;
+                        foreach (var packet in packets)
+                            for (int at = 0; at <= packet.Length - needle.Length;)
+                                if (packet.AsSpan(at, needle.Length).SequenceEqual(needle)) { count++; at += needle.Length; }
+                                else at++;
+                        return count;
+                    }
+                    async Task<List<byte[]>> Capture(Func<Task> action)
+                    {
+                        var sent = new List<byte[]>();
+                        var previous = Program.Outgoing;
+                        Program.Outgoing = (ciphers, bytes) =>
+                        {
+                            if (ReferenceEquals(ciphers, catWire.Ciphers)) sent.Add(bytes.ToArray());
+                            previous?.Invoke(ciphers, bytes);
+                        };
+                        try { await action(); }
+                        finally { Program.Outgoing = previous; }
+                        return sent;
+                    }
+                    static bool TryCompactUInt(ReadOnlySpan<byte> bytes, ref int at, out uint value)
+                    {
+                        value = 0;
+                        if (at >= bytes.Length) return false;
+                        uint first = bytes[at++];
+                        if (first < 0x80) { value = first; return true; }
+                        int following = first < 0xc0 ? 1 : first < 0xe0 ? 2 : first < 0xf0 ? 3 : 4;
+                        if (bytes.Length - at < following) return false;
+                        if (following == 1) value = (first & 0x3f) << 8 | bytes[at++];
+                        else if (following == 2) value = (first & 0x1f) << 16 | (uint)bytes[at++] << 8 | bytes[at++];
+                        else if (following == 3) value = (first & 0x0f) << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++];
+                        else value = (uint)bytes[at++] << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++];
+                        return true;
+                    }
+                    static bool TryCompactInt(ReadOnlySpan<byte> bytes, ref int at, out int value)
+                    {
+                        static int Signed(uint value, int bits) => (value & (1u << (bits - 1))) != 0
+                            ? (int)(value | ~((1u << bits) - 1)) : (int)value;
+                        value = 0;
+                        if (at >= bytes.Length) return false;
+                        uint first = bytes[at++];
+                        if (first < 0x80) { value = Signed(first & 0x7f, 7); return true; }
+                        int following = first < 0xc0 ? 1 : first < 0xe0 ? 2 : first < 0xf0 ? 3 : 4;
+                        if (bytes.Length - at < following) return false;
+                        if (following == 1) value = Signed((first & 0x3f) << 8 | bytes[at++], 14);
+                        else if (following == 2) value = Signed((first & 0x1f) << 16 | (uint)bytes[at++] << 8
+                            | bytes[at++], 21);
+                        else if (following == 3) value = Signed((first & 0x0f) << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++], 28);
+                        else value = (int)((uint)bytes[at++] << 24 | (uint)bytes[at++] << 16
+                            | (uint)bytes[at++] << 8 | bytes[at++]);
+                        return true;
+                    }
+                    static IEnumerable<Dictionary<uint, int>> PublishedStats(IEnumerable<byte[]> packets)
+                    {
+                        var header = InstanceEntities.StatsUpdate(Program.PlayerId, []).AsSpan(0, 12).ToArray();
+                        foreach (var packet in packets)
+                        {
+                            int scan = 0;
+                            while (scan <= packet.Length - header.Length)
+                            {
+                                int found = packet.AsSpan(scan).IndexOf(header);
+                                if (found < 0) break;
+                                int start = scan + found;
+                                int cursor = start + header.Length;
+                                if (!TryCompactUInt(packet, ref cursor, out uint count) || count > 10_000)
+                                {
+                                    scan = start + 1;
+                                    continue;
+                                }
+                                var stats = new Dictionary<uint, int>();
+                                bool complete = true;
+                                for (uint i = 0; i < count; i++)
+                                {
+                                    if (!TryCompactUInt(packet, ref cursor, out uint key)
+                                        || !TryCompactInt(packet, ref cursor, out int value)
+                                        || !stats.TryAdd(key, value))
+                                    {
+                                        complete = false;
+                                        break;
+                                    }
+                                }
+                                if (!complete)
+                                {
+                                    scan = start + 1;
+                                    continue;
+                                }
+                                yield return stats;
+                                scan = cursor;
+                            }
+                        }
+                    }
+                    static void AssertPublished(IEnumerable<byte[]> packets,
+                        params (string Name, int Value)[] expected)
+                    {
+                        var snapshots = PublishedStats(packets).ToArray();
+                        Assert.NotEmpty(snapshots);
+                        var keys = expected.Select(row => (Key: Program.Stats.Key(row.Name)!.Value, row.Name, row.Value)).ToArray();
+                        Assert.True(snapshots.Any(snapshot => keys.All(row => snapshot.ContainsKey(row.Key))),
+                            "0x1b3 has no full snapshot with all selected stats");
+                        foreach (var snapshot in snapshots)
+                            foreach (var (key, name, value) in keys)
+                                if (snapshot.TryGetValue(key, out int actual))
+                                    Assert.True(actual == value,
+                                        $"0x1b3 published stat {key} ({name}) as {actual}, expected {value}");
+                    }
+                    byte[] PhasePacket(ushort instance, double remaining) => InstanceEntities.AddBuff(Program.PlayerId,
+                        instance, Game.CatAspectPhaseRow(state.Cat), Program.PlayerId, state.CatOwner!.Value.Skill,
+                        u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)));
+                    byte[] OnslaughtPacket(ushort instance, double remaining) => InstanceEntities.AddBuff(Program.PlayerId,
+                        instance, Program.Items.Onslaught!.BuffRow, Program.PlayerId,
+                        u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)));
+
+                    List<byte[]> initial;
+                    using (new Game.PlayerStatScope(catConn, fresh: true))
+                    {
+                        var primedScope = Game.BuildScopeOf(catConn)!;
+                        _ = Game.FinalPlayerStats(catConn).ToList();
+                        var primedCharacter = primedScope.Stats;
+                        Assert.Equal(0, Stat(primedCharacter, "current_frenzy_charges"));
+                        Assert.Equal(0, Stat(primedCharacter, "current_endurance_charges"));
+                        Assert.Equal(0, Stat(primedCharacter, "currently_has_onslaught"));
+                        initial = await Capture(async () => Assert.True(await Game.ToggleAura("test", catWire.Stream,
+                            catWire.Ciphers, catConn, catSource.Id, catSource.Effect, catSource.Name, catCost,
+                            catGrant.Level, 0)));
+                        var restoredScope = Game.BuildScopeOf(catConn);
+                        Assert.Same(primedScope, restoredScope);
+                    }
+                    AssertPublished(initial, ("has_cat_aspect", 1), ("has_cats_stealth", 1),
+                        ("has_cats_agility", 0), ("currently_has_onslaught", 0),
+                        ("current_frenzy_charges", 0), ("current_endurance_charges", 0),
+                        ("current_power_charges", 0));
+                    Assert.Equal(4, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
+                    Assert.Equal(double.NegativeInfinity, state.CatLastAgilityStartedAt);
+                    Assert.Equal(0, state.CatOnslaughtBuff);
+                    Assert.False(Game.HasOnslaught(catConn));
+                    Assert.False(Game.CatOnslaughtActiveLocked(catConn));
+
+                    var chargeSession = Game.ChargesOf(catConn);
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+                    int attackMsStealth = (int)Math.Round(Game.SupportedAttackSeconds(catConn,
+                        Assert.Single(Game.GemSkillEffects(catConn),
+                            gem => Game.SkillsFor(catConn).EffectId(gem.Effect) == "TornadoShot").Id) * 1000);
+                    var fireball = Assert.Single(Game.GemSkillEffects(catConn),
+                        gem => Game.SkillsFor(catConn).EffectId(gem.Effect) == "Fireball").Id;
+                    int castMsStealth = Game.CastMs(catConn,
+                        Game.SupportedSkill(catConn, fireball).Effect, fireball)!.Value;
+                    int movementStealth = catConn.Pools.MovementVelocityPct;
+                    uint onslaughtEffectKey = Program.Stats.Key("onslaught_effect_+%")!.Value;
+                    catConn.PlayerStats[onslaughtEffectKey] = 50;
+
+                    List<byte[]> agilityEntry;
+                    using (new Game.PlayerStatScope(catConn, fresh: true))
+                    {
+                        var primedScope = Game.BuildScopeOf(catConn)!;
+                        _ = Game.FinalPlayerStats(catConn).ToList();
+                        var primedCharacter = new Dictionary<uint, int>(primedScope.Stats);
+                        var primedFinal = primedScope.Final!.ToArray();
+                        Assert.Equal(1, Stat(primedCharacter, "has_cat_aspect"));
+                        Assert.Equal(1, Stat(primedCharacter, "has_cats_stealth"));
+                        Assert.Equal(0, Stat(primedCharacter, "has_cats_agility"));
+                        Assert.Equal(0, Stat(primedCharacter, "current_frenzy_charges"));
+                        Assert.Equal(0, Stat(primedCharacter, "current_endurance_charges"));
+                        Assert.Equal(0, Stat(primedCharacter, "currently_has_onslaught"));
+                        schedule.At = state.CatPhaseDeadline;
+                        agilityEntry = await Capture(() => Game.ReservationSkillsTick("test", catWire.Stream,
+                            catWire.Ciphers, catConn, schedule.At));
+                        var restoredScope = Game.BuildScopeOf(catConn);
+                        Assert.Same(primedScope, restoredScope);
+                        Assert.Equal(primedCharacter, restoredScope!.Stats);
+                        Assert.Equal(primedFinal, restoredScope.Final);
+                    }
+                    AssertPublished(agilityEntry, ("has_cat_aspect", 1), ("has_cats_stealth", 0),
+                        ("has_cats_agility", 1), ("currently_has_onslaught", 1),
+                        ("current_frenzy_charges", 4), ("current_endurance_charges", 3),
+                        ("current_power_charges", 0));
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(8, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
+                    Assert.Equal(schedule.At, state.CatLastAgilityStartedAt, 3);
+                    Assert.Equal(schedule.At, state.CatObservedAgilityEntryAt, 3);
+                    Assert.Equal(1, Occurrences(agilityEntry, PhasePacket(state.CatPhaseBuff, 8)));
+                    var actorHeader = InstanceEntities.PlayerSkillsChange(Program.PlayerId, [], []).AsSpan(0, 12).ToArray();
+                    Assert.Contains(agilityEntry, packet => packet.AsSpan().IndexOf(actorHeader) >= 0);
+                    Assert.NotEqual(0, state.CatOnslaughtBuff);
+                    var ownedOnslaught = OnslaughtPacket(state.CatOnslaughtBuff, 8);
+                    Assert.Equal(31, ownedOnslaught.Length);
+                    Assert.Equal(new byte[4], ownedOnslaught[^4..]);
+                    Assert.Equal(1, Occurrences(agilityEntry, ownedOnslaught));
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(4, chargeSession.Limits(ChargeType.Frenzy).Maximum);
+                    Assert.Equal(3, chargeSession.Limits(ChargeType.Endurance).Maximum);
+                    Assert.Equal(4, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.Effective(ChargeType.Endurance));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Power));
+                    Assert.False(chargeSession.Converted(ChargeType.Frenzy));
+                    Assert.False(chargeSession.Converted(ChargeType.Endurance));
+                    double frenzyExpiry = chargeSession.State.ExpiresAt(ChargeType.Frenzy);
+                    double enduranceExpiry = chargeSession.State.ExpiresAt(ChargeType.Endurance);
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
+                        frenzyExpiry, 3);
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Endurance).DurationMs / 1000.0,
+                        enduranceExpiry, 3);
+                    uint agilityDurationKey = Program.Stats.Key("aspect_of_the_cat_base_secondary_duration")!.Value;
+                    double repricedPhaseStart = state.CatPhaseStartedAt;
+                    ushort repricedOldOnslaught = state.PresentedCatOnslaughtBuff;
+                    catConn.PlayerStats[agilityDurationKey] = 4000;
+                    schedule.At += .25;
+                    var durationRepriced = await Capture(() => Game.ReservationSkillsTick("test", catWire.Stream,
+                        catWire.Ciphers, catConn, schedule.At));
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(repricedPhaseStart, state.CatPhaseStartedAt, 3);
+                    Assert.Equal(repricedPhaseStart + 10, state.CatPhaseDeadline, 3);
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(enduranceExpiry, chargeSession.State.ExpiresAt(ChargeType.Endurance), 3);
+                    Assert.NotEqual(repricedOldOnslaught, state.PresentedCatOnslaughtBuff);
+                    Assert.Equal(1, Occurrences(durationRepriced,
+                        InstanceEntities.RemoveBuff(Program.PlayerId, repricedOldOnslaught)));
+                    var repricedOnslaught = OnslaughtPacket(state.PresentedCatOnslaughtBuff,
+                        state.CatPhaseDeadline - schedule.At);
+                    Assert.Equal(31, repricedOnslaught.Length);
+                    Assert.Equal(new byte[4], repricedOnslaught[^4..]);
+                    Assert.Equal(1, Occurrences(durationRepriced, repricedOnslaught));
+
+                    ushort restoredOldOnslaught = state.PresentedCatOnslaughtBuff;
+                    catConn.PlayerStats.Remove(agilityDurationKey);
+                    schedule.At += .25;
+                    var durationRestored = await Capture(() => Game.ReservationSkillsTick("test", catWire.Stream,
+                        catWire.Ciphers, catConn, schedule.At));
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(repricedPhaseStart, state.CatPhaseStartedAt, 3);
+                    Assert.Equal(repricedPhaseStart + 8, state.CatPhaseDeadline, 3);
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(enduranceExpiry, chargeSession.State.ExpiresAt(ChargeType.Endurance), 3);
+                    Assert.NotEqual(restoredOldOnslaught, state.PresentedCatOnslaughtBuff);
+                    Assert.Equal(1, Occurrences(durationRestored,
+                        InstanceEntities.RemoveBuff(Program.PlayerId, restoredOldOnslaught)));
+                    var restoredOnslaught = OnslaughtPacket(state.PresentedCatOnslaughtBuff,
+                        state.CatPhaseDeadline - schedule.At);
+                    Assert.Equal(31, restoredOnslaught.Length);
+                    Assert.Equal(new byte[4], restoredOnslaught[^4..]);
+                    Assert.Equal(1, Occurrences(durationRestored, restoredOnslaught));
+
+                    var agilityStats = Game.CharacterPlayerStats(catConn);
+                    Assert.Equal(4, Stat(agilityStats, "current_frenzy_charges"));
+                    Assert.Equal(3, Stat(agilityStats, "current_endurance_charges"));
+                    Assert.Equal(0, Stat(agilityStats, "current_power_charges"));
+                    Assert.Equal(1, Stat(agilityStats, "currently_has_onslaught"));
+                    Assert.Equal(1.16, ChargeEffects.DamageMore(name => Stat(agilityStats, name)), 3);
+                    Assert.Equal((12, 12), Game.PlayerDamageReduction(catConn, agilityStats));
+                    var utilityOnslaught = Game.UtilityStats(catConn, name => Stat(agilityStats, name))
+                        .Where(row => row.Stat is "attack_speed_+%" or "base_cast_speed_+%"
+                            or "base_movement_velocity_+%").ToArray();
+                    Assert.Equal(3, utilityOnslaught.Length);
+                    Assert.All(utilityOnslaught, row => Assert.Equal(30, row.Value));
+                    Assert.True(catConn.Pools.MovementVelocityPct >= movementStealth + 30);
+                    Assert.True((int)Math.Round(Game.SupportedAttackSeconds(catConn,
+                        Assert.Single(Game.GemSkillEffects(catConn),
+                            gem => Game.SkillsFor(catConn).EffectId(gem.Effect) == "TornadoShot").Id) * 1000)
+                        < attackMsStealth);
+                    Assert.True(Game.CastMs(catConn,
+                        Game.SupportedSkill(catConn, fireball).Effect, fireball)!.Value < castMsStealth);
+                    var flags = Game.ItemConditionFlags(catConn, catConn.Clock.Elapsed.TotalSeconds);
+                    Assert.True(flags["_while_onslaught_is_active"]);
+                    Assert.True(flags["_while_have_onslaught"]);
+
+                    double agilityStart = state.CatPhaseStartedAt;
+                    double agilityDeadline = state.CatPhaseDeadline;
+                    double lastStealth = state.CatLastStealthStartedAt;
+                    uint stealthDurationKey = Program.Stats.Key("cats_stealth_duration_ms_+")!.Value;
+                    catConn.PlayerStats[stealthDurationKey] = -2000;
+                    schedule.At += .25;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(agilityStart, state.CatPhaseStartedAt, 3);
+                    Assert.Equal(agilityDeadline, state.CatPhaseDeadline, 3);
+                    Assert.Equal(lastStealth, state.CatLastStealthStartedAt, 3);
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(enduranceExpiry, chargeSession.State.ExpiresAt(ChargeType.Endurance), 3);
+                    catConn.PlayerStats.Remove(stealthDurationKey);
+
+                    var kill = Game.KillOnslaughtOf(catConn);
+                    kill.Until = kill.SentUntil = schedule.At + 5;
+                    var catSources = Game.CatOnslaughtSources(catConn, name => Stat(agilityStats, name)).ToList();
+                    var killSources = Game.KillOnslaughtSources(catConn, name => Stat(agilityStats, name)).ToList();
+                    var silverSources = UtilityFlasks.OnslaughtSources(Program.Items.Onslaught!, 1.8).ToList();
+                    var strongest = UtilityFlasks.Strongest(catSources.Concat(killSources).Concat(silverSources));
+                    Assert.Equal(3, strongest.Count);
+                    Assert.All(strongest, row => Assert.Equal(36, row.Value));
+                    Assert.True(Game.HasOnslaught(catConn));
+
+                    ushort presentedOnslaught = state.PresentedCatOnslaughtBuff;
+                    inventory.Remove(PlayerInventories.BodyArmour, replicaPlacement.Id);
+                    var replicaRemoved = await Capture(() => Game.SendOwnAuraChanges("test", catWire.Stream,
+                        catWire.Ciphers, catConn));
+                    Assert.Equal(1, Occurrences(replicaRemoved,
+                        InstanceEntities.RemoveBuff(Program.PlayerId, presentedOnslaught)));
+                    Assert.Equal(0, state.PresentedCatOnslaughtBuff);
+                    Assert.True(Game.HasOnslaught(catConn));
+                    Assert.Equal(1, Stat(Game.CharacterPlayerStats(catConn), "currently_has_onslaught"));
+                    var foreignFlags = Game.ItemConditionFlags(catConn, catConn.Clock.Elapsed.TotalSeconds);
+                    Assert.True(foreignFlags["_while_onslaught_is_active"]);
+                    Assert.True(foreignFlags["_while_have_onslaught"]);
+                    Assert.Equal(4, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.Effective(ChargeType.Endurance));
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(enduranceExpiry, chargeSession.State.ExpiresAt(ChargeType.Endurance), 3);
+
+                    replicaPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, replica);
+                    var replicaReturned = await Capture(() => Game.SendOwnAuraChanges("test", catWire.Stream,
+                        catWire.Ciphers, catConn));
+                    Assert.NotEqual(0, state.CatOnslaughtBuff);
+                    Assert.Equal(1, Occurrences(replicaReturned, OnslaughtPacket(state.CatOnslaughtBuff,
+                        state.CatPhaseDeadline - schedule.At)));
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(enduranceExpiry, chargeSession.State.ExpiresAt(ChargeType.Endurance), 3);
+                    kill.Until = kill.SentUntil = double.NegativeInfinity;
+                    Assert.True(Game.HasOnslaught(catConn));
+                    Assert.Equal(1, Stat(Game.CharacterPlayerStats(catConn), "currently_has_onslaught"));
+
+                    ushort agilityOnslaught = state.PresentedCatOnslaughtBuff;
+                    schedule.At = state.CatPhaseDeadline;
+                    var nextStealth = await Capture(() => Game.ReservationSkillsTick("test", catWire.Stream,
+                        catWire.Ciphers, catConn, schedule.At));
+                    Assert.Equal(ReservationState.CatPhase.Stealth, state.Cat);
+                    Assert.Equal(4, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.Effective(ChargeType.Endurance));
+                    Assert.Equal(frenzyExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+                    Assert.Equal(enduranceExpiry, chargeSession.State.ExpiresAt(ChargeType.Endurance), 3);
+                    Assert.Equal(1, Occurrences(nextStealth,
+                        InstanceEntities.RemoveBuff(Program.PlayerId, agilityOnslaught)));
+
+                    schedule.At = state.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(4, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.State.Held(ChargeType.Endurance));
+                    Assert.Equal(schedule.At + chargeSession.Limits(ChargeType.Frenzy).DurationMs / 1000.0,
+                        chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+
+                    schedule.At = 235;
+                    chargeSession.Refresh(schedule.At);
+                    var catchupSources = Game.CharacterStatSources(catConn).Stats;
+                    int ChargeStat(string name) => Program.Stats.Key(name) is uint key
+                        ? catConn.PlayerStats.GetValueOrDefault(key, catchupSources.GetValueOrDefault(key)) : 0;
+                    chargeSession.Observe(ChargeStat);
+                    _ = chargeSession.Admit(235,
+                        [new ChargeEvent.Grant(ChargeType.Frenzy, 1, "independent later gain")],
+                        ChargeStat, () => Game.WeaponProfileFor(catConn), true, new Random(504));
+                    double laterExpiry = chargeSession.State.ExpiresAt(ChargeType.Frenzy);
+                    schedule.At = 239.5;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, state.Cat);
+                    Assert.Equal(228, state.CatLastAgilityStartedAt, 3);
+                    Assert.Equal(1, chargeSession.State.Held(ChargeType.Frenzy));
+                    Assert.Equal(laterExpiry, chargeSession.State.ExpiresAt(ChargeType.Frenzy), 3);
+
+                    double genuineAgilityAt = state.CatPhaseDeadline;
+                    schedule.At = genuineAgilityAt;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(genuineAgilityAt, state.CatLastAgilityStartedAt, 3);
+                    Assert.Equal(genuineAgilityAt + 8, state.CatPhaseDeadline, 3);
+                    Assert.True(Game.HasOnslaught(catConn));
+                    ushort longSkipOldOnslaught = state.PresentedCatOnslaughtBuff;
+                    Assert.NotEqual(0, longSkipOldOnslaught);
+
+                    schedule.At = genuineAgilityAt + 25;
+                    var longSkipOnslaught = await Capture(() => Game.ReservationSkillsTick("test",
+                        catWire.Stream, catWire.Ciphers, catConn, schedule.At));
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(genuineAgilityAt + 24, state.CatLastAgilityStartedAt, 3);
+                    Assert.Equal(genuineAgilityAt + 32, state.CatPhaseDeadline, 3);
+                    Assert.Equal(7, state.CatPhaseDeadline - schedule.At, 3);
+                    Assert.True(Game.HasOnslaught(catConn));
+                    Assert.NotEqual(longSkipOldOnslaught, state.PresentedCatOnslaughtBuff);
+                    Assert.Equal(1, Occurrences(longSkipOnslaught,
+                        InstanceEntities.RemoveBuff(Program.PlayerId, longSkipOldOnslaught)));
+                    var longSkipOwnedOnslaught = OnslaughtPacket(state.PresentedCatOnslaughtBuff, 7);
+                    Assert.Equal(31, longSkipOwnedOnslaught.Length);
+                    Assert.Equal(new byte[4], longSkipOwnedOnslaught[^4..]);
+                    Assert.Equal(1, Occurrences(longSkipOnslaught, longSkipOwnedOnslaught));
+
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
+                        catSource.Effect, catSource.Name, catCost, catGrant.Level, 0));
+                    chargeSession.Die();
+                    inventory.Remove(PlayerInventories.BodyArmour, replicaPlacement.Id);
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
+                        catSource.Effect, catSource.Name, catCost, catGrant.Level, 0));
+                    Assert.Equal(4, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
+                    Assert.False(Game.HasOnslaught(catConn));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+
+                    schedule.At = state.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(6, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
+                    Assert.False(Game.HasOnslaught(catConn));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+                    double midAgilityStart = state.CatPhaseStartedAt;
+                    replicaPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, replica);
+                    var midEquip = await Capture(() => Game.SendOwnAuraChanges("test", catWire.Stream,
+                        catWire.Ciphers, catConn));
+                    Assert.Equal(midAgilityStart, state.CatPhaseStartedAt, 3);
+                    Assert.Equal(8, state.CatPhaseDeadline - state.CatPhaseStartedAt, 3);
+                    Assert.True(Game.HasOnslaught(catConn));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+                    Assert.Equal(1, Occurrences(midEquip, OnslaughtPacket(state.CatOnslaughtBuff,
+                        state.CatPhaseDeadline - schedule.At)));
+
+                    inventory.Remove(PlayerInventories.BodyArmour, replicaPlacement.Id);
+                    Game.EnsureOwnAuraPools(catConn);
+                    inventory.Add(PlayerInventories.BodyArmour, 0, 0, replica);
+                    Game.EnsureOwnAuraPools(catConn);
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+                    schedule.At = state.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, state.Cat);
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, chargeSession.Effective(ChargeType.Endurance));
+                    schedule.At = state.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    chargeSession.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, state.Cat);
+                    Assert.Equal(4, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.Effective(ChargeType.Endurance));
+
+                    var savedCatIntent = CharacterSaves.Load(character)!.ActiveAuras!.ToArray();
+                    ushort finalOnslaught = state.PresentedCatOnslaughtBuff;
+                    inventory.Remove(PlayerInventories.Helmet, bitePlacement.Id);
+                    var sourceGone = await Capture(() => Game.SendOwnAuraChanges("test", catWire.Stream,
+                        catWire.Ciphers, catConn));
+                    Assert.Equal(ReservationState.CatPhase.None, state.Cat);
+                    Assert.Equal(0, state.PresentedCatOnslaughtBuff);
+                    Assert.Equal(1, Occurrences(sourceGone, InstanceEntities.RemoveBuff(Program.PlayerId, finalOnslaught)));
+                    Assert.False(Game.HasOnslaught(catConn));
+                    Assert.Equal(0, Stat(Game.CharacterPlayerStats(catConn), "currently_has_onslaught"));
+                    Assert.Equal(4, chargeSession.Effective(ChargeType.Frenzy));
+                    Assert.Equal(3, chargeSession.Effective(ChargeType.Endurance));
+
+                    CharacterSaves.SetAuraActive(character, "AspectOfTheCat", false);
+                    bitePlacement = inventory.Add(PlayerInventories.Helmet, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Farrul's Bite", new Random(505))!);
+                    Game.ReconcileOwnAuras(catConn, validateSkills: true);
+                    Assert.DoesNotContain(catConn.Auras.Values, aura => aura.EffectId == "AspectOfTheCat");
+                    Assert.Equal(ReservationState.CatPhase.None, state.Cat);
+
+                    using var restoredWire = new Wire();
+                    restoredConnection = new ClientState(conn.Layout, 0xC481, 1)
+                    {
+                        Character = character, CharacterId = Guid.NewGuid(), Account = "replica-fur-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
+                        Experience = CharacterStats.ExperienceFor(100), LeagueModule = conn.LeagueModule,
+                        Wire = ("replica-fur-restored", restoredWire.Stream, restoredWire.Ciphers),
+                        Pools = new(100, 1, 1, 0, 0),
+                    };
+                    var restoredConn = restoredConnection;
+                    restoredConn.Pools = Game.PoolsFor(restoredConn, 100);
+                    restoredConn.PlayerLife = restoredConn.Pools.Life;
+                    restoredConn.PlayerMana = restoredConn.Pools.Mana;
+                    var restoredCat = Game.RestoreRememberedAuras(restoredConn, savedCatIntent);
+                    Assert.Contains(restoredCat, aura => aura.EffectId == "AspectOfTheCat");
+                    Game.EnsureOwnAuraPools(restoredConn);
+                    Assert.True(Game.CatAspectRootActiveLocked(restoredConn));
+                    Assert.Equal(ReservationState.CatPhase.Stealth, restoredConn.Reservations.Cat);
+                    Assert.Equal(4, restoredConn.Reservations.CatPhaseDeadline
+                        - restoredConn.Reservations.CatPhaseStartedAt, 3);
+                    Assert.False(Game.HasOnslaught(restoredConn));
+                    Assert.Equal(0, Game.ChargesOf(restoredConn).Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, Game.ChargesOf(restoredConn).Effective(ChargeType.Endurance));
+                    schedule.At = restoredConn.Reservations.CatPhaseDeadline;
+                    await Game.ReservationSkillsTick("test", restoredWire.Stream, restoredWire.Ciphers,
+                        restoredConn, schedule.At);
+                    var restoredCharges = Game.ChargesOf(restoredConn);
+                    restoredCharges.Refresh(schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, restoredConn.Reservations.Cat);
+                    Assert.Equal(4, restoredCharges.Effective(ChargeType.Frenzy));
+                    Assert.Equal(3, restoredCharges.Effective(ChargeType.Endurance));
+                    Assert.True(Game.HasOnslaught(restoredConn));
+
+                    restoredConn.PlayerLife = 0;
+                    Game.ChargesOnDeath(restoredConn);
+                    await Game.EndAurasOnDeath("test", restoredWire.Stream, restoredWire.Ciphers, restoredConn);
+                    Assert.Equal(ReservationState.CatPhase.None, restoredConn.Reservations.Cat);
+                    Assert.Equal(0, restoredConn.Reservations.PresentedCatPhaseBuff);
+                    Assert.Equal(0, restoredConn.Reservations.PresentedCatOnslaughtBuff);
+                    Assert.Equal(0, restoredCharges.Effective(ChargeType.Frenzy));
+                    Assert.Equal(0, restoredCharges.Effective(ChargeType.Endurance));
+                    Assert.False(Game.HasOnslaught(restoredConn));
+                    Assert.Empty(restoredConn.Auras);
+                }
+                finally
+                {
+                    if (restoredConnection is not null) restoredConnection.Closed = true;
+                    if (catConnection is not null) catConnection.Closed = true;
+                    Game.AreaUpdateContext.Value = previousContext;
+                    PlayerInventories.Forget(character);
+                }
+            }
+            await ReplicaFurFixture();
         }
         finally
         {

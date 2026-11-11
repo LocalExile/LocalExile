@@ -220,6 +220,10 @@ static partial class Game
                     conn.PresentedAuras[aura.SkillId] = aura;
                 }
         PresentCatPhaseLocked(conn, packets);
+        PresentCatOnslaughtLocked(conn, packets);
+        // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
+        // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
+        using var publicationStats = new PlayerStatScope(conn, fresh: true);
         if (conn.AuraStatsDirty)
         {
             conn.AuraStatsDirty = false;
@@ -295,6 +299,37 @@ static partial class Game
         state.PresentedCatValue2 = value2;
         state.PresentedCatValue3 = value3;
         state.PresentedCatRevision = state.CatRevision;
+    }
+
+    // Cat owns this presentation independently of the kill/flask Onslaught state. Its stats have already composed
+    // through UtilityStats; this only keeps one BuffDefinitions row 215 instance on the wire for the current Agility.
+    static void PresentCatOnslaughtLocked(ClientState conn, List<byte[]> packets)
+    {
+        var state = conn.Reservations;
+        var onslaught = ItemsFor(conn).Onslaught;
+        bool active = onslaught is not null && CatOnslaughtActiveLocked(conn);
+        if (active && state.CatOnslaughtBuff == 0) state.CatOnslaughtBuff = conn.NextBuff++;
+        if (active && state.PresentedCatOnslaughtBuff != 0
+            && state.CatOnslaughtBuff == state.PresentedCatOnslaughtBuff
+            && state.PresentedCatOnslaughtPhaseBuff != state.PresentedCatPhaseBuff)
+            state.CatOnslaughtBuff = conn.NextBuff++;
+        ushort wanted = active ? state.CatOnslaughtBuff : (ushort)0;
+        if (state.PresentedCatOnslaughtBuff != 0
+            && state.PresentedCatOnslaughtBuff != wanted)
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCatOnslaughtBuff));
+            state.PresentedCatOnslaughtBuff = 0;
+            state.PresentedCatOnslaughtPhaseBuff = 0;
+        }
+        if (active && wanted != 0 && state.PresentedCatOnslaughtBuff != wanted)
+        {
+            float remaining = (float)Math.Max(0, state.CatPhaseDeadline - AreaTime(conn));
+            // Onslaught row 215 is not a recovery row, so 0x1c1 carries no GrantedStats payload.
+            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, onslaught!.BuffRow, PlayerId,
+                u68: BitConverter.SingleToUInt32Bits(remaining)));
+            state.PresentedCatOnslaughtBuff = wanted;
+            state.PresentedCatOnslaughtPhaseBuff = state.PresentedCatPhaseBuff;
+        }
     }
 
     internal static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
