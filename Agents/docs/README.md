@@ -24,6 +24,7 @@ Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3c c
 | [protocol/16-waypoints.md](protocol/16-waypoints.md) | waypoints: the object, activated waypoints (0x4c), the World panel (0x7b), travel (0x4d), quest flags in the Player component, what reveals pins |
 | [protocol/24-vendor-recipes.md](protocol/24-vendor-recipes.md) | vendor sale quotes, common recipes, priorities, atomic payment and remaining parity gaps |
 | [protocol/25-gem-supports.md](protocol/25-gem-supports.md) | linked supports, native badges, shared combat calculations and execution gaps |
+| [protocol/26-rage.md](protocol/26-rage.md) | generic Rage: the 3.25 rules, gain, loss and its stats |
 | [Vaal souls](protocol/27-vaal-souls.md) | Actor budgets, collection policy and pending native acceptance |
 | [protocol/28-player-trade.md](protocol/28-player-trade.md) | trade between players: requests (0xba, 0xb0), known players (0xa7), the window's 0xb8 flags and acceptance, party/friend requests read |
 | [protocol/29-currency-exchange.md](protocol/29-currency-exchange.md) | Faustus's Currency Exchange: the window (0x7b kind 0x5e), its orders and markets, the official rates |
@@ -53,6 +54,8 @@ How to regenerate them: [re/tooling.md](re/tooling.md) §7.
 [Client projectile execution](re/012-projectile-execution.md): frozen 3.29.3b research, execution rules,
 client/server contracts, six ordinary witnesses, reproducible reference checks and explicit correctness gaps.
 This research does not change the production simulator or certify native/official-server parity.
+Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `action-hit-packet-3.29.3b.md`
+(`research/poe-rea-reference`), point at peer research repositories; those files and commits are not in this one.
 
 [Projectile framework](game/projectile-framework.md): sole production simulator and skill-provider boundary.
 [Projectile skills](game/projectile-skills.md): Fireball, Kinetic Blast, catalog policies, evidence and client checks.
@@ -69,21 +72,21 @@ This research does not change the production simulator or certify native/officia
 | [dev/performance.md](dev/performance.md) | measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
 | [dev/databases.md](dev/databases.md) | the SQLite databases (`auth`, `characters`, `client`, `world`) built from `sql/`: adding an update, the updater, `client-sql.ps1` and the generated files in `client.db`, the SQL checks and owners |
 | [dev/editable-game-data.md](dev/editable-game-data.md) | what game data can become editable in SQLite, the client-compatibility boundary, the snapshot/cache design and the phased plan |
-| [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `DropDataSeed`), load and edit rules |
+| [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `sql/updates/world/`), load and edit rules |
+| [dev/modules.md](dev/modules.md) | the layers: leagues and their `league.json`, what stays in the Gateway, modules, what a module sees |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
 | [dev/player-bots.md](dev/player-bots.md) | the PlayerBots module: server-driven characters that play the campaign and visit towns, settings, logs, the client findings behind their walk and stance |
 | [dev/campaign-automation.md](dev/campaign-automation.md) | the campaign driver: `campaign.ps1`, the runner, quest step files and verbs, `/state`, `/kill`, `/quest_preset`, its own ports and client session |
 | [dev/headless-client.md](dev/headless-client.md) | cheap clients for agent sessions: the engine's Null renderer, per-client settings, frame cap, process limits, `nullifier.py`, measurements |
-| [dev/live-testing.md](dev/live-testing.md) | the older live-testing notes (GettingStarted supersedes them) |
-| [dev/ranged-monster-actions-port.md](dev/ranged-monster-actions-port.md) | standalone bow/wand and monster-action port, preserved upstream behavior and validation limits |
+| [dev/live-testing.md](dev/live-testing.md) | running the client against our servers: rules, several stacks and clients (`-Session`, `-PortBase`), hot reload, a good run, troubleshooting, env vars |
+| [dev/character-stat-lifecycle.md](dev/character-stat-lifecycle.md) | character stat publication across area transfers: ownership, the recovery contract, the snapshot cache, native evidence |
 | [dev/passive-graph-data.md](dev/passive-graph-data.md) | pinned PSG format and read-only analysis exports; no client installation or gameplay integration |
-| [dev/issue75-port.md](dev/issue75-port.md) | completed character-stat jobs ported from LocalExile, source revisions, integration decisions and validation limits |
-| [dev/issue75-review.md](dev/issue75-review.md) | current-branch correctness review, repeatable 357-stat inventory, fixes and remaining completion work |
-| [dev/issue75-stat-ledger.md](dev/issue75-stat-ledger.md) | exact 357-stat checklist with authored review states, evidence links and remaining scope |
 | [dev-server.md](dev-server.md) | the JSON-lines dev server, `GameServer.Auth` and `GameServer.Patch` usage |
 | [saves.md](saves.md) | how player progress is saved: the SQLite save database, transactions, what a failed save does |
 | [game/fortification.md](game/fortification.md) | melee-hit protection and the explicit server model |
+| [game/power-of-purpose.md](game/power-of-purpose.md) | Power of Purpose mana conversion: the calculation model, rounding, consumers |
+| [game/steel-willed-armour.md](game/steel-willed-armour.md) | Steel Willed: the chance to double armour against one hit |
 | [game/arcane-might.md](game/arcane-might.md) | spell increased/reduced transfer to attacks, source inventory and implementation boundaries |
 | [game/maps.md](game/maps.md) | 3.29 maps and the Atlas: the 20 generic map bases, tiers, drops, Voidstones (rules to build to) |
 | [game/currency-drops.md](game/currency-drops.md) | currency DropLevels, the hardcoded weights, the 3.26-3.29 changes and the drop penalty |
@@ -97,12 +100,19 @@ This research does not change the production simulator or certify native/officia
 | [game/polytheist.md](game/polytheist.md) | Polytheist node checklist: rings, legal builds, consumers, engine gaps and opt-in |
 | [game/surfcaster.md](game/surfcaster.md) | Surfcaster node checklist: fishing-rod crits and cast speed, Ghost of the Deep, reversed chill, monster ailments and flee |
 | [game/ascendancies.md](game/ascendancies.md) | selection, points, saves and the Phrecia play gate |
+| [game/phrecia-ascendancies.md](game/phrecia-ascendancies.md) | what makes a Phrecia class complete, per-class acceptance |
+| [game/juggernaut.md](game/juggernaut.md) | Juggernaut node checklist |
+| [game/slayer.md](game/slayer.md) | Slayer node checklist |
+| [game/hierophant.md](game/hierophant.md) | Hierophant node checklist |
+| [game/harbinger.md](game/harbinger.md) | the Phrecia Harbinger opt-in on the Occultist graph |
+| [game/labyrinth-trials.md](game/labyrinth-trials.md) | Trials of Ascendancy and the Labyrinth: the objects, room links, traps, the Lord's Labyrinth quest, Izaro's arenas |
 | [game/phrecia-modules.md](game/phrecia-modules.md) | optional Phrecia class sources, league composition and reload ownership |
 | [game/antiquarian.md](game/antiquarian.md) | all nine node consumers, verified-graph admission, legal builds and native acceptance |
 | [game/campaign-quests.md](game/campaign-quests.md) | the quest engine's pieces in the Gateway and the modules, the act files, adding a quest and an act, quest passive and respec points |
 | [game/behemoth.md](game/behemoth.md) | optional Behemoth sources, shared Rampage/Vaal engines and current validation limits |
 | [game/whisperer.md](game/whisperer.md) | optional Whisperer sources, shared Mana/Recoup/Blind engines and validation limits |
 | [game/unique-jewels.md](game/unique-jewels.md) | the 185 unique jewels, their effects and what the passive-socket server supports |
+| [game/cluster-jewels.md](game/cluster-jewels.md) | cluster jewels: the game's rules, their mods and what the server does with them |
 | [game/radius-jewels.md](game/radius-jewels.md) | all 76 radius unique jewels: radius/ring model, mechanics, reusable timeless pieces and implementation plan; 42 jewels with server-side effects, 33 threshold items with client/server threshold checks, Lioneye's Fall's item source/client conversion, and the generated Impossible Escape keystone bypass |
 | [game/radius-jewel-list.md](game/radius-jewel-list.md) | generated radius unique jewel table with radius, limit, mechanism, effect and support status |
 | [game/timeless-jewels.md](game/timeless-jewels.md) | Legion timeless jewels: item data, seed/conqueror rules, node replacement algorithm, radius geometry and implementation plan |
@@ -110,14 +120,18 @@ This research does not change the production simulator or certify native/officia
 | [game/cluster-jewel-list.md](game/cluster-jewel-list.md) | generated full list of cluster notables, small-passive themes and keystones with support status |
 | [game/tattoos.md](game/tattoos.md) | all 100 tattoos: mechanics, target/limit rules, the C->S 0x77 / 0x33 fifth-list protocol, acquisition, interactions and the full per-item status table |
 | [re/ascendancy-client-3.29.3b.md](re/ascendancy-client-3.29.3b.md) | native identity and point evidence |
+| [re/fracturing-mirror-mechanics.md](re/fracturing-mirror-mechanics.md) | Fracturing Orb and Mirror of Kalandra rules |
+| `re/*-coe.md` | each currency orb compared with Craft of Exile: [alchemy](re/alchemy-coe.md), [alteration](re/alteration-coe.md), [annulment](re/annulment-coe.md), [augmentation](re/augmentation-coe.md), [chance](re/chance-coe.md), [chaos](re/chaos-coe.md), [eldritch ember](re/eldritch-ember-coe.md), [eldritch ichor](re/eldritch-ichor-coe.md), [enkindling](re/enkindling-coe.md), [exalted](re/exalted-coe.md), [instilling](re/instilling-coe.md), [regal](re/regal-coe.md), [transmutation](re/transmutation-coe.md), [vaal](re/vaal-coe.md) |
 | [re/hinekora-lock.md](re/hinekora-lock.md) | Hinekora's Lock state, C→S 0x29d / S→C 0x2a0 preview and the native commit evidence |
 | [game/league-modes.md](game/league-modes.md) | Hardcore deaths, SSF isolation, Ruthless native rules and editable balance |
 | [game/survivors-mode.md](game/survivors-mode.md) | Survivors league and modules: run, rewards, native window/animations, limits |
 
 ## Working notes (history)
-- `re/007`–`010`: the notes these documents were consolidated from (login TCP, handshake, message tables, live instance
-  notes). `re/009` still has the most complete login message tables.
-- `re/003`–`004`: early notes with known errors (for example "login is HTTPS"). Verify before use.
+- [re/007](re/007-login-is-custom-tcp.md)–[010](re/010-live-login-to-instance.md): the notes these documents were
+  consolidated from (login TCP, [handshake](re/008-login-handshake.md), [message tables](re/009-login-messages.md),
+  live instance notes). `re/009` still has the most complete login message tables.
+- [re/003](re/003-rea-native-workflow.md) (the first REA/Ghidra setup) and [re/004](re/004-redirect-and-servers.md)
+  (the first redirect and server layout): early notes, superseded by GettingStarted and re/tooling. Verify before use.
 
 [Recovery timing](re/recovery-timing.md): read-only client pool tracing, native prediction inputs and ES verification limits.
 

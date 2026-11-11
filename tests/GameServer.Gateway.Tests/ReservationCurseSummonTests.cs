@@ -381,16 +381,14 @@ public sealed partial class ReservationCurseSummonTests
                     Assert.Equal(1036, AuraCatalog.BuffRow("AspectOfTheCat"));
                     Assert.Equal(1037, Game.CatAspectPhaseRow(ReservationState.CatPhase.Stealth));
                     Assert.Equal(1038, Game.CatAspectPhaseRow(ReservationState.CatPhase.Agility));
-                    using (var definitions = JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json")))
                     {
-                        Assert.False(definitions.RootElement[1037].GetProperty("IsRecovery").GetBoolean());
-                        Assert.False(definitions.RootElement[1038].GetProperty("IsRecovery").GetBoolean());
+                        var definitions = GameServer.Core.ClientTables.Table("BuffDefinitions");
+                        Assert.False(definitions[1037].Bool("IsRecovery"));
+                        Assert.False(definitions[1038].Bool("IsRecovery"));
                         Assert.Equal(new[] { 556, 7521, 12561 },
-                            definitions.RootElement[1037].GetProperty("StatsKeys").EnumerateArray()
-                                .Select(v => v.GetInt32()).ToArray());
+                            definitions[1037].Ints("StatsKeys"));
                         Assert.Equal(new[] { 70, 218 },
-                            definitions.RootElement[1038].GetProperty("StatsKeys").EnumerateArray()
-                                .Select(v => v.GetInt32()).ToArray());
+                            definitions[1038].Ints("StatsKeys"));
                     }
 
                     ushort attackSource = Assert.Single(Game.GemSkillEffects(catConn), gem =>
@@ -782,8 +780,7 @@ public sealed partial class ReservationCurseSummonTests
                             var attackBlindValue = attackState.Read(blindNow);
                             Assert.Equal(20, attackBlindValue.Less);
                             Assert.Equal(blindNow + 4, attackBlindValue.Until, 9);
-                            using (var definitions = JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json")))
-                                Assert.False(definitions.RootElement[179].GetProperty("IsRecovery").GetBoolean());
+                            Assert.False(GameServer.Core.ClientTables.Table("BuffDefinitions")[179].Bool("IsRecovery"));
                             double presentationBefore = Game.ResourceEffectsTime(catConn);
                             var presentation = Assert.IsType<byte[]>(Game.BlindPresentation(catConn, stealthStats));
                             double presentationAfter = Game.ResourceEffectsTime(catConn);

@@ -47,9 +47,9 @@ public sealed partial class DelveModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     static readonly Lazy<string?[]> StatIds = new(() =>
     {
-        if (!ClientTables.Exists("data/tables/Stats.json")) return [];
-        using var doc = GameTables.Open("data/tables/Stats.json");
-        return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString())];
+        if (!ClientTables.Has("Stats")) return [];
+        var doc = ClientTables.Table("Stats");
+        return [.. doc.Select(r => r.Text("Id"))];
     });
 
     /// <summary>The account's equipment, in the league.</summary>

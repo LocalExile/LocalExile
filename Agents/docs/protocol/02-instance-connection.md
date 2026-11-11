@@ -138,7 +138,7 @@ disconnects with code 0xf through `0x1421505f0`, which sets state 1) and when th
 ## 7. The tick (`0x14214f1d0`) once connected
 
 - When `+0xe1f9` is set (the area finished generating) it sends **C→S 0x7d** (class `0x1435ca2c0`, two u32 = tile hash
-  and doodad hash, from world `+0x114`) and flushes. See [03](03-area-and-world.md#2-c→s-0x7d-area-generated).
+  and doodad hash, from world `+0x114`) and flushes. See [03](03-area-and-world.md#2-cs-0x7d-area-generated).
 - It pumps messages while the pump accepts them (`0x1429a77a0` in a loop), unless the stream is closing (`+0x251`).
 - In state 3 it sends **C→S 0x1b** (class `0x1435cad90`: u8 (a counter from world `+0xb98`, reset after sending, capped at 255), then
   4 more bytes) every 100–500 ms, then also 0x31 (skill/inventory actions) and 0xc7 (queued u16 + u8) when it has

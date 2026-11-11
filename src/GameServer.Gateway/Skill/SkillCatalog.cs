@@ -7,7 +7,7 @@ using GameServer.Core;
 /// <summary>
 /// Skills the server grants: a GrantedEffects Id at a level becomes the GrantedEffectsPerLevel row and the
 /// GrantedEffectStatSetsPerLevel row (of the effect's StatSet1 at that gem level) the Actor skill list refers to
-/// (Agents/docs/protocol/11-skills.md). Reads data/tables (game data, loaded on first use). Without the tables it
+/// (Agents/docs/protocol/11-skills.md). Reads the client tables (client.db, loaded on first use). Without the tables it
 /// knows only the default attack, PlayerMelee at level 1 (GEPL 4474, GESSPL 4430 in 3.29.3b).
 /// </summary>
 public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
@@ -18,22 +18,20 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public const ushort FirstSkillId = 0x0102;
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
-    private readonly StatCatalog _stats = new(folder);
+    private readonly StatCatalog _stats = new();
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
     private readonly Lazy<Dictionary<int, int>> _modeEffects = new(() =>
     {
         var result = new Dictionary<int, int>();
-        string path = Path.Combine(folder, "tables", "GemEffects.json");
-        if (!hardMode || !ClientTables.Exists(path)) return result;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
+        if (!hardMode || !ClientTables.Has("GemEffects")) return result;
+        var doc = ClientTables.Table("GemEffects");
+        foreach (var r in doc)
             foreach (string name in new[] { "GrantedEffect", "GrantedEffect2" })
-                if (r.TryGetProperty(name, out var regular) && regular.ValueKind == JsonValueKind.Number
-                    && r.TryGetProperty(name + "Hardmode", out var alternate) && alternate.ValueKind == JsonValueKind.Number
-                    && regular.GetInt32() >= 0 && alternate.GetInt32() >= 0)
-                    result.TryAdd(regular.GetInt32(), alternate.GetInt32());
+                if (r.IntOrNull(name) is int regular && r.IntOrNull(name + "Hardmode") is int alternate
+                    && regular >= 0 && alternate >= 0)
+                    result.TryAdd(regular, alternate);
         return result;
     });
 
@@ -41,14 +39,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<Dictionary<int, int[]>> _extraSets = new(() =>
     {
         var result = new Dictionary<int, int[]>();
-        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var d = GameTables.Open(path);
+        if (!ClientTables.Has("GrantedEffects")) return result;
+        var d = ClientTables.Table("GrantedEffects");
         int row = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
+        foreach (var r in d)
         {
-            if (r.TryGetProperty("StatSet2", out var v) && v.ValueKind == JsonValueKind.Array && v.GetArrayLength() > 0)
-                result[row] = [.. v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetInt32())];
+            if (r.Ints("StatSet2") is { Length: > 0 } sets)
+                result[row] = sets;
             row++;
         }
         return result;
@@ -95,10 +92,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<HashSet<ushort>> _actionIds = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!ClientTables.Exists(path)) return [0x0101, 0x0106, 0x010a, 0x0114];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray().Select(r => (ushort)(r.GetProperty("HASH16").GetInt32() & 0x3fff))];
+        if (!ClientTables.Has("ActionTypes")) return [0x0101, 0x0106, 0x010a, 0x0114];
+        var d = ClientTables.Table("ActionTypes");
+        return [.. d.Select(r => (ushort)(r.Int("HASH16") & 0x3fff))];
     });
 
     /// <summary>
@@ -276,11 +272,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<List<int>> _attackTimes = new(() =>
     {
         var times = new List<int>();
-        string path = Path.Combine(folder, "tables", "GrantedEffectsPerLevel.json");
-        if (!ClientTables.Exists(path)) return times;
-        using var doc = GameTables.Open(path);
-        foreach (var r in doc.RootElement.EnumerateArray())
-            times.Add(r.TryGetProperty("AttackTime", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int ms) ? Math.Max(0, ms) : 0);
+        if (!ClientTables.Has("GrantedEffectsPerLevel")) return times;
+        var doc = ClientTables.Table("GrantedEffectsPerLevel");
+        foreach (var r in doc)
+            times.Add(r.IntOrNull("AttackTime") is int ms ? Math.Max(0, ms) : 0);
         return times;
     });
 
@@ -326,15 +321,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
         var result = new Dictionary<int, int>();
-        if (!ClientTables.Exists(path)) return result;
-        using var effects = GameTables.Open(path);
+        if (!ClientTables.Has("GrantedEffects")) return result;
+        var effects = ClientTables.Table("GrantedEffects");
         int row = 0;
-        foreach (var effect in effects.RootElement.EnumerateArray())
+        foreach (var effect in effects)
         {
             int index = row++;
-            if (effect.TryGetProperty("SkillID", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetInt32(out int value) && value > 0)
+            if (effect.IntOrNull("SkillID") is int value && value > 0)
                 result[index] = value;
         }
         return result;
@@ -342,22 +336,21 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<int, ushort>> _effectActions = new(() =>
     {
-        string PathOf(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(PathOf("GrantedEffects")) || !ClientTables.Exists(PathOf("ActiveSkills")) || !ClientTables.Exists(PathOf("ActionTypes"))) return [];
-        using var effects = GameTables.Open(PathOf("GrantedEffects"));
-        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(PathOf("ActiveSkills")));
-        using var actions = JsonDocument.Parse(ClientTables.ReadAllBytes(PathOf("ActionTypes")));
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("ActionTypes")) return [];
+        var effects = ClientTables.Table("GrantedEffects");
+        var active = ClientTables.Table("ActiveSkills");
+        var actions = ClientTables.Table("ActionTypes");
         var result = new Dictionary<int, ushort>();
         int row = 0;
-        foreach (var effect in effects.RootElement.EnumerateArray())
+        foreach (var effect in effects)
         {
             int index = row++;
-            if (!effect.TryGetProperty("ActiveSkill", out var a) || a.ValueKind != JsonValueKind.Number
-                || a.GetInt32() < 0 || a.GetInt32() >= active.RootElement.GetArrayLength()) continue;
-            var entry = active.RootElement[a.GetInt32()];
-            if (!entry.TryGetProperty("ActionType", out var t) || t.ValueKind != JsonValueKind.Number
-                || t.GetInt32() < 0 || t.GetInt32() >= actions.RootElement.GetArrayLength()) continue;
-            result[index] = actions.RootElement[t.GetInt32()].GetProperty("HASH16").GetUInt16();
+            if (effect.IntOrNull("ActiveSkill") is not int a
+                || a < 0 || a >= active.Count) continue;
+            var entry = active[a];
+            if (entry.IntOrNull("ActionType") is not int t
+                || t < 0 || t >= actions.Count) continue;
+            result[index] = (ushort)actions[t].Int("HASH16");
         }
         return result;
     });
@@ -367,10 +360,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<List<(ushort Id, string Name)>> _actions = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!ClientTables.Exists(path)) return [(0x2909, "Move")];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray().Select(r => ((ushort)(r.GetProperty("HASH16").GetInt32() & 0x3fff), r.GetProperty("Id").GetString() ?? ""))];
+        if (!ClientTables.Has("ActionTypes")) return [(0x2909, "Move")];
+        var d = ClientTables.Table("ActionTypes");
+        return [.. d.Select(r => ((ushort)(r.Int("HASH16") & 0x3fff), r.Text("Id") ?? ""))];
     });
 
     /// <summary>A GrantedEffects row's Id, or null.</summary>
@@ -383,13 +375,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<HashSet<int>> _supportEffects = new(() =>
     {
         var result = new HashSet<int>();
-        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
-        if (!File.Exists(path)) return result;
-        using var d = GameTables.Open(path);
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } d) return result;
         int row = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
+        foreach (var r in d)
         {
-            if (r.TryGetProperty("IsSupport", out var support) && support.ValueKind == JsonValueKind.True)
+            if (r.Bool("IsSupport"))
                 result.Add(row);
             row++;
         }
@@ -405,21 +395,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<HashSet<int>> _manuallyCastEffects = new(() =>
     {
         var result = new HashSet<int>();
-        string effectsPath = Path.Combine(folder, "tables", "GrantedEffects.json");
-        string activePath = Path.Combine(folder, "tables", "ActiveSkills.json");
-        if (!File.Exists(effectsPath) || !File.Exists(activePath)) return result;
-        using var effects = GameTables.Open(effectsPath);
-        using var active = GameTables.Open(activePath);
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects
+            || ClientTables.TableOrNull("ActiveSkills") is not { } active) return result;
         int row = 0;
-        foreach (var effect in effects.RootElement.EnumerateArray())
+        foreach (var effect in effects)
         {
-            if (effect.TryGetProperty("ActiveSkill", out var key) && key.ValueKind == JsonValueKind.Number
-                && key.GetInt32() is int index and >= 0 && index < active.RootElement.GetArrayLength())
-            {
-                var skill = active.RootElement[index];
-                if (skill.TryGetProperty("IsManuallyCasted", out var manual) && manual.ValueKind == JsonValueKind.True)
-                    result.Add(row);
-            }
+            if (effect.IntOrNull("ActiveSkill") is int index and >= 0 && index < active.Count
+                && active[index].Bool("IsManuallyCasted")) result.Add(row);
             row++;
         }
         return result;
@@ -553,18 +535,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<int, IReadOnlySet<int>>> _weaponRestrictions = new(() =>
     {
-        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills"))) return [];
-        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills")));
-        var restricted = active.RootElement.EnumerateArray().Select(r =>
-            r.TryGetProperty("WeaponRestriction_ItemClassesKeys", out var k) && k.ValueKind == JsonValueKind.Array
-                ? k.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32()).ToFrozenSet()
-                : FrozenSet<int>.Empty).ToList();
-        using var effects = GameTables.Open(TablePath("GrantedEffects"));
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills")) return [];
+        var active = ClientTables.Table("ActiveSkills");
+        var restricted = active.Select(r =>
+            r.Ints("WeaponRestriction_ItemClassesKeys").ToFrozenSet()).ToList();
+        var effects = ClientTables.Table("GrantedEffects");
         var result = new Dictionary<int, IReadOnlySet<int>>();
-        foreach (var (r, i) in effects.RootElement.EnumerateArray().Select((r, i) => (r, i)))
-            if (r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number
-                && a.GetInt32() is int row && row >= 0 && row < restricted.Count && restricted[row].Count > 0)
+        foreach (var (r, i) in effects.Select((r, i) => (r, i)))
+            if (r.IntOrNull("ActiveSkill") is int row && row >= 0 && row < restricted.Count && restricted[row].Count > 0)
                 result[i] = restricted[row];
         return result;
     });
@@ -703,38 +681,33 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
         static Rows? Load(string folder)
         {
-            string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
-            if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills")) || !ClientTables.Exists(TablePath("ActiveSkillType"))) return null;
-            static int[] Ints(JsonElement row, string name) => row.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array
-                ? [.. a.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32())] : [];
-            // One document at a time, so their pooled buffers are reused.
+            if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("ActiveSkillType")) return null;
+            static int[] Ints(ClientRow row, string name) => row.Ints(name);
             string?[] typeIds;
-            using (var types = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkillType"))))
-                typeIds = [.. types.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString())];
+            var types = ClientTables.Table("ActiveSkillType");
+            typeIds = [.. types.Select(r => r.Text("Id"))];
             int[][] activeTypes;
-            using (var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills"))))
-                activeTypes = [.. active.RootElement.EnumerateArray().Select(r => Ints(r, "ActiveSkillTypes"))];
-            using var effects = GameTables.Open(TablePath("GrantedEffects"));
+            var active = ClientTables.Table("ActiveSkills");
+            activeTypes = [.. active.Select(r => Ints(r, "ActiveSkillTypes"))];
+            var effects = ClientTables.Table("GrantedEffects");
             return new(typeIds, activeTypes,
-                [.. effects.RootElement.EnumerateArray().Select(r =>
-                    r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : (int?)null)],
-                [.. effects.RootElement.EnumerateArray().Select(r => Ints(r, "AddedActiveSkillTypes"))]);
+                [.. effects.Select(r =>
+                    r.IntOrNull("ActiveSkill"))],
+                [.. effects.Select(r => Ints(r, "AddedActiveSkillTypes"))]);
         }
     }
 
     /// <summary>The GrantedEffects rows whose ActiveSkill has one of these ActiveSkillTargetTypes.</summary>
     static HashSet<int> EffectsOfTargetType(string folder, params int[] targetTypes)
     {
-        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills"))) return [];
-        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills")));
-        var skills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
-            .Where(a => a.r.TryGetProperty("ActiveSkillTargetTypes", out var t) && t.ValueKind == JsonValueKind.Array
-                && t.EnumerateArray().Any(v => v.ValueKind == JsonValueKind.Number && targetTypes.Contains(v.GetInt32())))
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills")) return [];
+        var active = ClientTables.Table("ActiveSkills");
+        var skills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.Ints("ActiveSkillTargetTypes").Any(targetTypes.Contains))
             .Select(a => a.i).ToHashSet();
-        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("GrantedEffects")));
-        return [.. effects.RootElement.EnumerateArray().Select((r, i) => (r, i))
-            .Where(e => e.r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && skills.Contains(a.GetInt32()))
+        var effects = ClientTables.Table("GrantedEffects");
+        return [.. effects.Select((r, i) => (r, i))
+            .Where(e => e.r.IntOrNull("ActiveSkill") is int a && skills.Contains(a))
             .Select(e => e.i)];
     }
 
@@ -743,13 +716,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<int, (int, int, int, int)>> _weaponTypes = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "WeaponTypes.json");
         var result = new Dictionary<int, (int, int, int, int)>();
-        if (!ClientTables.Exists(path)) return result;
-        using var d = GameTables.Open(path);
-        foreach (var r in d.RootElement.EnumerateArray())
-            result.TryAdd(r.GetProperty("BaseItemTypesKey").GetInt32(), (r.GetProperty("Speed").GetInt32(), r.GetProperty("DamageMin").GetInt32(),
-                r.GetProperty("DamageMax").GetInt32(), r.GetProperty("RangeMax").GetInt32()));
+        if (!ClientTables.Has("WeaponTypes")) return result;
+        var d = ClientTables.Table("WeaponTypes");
+        foreach (var r in d)
+            result.TryAdd(r.Int("BaseItemTypesKey"), (r.Int("Speed"), r.Int("DamageMin"),
+                r.Int("DamageMax"), r.Int("RangeMax")));
         return result;
     });
 
@@ -845,24 +817,22 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
     {
         var result = new Dictionary<string, int>();
-        using var d = DataFile(Path.Combine(folder, "tables", "Projectiles.json"));
-        if (d is null) return result;
-        static int Cells(JsonElement r, string key) => r.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
-        foreach (var r in d.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { } id)
+        if (ClientTables.TableOrNull("Projectiles") is not { } d) return result;
+        static int Cells(ClientRow r, string key) => r.IntOrNull(key) ?? 0;
+        foreach (var r in d)
+            if (r.Text("Id") is { } id)
                 result.TryAdd(id, Math.Max(Cells(r, "CollisionRadius"), Cells(r, "CollisionCandidateRadius")));
         return result;
     });
 
     private readonly Lazy<Dictionary<string, int>> _projectiles = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "Projectiles.json");
         var result = new Dictionary<string, int>();
-        if (!ClientTables.Exists(path)) return result;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in d.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { } id)
-                result.TryAdd(id, r.GetProperty("ProjectileSpeed") is { ValueKind: JsonValueKind.Number } v ? v.GetInt32() : 0);
+        if (!ClientTables.Has("Projectiles")) return result;
+        var d = ClientTables.Table("Projectiles");
+        foreach (var r in d)
+            if (r.Text("Id") is { } id)
+                result.TryAdd(id, r.IntOrNull("ProjectileSpeed") is int v ? v : 0);
         return result;
     });
 
@@ -873,36 +843,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<string, string>> _projectileAos = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "Projectiles.json");
         var result = new Dictionary<string, string>();
-        if (!ClientTables.Exists(path)) return result;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in d.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { } id
-                && r.TryGetProperty("AOFiles", out var files) && files.ValueKind == JsonValueKind.Array)
-                foreach (var f in files.EnumerateArray())
-                    if (f.GetString() is { } ao) { result.TryAdd(id, ao); break; }
+        if (!ClientTables.Has("Projectiles")) return result;
+        var d = ClientTables.Table("Projectiles");
+        foreach (var r in d)
+            if (r.Text("Id") is { } id && r.Texts("AOFiles") is [var ao, ..])
+                result.TryAdd(id, ao);
         return result;
     });
 
-    /// <summary>A data file's JSON, or null, with one warning, when it is missing or unreadable: the feature stays off
-    /// rather than faulting the projectile pump or a spawn, which closes the connection, and the cached fault would repeat
-    /// it on every later one (review 2026-10-30). The generators write atomically, so a truncated file means a crash
-    /// elsewhere.</summary>
-    static JsonDocument? DataFile(string path)
-    {
-        if (!ClientTables.Exists(path)) return null;
-        try { return JsonDocument.Parse(ClientTables.ReadAllBytes(path)); }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            Console.WriteLine($"[gateway] WARNING: {path} is unreadable ({ex.GetType().Name}: {ex.Message}); its feature is off until"
-                + " scripts/dev/extract-data.ps1 regenerates it");
-            return null;
-        }
-    }
-
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
-    /// and whether it plays once (data/projectile-clips.json, scripts/re/projectile_clips.py).</summary>
+    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py).</summary>
     public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
@@ -916,22 +867,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<string, ProjectileClips>> _projectileClips = new(() =>
     {
-        string path = Path.Combine(folder, "projectile-clips.json");
         var result = new Dictionary<string, ProjectileClips>();
-        using var d = DataFile(path);
-        if (d is null) return result;
-        foreach (var entry in d.RootElement.EnumerateObject())
+        foreach (var r in ClientTables.TableOrEmpty("projectile_clips"))
         {
-            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
             ProjectileClip? Clip(string key) =>
-                entry.Value.TryGetProperty(key, out var c) && c.ValueKind == JsonValueKind.Object
-                    && c.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
-                    && c.TryGetProperty("index", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetUInt32(out uint index)
-                    && c.TryGetProperty("ms", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out int length)
-                    ? new(n.GetString() ?? "", index, length, c.TryGetProperty("once", out var once) && once.ValueKind == JsonValueKind.True)
-                    : null;
-            string? fallback = entry.Value.TryGetProperty("default", out var def) && def.ValueKind == JsonValueKind.String ? def.GetString() : null;
-            result[entry.Name] = new(fallback, Clip("flight"), Clip("impact"));
+                r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false) : null;
+            result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
     });
@@ -961,7 +903,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public double AreaRadius { get; init; }
     }
 
-    /// <summary>One clip of a monster's attack pool (data/monster-contacts.json, scripts/re/monster_contacts.py): its name,
+    /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
     /// its index in the rig's animation list, its length, and its contact keyframe's time and position when it has one
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
     public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
@@ -986,34 +928,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
-        string path = Path.Combine(folder, "monster-contacts.json");
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
-        using var d = DataFile(path);
-        if (d is null) return result;
-        foreach (var variety in d.RootElement.EnumerateObject())
+        if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
+        var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        foreach (var variety in varieties)
         {
-            if (variety.Value.ValueKind != JsonValueKind.Object
-                || !variety.Value.TryGetProperty("pools", out var pools) || pools.ValueKind != JsonValueKind.Object) continue;
-            var byKey = new Dictionary<string, MonsterClipContact[]>(StringComparer.Ordinal);
-            foreach (var pool in pools.EnumerateObject())
-            {
-                if (pool.Value.ValueKind != JsonValueKind.Array) continue;
-                var clips = new List<MonsterClipContact>();
-                foreach (var c in pool.Value.EnumerateArray())
-                {
-                    if (c.ValueKind != JsonValueKind.Object
-                        || !c.TryGetProperty("animation", out var name) || name.ValueKind != JsonValueKind.String
-                        || !c.TryGetProperty("index", out var index) || index.ValueKind != JsonValueKind.Number || !index.TryGetUInt32(out uint clipIndex)
-                        || !c.TryGetProperty("length", out var length) || length.ValueKind != JsonValueKind.Number || !length.TryGetInt32(out int lengthMs)
-                        || lengthMs <= 0) continue;
-                    int? contact = c.TryGetProperty("contact", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out int contactMs)
-                        ? contactMs : null;
-                    var point = c.TryGetProperty("position", out var position) ? AnimationContacts.Point(position) : null;
-                    clips.Add(new(name.GetString() ?? "", clipIndex, lengthMs, contact, point));
-                }
-                if (clips.Count > 0) byKey[pool.Name] = [.. clips];
-            }
-            if (byKey.Count > 0) result[variety.Name] = byKey;
+            var byKey = clipsByVariety[variety.Index]
+                .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
+                .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
+                .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
+                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))).ToArray(), StringComparer.Ordinal);
+            if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;
     });
@@ -1064,14 +989,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // SummonedSpecificMonsters: Id → MonsterVarietiesKey.
     private readonly Lazy<Dictionary<int, int>> _summonedMonsters = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "SummonedSpecificMonsters.json");
         var result = new Dictionary<int, int>();
-        if (!ClientTables.Exists(path)) return result;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
-                && r.TryGetProperty("MonsterVarietiesKey", out var v) && v.ValueKind == JsonValueKind.Number)
-                result.TryAdd(id.GetInt32(), v.GetInt32());
+        if (!ClientTables.Has("SummonedSpecificMonsters")) return result;
+        var doc = ClientTables.Table("SummonedSpecificMonsters");
+        foreach (var r in doc)
+            if (r.IntOrNull("Id") is int id && r.IntOrNull("MonsterVarietiesKey") is int v)
+                result.TryAdd(id, v);
         return result;
     });
 
@@ -1082,73 +1005,62 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private Dictionary<int, MonsterProjectileInfo> BuildMonsterProjectiles()
     {
-        string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
         var result = new Dictionary<int, MonsterProjectileInfo>();
-        if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills"))
-            || !ClientTables.Exists(TablePath("Projectiles"))) return result;
-        using var projectiles = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("Projectiles")));
-        var rows = projectiles.RootElement.EnumerateArray().Select(r => (
-            Id: r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "",
-            Speed: r.TryGetProperty("ProjectileSpeed", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetInt32() : 0,
-            Radius: r.TryGetProperty("CollisionRadius", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1)).ToList();
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills")
+            || !ClientTables.Has("Projectiles")) return result;
+        var projectiles = ClientTables.Table("Projectiles");
+        var rows = projectiles.Select(r => (
+            Id: r.TextOrNull("Id") ?? "",
+            Speed: (r.IntOrNull("ProjectileSpeed") ?? 0),
+            Radius: (r.IntOrNull("CollisionRadius") ?? 1))).ToList();
         // Animation.dat Ids: a mortar row's Animation names the ACT key of the clips the client plays for the skill.
         var animationIds = new List<string>();
-        if (ClientTables.Exists(TablePath("Animation")))
+        if (ClientTables.Has("Animation"))
         {
-            using var animations = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("Animation")));
-            foreach (var r in animations.RootElement.EnumerateArray())
-                animationIds.Add(r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : "");
+            var animations = ClientTables.Table("Animation");
+            foreach (var r in animations)
+                animationIds.Add(r.TextOrNull("Id") ?? "");
         }
         var mortarRows = new Dictionary<int, (int Projectile, string? AnimationKey)>();
-        if (ClientTables.Exists(TablePath("MonsterMortar")))
-        {
-            using var mortars = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("MonsterMortar")));
-            foreach (var r in mortars.RootElement.EnumerateArray())
-                if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
-                    && r.TryGetProperty("Projectile", out var p) && p.ValueKind == JsonValueKind.Number)
+        if (ClientTables.TableOrNull("MonsterMortar") is { } mortars)
+            foreach (var r in mortars)
+                if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
                 {
-                    string? key = r.TryGetProperty("Animation", out var a) && a.ValueKind == JsonValueKind.Number
-                        && a.GetInt32() >= 0 && a.GetInt32() < animationIds.Count && animationIds[a.GetInt32()].Length > 0
-                        ? animationIds[a.GetInt32()] : null;
-                    mortarRows.TryAdd(id.GetInt32(), (p.GetInt32(), key));
+                    string? key = r.IntOrNull("Animation") is int a
+                        && a >= 0 && a < animationIds.Count && animationIds[a].Length > 0
+                        ? animationIds[a] : null;
+                    mortarRows.TryAdd(id, (p, key));
                 }
-        }
         var attackRows = new Dictionary<int, int>();
-        if (ClientTables.Exists(TablePath("MonsterProjectileAttack")))
-        {
-            using var attacks = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("MonsterProjectileAttack")));
-            foreach (var r in attacks.RootElement.EnumerateArray())
-                if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
-                    && r.TryGetProperty("Projectile", out var p) && p.ValueKind == JsonValueKind.Number)
-                    attackRows.TryAdd(id.GetInt32(), p.GetInt32());
-        }
-        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills")));
-        var mortarSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
-            .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
+        if (ClientTables.TableOrNull("MonsterProjectileAttack") is { } attacks)
+            foreach (var r in attacks)
+                if (r.IntOrNull("Id") is int id && r.IntOrNull("Projectile") is int p)
+                    attackRows.TryAdd(id, p);
+        var active = ClientTables.Table("ActiveSkills");
+        var mortarSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
-            .ToDictionary(a => a.i, a => a.r.GetProperty("Id").GetString() == "monster_mortar_attack");
-        var equipmentProjectileSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
-            .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() == "monster_projectile_weapon")
+            .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
+        var equipmentProjectileSkills = active.Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon")
             .Select(a => a.i).ToHashSet();
-        using var effects = GameTables.Open(TablePath("GrantedEffects"));
+        var effects = ClientTables.Table("GrantedEffects");
         uint? variationKey = _stats.Key("monster_projectile_variation");
         int row = -1;
-        foreach (var e in effects.RootElement.EnumerateArray())
+        foreach (var e in effects)
         {
             row++;
-            if (!e.TryGetProperty("ActiveSkill", out var activeSkill) || activeSkill.ValueKind != JsonValueKind.Number)
-                continue;
-            int activeRow = activeSkill.GetInt32();
+            if (e.IntOrNull("ActiveSkill") is not int activeRow) continue;
             int projectileRow;
             string? animationKey;
             bool lobbed;
             int variation;
             if (mortarSkills.TryGetValue(activeRow, out bool attackForm))
             {
-                if (!e.TryGetProperty("SkillID", out var skill) || skill.ValueKind != JsonValueKind.Number
-                    || !mortarRows.TryGetValue(skill.GetInt32(), out var mortar)) continue;
+                if (e.IntOrNull("SkillID") is not int skill
+                    || !mortarRows.TryGetValue(skill, out var mortar)) continue;
                 (projectileRow, animationKey, lobbed) = (mortar.Projectile, mortar.AnimationKey, true);
-                variation = attackForm ? skill.GetInt32() : 0;
+                variation = attackForm ? skill : 0;
             }
             else if (equipmentProjectileSkills.Contains(activeRow) && variationKey is uint key)
             {
@@ -1384,13 +1296,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// Templar 5 → row 6.</summary>
     public int RowOfClass(int integerId)
     {
-        string path = Path.Combine(folder, "tables", "Characters.json");
-        if (!ClientTables.Exists(path)) return WitchRow;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("Characters")) return WitchRow;
+        var d = ClientTables.Table("Characters");
         int i = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
+        foreach (var r in d)
         {
-            if (r.GetProperty("IntegerId").GetInt32() == integerId) return i;
+            if (r.Int("IntegerId") == integerId) return i;
             i++;
         }
         return WitchRow;
@@ -1400,15 +1311,14 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     public ClassInfo ClassFor(int characterRow) => _classes.GetOrAdd(characterRow, row =>
     {
-        string path = Path.Combine(folder, "tables", "Characters.json");
-        if (!ClientTables.Exists(path)) return ClassInfo.Witch;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        if (row < 0 || row >= d.RootElement.GetArrayLength()) return ClassInfo.Witch;
-        var r = d.RootElement[row];
-        return new(r.GetProperty("IntegerId").GetInt32(), r.GetProperty("BaseStrength").GetInt32(),
-            r.GetProperty("BaseDexterity").GetInt32(), r.GetProperty("BaseIntelligence").GetInt32(),
-            r.GetProperty("Id").GetString()!, r.GetProperty("AOFile").GetString()!,
-            r.GetProperty("BaseMaxLife").GetInt32(), r.GetProperty("BaseMaxMana").GetInt32());
+        if (!ClientTables.Has("Characters")) return ClassInfo.Witch;
+        var d = ClientTables.Table("Characters");
+        if (row < 0 || row >= d.Count) return ClassInfo.Witch;
+        var r = d[row];
+        return new(r.Int("IntegerId"), r.Int("BaseStrength"),
+            r.Int("BaseDexterity"), r.Int("BaseIntelligence"),
+            r.Text("Id")!, r.Text("AOFile")!,
+            r.Int("BaseMaxLife"), r.Int("BaseMaxMana"));
     });
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, Unarmed> _unarmed = new();
@@ -1417,13 +1327,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private Unarmed LoadUnarmed(int characterRow)
     {
-        string path = Path.Combine(folder, "tables", "Characters.json");
-        if (!ClientTables.Exists(path)) return Unarmed.Witch;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        if (characterRow < 0 || characterRow >= d.RootElement.GetArrayLength()) return Unarmed.Witch;
-        var r = d.RootElement[characterRow];
-        return new Unarmed(r.GetProperty("WeaponSpeed").GetInt32(), r.GetProperty("MinDamage").GetInt32(),
-            r.GetProperty("MaxDamage").GetInt32(), r.GetProperty("MaxAttackDistance").GetInt32());
+        if (!ClientTables.Has("Characters")) return Unarmed.Witch;
+        var d = ClientTables.Table("Characters");
+        if (characterRow < 0 || characterRow >= d.Count) return Unarmed.Witch;
+        var r = d[characterRow];
+        return new Unarmed(r.Int("WeaponSpeed"), r.Int("MinDamage"),
+            r.Int("MaxDamage"), r.Int("MaxAttackDistance"));
     }
 
     // StatSets: each GrantedEffects row's StatSet1 (-1 when none). Effects: per GrantedEffects row its StatSet1 and CastTime.
@@ -1457,45 +1366,40 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
         public static Tables? Load(string folder)
         {
-            string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-            string ge = Table("GrantedEffects"), gepl = Table("GrantedEffectsPerLevel"), gesspl = Table("GrantedEffectStatSetsPerLevel"),
-                gess = Table("GrantedEffectStatSets");
-            if (!ClientTables.Exists(ge) || !ClientTables.Exists(gepl) || !ClientTables.Exists(gesspl)) return null;
-            using var g = GameTables.Open(ge);
-            using var p = GameTables.Open(gepl);
-            using var s = GameTables.Open(gesspl);
-            static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
-            static int[] Ints(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
-                ? [.. v.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Number ? (int)Math.Round(x.GetDouble()) : -1)] : [];
+            if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("GrantedEffectsPerLevel")
+                || !ClientTables.Has("GrantedEffectStatSetsPerLevel")) return null;
+            var g = ClientTables.Table("GrantedEffects");
+            var p = ClientTables.Table("GrantedEffectsPerLevel");
+            var s = ClientTables.Table("GrantedEffectStatSetsPerLevel");
+            static int Int(ClientRow r, string name) => r.IntOrNull(name) ?? -1;
+            static int[] Ints(ClientRow r, string name) => [.. r.Reals(name).Select(x => (int)Math.Round(x))];
             static (int, int)[] Pairs(int[] keys, int[] values) => [.. keys.Zip(values).Where(kv => kv.First >= 0)];
             var effects = new Dictionary<string, (int, int)>();
             var statSets = new List<int>();
             var effectInfo = new List<(int, int, bool)>();
             int activeCount = 0;
-            if (ClientTables.Exists(Table("ActiveSkills")))
+            if (ClientTables.Has("ActiveSkills"))
             {
-                using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("ActiveSkills")));
-                activeCount = active.RootElement.GetArrayLength();
+                activeCount = ClientTables.Table("ActiveSkills").Count;
             }
             var activeSkills = new List<int?>();
             int row = 0;
-            foreach (var r in g.RootElement.EnumerateArray())
+            foreach (var r in g)
             {
-                string? id = r.GetProperty("Id").GetString();
+                string? id = r.Text("Id");
                 int statSet = Int(r, "StatSet1");
                 int activeRow = Int(r, "ActiveSkill");
                 activeSkills.Add(activeRow >= 0 && activeRow < activeCount ? activeRow : null);
                 if (id is not null) effects.TryAdd(id, (row, statSet));
                 statSets.Add(statSet);
                 effectInfo.Add((statSet, Math.Max(0, Int(r, "CastTime")),
-                    r.TryGetProperty("CooldownNotRecoverDuringActive", out var pauses) && pauses.ValueKind == JsonValueKind.True));
+                    r.BoolOrNull("CooldownNotRecoverDuringActive") == true));
                 row++;
             }
             var baseStats = new List<(int[], (int, int)[])>();
-            if (ClientTables.Exists(gess))
+            if (ClientTables.Has("GrantedEffectStatSets"))
             {
-                using var b = JsonDocument.Parse(ClientTables.ReadAllBytes(gess));
-                foreach (var r in b.RootElement.EnumerateArray())
+                foreach (var r in ClientTables.Table("GrantedEffectStatSets"))
                     baseStats.Add((Ints(r, "ImplicitStats"), Pairs(Ints(r, "ConstantStats"), Ints(r, "ConstantStatsValues"))));
             }
             var perLevel = new List<(int, int)>();
@@ -1510,7 +1414,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var soulPrevention = new List<int>();
             var rageCost = new List<int>();
             var attackSpeedMultipliers = new List<int>();
-            foreach (var r in p.RootElement.EnumerateArray())
+            foreach (var r in p)
             {
                 perLevel.Add((Int(r, "GrantedEffect"), Int(r, "Level")));
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
@@ -1529,14 +1433,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 soulPrevention.Add(Math.Max(0, Int(r, "SoulGainPreventionDuration")));
                 int rageIndex = Array.IndexOf(types, 3);
                 rageCost.Add(rageIndex >= 0 && rageIndex < amounts.Length ? Math.Max(0, amounts[rageIndex]) : 0);
-                attackSpeedMultipliers.Add(r.TryGetProperty("AttackSpeedMultiplier", out var speed)
-                    && speed.ValueKind == JsonValueKind.Number && speed.TryGetInt32(out int multiplier) ? multiplier : 0);
+                attackSpeedMultipliers.Add(r.IntOrNull("AttackSpeedMultiplier") ?? 0);
             }
             var quality = new Dictionary<int, (int, int)[]>();
-            if (ClientTables.Exists(Table("GrantedEffectQualityStats")))
+            if (ClientTables.Has("GrantedEffectQualityStats"))
             {
-                using var q = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("GrantedEffectQualityStats")));
-                foreach (var r in q.RootElement.EnumerateArray())
+                foreach (var r in ClientTables.Table("GrantedEffectQualityStats"))
                     quality.TryAdd(Int(r, "GrantedEffectsKey"), Pairs(Ints(r, "StatsKeys"), Ints(r, "StatsValuesPermille")));
             }
             var setLevels = new List<(int, int)>();
@@ -1544,13 +1446,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var spellCritChances = new List<int?>();
             var levelStats = new List<(int, int)[]>();
             var levelReqs = new List<(int, int, int)>();
-            foreach (var r in s.RootElement.EnumerateArray())
+            foreach (var r in s)
             {
                 setLevels.Add((Int(r, "StatSet"), Int(r, "GemLevel")));
                 // PoB Export/Scripts/skills.lua: raw / 10000 + 1. Zero is 100%, negatives are real reductions.
-                effectiveness.Add(r.TryGetProperty("DamageEffectiveness", out var effectivenessValue)
-                    && effectivenessValue.TryGetInt32(out int offset)
-                        ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
+                effectiveness.Add(r.IntOrNull("DamageEffectiveness") is int offset
+                    ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),

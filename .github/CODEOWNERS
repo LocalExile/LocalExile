@@ -1,4 +1,4 @@
-# Only the maintainer approves changes to these. Agents/docs/dev/pr-checks.md
+# Only the maintainers approve changes to these. Agents/docs/dev/pr-checks.md
 # GitHub reads this file from the branch a pull request merges into, so a pull request cannot remove its own owner.
 
 # Instructions agents obey, at any depth
@@ -13,8 +13,8 @@ GEMINI.md @Wrathen
 # Guides with the commands and workflows agents follow
 /README.md @Wrathen
 /CONTRIBUTING.md @Wrathen
-/Agents/GettingStarted.md @Wrathen
-/Agents/docs/README.md @Wrathen
+/Agents/GettingStarted.md @Wrathen @evrydayjunglist
+/Agents/docs/README.md @Wrathen @evrydayjunglist
 
 # The repository's own controls
 /.github/ @Wrathen
@@ -33,18 +33,18 @@ NuGet.Config @Wrathen
 global.json @Wrathen
 
 # What ships to players, starts processes, or could make the client contact the official servers
-/src/LocalExile/ @Wrathen
-/src/GameServer.Patch/ @Wrathen
+/src/LocalExile/ @Wrathen @evrydayjunglist
+/src/GameServer.Patch/ @Wrathen @evrydayjunglist
 
 # What every player's server runs on their accounts and saves at its next start (game content updates stay open)
 /sql/base/ @Wrathen
-/sql/updates/auth/ @Wrathen
-/sql/updates/pending_auth/ @Wrathen
-/sql/updates/characters/ @Wrathen
-/sql/updates/pending_characters/ @Wrathen
+/sql/updates/auth/ @Wrathen @evrydayjunglist
+/sql/updates/pending_auth/ @Wrathen @evrydayjunglist
+/sql/updates/characters/ @Wrathen @evrydayjunglist
+/sql/updates/pending_characters/ @Wrathen @evrydayjunglist
 
 # What loads and runs compiled code
-/src/GameServer.Gateway/Modding/ @Wrathen
+/src/GameServer.Gateway/Modding/ @Wrathen @evrydayjunglist
 
 # Legal
 /LICENSE @Wrathen

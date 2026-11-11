@@ -144,8 +144,7 @@ the transfigured item-name display still needs a native retest.
   again after recovery, the Plate Vest keeping its 19 Armour throughout); that rule is superseded by the restored
   host deactivation above, and those controls describe the port's behaviour, not the current one. Separate aura
   transitions still need their own lifecycle evidence.
-  These captures precede this port; the ordinary-mode integration checks and fresh-native limitation are recorded
-  in [the port record](../dev/issue75-port.md).
+  These captures precede the port and have not been repeated on it.
 - **Supports:** GrantedEffects holds what a support applies to (`AllowedActiveSkillTypes`, `ExcludedActiveSkillTypes`,
   `AddedActiveSkillTypes`, `SupportsGemsOnly`) and its skill-bar letter (`SupportGemLetter`); a skill's types come from
   its ActiveSkills row.
@@ -284,7 +283,7 @@ rarity roll. The pool is the obtainable gems only: every class's quest reward ge
 (`QuestRewardOffers`), the starting gems (Characters `StartSkillGem`/`StartSupportGem`) and the drop-only exceptional
 supports (Empower, Enhance, Enlighten). The data's Graft skills (the Chayula gems), item-granted and legacy skills
 (Envy, Death Aura, Quickstep, the single-level rows) and placeholders such as "..." never drop. Because of the level
-gate a low-level monster only drops low-drop-level gems. Checked by `GemDropsTests` and live 2026-10-26 (rare monsters
+gate a low-level monster only drops low-drop-level gems. Checked live 2026-10-26 (rare monsters
 dropped normal skill and support gems). The first live attempt dropped the data's item-granted/legacy rows (Envy,
 Death Aura, "...") at monster level 1 and led to this pool.
 

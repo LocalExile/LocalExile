@@ -2906,14 +2906,13 @@ public sealed class GolemTests
                 Assert.Contains("MinionLifeConvertedToEnergyShieldUnique__1", correctedFlesh.Mods);
 
                 string fleshKey = UniqueKey(correctedFlesh);
-                var customFlesh = correctedFlesh with { ItemLevel = 84 };
                 using (var db = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={catalogPath}"))
                 {
                     db.Open();
                     using var update = db.CreateCommand();
-                    update.CommandText = "UPDATE catalog_entries SET payload = $payload WHERE kind = 'unique_item' AND key = $key";
-                    update.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(customFlesh));
-                    update.Parameters.AddWithValue("$key", fleshKey);
+                    update.CommandText = "UPDATE unique_items SET item_level = 84 WHERE name = $name AND base_type = $base";
+                    update.Parameters.AddWithValue("$name", correctedFlesh.Name);
+                    update.Parameters.AddWithValue("$base", correctedFlesh.BaseTypeId);
                     Assert.Equal(1, update.ExecuteNonQuery());
                 }
                 GameServer.Storage.SqlUpdater.Update(catalogPath, "world", log: _ => { });

@@ -8,9 +8,8 @@ using GameServer.Core;
 /// <summary>Server-side level generation (GameServer.Data/Terrain/Generation, Agents/docs/re/011-level-generation.md):
 /// for an area the port reproduces 1:1, the Gateway generates the layout itself from the seed instead of reading the
 /// client's capture: the walkability grid (doodad collision included), every cell's ground height, and the area
-/// transitions and waypoint. Supported areas are the ones whose seed-1 trace passes every check of the level
-/// generator's gate (scripts/re/levelgen/gate-baseline.json, committed with each generator change), or whose seed-1
-/// failure the port reproduces (the client cannot build it either), and whose logged loads all match. Needs the game
+/// transitions and waypoint. Supported areas are world.db's server_level_areas rows with generated = 1 (taken from the
+/// level generator's gate, scripts/re/levelgen/gate-baseline.json, by a world update). Needs the game
 /// files extracted to data/game-files.zip (<see cref="GamePack"/>); Game_SERVER_LEVELS=0 turns it off.</summary>
 public static class ServerLevels
 {
@@ -48,9 +47,6 @@ public static class ServerLevels
         /// <summary>Where each "entranceN" of the layout is (an arrival point, also for one-way entrances).</summary>
         public IReadOnlyList<EntrancePoint> Entrances { get; init; } = [];
     }
-
-    /// <summary>Where the supported list comes from (the repository root is the Gateway's directory; tests replace it).</summary>
-    public static string BaselineFile { get; set; } = GameServer.Core.World.ServerLevelAreas.BaselineFile;
 
     static readonly bool Enabled = Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") != "0";
     static readonly object Gate = new();
@@ -112,31 +108,57 @@ public static class ServerLevels
     static int LevelOf(string areaId, uint seed, int areaLevel) =>
         areaLevel > 0 ? areaLevel : PlayedLevels.TryGetValue((areaId, seed), out int played) ? played : AreaLevel(areaId);
 
-    /// <summary>Whether the Gateway generates this area itself (<see cref="BaselineFile"/>).</summary>
-    public static bool IsSupported(string areaId)
+    /// <summary>Whether the Gateway generates this area itself (<see cref="Supported"/>).</summary>
+    public static bool IsSupported(string areaId) => Enabled && Supported.Contains(areaId);
+
+    /// <summary>The areas the Gateway generates itself: world.db's server_level_areas rows with generated = 1, read once
+    /// (Auth reads the same rows at its startup).</summary>
+    public static IReadOnlySet<string> Supported
     {
-        if (!Enabled) return false;
-        var supported = _supported;
-        if (supported is null)
-            lock (SupportedGate) supported = _supported ??= LoadSupported(BaselineFile);
-        return supported.Contains(areaId);
+        get
+        {
+            var supported = _supported;
+            if (supported is null) lock (SupportedGate) { LoadAreas(); supported = _supported!; }
+            return supported;
+        }
     }
 
     /// <summary>The seed played in place of seed 1 for an area whose seed-1 load the client fails too, or null
-    /// (<see cref="GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne"/>; Auth gives new instances the same).</summary>
+    /// (server_level_areas.seed_in_place_of_one; Auth gives new instances the same).</summary>
     public static uint? SeedInPlaceOfOne(string areaId)
     {
         lock (SupportedGate)
-            return (_inPlaceOfOne ??= GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(BaselineFile,
-                m => Console.WriteLine($"[gateway] server levels: {m}"))).TryGetValue(areaId, out uint seed) ? seed : null;
+        {
+            LoadAreas();
+            return _inPlaceOfOne!.TryGetValue(areaId, out uint seed) ? seed : null;
+        }
     }
 
-    /// <summary>Drops the lists read from the baseline, so the next check reads <see cref="BaselineFile"/> again (tests).</summary>
+    /// <summary>Drops the lists read from world.db, so the next check reads them again (tests).</summary>
     public static void Reload() { lock (SupportedGate) { _supported = null; _inPlaceOfOne = null; } }
 
-    /// <summary>The supported areas of a gate baseline (<see cref="GameServer.Core.World.ServerLevelAreas.Load"/>).</summary>
-    public static HashSet<string> LoadSupported(string file) =>
-        GameServer.Core.World.ServerLevelAreas.Load(file, m => Console.WriteLine($"[gateway] server levels: {m}"));
+    // Under SupportedGate. The Gateway's open world.db, or (a tool without it) data/world.db opened for the read.
+    static void LoadAreas()
+    {
+        if (_supported is not null && _inPlaceOfOne is not null) return;
+        IReadOnlyList<GameServer.Storage.GameDataStore.ServerLevelAreaRow> rows;
+        try
+        {
+            if (GameData.Store is { } store) rows = store.LoadServerLevelAreas();
+            else
+            {
+                using var opened = new GameServer.Storage.GameDataStore(GameData.DefaultPath);
+                rows = opened.LoadServerLevelAreas();
+            }
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
+        {
+            Console.WriteLine($"[gateway] server levels: world.db: {ex.Message}");
+            rows = [];
+        }
+        _inPlaceOfOne = rows.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal);
+        _supported = rows.Where(r => r.Generated).Select(r => r.AreaId).ToHashSet(StringComparer.Ordinal);
+    }
 
     /// <summary>The generated layout of (area, seed), or null when the area is not supported or generation failed
     /// (the Gateway then falls back to the capture). Generated once per (area, seed) and kept while among the
@@ -316,11 +338,10 @@ public static class ServerLevels
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
-            foreach (var row in doc.RootElement.EnumerateArray())
-                levels[row.GetProperty("Id").GetString() ?? ""] = row.GetProperty("AreaLevel").GetInt32();
+            foreach (var row in ClientTables.Table("WorldAreas"))
+                levels[row.Text("Id") ?? ""] = row.Int("AreaLevel");
         }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException) { }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
         return levels;
     });
 

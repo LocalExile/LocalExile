@@ -569,11 +569,10 @@ public static partial class Game
     public static readonly Lazy<Dictionary<string, string>> ChestModels = new(() =>
     {
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
-        string path = Path.Combine("data", "tables", "Chests.json");
-        if (!ClientTables.Exists(path)) return models;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { Length: > 0 } id && r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString() is { Length: > 0 } model)
+        if (!ClientTables.Has("Chests")) return models;
+        var doc = ClientTables.Table("Chests");
+        foreach (var r in doc)
+            if (r.Text("Id") is { Length: > 0 } id && r.Texts("AOFiles").FirstOrDefault() is { Length: > 0 } model)
                 models.TryAdd(id, model);
         return models;
     });

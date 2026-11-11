@@ -20,6 +20,7 @@ public partial class ConditionalItemStatsTests
     [Fact]
     public void Conditional_operators_resolve_real_item_mods_and_recent_event_lifecycles()
     {
+        Legacy_json_saves_migrate_without_losing_item_fields();
         Incoming_damage_controls_run_through_the_shared_production_owner();
         Conditional_flask_uses_remove_and_protect_from_real_rows();
         Recent_events_expire_at_four_seconds_and_cache_inputs_track_condition_changes();

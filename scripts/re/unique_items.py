@@ -2,7 +2,7 @@
 
 Path of Building is a read-only third-party reference. Its src/Export/Uniques/*.lua files list the unique name, base
 type and Mods.dat ids; src/Data/Uniques/*.lua has the human-readable text. The unique catalogue is world.db's
-`catalog_entries` kind `unique_item` (Agents/docs/dev/databases.md), built from sql/: this script builds that content in
+`unique_items` with `unique_item_mods` and `unique_item_ranges` (Agents/docs/dev/databases.md), built from sql/: this script builds that content in
 memory, writes the missing uniques to sql/updates/pending_world/ and lists the uniques whose export now differs from the
 database, to correct by hand in an update of their own (a row in the database may be a deliberate correction of PoB).
 
@@ -35,10 +35,15 @@ names a unique's own row, the base has none, or the implicit is Eldritch.
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import re
 import sqlite3
+import sys
 from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 ROOT = pathlib.Path(".")
 POB = ROOT / "Tools/PathOfBuilding"
@@ -266,7 +271,20 @@ def world_uniques():
                      key=lambda path: path.name)
     for path in updates + sorted((sql / "updates/pending_world").glob("*.sql")) + sorted((sql / "updates/pending_ruthless").glob("*.sql")):
         db.executescript(path.read_text(encoding="utf-8"))
-    return {key: json.loads(payload) for key, payload in db.execute("SELECT key, payload FROM catalog_entries WHERE kind = 'unique_item'")}
+    db.row_factory = sqlite3.Row
+    mods, ranges = defaultdict(list), defaultdict(list)
+    for row in db.execute("SELECT * FROM unique_item_mods ORDER BY name, base_type, implicit, ord"):
+        mods[row["name"], row["base_type"], row["implicit"]].append(row["mod"])
+    for row in db.execute("SELECT * FROM unique_item_ranges ORDER BY name, base_type, ord"):
+        ranges[row["name"], row["base_type"]].append(
+            {"Mod": row["mod"], "Stat": row["stat"], "Min": row["min"], "Max": row["max"], "Implicit": bool(row["implicit"])})
+    return {f'{row["name"]}|{row["base_type"]}': {
+        "Name": row["name"], "BaseTypeId": row["base_type"], "Mods": mods[row["name"], row["base_type"], 0],
+        "ItemLevel": row["item_level"], "Corrupted": bool(row["corrupted"]),
+        "Implicits": mods[row["name"], row["base_type"], 1] if row["own_implicits"] else None,
+        "Ranges": ranges[row["name"], row["base_type"]] or None, "Mirrored": bool(row["mirrored"]),
+        "Influences": row["influences"], "Fractured": row["fractured"],
+    } for row in db.execute("SELECT * FROM unique_items")}
 
 
 def literal(text):
@@ -280,10 +298,10 @@ def main():
     export = args.pob / "src/Export/Uniques"
     texts = text_map(export / "ModTextMap.lua")
 
-    base = json.load(open(ROOT / "data/tables/BaseItemTypes.json", encoding="utf-8"))
-    mods = json.load(open(ROOT / "data/tables/Mods.json", encoding="utf-8"))
+    base = clientdb.table("BaseItemTypes")
+    mods = clientdb.table("Mods")
     mod_rows = {row["Id"]: row for row in mods}
-    words = json.load(open(ROOT / "data/tables/Words.json", encoding="utf-8"))
+    words = clientdb.table("Words")
     client_names = {name_key(row["Text"]) for row in words if row["Wordlist"] == 6 and row["Text"]}
     by_name = defaultdict(list)
     for row in base:
@@ -368,10 +386,23 @@ def main():
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y_%m_%d_%H%M%S")
         out = OUT / f"{stamp}_unique_items.sql"
         OUT.mkdir(parents=True, exist_ok=True)
-        values = ",\n".join(f"('unique_item', {literal(key)}, {literal(json.dumps(payload, ensure_ascii=False, separators=(',', ':')))}, 1)"
-                            for key, payload in added)
-        out.write_text("-- Uniques from Path of Building's export that the catalogue did not have (scripts/re/unique_items.py).\n"
-                       f"INSERT INTO catalog_entries (kind, key, payload, enabled) VALUES\n{values};\n", encoding="utf-8", newline="\n")
+        def values(rows):
+            return ",\n".join("(" + ", ".join(literal(v) if isinstance(v, str) else "NULL" if v is None else str(int(v))
+                                                for v in row) + ")" for row in rows)
+        items = [(p["Name"], p["BaseTypeId"], p["ItemLevel"], p["Corrupted"], p["Implicits"] is not None, p["Mirrored"],
+                  p["Influences"], p["Fractured"]) for _, p in added]
+        mods = [(p["Name"], p["BaseTypeId"], implicit, ord, mod) for _, p in added
+                for implicit, ids in ((0, p["Mods"]), (1, p["Implicits"] or [])) for ord, mod in enumerate(ids)]
+        ranges = [(p["Name"], p["BaseTypeId"], ord, r["Mod"], r["Stat"], r["Min"], r["Max"], r["Implicit"]) for _, p in added
+                  for ord, r in enumerate(p["Ranges"] or [])]
+        text = ("-- Uniques from Path of Building's export that the catalogue did not have (scripts/re/unique_items.py).\n"
+                "INSERT INTO unique_items (name, base_type, item_level, corrupted, own_implicits, mirrored, influences, "
+                f"fractured) VALUES\n{values(items)};\n")
+        if mods:
+            text += f"INSERT INTO unique_item_mods (name, base_type, implicit, ord, mod) VALUES\n{values(mods)};\n"
+        if ranges:
+            text += f"INSERT INTO unique_item_ranges (name, base_type, ord, mod, stat, min, max, implicit) VALUES\n{values(ranges)};\n"
+        out.write_text(text, encoding="utf-8", newline="\n")
         print(f"wrote {len(added)} new unique(s) to {out}")
     else:
         print("no new uniques")

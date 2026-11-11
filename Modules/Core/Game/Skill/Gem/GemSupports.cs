@@ -14,15 +14,15 @@ public sealed class GemSupports(string folder = "data")
         IReadOnlyList<(uint Key, int Value)> Stats);
     readonly Lazy<Effect[]> _effects = new(() => Load(folder));
     readonly Lazy<(int Effect, int Level)[]> _grantedLevels = new(() =>
-        [.. Read(folder, "GrantedEffectsPerLevel").Select(row =>
-            (row.GetProperty("GrantedEffect").GetInt32(), row.GetProperty("Level").GetInt32()))]);
+        [.. Read("GrantedEffectsPerLevel").Select(row =>
+            (row.Int("GrantedEffect"), row.Int("Level")))]);
     readonly Lazy<Dictionary<(int Effect, int Level), (uint Row, int Cost, int Speed)>> _levels = new(() =>
     {
         var result = new Dictionary<(int, int), (uint, int, int)>();
         uint row = 0;
-        foreach (var r in Read(folder, "GrantedEffectsPerLevel"))
-            result.TryAdd((r.GetProperty("GrantedEffect").GetInt32(), r.GetProperty("Level").GetInt32()),
-                (row++, r.GetProperty("CostMultiplier").GetInt32(), r.GetProperty("AttackSpeedMultiplier").GetInt32()));
+        foreach (var r in Read("GrantedEffectsPerLevel"))
+            result.TryAdd((r.Int("GrantedEffect"), r.Int("Level")),
+                (row++, r.Int("CostMultiplier"), r.Int("AttackSpeedMultiplier")));
         return result;
     });
 
@@ -144,29 +144,19 @@ public sealed class GemSupports(string folder = "data")
 
     static Effect[] Load(string folder)
     {
-        var active = Read(folder, "ActiveSkills");
-        return Read(folder, "GrantedEffects").Select((r, row) =>
+        var active = Read("ActiveSkills");
+        return Read("GrantedEffects").Select((r, row) =>
         {
-            var skill = r.GetProperty("ActiveSkill") is { ValueKind: JsonValueKind.Number } key
-                && key.GetInt32() >= 0 && key.GetInt32() < active.Length ? active[key.GetInt32()] : default;
-            return new Effect(row, r.GetProperty("Id").GetString()!, r.GetProperty("IsSupport").GetBoolean(),
+            ClientRow? skill = r.IntOrNull("ActiveSkill") is int key && key >= 0 && key < active.Count ? active[key] : null;
+            return new Effect(row, r.Text("Id")!, r.Bool("IsSupport"),
                 Ints(r, "AllowedActiveSkillTypes"), Ints(r, "ExcludedActiveSkillTypes"), Ints(r, "AddedActiveSkillTypes"),
                 Ints(skill, "ActiveSkillTypes"), Ints(skill, "MinionActiveSkillTypes"), Ints(r, "SupportWeaponRestrictions"),
-                r.GetProperty("RegularVariant") is { ValueKind: JsonValueKind.Number } regular ? regular.GetInt32() : null,
-                r.GetProperty("CannotBeSupported").GetBoolean(), r.GetProperty("IgnoreMinionTypes").GetBoolean(),
-                r.GetProperty("SupportsGemsOnly").GetBoolean());
+                r.IntOrNull("RegularVariant"),
+                r.Bool("CannotBeSupported"), r.Bool("IgnoreMinionTypes"), r.Bool("SupportsGemsOnly"));
         }).ToArray();
     }
 
-    static int[] Ints(JsonElement r, string name) => r.ValueKind == JsonValueKind.Object
-        && r.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array
-        ? [.. a.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetInt32())] : [];
+    static int[] Ints(ClientRow? r, string name) => r?.Ints(name) ?? [];
 
-    static JsonElement[] Read(string folder, string table)
-    {
-        string path = Path.Combine(folder, "tables", table + ".json");
-        if (!ClientTables.Exists(path)) return [];
-        using var json = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. json.RootElement.EnumerateArray().Select(r => r.Clone())];
-    }
+    static IReadOnlyList<ClientRow> Read(string table) => ClientTables.TableOrNull(table) ?? (IReadOnlyList<ClientRow>)[];
 }

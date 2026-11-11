@@ -119,9 +119,9 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(20, minionMods.Effects.MovementPct);
             Assert.Equal(100, Game.GolemRollHit(hit, minionMods.Effects, false, new AspectRoll(0)).MinTotal);
 
-            using (var buffs = JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json")))
-                foreach (int row in new[] { 1039, 1040, 1041 })
-                    Assert.False(buffs.RootElement[row].GetProperty("IsRecovery").GetBoolean());
+            var buffs = GameServer.Core.ClientTables.Table("BuffDefinitions");
+            foreach (int row in new[] { 1039, 1040, 1041 })
+                Assert.False(buffs[row].Bool("IsRecovery"));
             inventory.Add(PlayerInventories.Helmet, 0, 0, uniques.Create("Farrul's Bite", new Random(504))!);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             var cat = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "AspectOfTheCat");

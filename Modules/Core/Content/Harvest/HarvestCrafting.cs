@@ -7,7 +7,7 @@ using GameServer.Core;
 namespace GameServer.Modules.Harvest;
 
 /// <summary>
-/// HarvestCraftOptions.dat (data/tables/HarvestCraftOptions.json): the recipes the native Horticrafting Station lists.
+/// HarvestCraftOptions.dat (the HarvestCraftOptions client table): the recipes the native Horticrafting Station lists.
 /// The server executes the item recipes (targeted/affinity reforges, augments and modifier conversions) against the item
 /// in HarvestCraftingItem, and refuses the recipes for systems it does not model (influences, exchanges, enchants, gems).
 /// Costs are the exact lifeforce types and amounts from the table.
@@ -65,10 +65,8 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
 
     static IReadOnlyList<Recipe> Load(IItemCrafting catalog, string folder)
     {
-        string path = Path.Combine(folder, "tables", "HarvestCraftOptions.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        var rows = doc.RootElement.EnumerateArray().ToList();
+        if (!ClientTables.Has("HarvestCraftOptions")) return [];
+        var rows = ClientTables.Table("HarvestCraftOptions").ToList();
         var lifeforce = new[]
         {
             (Type: 1, Hash: catalog.TypeHash(Wild) ?? 0),
@@ -82,11 +80,11 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
         var conversions = new Dictionary<int, (string[] Sources, string From, string To)>();
         foreach (var row in rows)
         {
-            if (row.GetProperty("Command").GetString() != "convert_mod") continue;
-            var parts = (row.GetProperty("Parameters").GetString() ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (row.Text("Command") != "convert_mod") continue;
+            var parts = (row.Text("Parameters") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
             int convert = Array.IndexOf(parts, "CONVERT");
             if (convert < 1 || convert + 2 >= parts.Length) continue;
-            conversions[row.GetProperty("HASH16").GetInt32()] = (parts[..convert],
+            conversions[row.Int("HASH16")] = (parts[..convert],
                 parts[convert + 1].ToLowerInvariant(), parts[convert + 2].ToLowerInvariant());
         }
 
@@ -94,11 +92,11 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
         var result = new List<Recipe>();
         foreach (var row in rows)
         {
-            string id = row.GetProperty("Id").GetString() ?? "";
-            string command = row.GetProperty("Command").GetString() ?? "";
-            var parts = (row.GetProperty("Parameters").GetString() ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            var costs = Costs(row.GetProperty("LifeforceType").GetInt32(), row.GetProperty("LifeforceCost").GetInt32(),
-                row.GetProperty("SacredCost").GetInt32(), lifeforce, sacred);
+            string id = row.Text("Id") ?? "";
+            string command = row.Text("Command") ?? "";
+            var parts = (row.Text("Parameters") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var costs = Costs(row.Int("LifeforceType"), row.Int("LifeforceCost"),
+                row.Int("SacredCost"), lifeforce, sacred);
             Operation operation = Operation.Unsupported;
             string? tag = null;
             int affinity = 0;
@@ -116,7 +114,7 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
                     tag = parts[forIndex + 1].ToLowerInvariant();
                 }
             }
-            else if (command == "convert_mod" && conversions.TryGetValue(row.GetProperty("HASH16").GetInt32(), out var c))
+            else if (command == "convert_mod" && conversions.TryGetValue(row.Int("HASH16"), out var c))
             {
                 // The reverse recipes (fire -> cold) list the target groups. Both the resistance and the damage pair use
                 // the same elements, so every reverse source list is a candidate; the replaced/stripped name picks the
@@ -134,7 +132,7 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
                 }
                 if (map.Count > 0) { operation = Operation.Convert; convertMap = map; }
             }
-            result.Add(new((ushort)row.GetProperty("HASH16").GetInt32(), id, operation, tag, affinity, convertMap,
+            result.Add(new((ushort)row.Int("HASH16"), id, operation, tag, affinity, convertMap,
                 costs ?? []));
         }
         return result;
