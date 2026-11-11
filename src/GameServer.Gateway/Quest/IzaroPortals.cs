@@ -10,7 +10,7 @@
 /// 5 s, 10 of its own at most, which comes out of it, walks a little, then fights; when he leaves the portals stay up and bring no more, and the guardians
 /// fight on. The returning ones' interval is the skill's cooldown; the rise interval is ours, as the statues'.
 /// </summary>
-static class IzaroPortals
+public static class IzaroPortals
 {
     public const string Mechanic = "Portals";
 

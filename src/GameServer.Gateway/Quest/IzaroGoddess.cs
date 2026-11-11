@@ -6,7 +6,7 @@
 /// <c>skelesummon_impact.ao</c>, 6.625 s). From when he is hurt to 90 % of his life (the wiki). Her mortars, her Teleport and
 /// the beam ending on her are not done.
 /// </summary>
-static class IzaroGoddess
+public static class IzaroGoddess
 {
     public const string Guardian = "Metadata/Monsters/Skeletons/IzaroSummonSkeletonGhostflame",
         Impact = "Metadata/Effects/Spells/monsters_effects/labyrinth/skeleton_king/summon/skelesummon_impact.ao";
