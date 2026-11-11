@@ -168,7 +168,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         var local = ItemModStats.Local(item, items.Mods);
         bool noWhite = local.ContainsKey("local_sockets_cannot_be_white");
         bool abyss = local.Keys.Any(id => id is "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets");
-        if (local.ContainsKey("local_has_no_sockets")) return item;
+        if (local.ContainsKey("local_has_no_sockets")) return item with { Sockets = [], Links = null };
+        if (type.Id == AbyssJewels.StygianVise) return AbyssJewels.StygianSockets(item, local);
         if (!abyss && local.ContainsKey("local_six_linked_random_sockets"))
         {
             int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));

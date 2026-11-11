@@ -590,6 +590,7 @@ public sealed class ItemCatalog
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
         if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
+        if (t.Id == AbyssJewels.StygianVise) return ([new(SocketColour.Abyss)], null);
         // 3.29: sockets are white by default; each has a chance to roll its attribute colour that rises with item level
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
@@ -624,7 +625,9 @@ public sealed class ItemCatalog
         return new(t.Hash, t.Components, t.VisualIdentity)
         {
             DefenceBaseRoll = defenceBaseRoll ?? (t.Components.Contains("Armour") ? (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) : (byte)0),
-            Charges = t.MaxCharges, Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t) : sockets ?? [],
+            Charges = t.MaxCharges,
+            Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
+                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : []),
             Links = ResonatorSockets(t) > 0 ? null : links,
             Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };
