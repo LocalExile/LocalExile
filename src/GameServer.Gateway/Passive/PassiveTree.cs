@@ -266,21 +266,17 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     private static Dictionary<ushort, (double X, double Y)> LoadPositions(string folder)
     {
         var positions = new Dictionary<ushort, (double X, double Y)>();
-        string path = Path.Combine(folder, AscendancyCatalog.GraphFile);
-        if (!ClientTables.Exists(path)) return positions;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        if (!d.RootElement.TryGetProperty("normal", out var normal)
-            || !normal.TryGetProperty("orbits", out var orbitList)
-            || !normal.TryGetProperty("groups", out var groups)) return positions;
-        int[] orbits = [.. orbitList.EnumerateArray().Select(v => v.GetInt32())];
-        foreach (var group in groups.EnumerateArray())
+        if (PassiveGraphs.Graph(AscendancyFamily.Normal) is not { } normal) return positions;
+        int[] orbits = normal.Ints("orbits");
+        var members = ClientTables.TableOrEmpty("passive_graph_group_nodes").By("grp");
+        foreach (var group in ClientTables.TableOrEmpty("passive_graph_groups").By("graph")[normal.Index])
         {
-            double gx = group.GetProperty("x").GetDouble(), gy = group.GetProperty("y").GetDouble();
-            foreach (var node in group.GetProperty("nodes").EnumerateArray())
+            double gx = group.Real("x"), gy = group.Real("y");
+            foreach (var node in members[group.Index])
             {
-                int id = node.GetProperty("id").GetInt32();
-                int orbit = node.GetProperty("orbit").GetInt32();
-                int index = node.GetProperty("orbitIndex").GetInt32();
+                int id = node.Int("id");
+                int orbit = node.Int("orbit");
+                int index = node.Int("orbitIndex");
                 if (id is <= 0 or > ushort.MaxValue || orbit < 0 || orbit >= orbits.Length
                     || orbit >= OrbitRadii.Length || orbits[orbit] <= 0) continue;
                 double angle = 2 * Math.PI * index / orbits[orbit];

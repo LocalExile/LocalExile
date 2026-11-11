@@ -50,7 +50,7 @@ public sealed class MonsterCatalog(string folder = "data")
     private readonly Lazy<LifeTables?> _life = new(() => LifeTables.Load(folder));
     private readonly Lazy<MapBossScalingTable?> _mapBoss = new(() => MapBossScalingTable.Load(folder));
     private readonly MonsterResistanceCatalog _resistance = new(folder);
-    private readonly Lazy<Dictionary<string, HitAnimation[]>> _takeHit = new(() => LoadTakeHit(folder));
+    private readonly Lazy<Dictionary<string, HitAnimation[]>> _takeHit = new(LoadTakeHit);
 
     public string? Error => _rows.Value.Error;
 
@@ -72,45 +72,34 @@ public sealed class MonsterCatalog(string folder = "data")
 
     /// <summary>
     /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
-    /// remove_collidability event; data/monster-takehit.json "death"), null when it has none: the client then clears the
-    /// body with the death itself. 150 for a file written before the entry existed (most varieties' value).
+    /// remove_collidability event; client.db's monster_takehit death_unblock), null when it has none: the client then
+    /// clears the body with the death itself. 150 without the table (most varieties' value).
     /// </summary>
     public int? CorpseUnblockMs(string id) => _corpse.Value is { } known ? known.GetValueOrDefault(id) : 150;
 
-    private readonly Lazy<Dictionary<string, int?>?> _corpse = new(() => LoadCorpse(folder));
+    private readonly Lazy<Dictionary<string, int?>?> _corpse = new(LoadCorpse);
 
-    static Dictionary<string, int?>? LoadCorpse(string folder)
+    static Dictionary<string, int?>? LoadCorpse()
     {
-        string path = Path.Combine(folder, "monster-takehit.json");
-        if (!File.Exists(path)) return null;
-        using var doc = GameTables.Open(path);
+        if (ClientTables.TableOrNull("monster_takehit") is not { } table) return null;
         Dictionary<string, int?>? result = null;
-        foreach (var p in doc.RootElement.EnumerateObject())
-            if (p.Value.TryGetProperty("death", out var death) && death.ValueKind == JsonValueKind.Object)
-                (result ??= [])[p.Name] = death.TryGetProperty("unblock", out var ms) && ms.ValueKind == JsonValueKind.Number
-                    ? ms.GetInt32() : null;
+        foreach (var r in table)
+            if (!r.IsNull("death_clips")) (result ??= [])[r.Text("variety")!] = r.IntOrNull("death_unblock");
         return result;
     }
 
-    static Dictionary<string, HitAnimation[]> LoadTakeHit(string folder)
+    static Dictionary<string, HitAnimation[]> LoadTakeHit()
     {
-        string path = Path.Combine(folder, "monster-takehit.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = GameTables.Open(path);
         var result = new Dictionary<string, HitAnimation[]>();
-        foreach (var p in doc.RootElement.EnumerateObject())
+        foreach (var r in ClientTables.TableOrEmpty("monster_takehit"))
         {
             // "lengths" (ms) runs parallel to "indexes".
-            JsonElement[] lengths = p.Value.TryGetProperty("lengths", out var l) && l.ValueKind == JsonValueKind.Array
-                ? [.. l.EnumerateArray()] : [];
-            double Seconds(int i) =>
-                i < lengths.Length && lengths[i].ValueKind == JsonValueKind.Number ? lengths[i].GetDouble() / 1000 : 0;
-            if (p.Value.TryGetProperty("indexes", out var list) && list.ValueKind == JsonValueKind.Array)
-                result[p.Name] = [.. list.EnumerateArray().Select((e, i) => (e, i))
-                    .Where(x => x.e.ValueKind == JsonValueKind.Number)
-                    .Select(x => new HitAnimation(x.e.GetInt32(), Seconds(x.i)))];
-            else if (p.Value.TryGetProperty("index", out var one) && one.ValueKind == JsonValueKind.Number)
-                result[p.Name] = [new HitAnimation(one.GetInt32(), Seconds(0))];
+            double[] lengths = r.Reals("lengths");
+            double Seconds(int i) => i < lengths.Length ? lengths[i] / 1000 : 0;
+            if (!r.IsNull("indexes"))
+                result[r.Text("variety")!] = [.. r.Ints("indexes").Select((e, i) => new HitAnimation(e, Seconds(i)))];
+            else if (r.IntOrNull("index") is int one)
+                result[r.Text("variety")!] = [new HitAnimation(one, Seconds(0))];
         }
         return result;
     }
@@ -291,35 +280,24 @@ public sealed class MonsterCatalog(string folder = "data")
         var blocking = new Dictionary<string, bool>();
         var phasing = new HashSet<string>();
         var immobile = new HashSet<string>();
-        string types = Path.Combine(folder, "object-types.json");
-        if (ClientTables.Exists(types))
+        if (ClientTables.TableOrNull("object_types") is { } objectTypes)
         {
-            using var doc = GameTables.Open(types);
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
+            var sharedStates = ObjectTypes.SharedStates();
+            foreach (var t in objectTypes)
             {
-                int read = t.GetProperty("read").GetInt32();
-                string type = t.GetProperty("type").GetString()!;
-                components[type] = [.. t.GetProperty("components").EnumerateArray().Take(read).Select(c => c.GetString()!)];
-                if (t.TryGetProperty("positioned", out var positioned) && positioned.ValueKind == JsonValueKind.Object
-                    && positioned.TryGetProperty("blocking", out var block))
-                {
-                    if (block.ValueKind is JsonValueKind.True or JsonValueKind.False) blocking[type] = block.GetBoolean();
-                    else if (block.ValueKind == JsonValueKind.String && bool.TryParse(block.GetString(), out bool value)) blocking[type] = value;
-                }
-                if (t.TryGetProperty("phases", out var phases) && phases.ValueKind == JsonValueKind.True) phasing.Add(type);
-                if (t.TryGetProperty("immobile", out var fixedPlace) && fixedPlace.ValueKind == JsonValueKind.True) immobile.Add(type);
-                // Files generated before the StateMachine data have no "shared_states": those types stay unsupported.
-                if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
-                    stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
-                        [.. ss.EnumerateArray().Select(e => e[0].GetString() ?? "")]);
-                if (t.TryGetProperty("transitionable", out var tr) && tr.TryGetProperty("num_states", out var ns))
-                    transitionStates[type] = (byte)Math.Clamp(ns.GetInt32(), 1, 127);
-                if (t.TryGetProperty("life", out var life) && life.ValueKind == JsonValueKind.Object)
-                {
-                    bool? Flag(string name) => life.TryGetProperty(name, out var value)
-                        && value.ValueKind is JsonValueKind.True or JsonValueKind.False ? value.GetBoolean() : null;
-                    lifeData[type] = new(Flag("corpse_usable"), Flag("prevent_corpse_sinking"), Flag("corpse_use_veto"));
-                }
+                string type = t.Text("type")!;
+                components[type] = ObjectTypes.Components(t);
+                if (ObjectTypes.Flag(t, "positioned_blocking") is bool block) blocking[type] = block;
+                if (t.BoolOrNull("phases") == true) phasing.Add(type);
+                if (t.BoolOrNull("immobile") == true) immobile.Add(type);
+                // Data generated before the StateMachine data has no shared timers: those types stay unsupported.
+                if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
+                if (t.IntOrNull("transitionable_num_states") is int numStates)
+                    transitionStates[type] = (byte)Math.Clamp(numStates, 1, 127);
+                // A type with Life has its three flags; one without has none.
+                if (!t.IsNull("life_corpse_usable") || !t.IsNull("life_prevent_corpse_sinking") || !t.IsNull("life_corpse_use_veto"))
+                    lifeData[type] = new(t.BoolOrNull("life_corpse_usable"), t.BoolOrNull("life_prevent_corpse_sinking"),
+                        t.BoolOrNull("life_corpse_use_veto"));
             }
         }
         var rangedVisuals = RangedWeaponVisuals(folder);

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GameServer.Core;
 
 
@@ -13,7 +12,7 @@ public static class StationaryCollision
 
     static readonly Lazy<Dictionary<string, Profile>> Types = new(() =>
     {
-        var types = Load("data/object-types.json");
+        var types = Load();
         // NPCs.dat registers Id aliases on Metadata's OT (e.g. later-act versions of a town NPC).
         foreach (var npc in ClientTables.Table("NPCs"))
             if (npc.TextOrNull("Id") is { } id && !types.ContainsKey(id)
@@ -23,10 +22,9 @@ public static class StationaryCollision
     });
     static readonly Lazy<Dictionary<string, double>> Radii = new(() =>
     {
-        if (!ClientTables.Exists("data/hideouts.json")) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes("data/hideouts.json"));
-        return doc.RootElement.TryGetProperty("collisionRadii", out var r)
-            ? r.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetDouble(), StringComparer.Ordinal) : [];
+        var radii = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var r in ClientTables.TableOrEmpty("hideout_collision_radii")) radii.TryAdd(r.Text("model")!, r.Real("radius"));
+        return radii;
     });
 
     public static Profile For(string type) => Types.Value.GetValueOrDefault(type)
@@ -39,18 +37,17 @@ public static class StationaryCollision
         return (p.BlockerSize(hull), hull);
     }
 
-    public static Dictionary<string, Profile> Load(string path)
+    // The object_types rows with Positioned (positioned: the type has the component, whether or not it sets a field).
+    public static Dictionary<string, Profile> Load()
     {
         var result = new Dictionary<string, Profile>(StringComparer.Ordinal);
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
+        foreach (var (type, t) in ObjectTypes.All())
         {
-            if (!t.TryGetProperty("positioned", out var p)) continue;
-            string? Value(string key) => p.TryGetProperty(key, out var v) ? v.GetString() : null;
-            int size = int.TryParse(Value("object_size"), out int n) ? n : 1;
-            result[t.GetProperty("type").GetString()!] = new(Math.Max(1, size), Value("blocking") == "true",
-                Value("static") == "true", t.TryGetProperty("animated_object", out var model) ? model.GetString() : null)
-                { BlockingLeagueFlag = Value("block_league_flag") };
+            if (t.BoolOrNull("positioned") != true) continue;
+            int size = int.TryParse(t.TextOrNull("positioned_object_size"), out int n) ? n : 1;
+            result[type] = new(Math.Max(1, size), ObjectTypes.Flag(t, "positioned_blocking") == true,
+                ObjectTypes.Flag(t, "positioned_static") == true, t.TextOrNull("animated_object"))
+                { BlockingLeagueFlag = t.TextOrNull("positioned_block_league_flag") };
         }
         return result;
     }

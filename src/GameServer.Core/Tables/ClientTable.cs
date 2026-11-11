@@ -124,6 +124,10 @@ public sealed class ClientTable : IReadOnlyList<ClientRow>
         return Read(db, name);
     }
 
+    /// <summary>A child table's rows by the parent row they name in <paramref name="column"/> (a generated table's link
+    /// column: Agents/docs/dev/databases.md, "Generated tables"), in table order, which is the parent's list order.</summary>
+    public ILookup<long, ClientRow> By(string column) => this.Where(r => !r.IsNull(column)).ToLookup(r => r.Long(column));
+
     internal static string Quote(string name) => "\"" + name.Replace("\"", "\"\"") + "\"";
 
     /// <summary>A table made in memory, for a test: <paramref name="rows"/> hold each row's values by column name

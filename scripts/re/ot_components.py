@@ -699,16 +699,21 @@ def all_types():
                         walk(json.loads(v) if v[:1] == "[" else v)
                     except ValueError:
                         walk(v)
+    # The atlas and room points: extract-data's fresh output when it just wrote them, else client.db's tables.
     atlas = os.path.join(ROOT, "data", "area-transitions.json")
     if os.path.exists(atlas):
         for area in json.load(open(atlas, encoding="utf-8")).get("areas", []):
             for topology in area.get("topologies") or []:
                 for t in topology.get("transitions") or []:
                     if t.get("objectType"): paths.add(t["objectType"])
+    elif clientdb.has("area_topology_transitions"):
+        paths.update(t["objectType"] for t in clientdb.table("area_topology_transitions") if t.get("objectType"))
     # The rooms' server objects (NPCs, quest objects and chests: scripts/re/atlas room-points) and the quest tile objects.
     points = os.path.join(ROOT, "data", "room-points.json")
     if os.path.exists(points):
         walk(json.load(open(points, encoding="utf-8")).get("rooms"))
+    elif clientdb.has("room_points"):
+        walk([clientdb.table("room_points"), clientdb.table("room_doodads")])
     paths.update(QUEST_TILE_TYPES)
     paths.update(QUEST_ROOM_TYPES)
     fetch(RAW_DATS)

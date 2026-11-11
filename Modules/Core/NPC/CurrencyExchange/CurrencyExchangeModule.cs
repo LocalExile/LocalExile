@@ -82,7 +82,7 @@ public sealed class CurrencyExchangeModule : IModule
             if (!file.Exists || file.LastWriteTimeUtc == _ratesWritten) return _rates;
             try
             {
-                _rates = ExchangeRates.Parse(ClientTables.ReadAllText(RatesFile));
+                _rates = ExchangeRates.Parse(File.ReadAllText(RatesFile));
                 _ratesWritten = file.LastWriteTimeUtc;
                 _module.Log($"rates of {DateTimeOffset.FromUnixTimeSeconds(_rates?.SourceHour ?? 0):u}, current league {_rates?.Current}");
             }

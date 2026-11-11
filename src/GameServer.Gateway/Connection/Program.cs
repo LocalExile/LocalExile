@@ -92,7 +92,7 @@ int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
 // The HNC side channel needs a 64-byte table from the client: extracted to data/, not shipped.
-if (!ClientTables.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
+if (!GameServer.Data.Ggpk.ClientConstants.HasMask)
 {
     Console.Error.WriteLine($"[gateway] {GameServer.Data.Ggpk.ClientConstants.DefaultFile} not found; run .\\scripts\\dev\\extract-data.ps1");
     return 1;
@@ -134,7 +134,6 @@ if (!started.Ok) Console.WriteLine($"[gateway] Auth did not take gateway_started
 StartMods();
 // Loading the tables above leaves free GC memory committed; give it back
 // before serving, since several stacks often run side by side (Agents/docs/dev/performance.md).
-GameTables.Release();
 GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 listener.Start();
 Console.WriteLine($"[gateway] listening on {bind}:{port}");

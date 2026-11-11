@@ -626,22 +626,18 @@ public sealed class ItemCatalog
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var itemTags = new Dictionary<string, IReadOnlyList<string>>();
         var questFlags = new Dictionary<string, QuestItemFlags>();
-        string types = Path.Combine(folder, "item-types.json");
-        if (!ClientTables.Exists(types)) return ([], $"{types} is missing: run scripts/dev/extract-data.ps1");
-        using (var doc = GameTables.Open(types))
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-            {
-                components[t.GetProperty("type").GetString()!] =
-                    [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
-                // "tags" since 2026-10-20; older files have none (regenerate with ot_components.py --items).
-                if (t.TryGetProperty("tags", out var tg)) itemTags[t.GetProperty("type").GetString()!] = [.. tg.EnumerateArray().Select(x => x.GetString()!)];
-                // "quest" since manifest version 2: the Quest component's flags.
-                if (t.TryGetProperty("quest", out var q) && q.ValueKind == JsonValueKind.Object)
-                {
-                    string? Flag(string name) => q.TryGetProperty(name, out var v) && v.GetString() is { Length: > 0 } f ? f : null;
-                    questFlags[t.GetProperty("type").GetString()!] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"));
-                }
-            }
+        // client.db's item_types (data/item-types.json from scripts/re/ot_components.py --items).
+        if (ClientTables.TableOrNull("item_types") is not { } itemTypes) return ([], "the item_types table is missing from client.db");
+        foreach (var t in itemTypes)
+        {
+            string type = t.Text("type")!;
+            components[type] = [.. t.Texts("components").Take(t.Int("read"))];
+            if (!t.IsNull("tags")) itemTags[type] = t.Texts("tags");
+            // The Quest component's flags (quest_*: a type without Quest has none).
+            string? Flag(string name) => t.TextOrNull("quest_" + name) is { Length: > 0 } f ? f : null;
+            if (Flag("grant_flag") is not null || Flag("extra_flag") is not null || Flag("remove_flag") is not null || Flag("use_flag") is not null)
+                questFlags[type] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"));
+        }
         List<ushort> visualHashes;
         var itemVisualIdentityTable = ClientTables.Table("ItemVisualIdentity");
         visualHashes = [.. itemVisualIdentityTable.Select(r => (ushort)r.Int("HASH16"))];

@@ -151,7 +151,7 @@ public sealed class CosmeticEffects(string folder = "data")
         // Pets have no ItemisedVisualEffect row; each Pet row names its MtxTypeGameSpecific row. The server spawns the
         // pet object (PetObject); the player's pet_slot1 / pet_slot2 stat (a Pet.dat row + 1) is what the client's
         // talking-pet audio reads (0x1401096e0 → 0x14010f890).
-        var petTypes = PetTypes(folder);
+        var petTypes = PetTypes();
         int petRow = 0;
         foreach (var row in Rows("Pet"))
         {
@@ -182,22 +182,13 @@ public sealed class CosmeticEffects(string folder = "data")
     }
 
     /// <summary>The Metadata/Pet/ types' deserialized components and StateMachine defaults, as MonsterCatalog reads them.</summary>
-    static Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)> PetTypes(string folder)
+    static Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)> PetTypes()
     {
         var types = new Dictionary<string, (IReadOnlyList<string>?, StateMachineData?)>();
-        string path = Path.Combine(folder, "object-types.json");
-        if (!ClientTables.Exists(path)) return types;
-        using var doc = GameTables.Open(path);
-        foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-        {
-            string type = t.GetProperty("type").GetString() ?? "";
-            if (!type.StartsWith("Metadata/Pet/", StringComparison.Ordinal)) continue;
-            int read = t.GetProperty("read").GetInt32();
-            StateMachineData? states = t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st)
-                ? new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(), [.. ss.EnumerateArray().Select(e => e[0].GetString() ?? "")])
-                : null;
-            types[type] = ([.. t.GetProperty("components").EnumerateArray().Take(read).Select(c => c.GetString()!)], states);
-        }
+        var sharedStates = ObjectTypes.SharedStates();
+        foreach (var (type, t) in ObjectTypes.All())
+            if (type.StartsWith("Metadata/Pet/", StringComparison.Ordinal))
+                types[type] = (ObjectTypes.Components(t), ObjectTypes.StateMachine(t, sharedStates));
         return types;
     }
 

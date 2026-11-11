@@ -20,10 +20,9 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
 
     static DelveRailRoute? LoadCore(string area, uint seed, string folder)
     {
-        string graphFile = Path.Combine(folder, "delve-paths.json");
+        // client.db's delve_path_* tables (data/delve-paths.json): each mine room's rail graph, by its .arm path.
         string roomsFile = Path.Combine(folder, "walkability", $"{area}_seed{seed}.rooms.json");
-        if (!GameServer.Core.ClientTables.Exists(graphFile) || !File.Exists(roomsFile)) return null;
-        using var graphs = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(graphFile));
+        if (!ClientTables.Has("delve_path_rooms") || !File.Exists(roomsFile)) return null;
         using var rooms = JsonDocument.Parse(File.ReadAllBytes(roomsFile));
         var capture = rooms.RootElement;
         if (capture.GetProperty("area").GetString() != area || capture.GetProperty("seed").GetUInt32() != seed) return null;
@@ -32,7 +31,10 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
         var encounters = new List<Encounter>();
         var checkpoints = new List<int>();
         int start = -1, end = -1, roomNumber = 0;
-        var byPath = graphs.RootElement.GetProperty("rooms").EnumerateObject().ToDictionary(p => p.Name, p => p.Value, StringComparer.OrdinalIgnoreCase);
+        var byPath = ClientTables.Table("delve_path_rooms").ToDictionary(r => r.Text("room")!, r => r.Index, StringComparer.OrdinalIgnoreCase);
+        var spawnsOf = ClientTables.TableOrEmpty("delve_path_spawns").By("room");
+        var nodesOf = ClientTables.TableOrEmpty("delve_path_nodes").By("room");
+        var linksOf = ClientTables.TableOrEmpty("delve_path_links").By("room");
         foreach (var room in capture.GetProperty("rooms").EnumerateArray())
         {
             string path = room.GetProperty("path").GetString()!;
@@ -40,18 +42,18 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
             var placement = new TutorialObjects.RoomPlacement(room.GetProperty("x").GetInt32(), room.GetProperty("y").GetInt32(),
                 room.GetProperty("width").GetInt32(), room.GetProperty("height").GetInt32(), room.GetProperty("code").GetInt32());
             var indexes = new Dictionary<int, int>();
-            foreach (var spawn in graph.GetProperty("spawns").EnumerateArray())
+            foreach (var spawn in spawnsOf[graph])
             {
-                string name = spawn.GetProperty("Name").GetString()!;
-                var p = placement.Place(new(name, (int)Math.Round(spawn.GetProperty("X").GetSingle()), (int)Math.Round(spawn.GetProperty("Y").GetSingle())));
+                string name = spawn.Text("Name")!;
+                var p = placement.Place(new(name, (int)Math.Round((float)spawn.Real("X")), (int)Math.Round((float)spawn.Real("Y"))));
                 encounters.Add(new(name, p.X, p.Y, roomNumber));
             }
-            foreach (var node in graph.GetProperty("nodes").EnumerateArray())
+            foreach (var node in nodesOf[graph])
             {
-                string type = node.GetProperty("type").GetString()!;
-                var p = placement.Place(new("", (int)Math.Round(node.GetProperty("x").GetSingle()), (int)Math.Round(node.GetProperty("y").GetSingle())));
+                string type = node.Text("type")!;
+                var p = placement.Place(new("", (int)Math.Round((float)node.Real("x")), (int)Math.Round((float)node.Real("y"))));
                 int index = nodes.Count;
-                indexes.Add(node.GetProperty("index").GetInt32(), index);
+                indexes.Add(node.Int("index"), index);
                 nodes.Add(((p.X, p.Y), type, roomNumber));
                 if (type.Contains("/DelveNode", StringComparison.Ordinal))
                 {
@@ -59,8 +61,8 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
                     else if (path.Contains("/encounter_", StringComparison.Ordinal)) checkpoints.Add(index);
                 }
             }
-            foreach (var link in graph.GetProperty("links").EnumerateArray())
-                if (indexes.TryGetValue(link[0].GetInt32(), out int a) && indexes.TryGetValue(link[1].GetInt32(), out int b)) links.Add((a, b));
+            foreach (var link in linksOf[graph])
+                if (indexes.TryGetValue(link.Int("from"), out int a) && indexes.TryGetValue(link.Int("to"), out int b)) links.Add((a, b));
             roomNumber++;
         }
         if (start >= 0 && checkpoints.Count > 0) end = checkpoints[^1];

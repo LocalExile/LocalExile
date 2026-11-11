@@ -37,33 +37,22 @@ public static class QuestObjectTypes
     /// missed (live 2026-11-03).</summary>
     public static bool OpensInPlace(string type) => type == "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor";
 
-    static readonly Lazy<Dictionary<string, Info>> Catalog = new(() => Load());
+    static readonly Lazy<Dictionary<string, Info>> Catalog = new(Load);
 
-    public static Dictionary<string, Info> Load(string folder = "data")
+    public static Dictionary<string, Info> Load()
     {
         var types = new Dictionary<string, Info>(StringComparer.Ordinal);
-        string file = Path.Combine(folder, "object-types.json");
-        if (!ClientTables.Exists(file)) return types;
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file)))
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
+        foreach (var (id, t) in ObjectTypes.All())
+        {
+            var components = ObjectTypes.Components(t);
+            int states = t.IntOrNull("transitionable_num_states") ?? 2;
+            int size = t.TextOrNull("positioned_object_size") is { } os && int.TryParse(os, out int s) ? Math.Max(1, s - 1) : 1;
+            bool blocking = ObjectTypes.Flag(t, "positioned_blocking") == true;
+            types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
             {
-                string id = t.GetProperty("type").GetString() ?? "";
-                int read = t.GetProperty("read").GetInt32();
-                var components = t.GetProperty("components").EnumerateArray().Select(c => c.GetString() ?? "").Take(read).ToList();
-                int states = t.TryGetProperty("transitionable", out var tr) && tr.ValueKind == JsonValueKind.Object
-                    && tr.TryGetProperty("num_states", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : 2;
-                int size = 1;
-                bool blocking = false;
-                if (t.TryGetProperty("positioned", out var pos) && pos.ValueKind == JsonValueKind.Object)
-                {
-                    if (pos.TryGetProperty("object_size", out var os) && int.TryParse(os.GetString(), out int s)) size = Math.Max(1, s - 1);
-                    blocking = pos.TryGetProperty("blocking", out var b) && b.GetString() == "true";
-                }
-                types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
-                {
-                    OwnModel = !components.Contains("Animated") || t.TryGetProperty("animated_object", out var ao) && ao.ValueKind == JsonValueKind.String,
-                };
-            }
+                OwnModel = !components.Contains("Animated") || t.TextOrNull("animated_object") is not null,
+            };
+        }
         // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
         if (ClientTables.Has("Chests"))
         {

@@ -115,9 +115,7 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
         string[] files = ["PassiveSkills", "GrantedEffects", "GrantedEffectsPerLevel", "GrantedEffectStatSets",
             "GrantedEffectStatSetsPerLevel", "Stats", "AddBuffToTargetVarieties", "BuffDefinitions", "MinionType",
             "MonsterVarieties", "Mods"];
-        string objectTypes = Path.Combine(folder, "object-types.json");
-        string? missing = files.Where(f => !ClientTables.Has(f)).Select(f => $"the {f} client table")
-            .Concat(ClientTables.Exists(objectTypes) ? [] : [objectTypes]).FirstOrDefault();
+        string? missing = files.Append("object_types").Where(f => !ClientTables.Has(f)).Select(f => $"the {f} client table").FirstOrDefault();
         if (missing is not null) return (null, $"Harbinger companion data missing: {missing}");
         var docs = files.ToDictionary(f => f, ClientTables.Table);
         try

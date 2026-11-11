@@ -48,7 +48,7 @@ def main():
     levels = {(g['GrantedEffect'],g['Level']):g['PlayerLevelReq'] for g in load('GrantedEffectsPerLevel')}
     xp = load('ItemExperiencePerLevel')
     attrs = {a['BaseItemTypesKey']:a for a in load('ComponentAttributeRequirements')}
-    types = {t['type']:t['components'] for t in json.loads(Path('data/item-types.json').read_text())['types']}
+    types = {t['type']:t['components'] for t in load('item_types')}
     mods = {m['HASH16']:m for m in load('Mods')}
     stats = load('Stats')
 

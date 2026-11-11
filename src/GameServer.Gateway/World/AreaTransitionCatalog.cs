@@ -5,12 +5,12 @@ using GameServer.Core;
 
 /// <summary>
 /// Every area's area transitions: where they are (the client's generated layout, captured per (area, seed) by
-/// scripts/walkmaps, or the atlas's static placement for fixed layouts) and where each leads (the atlas,
-/// data/area-transitions.json from scripts/re/atlas). Agents/docs/protocol/08-area-transitions.md §5, §6.
+/// scripts/walkmaps, or the atlas's static placement for fixed layouts) and where each leads (the atlas: client.db's
+/// area_transition_* and area_topolog* tables, from scripts/re/atlas's data/area-transitions.json).
+/// Agents/docs/protocol/08-area-transitions.md §5, §6.
 /// </summary>
 public static class AreaTransitionCatalog
 {
-    const string AtlasFile = "data/area-transitions.json";
     const string Folder = "data/walkability";
     /// <summary>Server object ids of an area's area transitions: 0x2000, 0x2001, …</summary>
     public const uint FirstId = 0x2000;
@@ -37,7 +37,7 @@ public static class AreaTransitionCatalog
         var area = Atlas.Value?.GetValueOrDefault(hash);
         if (area is null)
         {
-            notes.Add(Atlas.Value is null ? $"no {AtlasFile} (run scripts/dev/extract-data.ps1)" : $"area 0x{hash:x4} is not in the atlas");
+            notes.Add(Atlas.Value is null ? "no area_transition_areas table in client.db" : $"area 0x{hash:x4} is not in the atlas");
             return [];
         }
         // A layout the Gateway generates itself knows each object's room and graph node: that decides (§8).
@@ -434,7 +434,7 @@ public static class AreaTransitionCatalog
         if (type is null or AreaTransitionObject.MetadataPath) return AreaTransitionObject.MetadataPath;
         if (ObjectTypes.Value?.GetValueOrDefault(type) is not { } info)
         {
-            notes.Add($"{what}: {type} is not in data/object-types.json, created as a plain AreaTransition");
+            notes.Add($"{what}: {type} is not in the object_types table, created as a plain AreaTransition");
             return AreaTransitionObject.MetadataPath;
         }
         var extra = info.Where(c => c != "BaseEvents").Except(AreaTransitionObject.ComponentOrder).ToList();
@@ -446,26 +446,11 @@ public static class AreaTransitionCatalog
         return type;
     }
 
-    // data/object-types.json (scripts/re/ot_components.py --all --json): each type's components, as the script merges
+    // The object_types table (scripts/re/ot_components.py --all --json): each type's components, as the script merges
     // them (it lists Transitionable as read for WaterCaveAreaTransition; live, the client does not read it).
     static readonly Lazy<Dictionary<string, List<string>>?> ObjectTypes = new(() =>
-    {
-        const string file = "data/object-types.json";
-        if (!ClientTables.Exists(file)) return null;
-        try
-        {
-            using var doc = GameTables.Open(file);
-            var types = new Dictionary<string, List<string>>();
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-                types[t.GetProperty("type").GetString()!] =
-                    [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
-            return types;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
-        {
-            return null;
-        }
-    });
+        ClientTables.Has("object_types")
+            ? global::ObjectTypes.All().ToDictionary(t => t.Type, t => global::ObjectTypes.Components(t.Row).ToList()) : null);
 
     /// <summary>Whether an exit the atlas lists is created: a disabled one (its room point is named "…disabled": the game
     /// enables it by script) only when a quest gates that very exit (<see cref="Gated"/>).</summary>
@@ -492,7 +477,7 @@ public static class AreaTransitionCatalog
     public static bool UseLayout { get; set; } = true;
 
     /// <summary>True once scripts/walkmaps saved this layout's tile objects.</summary>
-    public static bool Captured(string id, uint seed) => UseCaptures && ClientTables.Exists(CaptureFile(id, seed));
+    public static bool Captured(string id, uint seed) => UseCaptures && File.Exists(CaptureFile(id, seed));
 
     static string CaptureFile(string id, uint seed) => $"{Folder}/{id}_seed{seed}.transitions.json";
 
@@ -509,7 +494,7 @@ public static class AreaTransitionCatalog
         {
             if (!Captured(id, seed))
                 return ServerLevels.For(id, seed)?.Objects.Select(o => new CapturedObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Z)).ToList();
-            return JsonSerializer.Deserialize<CaptureFileData>(ClientTables.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
+            return JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
@@ -532,28 +517,31 @@ public static class AreaTransitionCatalog
 
     static Dictionary<ushort, AtlasArea>? Load()
     {
-        if (!ClientTables.Exists(AtlasFile)) return null;
-        try
+        if (ClientTables.TableOrNull("area_transition_areas") is not { } rows) return null;
+        var connections = ClientTables.TableOrEmpty("area_transition_connections").By("area");
+        var topologies = ClientTables.TableOrEmpty("area_topologies").By("area");
+        var transitions = ClientTables.TableOrEmpty("area_topology_transitions").By("topology");
+        var areas = new Dictionary<ushort, AtlasArea>();
+        foreach (var a in rows)
         {
-            using var stream = ClientTables.OpenRead(AtlasFile);
-            // On a thread of its own: the reader's 56 MB of pooled buffers go with it (GameTables.Isolated).
-            var file = GameTables.Isolated(() => JsonSerializer.Deserialize<AtlasFileData>(stream, Json));
-            var areas = new Dictionary<ushort, AtlasArea>();
-            foreach (var a in file?.Areas ?? []) areas.TryAdd(a.Hash16, a);
-            Console.WriteLine($"[gateway] atlas: {areas.Count} areas from {AtlasFile}");
-            return areas;
+            var area = new AtlasArea(a.Text("id")!, a.TextOrNull("name"), (ushort)a.Int("hash16"),
+                [.. topologies[a.Index].Select(t => new AtlasTopology(t.Text("id")!, t.TextOrNull("kind"),
+                    [.. transitions[t.Index].Select(x => new AtlasTransition(x.TextOrNull("model"), x.TextOrNull("objectType"),
+                        x.BoolOrNull("enabled"), x.TextOrNull("status"), x.TextOrNull("destination"),
+                        x.LongOrNull("destinationHash16") is long to ? (ushort)to : null,
+                        x.IntOrNull("grid_x") is int gx && x.IntOrNull("grid_y") is int gy
+                            ? new AtlasGrid(gx, gy, (float)(x.RealOrNull("grid_rotation") ?? 0), (float?)x.RealOrNull("grid_z")) : null))]))],
+                [.. connections[a.Index].Select(c => new AtlasConnection(c.Int("index"), c.Text("id")!, (ushort)c.Int("hash16")))],
+                a.BoolOrNull("isTown") ?? false);
+            areas.TryAdd(area.Hash16, area);
         }
-        catch (Exception ex) when (ex is IOException or JsonException)
-        {
-            Console.WriteLine($"[gateway] atlas: {AtlasFile} unreadable: {ex.Message}");
-            return null;
-        }
+        Console.WriteLine($"[gateway] atlas: {areas.Count} areas from client.db");
+        return areas;
     }
 
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
-    // Only the fields the Gateway uses; the serializer skips the rest of the atlas.
-    sealed record AtlasFileData(List<AtlasArea>? Areas);
+    // Only the fields the Gateway uses.
     sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies, List<AtlasConnection>? Connections,
         bool IsTown = false);
     public sealed record AtlasConnection(int Index, string Id, ushort Hash16);

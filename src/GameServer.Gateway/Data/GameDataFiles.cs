@@ -1,8 +1,8 @@
 using GameServer.Core;
 /// <summary>
 /// The game data the Gateway reads from data/ (extracted from Client/Content.ggpk by scripts/dev/extract-data.ps1,
-/// which live.ps1 runs on every start; the tables and generated files come from client.db through ClientTables). Each
-/// feature turns itself off without its file; this lists the missing ones in
+/// which live.ps1 runs on every start; the client's tables and the generated ones come from client.db through
+/// ClientTables). Each feature turns itself off without its table or file; this lists the missing ones in
 /// one startup warning. Keep in step with extract-data.ps1's manifest.
 /// </summary>
 public static class GameDataFiles
@@ -45,31 +45,38 @@ public static class GameDataFiles
         ("ItemVisualIdentity", "unique map artwork"),
     ];
 
-    public static readonly (string File, string Feature)[] All =
+    /// <summary>The generated tables (client.db: extract-data.ps1's generators, scripts/dev/generated_tables.py) features
+    /// turn off without, by one table of each file.</summary>
+    public static readonly (string Table, string Feature)[] Generated =
     [
-        ("data/vendor-stock.json", "ordinary vendor roles and quest/class gem membership"),
-        ("data/delve-paths.json", "authored Delve rail routes"),
+        ("vendor_shops", "ordinary vendor roles and quest/class gem membership"),
+        ("delve_path_rooms", "authored Delve rail routes"),
         // object-types manifest v4 combines inherited Life flags with Positioned/Animated collision metadata; v6 adds the
-        // rooms' server objects (room-points.json) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
+        // rooms' server objects (room points) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
         // QUEST_ROOM_TYPES). item-types v2: the quest items' .it Quest flags.
-        ("data/object-types.json", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
-        ("data/item-types.json", "items, quest items' Quest flags"),
-        ("data/area-transitions.json", "area transitions of fixed layouts"),
-        ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
-        ("data/hideouts.json", "hideouts and native stationary model collision radii"),
-        ("data/animation-contacts.json", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
-        ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
-        ("data/monster-contacts.json", "monster projectile release timing/points and boss stage contacts"),
-        ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
-        ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
+        ("object_types", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
+        ("item_types", "items, quest items' Quest flags"),
+        ("area_transition_areas", "area transitions of fixed layouts"),
+        ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
+        ("hideout_layouts", "hideouts and native stationary model collision radii"),
+        ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
+        ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
+        ("monster_contacts", "monster projectile release timing/points and boss stage contacts"),
+        ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
+        ("passive_graphs", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
+        ("client_constants", "the Gateway does not start without its HNC mask"),
+        ("stat_descriptions", "mod wording for tools' item crafter (the crafter mode)"),
+    ];
+
+    /// <summary>The files read from data/ itself.</summary>
+    public static readonly (string File, string Feature)[] Files =
+    [
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
-        ("data/client-constants.json", "the Gateway does not start without its HNC mask"),
-        ("data/stat-descriptions.txt", "mod wording for tools' item crafter (the crafter mode)"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>
-        Tables.Where(t => !ClientTables.Has(t.Table)).Select(t => ($"the client table {t.Table}", t.Feature))
-            .Concat(All.Where(f => !ClientTables.Exists(Path.Combine(root, f.File))));
+        Tables.Concat(Generated).Where(t => !ClientTables.Has(t.Table)).Select(t => ($"the table {t.Table}", t.Feature))
+            .Concat(Files.Where(f => !File.Exists(Path.Combine(root, f.File))));
 
     /// <summary>Generated files whose older versions still load but lack what a feature reads (extract-data.ps1's manifest
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
@@ -104,11 +111,13 @@ public static class GameDataFiles
     }
 
     // An entry whose output the servers read from client.db (built from sql/, whatever the local extraction's version).
-    static bool InClientDb(string root, string entry)
+    static bool InClientDb(string root, string entry) => ClientTables.Has(entry switch
     {
-        if (entry == "tables") return ClientTables.Has("WorldAreas");
-        return ClientTables.TryFile(Path.Combine(root, $"data/{entry}.json"), out _);
-    }
+        "tables" => "WorldAreas",
+        "vendor-stock" => "vendor_shops",
+        "animation-contacts" => "animation_rigs",
+        _ => entry.Replace('-', '_'),
+    });
 
     /// <summary>One warning naming every generated file older than a feature needs, or null.</summary>
     public static string? OutdatedWarning(string root = ".")

@@ -757,16 +757,13 @@ _item_tables = None
 
 
 def item_tables():
-    """Item types and mods from the generated data/ files; without them .itemblob stops at its type hash."""
+    """Item types (client.db's item_types) and mods; without them .itemblob stops at its type hash."""
     global _item_tables
     if _item_tables is None:
-        import json
-        import os
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         try:
-            types = json.load(open(os.path.join(root, "data", "item-types.json"), encoding="utf-8"))["types"]
+            types = _clientdb().table("item_types")
             mods = _clientdb().table("Mods")
-        except (OSError, KeyError):
+        except (OSError, KeyError, ValueError):
             _item_tables = ({}, {})
         else:
             _item_tables = ({murmur2(x["type"]): x for x in types}, {m["HASH16"]: m for m in mods})

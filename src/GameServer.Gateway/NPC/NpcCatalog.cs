@@ -262,21 +262,14 @@ public sealed class NpcCatalog
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
-        string types = Path.Combine(folder, "object-types.json");
-        if (ClientTables.Exists(types))
+        var sharedStates = ObjectTypes.SharedStates();
+        foreach (var (type, t) in ObjectTypes.All())
         {
-            using var doc = GameTables.Open(types);
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-            {
-                string type = t.GetProperty("type").GetString()!;
-                if (!type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase)) continue;
-                components[type] = [.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)];
-                if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
-                    stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
-                        [.. ss.EnumerateArray().Select(e => e[0].GetString() ?? "")]);
-                if (t.TryGetProperty("transitionable", out var tr) && tr.TryGetProperty("num_states", out var ns))
-                    transitionStates[type] = (byte)Math.Clamp(ns.GetInt32(), 1, 127);
-            }
+            if (!type.StartsWith("Metadata/NPC/", StringComparison.OrdinalIgnoreCase)) continue;
+            components[type] = ObjectTypes.Components(t);
+            if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
+            if (t.IntOrNull("transitionable_num_states") is int numStates)
+                transitionStates[type] = (byte)Math.Clamp(numStates, 1, 127);
         }
         var shopOfSet = new List<int>();
         var hardModeShopOfSet = new List<int>();
@@ -294,7 +287,7 @@ public sealed class NpcCatalog
             // Act 1's) has its Metadata's components.
             string meta = r.TextOrNull("Metadata") ?? "";
             string type = components.ContainsKey(id) || !components.ContainsKey(meta) ? id : meta;
-            // Without object-types.json, assume the base NPC list.
+            // Without the object_types table, assume the base NPC list.
             IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
             int set = r.IntOrNull("ShopSet") ?? -1;
             rows.Add(new Npc(rows.Count, id, r.Text("Name") ?? "", list,

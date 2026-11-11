@@ -55,15 +55,21 @@ static class HideoutFiles
                 && !type.EndsWith("HideoutCraftingBench", StringComparison.Ordinal)) continue;
             foreach (var model in row.Texts("Variation_AOFiles")) models.Add(model);
         }
-        // object-types.json: the generator's fresh output when extract-data just wrote it, else client.db's copy.
+        // object-types.json: the generator's fresh output when extract-data just wrote it, else client.db's object_types.
         string objectTypes = Path.Combine(root, "data", "object-types.json");
-        using var types = JsonDocument.Parse(File.Exists(objectTypes) ? File.ReadAllBytes(objectTypes)
-            : ClientTables.FileBytes("object-types.json") ?? throw new FileNotFoundException("object-types.json is in neither data/ nor client.db"));
-        foreach (var type in types.RootElement.GetProperty("types").EnumerateArray())
-            if (type.GetProperty("components").EnumerateArray().Any(c => c.GetString() == "NPC")
-                && type.TryGetProperty("positioned", out var p) && p.TryGetProperty("static", out var isStatic)
-                && isStatic.GetString() == "true" && type.TryGetProperty("animated_object", out var model)
-                && model.GetString() is { Length: > 0 } path) models.Add(path);
+        if (File.Exists(objectTypes))
+        {
+            using var types = JsonDocument.Parse(File.ReadAllBytes(objectTypes));
+            foreach (var type in types.RootElement.GetProperty("types").EnumerateArray())
+                if (type.GetProperty("components").EnumerateArray().Any(c => c.GetString() == "NPC")
+                    && type.TryGetProperty("positioned", out var p) && p.TryGetProperty("static", out var isStatic)
+                    && isStatic.GetString() == "true" && type.TryGetProperty("animated_object", out var model)
+                    && model.GetString() is { Length: > 0 } path) models.Add(path);
+        }
+        else
+            foreach (var type in ClientTable.Load(Path.Combine(root, "data", "client.db"), "object_types"))
+                if (type.Texts("components").Contains("NPC") && type.TextOrNull("positioned_static") == "true"
+                    && type.TextOrNull("animated_object") is { Length: > 0 } path) models.Add(path);
         double Radius(string path, HashSet<string> chain)
         {
             if (!chain.Add(path) || files.Bytes(path) is not { } bytes) return 0;

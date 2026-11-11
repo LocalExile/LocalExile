@@ -74,10 +74,10 @@ public static class WaypointCatalog
         try
         {
             // No capture: the layout the Gateway generated itself.
-            if (!ClientTables.Exists(file))
+            if (!File.Exists(file))
                 return ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
                     ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
-            var data = JsonSerializer.Deserialize<CaptureFileData>(ClientTables.ReadAllText(file), Json);
+            var data = JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(file), Json);
             var o = data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath);
             return o is null ? null : new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z);
         }

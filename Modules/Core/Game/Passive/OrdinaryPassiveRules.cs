@@ -126,15 +126,10 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
 
     static Data? Load(string folder)
     {
-        string graphPath = Path.Combine(folder, AscendancyCatalog.GraphFile);
         const string passivePath = "PassiveSkills";
-        if (!ClientTables.Exists(graphPath) || !new[] { passivePath, "Characters", "Stats" }.All(ClientTables.Has)) return null;
-
-        using var graphs = GameTables.Open(graphPath);
-        if (graphs.RootElement.GetProperty("revision").GetString() != AscendancyCatalog.Revision)
-            throw new InvalidDataException($"{graphPath}: expected passive data revision {AscendancyCatalog.Revision}");
-        var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, f =>
-            ReadGraph(graphs.RootElement.GetProperty(f == AscendancyFamily.Normal ? "normal" : "phrecia")));
+        if (!PassiveGraphs.Available || !new[] { passivePath, "Characters", "Stats" }.All(ClientTables.Has)) return null;
+        PassiveGraphs.RequireRevision(AscendancyCatalog.Revision, "passive");
+        var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, PassiveGraphs.Links);
         byte[] classes = ClientTables.Table("Characters")
             .Select(r => checked((byte)r.Int("IntegerId"))).ToArray();
         int grantStat = Array.FindIndex(ClientTables.Table("Stats").ToArray(),
@@ -175,26 +170,5 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
                     throw new InvalidDataException($"{passivePath}: duplicate start for class {startClass}");
         }
         return new(nodes, starts, links);
-    }
-
-    static Dictionary<ushort, HashSet<ushort>> ReadGraph(JsonElement graph)
-    {
-        var result = new Dictionary<ushort, HashSet<ushort>>();
-        foreach (var node in graph.GetProperty("nodes").EnumerateArray())
-        {
-            ushort id = checked((ushort)node.GetProperty("id").GetInt32());
-            if (!result.TryAdd(id, node.GetProperty("adjacent").EnumerateArray()
-                    .Select(n => checked((ushort)n.GetInt32())).ToHashSet()))
-                throw new InvalidDataException($"Duplicate passive graph node {id}");
-        }
-        // PSG drawing edges can be stored in either direction; allocation connectivity is undirected.
-        foreach (var (id, adjacent) in result.ToArray())
-            foreach (ushort other in adjacent.ToArray())
-            {
-                if (!result.TryGetValue(other, out var reverse))
-                    throw new InvalidDataException($"Passive graph node {id} links to missing node {other}");
-                reverse.Add(id);
-            }
-        return result;
     }
 }

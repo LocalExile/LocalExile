@@ -802,24 +802,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return result;
     });
 
-    /// <summary>A data file's JSON, or null, with one warning, when it is missing or unreadable: the feature stays off
-    /// rather than faulting the projectile pump or a spawn, which closes the connection, and the cached fault would repeat
-    /// it on every later one (review 2026-10-30). The generators write atomically, so a truncated file means a crash
-    /// elsewhere.</summary>
-    static JsonDocument? DataFile(string path)
-    {
-        if (!ClientTables.Exists(path)) return null;
-        try { return JsonDocument.Parse(ClientTables.ReadAllBytes(path)); }
-        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
-        {
-            Console.WriteLine($"[gateway] WARNING: {path} is unreadable ({ex.GetType().Name}: {ex.Message}); its feature is off until"
-                + " scripts/dev/extract-data.ps1 regenerates it");
-            return null;
-        }
-    }
-
     /// <summary>One clip of a projectile type's rig: its name, index in the rig's animation list (what 0x1b2 plays), length
-    /// and whether it plays once (data/projectile-clips.json, scripts/re/projectile_clips.py).</summary>
+    /// and whether it plays once (client.db's projectile_clips, from scripts/re/projectile_clips.py).</summary>
     public sealed record ProjectileClip(string Name, uint Index, int Ms, bool Once);
 
     /// <summary>What the client needs to show a server-created object of a projectile type: the .ao's default animation,
@@ -833,22 +817,13 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<string, ProjectileClips>> _projectileClips = new(() =>
     {
-        string path = Path.Combine(folder, "projectile-clips.json");
         var result = new Dictionary<string, ProjectileClips>();
-        using var d = DataFile(path);
-        if (d is null) return result;
-        foreach (var entry in d.RootElement.EnumerateObject())
+        foreach (var r in ClientTables.TableOrEmpty("projectile_clips"))
         {
-            if (entry.Value.ValueKind != JsonValueKind.Object) continue;
             ProjectileClip? Clip(string key) =>
-                entry.Value.TryGetProperty(key, out var c) && c.ValueKind == JsonValueKind.Object
-                    && c.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String
-                    && c.TryGetProperty("index", out var i) && i.ValueKind == JsonValueKind.Number && i.TryGetUInt32(out uint index)
-                    && c.TryGetProperty("ms", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out int length)
-                    ? new(n.GetString() ?? "", index, length, c.TryGetProperty("once", out var once) && once.ValueKind == JsonValueKind.True)
-                    : null;
-            string? fallback = entry.Value.TryGetProperty("default", out var def) && def.ValueKind == JsonValueKind.String ? def.GetString() : null;
-            result[entry.Name] = new(fallback, Clip("flight"), Clip("impact"));
+                r.TextOrNull(key + "_name") is { } name && r.LongOrNull(key + "_index") is { } index && r.IntOrNull(key + "_ms") is { } length
+                    ? new(name, (uint)index, length, r.BoolOrNull(key + "_once") ?? false) : null;
+            result[r.Text("type")!] = new(r.TextOrNull("default"), Clip("flight"), Clip("impact"));
         }
         return result;
     });
@@ -878,7 +853,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public double AreaRadius { get; init; }
     }
 
-    /// <summary>One clip of a monster's attack pool (data/monster-contacts.json, scripts/re/monster_contacts.py): its name,
+    /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
     /// its index in the rig's animation list, its length, and its contact keyframe's time and position when it has one
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
     public sealed record MonsterClipContact(string Animation, uint Index, int LengthMs, int? ContactMs, ContactPoint? Point)
@@ -903,34 +878,17 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Dictionary<string, Dictionary<string, MonsterClipContact[]>>> _monsterContacts = new(() =>
     {
-        string path = Path.Combine(folder, "monster-contacts.json");
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
-        using var d = DataFile(path);
-        if (d is null) return result;
-        foreach (var variety in d.RootElement.EnumerateObject())
+        if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
+        var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        foreach (var variety in varieties)
         {
-            if (variety.Value.ValueKind != JsonValueKind.Object
-                || !variety.Value.TryGetProperty("pools", out var pools) || pools.ValueKind != JsonValueKind.Object) continue;
-            var byKey = new Dictionary<string, MonsterClipContact[]>(StringComparer.Ordinal);
-            foreach (var pool in pools.EnumerateObject())
-            {
-                if (pool.Value.ValueKind != JsonValueKind.Array) continue;
-                var clips = new List<MonsterClipContact>();
-                foreach (var c in pool.Value.EnumerateArray())
-                {
-                    if (c.ValueKind != JsonValueKind.Object
-                        || !c.TryGetProperty("animation", out var name) || name.ValueKind != JsonValueKind.String
-                        || !c.TryGetProperty("index", out var index) || index.ValueKind != JsonValueKind.Number || !index.TryGetUInt32(out uint clipIndex)
-                        || !c.TryGetProperty("length", out var length) || length.ValueKind != JsonValueKind.Number || !length.TryGetInt32(out int lengthMs)
-                        || lengthMs <= 0) continue;
-                    int? contact = c.TryGetProperty("contact", out var ms) && ms.ValueKind == JsonValueKind.Number && ms.TryGetInt32(out int contactMs)
-                        ? contactMs : null;
-                    var point = c.TryGetProperty("position", out var position) ? AnimationContacts.Point(position) : null;
-                    clips.Add(new(name.GetString() ?? "", clipIndex, lengthMs, contact, point));
-                }
-                if (clips.Count > 0) byKey[pool.Name] = [.. clips];
-            }
-            if (byKey.Count > 0) result[variety.Name] = byKey;
+            var byKey = clipsByVariety[variety.Index]
+                .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
+                .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
+                .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
+                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))).ToArray(), StringComparer.Ordinal);
+            if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
         return result;
     });

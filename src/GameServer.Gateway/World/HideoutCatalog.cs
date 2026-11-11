@@ -43,9 +43,9 @@ public static class HideoutCatalog
 
     static readonly Lazy<IReadOnlyList<Hideout>> All = new(() =>
     {
-        var list = Load("data/hideouts.json");
+        var list = Load();
         Console.WriteLine(list.Count == 0
-            ? "[gateway] hideouts: no data/hideouts.json (run scripts/dev/extract-data.ps1), hideouts are off"
+            ? "[gateway] hideouts: no hideout_layouts table in client.db, hideouts are off"
             : $"[gateway] hideouts: {list.Count}, default {DefaultOf(list)?.Name ?? "none"}");
         return list;
     });
@@ -83,53 +83,49 @@ public static class HideoutCatalog
         [(DefaultArea, "Map Device")] = (257, 283),
     };
 
-    /// <summary>An object type's deserialized components and shared-state count (data/object-types.json), or null.</summary>
+    /// <summary>An object type's deserialized components and shared-state count (the object_types table), or null.</summary>
     public static (IReadOnlyList<string> Components, IReadOnlyList<string> SharedStates)? TypeOf(string type) =>
         ObjectTypes.Value.TryGetValue(type, out var t) ? t : null;
 
     static readonly Lazy<Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>> ObjectTypes = new(() =>
     {
         var result = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>(StringComparer.Ordinal);
-        const string file = "data/object-types.json";
-        if (!ClientTables.Exists(file)) return result;
-        using var doc = GameTables.Open(file);
-        foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
+        var sharedStates = ClientTables.TableOrEmpty("object_type_shared_states").By("type");
+        foreach (var (type, t) in global::ObjectTypes.All())
         {
-            string type = t.GetProperty("type").GetString()!;
             if (!type.Contains("Hideout", StringComparison.OrdinalIgnoreCase)) continue;
-            result[type] = ([.. t.GetProperty("components").EnumerateArray().Take(t.GetProperty("read").GetInt32()).Select(c => c.GetString()!)],
-                [.. t.GetProperty("shared_states").EnumerateArray().Select(s => s[0].GetString()!)]);
+            result[type] = (global::ObjectTypes.Components(t), [.. sharedStates[t.Index].Select(s => s.Text("name")!)]);
         }
         return result;
     });
 
-    public static List<Hideout> Load(string hideoutsJson)
+    // client.db's hideout_layouts, hideout_doodads and hideout_collision_radii (data/hideouts.json from scripts/re/atlas).
+    public static List<Hideout> Load()
     {
-        if (!ClientTables.Exists(hideoutsJson)) return [];
+        if (ClientTables.TableOrNull("hideout_layouts") is not { } layouts) return [];
         var doodadTypes = DoodadTypes();
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(hideoutsJson));
+        var doodadsOf = ClientTables.TableOrEmpty("hideout_doodads").By("hideout");
+        var radii = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var r in ClientTables.TableOrEmpty("hideout_collision_radii")) radii.TryAdd(r.Text("model")!, r.Real("radius"));
         var result = new List<Hideout>();
-        foreach (var h in doc.RootElement.GetProperty("hideouts").EnumerateArray())
+        foreach (var h in layouts)
         {
             var doodads = new List<Doodad>();
-            foreach (var d in h.GetProperty("doodads").EnumerateArray())
+            foreach (var d in doodadsOf[h.Index])
             {
-                uint hash = d.GetProperty("hash").GetUInt32();
-                int fv = d.GetProperty("fv").GetInt32();
+                uint hash = d.UInt("hash");
+                int fv = d.Int("fv");
                 var (type, models) = doodadTypes.GetValueOrDefault(hash);
                 string? model = models is { Length: > 0 } ? models[Math.Clamp(fv, 0, models.Length - 1)] : null;
-                doodads.Add(new Doodad(d.GetProperty("name").GetString() ?? "", hash, type, model, d.GetProperty("x").GetInt32(), d.GetProperty("y").GetInt32(),
-                    d.GetProperty("r").GetInt32() / 65536f * 2 * MathF.PI, fv)
+                doodads.Add(new Doodad(d.Text("name") ?? "", hash, type, model, d.Int("x"), d.Int("y"), d.Int("r") / 65536f * 2 * MathF.PI, fv)
                 {
-                    CollisionRadius = model is not null && doc.RootElement.TryGetProperty("collisionRadii", out var radii)
-                        && radii.TryGetProperty(model, out var radius) ? radius.GetDouble() : 0
+                    CollisionRadius = model is not null ? radii.GetValueOrDefault(model) : 0
                 });
             }
-            string area = h.GetProperty("area").GetString() ?? "";
+            string area = h.Text("area") ?? "";
             for (int i = 0; i < doodads.Count; i++)
                 if (Moved.TryGetValue((area, doodads[i].Name), out var cell)) doodads[i] = doodads[i] with { X = cell.X, Y = cell.Y };
-            result.Add(new Hideout(h.GetProperty("row").GetInt32(), (ushort)h.GetProperty("hash16").GetInt32(), h.GetProperty("area").GetString() ?? "",
-                (ushort)h.GetProperty("areaHash16").GetInt32(), h.GetProperty("name").GetString() ?? "", doodads));
+            result.Add(new Hideout(h.Int("row"), (ushort)h.Int("hash16"), area, (ushort)h.Int("areaHash16"), h.Text("name") ?? "", doodads));
         }
         return result;
     }

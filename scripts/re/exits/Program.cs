@@ -81,17 +81,13 @@ foreach (var r in GameServer.Core.ClientTables.Table("WorldAreas"))
 }
 var connections = new Dictionary<string, List<(int Index, string Id, ushort Hash)>>(StringComparer.Ordinal);
 var names = new Dictionary<ushort, string>();
-using (var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes("data/area-transitions.json")))
-    foreach (var a in doc.RootElement.GetProperty("areas").EnumerateArray())
-    {
-        string id = a.GetProperty("id").GetString()!;
-        names[(ushort)a.GetProperty("hash16").GetInt32()] = id;
-        var list = new List<(int, string, ushort)>();
-        if (a.TryGetProperty("connections", out var c) && c.ValueKind == JsonValueKind.Array)
-            foreach (var x in c.EnumerateArray())
-                list.Add((x.GetProperty("index").GetInt32(), x.GetProperty("id").GetString()!, (ushort)x.GetProperty("hash16").GetInt32()));
-        connections[id] = list;
-    }
+var connectionsOf = GameServer.Core.ClientTables.Table("area_transition_connections").By("area");
+foreach (var a in GameServer.Core.ClientTables.Table("area_transition_areas"))
+{
+    string id = a.Text("id")!;
+    names[(ushort)a.Int("hash16")] = id;
+    connections[id] = [.. connectionsOf[a.Index].Select(x => (x.Int("index"), x.Text("id")!, (ushort)x.Int("hash16")))];
+}
 string Name(ushort h) => names.GetValueOrDefault(h, $"0x{h:x4}");
 
 var results = new List<AreaResult>();
