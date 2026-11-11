@@ -296,14 +296,20 @@ public sealed partial class DelveModule : IModule
             foreach (var (point, checkpointId, completed) in new[] { (rail.Points[0], id + 5, true), (rail.Points[^1], id + 4, savedDestination) })
             {
                 state.Checkpoints[checkpointId] = point;
-                await player.Send(InstanceProtocol.RemoveObject(checkpointId));
-                await player.Send(InstanceEntities.CreateObject(checkpointId, InstanceEntities.ObjectTypeHash(DelveMapViewerObject.MetadataPath),
+                await RemoveSceneObject(player, checkpointId);
+                await global::Game.SendWorldCreate(player, checkpointId, InstanceEntities.CreateObject(checkpointId, InstanceEntities.ObjectTypeHash(DelveMapViewerObject.MetadataPath),
                     new DelveCheckpointObject(point.X, point.Y, completed).Blob()), $"Delve checkpoint pad at {point}");
-                await player.Send(InstanceProtocol.EnterWakeZone(checkpointId));
+                await global::Game.SendWorldRecord(player, checkpointId, InstanceProtocol.EnterWakeZone(checkpointId));
             }
         }
         if (mine && Mine(module, player).Pending is null)
             await ResetScene(module, player, state);
+    }
+
+    static Task RemoveSceneObject(IPlayer player, uint id)
+    {
+        var conn = ConnOf(player); var wire = conn.Wire;
+        return global::Game.SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, conn, id);
     }
 
     async Task OpenChart(IModuleContext module, IPlayer player)
@@ -322,15 +328,15 @@ public sealed partial class DelveModule : IModule
     static async Task CreateCrawlerBody(IPlayer player, State state, int x, int y, float rotation, bool roaming)
     {
         uint id = state.Crawler;
-        await player.Send(InstanceProtocol.RemoveObject(id));
+        await RemoveSceneObject(player, id);
         foreach (uint part in Enumerable.Range(1, 3).Select(n => id + (uint)n))
-            await player.Send(InstanceProtocol.RemoveObject(part));
+            await RemoveSceneObject(player, part);
         state.Attachments.Clear();
-        await player.Send(InstanceEntities.CreateObject(id,
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(roaming ? DelveRobotObject.MetadataPath : DelveMapViewerObject.MetadataPath),
             roaming ? new DelveRobotObject(x, y, rotation).Blob() : new DelveMapViewerObject(x, y, rotation).Blob()),
             $"0x02bb create the Delve Crawler 0x{id:x} at ({x}, {y})");
-        await player.Send(InstanceProtocol.EnterWakeZone(id), $"0x01a9 Delve Crawler 0x{id:x} enters wake zone");
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 Delve Crawler 0x{id:x} enters wake zone");
         // DelveMapViewer's own transition callbacks select clips for its waypoint model, not this two-clip rig.
         // Explicitly select idle_01 (rig index 0), which loops the running engine's shake and sound.
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1), "Crawler idle_01");
@@ -342,7 +348,7 @@ public sealed partial class DelveModule : IModule
             // The real robot's Wheels component creates and rotates its own meshes from actual displacement.
             if (roaming && !light) continue;
             uint part = id + 1 + (uint)state.Attachments.Count;
-            await player.Send(InstanceProtocol.RemoveObject(part));
+            await RemoveSceneObject(player, part);
             state.Attachments.Add(part);
             string type = light ? DelveCrawlerAttachmentObject.LightType : EffectObject.TypePath;
             await global::Game.SendWorldCreate(player, part, InstanceEntities.CreateObject(part, InstanceEntities.ObjectTypeHash(type),
@@ -367,7 +373,7 @@ public sealed partial class DelveModule : IModule
             int bx = x + (int)MathF.Round(along * MathF.Sin(rotation)), by = y - (int)MathF.Round(along * MathF.Cos(rotation));
             uint id = state.Crawler + 0x10 + (uint)state.Blockers.Count;
             world.RemoveBlocker(id);
-            await player.Send(InstanceProtocol.RemoveObject(id));
+            await RemoveSceneObject(player, id);
             state.Blockers.Add(id);
             world.SetBlocker(id, bx, by, ObjectReach);
             await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WalkBlockerObject.MetadataPath),

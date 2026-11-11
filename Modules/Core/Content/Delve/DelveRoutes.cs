@@ -147,10 +147,10 @@ public sealed partial class DelveModule
                     state.Journey = null;
                 }
                 if (!conn.Closed && !conn.LeavingArea)
-                    foreach (uint id in monsters) await player.Send(InstanceProtocol.RemoveObject(id));
+                    foreach (uint id in monsters) await RemoveSceneObject(player, id);
             }
             if (!ConnOf(player).Closed && !ConnOf(player).LeavingArea)
-                foreach (uint id in state.Trail) await player.Send(InstanceProtocol.RemoveObject(id));
+                foreach (uint id in state.Trail) await RemoveSceneObject(player, id);
             state.Trail.Clear();
         }
         module.Log($"Delve attempt {attempt.Plan.Id} reset to saved checkpoint: {reason}");
@@ -160,16 +160,16 @@ public sealed partial class DelveModule
     {
         var conn = ConnOf(player);
         if ((state.Rail ??= DelveRailRoute.Load(player.AreaId, conn.Seed)) is not { } rail) return;
-        foreach (uint id in state.Trail) await player.Send(InstanceProtocol.RemoveObject(id));
+        foreach (uint id in state.Trail) await RemoveSceneObject(player, id);
         state.Trail.Clear();
         bool completed = state.Journey?.Completed == true || conn.Instance.HasState(DestinationFlag(player));
         var start = completed ? rail.Points[^1] : rail.Points[0];
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
-            await player.Send(InstanceProtocol.Teleport(id, start.X, start.Y));
+            await global::Game.SendWorldRecord(player, id, InstanceProtocol.Teleport(id, start.X, start.Y));
         state.CrawlerCell = start;
         lock (conn.Monsters) { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Teleport(start.X + 10, start.Y, conn.Clock.Elapsed.TotalSeconds); }
-        await player.Send(InstanceProtocol.Teleport(PlayerId, start.X + 10, start.Y));
-        await player.Send(InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1));
+        await global::Game.SendWorldRecord(player, PlayerId, InstanceProtocol.Teleport(PlayerId, start.X + 10, start.Y));
+        await global::Game.SendWorldRecord(player, state.Crawler, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1));
         var presentation = new DelveJourney(rail.Points, 0);
         await BlockCrawler(module, player, state, start.X, start.Y, presentation.Heading(completed ? presentation.Length : 0));
     }
