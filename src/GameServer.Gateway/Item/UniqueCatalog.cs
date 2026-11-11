@@ -112,8 +112,6 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
-        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } variant)
-            definition = definition with { Mods = [variant] };
         var mods = item.Mods.ToList();
         if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
         {
@@ -144,6 +142,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             mods.RemoveAll(m => m.Section == ModSection.Implicit);
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
+        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } variant)
+            definition = definition with { Mods = [variant] };
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
