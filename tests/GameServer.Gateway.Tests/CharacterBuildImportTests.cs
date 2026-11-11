@@ -72,7 +72,7 @@ public sealed class CharacterBuildImportTests
                         (conn, _) => Program.PlayerOf(conn).Tell(CharacterBuildApi.For(mod).Capture(Program.PlayerOf(conn))));
                 }
                 """);
-            using (var host = new ModHost(mods, _ => { }))
+            using (var host = new ModHost(mods, Console.WriteLine))
             {
                 host.Reload();
                 Assert.True(host.IsLoaded("probe"), string.Join("; ", host.Mods().Select(m => m.Error)));

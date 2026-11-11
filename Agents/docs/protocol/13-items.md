@@ -680,6 +680,12 @@ the item's size on the ground (BaseItemTypes `SizeOnGround`, 1 to 3) as its tole
 within 21, 22 or 23 ([07](07-latency-visibility-movement.md) Pickups).
 
 Dying monsters drop items as WorldItems around the corpse (`DropLoot`, [15](15-progression.md) §3).
+Gold can be auto-picked before a committed kill's presentation queue drains.
+Sending that queue's old create/wake after `0x2bd` leaves a visible but unpickable pile, despite its gold being credited.
+Queue ground ids, resolve the current item at the cipher gate and send create+wake together; omit a taken id.
+Gold removal and `0x2aa` balance publication share that gate.
+A click on an issued-but-taken ground id resends removal without awarding gold again.
+
 
 **Ground items belong to the instance** (`InstanceStore`, `InstanceGround`), as in the real game. Dropped items and
 loot are kept per area instance, by Auth's instance id and its creation time (`Created` in the `resolve` answer: Auth's
