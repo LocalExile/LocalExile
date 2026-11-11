@@ -22,7 +22,7 @@ public sealed class GamePack : IDisposable
     /// <summary>The single files packed beside them.</summary>
     static readonly HashSet<string> Files = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Data/CoreLeagues.datc64", "Data/ExtraTerrainFeatures.datc64", "Data/Hideouts.datc64", "Data/LabyrinthAreas.datc64",
+        "Data/CoreLeagues.datc64", "Data/DelveRooms.datc64", "Data/ExtraTerrainFeatures.datc64", "Data/Hideouts.datc64", "Data/LabyrinthAreas.datc64",
         "Data/LabyrinthNodeOverrides.datc64",
         "Data/Labyrinths.datc64", "Data/LabyrinthSecrets.datc64", "Data/LabyrinthSection.datc64", "Data/LabyrinthSectionLayout.datc64",
         "Data/SanctumRooms.datc64", "Data/Topologies.datc64", "Data/WorldAreaLeagueChances.datc64", "Data/WorldAreas.datc64",
