@@ -474,7 +474,10 @@ public static partial class Game
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
-                        { AnimatedObject = flightVisual };
+                        { AnimatedObject = flightVisual,
+                            // DelveMonkeyMortar.ot appends an empty StateMachine; omitting its two counts
+                            // makes the client consume the task byte as a count and throw Buffer Underflow.
+                            StateMachine = p.Profile.Id == "Metadata/Projectiles/DelveMonkeyMortar" ? new([], 0) : null };
                     visual.Created = true;
                     if (p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
