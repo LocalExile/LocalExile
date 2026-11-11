@@ -737,11 +737,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // cast was refused while the client drew its orb. Winter Orb's channelled orb fires FrostFuryMortar (its Projectiles row,
     // one per volley); the effect's own name has no row, so the channel was refused while the client played it.
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
+    // Kinetic Bolt (ZigZagProjectile) creates ZigZagWandProjectile (3.29.3c RE); its transfigured/internal variants share
+    // the same ActionType and primary projectile row.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltX"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltY"] = "Metadata/Projectiles/WandProjectile",
+        ["KineticBolt"] = "Metadata/Projectiles/ZigZagWandProjectile",
+        ["KineticBoltAltX"] = "Metadata/Projectiles/ZigZagWandProjectile",
+        ["KineticBoltAltY"] = "Metadata/Projectiles/ZigZagWandProjectile",
         ["EtherealKnives"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltX"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltY"] = "Metadata/Projectiles/EtherealKnivesProjectile",
