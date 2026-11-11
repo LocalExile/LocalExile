@@ -160,7 +160,7 @@ public static partial class Game
                     {
                         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(id, 0xffff, target.Id, flags: 0x4601, kind: 0x02,
                             u34: 450, angle: HitAngle(to.X - at.X, to.Y - at.Y)),
-                            $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster));
+                            $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster, WorldId: id));
                         CommitMinionHitLocked(conn, target.Id, target.Monster, accepted.Hit, accepted.Damage, now, $"minion 0x{id:x} ({m.Label})");
                     }
                     break;

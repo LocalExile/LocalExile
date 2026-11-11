@@ -100,7 +100,7 @@ public static partial class Game
                         conn.Madness.Random, poison: profile.Poison, blind: BlindHitInput.Capture(player, null));
                     if (target.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                         && IgniteOnHitLocked(conn, id, target, profile.Ignite, critical, now) is { } ignite)
-                        foreach (var packet in ignite) conn.Minions.OutputQueue.Add(new(packet, null, id, target));
+                        foreach (var packet in ignite) conn.Minions.OutputQueue.Add(new(packet, null, id, target, WorldId: id));
                     // The ordinary accepted-hit path owns rewards, boss phases and further on-kill receipts.
                     CommitAcceptedHitLocked(conn, id, target, hit, damage, now, "Madness chaos explosion", playerKill: true);
                 }

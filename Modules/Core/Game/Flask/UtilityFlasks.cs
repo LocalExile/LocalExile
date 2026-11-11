@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -152,7 +152,7 @@ public static partial class Game
 
     static void QueueUtilityFlaskEnd(FlaskAutomationState state, UtilityFlasks.Active effect, string why) =>
         state.Packets.AddRange(UtilityFlasks.EndPackets(effect, PlayerId)
-            .Select(p => new FlaskOutput(p, $"0x01c2 player buff: {effect.Name} (flask {effect.Slot}) effect ends ({why})")));
+            .Select(p => new FlaskOutput(p, $"0x01c2 player buff: {effect.Name} (flask {effect.Slot}) effect ends ({why})", WorldId: PlayerId)));
 
     public static async Task PublishFlaskChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
@@ -169,19 +169,19 @@ public static partial class Game
                 output = state.Packets[0];
             }
             bool sent = false;
-            await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
+            byte[][]? Project()
             {
                 lock (conn.Monsters)
                 {
                     if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired || state.Packets.Count == 0
                         || !ReferenceEquals(state.Packets[0], output)) return null;
                     // Pool/reservation output samples current values, never a pre-reload instant snapshot.
-                    byte[] packet = output.Pool switch
+                    byte[][] packet = output.Pool switch
                     {
-                        FlaskOutputPool.Life => PlayerLifeUpdate(conn),
-                        FlaskOutputPool.Mana => WithOwnAuraChanges(conn, () => InstanceProtocol.LifeUpdate(PlayerId,
-                            conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)),
-                        _ => output.Packet,
+                        FlaskOutputPool.Life => [PlayerLifeUpdate(conn)],
+                        FlaskOutputPool.Mana => WithOwnAuraRecords(conn, () => [InstanceProtocol.LifeUpdate(PlayerId,
+                            conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]),
+                        _ => [output.Packet],
                     };
                     if (output.UtilityStart is { } effect)
                     {
@@ -190,11 +190,20 @@ public static partial class Game
                         bool live = conn.PlayerLife > 0 && effect.Ends > now
                             && conn.UtilityFlaskEffects.IsLatest(effect.ItemId, effect.Activation)
                             && ReferenceEquals(conn.UtilityFlaskEffects.Of(effect.ItemId), effect);
-                        packet = live ? [.. prefix, .. UtilityFlasks.StartPackets(effect with { Started = now }, PlayerId).SelectMany(p => p)] : prefix;
+                        packet = live ? [prefix, .. UtilityFlasks.StartPackets(effect with { Started = now }, PlayerId)] : [prefix];
                     }
                     state.Packets.RemoveAt(0); sent = true; return packet;
                 }
-            });
+            }
+            uint? worldId = output.WorldId ?? (output.Pool != FlaskOutputPool.None || output.UtilityStart is not null ? PlayerId : null);
+            if (output.CreatesObject)
+                await SendWorldCreate(conn, worldId!.Value, () => Project()?.Single(), output.Log, transport: (remote, stream, ciphers));
+            else if (output.RemovesObject)
+                await SendWorldRemoval(remote, stream, ciphers, conn, worldId!.Value, output.Log, atGate: () => Project()?.Single());
+            else if (worldId is uint id)
+                await SendWorldRecords(remote, stream, ciphers, conn, id, Project, output.Log);
+            else await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
+                Project() is { } records ? [.. records.SelectMany(p => p)] : null);
             if (sent && output.Pool == FlaskOutputPool.Mana && CurrentGameWork)
                 await SendPlayerEnergyShield(remote, stream, ciphers, conn);
         }

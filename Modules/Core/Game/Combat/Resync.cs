@@ -69,8 +69,13 @@ public static partial class Game
     // The player is not among them: the client's position is the truth and the server's walk only estimates it, so S→C
     // 0x128 (whose first record the client puts the player on) snapped the player back to the estimate at every stun,
     // freeze, movement skill and resync request. Called under conn.Monsters.
+    //
+    // A lockstep client gets none. GGG's resync is S→C 0x128, which that client skips (07 §6), and its monsters already
+    // stand where the orders put them. A teleport there zeroes each walker's step accumulator (0x141e34b40) while the
+    // server's walk keeps its fraction of a step, so every later order of those walks found the client a cell behind.
     public static byte[] ResyncPacketLocked(ClientState conn, double now)
     {
+        if (conn.LockstepClient) return [];
         var player = conn.Walk.Position(now);
         var bytes = new List<byte>();
         foreach (var (id, m) in conn.Monsters)
@@ -175,7 +180,7 @@ public static partial class Game
         Send(remote, stream, ciphers, [], $"0x0128 resync ({why})", atGate: () =>
         {
             lock (conn.Monsters)
-                return conn.Closed || conn.LeavingArea || conn.Clock.Elapsed.TotalSeconds < conn.LandingUntil ? null
+                return conn.Closed || conn.LeavingArea || conn.LockstepClient || conn.Clock.Elapsed.TotalSeconds < conn.LandingUntil ? null
                     : ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds);
         });
 }

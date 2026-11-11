@@ -233,7 +233,7 @@ public static partial class Game
                 // Checked again in the send gate: a kill in between sends 0 first, and an older life after it would
                 // revive the monster on the client.
                 foreach (var (id, life) in changed)
-                    await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life), null,
+                    await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life), null,
                         still: () => { lock (conn.Monsters) return RegenStillCurrent(conn.Monsters, id, life); });
             }
         }

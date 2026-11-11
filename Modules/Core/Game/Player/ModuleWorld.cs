@@ -33,9 +33,9 @@ public static partial class Game
             var (x, y, rotation) = scene.Station(slot, editorKey);
             uint id = conn.NextObjectId++;
             var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
-            await Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
+            await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
                 $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
-            await Send(InstanceProtocol.EnterWakeZone(id), null);
+            await SendWorldRecord(conn, id, () => InstanceProtocol.EnterWakeZone(id));
             await RegisterStationaryCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, metadataPath, x, y, rotation, editorKey);
             return id;
         }

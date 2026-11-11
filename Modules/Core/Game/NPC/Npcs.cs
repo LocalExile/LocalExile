@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -11,9 +11,9 @@ public static partial class Game
         uint id = conn.NextObjectId++;
         var obj = new NpcObject(x, y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model, npc.Height);
         uint type = InstanceEntities.ObjectTypeHash(npc.Id);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type, obj.Blob()),
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, type, obj.Blob()),
             $"0x02bb create npc 0x{id:x} {npc} type=0x{type:x8} at ({x}, {y}) rotation {rotation:0.##}, components {string.Join(", ", npc.Components!)}");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 npc 0x{id:x} enters wake zone");
         lock (conn.Npcs) conn.Npcs[id] = new SpawnedNpc(npc, x, y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, id, npc.Id, x, y, rotation,
             HideoutCatalog.ByArea(conn.Layout.Hash) is not null ? "npc:" + npc.Id : null, npc.Model);
@@ -62,7 +62,7 @@ public static partial class Game
             }
             await GainFlaskCharges(remote, stream, ciphers, conn, int.MaxValue, "vendor refill");
             PersistVitals(conn);
-            await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), "vendor restores life");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), "vendor restores life");
             await SendPlayerMana(remote, stream, ciphers, conn, "vendor restores mana");
         }
         uint id;

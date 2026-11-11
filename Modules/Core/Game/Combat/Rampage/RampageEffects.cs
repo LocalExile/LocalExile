@@ -40,7 +40,7 @@ public static partial class Game
         if (skill is null) return null;
         var blob = new MonsterObject(at.X, at.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
             Team: 0, Skills: [skill], Stats: [(StatKeys.MaximumLife, (int)life)]) { LifeData = variety.LifeData };
-        await Send(remote, stream, ciphers, [], $"Rampage owned {weapon?.ToString() ?? "daemon"} 0x{id:x}", atGate: () =>
+        await SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
@@ -51,15 +51,15 @@ public static partial class Game
                 { OwnerId = PlayerId, Hostile = false, Variety = variety, Level = actorLevel,
                     HitAnimations = Monsters.TakeHit(variety.Id) };
                 conn.RampageWorld.Actors[id] = new(id, epoch, weapon, actorLevel, now + lifetime, now, effect);
-                var bytes = new List<byte>();
+                var bytes = new WorldRecordBuilder(conn, admission);
                 if (conn.MonsterTypes.Add((variety.Row, actorLevel)))
-                    bytes.AddRange(InstanceEntities.MonsterTypes([((ushort)variety.Row, actorLevel)]));
+                    bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, actorLevel)]));
                 uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, actorLevel));
-                bytes.AddRange(InstanceEntities.CreateObject(id, type, blob.Blob()));
-                bytes.AddRange(InstanceProtocol.EnterWakeZone(id));
-                return bytes.ToArray();
+                bytes.Create(id, InstanceEntities.CreateObject(id, type, blob.Blob()));
+                bytes.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                return bytes.Build();
             }
-        });
+        }, transport: (remote, stream, ciphers));
         return id;
     }
 
@@ -79,7 +79,7 @@ public static partial class Game
         double end = cast + steps.Max(s => s.Delay) + .5;
         uint? actor = await CreateRampageActor(remote, stream, ciphers, conn, tier.Daemon, level, end, null, origin, epoch);
         if (actor is null) throw new InvalidOperationException($"Rampage tier {tier.Threshold} cannot create its actor");
-        await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(actor.Value, origin.X, origin.Y,
+        await SendWorldRecord(remote, stream, ciphers, conn, actor.Value, InstanceProtocol.ActionStarted(actor.Value, origin.X, origin.Y,
             origin.X, origin.Y, SkillCatalog.FirstSkillId, 0xffff, conn.MonsterOrderFlags), $"Rampage tier {tier.Threshold}",
             still: () => RampageEffectCurrent(conn, epoch));
         lock (conn.Monsters)
@@ -204,7 +204,7 @@ public static partial class Game
             if (hit.Value.StageStarts) CommitBossStage(remote, stream, ciphers, conn, id, target, ProjectileWorldTime(conn));
             stun = RampageStatusLocked(conn, id, target, own, ProjectileWorldTime(conn));
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, hit.Value.Life),
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, hit.Value.Life),
             $"{label} hit 0x{id:x} for {damage}, life {hit.Value.Life}/{target.MaxLife}",
             still: () => RampageEffectCurrent(conn, epoch));
         if (!CurrentRampageWork) return hit.Value.Life == 0;
@@ -240,7 +240,7 @@ public static partial class Game
             target.FlinchUntil = Math.Max(target.FlinchUntil,
                 now + .35 * (1 + own.Get("base_stun_duration_+%") / 100.0));
             target.BusyUntil = Math.Max(target.BusyUntil, target.FlinchUntil);
-            var at = target.Walk.Position(now); target.Walk.Teleport(at.X, at.Y, now);
+            if (!target.Walk.OnFrames(now)) target.Walk.Cancel(now);   // on frames with the 0x1d1 (TakeHitPacket)
             target.LastTarget = null;
             // Capture the accepted mutation before any LifeUpdate await or deferred projectile output.
             stun = new(id, target, target.StunSerial, target.ActionGeneration, conn.IncomingHitEpoch,
@@ -271,7 +271,7 @@ public static partial class Game
         {
             lock (conn.Monsters) if (!Current()) return;
             bool completed = false;
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, token.Id, [], null, atGate: () =>
             {
                 lock (conn.Monsters)
                 {
@@ -299,7 +299,7 @@ public static partial class Game
     }
 
     static Task SendRampageRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id) =>
-        Send(remote, stream, ciphers, [], "Rampage owned object ends", atGate: () =>
+        SendWorldRemoval(remote, stream, ciphers, conn, id, "Rampage owned object ends", atGate: () =>
         {
             lock (conn.Monsters)
             {

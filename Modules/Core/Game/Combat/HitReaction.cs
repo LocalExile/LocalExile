@@ -51,8 +51,9 @@ public static class HitReaction
         // shortcut: a stun during a running recovery counts for on-stun gains but neither restarts nor extends it (restarting
         // would cut the clip and repeat its SoundEvent), until a capture shows how the real server re-presents one.
         if (now < m.FlinchUntil) return false;
-        var at = m.Walk.Position(now);
-        m.Walk.Teleport(at.X, at.Y, now);
+        // A walker on frames walks on until its client has the 0x1d1: the stop is placed in the frame that is written in
+        // (Game.TakeHitPacket), which is a later one when the hit was committed ahead of its output (a projectile's).
+        if (!m.Walk.OnFrames(now)) m.Walk.Cancel(now);
         m.LastTarget = null;   // after recovery the chase must acquire a fresh path, even to the same target cell
         if (m.SwingGeneration == m.ActionGeneration && !m.StageRunning) m.BusyUntil = now;
         m.SwingGeneration = null;

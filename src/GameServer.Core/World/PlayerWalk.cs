@@ -66,6 +66,10 @@ public sealed class PlayerWalk
 
     /// <summary>The frame a time's messages take effect in on this client, if it runs on frames: a lockstep client applies
     /// them at the frame's start, and its walkers only move on frames.</summary>
+    /// <remarks>Differs from GGG: the client counts a walker's step time in a float accumulator (33 ms as a float added
+    /// each tick, 0x141e35a50), and its server is that same simulation. The times here are doubles on the frames' grid, so
+    /// a step due exactly on a frame's end can fall a frame apart from the client's (about 1 walker-frame in 40 000 in
+    /// the traced fights of 2026-11-10, each for one frame).</remarks>
     public Func<double, (double Start, double End)?>? FrameOf { get; init; }
 
     private double Frame(double now) => FrameOf?.Invoke(now)?.Start ?? now;
@@ -146,9 +150,13 @@ public sealed class PlayerWalk
     /// spent and the walker stands there at once: <paramref name="until"/> is that step's time. The steps up to then stay,
     /// so a position asked for an earlier time is still the walked cell, and the time since the last step stays for the
     /// next walk as after any stop that waits for a tick (the stop clears only the step time, 0x141e35a50); none when the
-    /// walk's own steps ended by then (the step loop ended it).</summary>
-    public void StopAfter(double until)
+    /// walk's own steps ended by then (the step loop ended it). A stop that waits for the tick from
+    /// <paramref name="from"/> ends at the first waypoint that tick steps into, as at a path's end: the walker stands
+    /// there, does not go on into the next piece, and keeps nothing of the step time (<see cref="WaypointIn"/>).</summary>
+    public void StopAfter(double until, double? from = null)
     {
+        bool atWaypoint = false;
+        if (from is { } tick && WaypointIn(tick, until) is { } waypoint) (until, atWaypoint) = (waypoint, true);
         var kept = new List<Segment>();
         double last = _segments.Count > 0 ? _segments[0].T0 : until;
         bool beyond = false;
@@ -170,11 +178,50 @@ public sealed class PlayerWalk
         _rest = kept.Count > 0 ? kept[^1].Cells[^1] : _segments.Count > 0 ? _segments[0].From : _rest;
         _restSince = until;
         _segments = kept;
-        _kept = beyond ? (Math.Max(0, until - last), until) : default;
+        _kept = beyond && !atWaypoint ? (Math.Max(0, until - last), until) : default;
         Reached = true;
         _goalReached = true;
         WalksThrough = false;
     }
+
+    // When the tick from `from` to `until` steps the walker into a waypoint (the end of a piece of its path), if it does.
+    // A stop pending in that tick ends the walk there: the client's step loop finds the piece done and no next one set
+    // up, as at a path's end, and leaves the accumulator at zero (tick traces 2026-11-10: 19 of 19 such stops, where 31
+    // of 31 that ended mid-piece kept the time since their last step).
+    private double? WaypointIn(double from, double until)
+    {
+        foreach (var s in _segments)
+        {
+            if (s.Cells.Length == 0 || s.End <= from) continue;
+            if (s.End > until) break;
+            if (!s.Joined) return s.End;
+        }
+        return null;
+    }
+
+    /// <summary>Ends the walk for an action that cancels it at <paramref name="now"/> (a hit's recovery, 0x141e9c700): the
+    /// cancelled Move stops its walker with the same stop (0x141e38420), which waits for the tick. A walker on a client
+    /// that runs on frames still takes the steps due in that frame and keeps the time since its last one
+    /// (<see cref="StopAfter"/>); without frames it stands where it is. Returns where it stands.</summary>
+    public (int X, int Y) Cancel(double now)
+    {
+        if (FrameOf?.Invoke(now) is { } frame)
+        {
+            // A walker already standing has no step time for the stop to act on (0x141e38420 does nothing then): the
+            // time an earlier stop left it stays for its next walk.
+            if (Moving(frame.Start)) StopAfter(frame.End, frame.Start);
+        }
+        else
+        {
+            var here = At(now, out _);
+            Teleport(here.X, here.Y, now);
+        }
+        return _rest;
+    }
+
+    /// <summary>Whether the walker's client runs on frames at <paramref name="now"/>: a stop then belongs to the frame its
+    /// message is written in, not to the moment the server decided it.</summary>
+    public bool OnFrames(double now) => FrameOf?.Invoke(now) is not null;
 
     /// <summary>Paths again to the current order's target from where the walk ended, at <paramref name="at"/>.</summary>
     public (int X, int Y) Repath(double at) => Walk(_target, _maxRange, _tolerance, at, _precision);
@@ -198,18 +245,30 @@ public sealed class PlayerWalk
     {
         if (speed <= 0) throw new ArgumentOutOfRangeException(nameof(speed));
         _speed = speed;
+        // On frames the message takes effect at the frame's start, on the cell the walker stands on then.
+        now = Frame(now);
         var here = At(now, out double fraction);
         int i = _segments.FindIndex(s => now < s.End);
         if (i < 0) return;
+        // The piece in progress, to its waypoint: steps already due were split off it (Joined), and go with it again.
+        int last = i;
+        while (_segments[last].Joined && last + 1 < _segments.Count) last++;
         var left = _segments[i];
-        var end = left.Cells[^1];
+        var end = _segments[last].Cells[^1];
+        if (end == here) return;
         float step = StepTime(here, end);
         double start = now < left.T0 ? left.T0 : now - fraction * step;
-        var walk = new List<Segment> { left with { From = here, Cells = [.. ClientPathfinder.Line(here, end).Skip(1)], T0 = start, Step = step } };
-        foreach (var next in _segments.Skip(i + 1))
+        var walk = new List<Segment> { new(here, [.. ClientPathfinder.Line(here, end).Skip(1)], start, step) };
+        foreach (var next in _segments.Skip(last + 1))
             walk.Add(next with { T0 = walk[^1].End, Step = StepTime(next.From, next.Cells[^1]) });
         _segments = walk;
     }
+
+    /// <summary>Lays the piece in progress again from the walker's cell at the speed it has. The client does this to a
+    /// walking actor for every stats message that names a movement stat, changed or not (its stat listener 0x141ea3840
+    /// runs the active MoveTo's piece again, 0x141e81de0 → 0x141e37740): the straight line from here to the waypoint can
+    /// step sideways at another cell than the line from where the piece began.</summary>
+    public void Relay(double now) => SetSpeed(_speed, now);
 
     /// <summary>The walker's cell at <paramref name="now"/> (seconds, any monotonic clock).</summary>
     public (int X, int Y) Position(double now) => At(Frame(now), out _);
@@ -435,10 +494,21 @@ public sealed class PlayerWalk
         // A stop takes effect after the frame's steps (0x141e38420). The caller reports here, where the client is now; the
         // walker stands where the client will, or the next start puts the client back up to two cells, and keeps the time
         // since its last step for the next walk (_kept).
-        if (path.Count < 2 && FrameOf?.Invoke(now) is { } frame && Moving(now))
+        if (path.Count < 2 && Moving(now))
         {
-            var stop = At(frame.End, out _);
-            var kept = (Phase(frame.End).Into, frame.End);
+            if (FrameOf?.Invoke(now) is { } frame)
+            {
+                // On frames the steps still due in the tick stay steps of the walk, so the step pass checks each against
+                // the bodies as the client's tick does (a blocked one ends the walk where it stands, nothing kept), and
+                // the tick ends the walk at a waypoint it steps into (StopAfter).
+                StopAfter(frame.End, now);
+                _goalReached = reached;
+                return here;
+            }
+            // Predictive uses a continuous clock: its frame boundary is unknown, but the same stop retains time.
+            double stopAt = now;
+            var stop = At(stopAt, out _);
+            var kept = (Phase(stopAt).Into, stopAt);
             Teleport(stop.X, stop.Y, now);
             // At its goal only when it was in range where it stood, not when the search found no path (ReachedGoal).
             _goalReached = reached;
@@ -497,8 +567,19 @@ public sealed class PlayerWalk
                 break;
             }
         }
-        if (due == 0 || FrameOf?.Invoke(now) is not { } frame || frame.End <= now) return walk;
-        float gap = (float)((Math.Min(next, frame.End) - now) / (due + 1));
+        if (due == 0) return walk;
+        float gap;
+        if (FrameOf?.Invoke(now) is { } frame)
+        {
+            if (frame.End <= now) return walk;
+            gap = (float)((Math.Min(next, frame.End) - now) / (due + 1));
+        }
+        else
+        {
+            // With no known client frame, retain the continuous clock. Due steps belong just after the order, so its
+            // origin stays put and the collision pass sees every step. Use clock precision, not an invented tick delay.
+            gap = Math.Max(float.Epsilon, (float)(Math.BitIncrement(now) - now));
+        }
         var placed = new List<Segment>();
         int before = 0;
         foreach (var s in walk)

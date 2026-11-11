@@ -2979,7 +2979,7 @@ public sealed class GolemTests
             await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 10.2);
             Assert.Empty(auraFighter.Auras); // Leaving the aura's instance retires all its cached minion bonuses.
             var living = conn.Golems.All.Values.Single();
-            var position = living.Monster.Walk.Position(0);
+            var position = living.Monster.Walk.Position(10.3);
             var target = new SpawnedMonster("golem target", new(position.X + 2, position.Y, 0), 100, 8, 1000000);
             conn.Monsters[0x08000001] = target;
             var schedule = new AreaClockSchedule();
@@ -2988,10 +2988,11 @@ public sealed class GolemTests
             global::Game.AreaUpdateContext.Value = updates;
             try
             {
-                schedule.At = 10.3;
-                await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 10.3);
-                schedule.At = 11.3;
-                await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 11.3);
+                for (int step = 0; step <= 16 && target.Life == target.MaxLife; step++)
+                {
+                    schedule.At = 10.3 + step / 10d;
+                    await Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, schedule.At);
+                }
             }
             finally
             {
@@ -8324,9 +8325,11 @@ public sealed class GolemTests
                             Assert.Equal(lifeBeforeMines, self.PlayerLife);
                             var expectedCleanup = minePlaced.SelectMany(placed =>
                                 InstanceProtocol.RemoveObject(placed.Id)).ToArray();
-                            var cleanup = Assert.Single(self.Minions.OutputQueue,
-                                output => output.Log == "placed skill source removed");
-                            Assert.Equal(expectedCleanup, cleanup.Packet);
+                            var cleanup = self.Minions.OutputQueue.Where(
+                                output => output.Log == "placed skill source removed").ToArray();
+                            Assert.Equal(minePlaced.Length, cleanup.Length);
+                            Assert.All(cleanup, output => Assert.True(output.RemovesObject));
+                            Assert.Equal(expectedCleanup, cleanup.SelectMany(output => output.Packet).ToArray());
                             foreach (var aura in activeAuras)
                                 AssertAuraValues(aura, self.Auras.GetValueOrDefault(aura.SkillId));
                             Assert.Equal(savedAuras, CharacterSaves.Load(budgetCharacter)!.ActiveAuras!.Order());

@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -232,11 +232,11 @@ public static partial class Game
                 }
                 CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(PlayerId, 0xffff, id,
-                    flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), aura.Name + " triggered hit", id, m));
+                    flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), aura.Name + " triggered hit", id, m, WorldId: PlayerId));
                 if (ignited is { } packetsToSend)
                     for (int i = 0; i < packetsToSend.Count; i++)
                         conn.Minions.OutputQueue.Add(new(packetsToSend[i],
-                            i == packetsToSend.Count - 1 ? igniteLog : null, id, m));
+                            i == packetsToSend.Count - 1 ? igniteLog : null, id, m, WorldId: id));
             }
         }
         finally { conn.Reservations.Secondary = false; }
@@ -262,7 +262,7 @@ public static partial class Game
                 m.LastHitBy = conn;
                 if (m.HeraldBurns.Buff is not null) continue;
                 m.HeraldBurns.Buff = conn.NextBuff++;
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId), "Herald of Ash burn", id, m));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, m.HeraldBurns.Buff.Value, 877, PlayerId), "Herald of Ash burn", id, m, WorldId: id));
             }
     }
 
@@ -321,16 +321,16 @@ public static partial class Game
     {
         var state = conn.Reservations;
         foreach (var expired in state.Trail.Where(t => t.Until <= now).ToArray())
-        { state.Trail.Remove(expired); if (expired.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null)); }
+        { state.Trail.Remove(expired); if (expired.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true)); }
         var arctic = ReservationAura(conn, "ArcticArmour");
         bool stationary = arctic is not null && !conn.Walk.Moving(now);
         if (!stationary && state.StationaryBuff != 0)
         {
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, state.StationaryBuff), null));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, state.StationaryBuff), null, WorldId: PlayerId));
             state.StationaryBuff = 0;
         }
         else if (stationary && state.StationaryBuff == 0)
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, state.StationaryBuff = conn.NextBuff++, 428, PlayerId), null));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, state.StationaryBuff = conn.NextBuff++, 428, PlayerId), null, WorldId: PlayerId));
         if (arctic is not null && conn.Walk.Moving(now) && now >= state.NextIce)
         {
             state.NextIce = now + .25;
@@ -338,8 +338,8 @@ public static partial class Game
             uint obj = conn.NextObjectId++;
             var art = new EffectObject(at.X, at.Y, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao")
             { Flags0 = EffectObject.FixedRotation, Scale = (float)(4.0 / 23) };
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), null));
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), null, WorldId: obj, CreatesObject: true));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
             state.Trail.Add(new(at, now + ReservationDuration(conn, arctic, "base_skill_effect_duration", 2500), obj));
         }
         foreach (var m in conn.Monsters.Values)

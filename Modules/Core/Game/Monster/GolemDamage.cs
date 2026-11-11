@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -26,7 +26,7 @@ public static partial class Game
             int generation = ++enemy.ActionGeneration; enemy.LastTarget = to;
             enemy.Walk.Order(aim.Item1, aim.Item2, now);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(id, here.X, here.Y, aim.Item1, aim.Item2,
-                0x2909, conn.NextActionSequence(), 0x0408), null, id, enemy, Action: generation));
+                0x2909, conn.NextActionSequence(), 0x0408), null, id, enemy, Action: generation, WorldId: id));
             return true;
         }
         int action = ++enemy.ActionGeneration;
@@ -134,7 +134,7 @@ public static partial class Game
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => source.Effects[n], n => effects[n], random);
         if (m.Life > 0) GolemHostileAilmentsLocked(conn, g, attacker, source, rolled, critical, !attack.Spell, now);
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
-            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m));
+            flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), null, g.Id, m, WorldId: attacker));
         conn.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
         if (m.Life == 0) GolemDieLocked(conn, g, now);
         else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)
@@ -157,7 +157,7 @@ public static partial class Game
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
         g.ShieldPool.Empty();
         PublishEnergyShieldLocked(conn, g);
-        foreach (var hazard in g.Hazards) if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null));
+        foreach (var hazard in g.Hazards) if (hazard.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true));
         foreach (ushort buff in new[] { g.Monster.Ignites.Buff, g.Monster.Bleeds.Buff, g.Monster.Poisons.Buff }
                      .OfType<ushort>())
             QueueGolemDotPacket(conn, g, InstanceEntities.RemoveBuff(g.Id, buff));

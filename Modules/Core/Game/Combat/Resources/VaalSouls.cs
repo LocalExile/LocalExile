@@ -127,7 +127,7 @@ public static partial class Game
     }
 
     public static Task SendVaalSouls(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => VaalSoulPresentation(conn));
+        SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], null, atGate: () => VaalSoulPresentation(conn));
 
     // Same transfer policy as Rage: one successful ticket owns the balance; loading time is frozen, no save schema.
     public static void CarryVaalSouls(ClientState conn, uint ticket)

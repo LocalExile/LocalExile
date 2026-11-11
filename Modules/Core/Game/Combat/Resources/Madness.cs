@@ -144,7 +144,7 @@ public static partial class Game
         ClientState conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
     {
         bool accepted = false;
-        await Send(remote, stream, ciphers, [], "Glorious Madness toggled", atGate: () =>
+        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
         {
             lock (conn.Monsters)
             {
@@ -179,9 +179,9 @@ public static partial class Game
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
                 accepted = true;
-                return WithOwnAuraChanges(conn, () => []);
+                return WithOwnAuraRecords(conn, () => []);
             }
-        });
+        }, "Glorious Madness toggled");
         return accepted;
     }
 

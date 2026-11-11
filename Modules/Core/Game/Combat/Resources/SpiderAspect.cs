@@ -86,7 +86,7 @@ public static partial class Game
             double until = webs.Until(now);
             if (webs.PresentedBuff != 0 && (count != webs.PresentedCount || until != webs.PresentedUntil))
             {
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(id, webs.PresentedBuff), null, id, monster));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(id, webs.PresentedBuff), null, id, monster, WorldId: id));
                 webs.PresentedBuff = 0;
             }
             if (count > 0 && webs.PresentedBuff == 0)
@@ -94,7 +94,7 @@ public static partial class Game
                 webs.PresentedBuff = conn.NextBuff++;
                 conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, webs.PresentedBuff, 1043, PlayerId,
                     state.SpiderOwner?.Skill ?? 0, stacks: (ushort)Math.Min(ushort.MaxValue, count),
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, until - now))), "Spider's Web", id, monster));
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, until - now))), "Spider's Web", id, monster, WorldId: id));
             }
             webs.PresentedCount = count;
             webs.PresentedUntil = until;
@@ -110,14 +110,14 @@ public static partial class Game
                 webs.PresentedStats[key] = value;
             }
             if (changes.Count > 0)
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, changes), "Spider recipient stats", id, monster));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, changes), "Spider recipient stats", id, monster, WorldId: id));
 
             void Present(ref ushort buff, bool on, ushort row)
             {
                 if (buff != 0 && !on)
-                { conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(id, buff), null, id, monster)); buff = 0; }
+                { conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(id, buff), null, id, monster, WorldId: id)); buff = 0; }
                 if (buff == 0 && on)
-                { buff = conn.NextBuff++; conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, buff, row, PlayerId), null, id, monster)); }
+                { buff = conn.NextBuff++; conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(id, buff, row, PlayerId), null, id, monster, WorldId: id)); }
             }
         }
     }

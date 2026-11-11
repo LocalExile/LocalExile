@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 public static partial class Game
@@ -143,7 +143,10 @@ public static partial class Game
             conn.Minions.OutputQueue.Add(new([], "golem energy shield", golem.Id, golem.Monster, PlayerMinions.OutputKind.EnergyShield));
     }
 
-    public static byte[]? GolemEnergyShieldPresentation(ClientState conn, PlayerMinions.Output output)
+    public static byte[]? GolemEnergyShieldPresentation(ClientState conn, PlayerMinions.Output output) =>
+        GolemEnergyShieldRecords(conn, output) is { } records ? [.. records.SelectMany(p => p)] : null;
+
+    static byte[][]? GolemEnergyShieldRecords(ClientState conn, PlayerMinions.Output output)
     {
         if (output.TargetId is not uint id || output.Target is null) return null;
         GolemState.Golem? golem = conn.Golems.All.GetValueOrDefault(id)
@@ -154,7 +157,8 @@ public static partial class Game
         var current = Math.Min(maximum, golem.Shield);
         var maximumStat = Stats.Key("maximum_energy_shield") is uint key
             ? InstanceEntities.StatsUpdate(id, [(key, (int)maximum)]) : [];
-        return [.. maximumStat, .. InstanceProtocol.LifeUpdate(id, current, pool: 2)];
+        return maximumStat.Length == 0 ? [InstanceProtocol.LifeUpdate(id, current, pool: 2)]
+            : [maximumStat, InstanceProtocol.LifeUpdate(id, current, pool: 2)];
     }
 
     static int SkeletonShieldChaos(ClientState conn, GolemState.Golem fighter, IReadOnlyDictionary<uint, int> player)
@@ -360,11 +364,11 @@ public static partial class Game
             golem.Abilities = []; golem.Skills = [];
             golem.OwnerBuff.Clear();
             foreach (var hazard in golem.Hazards)
-                if (hazard.Object is uint art) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null));
+                if (hazard.Object is uint art) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null, WorldId: art, RemovesObject: true));
             golem.Hazards.Clear(); golem.Pulses.Clear();
             PublishEnergyShieldLocked(conn, golem);
             conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-                [(StatKeys.MaximumLife, 1)]), "golem maximum life (fatal conversion transport)", golem.Id, m));
+                [(StatKeys.MaximumLife, 1)]), "golem maximum life (fatal conversion transport)", golem.Id, m, WorldId: golem.Id));
             GolemDieLocked(conn, golem, now);
             if (conn.MinionOrigins.TryGetValue(golem.Id, out var fatalOrigin))
                 conn.MinionOrigins[golem.Id] = fatalOrigin with
@@ -390,9 +394,9 @@ public static partial class Game
         PublishEnergyShieldLocked(conn, golem);
         golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player, now, ownerResistances);
         golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m));
+        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m));
+            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out origin))
             conn.MinionOrigins[golem.Id] = origin with { Object = origin.Object with { Skills = golem.Skills } };
     }

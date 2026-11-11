@@ -18,7 +18,9 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
         lock (conn.Monsters)
         {
             if (!Current(conn)) return false;
-            if (Reserved) State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant);
+            // A lockstep instant consumes its use when the queued action executes. An immediate state
+            // snapshot can arrive first and make that action fail its native available-use check.
+            if (Reserved) State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
             return true;
         }
     }

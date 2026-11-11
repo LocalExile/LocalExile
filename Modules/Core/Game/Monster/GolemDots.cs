@@ -28,7 +28,7 @@ public static partial class Game
         !golem.Monster.Ignites.Idle || !golem.Monster.Bleeds.Idle || !golem.Monster.Poisons.Idle;
 
     static void QueueGolemDotPacket(ClientState conn, GolemState.Golem golem, byte[] packet, string? log = null) =>
-        conn.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster));
+        conn.Minions.OutputQueue.Add(new(packet, log, golem.Id, golem.Monster, WorldId: golem.Id));
 
     /// <summary>Advances every owned ailment set once, applies its positive whole typed damage to ES then Life, and
     /// interrupts recharge at the latest positive subinterval end.</summary>

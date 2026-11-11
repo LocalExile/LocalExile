@@ -87,9 +87,9 @@ public static partial class Game
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, skill.Effect, CooldownFor(conn, skill.Effect, skill.Level, skill.Quality), false,
             () => { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(here.X, here.Y, AreaTime(conn)); }, out var accepted, requestedAt: requestedAt)) return true;
         bool acknowledged = false;
-        await Send(remote, stream, ciphers,
-            [.. InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, aim.GridX, aim.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
-                .. InstanceProtocol.ActionEnded(PlayerId)], "animate ground equipment",
+        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
+            [InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, aim.GridX, aim.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
+                InstanceProtocol.ActionEnded(PlayerId)], "animate ground equipment",
             still: () => acknowledged = SkillAcknowledgementAllowed(conn, skill.Effect, use.SkillId, () => accepted?.CommitNativeUse(conn, use.SkillId) ?? true));
         if (acknowledged) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, here, aim, use.TargetId,
             sequence: use.Sequence, actionToken: accepted?.ActionToken, cooldownUse: accepted);

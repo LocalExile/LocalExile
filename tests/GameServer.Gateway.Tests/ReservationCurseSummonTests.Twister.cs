@@ -102,7 +102,14 @@ public sealed partial class ReservationCurseSummonTests
             var cooldownGain = conn.Twister.Pending.Dequeue();
             Assert.Null(Game.AdmitTwisterGainLocked(conn, cooldownGain, session));
             session.Runtime.AdvanceTo(session.Runtime.Now + ProjectileRuntime.Time(.101));
-            Assert.NotNull(Game.AdmitTwisterGainLocked(conn, cooldownGain, session));
+            conn.LockstepClient = true;
+            conn.LockstepSequence = 123;
+            var lockstepPacket = Game.AdmitTwisterGainLocked(conn, cooldownGain, session);
+            Assert.NotNull(lockstepPacket);
+            Assert.Equal(0x807c, BinaryPrimitives.ReadUInt16BigEndian(lockstepPacket.AsSpan(14)));
+            Assert.Equal(0x181, BinaryPrimitives.ReadUInt16BigEndian(lockstepPacket.AsSpan(16)));
+            Assert.Equal((ushort)124, conn.LockstepSequence);
+            conn.LockstepClient = false;
             // Only one final observed phase is queued after a long skip, even when it returns to the same family.
             schedule.At += 10000;
             Game.AvianReconcileLocked(conn, schedule.At);

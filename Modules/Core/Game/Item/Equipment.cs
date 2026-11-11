@@ -299,7 +299,7 @@ public static partial class Game
         IReadOnlyList<VisibleItem> equipped, string why)
     {
         conn.ModelHands = HandsKey(equipped);
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerEquipmentUpdate(PlayerId, equipped),
             $"0x02bc player equipment ({why}): {string.Join(", ", equipped.Select(e => $"slot {e.Slot} visual 0x{e.VisualIdentity:x4} stance {e.Stance}"))}");
     }
 

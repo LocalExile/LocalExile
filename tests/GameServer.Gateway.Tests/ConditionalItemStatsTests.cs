@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
@@ -195,7 +195,7 @@ public class ConditionalItemStatsTests
 
             bool Cast(ClientState target, ushort skillId)
             {
-                Assert.True(Begin(target, skillId, out _, out var ticket));
+                if (!Begin(target, skillId, out _, out var ticket)) return false;
                 return global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, target, skillId,
                     (0, 0), (0, 0), cooldownUse: ticket).GetAwaiter().GetResult();
             }
@@ -5913,6 +5913,8 @@ public class ConditionalItemStatsTests
             Assert.NotNull(global::Game.PhysicalAegisPresentation(conn));
             Assert.Equal(global::Game.PhysicalAegisDepletedBuffRow, aegis.StageRow);
 
+            // Only the Aegis clock advances below. Keep unrelated Fortification reads on the fixture's actual clock.
+            using var fortificationClock = global::Game.FortificationOf(conn).Capture(conditionNow);
             // A stat/notification query at the boundary does not refill. The owner tick restores exactly at the deadline.
             double deadline = aegis.RestoresAt;
             Assert.Equal(13.0, deadline);

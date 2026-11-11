@@ -264,7 +264,10 @@ public static partial class Game
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
     // rather than prebuilding adds/removes across an await. Old instances end once; new ones start once.
     // Reconcile before constructing any player/Actor/mana snapshot, including another mechanic's refresh.
-    public static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false)
+    public static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false) =>
+        [.. WithOwnAuraRecords(conn, () => [snapshot()], replay).SelectMany(p => p)];
+
+    public static byte[][] WithOwnAuraRecords(ClientState conn, Func<byte[][]> snapshot, bool replay = false)
     {
         // At-gate builders are synchronous and hold Monsters. Do not inherit the input handler's
         // older scope across its await; resolve each supported skill once for this snapshot.
@@ -277,7 +280,7 @@ public static partial class Game
         // in particular never prefix a creation snapshot with buffs, Stats, Actor or Life updates.
         if (!conn.PlayerObjectCreated && !conn.PlayerSent) return snapshot();
         var packets = new List<byte[]>();
-        packets.Add(ReconcileReceivedAurasLocked(conn));
+        packets.AddRange(ReconcileReceivedAuraRecordsLocked(conn));
         ClampReservedResources(conn);
         bool Same(AuraCatalog.Aura a, AuraCatalog.Aura b) => a.Buff == b.Buff && a.SourceBuff == b.SourceBuff;
         foreach (var old in conn.PresentedAuras.Values)
@@ -325,9 +328,9 @@ public static partial class Game
                     ? (petrified.SkillId, hash) : null));
             petrified.PresentedBuff = petrified.Buff;
         }
-        if (Lifetap.Presentation(conn) is { } lifetap) packets.Add(lifetap);
-        packets.Add(snapshot());
-        return [.. packets.SelectMany(p => p)];
+        if (Lifetap.PresentationRecords(conn) is { } lifetap) packets.AddRange(lifetap);
+        packets.AddRange(snapshot());
+        return [.. packets.Where(p => p.Length > 0)];
     }
 
     // Cat's two phase rows are owned by the exact accepted root aura. Build their diff at this send gate, so an add
@@ -411,10 +414,10 @@ public static partial class Game
     }
 
     public static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        bool replay = false) => Send(remote, stream, ciphers, [], "own aura reconciliation", atGate: () =>
+        bool replay = false) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
         {
             lock (conn.Monsters)
                 return conn.Closed || conn.LeavingArea || conn.RageRetired
-                    ? null : WithOwnAuraChanges(conn, () => [], replay);
-        });
+                    ? null : WithOwnAuraRecords(conn, () => [], replay);
+        }, "own aura reconciliation");
 }

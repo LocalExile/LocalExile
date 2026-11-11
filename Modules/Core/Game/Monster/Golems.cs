@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -435,14 +435,14 @@ public static partial class Game
         conn.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(art), null, WorldId: art, RemovesObject: true));
         golem.Hazards.Clear(); golem.Pulses.Clear(); golem.ReviveAt = double.PositiveInfinity;
         golem.Monster.ActionGeneration++; golem.Monster.Dead = true; golem.Monster.Life = 0;
         if (conn.Monsters.TryGetValue(golem.Id, out var held) && ReferenceEquals(held, golem.Monster))
         {
             conn.Monsters.Remove(golem.Id); conn.MinionOrigins.TryRemove(golem.Id, out _);
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
-                Kind: PlayerMinions.OutputKind.Remove));
+                Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
         }
         conn.Golems.RefreshAt = 0;
     }
@@ -587,9 +587,9 @@ public static partial class Game
 
     // One synchronous state transition for the normal refresh and direct physical-source retirement. The caller owns
     // Monsters and supplies one fresh player snapshot; only the normal network wrapper publishes that snapshot.
-    static (byte[] Packets, bool Changed) PlanGolemBuffsLocked(ClientState conn, Dictionary<uint, int> player)
+    static (byte[][] Packets, bool Changed) PlanGolemBuffsLocked(ClientState conn, Dictionary<uint, int> player)
     {
-        var bytes = new List<byte>(); var totals = new Dictionary<uint, int>();
+        var bytes = new List<byte[]>(); var totals = new Dictionary<uint, int>();
         var alive = conn.Golems.All.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0).ToArray();
         var buffs = new Dictionary<ushort, GolemState.Golem>();
         var changedRecovery = new HashSet<uint>();
@@ -613,13 +613,13 @@ public static partial class Game
         foreach (var (row, old) in conn.Golems.Buffs.ToArray())
             if (row == 676 ? wrath.Skill is null || wrath.Golem.Id != old.Source
                 : !buffs.TryGetValue(row, out var next) || old.Source != next.Id || row == 592 && changedRecovery.Contains(old.Source))
-            { bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, old.Instance)); conn.Golems.Buffs.Remove(row); }
+            { bytes.Add(InstanceEntities.RemoveBuff(PlayerId, old.Instance)); conn.Golems.Buffs.Remove(row); }
         foreach (var (row, g) in buffs)
         {
             if (!conn.Golems.Buffs.ContainsKey(row))
             {
                 ushort instance = conn.NextBuff++;
-                bytes.AddRange(GolemOwnerBuffPacket(instance, row, g));
+                bytes.Add(GolemOwnerBuffPacket(instance, row, g));
                 conn.Golems.Buffs[row] = (g.Id, instance);
             }
             foreach (var (k, v) in g.OwnerBuff) totals[k] = totals.GetValueOrDefault(k) + v;
@@ -636,7 +636,7 @@ public static partial class Game
             if (!conn.Golems.Buffs.ContainsKey(676))
             {
                 ushort instance = conn.NextBuff++;
-                bytes.AddRange(InstanceEntities.AddBuff(PlayerId, instance, 676, wrath.Golem.Id));
+                bytes.Add(InstanceEntities.AddBuff(PlayerId, instance, 676, wrath.Golem.Id));
                 conn.Golems.Buffs[676] = (wrath.Golem.Id, instance);
             }
         }
@@ -656,22 +656,22 @@ public static partial class Game
 
     public static async Task RefreshGolemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
         {
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
-                (byte[] Packets, bool Changed) plan;
+                (byte[][] Packets, bool Changed) plan;
                 using (new PlayerStatScope(conn, fresh: true))
                     plan = PlanGolemBuffsLocked(conn, CharacterPlayerStats(conn));
                 if (!plan.Changed) return plan.Packets.Length == 0 ? null : plan.Packets;
-                var bytes = new List<byte>(plan.Packets);
+                var bytes = new List<byte[]>(plan.Packets);
                 // The planner updates OwnerStats, while SkillBuildScope caches immutable character inputs for its
                 // lifetime. Project through a new scope so the packet contains the reconciled counts and buffs.
                 using (new PlayerStatScope(conn, fresh: true))
                 {
-                    bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                    bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
+                    bytes.Add(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                    bytes.Add(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 }
                 return bytes.Count == 0 ? null : [.. bytes];
             }

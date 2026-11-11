@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
@@ -12,6 +12,19 @@ using HitResistances = GameServer.Core.World.HitResistances;
 
 public static partial class Game
 {
+    // Record the first paid use of a channel before asynchronous output. Under conn.Monsters.
+    public static int BeginPaidChannel(ClientState conn, ushort skill, int effect, int action, ushort sequence)
+    {
+        int generation = ++conn.ChannelGeneration;
+        conn.ChannelSkill = skill;
+        conn.ChannelSkillSequence = sequence;
+        conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
+        if (conn.LockstepClient) conn.LockstepSkill.Channelling(sequence);
+        conn.PaidChannel = CombatLifetime is { IsActive: true } rules
+            ? new(skill, effect, action, generation, rules) : null;
+        return generation;
+    }
+
     // Sample both moving actors at the hit time, after the approach and contact delay.
     public static (int Accuracy, bool Unique, bool CloseRange) AttackAccuracyAt(
         ClientState conn, SpawnedMonster target, double at)
@@ -174,10 +187,10 @@ public static partial class Game
         return AttackTiming.ContactDelay(attackSeconds, contact, approach ? HitContactOffsetSeconds() : 0, early: !conn.LockstepClient);
     }
 
-    // How often a predictive client's walk-up estimate paths again, and when it stops following. Neither is the client's
-    // (its actor paths again every 0.05 s for the player, 0x141e95400, run again by 0x141e957f0 only in that mode, and gives
-    // a walk-up no time limit): the Gateway's guesses, not yet sourced. A lockstep walk-up runs on its frames (StepWalkUp).
-    const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
+    // The player's predictive walk-up retry timer (0x141e95400: Actor +0x278 = 0.05 s for Player;
+    // 0x141e957f0 retries the pending walk-up in mode 1 when it expires). The action has no pursuit deadline.
+    // A lockstep walk-up runs on its frames (StepWalkUp).
+    const double SwingFollowSeconds = .05;
 
     // The projectile grid value a ranged attack's line to its target must hold, the action's precision for the walk-up and
     // the swing (0x141e95400 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
@@ -229,7 +242,6 @@ public static partial class Game
             return lockstep.Decided.IsCompleted && await lockstep.Decided is { } decided ? (decided.From, decided.Start, decided.Start) : null;
         }
         int reach = WalkUpRange(weapon);
-        double giveUp = now + SwingFollowLimitSeconds;
         if (swing) return (stop, arrive, now);
         while (true)
         {
@@ -240,7 +252,7 @@ public static partial class Game
                 now = ProjectileWorldTime(conn);
                 if (!current()) return null;
                 var target = m.Walk.Position(now);
-                bool done = m.Life == 0 || now >= giveUp;
+                bool done = m.Life == 0;
                 if (now >= arrive && (done || SwingInReach(conn, m, stop, target, reach))) return (stop, arrive, now);
                 if (done) continue;
                 (_, stop, arrive, swing) = WalkUpToSwing(conn, m, target, weapon, now, precision);
@@ -341,7 +353,7 @@ public static partial class Game
             return;
         }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
-        byte[] actionBytes = [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)];
+        byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
         if (ordinaryProjectile is { } projectileId)
         {
@@ -349,9 +361,9 @@ public static partial class Game
             // start, as the melee hit is); the echo follows through the gate.
             await LaunchOrdinaryRanged(remote, stream, ciphers, conn, target, duration, action, projectileEpoch, projectileId, use.Sequence,
                 criticalRoll, swingAt: started ? begun : null);
-            if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionBytes, actionLog, action, projectileEpoch)) return;
+            if (!started && !await SendOrdinaryRangedAction(remote, stream, ciphers, conn, actionRecords, actionLog, action, projectileEpoch)) return;
         }
-        else if (!started) await Send(remote, stream, ciphers, actionBytes, actionLog, still: () => PlayerActionCurrent(conn, action));
+        else if (!started) await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => actionRecords, actionLog, still: () => PlayerActionCurrent(conn, action));
         if (m.Life == 0) return;
         // A ranged target is an aim, not a reserved hit: the released arrow/bolt owns collision and damage.
         if (ranged) return;
@@ -367,7 +379,7 @@ public static partial class Game
             (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, use.SkillId, attackEffect, ownPenetration ?? new Dictionary<uint, int>(), stop, target,
                 use.Sequence, use.TargetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null)
-            await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
         // client stretches the clip to the attack time, so the blood and the weapon impact sound line up with the swing.
         double contact = DefaultAttackContactDelay(conn, duration, here, stop, departedAt, arrive, use.Sequence);
@@ -504,20 +516,19 @@ public static partial class Game
             // At 0 the client's Life tick (0x141e70730) stops notifying its listeners, so the mini life bar would keep the last
             // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
+                await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
                     $"0x01b3 monster 0x{targetId:x} hide_mini_life_bar = 1");
             // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2).
             await SendFlinch(remote, stream, ciphers, conn, targetId, m, stun, log: true);
             // The hit result for the client's damage/effect pipeline (0x1af): the client applies the hit locally (the target's
             // blood, the weapon impact sound "bonk") and 0x1b1 stays authoritative on life. flags 0x4201 is the real server's
-            // player-melee hit (bit 0 hit, 0x20 critical, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data,
-            // the angle drives the directional blood.
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId,
-                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03,
-                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
+            // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
+            // the directional blood.
+            var order = HitOrder(conn, PlayerId);
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03,
+                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(targetId, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
                 $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
                 (resistance is { } note ? $", {note}" : "") +
                 (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
@@ -652,8 +663,7 @@ public static partial class Game
             if (started)
                 acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action));
-            else await Send(remote, stream, ciphers,
-                [.. InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
+            else await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)],
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on monster 0x{use.TargetId:x} ({m.Label}) from ({stop.X}, {stop.Y}) to ({target.X}, {target.Y}), flags 0x{use.Flags:x4} (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
@@ -727,15 +737,14 @@ public static partial class Game
         bool spellProjectileRuntime = UsesProjectileRuntime(gem.Effect);
         if (spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim,
             use.TargetId, sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
-        await Send(remote, stream, ciphers,
-            [.. InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
+        await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stand.X, stand.Y, aim.X, aim.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)],
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
         if (flickers && spellAcknowledged)
         {
             await FlickerArt(remote, stream, ciphers, conn, gem.Gem, stand, landing);
-            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, landing.X, landing.Y),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, landing.X, landing.Y),
                 $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
         }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
@@ -935,10 +944,10 @@ public static partial class Game
                     && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, action, generation));
         }
         if (!Current()) return false;
-        if (!ProjectilePathAvailable(remote, conn, skillId, gem.Effect)) return false;
-        if (locationInstant && !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect)) return false;
-        if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
-            && CastMs(conn, gem.Effect) is null)
+        if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, skillId, gem.Effect)) return false;
+        if (locationInstant && (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))) return false;
+        if (gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
+            && CastMs(conn, gem.Effect, skillId) is null)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: invalid cast duration (no effect or mana cost)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (invalid cast duration, cost back)");
@@ -1087,15 +1096,10 @@ public static partial class Game
                     QueueBeastCompanionLocked(conn, beast, skillId, actionToken);
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
-                    channelGeneration = ++conn.ChannelGeneration;
-                    conn.ChannelSkill = skillId;
+                    channelGeneration = BeginPaidChannel(conn, skillId, gem.Effect, action, sequence);
                     bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
                     conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
                     if (walkChanges) conn.ApplyMovementSpeed();
-                    conn.ChannelSkillSequence = sequence;
-                    conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
-                    conn.PaidChannel = CombatLifetime is { IsActive: true } rules
-                        ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
                     if (GolemStat(SupportedSkill(conn, skillId).Stats, "cast_while_channelling_time_ms") > 0)
                         BeginChannelTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId,
                             action, conn.ChannelGeneration, to, conn.Clock.Elapsed.TotalSeconds);
@@ -1133,7 +1137,9 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
-                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + SupportedChannelSeconds(conn, skillId);
+                if (SupportedChannelSeconds(conn, skillId) is not double interval)
+                { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return false; }
+                conn.NextChannelHitAt = conn.Clock.Elapsed.TotalSeconds + interval;
                 _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action);
             }
         }
@@ -1217,6 +1223,16 @@ public static partial class Game
         }
     }
 
+    // Lockstep instant replies join the ordinary action sequence. At 0x14219c1f0, flag 0x100 reaches
+    // 0x141e98bb0 and suppresses local action-event dispatch; 0x20 is only the transported target marker.
+    public static byte[] PlayerInstantAction(ClientState conn, ushort skill, (int X, int Y) aim, uint? target = null)
+    {
+        lock (conn.Monsters)
+            return InstanceProtocol.InstantAction(PlayerId, skill, aim.X, aim.Y, target,
+                conn.LockstepClient ? NextLockstepSequence(conn) : (ushort)0xffff,
+                conn.LockstepClient ? (ushort)0x101 : (ushort)0);
+    }
+
     // An instant skill (C→S 0x191): its effect, then S→C 0x1ce, which has the client run the skill's action without animation
     // and consume a use of it: the skill bar's cooldown starts (the tooltip showed the cooldown, the bar did not run it).
     public static async Task UseInstantSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -1241,14 +1257,17 @@ public static partial class Game
             true, () => { }, out var cooldownUse)) return;
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, skillId, at.X, at.Y, targetId),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
                 $"0x01ce player skill 0x{skillId:x4}: instant action (its use and cooldown)",
-                still: () =>
+                atGate: () =>
                 {
                     lock (conn.Monsters)
-                        return conn.ProjectileActive(epoch) && conn.PlayerLife > 0 && !conn.Paused
-                            && ActorSkillInstanceDisabled(conn, gem.Effect, skillId) is null
-                            && (cooldownUse?.CommitNativeUse(conn, skillId) ?? true);
+                    {
+                        if (!conn.ProjectileActive(epoch) || conn.PlayerLife <= 0 || conn.Paused
+                            || ActorSkillInstanceDisabled(conn, gem.Effect, skillId) is not null
+                            || cooldownUse?.CommitNativeUse(conn, skillId) == false) return null;
+                        return PlayerInstantAction(conn, skillId, at, targetId);
+                    }
                 });
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
@@ -1296,7 +1315,7 @@ public static partial class Game
         bool accepted = false;
         // Keep the raw aim: IceDash resolves it from the client's position when 0x1ce runs. Sending an already rounded
         // endpoint can normalize a short diagonal twice and move another cell. Resolve the server copy at this gate too.
-        await Send(remote, stream, ciphers, [],
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
             $"0x01ce player skill 0x{skillId:x4}: instant {(targetObjectId is uint id ? $"on 0x{id:x}" : $"location ({aim.X}, {aim.Y})")}, movement only", atGate: () =>
             {
                 using (ProjectileMutation(conn))
@@ -1316,7 +1335,7 @@ public static partial class Game
                     }
                     if (cooldownUse?.CommitNativeUse(conn, skillId) == false) return null;
                     accepted = true;
-                    return InstanceProtocol.InstantAction(PlayerId, skillId, rawAim.X, rawAim.Y, targetObjectId);
+                    return PlayerInstantAction(conn, skillId, rawAim, targetObjectId);
                 }
             });
         if (accepted)
@@ -1658,7 +1677,9 @@ public static partial class Game
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; return; }
                     gem = activeGem;
                     conn.Performance.RecordMilliseconds(LatencyPhase.ChannelLate, (now - conn.NextChannelHitAt) * 1000);
-                    conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + SupportedChannelSeconds(conn, skillId);
+                    if (SupportedChannelSeconds(conn, skillId) is not double interval)
+                    { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; return; }
+                    conn.NextChannelHitAt = Math.Max(conn.NextChannelHitAt, now - 0.05) + interval;
                     // Payment and admission share the channel's generation check.
                     if (!PayMana(conn, skillId, out cost, out lifeCost))
                     { conn.ChannelSkill = 0; conn.ChannelGeneration++; conn.PaidChannel = null; }
@@ -1877,7 +1898,7 @@ public static partial class Game
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(conn, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(conn));
         if (memoryBuff is not null)
-            await Send(remote, stream, ciphers, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is. A swing that began before now
         // (swingAt) lands its contact after its start.
         if (swingAt is { } swung) delay -= conn.Clock.Elapsed.TotalSeconds - swung;
@@ -2323,29 +2344,30 @@ public static partial class Game
         var (life, stageStarts) = hit;
         if (life == 0)
         {
-            await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
                 !log ? null : $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1");
             if (m.Poisons.Buff is ushort pbuff)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, pbuff), null);
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);
                 m.Poisons.Buff = null;
             }
         }
         // The hit result for the client's damage/effect pipeline (0x1af): a melee hit plays the target's blood and the weapon
         // impact sound "bonk" locally, 0x1b1 stays authoritative on life. Spells and projectiles have their own impact and skip it.
+        // The life update follows its hit message in the attacker's turn; one with no hit message stays where it was.
+        var order = melee ? HitOrder(conn, PlayerId) : default;
         if (melee)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)),
-                    kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py),
+                    orderKey: order.Key, checkpoint: order.Hit),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
         await SendFlinch(remote, stream, ciphers, conn, id, m, stun ?? new(damage), log);
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life, orderKey: order.Key, checkpoint: order.Life),
             !log && life > 0 ? null : $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
         // One sweep's deaths (loot, experience, quests) wait until every monster of the sweep has its hit (AreaSkillHit).
         if (life == 0) { if (deaths is not null) deaths.Add((id, m)); else await MonsterKilled(remote, stream, ciphers, conn, id, m); }
@@ -2396,24 +2418,33 @@ public static partial class Game
         conn.Antiquarian.Stunned(now, conn.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
         int action = Interlocked.Increment(ref conn.ActionCount);
         conn.ChannelSkill = 0; conn.NextAttackAt = now;
-        // The client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when this ended it).
-        conn.Walk.Pause(now, seconds);
+        // A predictive client stops for the recovery and then goes on with its walk (live 2026-11-01: 30 cells apart when
+        // this ended it). A lockstep one ends its walk in the frame the 0x1d1 reaches it (PlayerHitRecoveryRecordLocked).
+        if (!conn.LockstepClient) conn.Walk.Pause(now, seconds);
         return new(conn.ProjectileEpoch, action, conn.HitRecovery.Until, seconds);
     }
 
     public static Task SendPlayerHitRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PlayerRecoveryIntent recovery) => Send(remote, stream, ciphers, [], "0x01d1 player TakeHit recovery", atGate: () =>
+        PlayerRecoveryIntent recovery) => SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01d1 player TakeHit recovery", atGate: () =>
         {
-            lock (conn.Monsters)
-            {
-                double remaining = recovery.Until - conn.Clock.Elapsed.TotalSeconds;
-                if (!conn.ProjectileActive(recovery.Epoch) || conn.PlayerLife == 0 || conn.Paused
-                    || conn.ActionCount != recovery.Action || remaining <= 0) return null;
-                // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
-                return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
-                    .. ResyncPacketLocked(conn, conn.Clock.Elapsed.TotalSeconds)];
-            }
+            lock (conn.Monsters) return PlayerHitRecoveryRecordLocked(conn, recovery, conn.Clock.Elapsed.TotalSeconds);
         });
+
+    // The recovery's 0x1d1, written in its send gate (under conn.Monsters). The client's TakeHit handler (0x141e9c700) ends
+    // the player's current action, and on a lockstep client nothing takes the walk up again: it stops after the steps of
+    // the frame the message arrives in (the deferred stop of 0x141e38420) and stands, keeping its step's fraction, until
+    // its next order (tick trace 2026-11-10: 14 frames, to the held Move that followed the recovery). So the walk ends
+    // here, in the frame being sent, not when the hit was committed.
+    public static byte[]? PlayerHitRecoveryRecordLocked(ClientState conn, PlayerRecoveryIntent recovery, double now)
+    {
+        double remaining = recovery.Until - now;
+        if (!conn.ProjectileActive(recovery.Epoch) || conn.PlayerLife == 0 || conn.Paused
+            || conn.ActionCount != recovery.Action || remaining <= 0) return null;
+        if (conn.LockstepClient) conn.Walk.Cancel(now);
+        // The stun pins the player where the server has it: GGG sends the resync in the same tick as every stun.
+        return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)Math.Min(remaining, recovery.Seconds), PlayerHitRecovery.TakeHitAnimation),
+            .. ResyncPacketLocked(conn, now)];
+    }
 
     public static bool PlayerActionCurrent(ClientState conn, int action)
     {
@@ -2493,18 +2524,93 @@ public static partial class Game
         if (index < 0) return;
         states = states.Set("boss_life_bar", 1).Set("aggro", 1);
         lock (conn.Monsters) m.States = states;
-        await Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
             $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
     }
 
     const double CorpseBlockDelaySeconds = .165;
+    // How long a kill waits for its death message on a lockstep client before the monster is taken as dead in the frame
+    // then being sent (a kill whose life update is never written).
+    const double CorpseDeathWaitSeconds = 1;
 
-    // The client keeps routing around a corpse until Positioned clears its body. Retire the lockstep estimate at
-    // that message's send gate too; clearing it on death gives early post-kill Moves a different path.
+    // Where a hit and the life it leaves go in a lockstep client's frame. GGG writes both into the attacker's own turn:
+    // keyed by the attacker (or by its projectile), the hit at checkpoint 0x7000 or 0x7001 and the target's life update
+    // with the same key two checkpoints up, never at the frame's start (recordings of 2026-11-04: 842 and 251 hits keyed
+    // by their actor at those two checkpoints; of the hits with their target's life update in the same frame, 245 and
+    // 102 have it on the hit's key at the hit's checkpoint + 2). There an actor's order always came before its own hit
+    // of the same frame (475 and 24 frames, none the other way). Written at the frame's start, key 0, the player's hit
+    // could come before his own order of that frame, and the client's action gate (0x141e941a0) then refuses the order
+    // with its +0x238 count raised and takes it in the Actor's tick: a Move's first step came a frame late (live
+    // 2026-11-10: 3 of 3 Moves written after the player's own hit, none of 2 190 other orders). A predictive client
+    // applies a message on arrival and keeps key 0.
+    public const ushort HitCheckpoint = 0x7000, HitLifeCheckpoint = 0x7002;
+    public static (uint Key, ushort Hit, ushort Life) HitOrder(ClientState conn, uint attacker) =>
+        conn.LockstepClient ? (attacker, HitCheckpoint, HitLifeCheckpoint) : default;
+
+    // The ticks of its death clip that a corpse's body lasts on a lockstep client, the death's own frame included. The
+    // client's Actor clears the body from Positioned (+0x1e5 & 8, what its path searches and step checks read) when the
+    // clip reaches its remove_collidability event (0x141e9a160), and the clip gains the frame's length each tick from
+    // the frame the death is applied in; a clip without the event clears it with the death (0x141e9c200). 150 ms, most
+    // monsters' value, is the fifth tick. Not traced: an event exactly on a tick, and a death clip played at another
+    // speed.
+    public static int CorpseBodyTicks(int? unblockMs)
+    {
+        if (unblockMs is not { } ms) return 0;
+        float at = ms / 1000f, played = 0, length = FrameMs / 1000f;
+        int ticks = 0;
+        while (played < at && ticks < 100_000) { played += length; ticks++; }
+        return ticks;
+    }
+
+    // The client keeps routing around a corpse until its body is cleared. A predictive client is told 165 ms after the
+    // kill (S→C 0x2b2, as GGG sends it). A lockstep client's copy is exact: its monster walks until the death message's
+    // frame and its body lasts the death clip's ticks from there (ClientState.Corpse), so the body is kept at the kill
+    // or at the death message, whichever comes first (KeepCorpseLocked), its clock starts where the death is written
+    // (CorpseDeathsWritten), and the 0x2b2 follows in the frame after the client's own clear, where it changes nothing.
+    // Differs from GGG: its 0x2b2 comes 4 or 5 frames after a 150 ms death, 0 after one without the event and 54 or 55
+    // after Hillock's 1833 ms, by its own world's count of the clip; ours counts as the client does and sends it a frame
+    // after that (5, 0 and 56 frames).
     public static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
-        lock (conn.Monsters) conn.RetainCorpseBody(id, m, conn.LockstepFrame?.Start ?? ProjectileWorldTime(conn));
-        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b2 corpse of 0x{id:x} stops blocking", atGate: () =>
+        bool kept;
+        lock (conn.Monsters) kept = KeepCorpseLocked(remote, stream, ciphers, conn, id, m);
+        if (!kept) SendAfter(CorpseBlockDelaySeconds, () => CorpseCleared(remote, stream, ciphers, conn, id, m));
+    }
+
+    // Keeps the killed monster's body on a lockstep client and starts what ends it: the wait for its death message's
+    // frame and, a death clip later, the 0x2b2. Called by the kill and by the death message's own write, in whichever
+    // order they come: the periodic view of the monsters can write the death a frame before the hit's own message, and
+    // either can go out before the kill's bookkeeping gets here (live 2026-11-10: a corpse whose clock started with the
+    // second message blocked a frame longer than the client's, and a monster standing against it took another way
+    // round; two whose messages both went out first blocked for the guard's whole second). False when there is no body
+    // to keep, or its death was written and its body is gone again. Under conn.Monsters.
+    static bool KeepCorpseLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    {
+        if (conn.CorpseWalks(id, m)) return true;
+        int ticks = CorpseBodyTicks(m.Variety is { } variety ? Monsters.CorpseUnblockMs(variety.Id) : 150);
+        if (!conn.RetainCorpseBody(id, m, ticks) || conn.CorpseDeath(id, m) is not { } death) return false;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (await Task.WhenAny(death, Task.Delay(TimeSpan.FromSeconds(CorpseDeathWaitSeconds))) != death)
+                    lock (conn.Monsters)
+                        if (conn.LockstepFrame is { } frame && conn.CorpseAwaitsDeathOf(id))
+                        {
+                            StepWalkers(conn, frame.Start);
+                            conn.CorpseDied(id, frame);
+                        }
+                if (!death.IsCompletedSuccessfully) return;
+                await conn.FrameFrom(death.Result + ticks * (FrameMs / 1000d));
+                await CorpseCleared(remote, stream, ciphers, conn, id, m);
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+        });
+        return true;
+    }
+
+    static Task CorpseCleared(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m) =>
+        SendWorldRecord(remote, stream, ciphers, conn, id, [], $"0x02b2 corpse of 0x{id:x} stops blocking", atGate: () =>
         {
             using (ProjectileMutation(conn, phase: "send"))
             {
@@ -2517,7 +2623,31 @@ public static partial class Game
                 conn.ReleaseCorpseBody(id, m);
                 return InstanceProtocol.StopBlocking(id);
             }
-        }));
+        });
+
+    // In a lockstep client's send gate, for the records about to be admitted to the frame being sent: a monster whose
+    // life reaches 0 in one of them dies on the client in this frame (the client applies the 0x1b1 before the frame's
+    // ticks), if this is the first such message it is written. Its corpse is kept here when the kill has not kept it
+    // yet; its walk is stepped up to the frame and ends with the frame's steps, and its body's clock starts.
+    public static void CorpseDeathsWritten(ClientState conn, OutputBatch batch)
+    {
+        if (!batch.Records.Any(record => record.LifeWritten is not null)) return;
+        lock (conn.Monsters)
+        {
+            if (conn.LockstepFrame is not { } frame) return;
+            foreach (var record in batch.Records)
+            {
+                if (record.LifeWritten is not { } life || record.Object is not { } target
+                    || !conn.Monsters.TryGetValue(target.Id, out var m)) continue;
+                var wire = conn.Wire;
+                bool kept = life == 0 && !conn.DeathWritten(target.Id, m)
+                    && KeepCorpseLocked(wire.Remote, wire.Stream, wire.Ciphers, conn, target.Id, m);
+                conn.NoteLifeWritten(target.Id, m, life);
+                if (!kept || !conn.CorpseAwaitsDeathOf(target.Id)) continue;
+                StepWalkers(conn, frame.Start);
+                conn.CorpseDied(target.Id, frame);
+            }
+        }
     }
 
     // A monster died (its life reached 0 from the player's attack or skill): the player gains its experience when near
@@ -2641,9 +2771,9 @@ public static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
                 $"0x02bb create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         }
     }
 }

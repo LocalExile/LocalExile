@@ -661,7 +661,7 @@ public static partial class Game
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
@@ -752,9 +752,9 @@ public static partial class Game
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             conn.SeenGround.Add(id);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+            await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         }
     }
 
@@ -823,7 +823,7 @@ public static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)
@@ -858,9 +858,9 @@ public static partial class Game
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
     }
 
     // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
@@ -874,9 +874,9 @@ public static partial class Game
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item);
         uint id = conn.Instance.Ground.Add(ground, conn);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
             $"0x02bb create world item 0x{id:x} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
     }
 
     // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
@@ -895,18 +895,17 @@ public static partial class Game
                 removed = conn.Instance.Ground.Take(id) is not null;
             }
             if (removed)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
+                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupTolerance)) return;
+        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupToleranceOf(conn, ground.Item))) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
         // A lockstep client got its start from the frame pass already (use.Started).
         if (!use.Started)
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         lock (conn.Monsters)
@@ -956,10 +955,10 @@ public static partial class Game
             if (rest is not null)
             {
                 Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: {stacked.Left} didn't fit, back on the ground as 0x{restId:x}");
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(restId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
+                await SendWorldCreate(remote, stream, ciphers, conn, restId, InstanceEntities.CreateObject(restId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
                     $"0x02bb create world item 0x{restId:x} (the rest of 0x{id:x})");
             }
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
+            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), stacked.RemovedIds, stacked.AddedItems),
                 $"0x00bf inventory 1: {ground.Item.StackSize} picked up ({stacked.Changed.Count} stack(s) grown, {stacked.Added.Count} new)");
             return;
@@ -996,7 +995,7 @@ public static partial class Game
                 return questFlags is not null ? QuestItems.Claim(CharacterName(conn), questFlags, Put) : Put();
             }, id);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
+        await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
             toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
@@ -1017,7 +1016,7 @@ public static partial class Game
             if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
             total = PersonalStashOf(conn).AddGold(ground.Item.StackSize);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (gold {how})");
+        await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (gold {how})");
         await Send(remote, stream, ciphers, InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize} {how})");
     }
 

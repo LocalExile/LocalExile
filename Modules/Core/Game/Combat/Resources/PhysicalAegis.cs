@@ -131,15 +131,18 @@ public static partial class Game
     }
 
     public static Task SendPhysicalAegis(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => PhysicalAegisPresentation(conn));
+        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => PhysicalAegisPresentationRecords(conn));
 
-    public static byte[]? PhysicalAegisPresentation(ClientState conn)
+    public static byte[]? PhysicalAegisPresentation(ClientState conn) =>
+        PhysicalAegisPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
+
+    static byte[][]? PhysicalAegisPresentationRecords(ClientState conn)
     {
         lock (conn.Monsters)
         {
-            var bytes = new List<byte>();
+            var bytes = new List<byte[]>();
             foreach (ushort buff in conn.RetiredPhysicalAegisBuffs)
-                bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, buff));
+                bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
             conn.RetiredPhysicalAegisBuffs.Clear();
 
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired)
@@ -149,23 +152,23 @@ public static partial class Game
             var state = PhysicalAegisAt(conn, now, advance: true);
             // Reading an invalid source retires the old state and puts its instances in the cleanup queue above.
             foreach (ushort buff in conn.RetiredPhysicalAegisBuffs)
-                bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, buff));
+                bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
             conn.RetiredPhysicalAegisBuffs.Clear();
             if (!state.Exists) return bytes.Count == 0 ? null : [.. bytes];
 
             if (state.PersistBuff == 0)
-                bytes.AddRange(InstanceEntities.AddBuff(PlayerId, state.PersistBuff = conn.NextBuff++,
+                bytes.Add(InstanceEntities.AddBuff(PlayerId, state.PersistBuff = conn.NextBuff++,
                     PhysicalAegisPersistBuffRow, PlayerId));
 
             ushort wantedRow = state.Depleted ? PhysicalAegisDepletedBuffRow : PhysicalAegisBuffRow;
             bool changed = state.StageBuff == 0 || state.StageRow != wantedRow || state.PresentedCurrent != state.Current;
             if (!changed) return bytes.Count == 0 ? null : [.. bytes];
 
-            if (state.StageBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, state.StageBuff));
+            if (state.StageBuff != 0) bytes.Add(InstanceEntities.RemoveBuff(PlayerId, state.StageBuff));
             state.StageBuff = conn.NextBuff++;
             state.StageRow = wantedRow;
             state.PresentedCurrent = state.Current;
-            bytes.AddRange(state.Depleted
+            bytes.Add(state.Depleted
                 ? InstanceEntities.AddBuff(PlayerId, state.StageBuff, wantedRow, PlayerId,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.RestoresAt - now)))
                 : InstanceEntities.AddBuff(PlayerId, state.StageBuff, wantedRow, PlayerId,

@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -140,7 +140,8 @@ public static partial class Game
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
         bool accepted = false;
-        await Send(remote, stream, ciphers, [], "throw trap/mine", atGate: () =>
+        var born = new List<(uint Id, double Land)>();
+        await SendWorldBatch(conn, [], worldAdmission =>
         {
             lock (conn.Monsters)
             {
@@ -178,7 +179,7 @@ public static partial class Game
                 double now = AreaTime(conn);
                 double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : admission.Mine ? .6 : .975;
                 if (Stats.Key("trap_throw_arm_time_override") is uint armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
-                var bytes = new List<byte>();
+                var bytes = new WorldRecordBuilder(conn, worldAdmission);
                 bool committed = false;
                 for (int i = 0; i < count; i++)
                 {
@@ -209,12 +210,16 @@ public static partial class Game
                         else RemovePlacedLocked(conn, trim, bytes);
                     }
                     if (!conn.Placed.All.ContainsKey(id)) continue;
-                    bytes.AddRange(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
+                    bytes.Create(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
                         new TrapMineObject(from.X, from.Y, admission.Mine, [proxy], stats).Blob()));
-                    bytes.AddRange(InstanceProtocol.EnterWakeZone(id));
-                    if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
-                        bytes.AddRange(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
-                    bytes.AddRange(InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)flight, InstanceProtocol.FollowTerrain));
+                    bytes.Presentation(id, InstanceProtocol.EnterWakeZone(id));
+                    if (!conn.LockstepClient)
+                    {
+                        if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
+                            bytes.Presentation(id, InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
+                        bytes.Presentation(id, InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)flight, InstanceProtocol.FollowTerrain));
+                    }
+                    born.Add((id, land));
                     committed = true;
                 }
                 if (!committed) return null;
@@ -222,28 +227,59 @@ public static partial class Game
                 conn.Placed.Dirty = true;
                 conn.Minions.StatRevision++;
                 ClampReservedResources(conn);
-                bytes.AddRange(PlacedResourcesLocked(conn));
+                PlacedResourcesLocked(conn, bytes);
                 accepted = true;
-                return [.. bytes];
+                return bytes.Build();
             }
-        });
+        }, transport: (remote, stream, ciphers));
+        if (conn.LockstepClient)
+            foreach (var (id, landsAt) in born)
+                await SendWorldRecords(remote, stream, ciphers, conn, id, () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery)
+                            || !current() || !conn.Placed.All.ContainsKey(id)) return null;
+                        var records = new List<byte[]>();
+                        if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
+                            records.Add(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
+                        records.Add(InstanceProtocol.MoveTo(id, aim.X, aim.Y,
+                            (float)Math.Max(0, landsAt - AreaTime(conn)), InstanceProtocol.FollowTerrain));
+                        return [.. records];
+                    }
+                }, "throw trap/mine after birth");
         return accepted;
     }
 
-    static void RemovePlacedLocked(ClientState conn, PlacedSkills.Placed placed, List<byte> bytes)
+    static void RemovePlacedLocked(ClientState conn, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
         if (!conn.Placed.All.Remove(placed.Id)) return;
         if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
-            bytes.AddRange(InstanceProtocol.RemoveObject(placed.Id));
+            bytes.Remove(placed.Id);
         conn.Placed.Dirty = true;
         conn.Minions.StatRevision++;
     }
 
-    static byte[] PlacedResourcesLocked(ClientState conn)
+    static void PlacedResourcesLocked(ClientState conn, WorldRecordBuilder bytes)
     {
         conn.Placed.Dirty = false;
-        return [.. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
-            .. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)];
+        bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
+        bytes.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool));
+    }
+
+    public static void LandPlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
+    {
+        var records = new WorldRecordBuilder(conn, null);
+        LandPlacedRecordsLocked(conn, placed, now, records);
+        bytes.AddRange(records.Bytes());
+    }
+
+    public static void PlacedGroundsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, double now, List<byte> bytes)
+    {
+        var records = new WorldRecordBuilder(conn, null);
+        PlacedGroundRecordsLocked(remote, stream, ciphers, conn, now, records);
+        bytes.AddRange(records.Bytes());
     }
 
     public static void DetonateMinesLocked(ClientState conn, double now)
@@ -256,23 +292,23 @@ public static partial class Game
     public static bool CanDetonateMines(ClientState conn) =>
         conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(conn));
 
-    public static void LandPlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
+    static void LandPlacedRecordsLocked(ClientState conn, PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         if (placed.Landed || now < placed.LandAt) return;
         placed.Landed = true;
-        bytes.AddRange(InstanceProtocol.ActionEnded(placed.Id));
-        bytes.AddRange(InstanceProtocol.Teleport(placed.Id, placed.At.X, placed.At.Y));
+        bytes.World(placed.Id, InstanceProtocol.ActionEnded(placed.Id));
+        bytes.World(placed.Id, InstanceProtocol.Teleport(placed.Id, placed.At.X, placed.At.Y));
         if (SkillsFor(conn).ActionSkillId("Arm") is ushort arm)
-            bytes.AddRange(InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, placed.At.X, placed.At.Y, arm, 0xffff, 0x0408));
+            bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, placed.At.X, placed.At.Y, arm, 0xffff, 0x0408));
     }
 
     static void PlacedDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        PlacedSkills.Placed placed, double now, List<byte> bytes)
+        PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
     {
         var target = conn.Monsters.FirstOrDefault(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
             && Dist(p.Value.Walk.Position(now), placed.At) <= 60);
         var aim = target.Value?.Walk.Position(now) ?? placed.At;
-        bytes.AddRange(InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
+        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, 0x0408));
         double radius = SkillRadius(conn, placed.Own, spell: true, placed.Effect);
         if (SkillsFor(conn).EffectId(placed.Effect) == "FireTrap")
         {
@@ -334,8 +370,8 @@ public static partial class Game
         }
     }
 
-    public static void PlacedGroundsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, double now, List<byte> bytes)
+    static void PlacedGroundRecordsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, double now, WorldRecordBuilder bytes)
     {
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.
         foreach (var (id, monster) in conn.Monsters.ToArray())
@@ -356,23 +392,24 @@ public static partial class Game
         {
             ground.LastAt = Math.Min(now, ground.Until);
             if (now < ground.Until && conn.PlayerLife > 0) continue;
-            bytes.AddRange(InstanceProtocol.RemoveObject(ground.Object));
+            bytes.Remove(ground.Object);
             conn.Placed.Grounds.Remove(ground);
         }
     }
 
     static async Task PlacedSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await SendWorldBatch(conn, [], admission =>
         {
             using (ProjectileMutation(conn))
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return null;
-                var bytes = new List<byte>();
+                var bytes = new WorldRecordBuilder(conn, admission);
                 foreach (var placed in conn.Placed.All.Values.ToArray())
                 {
+                    if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
                     if (conn.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(conn, placed, bytes); continue; }
-                    LandPlacedLocked(conn, placed, now, bytes);
+                    LandPlacedRecordsLocked(conn, placed, now, bytes);
                     if (now < placed.Armed) continue;
                     bool skitter = false;
                     if (!placed.SkitterTriggered)
@@ -397,16 +434,16 @@ public static partial class Game
                     }
                     else RemovePlacedLocked(conn, placed, bytes);
                 }
-                if (conn.Placed.Dirty) bytes.AddRange(PlacedResourcesLocked(conn));
+                if (conn.Placed.Dirty) PlacedResourcesLocked(conn, bytes);
                 bool detonation = CanDetonateMines(conn);
                 if (detonation != conn.Placed.DetonationPublished)
                 {
-                    bytes.AddRange(InstanceEntities.PlayerSkillsChange(PlayerId, [], [], canDetonateMines: detonation));
+                    bytes.World(PlayerId, InstanceEntities.PlayerSkillsChange(PlayerId, [], [], canDetonateMines: detonation));
                     conn.Placed.DetonationPublished = detonation;
                 }
-                PlacedGroundsLocked(remote, stream, ciphers, conn, now, bytes);
-                return bytes.Count > 0 ? [.. bytes] : null;
+                PlacedGroundRecordsLocked(remote, stream, ciphers, conn, now, bytes);
+                return bytes.Count > 0 ? bytes.Build() : null;
             }
-        });
+        }, transport: (remote, stream, ciphers));
     }
 }

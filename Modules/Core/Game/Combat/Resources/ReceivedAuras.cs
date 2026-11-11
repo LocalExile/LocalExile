@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
@@ -7,20 +7,20 @@ public static partial class Game
     public static List<AuraCatalog.Aura> AffectingAuras(ClientState conn) => conn.Auras.Values.Where(a => a.AffectsSelf)
         .Concat(conn.ReceivedAuras.Values).ToList();
 
-    static byte[] ReconcileReceivedAurasLocked(ClientState conn)
+    static byte[][] ReconcileReceivedAuraRecordsLocked(ClientState conn)
     {
         var here = conn.Walk.Position(AreaTime(conn));
         var desired = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Instance.PlayersExcept(conn.PeerId)
             .Where(p => p.Current && p.Life > 0).SelectMany(p => p.Auras.Where(a => Dist(here, (p.X, p.Y)) <= a.Radius)
                 .Select(a => (Key: (p.Id, a.Aura.SkillId), Aura: a.Aura with { SourceBuff = null,
                     AffectsSelf = true, ExternalEffectPct = a.Effect }))).ToDictionary(p => p.Key, p => p.Aura);
-        var packets = new List<byte>();
+        var packets = new List<byte[]>();
         var previousAvian = conn.ReceivedAuras.Values.Select(a => a.EffectId).ToHashSet();
         bool changed = false;
         foreach (var (key, old) in conn.ReceivedAuras.ToArray())
         {
             if (desired.TryGetValue(key, out var next) && next with { Buff = old.Buff } == old) continue;
-            packets.AddRange(InstanceEntities.RemoveBuff(PlayerId, old.Buff));
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, old.Buff));
             conn.ReceivedAuras.Remove(key); changed = true;
         }
         foreach (var (key, candidate) in desired)
@@ -29,7 +29,7 @@ public static partial class Game
             var aura = candidate with { Buff = conn.NextBuff++ };
             conn.ReceivedAuras[key] = aura; changed = true;
             // A received buff has no cancellation association with an unrelated local skill id.
-            packets.AddRange(InstanceEntities.AddBuff(PlayerId, aura.Buff, aura.BuffRow, key.Item1));
+            packets.Add(InstanceEntities.AddBuff(PlayerId, aura.Buff, aura.BuffRow, key.Item1));
         }
         if (changed)
         {

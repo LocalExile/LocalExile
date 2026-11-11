@@ -973,8 +973,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>The clip the client plays for a monster's action: the variety's ACT pool for the skill's animation key
     /// (<c>SpellProjectile</c> for the Spitter's mortar), chosen as the client chooses it, with the native selector seeded
-    /// by the action's sequence (AnimationVariantSelector; the Gateway's monster actions send 0xffff, so the choice is the
-    /// same for every swing). Null without data for the variety or key.</summary>
+    /// by the action's sequence (AnimationVariantSelector). Null without data for the variety or key.</summary>
     public MonsterClipContact? MonsterContact(string varietyId, string animationKey, ushort sequence)
     {
         if (!_monsterContacts.Value.TryGetValue(varietyId, out var pools) || !pools.TryGetValue(animationKey, out var pool)

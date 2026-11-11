@@ -66,8 +66,8 @@ public static partial class Game
             RecomputePoolsAndSpeed(conn);
             ReconcileBeastCompanionsLocked(conn);
             var plan = PlanGolemBuffsLocked(conn, CharacterPlayerStats(conn));
-            if (plan.Packets.Length > 0)
-                conn.Minions.OutputQueue.Add(new(plan.Packets, "golem owner state after direct source retirement"));
+            foreach (var packet in plan.Packets)
+                conn.Minions.OutputQueue.Add(new(packet, "golem owner state after direct source retirement", WorldId: PlayerId));
         }
         SaveSummons(conn);
         SaveGolems(conn);

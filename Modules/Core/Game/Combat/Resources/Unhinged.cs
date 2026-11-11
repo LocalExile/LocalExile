@@ -123,7 +123,7 @@ public static partial class Game
         // Item text: "Enemies Killed by your Hits are destroyed while Insane." The extraction supplies only the boolean,
         // so remove the accepted hit's corpse without inventing damage, another kill event, loot roll or experience award.
         // `committed` is the qualification captured at the lethal hit: later source/toggle changes cannot rewrite it.
-        return Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+        return SendWorldRemoval(remote, stream, ciphers, conn, id,
             $"0x02bb corpse of 0x{id:x} destroyed while unhinged", still: () =>
             {
                 lock (conn.Monsters)
@@ -136,7 +136,7 @@ public static partial class Game
         ClientState conn, ushort skillId, int effect, Func<bool> current)
     {
         bool toggled = false;
-        await Send(remote, stream, ciphers, [], "0x01c1 player buff unhinged toggled", atGate: () =>
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01c1 player buff unhinged toggled", atGate: () =>
         {
             lock (conn.Monsters)
             {
@@ -162,28 +162,31 @@ public static partial class Game
     }
 
     public static Task SendUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => UnhingedPresentation(conn));
+        SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => UnhingedPresentationRecords(conn));
 
-    public static byte[]? UnhingedPresentation(ClientState conn)
+    public static byte[]? UnhingedPresentation(ClientState conn) =>
+        UnhingedPresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
+
+    static byte[][]? UnhingedPresentationRecords(ClientState conn)
     {
         lock (conn.Monsters)
         {
-            var bytes = new List<byte>();
+            var bytes = new List<byte[]>();
             foreach (ushort buff in conn.RetiredUnhingedBuffs)
-                bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, buff));
+                bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
             conn.RetiredUnhingedBuffs.Clear();
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired)
                 return bytes.Count == 0 ? null : [.. bytes];
             double now = ResourceEffectsTime(conn);
             var state = UnhingedAt(conn, now);
             foreach (ushort buff in conn.RetiredUnhingedBuffs)
-                bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, buff));
+                bytes.Add(InstanceEntities.RemoveBuff(PlayerId, buff));
             conn.RetiredUnhingedBuffs.Clear();
             if (!state.Exists || !state.Enabled) return bytes.Count == 0 ? null : [.. bytes];
             if (state.Buff == 0)
             {
                 state.Buff = conn.NextBuff++;
-                bytes.AddRange(InstanceEntities.AddBuff(PlayerId, state.Buff, UnhingedBuffRow, PlayerId));
+                bytes.Add(InstanceEntities.AddBuff(PlayerId, state.Buff, UnhingedBuffRow, PlayerId));
             }
             return bytes.Count == 0 ? null : [.. bytes];
         }

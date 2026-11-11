@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -34,7 +34,8 @@ public static partial class Game
         // the panel's raw sources for the selected-skill aliases (GemSkills).
         var character = CharacterPlayerStatsSnapshot(conn, out _, out var panelSources, capturePanelSources: true);
         var outer = StatsScope.Value;
-        StatsScope.Value = new(conn, character);
+        var build = new SkillBuildScope(conn, character);
+        StatsScope.Value = build;
         try
         {
             var player = FinalPlayerStatsFrom(conn, new(character)).ToList();
@@ -45,7 +46,7 @@ public static partial class Game
             PlayerSkillsInputs.AddOrUpdate(conn, new(inputs, skills));
             return skills;
         }
-        finally { StatsScope.Value = outer; }
+        finally { build.Active = false; StatsScope.Value = outer; }
     }
 
     /// <summary>The PlayerSkills build running on this flow: what it computed once and reuses instead of recomputing.</summary>
@@ -53,6 +54,7 @@ public static partial class Game
     {
         Dictionary<uint, int>? character = stats;
         public ClientState Conn => conn;
+        public volatile bool Active = true;
         /// <summary>The one character snapshot of this flow's work: a client message's whole validation, payment and
         /// launch, or one PlayerSkills build. Built on the first read, so a message that reads no stats pays nothing.
         /// (2026-11-05: a cast message built it five or six times, and 154 builds a second cost a full core.)</summary>
@@ -68,16 +70,24 @@ public static partial class Game
     public readonly struct PlayerStatScope : IDisposable
     {
         readonly SkillBuildScope? outer;
+        readonly SkillBuildScope? owned;
         public PlayerStatScope(ClientState conn, bool fresh = false)
         {
             outer = StatsScope.Value;
-            if (fresh || outer is null || !ReferenceEquals(outer.Conn, conn)) StatsScope.Value = new(conn);
+            owned = fresh || outer is null || !outer.Active || !ReferenceEquals(outer.Conn, conn) ? new(conn) : null;
+            if (owned is not null) StatsScope.Value = owned;
         }
-        public void Dispose() => StatsScope.Value = outer;
+        public void Dispose()
+        {
+            // AsyncLocal restoration affects only this flow. A frame loop or delayed action can retain the same
+            // scope, so retire its snapshot too. Native attack timing reads the current skill stats (0x141b58740).
+            if (owned is not null) owned.Active = false;
+            StatsScope.Value = outer;
+        }
     }
 
     public static SkillBuildScope? BuildScopeOf(ClientState conn) =>
-        StatsScope.Value is { } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
+        StatsScope.Value is { Active: true } scope && ReferenceEquals(scope.Conn, conn) ? scope : null;
 
     // The player's stats as the server sets them: what /set_stat set, then the attack's final values computed from them
     // (the client derives nothing itself: 11-skills.md §4).
@@ -1225,7 +1235,7 @@ public static partial class Game
             (conn.PlayerLife, conn.PlayerMana) = (LifeCap(conn), (uint)mana);
             conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
         }
-        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), $"0x01b1 player life {conn.PlayerLife}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}");
         await SendPassives(remote, stream, ciphers, conn);
     }
@@ -1418,19 +1428,22 @@ public static partial class Game
         foreach (var golem in conn.Golems.All.Values.Where(g => gone.Contains(g.Source)).ToArray())
             RemoveGolemLocked(conn, golem, now);
         conn.Golems.Waiting.RemoveAll(w => gone.Contains(w.Saved.Skill));
-        var placedPackets = new List<byte>();
         foreach (var placed in conn.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
-            RemovePlacedLocked(conn, placed, placedPackets);
+        {
+            conn.Placed.All.Remove(placed.Id);
+            if (!conn.Placed.Grounds.Any(g => g.Object == placed.Id))
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(placed.Id), "placed skill source removed", WorldId: placed.Id, RemovesObject: true));
+            conn.Placed.Dirty = true;
+            conn.Minions.StatRevision++;
+        }
         foreach (var ground in conn.Placed.Grounds.Where(g => gone.Contains(g.Source)).ToArray())
         {
-            placedPackets.AddRange(InstanceProtocol.RemoveObject(ground.Object));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(ground.Object), "placed ground source removed", WorldId: ground.Object, RemovesObject: true));
             conn.Placed.Grounds.Remove(ground);
         }
-        if (placedPackets.Count > 0)
-            conn.Minions.OutputQueue.Add(new([.. placedPackets], "placed skill source removed"));
         if (!conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic") && conn.Summons.HolyBuff != 0)
         {
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed"));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed", WorldId: PlayerId));
             conn.Summons.HolyBuff = 0;
             conn.Summons.HolyRegenerationUntil = 0;
             conn.Summons.HolyRegenerationPerMinute = 0;

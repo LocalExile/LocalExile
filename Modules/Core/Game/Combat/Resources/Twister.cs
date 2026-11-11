@@ -73,7 +73,7 @@ public static partial class Game
                 && Dist(at, m.Walk.Position(now)) <= 150)
             .MinBy(m => Dist(at, m.Walk.Position(now)));
         var aim = target?.Walk.Position(now) ?? (at.X + 1, at.Y);
-        ushort sequence = ++conn.Twister.Sequence;
+        ushort sequence = conn.LockstepClient ? NextLockstepSequence(conn) : ++conn.Twister.Sequence;
         var use = ClientDrawnVolley(conn, session, gem.Id, gem,
             CaptureGemProjectile(conn, session, gem.Id, gem, aim, CaptureSkillCriticalRoll(conn, gem.Id), sequence), sequence, 0);
         if (!state.TryUse(now, cooldown)) return null;
@@ -83,7 +83,7 @@ public static partial class Game
         state.ConfirmNativeUse(state.UseVersion, gem.Id, synchronizeProgress: true);
         Console.WriteLine($"[gateway] Twister gain={gain.Serial} seq={sequence} skill=0x{gem.Id:x4} source={grant.Host} "
             + $"metadata={use.Profile.Id} t={now:0.000000}");
-        return InstanceProtocol.InstantAction(PlayerId, gem.Id, aim.Item1, aim.Item2, sequence: sequence, triggered: true);
+        return InstanceProtocol.InstantAction(PlayerId, gem.Id, aim.Item1, aim.Item2, sequence: sequence, flags: conn.LockstepClient ? (ushort)0x101 : (ushort)0, triggered: true);
     }
 
     static async Task DrainTwisterGains(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
@@ -98,7 +98,7 @@ public static partial class Game
                 if (!conn.Twister.Pending.TryDequeue(out gain!)) break;
                 if (!TwisterGainCurrentLocked(conn, gain)) continue;
             }
-            await Send(remote, stream, ciphers, [], "0x01ce Avian gain triggers Twister", atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], "0x01ce Avian gain triggers Twister", atGate: () =>
             {
                 using (ProjectileMutation(conn))
                 {

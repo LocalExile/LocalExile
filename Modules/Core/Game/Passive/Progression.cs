@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using Progression = GameServer.Core.World.Progression;
@@ -1738,7 +1738,7 @@ public static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
-            await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
                 $"0x01b1 player life {conn.PlayerLife} (passives)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }
