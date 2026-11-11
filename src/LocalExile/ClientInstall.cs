@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Data.Ggpk;
@@ -16,15 +17,23 @@ static class ClientInstall
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
     static readonly string Keys = Path.Combine("data", "login-keys.json");
 
-    /// <summary>The folder's 3.29.3c executable, or why it has none.</summary>
-    static string? FindExecutable(string folder, out string problem)
+    /// <summary>Anything this large is a game executable; the official launcher that can sit under the same name is
+    /// well under a megabyte.</summary>
+    const int GameExecutableSize = 16 << 20;
+
+    /// <summary>The folder's executable when it is an allowed build (<see cref="ClientBuilds"/>), or why it has none.</summary>
+    static string? FindExecutable(string folder, out string problem) => FindExecutable(folder, out problem, out _);
+
+    static string? FindExecutable(string folder, out string problem, out ClientBuild? build)
     {
-        if (ClientFiles.Problem(folder) is { } files)
+        build = null;
+        if (ClientFiles.Problem(folder, out string? steamIndex) is { } files)
         {
             problem = files;
             return null;
         }
         problem = "";
+        string? otherBuild = null;
         // A checkout's PathOfExile.exe can be the small launcher, with the game in Game.exe. Steam's PathOfExileSteam.exe
         // is the same game executable. The check reads the executable.
         foreach (string name in new[] { "PathOfExile.exe", "PathOfExileSteam.exe", "Game.exe" })
@@ -34,21 +43,34 @@ static class ClientInstall
             try
             {
                 byte[] image = File.ReadAllBytes(path);
+                if (ClientBuilds.Find(image) is not { } found)
+                {
+                    if (image.Length >= GameExecutableSize) otherBuild ??= $"{path} (SHA-256 {ClientBuilds.Sha256(image)[..16]}...)";
+                    continue;
+                }
                 _ = new ClientImage(image);
-                HncSender.LoadMask(image);
+                HncSender.UseMask(HncSender.ReadMask(image, found));
+                if (steamIndex is not null && found.SteamIndexSha256 != steamIndex)
+                {
+                    problem = $"{folder} mixes two builds: {path} is {found}, and the game files in Bundles2 are another build's";
+                    return null;
+                }
+                build = found;
                 return path;
             }
             catch (Exception e) when (e is FormatException or InvalidDataException or ArgumentException or IOException or InvalidOperationException) { }
         }
-        problem = $"{folder} does not hold the Path of Exile 3.29.3c executable; other versions do not work";
+        string runs = $"LocalExile runs {ClientBuilds.Describe(ClientBuilds.Allowed)}; other versions do not work";
+        problem = otherBuild is null ? $"{folder} does not hold a Path of Exile {ClientBuilds.Versions} executable. {runs}"
+            : $"{otherBuild} is another build of Path of Exile. {runs}";
         return null;
     }
 
     public static void Check(string folder, Output log)
     {
-        string? exe = FindExecutable(folder, out string problem);
+        string? exe = FindExecutable(folder, out string problem, out var build);
         if (exe is null) throw new LauncherException(ExitCode.Client, problem);
-        log.Value("client", $"{exe} is the 3.29.3c client");
+        log.Value("client", $"{exe} is the {build!.Version} client ({build.Name})");
     }
 
     /// <summary>Client\ holds the checked client when this returns.</summary>
@@ -66,9 +88,9 @@ static class ClientInstall
         }
 
         string source = options.Client ?? Ask(log);
-        string? found = FindExecutable(source, out string why);
+        string? found = FindExecutable(source, out string why, out var build);
         if (found is null) throw new LauncherException(ExitCode.Client, why);
-        log.Info($"{found} is the 3.29.3c client");
+        log.Info($"{found} is the {build!.Version} client ({build.Name})");
 
         // Always a copy unless a developer asks for the link: only a copy is safe from an update of the player's game, and
         // leaves their install as it is.
@@ -108,13 +130,13 @@ static class ClientInstall
     static string Ask(Output log)
     {
         string? guess = Guesses().FirstOrDefault(g => FindExecutable(g, out _) is not null);
-        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3c client?", guess);
+        if (log.Json) throw log.NeedsInput("--client", $"which folder holds the Path of Exile {ClientBuilds.Versions} client?", guess);
         if (guess is not null)
         {
-            Console.Write($"Found the 3.29.3c client in {guess}. Copy it for LocalExile? [Y/n] ");
+            Console.Write($"Found the {ClientBuilds.Versions} client in {guess}. Copy it for LocalExile? [Y/n] ");
             if ((Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "" or "y" or "yes") return guess;
         }
-        Console.Write("Folder of your Path of Exile 3.29.3c client (it is copied, never changed): ");
+        Console.Write($"Folder of your Path of Exile {ClientBuilds.Versions} client (it is copied, never changed): ");
         string answer = (Console.ReadLine() ?? "").Trim().Trim('"');
         if (answer.Length == 0) throw new LauncherException(ExitCode.NeedsInput, "no client folder given");
         return answer;

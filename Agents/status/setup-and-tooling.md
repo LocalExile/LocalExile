@@ -8,7 +8,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
   waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08). Both 3.29.3c builds
   work with the same code: the release (build 327984) and the 3.29.3.5 hotfix (build 328126; login, zones, combat,
-  items and waypoints live 2026-11-09).
+  items and waypoints live 2026-11-09). Only the builds listed in `ClientBuilds.cs` run, each recognized by its
+  executable's hash; any other is refused (the launcher's `check`, Auth's `keygen` and `patch` and the constants
+  extraction on real 3.29.3.5, 3.29.3d and 3.29.3b executables, 2026-11-11).
   Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
 - Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` regenerates each data file that is
   missing or whose manifest version changed (stamps in `data/extract-stamps.json`); `live.ps1` runs its `-Servers`

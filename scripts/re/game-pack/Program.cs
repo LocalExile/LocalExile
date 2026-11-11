@@ -15,8 +15,8 @@ switch (args.FirstOrDefault())
 {
     case "constants":
         byte[] exe = File.ReadAllBytes("Client/Game.exe");
-        HncSender.LoadMask(exe); // Checks the mask against its known hash.
-        byte[] mask = PeImage.ReadAtVa(exe, HncSender.MaskVa, 64);
+        byte[] mask = HncSender.ReadMask(exe, ClientBuilds.Require(exe)); // Only an allowed build's executable.
+        HncSender.UseMask(mask); // Checks the mask against its known hash.
         string rootHash = ClientFiles.Resolve(Ggpk) is { Layout: ClientLayout.Standalone, Path: var ggpk }
             ? Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)) : new string('0', 64);
         new ClientConstants(Convert.ToHexString(mask), rootHash).Save();
