@@ -66,7 +66,7 @@ public static class RadiusJewelCatalogue
         int Ring = 0,
         bool SuppressAllocatedSmalls = false,
         bool CopyUnallocatedSmalls = false,
-        bool StrengthMeleeBonus = false)
+        bool StrengthMeleeBonus = false, int TattooEffectPct = 0)
     {
         public uint? From => Moves.Count > 0 ? Moves[0].From : Swap?.From;
         public uint? To => Moves.Count > 0 ? Moves[0].To : Swap?.To;
@@ -179,7 +179,7 @@ public static class RadiusJewelCatalogue
         var additionStats = new List<(uint Key, int Value)>();
         var scalingStats = new List<ScalingStat>();
         ResistanceAddition? resistance = null;
-        int radius = 0, effectPct = 0, ring = 0;
+        int radius = 0, effectPct = 0, ring = 0, tattooEffectPct = 0;
         bool physicalToCold = false, coldToPhysical = false, suppressNotables = false;
         bool allocateDisconnected = false, suppressAllocatedSmalls = false, copyUnallocatedSmalls = false;
         bool strengthMeleeBonus = false;
@@ -189,6 +189,11 @@ public static class RadiusJewelCatalogue
             for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
             {
                 string id = row.Stats[i].Id;
+                if (id == "local_unique_jewel_tattoos_in_radius_effect_+%")
+                {
+                    tattooEffectPct += mod.Values[i];
+                    continue;
+                }
                 if (id == "local_jewel_effect_base_radius")
                 {
                     radius = mod.Values[i];
@@ -339,7 +344,7 @@ public static class RadiusJewelCatalogue
         if (moves.Count == 0 && swap is null && notableStats.Count == 0 && additionStats.Count == 0
             && resistance is null && scalingStats.Count == 0 && effectPct == 0 && !suppressNotables
             && !allocateDisconnected && ring == 0 && !suppressAllocatedSmalls && !copyUnallocatedSmalls
-            && !strengthMeleeBonus)
+            && !strengthMeleeBonus && tattooEffectPct == 0)
             return null;
         return new(moves, swap, radius,
             notableStats.Count > 0 ? notableStats : null,
@@ -352,7 +357,7 @@ public static class RadiusJewelCatalogue
             ring,
             suppressAllocatedSmalls,
             copyUnallocatedSmalls,
-            strengthMeleeBonus);
+            strengthMeleeBonus, tattooEffectPct);
     }
 
     /// <summary>Path of Building's <c>ScaleAddList</c> scales integer stats and truncates toward zero; 50% on 5

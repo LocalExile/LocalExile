@@ -151,6 +151,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             mods.RemoveAll(m => m.Section == ModSection.Implicit);
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
+        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } variant)
+            definition = definition with { Mods = [variant] };
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
