@@ -560,6 +560,15 @@ INSERT INTO catalog_entries (kind, key, payload, enabled) VALUES
         "AfflictionNotableWrappedinFlame_"
       ]
     }
-  ],
-  "Implicits": []
+  ]
 }', 1);
+
+
+-- Server operators may configure a chance without changing the reference value or its provenance.
+CREATE TABLE encounter_jewel_drop_overrides (
+    boss_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    chance REAL NOT NULL CHECK (chance >= 0 AND chance <= 1),
+    PRIMARY KEY (boss_id, item_id),
+    FOREIGN KEY (boss_id, item_id) REFERENCES drop_boss_items (boss_id, item_id)
+);

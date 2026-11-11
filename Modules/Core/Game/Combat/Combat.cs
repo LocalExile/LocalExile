@@ -2114,6 +2114,8 @@ public static partial class Game
             drops.AddRange(DropsFor(conn).KingInMists(m.Level, Random.Shared));
         if (modded is not { Cancel: true })
         {
+            if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
+                drops.AddRange(DropsFor(conn).EncounterJewels(boss.Id, m.Level, Random.Shared, DropDataProvider.Default.Current));
             // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
             // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash

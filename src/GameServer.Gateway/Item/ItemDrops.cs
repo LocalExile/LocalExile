@@ -324,6 +324,23 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         ("Metadata/Items/DivinationCards/DivinationCardTheEndlessDarkness", 0.15),
     ];
 
+    public IReadOnlyList<Drop> EncounterJewels(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot data)
+    {
+        if (uniques is null || data.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
+        var result = new List<Drop>();
+        foreach (var row in data.BossItems.Values)
+        {
+            if (row.BossId != bossId || row.ItemKind != "unique" || (row.OverrideChance ?? row.Chance) is not (> 0 and <= 1 and var chance))
+                continue;
+            if (uniques.Find(row.ItemId) is not { EncounterOnly: true } definition || definition.Name != row.ItemId
+                || random.NextDouble() >= chance || uniques.Create(definition, random) is not { } jewel
+                || catalog.ByHash(jewel.TypeHash) is not { } type) continue;
+            byte itemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(MonsterRarity.Unique), 1, 100);
+            result.Add(new(jewel with { Identified = false, ItemLevel = itemLevel }, type));
+        }
+        return result;
+    }
+
     /// <summary>The King in the Mists' guaranteed unique, then its support gems and card. Corpse items (the 50% roll)
     /// are not modelled yet: the item system has no itemised-corpse consumer.</summary>
     public IReadOnlyList<Drop> KingInMists(int level, Random rng)

@@ -726,6 +726,8 @@ public static partial class Game
                 stats[showAverage] = Get("base_skill_show_average_damage_instead_of_dps") != 0 ? 1 : 0;
             stats[OwnAuraRestriction.BaseAura] = own.GetValueOrDefault(OwnAuraRestriction.BaseAura);
             OwnAuraRestriction.PublishSkill(stats, OwnAuraRestrictionValue(conn));
+            if (OwnAuraRestriction.IsAura(stats) && SublimeDisables(conn, effect, playerStats))
+                stats[OwnAuraRestriction.SkillDisabled] = 1;
             // Published like the own-aura reason (never zero over another); the client also derives it (FUN_1428d6330).
             if (CastingSpell(conn, effect) && Stats.Key("your_spells_are_disabled") is uint spellsOff
                 && playerStats.GetValueOrDefault(spellsOff) != 0) stats[OwnAuraRestriction.SkillDisabled] = 1;
@@ -939,7 +941,8 @@ public static partial class Game
 
     public static bool OwnAuraSkillRestricted(ClientState conn, int effect, ushort? skillId)
     {
-        if (OwnAuraRestrictionValue(conn) == 0) return false;
+        var sources = CharacterStatSources(conn).Stats;
+        if (OwnAuraRestrictionValue(conn, new(sources)) == 0 && !SublimeDisables(conn, effect, sources)) return false;
         if (SkillsFor(conn).IsAura(effect)) return true;
         if (skillId is not ushort id) return false;
         var gem = SupportedSkill(conn, id);
