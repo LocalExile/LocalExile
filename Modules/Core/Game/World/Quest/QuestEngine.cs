@@ -463,7 +463,9 @@ public static partial class Game
                 bool already;
                 lock (conn.Monsters) already = conn.Monsters.Values.Any(m => m.Variety?.Id == id && !m.Dead && m.Life > 0);
                 if (already) continue;
-                var (x, y) = conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
+                var (x, y) = conn.Layout.Id == KitavaActFive.Area && variety.Id == KitavaActFive.First
+                    ? KitavaActFive.SpawnPoint(conn, (at.X, at.Y))
+                    : conn.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? conn.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
                 Console.WriteLine($"[gateway] {remote} {rule.ObjectType.Split('/')[^1]} used: {variety.Name} appears at ({x}, {y})");
                 await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, x, y);
             }
