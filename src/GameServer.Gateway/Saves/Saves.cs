@@ -13,7 +13,7 @@ using GameServer.Storage;
 /// <para>Lock order: a connection's own locks (<c>conn.Monsters</c>, <c>conn.Npcs</c>) before the database's, and the
 /// database's before an inventory's or a stash's. So the work inside a transaction never takes a connection's lock.</para>
 /// </summary>
-static class Saves
+public static class Saves
 {
     static SaveDatabase? _db;
 
@@ -33,7 +33,7 @@ static class Saves
     public static void Atomically(Action work) => Db.Atomically(work);
 
     /// <summary>Tests: a write whose key this says yes to fails, as a full disk would.</summary>
-    internal static Func<string, bool>? FailWrite;
+    public static Func<string, bool>? FailWrite;
 
     public static string? Get(SaveDatabase.Table table, string key) => Db.Get(table, key);
 

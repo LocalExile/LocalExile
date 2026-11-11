@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 /// <summary>Qualified support multipliers, with explicit owner conditions for Energy Leech.
 /// Other conditional/trigger/minion mechanics require their own execution paths.</summary>
-static class GemSupportDamage
+public static class GemSupportDamage
 {
     static readonly HashSet<string> Unconditional =
     [
@@ -26,7 +26,7 @@ static class GemSupportDamage
         "support_pulverise_melee_area_damage_+%_final", "support_fortify_melee_damage_+%_final",
         "support_barrage_damage_+%_final", "support_cruelty_hit_damage_+%_final",
         "support_vicious_projectiles_physical_damage_+%_final", "support_vicious_projectiles_chaos_damage_+%_final",
-        "inc_aoe_plus_more_area_damage_+%_final", "doedre_aura_damage_+%_final"
+        "support_cast_while_channelling_triggered_skill_damage_+%_final", "support_cast_on_crit_spell_damage_+%_final", "cast_on_damage_taken_damage_+%_final", "inc_aoe_plus_more_area_damage_+%_final", "doedre_aura_damage_+%_final"
     ];
 
     /// <summary>Each matching support modifier applies once to the portion's complete visited-type set.

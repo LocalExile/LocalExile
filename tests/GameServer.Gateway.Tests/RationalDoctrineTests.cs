@@ -10,7 +10,7 @@ public class RationalDoctrineTests
     [Fact]
     public void Rational_Doctrine_exposes_its_ground_mods_and_attribute_rules()
     {
-        var jewel = CommandsRules.CreateUniqueJewel("Rational Doctrine");
+        var jewel = Game.CreateUniqueJewel("Rational Doctrine");
         Assert.NotNull(jewel);
         Assert.Equal(18, Stat(jewel!, "ConsecratedGroundStationarySTRHighestUnique__1"));
         Assert.Equal(25, Stat(jewel!, "ProfaneGroundCriticalStrikeINTHighestUnique__1"));

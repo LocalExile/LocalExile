@@ -22,7 +22,7 @@ using GameServer.Core;
 /// 195..206 (socket 206/198, notables 196/200/204 and smalls 195/197/202), a medium 4/1 in cell 51 gives
 /// 208/209/211 (smalls) and 212 (socket), the same medium in cell 53 gives 225/228/229 and 226.
 /// </summary>
-static class ClusterJewelLayout
+public static class ClusterJewelLayout
 {
     public enum Kind { None, Small, Notable, Socket }
 

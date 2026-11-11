@@ -103,6 +103,7 @@ Nothing yet.
   20 degrees apart for Split Arrow in the same capture); the official rain rig stands at the caster's cell and plays
   its up-cast there, then its landing at the target, with the skill's arrow art riding `aux_projectile_attach`,
   documented in [25](../docs/protocol/25-gem-supports.md).
+  CWDT projectile spells execute; other trigger payloads refuse manual use ([25](../docs/protocol/25-gem-supports.md)).
   Special execution mechanics remain incomplete; see [25](../docs/protocol/25-gem-supports.md).
 
 - **Culling Strike.** Melee, area and projectile hits cull at 10% Life; Cull the Weak culls normal and magic enemies at
@@ -151,13 +152,21 @@ Nothing yet.
   XP bars follow, and saved with the character (`GainGemExperience`, `PlayerInventories.ChangeSocketedGems`;
   [19](../docs/protocol/19-gems.md) §1).
   A kill's share stops one point below the next threshold, where the client shows the "+": it does not level a gem by
-  itself (checked live 2026-10-23).
-  Not checked live yet: several gems in one item, the second weapon set.
+  itself (checked live 2026-10-23; rechecked 2026-11-09: a level-4 Fireball stopped at 8598 and levelled only when the
+  click sent it to 8599).
+  Several gems in one item and both weapon sets: checked live 2026-11-09.
 - **Gem level-up and the lock (checked with the real client).** Clicking the "+" sends C→S 0x31 (inventory, item,
   socket; 14 bytes); the server writes the next threshold into the gem, replaces the item (0xbf) and re-sends the
   skills (0x02bc Actor), so the client derives the new level and its numbers at once, and refuses a gem at its last
   level, a locked one, or one whose next level's requirements the character does not meet (`LevelUpGem`;
   the client's "+" check does not test them, so the server answers with the missing level or attribute).
+  The gem level-up panel's "Click to level up ALL" is C→S 0x32 (the id alone, 2 bytes): one explicit click levels every
+  socketed gem that is ready (its experience at the stall point the client draws the "+" for) by one level, all in the
+  same step, in either weapon set; not-ready, locked, maxed and requirement-blocked gems stay, and a second click finds
+  nothing ready. Experience gains, logins, area changes and opening the inventory never level a gem. Sent as one item
+  change per row and one skills update, so the client's prompts and XP bars follow (`LevelUpAllGems`, `LevelUpReadyGems`,
+  `GemLevelUpReady`, `NextGemLevel`). Checked live 2026-11-09: one click levelled every ready gem across several
+  equipment rows and both weapon sets, and a second click levelled only the newly ready gems.
   A right-click sends C→S 0xd7 (the same three u32s and a u8 lock flag;
   15 bytes), kept in the SkillGem flags bit 2 (`Item.GemFlags`) and saved, so the lock survives a login;
   the client greys the "+" while it is set (`LockGem`).

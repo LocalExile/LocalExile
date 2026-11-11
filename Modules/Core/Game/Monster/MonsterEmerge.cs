@@ -5,7 +5,7 @@ using GameServer.Core;
 
 
 /// <summary>How a monster type starts: as usual, or waiting to rise (MonsterEmerge).</summary>
-enum EmergeKind
+public enum EmergeKind
 {
     /// <summary>An ordinary monster (or one whose entrance the server does not play).</summary>
     None,
@@ -32,12 +32,20 @@ enum EmergeKind
 /// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
 /// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
 /// </summary>
-sealed class MonsterEmerge(string folder = "data")
+public sealed class MonsterEmerge(string folder = "data")
 {
     /// <summary>How near (grid cells) the player comes before a monster rises; its aggro range when that is shorter. The
     /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
     /// on screen.</summary>
     public const int Range = 24;
+
+    // Eight 3.29.3b opening-capture events support this bounded calibration.
+    public const int StrandDrownedRange = 60;
+
+    static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
+        areaId == TutorialObjects.Strand && variety?.Id.StartsWith(
+            "Metadata/Monsters/ZombieDismember/ZombieDrownedStrandWake", StringComparison.Ordinal) == true
+            ? StrandDrownedRange : Range;
 
     /// <summary>How long a monster without a known Emerge clip takes to rise.</summary>
     public const double DefaultSeconds = 1.5;
@@ -136,7 +144,8 @@ sealed class MonsterEmerge(string folder = "data")
         {
             at = m.Walk.Position(now);
             double d = Math.Sqrt((double)(at.X - player.X) * (at.X - player.X) + (double)(at.Y - player.Y) * (at.Y - player.Y));
-            return d <= (m.AggroRange > 0 ? Math.Min(Range, m.AggroRange) : Range);
+            int range = WakeRange(conn.Layout.Id, m.Variety);
+            return d <= (m.AggroRange > 0 ? Math.Min(range, m.AggroRange) : range);
         }
         double SecondsOf(SpawnedMonster m) => m.Variety is { } v ? Seconds(v) : DefaultSeconds;
         foreach (var (id, m) in conn.DormantMonsters)

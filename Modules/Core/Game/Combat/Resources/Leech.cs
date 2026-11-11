@@ -4,15 +4,15 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly ConditionalWeakTable<ClientState, LeechSession> LeechSessions = new();
-    internal static LeechSession LeechOf(ClientState conn) => LeechSessions.GetValue(conn, _ => new());
+    public static readonly ConditionalWeakTable<ClientState, LeechSession> LeechSessions = new();
+    public static LeechSession LeechOf(ClientState conn) => LeechSessions.GetValue(conn, _ => new());
 
     // Invisible BuffDefinitions rows for the leech overlay on the life, mana and energy-shield orbs.
     const ushort LifeLeechBuffRow = 39, ManaLeechBuffRow = 38, EnergyShieldLeechBuffRow = 40;
 
-    internal static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(ClientState conn)
+    public static (bool Life, bool Mana, bool EnergyShield, bool FullEnergyShield) LeechContext(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -23,7 +23,7 @@ static partial class Game
         }
     }
 
-    internal static void WithLeechConditions(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithLeechConditions(ClientState conn, Dictionary<uint, int> stats)
     {
         var state = LeechContext(conn);
         foreach (var (name, active) in new[] { ("is_life_leeching", state.Life), ("is_mana_leeching", state.Mana),
@@ -32,7 +32,30 @@ static partial class Game
             if (Stats.Key(name) is uint key) stats[key] = active ? 1 : 0;
     }
 
-    internal static void ConfigureLeech(ClientState conn, Func<string, int> get, IReadOnlyDictionary<uint, int> replacements,
+    // "X% increased Attack Speed while Leeching" (Endless Hunger): the client's increased attack speed sum (0x142704be0)
+    // adds it while is_leeching. The server sends the final main-hand value, so it joins there.
+    public static int LeechingAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        var state = LeechContext(conn);
+        return (state.Life || state.Mana || state.EnergyShield) && Stats.Key("attack_speed_+%_while_leeching") is uint key
+            ? stats.GetValueOrDefault(key) : 0;
+    }
+
+    // Endless Hunger's two "while Leeching" defences, on the final flags the server sends and reads (client 0x1427e17d0:
+    // cannot_be_stunned_while_leeching and is_leeching; 0x142896810 the same for virtual_unaffected_by_bleeding).
+    // A /set_stat value of either flag keeps its value.
+    public static void WithLeechingDefences(Dictionary<uint, int> stats, IReadOnlySet<uint> devSet)
+    {
+        int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+        bool leeching = Get("is_leeching") != 0;
+        if (Stats.Key("cannot_be_stunned") is uint stun && !devSet.Contains(stun)
+            && leeching && Get("cannot_be_stunned_while_leeching") != 0) stats[stun] = 1;
+        if (Stats.Key("virtual_unaffected_by_bleeding") is uint bleed && !devSet.Contains(bleed))
+            stats[bleed] = Get("base_unaffected_by_bleeding") != 0 || leeching && Get("unaffected_by_bleeding_while_leeching") != 0
+                ? 1 : 0;
+    }
+
+    public static void ConfigureLeech(ClientState conn, Func<string, int> get, IReadOnlyDictionary<uint, int> replacements,
         bool onLowLife)
     {
         int? Replacement(string name) => Stats.Key(name) is uint key && replacements.TryGetValue(key, out int value) ? value : null;
@@ -49,7 +72,7 @@ static partial class Game
     }
 
     // Pool commits (including instant flasks/block gains) cannot leave ordinary leech alive until the next tick.
-    internal static void TrimLeechLocked(ClientState conn)
+    public static void TrimLeechLocked(ClientState conn)
     {
         double now = ProjectileWorldTime(conn);
         if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
@@ -61,7 +84,7 @@ static partial class Game
         }
     }
 
-    internal static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
+    public static LeechSources HitLeechSources(IReadOnlyDictionary<uint, int> player, bool attack,
         IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<string, int>? local = null)
     {
         int Get(string name) => Stats.Key(name) is uint key
@@ -70,7 +93,7 @@ static partial class Game
     }
 
     // Invoke only inside an accepted direct-hit transaction, after evasion/block and before impale reflection.
-    internal static void LeechOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket taken,
+    public static void LeechOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket taken,
         int directDamage, LeechSources sources)
     {
         if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
@@ -84,6 +107,8 @@ static partial class Game
                     sources.GainOnHit.Mana + target.Curses["mana_granted_when_hit_by_attacks"], sources.GainOnHit.EnergyShield) };
         }
         var amounts = sources.Amounts(taken, directDamage);
+        // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
+        amounts.Life += sources.OverkillLife(directDamage, target.Life);
         var session = LeechOf(conn);
         if (target.Effects["cannot_have_life_leeched_from"] != 0) amounts.Life = 0;
         if (target.Effects["cannot_have_energy_shield_leeched_from"] != 0)
@@ -115,7 +140,7 @@ static partial class Game
     /// by Petrified Blood's Low Life recovery cap: the orb shows the leech's full potential while the server caps the
     /// actual pool update.
     /// </summary>
-    internal static byte[]? LeechBuffPresentation(ClientState conn)
+    public static byte[]? LeechBuffPresentation(ClientState conn)
     {
         double now = ProjectileWorldTime(conn);
         var display = LeechOf(conn).Display(now);
@@ -148,7 +173,7 @@ static partial class Game
         }
     }
 
-    internal static Task SendLeechBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendLeechBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)

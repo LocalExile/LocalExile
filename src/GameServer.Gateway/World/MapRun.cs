@@ -7,7 +7,7 @@ using GameServer.Core;
 /// scarabs and fragments' MapFragmentMods. Recipes without a map (Maven's Writ, four Sacrifice fragments) open their
 /// MapDeviceRecipes area instead.
 /// </summary>
-sealed class MapMods
+public sealed class MapMods
 {
     public static readonly MapMods None = new(new Dictionary<string, int>());
 
@@ -73,7 +73,7 @@ sealed class MapMods
 }
 
 /// <summary>MapFragmentMods.dat and MapDeviceRecipes.dat for one device activation.</summary>
-sealed class MapRunCatalog
+public sealed class MapRunCatalog
 {
     public sealed record Fragment(int Family, int Limit, int MinAreaLevel, IReadOnlyList<int> ModRows);
 

@@ -7,7 +7,7 @@ using GameServer.Core;
 /// <c>PassiveSkillOverrides</c> rows with Type 15 are the 48 ordinary keystone overrides; their
 /// <c>AllocatedPassiveSkill</c> is the PassiveSkills row and <c>HASH16</c> is what 0x33's fifth list needs.
 /// </summary>
-static class JourneyMakanuiCatalogue
+public static class JourneyMakanuiCatalogue
 {
     public sealed record Entry(ushort GraphId, string Name, int Row, ushort OverrideHash);
 

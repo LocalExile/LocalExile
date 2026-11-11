@@ -1,6 +1,6 @@
 /// <summary>Signed ordinary flat pool sources. Attribute terms use complete groups of final attributes,
 /// before pool increases (pinned PoB ModParser.lua1471-1472 and ModStore.lua501,525).</summary>
-static class LifeManaPoolSources
+public static class LifeManaPoolSources
 {
     public const string LifePerLevel = "life_per_level";
     public const string ManaPerLevel = "mana_per_level";

@@ -6,23 +6,23 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
     // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
-    internal static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
+    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
 
-    internal static byte[] CreateEffectObject(uint id, EffectObject effect) =>
+    public static byte[] CreateEffectObject(uint id, EffectObject effect) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
 
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
-    internal sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
+    public sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
-        internal readonly string remote;
-        internal readonly NetworkStream stream;
-        internal readonly ConnectionCiphers ciphers;
-        internal readonly ClientState Conn;
+        public readonly string remote;
+        public readonly NetworkStream stream;
+        public readonly ConnectionCiphers ciphers;
+        public readonly ClientState Conn;
         readonly int epoch;
         readonly Channel<Func<Task>> output = Channel.CreateBounded<Func<Task>>(
             new BoundedChannelOptions(8192) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
@@ -81,7 +81,11 @@ static partial class Game
             lock (Conn.Monsters)
             {
                 if (!Active) { Invalidate(); return; }
-                if (!Conn.Paused) Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                if (!Conn.Paused)
+                {
+                    TickChannelTriggers(Conn, this, Conn.Clock.Elapsed.TotalSeconds);
+                    Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(Conn.Clock.Elapsed.TotalSeconds)));
+                }
             }
         }
 
@@ -131,7 +135,7 @@ static partial class Game
             }
         }
 
-        internal void Enqueue(Func<Task> intent)
+        public void Enqueue(Func<Task> intent)
         {
             lock (Conn.Monsters)
             {
@@ -141,15 +145,15 @@ static partial class Game
                 Conn.Closed = true; Invalidate(); stream.Close();
             }
         }
-        internal void PresentCharges() => Packet(() =>
+        public void PresentCharges() => Packet(() =>
         {
             _ = CharacterPlayerStats(Conn);
             var (packet, changed) = CurrentChargePresentationLocked(Conn, remote);
             if (changed) Conn.Minions.StatRevision++;
             return packet;
         });
-        internal void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
-        internal void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
+        public void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
+        public void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
         {
             while (Active)
             {
@@ -197,7 +201,7 @@ static partial class Game
 
         /// <summary>The actor key a monster has in this session's world: a monster's own shot names it as owner, so its
         /// flight never contacts the monster itself.</summary>
-        internal ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
+        public ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
 
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
@@ -209,6 +213,8 @@ static partial class Game
                 result.Add(new(Key(id, monster), monster.Hostile ? 2 : 1,
                     t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = LivingCollision.Size(monster) });
             }
+            foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
+                result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
                 result.Add(new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
@@ -293,7 +299,7 @@ static partial class Game
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
-            var player = CharacterPlayerStats(Conn);
+            var player = shot.ActualCaster ?? CharacterPlayerStats(Conn);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
@@ -321,22 +327,25 @@ static partial class Game
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
-                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
+                cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
+                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
+                target.Walk.Position(at), at);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
-            if (hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
+            if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
-            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
+            if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled)) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
-            RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
+            if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
-            ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
+            if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
             InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
@@ -363,9 +372,10 @@ static partial class Game
                 int ex = x, ey = y;
                 if (spawn && presentation.SpawnAtCaster)
                 {
-                    var caster = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
-                    ex = (int)Math.Round((double)caster.X);
-                    ey = (int)Math.Round((double)caster.Y);
+                    var caster = p.Use.Emitter.Id == PlayerId
+                        ? Vector(Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond)) : p.Use.Origin;
+                    ex = (int)Math.Round(caster.X);
+                    ey = (int)Math.Round(caster.Y);
                 }
                 Effect(ex, ey, eventEffect, presentation.EffectLifetime,
                     value.Kind == ProjectileEventKind.Area ? value.Radius : null, presentation.AttachEffect,
@@ -599,7 +609,7 @@ static partial class Game
                     : [.. startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), .. move];
             });
         }
-        internal static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
+        public static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
         static string? PayloadLabel(object? payload) => payload switch
         {
             ProjectileOffense offense => offense.Label,
@@ -611,7 +621,7 @@ static partial class Game
         static bool Quiet(object? payload) => payload is ObjectProjectileOffense { Quiet: true };
     }
 
-    internal static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -624,15 +634,15 @@ static partial class Game
         }
     }
 
-    internal static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
+    public static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
 
     // Advance and replace actor motion/life in the same critical section. A flush followed by a separate
     // Monsters lock leaves a race in which the pump can consume the replacement as historical movement.
-    internal static IDisposable ProjectileMutation(ClientState conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
-    internal static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
+    public static IDisposable ProjectileMutation(ClientState conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
+    public static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
         ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : conn.Clock.Elapsed.TotalSeconds;
 
-    internal sealed class ProjectileMutationScope : IDisposable
+    public sealed class ProjectileMutationScope : IDisposable
     {
         readonly System.Threading.Lock experience;
         readonly ConnectionPerformance.LockScope actorLock;

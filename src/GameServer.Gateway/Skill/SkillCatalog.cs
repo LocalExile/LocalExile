@@ -10,7 +10,7 @@ using GameServer.Core;
 /// (Agents/docs/protocol/11-skills.md). Reads data/tables (game data, loaded on first use). Without the tables it
 /// knows only the default attack, PlayerMelee at level 1 (GEPL 4474, GESSPL 4430 in 3.29.3b).
 /// </summary>
-sealed class SkillCatalog(string folder = "data", bool hardMode = false)
+public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 {
     /// <summary>The ids the server gives its skills (+0x40). Basic actions use their ActionTypes HASH16 instead, so these
     /// must not collide with the type's basic actions (Character.ot: Move 0x2909, Interaction 0x0266 …). 0x0101 did: a
@@ -439,6 +439,10 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public int CooldownUses(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
 
+    /// <summary>A GrantedEffects row's GEPL CooldownBypassType at a level (<see cref="CooldownBypass"/>), 0 when none.</summary>
+    public int CooldownBypassType(int effectRow, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Bypass : 0;
+
     public bool CooldownPausesWhileActive(int effectRow) =>
         _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
 
@@ -736,6 +740,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["EtherealKnives"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltX"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltY"] = "Metadata/Projectiles/EtherealKnivesProjectile",
+        ["IceShot"] = "Metadata/Projectiles/IceArrow",
         ["RampageDaemonStunNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonBlindNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonSuperRepeatNova"] = "Metadata/Projectiles/RampageProjectile",
@@ -756,6 +761,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
         ["VaalSplitArrow"] = "Metadata/Projectiles/VaalSplitArrowDefault",
+        ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
@@ -1089,7 +1097,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (effectRow < 0 || effectRow >= t.StatSets.Count) return null;
         int gepl = t.PerLevel.FindIndex(r => r.Effect == effectRow && r.Level == level);
         int gesspl = t.StatSetsPerLevel.FindIndex(r => r.StatSet == t.StatSets[effectRow] && r.Level == level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms), t, effectRow, level);
+        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
+            { CooldownBypassType = (byte)t.Cooldowns[gepl].Bypass }, t, effectRow, level);
     }
 
     /// <summary>
@@ -1102,7 +1111,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || t.StatSets[effectRow] < 0) return null;
         int statSet = t.StatSets[effectRow];
         int gepl = PickLevel(t.PerLevel, effectRow, level), gesspl = PickLevel(t.StatSetsPerLevel, statSet, level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms), t, effectRow, level);
+        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
+            { CooldownBypassType = (byte)t.Cooldowns[gepl].Bypass }, t, effectRow, level);
     }
 
     /// <summary>The player's default skills: the default attack, with the class's unarmed weapon stats.</summary>
@@ -1313,13 +1323,13 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7,
     // ManaPercentPerMinute of CostTypes 9.
     // Reservations: per GEPL row the ManaReservationFlat and ManaReservationPercent (permyriad), parallel to PerLevel.
-    // Cooldowns: per GEPL row its Cooldown (ms) and StoredUses, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
+    // Cooldowns: per GEPL row its Cooldown (ms), StoredUses and CooldownBypassType, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
-        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
+        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
@@ -1383,7 +1393,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
-            var cooldowns = new List<(int, int)>();
+            var cooldowns = new List<(int, int, int)>();
             var vaalSouls = new List<int>();
             var vaalStoredUses = new List<int>();
             var soulPrevention = new List<int>();
@@ -1401,7 +1411,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 manaPercentPerMinute.Add(mp >= 0 && mp < amounts.Length ? amounts[mp] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
-                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses"))));
+                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses")), Math.Max(0, Int(r, "CooldownBypassType"))));
                 vaalSouls.Add(Int(r, "VaalSouls"));
                 vaalStoredUses.Add(Int(r, "VaalStoredUses"));
                 soulPrevention.Add(Math.Max(0, Int(r, "SoulGainPreventionDuration")));

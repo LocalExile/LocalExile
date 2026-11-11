@@ -10,7 +10,7 @@ using System.Collections.Concurrent;
 /// <see cref="Die"/> takes every gained charge at once. <see cref="Presentation"/> says which charge buffs the client
 /// must get or lose. Not thread-safe: the Gateway calls it under the connection's Monsters lock.
 /// </summary>
-sealed class ChargeSession(Charges.State? state = null)
+public sealed class ChargeSession(Charges.State? state = null)
 {
     /// <summary>How often the ticker steps (seconds): expiry and periodic gains are this precise.</summary>
     public const double StepSeconds = 0.05;
@@ -123,6 +123,19 @@ sealed class ChargeSession(Charges.State? state = null)
 
     // Current presentation can expire/clamp, but cannot integrate already processed time or reset a moving timer.
     public StepResult Refresh(double now) => Finish(double.IsNaN(lastStep) ? now : Math.Max(now, lastStep), []);
+
+    /// <summary>Whether a charge of the type is held above the minimum (<c>current_removable_*_charges</c>).</summary>
+    public bool CanSpend(ChargeType type) => Effective(type) > limits[(int)type].Minimum;
+
+    /// <summary>Spends one charge of the type above the minimum (a cooldown bypass); the next step presents the count.
+    /// False when none can be spent.</summary>
+    public bool Spend(ChargeType type)
+    {
+        if (!CanSpend(type)) return false;
+        var (_, left) = State.Lose(type, 1, limits[(int)type]);
+        limits[(int)type] = Charges.LimitsOf(type, Observed, left);
+        return true;
+    }
 
     void ApplyEvent(ChargeEvent e, double now, Func<string, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {

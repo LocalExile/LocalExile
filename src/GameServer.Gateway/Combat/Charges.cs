@@ -1,5 +1,5 @@
 /// <summary>The three standard charges every character can hold (issue #237).</summary>
-enum ChargeType { Endurance, Frenzy, Power }
+public enum ChargeType { Endurance, Frenzy, Power }
 
 /// <summary>
 /// Endurance, Frenzy and Power charges: how many a character can hold, for how long, and how they are gained, refreshed,
@@ -18,7 +18,7 @@ enum ChargeType { Endurance, Frenzy, Power }
 /// Times are the connection's game clock in seconds (it stops while the game is paused). The state is not thread-safe:
 /// the Gateway keeps it under the connection's Monsters lock.
 /// </summary>
-static class Charges
+public static class Charges
 {
     /// <summary>A charge's base duration: 10 seconds (wiki "Charge", Mark_GGG 2013; Path of Building CalcSetup's
     /// <c>ChargeDuration</c> BASE 10). No game table holds it.</summary>
@@ -128,7 +128,7 @@ static class Charges
     /// </summary>
     public sealed class State
     {
-        internal readonly Shown[] Presented = new Shown[3];
+        public readonly Shown[] Presented = new Shown[3];
         private readonly int[] held = new int[3];
         private readonly double[] expiresAt = [double.NegativeInfinity, double.NegativeInfinity, double.NegativeInfinity];
         double expiryRate = 1;
@@ -252,7 +252,7 @@ static class Charges
 }
 
 // The charge values/deadlines are neutral data; replacement Game sessions keep accepted gains and expiry.
-sealed partial class ClientState
+public sealed partial class ClientState
 {
-    internal readonly Charges.State PlayerChargeState = new();
+    public readonly Charges.State PlayerChargeState = new();
 }

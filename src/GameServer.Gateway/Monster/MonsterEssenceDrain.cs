@@ -4,7 +4,7 @@
 /// active one deals damage, so a weaker hit never shortens or weakens a stronger debuff and takes over when it ends.
 /// Contagion spreads it (ActiveSkills essence_drain: "The debuff is spread by Contagion"): see <see cref="TakeSpread"/>.
 /// </summary>
-sealed class MonsterEssenceDrain
+public sealed class MonsterEssenceDrain
 {
     /// <summary>What one hit put on the monster: damage per second before the monster's mitigation, duration, the share of
     /// the damage dealt that the caster leeches as life (siphon_life_leech_from_damage_permyriad) and the caster's skill id.</summary>

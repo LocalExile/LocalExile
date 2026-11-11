@@ -11,7 +11,7 @@
 /// (<c>CancelOnDeath</c>, <c>ShowCount</c>) shows them. No game table gives them a duration and PoB has none: they
 /// stay until a kill, death or logout takes them. Vaal Reap's temporary maximum is not modelled.
 /// </summary>
-static class BloodCharges
+public static class BloodCharges
 {
     public const int BaseMaximum = 5;
     public const string DamagePerCharge = "blood_scythe_damage_+%_final_per_charge";

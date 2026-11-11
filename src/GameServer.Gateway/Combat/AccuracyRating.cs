@@ -2,7 +2,7 @@ using System.Numerics;
 
 /// <summary>Unconditional flat/increased accuracy. Keep the unrounded base so selected supports enter the
 /// same buckets before flooring; never reverse a floored character rating to guess its base.</summary>
-static class AccuracyRating
+public static class AccuracyRating
 {
     static IEnumerable<string> Families(WeaponProfile w)
     {

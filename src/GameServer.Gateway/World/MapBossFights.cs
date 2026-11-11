@@ -8,7 +8,7 @@ using GameServer.Core;
 /// when the others are dead; Sirus also brings his storm objects. <c>AtlasVoidstoneSlots</c> drop the matching
 /// Voidstone the first time those bosses are beaten and set the GrantAtlasUpgrade quest flags.
 /// </summary>
-sealed class MapBossFights
+public sealed class MapBossFights
 {
     public const string StormVariety = "Metadata/Monsters/InvisibleFire/InvisibleFireOrionDeathZoneSupporter";
     public const int StormCount = 4;

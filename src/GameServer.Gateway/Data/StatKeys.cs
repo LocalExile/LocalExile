@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 /// Client stat keys (the int passed to the Stats getter 0x1424d6510), read from client code. They are NOT the rows of
 /// our extracted data/tables/Stats.json: the order drifts (key 245 is row 244 there, other keys are further off).
 /// </summary>
-static class StatKeys
+public static class StatKeys
 {
     /// <summary>monster_life_+%_final_from_rarity (Stats.dat row 2895): the rarity's extra life (MonsterCatalog.RarityLifePct).</summary>
     public const uint MonsterLifeFromRarityPct = 0xb50;

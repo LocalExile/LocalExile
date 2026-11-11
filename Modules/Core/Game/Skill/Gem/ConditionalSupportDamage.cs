@@ -6,9 +6,9 @@ using GameServer.Core.World;
 // "5% more Damage with Hits for each Poison on the Enemy, up to a maximum of 8 Poisons", Bloodlust "more Melee Physical
 // Damage against Bleeding Enemies" and Power Charge on Critical "more Damage per Power Charge". GemSupportDamage builds
 // the skill's hit without them, once per cast; these scale each target's roll.
-static partial class Game
+public static partial class Game
 {
-    internal static double ConditionalSupportMore(IReadOnlyDictionary<uint, int>? skill, bool attack, bool chilled,
+    public static double ConditionalSupportMore(IReadOnlyDictionary<uint, int>? skill, bool attack, bool chilled,
         bool lowLife, bool fullLife, bool lifetap, int poisonStacks = 0, bool bleeding = false, int powerCharges = 0,
         bool arcaneSurge = false, int recentIgnites = 0)
     {
@@ -38,7 +38,7 @@ static partial class Game
     }
 
     // Call under the Monsters lock, after the per-target outgoing damage hooks.
-    internal static DamagePacket WithConditionalSupportDamageLocked(ClientState conn, IReadOnlyDictionary<uint, int>? skill,
+    public static DamagePacket WithConditionalSupportDamageLocked(ClientState conn, IReadOnlyDictionary<uint, int>? skill,
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;

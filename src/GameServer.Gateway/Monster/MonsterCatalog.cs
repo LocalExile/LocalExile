@@ -10,7 +10,7 @@ using GameServer.Core;
 /// for about half of them (StateMachine, DiesAfterTime …) and then the client shows "Buffer Underflow".
 /// Both files are game data: they stay in data/ and are loaded on first use.
 /// </summary>
-sealed class MonsterCatalog(string folder = "data")
+public sealed class MonsterCatalog(string folder = "data")
 {
     public sealed record Variety(int Row, string Id, string Name, string BaseType, string? AnimatedObject, IReadOnlyList<string>? Components,
         int LifeMultiplier = 100, int MonsterType = -1, StateMachineData? StateMachine = null, byte TransitionStates = 1,

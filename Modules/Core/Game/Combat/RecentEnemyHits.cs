@@ -2,24 +2,24 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Read sources, count and clock together. Development input cannot replace either authoritative output.
-    internal static (int Count, int Chance) RecentEnemyHitStatsLocked(ClientState conn, IReadOnlyDictionary<uint, int> sources)
+    public static (int Count, int Chance) RecentEnemyHitStatsLocked(ClientState conn, IReadOnlyDictionary<uint, int> sources)
     {
         int count = conn.RecentEnemyHits.Count(conn.Clock.Elapsed.TotalSeconds);
         int Get(string name) => Stats.Key(name) is uint key ? sources.GetValueOrDefault(key) : 0;
         return (count, RecentEnemyHits.Chance(count, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance)));
     }
 
-    internal static void AddRecentEnemyHitStatsLocked(ClientState conn, Dictionary<uint, int> stats)
+    public static void AddRecentEnemyHitStatsLocked(ClientState conn, Dictionary<uint, int> stats)
     {
         var value = RecentEnemyHitStatsLocked(conn, stats);
         if (Stats.Key(RecentEnemyHits.Counter) is uint counter) stats[counter] = value.Count;
         if (Stats.Key(RecentEnemyHits.VirtualChance) is uint chance) stats[chance] = value.Chance;
     }
 
-    internal static RecentEnemyHits.Decision IncomingArmourLocked(ClientState conn, bool relevant, int priorContacts,
+    public static RecentEnemyHits.Decision IncomingArmourLocked(ClientState conn, bool relevant, int priorContacts,
         IReadOnlyDictionary<uint, int> stats)
     {
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
@@ -30,7 +30,7 @@ static partial class Game
 
     // Use the existing player tick for idle expiry. Sample inside the shared send gate, including when
     // a queued refresh crosses a contact, death, modifier change or exact expiry boundary.
-    internal static Task SendRecentEnemyHits(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendRecentEnemyHits(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)

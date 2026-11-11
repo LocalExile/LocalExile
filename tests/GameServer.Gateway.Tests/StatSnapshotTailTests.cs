@@ -65,7 +65,7 @@ public class StatSnapshotTailTests
         live.RecentEvents.Record(StatConditions.BeenHit, now);
         Assert.Equal(active, (int)Game("PlayerEvasionBase", live, now)!);
         live.RecentEvents.Clear();
-        object states = Rules.GetField("ConditionalItemPools", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        object states = Rules.GetField("ConditionalItemPools", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!;
         states.GetType().GetMethod("Remove", [typeof(ClientState)])!.Invoke(states, [live]);
         Assert.Equal(baseline, (int)Game("PlayerEvasionBase", live, now)!);
         // Spell sweeps and projectile kills use shared commits. Minion hits must not activate the owner's hit event.
@@ -110,7 +110,7 @@ public class StatSnapshotTailTests
     public void A_reused_tail_is_the_fresh_one_through_every_stat_source()
     {
         using var setup = new SnapshotSetup();
-        Assert.True((bool)Rules.GetField("VerifyStatSnapshotTail", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!);
+        Assert.True((bool)Rules.GetField("VerifyStatSnapshotTail", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!);
         string character = "StatTail" + Guid.NewGuid().ToString("N");
         var conn = Connection(character);
         var items = (ItemCatalog)Game("ItemsFor", conn)!;
@@ -383,14 +383,14 @@ public class StatSnapshotTailTests
         Rules.GetMethods(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)
             .Single(m => m.Name == method && m.GetParameters().Length == args.Length).Invoke(null, args);
 
-    static long Counter(string name) => (long)Rules.GetField(name, BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+    static long Counter(string name) => (long)Rules.GetField(name, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!;
 
     static CharacterStats.Pools Pools(ClientState conn, int level) => (CharacterStats.Pools)Game("PoolsFor", conn, level)!;
 
     // The connection's reused tail goes, as on a connection that never had one.
     static void ForgetTail(ClientState conn)
     {
-        object tails = Rules.GetField("StatSnapshotTails", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
+        object tails = Rules.GetField("StatSnapshotTails", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static)!.GetValue(null)!;
         tails.GetType().GetMethod("Remove", [typeof(ClientState)])!.Invoke(tails, [conn]);
     }
 

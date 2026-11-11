@@ -8,7 +8,7 @@ using System.Text.Json;
 /// client's height of a cell is 0x141d88190(terrain, cell), in steps of 7.8125 world units: the same unit as the
 /// height u32 of S→C 0x1ba and Positioned's fixed height (Agents/docs/protocol/11-skills.md §10).
 /// </summary>
-static class TerrainHeights
+public static class TerrainHeights
 {
     const string Folder = "data/walkability";
 

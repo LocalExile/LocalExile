@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// character's and is added to the passives' stats (<see cref="Global"/>), so it reaches the pools and the stats the
 /// client shows the same way.
 /// </summary>
-static class ItemModStats
+public static class ItemModStats
 {
     /// <summary>The equipment rows whose items count: body armour, the first weapon set, helmet, amulet, rings, gloves,
     /// boots and belt (Inventories.dat rows 1-10), and the third ring slot (row 102, Ring3, shown by The Unseen Hand's

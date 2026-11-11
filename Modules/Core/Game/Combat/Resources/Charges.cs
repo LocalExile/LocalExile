@@ -6,23 +6,23 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using GameServer.Core.Diagnostics;
 
-static partial class Game
+public static partial class Game
 {
     // Endurance, Frenzy and Power charges (issue #237, 11-skills.md §15). Each connection has a ChargeSession: the combat
     // code enqueues what may grant charges (ChargesOnHit, ChargesOnKill, ChargesWhenHit) and RunCharges rolls, times,
     // expires and presents them. The charges held count in the character's stats through WithCharges.
-    internal static readonly ConditionalWeakTable<ClientState, ChargeSession> ChargeSessions = new();
+    public static readonly ConditionalWeakTable<ClientState, ChargeSession> ChargeSessions = new();
 
     // The charges an area change hands on, by the destination's ticket (Transfer): kept with the duration they had left.
     // A ticket nobody connects with (a failed load) is forgotten after a few minutes.
-    internal static readonly ConcurrentDictionary<uint, (DateTime At, List<Charges.Carried> Charges)> CarriedCharges = new();
+    public static readonly ConcurrentDictionary<uint, (DateTime At, List<Charges.Carried> Charges)> CarriedCharges = new();
 
-    internal static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState));
+    public static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState));
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
     // primary: the use's first target; once-per-use grants (the Frenzy gem) come only from it.
-    internal static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
+    public static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
@@ -39,14 +39,14 @@ static partial class Game
     }
 
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
-    internal static void ChargesOnDeath(ClientState conn)
+    public static void ChargesOnDeath(ClientState conn)
     {
         lock (conn.Monsters) ChargesOf(conn).Die();
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
     // corpse kept a freeze (its killing hit's included) or shattered.
-    internal static void ChargesOnKill(ClientState conn, SpawnedMonster m)
+    public static void ChargesOnKill(ClientState conn, SpawnedMonster m)
     {
         if (conn.PlayerLife == 0) return;
         bool frozen;
@@ -62,7 +62,7 @@ static partial class Game
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit
     // recently" counts blocked hits too (wiki Blocking, fixed in 3.11.1c).
-    internal static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false)
+    public static void ChargesWhenHit(ClientState conn, bool blocked, bool spell = false)
     {
         ChargesOf(conn).Enqueue(new ChargeEvent.WhenHit());
         if (blocked) ChargesOf(conn).Enqueue(new ChargeEvent.Block(spell));
@@ -71,7 +71,7 @@ static partial class Game
     // Transfer: the charges go with the player to the area of the new ticket.
     // Whether the official server keeps charges across areas is not documented (poewiki's Charge page says nothing about
     // it); this one call is the rule. A dead player carries nothing (Resurrect in Town changes area while dead).
-    internal static void CarryCharges(ClientState conn, uint ticket)
+    public static void CarryCharges(ClientState conn, uint ticket)
     {
         List<Charges.Carried> carried;
         lock (conn.Monsters)
@@ -86,7 +86,7 @@ static partial class Game
 
     // The character's stat sources with its charges (CharacterStatSources): Character.ot's per-charge stats, what the
     // charges held add (ChargeEffects.Expand) and their counts for the panel and the buffs.
-    internal static Dictionary<uint, int> WithCharges(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithCharges(ClientState conn, Dictionary<uint, int> sources)
     {
         var stats = new Dictionary<uint, int>(sources);
         foreach (var (stat, value) in ChargeEffects.Inherent)
@@ -154,11 +154,11 @@ static partial class Game
     static readonly ConditionalWeakTable<ClientState, ChargeExpansionSlot> ChargeExpansions = new();
 
     // The more multiplier of the charges on a hit (AttackHit, SpellDamage) or a burn, from the final stats.
-    internal static double ChargeDamageMore(IReadOnlyDictionary<uint, int> stats, bool spell = false) =>
+    public static double ChargeDamageMore(IReadOnlyDictionary<uint, int> stats, bool spell = false) =>
         ChargeEffects.DamageMore(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0, spell);
 
     // The player's additional physical and elemental damage reduction (Endurance Charges, passives) for hits taken.
-    internal static (int Physical, int Elemental) PlayerDamageReduction(ClientState conn,
+    public static (int Physical, int Elemental) PlayerDamageReduction(ClientState conn,
         IReadOnlyDictionary<uint, int>? stats = null)
     {
         stats ??= CharacterPlayerStats(conn);
@@ -167,7 +167,7 @@ static partial class Game
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
     // armour plus additional physical reduction; the other types take resistance before the shared hit-only pass.
-    internal static int MitigateTaken(ClientState conn, DamageType type, int amount, int resistance, int maxResistance)
+    public static int MitigateTaken(ClientState conn, DamageType type, int amount, int resistance, int maxResistance)
     {
         lock (conn.Monsters)
         {
@@ -183,7 +183,7 @@ static partial class Game
 
     // Then, as a monster's hit: the flat damage taken, a ranged attack's physical (Turtle Shell) and the increased damage
     // taken with the shock's (PlayerDamageTaken). An attack that is not ranged is melee.
-    internal static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
+    public static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
         int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack = true, bool ranged = false)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -206,7 +206,7 @@ static partial class Game
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
     // own buffs and exerted attacks are not modelled.
     // True when the skill was a warcry.
-    internal static bool UseWarcryInstance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static bool UseWarcryInstance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect)
         => SkillsFor(conn).IsWarcry(effect) && UseWarcry(remote, stream, ciphers, conn, effect, SupportedSkill(conn, skillId).Stats);
 
@@ -214,14 +214,14 @@ static partial class Game
 
     // A warcry's use time (PoB CalcOffence calcWarcryCastTime): its cast time over warcry speed (the player's and the
     // gem's) and action speed, at least a server tick. The client times the cry from the same warcry_speed_+% (0x141abf4b0).
-    internal static double WarcryCastSeconds(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
+    public static double WarcryCastSeconds(ClientState conn, int effect, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int> own)
     {
         long speed = Stats.Key("warcry_speed_+%") is uint key ? (long)player.GetValueOrDefault(key) + own.GetValueOrDefault(key) : 0;
         return Math.Max(TickSeconds, SkillsFor(conn).CastTimeMs(effect) / 1000.0 / Math.Max(0.01, 1 + speed / 100.0) / PlayerActionFactor(conn));
     }
 
-    internal static bool UseWarcry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int effect,
+    public static bool UseWarcry(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int effect,
         IReadOnlyDictionary<uint, int> own)
     {
         if (!SkillsFor(conn).IsWarcry(effect)) return false;
@@ -285,10 +285,10 @@ static partial class Game
     }
 
     // A warcry's radius: the wiki's base 6 m, Path of Building's EnduringCry skill("radius", 60); one unit is one cell.
-    internal const int WarcryRadius = 60;
+    public const int WarcryRadius = 60;
 
     // A monster's warcry power (Path of Building's ConfigOptions): normal 1, magic 2, rare 10, unique 20.
-    internal static int WarcryPower(MonsterRarity rarity) => rarity switch
+    public static int WarcryPower(MonsterRarity rarity) => rarity switch
     {
         MonsterRarity.Magic => 2,
         MonsterRarity.Rare => 10,
@@ -301,7 +301,7 @@ static partial class Game
     // counts the stats use changed, the pools, the walk speed and the stats (SendChargeStats). The character's stats are
     // worked out outside the Monsters lock, and only while events wait (their gain chances); the limits come with every
     // stats change (ChargeSession.Observe through WithCharges).
-    internal static async Task RunCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    public static async Task RunCharges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         var session = ChargesOf(conn);
@@ -379,7 +379,7 @@ static partial class Game
     // The stats after a charge count changed: 0x1b3 and the skills' stats (the client swings and casts with the speed in
     // its skill records), without SendSkills' skill-bar work (no skill came or went). A changed skill set (a gem moved at
     // the same moment) takes the full SendCharacterStats.
-    internal static async Task SendChargeStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendChargeStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
         var skills = PlayerSkills(conn);

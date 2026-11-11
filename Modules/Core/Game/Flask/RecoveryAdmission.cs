@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // Called only inside SpendFlask's accepted charge transaction, under Monsters and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.

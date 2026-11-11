@@ -13,7 +13,7 @@ using GameServer.Core.Protocol.Instance;
 /// has not measured yet counts once all of its passives are allocated, with the theme on its smalls and every notable's
 /// row, and its own socket excluded from the count.
 /// </summary>
-static class ClusterJewelStats
+public static class ClusterJewelStats
 {
     /// <summary>The theme statistic's target: the character stat each <c>local_affliction_jewel_small_nodes_grant_*</c>
     /// feeds. Stats the server does not read (or has no model for, such as the per-skill-type speed grants) are absent,

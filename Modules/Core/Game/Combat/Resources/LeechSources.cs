@@ -2,13 +2,16 @@ using GameServer.Core.World;
 
 
 /// <summary>Per-type leech coefficients from raw sources. Panel scopes overlap and are never inputs here.</summary>
-sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
+public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
 {
     public bool Attack { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
     // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
     // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").
     public (int Life, int Mana, int EnergyShield) GainOnHit { get; init; }
+    // "X% of Overkill Damage is Leeched as Life" (Slayer's Endless Hunger): the share of a killing hit's damage beyond
+    // the target's remaining Life.
+    public int OverkillLifePct { get; init; }
     public static LeechSources From(Func<string, int> get, bool attack, Func<string, int>? local = null)
     {
         DamagePacket Pool(string pool)
@@ -46,7 +49,10 @@ sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket En
             Math.Max(0, get("mana_gain_per_target") + Local("local_mana_gain_per_target")
                 + Local("local_life_and_mana_gain_per_target")),
             Math.Max(0, get("energy_shield_gain_per_target"))) : default;
-        return new(Pool("life"), Pool("mana"), Pool("energy_shield")) { Attack = attack, GainOnHit = gain };
+        return new(Pool("life"), Pool("mana"), Pool("energy_shield"))
+        {
+            Attack = attack, GainOnHit = gain, OverkillLifePct = Math.Max(0, get("life_leech_on_overkill_damage_%")),
+        };
     }
 
     // Preserve the existing whole direct-hit total while retaining its post-mitigation type proportions.
@@ -58,4 +64,8 @@ sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket En
         double Amount(DamagePacket coefficients) => taken.Components.Sum(c => c.Range.Min * coefficients[c.Type].Min) * scale;
         return (Amount(Life), Amount(Mana), Amount(EnergyShield));
     }
+
+    /// <summary>The Life leeched from the hit's overkill: what it deals beyond <paramref name="targetLife"/>.</summary>
+    public double OverkillLife(int directDamage, uint targetLife) =>
+        OverkillLifePct <= 0 ? 0 : Math.Max(0, (long)directDamage - targetLife) * OverkillLifePct / 100.0;
 }
