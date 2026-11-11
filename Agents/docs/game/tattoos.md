@@ -358,7 +358,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Tattoo of the Tukohama Brawler** | 10% chance to Knock Enemies Back on hit | Small Strength | Ngakanu | works | live /stat base_global_chance_to_knockback_% = 10; a landed hit pushes the monster 2 cells away from the player (unit test) |
+| **Tattoo of the Tukohama Brawler** | 10% chance to Knock Enemies Back on hit | Small Strength | Ngakanu | works | live /stat base_global_chance_to_knockback_% = 10; a landed hit pushes the monster the wiki's minimum 0.4 m (four cells) away, increased by `knockback_distance_+%` and the skill's own knockback stats (unit test) |
 | **Tattoo of the Tukohama Shaman** | Regenerate 0.3% of Life per second | Small Strength | Ngakanu | works | client apply; 0.3%/s life regeneration |
 | **Tattoo of the Tukohama Warcaller** | 8% increased Warcry Cooldown Recovery Rate | Small Strength | Ngakanu | works | live /stat warcry_cooldown_speed_+% = 8; SingleUseCooldown reads it |
 | **Tattoo of the Tukohama Warmonger** | 5% increased Melee Damage | Small Strength | Ngakanu | works | client apply; +5% melee damage |
@@ -621,12 +621,15 @@ Knockback row 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Wit
 - **Applied and read back:** Tukohama Brawler on 21301 (Strength). `/stat` read base_global_chance_to_knockback_% 10;
   `/tattoo_remove` restored it to 0.
 - **Consumer:** every player hit that lands rolls `base_global_chance_to_knockback_%`
-  (`Game.KnockbackOnHitLocked`, called from `AilmentsOnHitLocked`, so melee, spells and projectiles all count). A
-  success pushes the monster 2 cells away from the player along the hit direction (scaled by
-  `knockback_distance_+%`, the farthest walkable cell, blocked cells fall back a step), interrupts its action and
+  (`Game.KnockbackOnHitLocked`, called from `AilmentsOnHitLocked`, so melee, spells and projectiles all count). The
+  character's chance and the skill's own knockback stats add (#849 follow-up): Knockback Support's 25-44% chance and
+  its 50% increased distance are skill stats, so the roll and the distance read both. A success pushes the monster
+  away from the player along the hit direction by the wiki's minimum 0.4 m (four 0.1 m cells, scaled by
+  `knockback_distance_+%`; the farthest walkable cell, blocked cells fall back a step), interrupts its action and
   queues the cell; the AI tick presents it with `InstanceProtocol.Teleport` (0x0f8, the same state the resync and
-  boss teleports use). Monsters with the client's `ImmuneToKnockback` component are exempt.
-  `TattooKnockbackTests` covers the destination rules and the push/teleport queue.
+  boss teleports use). Staged, scripted and asleep monsters are skipped, as `HitReaction` and the AI skip them, and
+  so are monsters with the client's `ImmuneToKnockback` component. `TattooKnockbackTests` covers the destination
+  rules and the push/teleport queue; `ReviewFollowUpTests` covers the skill stats and the skipped states.
 
 Honoured rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
 
@@ -641,11 +644,15 @@ Honoured rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Wit
   Storm tattoo survived the client's relog and read back on the next session.
 - **Small attributes:** Flock and Hatungo on Intelligence small passives read `non_curse_aura_effect_+%` 1 and
   `base_reservation_efficiency_+%` 1.
-- **Consumers:** the new game-side readers are `Game.OnslaughtOnHitLocked` (a hit starts Onslaught),
-  `Game.ArcaneSurgeOnSpellHitLocked`/`GainArcaneSurgeLocked` (a spell hit grants Arcane Surge for four seconds) and
-  `GemLevels.EffectiveGemLevel` (the attribute gem-level stats on active gems); the other rows read stats that
-  already had consumers (charge caps, the resistance cap, `fortify_on_hit` in `FortificationOnHitLocked`, aura
-  effect and reservation efficiency). `TattooHonouredTests` covers the eleven rows and the three new consumers.
+- **Consumers:** the new game-side readers are `Game.OnslaughtOnHitLocked` (a hit starts Onslaught; the shown buff
+  is re-added at most once a second, not on every hit, so a hit per tick no longer re-sends the buff and stats),
+  `Game.ArcaneSurgeOnSpellHitLocked`/`GainArcaneSurgeLocked` (a spell hit grants Arcane Surge for four seconds
+  through the same helper as Arcane Surge Support, sharing its 0.25 s refresh limit and shown deadline; an expired
+  support surge's stronger values are not carried over) and `GemLevels.EffectiveGemLevel` (the attribute gem-level
+  stats on active gems); the other rows read stats that already had consumers (charge caps, the resistance cap,
+  `fortify_on_hit` in `FortificationOnHitLocked`, aura effect and reservation efficiency). `TattooHonouredTests`
+  covers the eleven rows and the three new consumers; `ReviewFollowUpTests` covers the shared Arcane Surge helper and
+  the throttled Onslaught refresh.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.
