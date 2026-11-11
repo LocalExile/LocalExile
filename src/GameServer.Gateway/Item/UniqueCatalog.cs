@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
@@ -174,7 +174,7 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         {
             var profile = definition.CreationVariant is { } variant
                 ? BeaconProfiles.FirstOrDefault(p => p.Name.Equals(variant, StringComparison.OrdinalIgnoreCase))
-                : BeaconProfiles[random.Next(BeaconProfiles.Length)];
+                : BeaconProfiles.FirstOrDefault(p => p.Base == definition.BaseTypeId);
             if (profile.Name is null) throw new InvalidOperationException("Unknown Beacon of Madness variant");
             definition = definition with { BaseTypeId = profile.Base,
                 Mods = [.. definition.Mods.Where(id => !BeaconProfileMods.Contains(id)), .. profile.Mods] };
