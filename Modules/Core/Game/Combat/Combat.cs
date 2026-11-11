@@ -369,6 +369,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             conn.RecentEvents.Record(StatConditions.UsedSkill, begun);
+            SiphoningSkillUsedLocked(conn, begun);
             cryExerted = ConsumeIntimidatingCryExertLocked(conn, weapon.Melee && !ranged);
         }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -1235,6 +1236,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             conn.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
+            SiphoningSkillUsedLocked(conn, acceptedAt);
             bool movement = SkillsFor(conn).IsMovement(effect);
             if (movement) conn.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
             if (movement && IsDashEffect(SkillsFor(conn).EffectId(effect)))

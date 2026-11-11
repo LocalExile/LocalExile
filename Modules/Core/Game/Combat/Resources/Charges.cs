@@ -41,7 +41,7 @@ public static partial class Game
     // The player died (PlayerDied): every gained charge goes now, not at the ticker's next step, which a pause holds back.
     public static void ChargesOnDeath(ClientState conn)
     {
-        lock (conn.Monsters) ChargesOf(conn).Die();
+        lock (conn.Monsters) { ChargesOf(conn).Die(); ClearSiphoningOnDeath(conn); }
     }
 
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
@@ -167,7 +167,9 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? stats = null)
     {
         stats ??= CharacterPlayerStats(conn);
-        return ChargeEffects.Reduction(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        var reduction = ChargeEffects.Reduction(Get);
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through

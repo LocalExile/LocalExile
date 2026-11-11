@@ -475,8 +475,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   15% more damage per charge on the hits and the Offence rows and 20% more cost, with the Charges tab rows, the
   `show_blood_charge_info` gate and BuffDefinitions 1822; no duration (none in the tables), not carried across
   areas (`BloodChargesTests`, `BloodChargesGatewayTests`; live 2026-10-29: rows, gain, loss and buff with a socketed
-  Reap). Spirit, Siphoning, Blitz and Challenger
-  have no reachable player source here (abyss-jewel / Elder-Shaper counting, none in 3.29), the Affliction
+  Reap). Spirit, Blitz and Challenger
+  have no reachable player source here (abyss-jewel counting, none in 3.29), the Affliction
   non-damaging effect and Absorption recoup have no consumer.
   Code: `Charges.cs`, `ChargeGains.cs`, `ChargeEffects.cs`, `ChargeSession.cs`, `ChargeBuffs.cs`,
   `Program.Charges.cs`, `ChargePanelStats.cs`, `BloodCharges.cs`, `Program.BloodCharges.cs`.
@@ -717,6 +717,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `EnemyDebuffs.Rules.cs`. Docs: [11](../docs/protocol/11-skills.md) (The player's debuffs on monsters).
 
 ## Partly working
+
+- Siphoning Charges consume actual influenced equipment and skill use; the missing Disintegrator base limits access.
 
 - Yriel's Fostering Ursa/Rhoa source, follow, attack and lifecycle are native accepted; Snake source and real projectile
   execution pass automated checks with native acceptance pending; remaining beast consumers and catalogue selection remain open.

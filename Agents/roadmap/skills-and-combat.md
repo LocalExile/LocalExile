@@ -143,12 +143,10 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   effective critical, secondary and damaging-ailment rows; the owner's live run of 2026-10-29 passed them, the converted
   charges and the Blood Charges); what remains for #75 is Reap's
   damage over time debuff and Vaal Reap's temporary Blood Charge maximum, and executing the secondary hits (Bear Trap,
-  Herald of Ice) whose rows are display-only. Deferred (2026-10-29, owner's decision): Spirit and Siphoning Charges. Their only 3.29
-  player sources are unique mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
-  `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need, in the items area, unique definitions
-  beyond Mageblood (#60), abyss sockets on the other uniques that have them (only the Stygian Vise rolls its socket)
-  and Shaper/Elder a consumer for `Item.Influences` (13-items.md §2f). Blitz and Challenger
-  Charges have no 3.29 player source at all.
+  Herald of Ice) whose rows are display-only. Spirit Charges remain deferred (2026-10-29, owner's decision): their
+  `maximum_spirit_charges_per_abyss_jewel_equipped` source still needs abyss sockets on the other uniques.
+  Siphoning's influenced-item count and gameplay owner are implemented; Disintegrator's missing Maelstrom Staff base
+  still prevents canonical factory access (13-items.md §2f). Blitz and Challenger have no 3.29 player source.
   Selected area/item-rarity/minion-increased aliases now use one raw actor-plus-own snapshot, with explicit final
   zero/replacement precedence, source clearing and Cyclone radius preservation. `SendPlayer` initial/transition
   creation and later skill refreshes share the snapshot path. Real support controls cover ordinary availability.

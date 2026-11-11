@@ -17,6 +17,7 @@ public static partial class Game
         public long Golems;
         public long AspectRevision;
         public long MadnessRevision;
+        public long SiphoningRevision;
         public int IntimidatingCryMovement;
         public long Slayer, Hierophant;
         public bool ArcaneSurge;
@@ -56,6 +57,7 @@ public static partial class Game
             GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
             AspectRevision = conn.Reservations.AspectRevision,
             MadnessRevision = conn.Madness.Revision,
+            SiphoningRevision = Game.SiphoningRevision(conn),
             IntimidatingCryMovement = Game.IntimidatingCryMovement(conn),
             Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
@@ -69,6 +71,7 @@ public static partial class Game
         && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
         && a.AspectRevision == b.AspectRevision
         && a.MadnessRevision == b.MadnessRevision
+        && a.SiphoningRevision == b.SiphoningRevision
         && a.IntimidatingCryMovement == b.IntimidatingCryMovement
         && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty

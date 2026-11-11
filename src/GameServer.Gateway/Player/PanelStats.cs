@@ -186,10 +186,8 @@ public static class PanelStats
         new("virtual_power_charge_duration_+%", ["power_charge_duration_+%", ChargeDuration, BaseChargeDuration]),
         new("attack_speed_+%_per_frenzy_charge", ["base_attack_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%_per_frenzy_charge"]),
         new("cast_speed_+%_per_frenzy_charge", ["base_cast_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%_per_frenzy_charge"]),
-        // Spirit and Siphoning Charges: the direct maximum sources. Their per-equipped-item sources (abyss jewels,
-        // Elder/Shaper items) count items the server does not model, so they contribute nothing yet; the siphoning
-        // damage-taken row shows its per-charge coefficient as the panel's "Physical Damage per Second per Siphoning
-        // Charge". The counts themselves (current_*) belong to charge mechanics that do not exist yet.
+        // Spirit maximum sources and Siphoning's per-charge display coefficient. The Siphoning owner publishes its
+        // count and equipment-qualified maximum separately; this display coefficient is not a degeneration rate.
         new("virtual_maximum_spirit_charges", ["maximum_spirit_charges"]),
         new("virtual_physical_damage_taken_per_minute_per_siphoning_charge",
             ["physical_damage_taken_per_minute_per_siphoning_charge_if_have_used_a_skill_recently"]),

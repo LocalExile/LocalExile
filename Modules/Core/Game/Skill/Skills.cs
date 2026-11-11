@@ -449,6 +449,10 @@ public static partial class Game
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        IReadOnlyList<(uint Key, int Value)> siphoning;
+        lock (conn.Monsters) siphoning = SiphoningRawStatsLocked(conn, extra);
+        foreach (var (key, value) in siphoning)
+            extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
         if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
             extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AddGolemStats(conn, extra);

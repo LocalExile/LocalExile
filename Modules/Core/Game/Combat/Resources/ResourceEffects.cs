@@ -12,7 +12,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
     public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
-        PhysicalAegisState.Carried? Aegis);
+        PhysicalAegisState.Carried? Aegis, Game.CarriedSiphoning? Siphoning);
     public Snapshot? TransferCheckpoint;
     public bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
@@ -24,7 +24,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         var value = new TimedBlind(); Targets[id] = (target, value); return value;
     }
     public Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at),
-        connection?.PhysicalAegis.Capture(at));
+        connection?.PhysicalAegis.Capture(at), connection is null ? null : Game.CaptureSiphoning(connection, at));
     public void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
@@ -39,12 +39,15 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public void Resume(double at)
     {
         // A refused transfer resumes the live draft, discarding loading earnings rather than paying catch-up.
+        if (connection is not null && TransferCheckpoint?.Siphoning is { } siphoning)
+            Game.RestoreSiphoning(connection, siphoning, at);
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
     public void Restore(Snapshot value, double at)
     {
         Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at);
         if (connection is not null && value.Aegis is { } aegis) connection.PhysicalAegis.Restore(aegis, this, at);
+        if (connection is not null && value.Siphoning is { } siphoning) Game.RestoreSiphoning(connection, siphoning, at);
     }
     public void Clear()
     {
@@ -123,6 +126,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> stats, double earnedMana, uint manaBefore, uint manaCap, ref double manaCarry)
     {
         AdvancePlayerAilmentsLocked(conn, from, now, stats);
+        if (conn.PlayerLife > 0) AdvanceSiphoningDamageLocked(conn, now, stats);
         if (conn.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(conn).Clear(now); FortificationOf(conn).Clear();
