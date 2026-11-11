@@ -122,12 +122,14 @@ static async Task Serve(LoginServerKeys keys)
     // it at the same time; the updater applies each file once.
     SqlUpdater.Update(ClientTables.DefaultPath, "client");
     // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without the WorldAreas table.
-    // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
-    // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
-    // (ServerLevelAreas.SeedsInPlaceOfOne). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
+    // A new instance of an area the Gateway generates itself (world.db's server_level_areas, generated = 1) gets a random
+    // seed; every other area keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it
+    // cannot build seed 1 (server_level_areas.seed_in_place_of_one). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
     // generation off) pins them all that way. Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
     var worldAreas = ClientTables.TableOrNull("WorldAreas");
-    string baseline = GameServer.Core.World.ServerLevelAreas.BaselineFile;
+    // world.db is the Gateway's too: the updater applies each file once, whichever server opens it first.
+    IReadOnlyList<GameDataStore.ServerLevelAreaRow> levelAreas;
+    using (var world = new GameDataStore(GameDataStore.DefaultPath)) levelAreas = world.LoadServerLevelAreas();
     // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
     // The WorldAreas loads run on a thread of their own: the buffers ArrayPool keeps for a thread go with it, then one
@@ -140,9 +142,9 @@ static async Task Serve(LoginServerKeys keys)
         var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
             ? new HashSet<ushort>()
             : GameServer.Core.World.ServerLevelAreas.Hashes(worldAreas,
-                GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
+                levelAreas.Where(r => r.Generated).Select(r => r.AreaId).ToHashSet(StringComparer.Ordinal));
         var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
-            GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
+            levelAreas.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal));
         return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne);
     });
     GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);

@@ -1,7 +1,7 @@
 # Releases
 
 A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3c
-client Windows players need nothing else; Linux players also need umu-launcher and Python 3.
+client Windows players need nothing else; Linux players also need umu-launcher. A release ships no Python.
 Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../../GettingStarted.md)).
 
 ## Making one
@@ -19,8 +19,8 @@ Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../.
 To build it again, delete the draft and start the workflow again.
 The same package builds by hand in a clean checkout: `.\scripts\release\build-release.ps1 -Version 0.2.0`
 (in `artifacts\release\`; it needs the .NET SDK and npm).
-Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the system's Python,
-the client under Proton through umu-run.
+Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the client under Proton
+through umu-run.
 
 ## Versions
 
@@ -47,16 +47,16 @@ Merge commits stay; no history is rewritten.
 | Path | What |
 |---|---|
 | `LocalExile.exe` | the launcher (`src/LocalExile`), one self-contained file |
-| `app/` | self-contained win-x64: the Auth, Patch and Gateway servers and the extraction tools, sharing one runtime |
+| `app/` | self-contained win-x64, English only: the Auth, Patch and Gateway servers and GamePack (the extraction), sharing one runtime |
 | `sql/` | the SQL the servers build the `data/*.db` databases from ([databases](databases.md)) |
 | `Modules/`, `Mods/Binaries/`, `Leagues/` | built modules and mods; leagues as source, which the Gateway compiles when it starts |
-| `Tools/python/`, `Tools/node/`, `Tools/ooz/` | the embeddable Python and Node (pinned by hash in `build-release.ps1`), ooz-wasm |
-| `Tools/extract-manifest.json` | `extract-data.ps1`'s manifest, with each entry's program |
-| `scripts/re/*.py`, `scripts/re/levelgen/gate-baseline.json`, `Agents/docs/re/components.json`, `data/schema/` | what the generators and servers read at those paths |
-| `licenses/`, `README.txt`, `release.json` | licenses and the commit it was built from, the player's guide, the version |
+| `Tools/node/`, `Tools/ooz/` | Node (pinned by hash in `build-release.ps1`) and ooz-wasm: GamePack's Oodle decoder |
+| `Tools/extract-manifest.json` | `extract-data.ps1`'s `-Servers` entries, each with its published program (never Python) |
+| `app/licenses/` | the licenses and the commit it was built from |
+| `README.txt`, `release.json` | the player's guide, the version |
 
 The Linux zip is the same without `.exe`: `LocalExile` and `app/` are self-contained linux-x64, `Tools/node/` holds Linux
-Node, and it has no `Tools/python/`, since the system's Python runs the extraction.
+Node.
 `release.json` names its `runtime`.
 
 It keeps a checkout's relative paths, so the servers and tools run unchanged, with the install as working directory.

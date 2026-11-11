@@ -25,10 +25,28 @@ public sealed class GameDataStore : IDisposable
         int DropLevel, string Confidence, string Source, string? Notes);
     public sealed record ItemWeightRow(string Category, string ItemId, double Weight, bool Enabled, string Source,
         string Confidence, string Patch, string SampledAt, string? Notes);
+    public sealed record ServerLevelAreaRow(string AreaId, bool Generated, uint? SeedInPlaceOfOne);
 
     private readonly SqliteConnection _db;
     private readonly object _gate = new();
     public string Path { get; }
+
+    /// <summary>data/world.db, or <c>Game_WORLD_DB</c>.</summary>
+    public static string DefaultPath => Environment.GetEnvironmentVariable("Game_WORLD_DB") ?? System.IO.Path.Combine("data", "world.db");
+
+    /// <summary>The areas the Gateway generates itself and the seeds played in place of seed 1 (server_level_areas).</summary>
+    public IReadOnlyList<ServerLevelAreaRow> LoadServerLevelAreas()
+    {
+        lock (_gate)
+        {
+            using var command = Command("SELECT area_id, generated, seed_in_place_of_one FROM server_level_areas ORDER BY area_id");
+            using var reader = command.ExecuteReader();
+            var result = new List<ServerLevelAreaRow>();
+            while (reader.Read())
+                result.Add(new(reader.GetString(0), reader.GetInt64(1) != 0, reader.IsDBNull(2) ? null : checked((uint)reader.GetInt64(2))));
+            return result;
+        }
+    }
 
     /// <summary>Opens the database and brings it up to date from <c>sql/base/world</c> and its updates.</summary>
     public GameDataStore(string path)
