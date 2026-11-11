@@ -460,8 +460,8 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         int[] Table(string name)
         {
-            if (!ClientTables.Has("Words")) return [];
-            return [.. ClientTables.Table("Words").OrderBy(r => r.Int("Level")).Select(r => r.Int("Life"))];
+            if (!ClientTables.Has(name)) return [];
+            return [.. ClientTables.Table(name).OrderBy(r => r.Int("Level")).Select(r => r.Int("Life"))];
         }
         return (Table("MagicMonsterLifeScalingPerLevel"), Table("RareMonsterLifeScalingPerLevel"));
     }
