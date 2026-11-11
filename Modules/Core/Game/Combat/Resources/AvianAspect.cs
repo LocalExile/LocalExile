@@ -93,6 +93,8 @@ static partial class Game
             Add(name, (int)Math.Round(value * Math.Max(0, 1 + Get("aspect_of_the_avian_buff_effect_+%") / 100d),
                 MidpointRounding.AwayFromZero));
         }
+        Add("has_avians_might", conn.Reservations.Avian == ReservationState.AvianPhase.Might ? 1 : 0);
+        Add("has_avians_flight", conn.Reservations.Avian == ReservationState.AvianPhase.Flight ? 1 : 0);
         if (conn.Reservations.Avian == ReservationState.AvianPhase.Might)
         {
             Scaled("chance_to_deal_double_damage_%");

@@ -59,6 +59,8 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(1040, conn.Reservations.PresentedAvianRow);
             Assert.Equal(10, Stat("chance_to_deal_double_damage_%"));
             Assert.Equal(10, Stat("minion_chance_to_deal_double_damage_%"));
+            Assert.Equal(1, Stat("has_avians_might"));
+            Assert.Equal(0, Stat("has_avians_flight"));
             Assert.Equal(addedOff + Source("minimum_added_cold_damage_while_you_have_avians_might"),
                 Stat("spell_minimum_added_cold_damage"));
             Assert.Equal(movementOff, conn.Pools.MovementVelocityPct);
@@ -87,6 +89,8 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(0, Stat("chance_to_deal_double_damage_%"));
             Assert.Equal(0, Stat("minion_chance_to_deal_double_damage_%"));
             Assert.Equal(20, Stat("minion_movement_speed_+%"));
+            Assert.Equal(0, Stat("has_avians_might"));
+            Assert.Equal(1, Stat("has_avians_flight"));
             Assert.Equal(6000 + regenOff, Stat("base_life_regeneration_rate_per_minute"));
             Assert.Equal(720 + manaRegenOff, Stat("base_mana_regeneration_rate_per_minute"));
             Assert.Equal(addedOff, Stat("spell_minimum_added_cold_damage"));
