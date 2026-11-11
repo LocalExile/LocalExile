@@ -77,7 +77,7 @@ public static partial class Game
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
-        if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
@@ -217,7 +217,7 @@ public static partial class Game
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
-        if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
@@ -234,7 +234,7 @@ public static partial class Game
 
     // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
     // socket; cluster jewels use the expansion cells (see IsLargeClusterJewel).
-    public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" } type
+    public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" or "AbyssJewel" } type
         && !type.Id.StartsWith("Metadata/Items/Jewels/JewelPassiveTreeExpansion", StringComparison.Ordinal);
 
     /// <summary>The Large Cluster Jewel base type: the only cluster jewel the tree sockets take so far (Voices).</summary>
@@ -378,7 +378,7 @@ public static partial class Game
         }
         if (item is null) return "no held item";
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return "unknown item type";
-        if (type.Class != "Jewel") return $"{type.Class} does not go in a passive jewel socket";
+        if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
         if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {

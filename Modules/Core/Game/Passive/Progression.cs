@@ -534,7 +534,9 @@ public static partial class Game
         ItemModStats.Worn WithGems(ItemModStats.Worn item)
         {
             foreach (var socket in item.Item.Sockets)
-                if (socket.Gem is { } gem && SocketedGemRequirements(conn, gem, requirementsPct) is var g)
+                if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
+                    item = item with { Level = Math.Max(item.Level, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods)) };
+                else if (socket.Gem is { } gem && SocketedGemRequirements(conn, gem, requirementsPct) is var g)
                     item = item with { Level = Math.Max(item.Level, g.Level), Strength = Math.Max(item.Strength, g.Str),
                         Dexterity = Math.Max(item.Dexterity, g.Dex), Intelligence = Math.Max(item.Intelligence, g.Int) };
             return item;
@@ -556,7 +558,7 @@ public static partial class Game
             Stats.Key($"virtual_{attribute}_for_requirements") is uint key && dev.TryGetValue(key, out int set) ? set : value;
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? conn.Pools.Level, active =>
         {
-            var (str, dex, intel) = AttributeInputs(RawAttributes(active.Select(w => w.Item)), dev)
+            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item), catalog)), dev)
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
@@ -568,7 +570,8 @@ public static partial class Game
             if (exempt.Count > 0) active = [.. active, .. exempt];
             inactive.ExceptWith(exemptions);
         }
-        var rawAttributes = RawAttributes(active);
+        var activeSources = AbyssJewels.Sources(active, catalog).ToArray();
+        var rawAttributes = RawAttributes(activeSources);
         var conditionAttributes = AttributeInputs(rawAttributes, dev)
             .Apply(c.Strength + (conn.God ? 1000 : 0), c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
         // A stat whose id carries a condition only counts while that condition holds (issue #504). The subject answers
@@ -592,7 +595,8 @@ public static partial class Game
                 "rage" => null,
                 _ => (int?)null,
             }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags);
-        var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
+        var sources = ItemModStats.Plus(passives, ItemModStats.Global(activeSources, catalog.Mods, Stats, conditionSubject));
+        AbyssJewels.Count(activeSources, catalog, Stats, sources);
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
