@@ -25,7 +25,11 @@ public static class IzaroChronos
 
     /// <summary>ExtinguishPillar_chronos/rig.amd: lift_raise (10.7 s) and lift_lower (3.333 s), which the .ot's server
     /// part plays, so the server sends them.</summary>
-    public const uint LiftRaiseClip = 7, LiftLowerClip = 6;
+    public const uint LiftRaiseClip = 7, LiftLowerClip = 6, LiftIdleDownClip = 5;
+
+    /// <summary>How long after its channel ends an idol's lowering is sent: sent with the channel's end, the client left
+    /// it standing (live 2026-11-11).</summary>
+    public const double LowerAfterSeconds = 0.3;
 
     /// <summary>How long an idol takes from 1 life to full, how many circles it casts and how long it sits after
     /// (the original, live).</summary>
@@ -43,6 +47,16 @@ public static class IzaroChronos
     /// <summary>The circle on the ground and its burst, by element (0 fire, 1 cold, 2 lightning):
     /// Metadata/Effects/Spells/monsters_effects/elemental_beacon/&lt;element&gt;/aoe.ao (aoe_loop) and explode.ao.</summary>
     public static string CircleArt(int element) => $"Metadata/Effects/Spells/monsters_effects/elemental_beacon/{Folder(element)}/aoe.ao";
+
+    /// <summary>The beacon's orb in the circle's middle (beacon.ot's rig.ao: orb_&lt;element&gt;_end 0, _loop 1, _start 2
+    /// at 0.458 s, which plays first).</summary>
+    public static string OrbArt(int element) => $"Metadata/Effects/Spells/monsters_effects/elemental_beacon/{Folder(element)}/rig.ao";
+    public const uint OrbEndClip = 0, OrbLoopClip = 1;
+    public const double OrbStartSeconds = 0.458;
+
+    /// <summary>beacon_izaro's FloatStatsValues: its damage is that much of the monster damage at the idol's level
+    /// (StatInterpolations 3).</summary>
+    public const double DamageLow = 0.8, DamageHigh = 1.2;
     public static string BurstArt(int element) => $"Metadata/Effects/Spells/monsters_effects/elemental_beacon/{Folder(element)}/explode.ao";
     static string Folder(int element) => element switch { 0 => "fire", 1 => "ice", _ => "lightning" };
 

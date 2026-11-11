@@ -129,25 +129,28 @@ static partial class QuestobjectsRules
     static async Task LowerIzaroIdols(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, List<IdolSlot> risen)
     {
         if (risen.Count == 0) return;
-        List<byte> bytes = [];
         lock (conn.Monsters)
             foreach (var i in risen)
             {
                 i.Up = false;
                 i.Monster.ActionGeneration++;
-                bytes.AddRange([.. InstanceProtocol.ActionEnded(i.Id), .. InstanceEntities.TransitionableUpdate(i.Id, i.Transitionable, IzaroChronos.Lowering),
-                    .. InstanceProtocol.AnimationUpdate(i.Id, 0, IzaroChronos.LiftLowerClip, 1), .. LiftState(conn, i.Lift!.Value.Id, i.Lift.Value.At, IzaroFights.Lowering)]);
             }
-        await Send(remote, stream, ciphers, [.. bytes], $"0x02bc Izaro's {risen.Count} idols go down");
+        await Send(remote, stream, ciphers, [.. risen.SelectMany(i => InstanceProtocol.ActionEnded(i.Id))], null);
         var layout = conn.Layout;
+        bool Gone() => conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout);
         _ = Task.Run(async () =>
         {
-            await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.LowerSeconds));
-            if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
             try
             {
+                await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.LowerAfterSeconds));
+                if (Gone()) return;
+                await Send(remote, stream, ciphers, [.. risen.SelectMany(i => (byte[])[.. InstanceEntities.TransitionableUpdate(i.Id, i.Transitionable, IzaroChronos.Lowering),
+                    .. InstanceProtocol.AnimationUpdate(i.Id, 0, IzaroChronos.LiftLowerClip, 1), .. LiftState(conn, i.Lift!.Value.Id, i.Lift.Value.At, IzaroFights.Lowering)])],
+                    $"0x02bc Izaro's {risen.Count} idols go down");
+                await Task.Delay(TimeSpan.FromSeconds(IzaroStatues.LowerSeconds));
+                if (Gone()) return;
                 await Send(remote, stream, ciphers, [.. risen.SelectMany(i => (byte[])[.. InstanceEntities.TransitionableUpdate(i.Id, i.Transitionable, IzaroChronos.Lowered),
-                    .. LiftState(conn, i.Lift!.Value.Id, i.Lift.Value.At, IzaroFights.Down)])], null);
+                    .. InstanceProtocol.AnimationUpdate(i.Id, 0, IzaroChronos.LiftIdleDownClip, 1), .. LiftState(conn, i.Lift!.Value.Id, i.Lift.Value.At, IzaroFights.Down)])], null);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
         });

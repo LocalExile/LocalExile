@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using static Game;
 using static Program;
 
@@ -38,10 +39,17 @@ static class IzaroIdols
     internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster idol,
         int element, double fillSeconds, Func<bool> up)
     {
-        if (idol.Variety is not { } variety || idol.Attack is not { } plain || variety.GrantedEffects is not [int beacon, ..]) return;
-        var catalog = Game.SkillsFor(conn);
-        int beaconLevel = catalog.MonsterEffectLevel(beacon, idol.Level);
-        var burst = plain with { Damage = catalog.HitDamage(beacon, beaconLevel), Spell = true, Scripted = true, Projectile = null, Release = null };
+        if (idol.Attack is not { } plain) return;
+        // beacon_izaro's damage is its FloatStatsValues (0.8 to 1.2) of the monster damage at the idol's level
+        // (StatInterpolations 3), of its element; the row's BaseResolvedValues (14 to 22) are its level 3's (live: no damage
+        // seen with them).
+        double baseDamage = Monsters.BaseDamage(idol.Level) ?? 0;
+        var type = element switch { 0 => DamageType.Fire, 1 => DamageType.Cold, _ => DamageType.Lightning };
+        var burst = plain with
+        {
+            Damage = DamagePacket.Of(type, baseDamage * IzaroChronos.DamageLow, baseDamage * IzaroChronos.DamageHigh),
+            Spell = true, Scripted = true, Projectile = null, Release = null,
+        };
         try
         {
             while (up())
@@ -110,7 +118,8 @@ static class IzaroIdols
 
     static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((double)(a.X - b.X) * (a.X - b.X) + (double)(a.Y - b.Y) * (a.Y - b.Y));
 
-    // The circles show for their fuse, then burst: the player inside one takes its hit (one hit, however many).
+    // The circles show for their fuse, each with its beacon's orb in the middle (beacon.ot: rig.ao, its start then its
+    // loop; at the end its end clip), then burst: the player inside one takes its hit (one hit, however many).
     static async Task Circles(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster idol,
         MonsterAttack burst, int element, List<(int X, int Y)> spots)
     {
@@ -119,20 +128,28 @@ static class IzaroIdols
         try
         {
             var circles = new List<uint>();
+            var orbs = new List<uint>();
             List<byte> show = [];
             lock (conn.Monsters)
                 foreach (var s in spots)
                 {
-                    uint effect = conn.NextObjectId++;
+                    uint effect = conn.NextObjectId++, orb = conn.NextObjectId++;
                     circles.Add(effect);
+                    orbs.Add(orb);
                     show.AddRange([.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(s.X, s.Y, IzaroChronos.CircleArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect)]);
+                        new EffectObject(s.X, s.Y, IzaroChronos.CircleArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(effect),
+                        .. InstanceEntities.CreateObject(orb, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        new EffectObject(s.X, s.Y, IzaroChronos.OrbArt(element)).Blob()), .. InstanceProtocol.EnterWakeZone(orb)]);
                 }
             await Send(remote, stream, ciphers, [.. show], null);
-            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.FuseSeconds));
+            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.OrbStartSeconds));
+            if (Gone()) return;
+            await Send(remote, stream, ciphers, [.. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbLoopClip, 1))], null);
+            await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.FuseSeconds - IzaroChronos.OrbStartSeconds));
             if (Gone()) return;
             var bursts = new List<uint>();
-            List<byte> burstBytes = [.. circles.SelectMany(InstanceProtocol.RemoveObject)];
+            List<byte> burstBytes = [.. circles.SelectMany(InstanceProtocol.RemoveObject),
+                .. orbs.SelectMany(o => InstanceProtocol.AnimationUpdate(o, 0, IzaroChronos.OrbEndClip, 1))];
             lock (conn.Monsters)
                 foreach (var s in spots)
                 {
@@ -158,7 +175,7 @@ static class IzaroIdols
             });
             if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
             await Task.Delay(TimeSpan.FromSeconds(IzaroChronos.ExplodeSeconds));
-            if (!Gone()) await Send(remote, stream, ciphers, [.. bursts.SelectMany(InstanceProtocol.RemoveObject)], null);
+            if (!Gone()) await Send(remote, stream, ciphers, [.. bursts.Concat(orbs).SelectMany(InstanceProtocol.RemoveObject)], null);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} idol 0x{id:x}'s circles stopped: {ServerLog.Describe(ex)}"); }

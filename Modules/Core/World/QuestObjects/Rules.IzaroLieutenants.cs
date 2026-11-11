@@ -55,8 +55,9 @@ static partial class QuestobjectsRules
             return null;
         }
         byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+        // With its weapons in its Inventories (as Izaro's: without them it swung empty-handed, live 2026-11-11).
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, at.X, at.Y, rotation: at.Angle,
-            placement: MonsterPlacement.Established);
+            placement: MonsterPlacement.Established, ownedLooks: variety.Weapons);
         lock (conn.Monsters)
         {
             if (conn.Monsters.GetValueOrDefault(id) is not { } m) return null;
