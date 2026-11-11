@@ -22,9 +22,13 @@ public static partial class Game
             return SkillGemLevel.Resolve(intrinsic, supportedBonus, []);
         string[] stats = info.IsSupport
             ? SkillsFor(conn).IsExceptional(type.Row) ? [] : [SkillGemLevel.NonExceptionalSupports]
-            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => SkillsFor(conn).FamilyStatRaises(stat, type.Row))];
+            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => SkillsFor(conn).FamilyStatRaises(stat, type.Row)),
+                .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<string>()];
         return SkillGemLevel.Resolve(intrinsic, supportedBonus, stats.Select(stat => RawGemStat(conn, stat)));
     }
+
+    // The attribute gem-level stat for a SkillGems GemColour (Active gems only: support gems have their own).
+    static string? AttributeStat(int colour) => SkillGemLevel.AttributeStat(colour);
 
     // +% quality of all skill gems: active gems only, like the level stat.
     public static int GemQualityBonus(ClientState conn, GameServer.Core.Protocol.Instance.Item gem) =>

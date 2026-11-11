@@ -1,15 +1,17 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 45 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 80 tattoo rows client-verified).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Forty-five rows are `works` (the ten pilot,
-22 plain stats, nine Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral
-Bloodlines: ES recovery works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga)
-and 52 are `not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable,
-Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue,
-the client mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is
-per row; `Reason` names the missing layer.
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Eighty rows are `works` (the ten pilot,
+22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the three
+Herald/guard/Fortify rows, the corpse-consumption, Hinder and knockback rows, the eleven Honoured rows, nine Makanga
+gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral Bloodlines: ES recovery works,
+life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga) and 17 are `not implemented`
+(the ten Loyalty summons and the seven Forbidden tattoos). The server enforces the client's per-group limits
+(Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page
+records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules and the implementation
+groups. The `Status` column is per row; `Reason` names the missing layer.
 
 This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`, `PassiveSkillTattoos`,
 `PassiveSkillTattooTargetSets` and `PassiveSkillOverrides`, cross-checked with the poewiki
@@ -22,10 +24,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 29 | 0 | 0 | 24 |
-| Drop-disabled | 40 | 16 | 1 | 2 | 21 |
+| Current (drop-enabled) | 53 | 53 | 0 | 0 | 0 |
+| Drop-disabled | 40 | 27 | 1 | 2 | 10 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **45** | **1** | **2** | **52** |
+| **Total** | **100** | **80** | **1** | **2** | **17** |
 
 | Status | Meaning |
 |---|---|
@@ -42,7 +44,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | Not implemented. |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | Complete: every drop-enabled row whose consumer this group covers works, and the eleven Honoured rows work too (their on-hit buffs, attribute gem levels and the existing stat readers). The ten Loyalty summons (group 5) and the seven event-only Forbidden tattoos (group 4) remain. |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
@@ -388,24 +390,24 @@ tattoos do not. All are drop-disabled in 3.29.
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Honoured Tattoo of the Barbarian** | +1% to maximum Cold Resistance<br>+1 to Maximum Frenzy Charges | Notable (+30 Dex) | drop-disabled | not implemented | needs max cold res + frenzy charge cap |
-| **Honoured Tattoo of the Berserker** | You gain Onslaught for 4 seconds on Hit | Notable (+30 Dex) | drop-disabled | not implemented | needs Onslaught-on-hit buff |
+| **Honoured Tattoo of the Barbarian** | +1% to maximum Cold Resistance<br>+1 to Maximum Frenzy Charges | Notable (+30 Dex) | drop-disabled | works | live /stat base_maximum_cold_damage_resistance_% 1 and max_frenzy_charges 1 |
+| **Honoured Tattoo of the Berserker** | You gain Onslaught for 4 seconds on Hit | Notable (+30 Dex) | drop-disabled | works | live /stat gain_onslaught_on_hit_duration_ms 4000; a hit starts the Onslaught buff (unit test) |
 | **Honoured Tattoo of the Dove** | +4% to Chaos Resistance | Small Attribute | drop-disabled | works | client apply; chaos 0% -> 4% |
-| **Honoured Tattoo of the Flock** | 1% increased effect of Non-Curse Auras from your Skills | Small Attribute | drop-disabled | not implemented | needs non-curse aura effect |
-| **Honoured Tattoo of the Flood** | Gain Arcane Surge on Hit with Spells | Notable (+30 Int) | drop-disabled | not implemented | needs Arcane Surge on spell hit |
-| **Honoured Tattoo of the Hatungo** | 1% increased Reservation Efficiency of Skills | Small Attribute | drop-disabled | not implemented | needs reservation efficiency |
-| **Honoured Tattoo of the Hunter** | +1 to Level of all Dexterity Skill Gems | Notable (+30 Dex) | drop-disabled | not implemented | needs Dexterity gem levels |
+| **Honoured Tattoo of the Flock** | 1% increased effect of Non-Curse Auras from your Skills | Small Attribute | drop-disabled | works | live /stat non_curse_aura_effect_+% 1; non-curse aura effect has its readers |
+| **Honoured Tattoo of the Flood** | Gain Arcane Surge on Hit with Spells | Notable (+30 Int) | drop-disabled | works | live /stat gain_arcane_surge_on_hit_%_chance 100; a spell hit grants the 4 s Arcane Surge (unit test) |
+| **Honoured Tattoo of the Hatungo** | 1% increased Reservation Efficiency of Skills | Small Attribute | drop-disabled | works | live /stat base_reservation_efficiency_+% 1; reservation efficiency has its readers |
+| **Honoured Tattoo of the Hunter** | +1 to Level of all Dexterity Skill Gems | Notable (+30 Dex) | drop-disabled | works | live /stat dexterity_skill_gem_level_+ 1; effective gem level reads it (unit test) |
 | **Honoured Tattoo of the Makanga** | +2% to all maximum Resistances | Small Attribute | drop-disabled | works | live 8-neighbour gate; max res 86 -> 84 after refunding one neighbour |
-| **Honoured Tattoo of the Mountain** | +1% to maximum Fire Resistance<br>+1 to Maximum Endurance Charges | Notable (+30 Str) | drop-disabled | not implemented | needs max fire res + endurance charge cap |
+| **Honoured Tattoo of the Mountain** | +1% to maximum Fire Resistance<br>+1 to Maximum Endurance Charges | Notable (+30 Str) | drop-disabled | works | live /stat base_maximum_fire_damage_resistance_% 1 and max_endurance_charges 1 |
 | **Honoured Tattoo of the Oak** | 2% increased maximum Life | Small Attribute | drop-disabled | works | client apply; max life +2% |
-| **Honoured Tattoo of the Pa** | Melee Hits Fortify | Notable (+30 Str) | drop-disabled | not implemented | needs melee-hit fortify |
+| **Honoured Tattoo of the Pa** | Melee Hits Fortify | Notable (+30 Str) | drop-disabled | works | live /stat fortify_on_hit 1; FortificationOnHitLocked grants the stack |
 | **Honoured Tattoo of the Pillager** | 3% increased Rarity of Items found | Small Attribute | drop-disabled | works | client apply; +3% rarity of items found |
 | **Honoured Tattoo of the Sky** | +3% to all Elemental Resistances | Small Attribute | drop-disabled | works | client apply; fire/cold/lightning +3% |
-| **Honoured Tattoo of the Storm** | +1% to maximum Lightning Resistance<br>+1 to Maximum Power Charges | Notable (+30 Int) | drop-disabled | not implemented | needs max lightning res + power charge cap |
+| **Honoured Tattoo of the Storm** | +1% to maximum Lightning Resistance<br>+1 to Maximum Power Charges | Notable (+30 Int) | drop-disabled | works | live /stat base_maximum_lightning_damage_resistance_% 1 and max_power_charges 1 |
 | **Honoured Tattoo of the Tuatara** | +4 to all Attributes | Small Attribute | drop-disabled | works | client apply; +4 all attributes |
 | **Honoured Tattoo of the Turtle** | 3% increased Global Defences | Small Attribute | drop-disabled | works | client apply; +3% global defences |
-| **Honoured Tattoo of the Warlord** | +1 to Level of all Strength Skill Gems | Notable (+30 Str) | drop-disabled | not implemented | needs Strength gem levels |
-| **Honoured Tattoo of the Wise** | +1 to Level of all Intelligence Skill Gems | Notable (+30 Int) | drop-disabled | not implemented | needs Intelligence gem levels |
+| **Honoured Tattoo of the Warlord** | +1 to Level of all Strength Skill Gems | Notable (+30 Str) | drop-disabled | works | live /stat strength_skill_gem_level_+ 1; effective gem level reads it (unit test) |
+| **Honoured Tattoo of the Wise** | +1 to Level of all Intelligence Skill Gems | Notable (+30 Int) | drop-disabled | works | live /stat intelligence_skill_gem_level_+ 1; effective gem level reads it (unit test) |
 
 ### Journey Makanui (1)
 
@@ -600,6 +602,25 @@ Journey Makanui and limit checks 2026-10-30 (client/server):
 - Unit tests cover all five `LimitName` groups (0/4/5/6/40) and the same-node replacement rule.
 - The test tattoos were removed; the tree is back to 530 passives, the user's 12 tattoos and baseline keystones
   (Roiling Tempest on 40351, Versatile Combatant on 50679).
+
+Honoured rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Attribute notables:** the nine Honoured notable tattoos were applied to the +30 notables Prowess (52714,
+  Strength), Agility (56029, Dexterity) and Ancestral Knowledge (50197, Intelligence), which the apply path now
+  accepts. `/stat` read each row's stats (Warlord `strength_skill_gem_level_+` 1, Mountain
+  `base_maximum_fire_damage_resistance_%` 1 + `max_endurance_charges` 1, Storm
+  `base_maximum_lightning_damage_resistance_%` 1 + `max_power_charges` 1, Flood
+  `gain_arcane_surge_on_hit_%_chance` 100, Berserker `gain_onslaught_on_hit_duration_ms` 4000, and the rest);
+  replacing a tattoo on the same node works, `/tattoo_remove` restored the node's own +30 stat, and the Limit 4
+  group refused a second notable while one was applied ("only one Attribute Notable Tattoo can be applied"). The
+  Storm tattoo survived the client's relog and read back on the next session.
+- **Small attributes:** Flock and Hatungo on Intelligence small passives read `non_curse_aura_effect_+%` 1 and
+  `base_reservation_efficiency_+%` 1.
+- **Consumers:** the new game-side readers are `Game.OnslaughtOnHitLocked` (a hit starts Onslaught),
+  `Game.ArcaneSurgeOnSpellHitLocked`/`GainArcaneSurgeLocked` (a spell hit grants Arcane Surge for four seconds) and
+  `GemLevels.EffectiveGemLevel` (the attribute gem-level stats on active gems); the other rows read stats that
+  already had consumers (charge caps, the resistance cap, `fortify_on_hit` in `FortificationOnHitLocked`, aura
+  effect and reservation efficiency). `TattooHonouredTests` covers the eleven rows and the three new consumers.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.

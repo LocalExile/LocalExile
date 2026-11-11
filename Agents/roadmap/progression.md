@@ -16,12 +16,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   save/load, global mods, refund guard); unique jewels use the same path but have no item source yet.
   See [unique-jewels.md](unique-jewels.md) for the 185-entry catalogue and the phased unique-jewel plan.
 - **Next:** tattoos: all 100 items, protocol, target/limit rules and interactions are documented in
-  [tattoos.md](../docs/game/tattoos.md). The client flow, 32 plain stats, nine Makanga gates, three Journey
-  tattoos and Journey Makanui are client-verified (Hinekora/Kitava Makanga are inert; Ancestral Bloodlines is
-  partial): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The five
-  `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. Next: the
-  35 condition/skill rows and Loyalty; the seven Forbidden ascendancy tattoos use a separate client flow. Also
-  still open: replace/reallocation and the 50-tattoo cap.
+  [tattoos.md](../docs/game/tattoos.md). The client flow and 80 of the 100 rows are client-verified, including the
+  whole drop-enabled group, the Honoured attribute notables and the skill/ailment consumers: C->S `0x77`, `0x33`'s
+  fifth list, item consumption, relog and Orb of Scouring removal (Hinekora/Kitava Makanga are inert; Ancestral
+  Bloodlines is partial). The five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its
+  random keystone. Next: the ten Loyalty summons (the Summon Spirit skills and their triggers) and the seven
+  Forbidden ascendancy tattoos (separate client flow). Also still open: replace/reallocation and the 50-tattoo cap.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
   [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per

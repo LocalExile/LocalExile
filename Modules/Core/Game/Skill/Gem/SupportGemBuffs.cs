@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Login;
 
 public static partial class Game
@@ -91,6 +92,34 @@ public static partial class Game
     }
 
     public static bool ArcaneSurgeActive(ClientState conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
+
+    // A generic Arcane Surge source (equipment, passives, tattoos; not the support gem's per-spell threshold): the buff
+    // is the same one Arcane Surge Support grants - 20% increased Cast Speed, 30% increased Mana Regeneration Rate for
+    // 4 seconds (poewiki Arcane Surge: equipment/passive/Ascendancy sources are identical to the support's buff; the
+    // support's more Spell Damage is its own per-supported-skill stat). A gain never downgrades a stronger running buff.
+    public const int ArcaneSurgeCastSpeed = 20, ArcaneSurgeManaRegen = 30;
+    public const double ArcaneSurgeSeconds = 4;
+
+    /// <summary>Grants Arcane Surge from a generic source (the Honoured Flood tattoo, "Gain Arcane Surge on Hit with
+    /// Spells"), refreshing its four seconds. Under the Monsters lock; the player tick presents it.</summary>
+    public static void GainArcaneSurgeLocked(ClientState conn, double now)
+    {
+        var state = conn.SupportGems;
+        state.ArcaneSurgeUntil = Math.Max(state.ArcaneSurgeUntil, now + ArcaneSurgeSeconds);
+        state.ArcaneSurgeCastSpeedPct = Math.Max(state.ArcaneSurgeCastSpeedPct, ArcaneSurgeCastSpeed);
+        state.ArcaneSurgeManaRegenPct = Math.Max(state.ArcaneSurgeManaRegenPct, ArcaneSurgeManaRegen);
+        state.ArcaneSurgeRefresh = true;
+        state.PendingStats = true;
+    }
+
+    /// <summary>"X% chance to Gain Arcane Surge on Hit with Spells" (the Honoured Flood tattoo and other sources): one
+    /// roll per spell hit that landed. Under the Monsters lock, after the hit's damage.</summary>
+    public static void ArcaneSurgeOnSpellHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, double now,
+        Random random)
+    {
+        if (Stats.Key("gain_arcane_surge_on_hit_%_chance") is not uint key) return;
+        if (RandomRolls.Chance(player.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(conn, now);
+    }
 
     static List<byte[]> PresentationLocked(ClientState conn)
     {
