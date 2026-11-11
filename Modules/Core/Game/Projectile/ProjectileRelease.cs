@@ -158,9 +158,18 @@ public static partial class Game
             ? ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
             : use.Origin;
         double speed = use.Profile.Speed;
+        var shot = (ProjectileOffense)use.Payload!;
+        // The proxy's Actor action does not draw Spark. Give its simulated legs a flight object and the art's own clip.
+        if (use.Emitter.Id != PlayerId)
+            shot = shot with
+            {
+                ClientPredicted = false,
+                Presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(use.Profile.Id), life)
+            };
         return use with
         {
             Origin = sparkOrigin,
+            Payload = shot,
             Profile = use.Profile with
             {
                 Legs = i => new SparkLegs(sequence, i, use.Emitter.Id, life, randomDuration, speed, repeatsLeft),

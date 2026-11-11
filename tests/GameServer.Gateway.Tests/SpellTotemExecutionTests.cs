@@ -86,6 +86,9 @@ public sealed class SpellTotemExecutionTests
                 var emitted = session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == 777).ToArray();
                 Assert.NotEmpty(emitted);
                 Assert.All(emitted, p => { Assert.NotNull(p.Profile.Legs); Assert.Equal(150, p.Profile.LegLeash);
+                    var shot = Assert.IsType<ProjectileOffense>(p.Use.Payload);
+                    Assert.False(shot.ClientPredicted);
+                    Assert.Equal(Game.SkillsFor(conn).Clips(p.Profile.Id)!.Flight!.Index, shot.Presentation!.FlightClip);
                     Assert.Equal(100, p.Use.Origin.X); Assert.Equal(20, p.Use.Origin.Y); });
             }
             finally { session.Invalidate(); }
@@ -118,6 +121,15 @@ public sealed class SpellTotemExecutionTests
             Assert.Equal((150, 80), placed.At); Assert.True(placed.MaxLife > 1);
             Assert.Equal(8, placed.Until - conn.Clock.Elapsed.TotalSeconds, 3);
             Assert.True(Game.SpellTotemCurrent(conn, placed));
+            var contact = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finish = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pending = Game.CreateTotem("test", wire.Stream, wire.Ciphers, conn, skill, gem.Effect, gem.Level,
+                Game.TotemVariety(conn, gem.Effect)!, (151, 80), null, () => { contact.SetResult(); return finish.Task; });
+            await contact.Task;
+            Assert.Same(placed, Assert.Single(conn.Totems.Living(0)));
+            finish.SetResult(false);
+            Assert.Null(await pending);
+            Assert.Same(placed, Assert.Single(conn.Totems.Living(0)));
             var sourceHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
             Game.ItemsOf(conn).Change(PlayerInventories.Weapon1, sourceHost.Id, item => item with
             { Sockets = [.. item.Sockets.Select(s => s with { Gem = PlayerInventories.PreserveGemIdentity(s.Gem!, s.Gem! with { GemExperience = 1 }) })] });

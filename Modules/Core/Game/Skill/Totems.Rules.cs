@@ -102,17 +102,23 @@ public static partial class Game
         var source = SupportedSkill(conn, skillId);
         bool SourceCurrent() => SupportedSkill(conn, skillId) is var live && live.Host == source.Host
             && SameTotemSource(source, live) && IsTotemSkill(conn, skillId);
-        double release = conn.Clock.Elapsed.TotalSeconds + seconds;
-        while (conn.Paused || conn.Clock.Elapsed.TotalSeconds < release)
+        bool Valid() => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && SourceCurrent()
+            && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0;
+        double start = AreaTime(conn), placedAt = start + seconds;
+        async Task<bool> WaitUntil(double at)
         {
-            if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || !SourceCurrent()
-                || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-            await AreaWait(PlayerUpdateRole.Minions, 25);
+            while (conn.Paused || AreaTime(conn) < at)
+            {
+                if (!Valid()) return false;
+                await AreaWait(PlayerUpdateRole.Minions, 25);
+            }
+            return Valid();
         }
-        if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || !SourceCurrent()
-            || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-        await CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, at,
-            () => ReferenceEquals(lifetime, CombatLifetime) && current() && SourceCurrent());
+        bool spell = SpellTotemEffect(conn, effect);
+        double contact = spell ? start + seconds * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject) : placedAt;
+        if (await WaitUntil(contact))
+            await CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, at, Valid,
+                spell ? () => WaitUntil(placedAt) : null);
     }
 
     /// <summary>
@@ -122,8 +128,13 @@ public static partial class Game
     /// and the skill's), replacing the oldest. Its aura's stats and radius are the skill's at this moment. Null when the
     /// limit is below one (the client refuses the use itself then) or the player is gone.
     /// </summary>
-    public static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null)
+    public static Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null) =>
+        CreateTotem(remote, stream, ciphers, conn, skillId, effect, gemLevel, variety, at, current, null);
+
+    internal static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
+        Func<Task<bool>>? finishPlacement)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
         var stats = SupportedStats(conn, skillId);
@@ -154,33 +165,44 @@ public static partial class Game
         var sourceGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(conn, skillId) : null;
         if (spellTotem && proxy is null) return null;
+        bool Valid() => CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && current?.Invoke() != false;
+        (int X, int Y) ClearPosition(uint objectId)
+        {
+            if (bodySize < 0) return place;
+            bool Floor(int x, int y) => conn.Layout.WalkableFor(x, y, bodySize) && !conn.Barrier.Contains((x, y));
+            return CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterPlacementBlockers(objectId),
+                moverSize: bodySize) ?? place;
+        }
+        void Activate(uint objectId, List<byte> bytes)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
+            { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
+                SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
+            int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
+                + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
+            placed.Ballista = ballista;
+            placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
+            if (spellTotem) BindTotemSource(conn, placed);
+            var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
+            if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
+            // A totem blocks paths on the client as any body does.
+            if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
+            bytes.AddRange(TotemPresentation(conn) ?? []);
+            Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
+                + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
+                + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}"));
+        }
+
         uint? created = null;
-        // Registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
+        // The client can start Emerge at cast contact. The slot, blocker, lifetime and proxy become active at full placement.
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
             lock (conn.Monsters)
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || current?.Invoke() == false) return null;
+                if (!Valid()) return null;
                 uint objectId = conn.NextObjectId++;
-                if (bodySize >= 0)
-                {
-                    bool Floor(int cx, int cy) => conn.Layout.WalkableFor(cx, cy, bodySize) && !conn.Barrier.Contains((cx, cy));
-                    if (CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterPlacementBlockers(objectId),
-                        moverSize: bodySize) is { } clear) place = clear;
-                }
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
-                { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
-                    SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
-                int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
-                    + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
-                placed.Ballista = ballista;
-                placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
-                if (spellTotem) BindTotemSource(conn, placed);
-                var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
-                if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
-                // A totem blocks paths on the client as any body does.
-                if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
+                place = ClearPosition(objectId);
                 var bytes = new List<byte>();
                 if (conn.MonsterTypes.Add((variety.Row, level)))
                     bytes.AddRange(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
@@ -193,15 +215,48 @@ public static partial class Game
                 bytes.AddRange(InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.AddRange(InstanceProtocol.EnterWakeZone(objectId));
-                bytes.AddRange(TotemPresentation(conn) ?? []);
-                Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
-                    + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
-                    + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}"));
+                if (finishPlacement is null) Activate(objectId, bytes);
                 created = objectId;
                 return [.. bytes];
             }
         });
-        return created;
+        if (created is not uint pendingId || finishPlacement is null) return created;
+        bool active = false;
+        try
+        {
+            while (await finishPlacement())
+            {
+                bool paused = false;
+                await Send(remote, stream, ciphers, [], null, atGate: () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Valid()) return null;
+                        if (conn.Paused) { paused = true; return null; }
+                        limit = TotemLimit(conn, skillId);
+                        if (limit < 1) return null;
+                        playerStats = CharacterPlayerStats(conn);
+                        var bytes = new List<byte>();
+                        var clear = ClearPosition(pendingId);
+                        if (clear != place)
+                        {
+                            place = clear;
+                            bytes.AddRange(InstanceProtocol.Teleport(pendingId, place.X, place.Y));
+                        }
+                        Activate(pendingId, bytes);
+                        active = true;
+                        return [.. bytes];
+                    }
+                });
+                if (!paused) break;
+            }
+            return active ? pendingId : null;
+        }
+        finally
+        {
+            if (!active && !conn.Closed && !conn.LeavingArea)
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(pendingId), "cancelled totem placement");
+        }
     }
 
     /// <summary>
