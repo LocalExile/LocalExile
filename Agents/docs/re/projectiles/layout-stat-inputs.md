@@ -46,7 +46,7 @@ last-release destructors are outside this composition.
 
 ## 2. Named inputs and exact precedence
 
-Keys below are hexadecimal native one-based keys. Names come from extracted `Stats.json`,
+Keys below are hexadecimal native one-based keys. Names come from extracted `Stats`,
 SHA-256 `91c2ed42f6d8094a2704f56aea32f6f16243881b04aadbe4fdbbdd3a566f05da`.
 The names identify records; instruction use establishes their meaning here.
 

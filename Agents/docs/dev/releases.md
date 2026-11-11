@@ -48,6 +48,7 @@ Merge commits stay; no history is rewritten.
 |---|---|
 | `LocalExile.exe` | the launcher (`src/LocalExile`), one self-contained file |
 | `app/` | self-contained win-x64: the Auth, Patch and Gateway servers and the extraction tools, sharing one runtime |
+| `sql/` | the SQL the servers build the `data/*.db` databases from ([databases](databases.md)) |
 | `Modules/`, `Mods/Binaries/`, `Leagues/` | built modules and mods; leagues as source, which the Gateway compiles when it starts |
 | `Tools/python/`, `Tools/node/`, `Tools/ooz/` | the embeddable Python and Node (pinned by hash in `build-release.ps1`), ooz-wasm |
 | `Tools/extract-manifest.json` | `extract-data.ps1`'s manifest, with each entry's program |

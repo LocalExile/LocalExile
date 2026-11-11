@@ -89,7 +89,7 @@ weight:
 
 - Exact unique chances for every boss: not published; needs a community sample
   or the Prohibited Library data. The table above marks them unknown on purpose.
-- Parse every boss page's unique tab into `DropDataSeed.BossItems` (the current doc lists the
+- Parse every boss page's unique tab into world.db's `drop_boss_items` (the current doc lists the
   major bosses; the 430 map bosses and 140 unique-map bosses are next).
 - Verify the Maven/Orb of Dominance, Veiled and Eldritch sources and their
   chances.

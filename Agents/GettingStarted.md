@@ -246,7 +246,7 @@ is in `logs\extract-<name>.log`. It builds each .NET tool once (`logs\extract-bu
 from the SQL in `sql\` when it starts ([databases](docs/dev/databases.md)): `auth.db` and `characters.db` (accounts and
 characters), `client.db` (the client's tables, about 16 s the first time) and `world.db` (the game content: settings,
 unique weights, the item and jewel catalogues, drop tables). A pull that brings new update files applies them on the
-next start. The Gateway log shows the files applied (`[sql] world: 18 file(s) applied`) and the content it loaded
+next start. The Gateway log shows the files applied (`[sql] world: <n> file(s) applied`) and the content it loaded
 (`[gateway] game data: revision 1, ... 1299 unique item(s), ...`).
 
 To change the content, add an update file in `sql\updates\pending_world\`; `/reload` in game reads world.db again without
@@ -285,8 +285,6 @@ Every reply should contain `"ok":true`; the last one lists your character.
   byte-order mark PowerShell adds.
 - The game's login screen may show a previously used account name in the Email field (the client remembers it per
   Windows user). Replace it with yours.
-- Only the Witch is supported for now. Other classes can be created, but in game you appear as a Witch (with your
-  character's name).
 - Then close both: an empty line quits the dev client, and Ctrl+C stops the host. You can keep `GameServer.Host`
   running while you play: it and the login server share the accounts in `data/auth.db`, and neither caches them.
 
@@ -370,7 +368,8 @@ To check the result from the logs (useful for agents):
 In game:
 - **The Coast:** click "The Coast" on the east side of town. Ctrl+click it to open the Instance Manager instead (pick
   an instance or create a new one).
-- **Commands:** type in chat with Enter, for example `/commands` (or `/com`), `/set_speed 200`.
+- **Commands:** type in chat with Enter, for example `/commands` (or `/com`). The development commands (`/goto`,
+  `/item`, `/set_speed`, …) are the `gm-commands` mod of [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods).
 - **Mods:** `/mod` lists the mods the Gateway found in `Mods\Binaries\` (`live.ps1` builds the ones in `Mods\Source\` there), `/mod_enable <id>` and `/mod_disable <id>` turn one on or off;
   a mod rebuilt while you play reloads by itself ([modding](docs/dev/modding.md)).
 
@@ -419,7 +418,7 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `setup incomplete: ...` from `live.ps1` | a one-time step is missing | do the step named in the message |
-| A feature is off (no hideouts, no items, no unique boss); the Gateway log starts with `WARNING: ... game data file(s) missing` | a game data file was not extracted, or `live.ps1 -NoExtract` skipped it | run `.\scripts\dev\extract-data.ps1` (or `-List` to see what is stale), then `live.ps1 -Only Gateway` |
+| A feature is off (no hideouts, no items, no unique boss); the Gateway log starts with `WARNING: ... game data file(s) missing` | a game data file was not extracted, or `live.ps1 -NoExtract` skipped it | run `.\scripts\dev\extract-data.ps1 -Servers` (or `-List` to see what is stale), then `live.ps1 -Only Gateway` |
 | `live.ps1` stops at `extracting <name> ...` | the entry is still working (area-transitions takes ~10 min), or, before #93, `Start-Process -Wait` waited on the MSBuild worker node `dotnet run` left behind | check that `logs\extract-<name>.log` still grows; on an older checkout, pull, or set `MSBUILDDISABLENODEREUSE=1` and `DOTNET_CLI_USE_MSBUILD_SERVER=0` before `live.ps1` |
 | `port 8080 is used by <program>` | another program (often a web server) holds a dev port | close it, or set `Game_PATCH_URL=http://127.0.0.1:<port>/` |
 | `patch server did not start` | `Client\Content.ggpk` missing, locked or unreadable | close every client, check the path |
@@ -435,7 +434,6 @@ all for an issue ([debugging](docs/dev/debugging.md)).
 | `HNC mask not found` in `live-gateway.err` | `Client\Game.exe` is not 3.29.3c | use the right client version |
 | Spawn in the sea or off the map | an area the server does not generate, with no walk map yet | use `-Walkmaps` (step 9) and enter the area again |
 | `walkmaps: permission denied` | client and Python run at different privilege levels | run both as the same user, not one as administrator |
-| Esc → "Exit to character selection" hangs | not implemented yet | run `.\scripts\dev\live.ps1 -NoClient` (the client drops to the login screen) |
 | The client closes or crashes by itself | usually a message the server sent wrong or left out | read the `DISCONNECT` line and the `last … packet(s)` block above it in `live-gateway.log`; attach `scripts/re/frida/trace-crash.js` and reproduce; report it with `scripts\dev\bugreport.ps1` ([debugging](docs/dev/debugging.md)) |
 | Windows Firewall prompt | should not happen (servers bind to 127.0.0.1) | if it does, deny: nothing needs outside access |
 
@@ -458,6 +456,7 @@ Environment variables, read when each server starts:
 | `Game_GATEWAY_HOST` | 127.0.0.1 | address (IP) Auth and the Gateway send the client for its first area and every area change (`Gateway.PublicAddress`) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth ↔ Gateway control port, localhost only (`AuthControl.Port`) |
 | `Game_CONF` | `Config\localexile.conf` | the server configuration file |
+| `Game_CLIENT_FOLDER` | `Client` | the client copy the Patch server and `LocalExile.exe` use (`Client.Folder`) |
 | `Game_PORT_BASE` | unset | `live.ps1`: this checkout's servers on ports base..base+4 (Patch, Patch web, Auth login, Auth control, Gateway); remembered in `data/stack.json` like `-PortBase` ([live testing](docs/dev/live-testing.md#several-stacks-and-clients)) |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly` and `client_control.py`: the named client session, like `-Session` / `--session` |
 | `Game_RANDOM_SEEDS` | unset | new instances of the areas the Gateway generates itself (`gate-baseline.json`, [re/011](docs/re/011-level-generation.md)) get random seeds, every other area seed 1; `0` = seed 1 everywhere; an area the client cannot build at seed 1 gets a seed it built instead |
@@ -465,9 +464,11 @@ Environment variables, read when each server starts:
 | `Game_SEED` | unset | a number = that seed for every new non-town, non-hideout instance (generation traces of one seed with `live.ps1 -Walkmaps`; overrides `Game_RANDOM_SEEDS`) |
 | `Game_LEAGUE` | `standard` | `hardcore` shows the hardcore death screen (a single Exit button) |
 | `Game_LEAGUES_FOLDER` | `Leagues` | where the leagues are: one folder per league |
+| `Game_MODULES_FOLDER` | `Modules` | where the Gateway loads modules from |
 | `Game_LEAGUE_MODULES` | `data/league-modules.json` | the user's modules added to or removed from leagues ([modules](docs/dev/modules.md)) |
 | `Game_RUTHLESS_RULES` | unset | a file of all eight Ruthless numbers, in place of the module's settings; valid edits apply during play |
-| `Game_START_WEAPON` | unset | `ground` = a new character's class weapon waits on the ground near the spawn instead of being worn |
+| `Game_NPCS` | unset | `0` = no NPCs are placed in towns |
+| `Game_STASH` | unset | `0` = no stash is placed in towns and hideouts |
 | `Game_FLASK_BUFFS` | unset | `0` = flasks recover without putting their flask_effect buff on the player |
 | `Game_FLASK_CHARGES` | unset | unset = the game's flask charge rules (kills by rarity, charge mods, a flask put on the bar in a hostile area starts empty); `full` = every kill fills all flasks and equipped flasks keep their charges |
 | `Game_PLAYER_ATTACK` | `PlayerMelee` | GrantedEffects `Id` of the player's default attack (level 1) |
@@ -478,11 +479,13 @@ Environment variables, read when each server starts:
 | `Game_AUTH_DB` | `data/auth.db` (beside a characters database elsewhere: `<name>-auth.db`) | accounts (Auth, Gateway, Host) |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | instance key secret (created on first start) |
 | `Game_PATCH_URL` | `http://127.0.0.1:8080/` | patch web server address |
+| `Game_TLS_PFX`, `Game_TLS_PFX_PASSWORD` | unset | a PKCS#12 certificate file (and its password): the patch web server then defaults to `https://0.0.0.0:443` |
+| `Game_HOT_RELOAD_LOG` | set by `live.ps1` with hot reload | the `dotnet watch` output file the Gateway reads to report hot reload results (compile errors, nothing to apply) in game |
 | `Game_TRACE` | unset | dev traces, a comma list: `move`, `latency`, `ticks`, `ai`, `packets`, or `all` ([debugging](docs/dev/debugging.md)) |
 | `Game_PACKET_DUMPS` | `logs\packets` (given by `live.ps1` to the servers it starts) | folder for each connection's last packets, written when it closes; `0` = none |
 | `Game_LOG_TIMESTAMPS` | unset | `0` = no time at the start of each log line |
 | `Game_MODS` | unset | `0` = the Gateway loads no mods ([modding](docs/dev/modding.md)) |
-| `Game_MODS_FOLDER` | `mods` | the folder the Gateway loads mods from and watches |
+| `Game_MODS_FOLDER` | `Mods/Binaries` | the folder the Gateway loads mods from and watches |
 
 ## Files you will have afterwards
 
@@ -494,7 +497,8 @@ Environment variables, read when each server starts:
 | `data\accounts.json.imported` | the account store from before the save database, kept after its import | never |
 | `data\auth.db`, `data\characters.db` (with `-wal`, `-shm` while the servers run) | accounts; characters, their saves and stashes ([saves](docs/saves.md), [databases](docs/dev/databases.md)) | never |
 | `data\gateway_list.original.txt` | backup for `gateway --restore` | no need |
-| `data\tables\`, `data\*-types.json`, `data\hideouts.json` … | extracted game data (step 7) and their stamps, `data\extract-stamps.json` | no (game data) |
+| `data\game-files.zip`, `data\client-constants.json` | extracted game data (step 7) and their stamps, `data\extract-stamps.json`; a full extraction (no `-Servers`) also writes `data\tables\` and the generators' files | no (game data) |
+| `data\client.db`, `data\world.db` | the client tables and generated files, and the game content, built from `sql\` | no (game data) |
 | `data\walkability\` | captured walk maps | no (derived from game data) |
 | `logs\` | server logs | only when reporting a bug, and read them first |
 | `Mods\Binaries\` | built mods: `Mods\Source\`'s, and any you add ([modding](docs/dev/modding.md)) | yours, if you like |
