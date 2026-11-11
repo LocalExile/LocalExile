@@ -75,9 +75,10 @@ The client's own calculators show what they read, by key (Stats row + 1):
 ## Not seen in the client
 
 Live 2026-11-09 confirmed the crit multiplier, Headsman, Bane of Legends (1.1x, 1.2x on a map boss, 1.32x after a
-kill), Impact's area (+10% to +60%), Masterful Form and the attack speed while leeching. Not observed, so only tested:
+kill), Impact's area (+10% to +60%), Masterful Form and the attack speed while leeching. Live 2026-11-11 confirmed
+the while-leeching flags (`/stat`), the damage taken (0.93 times outside leech over 58 monster hits) and the stun
+immunity (2 stuns in 64 hits outside leech, none in 75 while leeching). Not observed, so only tested:
 
 - overkill leech: no log line, and its effect hides among the other leech;
-- cannot be stunned, 10% less damage taken and unaffected by Bleeding while leeching: the logged 0x01b3 stats are
-  cut at 96 bytes, before these keys;
+- unaffected by Bleeding on the Labyrinth's spikes (the flag itself was seen);
 - whether the client's walk-up distance would follow `melee_range_+` (not applied, above).
