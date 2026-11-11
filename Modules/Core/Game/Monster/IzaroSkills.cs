@@ -452,7 +452,7 @@ static class IzaroSkills
             if (!Inside(move, from, aim, here, spike)) return null;
             outcome = CommitMonsterHitLocked(remote, conn, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
             return outcome?.HitPacket;
-        }, $"0x01af Izaro 0x{id:x} {move.Name} hits the player")) return false;
+        }, $"0x01af {boss.Variety?.Name ?? "Izaro"} 0x{id:x} {move.Name} hits the player")) return false;
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
         return outcome is not null;
     }
