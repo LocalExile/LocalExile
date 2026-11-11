@@ -80,7 +80,27 @@ public static class GatewayProjectileSkillProfiles
         // pass below adds the skill's and the support's extra arrows to it.
         if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0) p = ArrowNovaChildren(p);
 
-        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
+        // These player stats belong to a particular active skill, including its transfigured variants.
+        int extraProjectiles = effect switch
+        {
+            "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
+                => get("freezing_pulse_number_of_additional_projectiles"),
+            "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
+                => get("frostbolt_number_of_additional_projectiles"),
+            _ => 0
+        };
+        int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
+            ? get("ice_shot_pierce_+") : 0;
+        bool nova = effect switch
+        {
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" => get("spark_projectiles_nova") != 0,
+            "EtherealKnives" or "EtherealKnivesAltX" or "EtherealKnivesAltY" or "EtherealKnivesRoyale"
+                => get("ethereal_knives_projectiles_nova") != 0,
+            _ => false
+        };
+        if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
+            p = p with { NativeVolley = new() { Nova = true } };
+        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
