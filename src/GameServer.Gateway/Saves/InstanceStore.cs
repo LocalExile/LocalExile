@@ -196,6 +196,15 @@ public sealed class InstanceGround
     }
 
     /// <summary>Who put the item down (null when unknown) and whether the other players see it.</summary>
+    /// <summary>Makes <paramref name="owner"/> the owner of every item one of its earlier selves put down (<paramref name="earlier"/>):
+    /// a player back in the instance on a new connection sees its own unshared items (the start weapon, quest items) again.</summary>
+    public void Reassign(Func<object, bool> earlier, object owner)
+    {
+        lock (_items)
+            foreach (var (id, by) in _by.ToList())
+                if (!ReferenceEquals(by, owner) && earlier(by)) _by[id] = owner;
+    }
+
     public (object? By, bool Shared) Origin(uint id)
     {
         lock (_items) return (_by.GetValueOrDefault(id), !_private.Contains(id));
