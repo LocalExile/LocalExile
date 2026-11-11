@@ -254,7 +254,7 @@ public static class PanelStats
             bool armed = sum.Hand switch { Hand.Main => mainArmed, Hand.Off => offArmed, _ => false };
             long raw = RawSum(sum, get, local, playerLevel) + (armed ? Total(sum.Armed, get, playerLevel) : 0)
                 + QualifiedProjectileChance(sum, get, mainProjectileAttack, offProjectileAttack);
-            int value = blocked ? 0 : Project(sum, raw);
+            int value = blocked ? 0 : Project(sum, BleedFlags(sum, raw, name => get(name), local));
             if (value != 0 || blocked) result.Add((sum.Display, value));
         }
         return result;
@@ -277,6 +277,14 @@ public static class PanelStats
         "virtual_total_main_hand_chance_to_bleed_on_hit_%" or "virtual_total_off_hand_chance_to_bleed_on_hit_%" or
         "virtual_total_main_hand_chance_to_poison_on_hit_%" or "virtual_total_off_hand_chance_to_poison_on_hit_%" or
         "main_hand_maim_on_hit_%" or "off_hand_maim_on_hit_%";
+
+    static long BleedFlags(Sum sum, long chance, Func<string, long> get, Func<string, int>? local)
+    {
+        if (sum.Display is not ("virtual_total_main_hand_chance_to_bleed_on_hit_%"
+            or "virtual_total_off_hand_chance_to_bleed_on_hit_%")) return chance;
+        if (get("cannot_cause_bleeding") != 0 || get("never_damaging_ailments") != 0) return 0;
+        return get("global_bleed_on_hit") != 0 || (local?.Invoke("local_bleed_on_hit") ?? 0) != 0 ? 100 : chance;
+    }
 
     static string? QualifiedProjectileSource(Sum sum) => sum.Display switch
     {
@@ -334,7 +342,9 @@ public static class PanelStats
                 && (sum.Hand == Hand.Main ? mainProjectileAttack : sum.Hand == Hand.Off && offProjectileAttack)
                     ? Combined(source) : 0);
         return [.. SelectedSums.Select(sum => (sum.Display,
-            blockElemental && Penetration.IsElementalDisplay(sum.Display) ? 0 : Project(sum, SelectedSum(sum))))];
+            blockElemental && Penetration.IsElementalDisplay(sum.Display) ? 0
+                : Project(sum, BleedFlags(sum, SelectedSum(sum), Combined,
+                    sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null }))))];
     }
 
     /// <summary>The global duration coefficient shared by the panel and actual flask uses. The display's virtual

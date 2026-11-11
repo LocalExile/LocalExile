@@ -614,6 +614,15 @@ public sealed partial class ReservationCurseSummonTests
                                 melee: true, bow: false);
                             Assert.Equal(stealth ? 100 : 0, bleed.Chance);
                             Assert.Equal(stealth ? 8 : 1, bleed.Stacks);
+                            var raw = Game.CharacterStatSources(catConn).Stats;
+                            int Read(string name) => Stat(raw, name);
+                            var panel = PanelStats.Compute(Read).ToDictionary(p => p.Stat, p => p.Value);
+                            Assert.Equal(stealth ? 100 : 0, panel.GetValueOrDefault("virtual_total_main_hand_chance_to_bleed_on_hit_%"));
+                            var selected = PanelStats.Selected(Read, _ => 0).ToDictionary(p => p.Stat, p => p.Value);
+                            Assert.Equal(stealth ? 100 : 0, selected["virtual_total_main_hand_chance_to_bleed_on_hit_%"]);
+                            var prohibited = PanelStats.Selected(Read, name => name == "cannot_cause_bleeding" ? 1 : 0)
+                                .ToDictionary(p => p.Stat, p => p.Value);
+                            Assert.Equal(0, prohibited["virtual_total_main_hand_chance_to_bleed_on_hit_%"]);
                         }
                         finally { inventory.Remove(PlayerInventories.Gloves, placed.Id); }
                         using var removedScope = new Game.PlayerStatScope(catConn, fresh: true);
