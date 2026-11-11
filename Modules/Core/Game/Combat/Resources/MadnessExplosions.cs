@@ -50,15 +50,16 @@ public static partial class Game
             var player = receipt.Player;
             int Get(string n) => Stats.Key(n) is uint key ? player.GetValueOrDefault(key) : 0;
             var conversion = DamageStats.Conversion(player, Stats, attack: null);
-            ReservationDamageProfile Profile(long increased, int webs = 0)
+            ReservationDamageProfile Profile(long increased, int webs = 0, bool ignited = false, bool bleeding = false)
             {
+                int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding);
                 increased += SpiderDamageIncrease(Get, webs);
                 var woven = SpiderRawDamage(receipt.Raw, Get, webs);
-                var hit = PlayerHitDamage.Resolve(woven, Get, conversion, spell: false, area: true,
+                var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion, spell: false, area: true,
                     secondary: true, additionalIncreased: increased);
-                var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, Get, increased);
-                return new(hit, MonsterIgnites.Settings.From(rows, "secondary", Get), MonsterIgnites.Settings.None,
-                    MonsterPoisons.Settings.From(rows, "secondary", Get));
+                var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat, increased);
+                return new(hit, MonsterIgnites.Settings.From(rows, "secondary", TargetStat), MonsterIgnites.Settings.None,
+                    MonsterPoisons.Settings.From(rows, "secondary", TargetStat));
             }
             var normal = Profile(0);
             var blinded = Get(PlayerHitDamage.VsBlindedDamageStat) is var increased && increased != 0
@@ -74,8 +75,9 @@ public static partial class Game
                 {
                     if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                         || conn.AsleepMonsters.Contains(id) || Dist(at, target.Walk.Position(now)) > receipt.Radius) continue;
-                    var profile = target.SpiderWebs.Count(now) is > 0 and var webs
-                        ? Profile(Blinded(conn, id) ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0, webs)
+                    var profile = target.SpiderWebs.Count(now) > 0 || target.Ignites.Burning || target.Bleeds.Burning
+                        ? Profile(Blinded(conn, id) ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0,
+                            target.SpiderWebs.Count(now), target.Ignites.Burning, target.Bleeds.Burning)
                         : Blinded(conn, id) ? blinded : normal;
                     int critChance = Get("global_cannot_crit") != 0 ? 0
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get("critical_strike_chance_+%"), Get, _ => 0);

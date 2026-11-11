@@ -587,6 +587,7 @@ public static partial class Game
         int webs = target.SpiderWebs.Count(at);
         additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
         player = SpiderAttackStats(player, webs);
+        player = TypedTargetDamageStats(player, target.Ignites.Burning, target.Bleeds.Burning);
         return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, additionalIncreased),
             DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
             DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
@@ -2128,9 +2129,10 @@ public static partial class Game
                     // The target's condition is chosen before accuracy, crit RNG, on-hit hooks and the hit's own Blind.
                     var profile = Blinded(conn, id) && blindedProfile is not null
                         ? blindedProfile : sweepProfile;
-                    if (sweepSpider is { } spider && m.SpiderWebs.Count(ProjectileWorldTime(conn)) is > 0 and var webs)
+                    if (sweepSpider is { } spider)
                     {
-                        var woven = SpiderDamageProfile(spider, webs, Blinded(conn, id));
+                        var woven = SpiderDamageProfile(spider, m.SpiderWebs.Count(ProjectileWorldTime(conn)),
+                            Blinded(conn, id), m.Ignites.Burning, m.Bleeds.Burning);
                         profile = new(woven.Hit.Scale(ruthless), woven.Ignite, woven.Bleed, woven.Poison);
                     }
                     var contactHit = profile.Hit;

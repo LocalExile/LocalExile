@@ -14,7 +14,7 @@ public static partial class Game
     public static SpiderDamageSource? CaptureSpiderDamage(ClientState conn, SupportedHitInputs inputs, double effectiveness,
         bool context = false, IReadOnlyDictionary<string, int>? local = null, bool bow = false)
     {
-        if (!HasSpiderDamage(inputs.Get)) return null;
+        if (!HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)) return null;
         int per = inputs.Get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final");
         int cap = inputs.Get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum");
         double igniteFactor = per > 0 ? Math.Max(0, 1 + Math.Min((long)per * RecentlyIgnitedCount(conn,
@@ -26,9 +26,11 @@ public static partial class Game
             IgniteFactor: igniteFactor);
     }
 
-    public static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded)
+    public static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded,
+        bool ignited = false, bool bleeding = false)
     {
-        int Get(string name) => Stats.Key(name) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
+        int RawStat(string name) => Stats.Key(name) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
+        int Get(string name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding);
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
         var hit = PlayerHitDamage.Resolve(raw, Get, source.Conversion, spell: !source.Attack && !source.Secondary,

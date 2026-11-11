@@ -341,8 +341,9 @@ public static partial class Game
                 ? Blinded(conn, id) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
-            if (placed.Offense?.Spider is { } spider && m.SpiderWebs.Count(now) is > 0 and var webs)
-                profile = SpiderDamageProfile(spider, webs, Blinded(conn, id));
+            if (placed.Offense?.Spider is { } spider)
+                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(conn, id),
+                    m.Ignites.Burning, m.Bleeds.Burning);
             var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesMitigated(m, mitigated, spell, now);

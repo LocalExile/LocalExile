@@ -73,13 +73,13 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
-    public ProjectileOffense Against(bool targetWasBlinded, int webs = 0)
+    public ProjectileOffense Against(bool targetWasBlinded, int webs = 0, bool ignited = false, bool bleeding = false)
     {
-        if (webs > 0 && Spider is { } spider)
+        if (Spider is { } spider)
         {
-            var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded);
+            var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding);
             return this with { Hit = profile.Hit, AreaHit = SpiderArea is { } area
-                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded).Hit : AreaHit,
+                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding).Hit : AreaHit,
                 Ignite = profile.Ignite, Bleed = profile.Bleed, Poison = profile.Poison };
         }
         return targetWasBlinded && VsBlinded is { } alternate ? this with

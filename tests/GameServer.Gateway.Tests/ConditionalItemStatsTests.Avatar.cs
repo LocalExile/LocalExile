@@ -32,6 +32,7 @@ public partial class ConditionalItemStatsTests
         int criticalBefore = Get("critical_strike_chance_+%"); // Includes this dagger's unconditional implicit.
         Assert.Equal(armourBefore + 2000, Get("base_physical_damage_reduction_rating"));
         Assert.Equal(0, Get(Game.AvatarKeystone));
+        Vulconus_typed_target_increases_follow_conversion_and_ailments(conn, stats);
         var source = Game.AvatarRotationOf(conn);
         Assert.Equal(new[] { weapon.Id }, source.Hosts);
         double now = Game.ResourceEffectsTime(conn);
@@ -122,5 +123,69 @@ public partial class ConditionalItemStatsTests
         byte[] cleanup = [.. ownCleanup.SelectMany(p => p), .. Game.BlindPresentation(conn) ?? []];
         Assert.True(cleanup.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, deathBuff)) >= 0);
         Assert.Equal((ushort)0, source.Buff);
+    }
+
+    void Vulconus_typed_target_increases_follow_conversion_and_ailments(ClientState conn,
+        IReadOnlyDictionary<uint, int> actual)
+    {
+        const string physical = "physical_damage_+%_vs_ignited_enemies", fire = "fire_damage_+%_vs_bleeding_enemies";
+        int Actual(string name) => actual.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+        Assert.InRange(Actual(physical), 70, 100); Assert.InRange(Actual(fire), 70, 100);
+        var stats = new Dictionary<uint, int>
+        {
+            [Program.Stats.Key(physical)!.Value] = Actual(physical),
+            [Program.Stats.Key(fire)!.Value] = Actual(fire),
+            [Program.Stats.Key("damage_+%")!.Value] = 100,
+        };
+        var raw = DamagePacket.Of(DamageType.Physical, 100, 100).Add(DamageType.Fire, new(100, 100));
+        foreach (bool attack in new[] { false, true })
+        foreach (bool secondary in new[] { false, true })
+        foreach (bool convert in new[] { false, true })
+        foreach (bool ignited in new[] { false, true })
+        foreach (bool bleeding in new[] { false, true })
+        {
+            var conversion = convert ? new DamageConversion().Add(DamageType.Physical, DamageType.Fire, 50) : new();
+            var source = new SpiderDamageSource(raw, conversion, stats, stats, attack, attack, true, false,
+                [], new HashSet<int>(), 1, Secondary: secondary, Volatile: false);
+            var profile = Game.SpiderDamageProfile(source, 0, false, ignited, bleeding);
+            double p = ignited ? Actual(physical) : 0, f = bleeding ? Actual(fire) : 0;
+            double expectedPhysical = (convert ? 50 : 100) * (200 + p) / 100;
+            double expectedFire = 100 * (200 + f) / 100 + (convert ? 50 * (200 + p + f) / 100 : 0);
+            Assert.Equal(expectedPhysical, profile.Hit[DamageType.Physical].Min, 6);
+            Assert.Equal(expectedFire, profile.Hit[DamageType.Fire].Min, 6);
+            Assert.InRange(profile.Ignite.Min, expectedFire * .9 - 1d / 60, expectedFire * .9 + 1d / 60);
+            if (attack && !secondary)
+                Assert.InRange(profile.Bleed.Min, expectedPhysical * .7 - 1d / 60, expectedPhysical * .7 + 1d / 60);
+            var shot = new ProjectileOffense(DamagePacket.Empty, !attack, 0, 0, 100, "target control")
+                { Spider = source, SpiderArea = source };
+            Assert.Equal(profile.Hit.MinTotal, shot.Against(false, 0, ignited, bleeding).Hit.MinTotal, 6);
+            Assert.Equal(profile.Hit.MinTotal, shot.Against(false, 0, ignited, bleeding).AreaHit!.MinTotal, 6);
+            Assert.Equal(100, stats[Program.Stats.Key("damage_+%")!.Value]);
+        }
+        const uint targetId = 0x504AD;
+        var target = new SpawnedMonster("Vulconus target", new(100, 100, 1), 100, 8, 1_000_000)
+            { Hostile = true, Life = 1_000_000 };
+        conn.Monsters[targetId] = target;
+        var weapon = Game.WeaponFor(conn);
+        var converted = new DamageConversion().Add(DamageType.Physical, DamageType.Fire, 50);
+        foreach (bool ignited in new[] { false, true })
+        foreach (bool bleeding in new[] { false, true })
+        {
+            target.Ignites.Clear(); target.Bleeds.Clear();
+            if (ignited) Assert.True(target.Ignites.Add(1, 1, 10));
+            if (bleeding) Assert.True(target.Bleeds.Add(1, 1, 10));
+            var contact = Assert.IsType<Game.DefaultMeleePrehitProfile>(Game.DefaultMeleePrehitProfileLocked(
+                conn, targetId, target, stats, weapon, converted, null, 1));
+            var expected = new Dictionary<uint, int>(stats)
+            {
+                [Program.Stats.Key("physical_damage_+%")!.Value] = ignited ? Actual(physical) : 0,
+                [Program.Stats.Key("fire_damage_+%")!.Value] = bleeding ? Actual(fire) : 0,
+            };
+            var expectedHit = Game.AttackHitConverted(weapon, expected, true, converted);
+            Assert.Equal(expectedHit.MinTotal, contact.Hit.MinTotal, 6);
+            Assert.Equal(expectedHit.MaxTotal, contact.Hit.MaxTotal, 6);
+        }
+        conn.Monsters.Remove(targetId);
+        Assert.Null(Game.DefaultMeleePrehitProfileLocked(conn, targetId, target, stats, weapon, converted, null, 1));
     }
 }
