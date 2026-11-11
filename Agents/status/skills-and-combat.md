@@ -5,6 +5,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Storm Call (live on 3.29.3c): each landing (aim, Spell Cascade area, Spell Echo repeat) sets a marker that strikes
+  its area when the skill duration ends, and that strike also calls down every other marker out; quality's chance
+  strikes a new marker on cast. Marker and impact are server art from the worn skin (all six skins checked).
+  Code: `StormCall.cs`, `StormCallMarkers.cs`.
 - Holy Sweep's art: the skill sends its base `skill_art_variation` 2 and a worn effect's value adds to it, so hits no
   longer crash the client drawing the hammers (live 2026-11-08 in a map: none, Originator's, Awakener's, Abyssal).
   Code: `SkillArtBase.cs`. Docs: [23](../docs/protocol/23-microtransactions.md) §3.

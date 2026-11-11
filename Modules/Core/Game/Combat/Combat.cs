@@ -1193,6 +1193,15 @@ public static partial class Game
             }
         }
         var jobs = new List<Task>();
+        // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
+        if (IsStormCall(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            for (int repeat = 0; repeat <= spellRepeats; repeat++)
+                foreach (var area in cascadeAreas.Prepend(to))
+                    jobs.Add(PlaceStormCall(remote, stream, ciphers, conn, skillId, gem, area, repeat, actionToken, cooldownUse,
+                        criticalRoll, addedChaos));
+            return Task.WhenAll(jobs);
+        }
         for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
         {
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
