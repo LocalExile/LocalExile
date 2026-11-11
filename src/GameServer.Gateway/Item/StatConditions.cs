@@ -140,6 +140,12 @@ public static class StatConditions
 
     static string? ParsePlainName(string statId)
     {
+        var below = BelowThresholdId.Match(statId);
+        if (below.Success)
+        {
+            string prefix = statId[..below.Index];
+            return PlainOf(prefix) ?? prefix;
+        }
         var equipment = EquipmentThresholdId.Match(statId);
         if (equipment.Success)
         {
@@ -241,6 +247,7 @@ public static class StatConditions
             "elemental_penetration_%" => "base_penetrate_elemental_resistances_%",
             "block_%" => "additional_block_%",
             "chance_to_deal_triple_damage_%" => "base_chance_to_deal_triple_damage_%",
+            "double_damage_chance_%" => "chance_to_deal_double_damage_%",
             "burning_damage_+%" => "burn_damage_+%",
             "attacks_bleed_on_hit" => "global_bleed_on_hit",
             "gain_crimson_dance" => "keystone_crimson_dance",
@@ -384,6 +391,15 @@ public static class StatConditions
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
     {
+        var below = BelowThresholdId.Match(statId);
+        if (below.Success)
+        {
+            string belowAttribute = below.Groups["attr"].Value;
+            string prefix = statId[..below.Index];
+            bool valid = int.TryParse(below.Groups["n"].Value, out int limit);
+            return subject => And(Of(prefix, subject), valid && subject.Value?.Invoke(belowAttribute) is int actual
+                ? actual < limit ? State.Holds : State.Fails : State.NotModelled);
+        }
         if (CandidateCatFlag(statId) is { } catFlag)
             return subject => subject.Flags is { } flags && flags.TryGetValue(catFlag, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
@@ -613,6 +629,9 @@ public static class StatConditions
 
     static readonly System.Text.RegularExpressions.Regex ThresholdId =
         new(@"_(?:if_you_have|while(?:_you_have)?)_at_least_(?<n>\d+)_(?<attr>maximum_energy_shield|strength|dexterity|intelligence|rage|mana|life)(?=$|_final$|_\+%$|_%$)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static readonly System.Text.RegularExpressions.Regex BelowThresholdId =
+        new(@"_if_below_(?<n>\d+)_(?<attr>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     /// <summary>The attribute and the minimum an "if you have at least N X" id asks for.</summary>
     public static bool TryThreshold(string statId, out string attribute, out int needed)

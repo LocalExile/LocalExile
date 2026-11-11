@@ -4879,6 +4879,45 @@ public class ConditionalItemStatsTests
                 subject: new(Value: name => name == "energy_shield" ? shield : null), statExists: exists);
             Assert.Equal(shield >= 500 ? 60 : 0, sum.GetValueOrDefault("base_life_regeneration_rate_per_minute"));
         }
+        foreach (var (conditional, attribute, target) in new[]
+        {
+            ("area_of_effect_+%_if_below_100_intelligence", "intelligence", "base_skill_area_of_effect_+%"),
+            ("movement_speed_+%_if_below_100_dexterity", "dexterity", "base_movement_velocity_+%"),
+            ("double_damage_chance_%_if_below_100_strength", "strength", "chance_to_deal_double_damage_%"),
+        })
+        {
+            var rows = Program.Items.Mods.All.Where(m => m.Stats.Count == 1 && m.Stats[0].Id == conditional).ToArray();
+            Assert.NotEmpty(rows);
+            foreach (var row in rows)
+            {
+                int amount = row.Stats[0].Min;
+                var item = WithMod(row.Id, amount);
+                foreach (int current in new[] { 99, 100, 101 })
+                {
+                    var subject = new StatConditions.Subject(Value: n => n == attribute ? current : null);
+                    var sum = ItemModStats.Sum([item], Program.Items.Mods, subject: subject, statExists: exists);
+                    int expected = current < 100 ? amount : 0;
+                    Assert.Equal(expected, sum.GetValueOrDefault(target));
+                    Assert.False(sum.ContainsKey(conditional));
+                    if (attribute == "intelligence")
+                        Assert.Equal(1 + expected / 100d, SkillArea.Modifier(n => sum.GetValueOrDefault(n), spell: true));
+                    if (attribute == "strength")
+                    {
+                        var rolls = GamblerModifiers.From(n => sum.GetValueOrDefault(n));
+                        var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
+                        Assert.Equal(current < 100 ? 200 : 100, rolls.RollOutgoingHit(hit, new ThresholdRoll(0)).MinTotal);
+                        Assert.Equal(100, rolls.RollOutgoingHit(hit, new ThresholdRoll(amount)).MinTotal);
+                    }
+                }
+                Assert.Equal(amount, ItemModStats.Sum([item], Program.Items.Mods,
+                    subject: new(Value: _ => null), statExists: exists).GetValueOrDefault(conditional));
+            }
+        }
+        const string composedBelow = "damage_+%_while_wielding_shield_if_below_100_strength";
+        Assert.Equal("damage_+%", StatConditions.PlainOf(composedBelow));
+        Assert.Equal(StatConditions.State.Fails, StatConditions.Of(composedBelow, new(Shield: false, Value: _ => 99)));
+        Assert.Equal(StatConditions.State.Fails, StatConditions.Of(composedBelow, new(Shield: true, Value: _ => 100)));
+        Assert.Equal(StatConditions.State.Holds, StatConditions.Of(composedBelow, new(Shield: true, Value: _ => 99)));
         Assert.Equal("base_movement_velocity_+%", StatConditions.Fold("movement_speed_+%_if_enemy_killed_recently", exists));
         Assert.False(StatConditions.TryRecentEvent("damage_+%_per_enemy_killed_recently", out _, out _));
         Assert.False(StatConditions.TryRecentEvent("damage_+%_if_killed_at_least_5_enemies_recently", out _, out _));
@@ -7415,6 +7454,11 @@ public class ConditionalItemStatsTests
             stop();
             return Task.CompletedTask;
         }
+    }
+
+    sealed class ThresholdRoll(int value) : Random
+    {
+        public override int Next(int minValue, int maxValue) => Math.Clamp(value, minValue, maxValue - 1);
     }
 
     sealed class FixedRandom(int value) : Random
