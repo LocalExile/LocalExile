@@ -151,7 +151,7 @@ The card's `BaseItemTypes.DropLevel` is its minimum monster level (The Doctor
 tables do not contain the area list: PoEDB's
 [Divination_Cards](https://poedb.tw/us/Divination_Cards) page has an **Areas**
 table of 135 areas and 555 area/card pairs, with `(tier N+)` minimum map tiers.
-It is seeded into `drop_card_areas` (`DropDataSeed.CardAreas`, [drop-data-schema.md](../dev/drop-data-schema.md)).
+It is seeded into world.db's `drop_card_areas` ([drop-data-schema.md](../dev/drop-data-schema.md)).
 
 Examples:
 
@@ -164,7 +164,7 @@ Examples:
 | The Putrid Cloister | The Professor | 1 |
 
 Boss and league cards are not all in that table: The Endless Darkness comes
-from the King in the Mists (already in `ItemDrops.KingInMistsCards` at 15%);
+from the King in the Mists (already in `ItemDrops.KingInMists` at 15%);
 The Breach and The Dreamer are Breach/Chayula cards; The Calling, The Valkyrie
 and The Undaunted are Beyond/Nemesis cards; The Admirer is an Atziri card; The
 Professor is the Putrid Cloister's. Some cards are disabled in the client

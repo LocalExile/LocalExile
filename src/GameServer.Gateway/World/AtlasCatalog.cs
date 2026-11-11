@@ -37,36 +37,34 @@ public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
 
     static IReadOnlyList<Layout> LoadLayouts(string folder)
     {
-        string nodes = Path.Combine(folder, "tables", "AtlasNode.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!ClientTables.Exists(nodes) || !ClientTables.Exists(areas)) return [];
-        using var n = GameTables.Open(nodes);
-        using var a = GameTables.Open(areas);
+        if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return [];
+        var n = ClientTables.Table("AtlasNode");
+        var a = ClientTables.Table("WorldAreas");
         var result = new List<Layout>();
-        foreach (var row in n.RootElement.EnumerateArray())
+        foreach (var row in n)
         {
-            if (!row.GetProperty("IsNormalMap").GetBoolean() || row.GetProperty("NotOnAtlas").GetBoolean() ||
-                row.GetProperty("Area1") is not { ValueKind: JsonValueKind.Number } area) continue;
-            int index = area.GetInt32();
-            if (index < 0 || index >= a.RootElement.GetArrayLength()) continue;
-            var wa = a.RootElement[index];
-            if (wa.GetProperty("HASH16") is not { ValueKind: JsonValueKind.Number } hash) continue;
-            result.Add(new(row.GetProperty("Id").GetString() ?? "", (ushort)hash.GetInt32(),
-                wa.GetProperty("Name").GetString() ?? "", row.GetProperty("Tier").GetInt32(),
-                row.GetProperty("StartingNode").GetBoolean()));
+            if (!row.Bool("IsNormalMap") || row.Bool("NotOnAtlas") ||
+                row.IntOrNull("Area1") is not int area) continue;
+            int index = area;
+            if (index < 0 || index >= a.Count) continue;
+            var wa = a[index];
+            if (wa.IntOrNull("HASH16") is not int hash) continue;
+            result.Add(new(row.Text("Id") ?? "", (ushort)hash,
+                wa.Text("Name") ?? "", row.Int("Tier"),
+                row.Bool("StartingNode")));
         }
         return result;
     }
 
     static IReadOnlyDictionary<uint, int> LoadKeyTiers(ItemCatalog catalog, string folder)
     {
-        string path = Path.Combine(folder, "tables", "MapKeys.json");
-        if (!ClientTables.Exists(path)) return new Dictionary<uint, int>();
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("MapKeys")) return new Dictionary<uint, int>();
+        var doc = ClientTables.Table("MapKeys");
         var result = new Dictionary<uint, int>();
-        foreach (var row in doc.RootElement.EnumerateArray())
-            if (row.GetProperty("BaseItemType") is { ValueKind: JsonValueKind.Number } baseRow &&
-                catalog.Row(baseRow.GetInt32()) is { } type && row.GetProperty("MapTier") is { ValueKind: JsonValueKind.Number } tier)
-                result.TryAdd(type.Hash, tier.GetInt32());
+        foreach (var row in doc)
+            if (row.IntOrNull("BaseItemType") is int baseRow &&
+                catalog.Row(baseRow) is { } type && row.IntOrNull("MapTier") is int tier)
+                result.TryAdd(type.Hash, tier);
         return result;
     }
 }

@@ -17,7 +17,7 @@ The side quests are `a5q3` (Vilenta's Miasmeter, 1 passive point), `a5q5` (kill 
 Type 0 but not needed for act 6) and `a5q7` (Kitava's Torments, 1 passive point and 2 respec points).
 
 Sources:
-- client tables (`data/tables`, 3.29.3b);
+- client tables (client.db, 3.29.3b);
 - the generated layouts (`lg.ps1 questobjects`, seed 1) and `lg.ps1 grep` over `Act5/**/*.arm` (short-form room lines
   that `questobjects` misses);
 - game text `.ot`/`.it` (`references/ggpk-text`);
@@ -29,9 +29,8 @@ Sources:
 
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act5.cs`,
 [12](../../protocol/12-quests.md) §14) and was played unattended by the campaign runner (driver steps `a5q1b`, `a5q3`,
-`a5q2`, `a5q4`, `a5q5`, `a5q7`, `a5q6`) before the game moved into modules; on the modules the oracle
-(`QuestEngineTests`) plays it after Act 4: every quest of the act complete, `a5q6-CompletedBoss`, arrival in Lioneye's
-Watch. What differs from the sections below:
+`a5q2`, `a5q4`, `a5q5`, `a5q7`, `a5q6`) before the game moved into modules; it has not been played on the modules
+yet. What differs from the sections below:
 - Kitava's socket starts the encounter at `force:mapboss`, not at the socket itself. `KitavaActFive` owns the
   body/heart sequence and completes the quest after Sign destruction and Sin's rescue. The −30 % resistance penalty
   refreshes the character panel immediately; Sin's dialogue does not stack it, and earned Act 10 completion adds −30 %.
@@ -275,7 +274,7 @@ None.
   without a taken flag, so the offer opens nothing today. The server must give the book (and keep
   `a5q3-HaveRewardBook`) through another path, for example by treating `a5q3-HaveRewardBook` as the taken flag.
 - QuestStaticRewards 12: flag `a5q3-UsedRewardBook`, 1 passive point (col1 = 1), no respec points.
-- Using a book today (`Program.Items.cs` `UseSkillBook`) adds 1 extra passive point and removes the book. It does
+- Using a book today (`Modules/Core/Game/Item/Items.cs` `UseSkillBook`) adds 1 extra passive point and removes the book. It does
   **not** set the `.it` `use_flag`, so the quest never reaches Order 0.
 
 ### Quest log check
@@ -587,7 +586,7 @@ There is no reward offer. The quest's "reward" is a penalty:
 - QuestStaticRewards 38, quest a5q6, flag `a5q6-CompletedBoss`: stats `base_resist_all_elements_%` = −30 and
   `base_chaos_damage_resistance_%` = −30 (hard values [−30, −30]), passive points 0, message ClientStrings 2910
   `KitavaWeaken1` ("permanently weakened … −30% to all Resistances").
-- **Server today:** `Program.Player.cs` `ResistancePenaltyAct5 = ["a5q6-CompletedBoss", "SinOnKitavaDefeat"]` already
+- **Server today:** `Modules/Core/Game/Player/Player.cs` `ResistancePenaltyAct5 = ["a5q6-CompletedBoss", "SinOnKitavaDefeat"]` already
   mirrors −30% from either flag. That matches QSR 38's flag; `SinOnKitavaDefeat` is an extra trigger that never fires
   without `a5q6-CompletedBoss` in normal play.
 - Showing the ClientStrings 2910 message is not done; it is cosmetic.

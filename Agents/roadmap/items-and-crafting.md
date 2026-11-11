@@ -102,8 +102,7 @@ features.
 - **Done when:** items' damage and defences count, and flasks and currency can be used.
 - **Flask modifiers (#75):** character charge-gain source resolution and independent hybrid recovery components
   have ordinary-mode handler/lifecycle coverage here. The counts and Standard/Ruthless observations in this entry
-  describe historical LocalExile validation, not a new native run on this branch; see the
-  [port record](../docs/dev/issue75-port.md). Twenty-four earlier native controls verify actual buffs,
+  describe historical LocalExile validation, not a new native run on this branch. Twenty-four earlier native controls verify actual buffs,
   recovery and charge awards, including Ruthless utility prevention and ordinary vendor refill.
   Flat and per-player-level duration now share one raw resolver for the panel and actual uses; level and inputs are
   captured before the charge send. Utility local/global duration factors multiply rather than add, with quality and

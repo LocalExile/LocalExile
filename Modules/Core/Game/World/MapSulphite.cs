@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>The native sulphite resource curve and the map-owner scarab modifier, separate from player item quantity.</summary>
 public static class MapSulphite
@@ -13,8 +14,7 @@ public static class MapSulphite
 
     static readonly Lazy<Dictionary<int, int>> Resources = new(() =>
     {
-        using var doc = GameTables.Open("data/tables/DelveResourcePerLevel.json");
-        return doc.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("AreaLevel").GetInt32(), r => r.GetProperty("Sulphite").GetInt32());
+        return ClientTables.Table("DelveResourcePerLevel").ToDictionary(r => r.Int("AreaLevel"), r => r.Int("Sulphite"));
     });
 
     public static bool Present(MapMods mods) => mods.Get("map_delve_league") > 0;
