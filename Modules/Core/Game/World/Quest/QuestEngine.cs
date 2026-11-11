@@ -614,11 +614,11 @@ public static partial class Game
             lock (conn.QuestChests) { conn.QuestChests.Remove(id); conn.QuestChests[next] = (rule, at); }
             conn.RemoveBlocker(id);
             conn.SetBlocker(next, at.X, at.Y, QuestChestSize);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            await SendWorldCreate(remote, stream, ciphers, conn, next, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
                 QuestChestBlob(conn, rule, at, conn.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
                 $"0x02bb quest chest 0x{next:x}: hide collected item marker ({rule.Item})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(next), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, next, InstanceProtocol.EnterWakeZone(next), null);
             hidden.Add(next);
         }
         foreach (var (id, nest) in nests)
@@ -628,11 +628,11 @@ public static partial class Game
             lock (conn.GlyphNests) { conn.GlyphNests.Remove(id); conn.GlyphNests[next] = nest; }
             conn.RemoveBlocker(id);
             conn.SetBlocker(next, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
+            await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
+            await SendWorldCreate(remote, stream, ciphers, conn, next, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(nest.Type),
                 GlyphQuest.NestBlob(nest.At, conn.Instance.ChestOpened(nest.At.X, nest.At.Y), hideMinimapIcon: true)),
                 $"0x02bb Rhoa Nest 0x{next:x}: hide collected glyph marker");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(next), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, next, InstanceProtocol.EnterWakeZone(next), null);
             hidden.Add(next);
         }
     }
