@@ -11,7 +11,7 @@ public static partial class Game
     // Evaluate at the cipher gate: a kill's delayed output may outlive the item's auto-pickup.
     // Creation and wake must stay together, before any competing pickup's removal can be sent.
     public static byte[]? GroundItemPresentation(ClientState conn, uint id, bool justDropped,
-        WorldItemObject? expected = null)
+        WorldItemObject? expected = null, bool includeWake = true)
     {
         lock (conn.Monsters)
         {
@@ -20,16 +20,17 @@ public static partial class Game
             var (by, shared) = conn.Instance.Ground.Origin(id);
             if (!shared && !ReferenceEquals(by, conn)) return null;
             conn.SeenGround.Add(id);
-            return [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
-                item.Blob(justDropped: justDropped)), .. InstanceProtocol.EnterWakeZone(id)];
+            var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), item.Blob(justDropped: justDropped));
+            return includeWake ? [.. create, .. InstanceProtocol.EnterWakeZone(id)] : create;
         }
     }
 
-    internal static Task SendGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task SendGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, WorldItemObject item, string? log, bool justDropped = false) =>
-        Send(remote, stream, ciphers, [], log, atGate: () => GroundItemPresentation(conn, id, justDropped, item));
+        SendWorldCreate(conn, id, () => GroundItemPresentation(conn, id, justDropped, item, includeWake: false),
+            log, wake: true, transport: (remote, stream, ciphers));
 
-    internal static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         var ground = conn.Instance.Ground;

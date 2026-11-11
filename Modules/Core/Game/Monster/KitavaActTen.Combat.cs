@@ -124,7 +124,7 @@ static partial class KitavaActTen
             int generation;
             lock (c.Monsters) { generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .2; }
             int cast = ++group;
-            await All([.. InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)], true);
+            await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(id)], true);
             Console.WriteLine($"[Kitava A10] interval {Round + 1}, {Game.SkillsFor(c).EffectId(effect)}");
             if (Tracks.TryGetValue(effect, out var contacts))
             {
@@ -184,7 +184,7 @@ static partial class KitavaActTen
         }
         async Task CombatMaintenance(ClientState c, double now)
         {
-            foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await All(InstanceProtocol.RemoveObject(fx.Id)); }
+            foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await AllRemoval(fx.Id); }
             patches.RemoveAll(p => p.Until <= now); orbs.RemoveAll(o => o.Until <= now);
             if (stage is 2 or 3 or 4)
                 foreach (var orb in orbs.Where(o => o.Next <= now).ToArray())
@@ -245,7 +245,7 @@ static partial class KitavaActTen
             bool Inside((int X, int Y) at) => hit.Cross ? Distance(at, hit.Aim) <= hit.Radius
                 && Math.Min(Math.Abs(at.X - hit.Aim.X - at.Y + hit.Aim.Y), Math.Abs(at.X - hit.Aim.X + at.Y - hit.Aim.Y)) <= (hit.Effect == 6589 ? 11 : 6)
                 : hit.End is { } end ? LineDistance(at, hit.Aim, end) <= hit.Radius : Distance(at, hit.Aim) <= hit.Radius;
-            await Send(w.Remote, w.Stream, w.Ciphers, [], null, atGate: () =>
+            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -268,9 +268,10 @@ static partial class KitavaActTen
         }
         static async Task CreateFx(ClientState p, Visual fx)
         {
-            var w = p.Wire; var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model) { Rotation = fx.Rotation };
-            await Send(w.Remote, w.Stream, w.Ciphers, [.. InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()),
-                .. InstanceProtocol.EnterWakeZone(fx.Id), .. (fx.Clip == uint.MaxValue ? Array.Empty<byte>() : InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Clip, 1))], null);
+            var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model) { Rotation = fx.Rotation };
+            await SendWorldCreate(p, fx.Id, () => InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));
+            await SendWorldRecord(p, fx.Id, () => InstanceProtocol.EnterWakeZone(fx.Id));
+            if (fx.Clip != uint.MaxValue) await SendWorldRecord(p, fx.Id, () => InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Clip, 1));
         }
     }
 }

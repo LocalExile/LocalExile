@@ -99,6 +99,7 @@ public sealed class GroundDropSoundTests
             GameServer.Gateway.Tests.TestEnvironment.ReleaseSaves(path);
         }
         await VerifyGoldLifecycle(runtime, instance, wire, lateWire, viewer, joining);
+        await VerifyLockstepGroundOutput(runtime, old);
     }
     static async Task VerifyGoldLifecycle(PartyFollowerTests.Runtime runtime, InstanceState instance,
         PartyFollowerTests.Wire wire, PartyFollowerTests.Wire otherWire, ClientState player, ClientState other)
@@ -165,6 +166,31 @@ public sealed class GroundDropSoundTests
         readonly string path = Path.Combine(Path.GetTempPath(), $"gold-pickup-{Guid.NewGuid():N}.db");
         public GoldDatabase() => Saves.Open(path);
         public void Dispose() => TestEnvironment.ReleaseSaves(path);
+    }
+
+    static async Task VerifyLockstepGroundOutput(PartyFollowerTests.Runtime runtime, WorldItemObject item)
+    {
+        using var wire = new PartyFollowerTests.Wire();
+        var player = runtime.Connection(new InstanceState(), wire, "lockstep-ground");
+        player.LockstepClient = true;
+        await Program.BeginWorldFrames(player, .033);
+        void Queue(uint id) => player.Minions.OutputQueue.Add(new([], "deferred lockstep drop", TargetId: id,
+            Kind: PlayerMinions.OutputKind.GroundItem));
+        uint stale = player.Instance.Ground.Add(item, player);
+        Queue(stale); player.Instance.Ground.Take(stale);
+        int before = Program.HistoryFor(wire.Ciphers).Lines().Count();
+        await Game.PublishMinionOutcomes("stale-lockstep-drop", wire.Stream, wire.Ciphers, player);
+        Assert.Empty(player.Minions.OutputQueue);
+        Assert.Equal(before, Program.HistoryFor(wire.Ciphers).Lines().Count());
+        uint live = player.Instance.Ground.Add(item, player); Queue(live);
+        var publishing = Game.PublishMinionOutcomes("live-lockstep-drop", wire.Stream, wire.Ciphers, player);
+        Assert.False(publishing.IsCompleted);
+        await Program.EndWorldFrame(player, (.033, .066));
+        await publishing;
+        await Program.EndWorldFrame(player, (.066, .099));
+        Assert.Empty(player.Minions.OutputQueue);
+        Assert.Contains(live, player.SeenGround);
+        Assert.Contains(Program.HistoryFor(wire.Ciphers).Lines(), line => line.Contains($"02BB{live:X8}", StringComparison.Ordinal));
     }
 
 }

@@ -180,6 +180,21 @@ public static partial class Game
                 await notification;
                 continue;
             }
+            if (output.Kind == PlayerMinions.OutputKind.GroundItem)
+            {
+                uint groundId = output.TargetId!.Value;
+                await SendWorldCreate(conn, groundId, () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
+                            || !ReferenceEquals(state.OutputQueue[0], output)) return null;
+                        state.OutputQueue.RemoveAt(0);
+                        return GroundItemPresentation(conn, groundId, conn.Instance.Ground.IsNewFor(conn, groundId), includeWake: false);
+                    }
+                }, output.Log, wake: true, transport: (remote, stream, ciphers));
+                continue;
+            }
             byte[][]? actionRecords = null;
             byte[]? Project()
             {
