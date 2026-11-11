@@ -8,7 +8,7 @@
 /// "Hits ... cannot be evaded" (its ActiveSkills description; Hammerfalls' says nothing). A hammer lands when its art
 /// (MiscAnimated HolySweepHammerFall, falling_hammer_sweep.ao) slams: holy_slam.pet at 0.2497 s.
 /// </summary>
-static class HolySweepHammers
+public static class HolySweepHammers
 {
     /// <summary>Seconds from the hammer's appearance to its slam (falling_hammer_sweep.ao's holy_slam.pet event).</summary>
     public const double FallSeconds = 0.25;

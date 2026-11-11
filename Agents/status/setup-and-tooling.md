@@ -92,10 +92,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Harvest, Heist and Delve are real modules with their own assemblies, which hot-reload, through `IPlayerWorld`.
   Trades and parties, Atlas passives, the crafting bench, cosmetics, vendors, portals and the map device, tattoos, the campaign's quests (QuestObjects), hideout editing, chat commands and unique belts are Core modules too. The game\'s rules are the `Game` module; the Gateway keeps the framework, game data, saves and connection state. What an NPC's options do is the `npcdialogue` module. A module runs only for the players whose league lists it, so a hideout
   without Harvest places no station. Not tried in the client after the move.
-  The seven example mods, all off by default, moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)
-  (2026-11-07); Waypoint installs them. A release ships no mods.
-  Mods see only `GameServer.Modding`: chat commands, the player tick, client messages (a mod may take one), area
-  generated, monster killed, and drop, experience and stat modifiers; a mod that throws is logged and skipped.
+  The example mods moved to [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (2026-11-07), where
+  `example`, `hello`, `bossloot` and `doubleexperience` were later removed; Waypoint installs mods. A release ships none.
+  A mod reaches what a module reaches (the Gateway and Game are public; `depends` may name a module). `GameEvents` is
+  the one hook system for modules and mods (chat commands, tick, client messages, area generated, monster killed, drop,
+  experience and stat modifiers among it); a mod's subscriptions run in every league, and the host releases everything
+  an id holds (subscriptions, `ChatRoutes.Use`, `ExchangeRateStore.Use`) when it unloads. `GameServer.Modding` is only
+  the loader contract and host services (`IMod`, `IModule`, `League`, the context) and depends on nothing of the server;
+  `IPlayer`, `IPlayerWorld` (`Program.WorldOf`) and build imports (`CharacterBuildApi.For(mod)`) are the Gateway's. A subscriber that throws is logged and skipped.
+  The dev chat commands are the `gm-commands` mod in LocalExile-Mods; `/reload` and `/lastpackets` are the Gateway's.
+  Not tried in the client yet.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
@@ -107,7 +113,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (fallback, required features, tunables, scoped hooks) and built-ins.
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
-  `Program.ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
+  `Modules/Core/Game/Player/ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
   Docs: [modding](../docs/dev/modding.md).
 
 - Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
@@ -144,8 +150,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/state` reports and the objects quest rules watch.
   The same driver played Acts 1-10 and the Epilogue live before the game moved into modules; on the quest engine's Act 1
   it is checked offline only (runner tests against a simulated server, `test_client_control.py`,
-  `CampaignCommandTests`).
-  Code: `scripts/dev/campaign/`, `Modules/Core/Player/Commands/Rules.Campaign.cs`, `CampaignState.cs`.
+  `CampaignCommandTests`, removed with the move to the mod).
+  Code: `scripts/dev/campaign/`, the `gm-commands` mod (LocalExile-Mods).
   Docs: [campaign automation](../docs/dev/campaign-automation.md), [10](../docs/protocol/10-chat-and-commands.md).
 
 - Debugging aids: timestamped server logs, whole exceptions with stack traces (a failing packet handler names its

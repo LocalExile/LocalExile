@@ -33,10 +33,10 @@ static partial class PortalsRules
                 var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
                 var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
                     ? conn.Layout.Near(ring) : ring;
-                await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, type,
+                await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, type,
                         new MapPortalObject(x, y, index, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
                     $"0x02bb create map portal 0x{id:x} (place {index}, {n}/{open.PortalsLeft}) to {open.Area.Name} at ({x}, {y})");
-                await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
                 lock (conn.MapPortals) conn.MapPortals[id] = (x, y, index);
                 await Task.Delay(MapPortalListMs);
                 if (!Current()) return;
@@ -55,6 +55,6 @@ static partial class PortalsRules
         if (ids.Count > 0 && deviceId != 0)
             await Send(remote, stream, ciphers, InstanceMapDevice.Portals(deviceId, [.. ids.Select(id => new InstanceMapDevice.Portal(id, 0))]),
                 $"0x008f map device 0x{deviceId:x}: {ids.Count} portal(s) closed");
-        foreach (uint id in ids) await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
+        foreach (uint id in ids) await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{id:x}");
     }
 }

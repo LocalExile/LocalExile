@@ -7,10 +7,10 @@ using GameServer.Core.Protocol.Login;
 // Lilly on the rooftop) and NPCs that appear where a boss dies (Quests.AppearsRule: the god Sins). Each is a candidate of
 // the instance (conn.QuestNpcs) with the place it stands; UpdateQuestNpcs creates, removes and transitions them as the
 // character's flags change.
-static partial class Game
+public static partial class Game
 {
     // The instance's quest NPCs, from the town's placements or where the area's rooms place them (entering the area).
-    internal static List<QuestNpc> QuestNpcCandidates(string remote, ClientState conn, QuestObjectTypes.AreaPlacements placed)
+    public static List<QuestNpc> QuestNpcCandidates(string remote, ClientState conn, QuestObjectTypes.AreaPlacements placed)
     {
         string area = conn.Layout.Id;
         var found = new List<QuestNpc>();
@@ -45,7 +45,7 @@ static partial class Game
 
     // Who appears where a boss dies, on a later visit: beside the boss while its kill flags are set and the NPC's GoneWith
     // is not (SinInnocence until a5q6-QuestReceived).
-    internal static IEnumerable<QuestNpc> AppearedBefore(ClientState conn)
+    public static IEnumerable<QuestNpc> AppearedBefore(ClientState conn)
     {
         string area = conn.Layout.Id;
         foreach (var rule in QuestsOf(conn).Appearing(area).Where(r => r.GoneWith is not null))
@@ -60,12 +60,12 @@ static partial class Game
         }
     }
 
-    internal static QuestNpc AppearingNpc(string area, Quests.AppearsRule rule, NpcCatalog.Npc npc, int x, int y) =>
+    public static QuestNpc AppearingNpc(string area, Quests.AppearsRule rule, NpcCatalog.Npc npc, int x, int y) =>
         new(npc, x, y, 0, area, rule.NpcType, rule, roomState: false);
 
     // The quest NPCs as the flags have them: created when they stand there now, removed when they no longer do, moved to
     // their last Transitionable state when a flag transitions them.
-    internal static async Task UpdateQuestNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task UpdateQuestNpcs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         List<QuestNpc> candidates;
         lock (conn.QuestNpcs) candidates = [.. conn.QuestNpcs];
@@ -93,7 +93,7 @@ static partial class Game
                 lock (conn.Npcs) conn.Npcs.Remove(id);
                 conn.RemoveBlocker(id);
                 if (conn.TalkingTo == id) { conn.TalkingTo = 0; conn.InNpcTalk = false; }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
+                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
             }
             else if (want && transitioned && transitionable)
             {
@@ -104,7 +104,7 @@ static partial class Game
                 {
                     spawned.State = last;
                     int component = c.Npc.Components!.ToList().IndexOf("Transitionable");
-                    await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
+                    await SendWorldRecord(remote, stream, ciphers, conn, c.Id, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
                         $"0x02bc quest npc 0x{c.Id:x} {c.Npc.Name} transitions to state {last}: {why}");
                 }
             }
@@ -112,7 +112,7 @@ static partial class Game
     }
 
     // A monster died: the NPCs that appear where it fell (Quests.AppearsRule: Sin beside each god).
-    internal static async Task QuestNpcsAppear(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task QuestNpcsAppear(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         MonsterCatalog.Variety variety, (int X, int Y) at)
     {
         string area = conn.Layout.Id;

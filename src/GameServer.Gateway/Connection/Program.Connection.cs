@@ -7,15 +7,15 @@ using GameServer.Storage;
 using GameServer.Core.Diagnostics;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
-partial class Program
+public partial class Program
 {
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
-    internal static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
+    public static string CharacterName(ClientState conn) => string.IsNullOrEmpty(conn.Character) ? "Exile" : conn.Character;
 
     // Set while a projectile's output is sent: false drops it (Send).
-    internal static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
+    public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
-    internal static void SaveUnsavedProgressNow(string? why)
+    public static void SaveUnsavedProgressNow(string? why)
     {
         try
         {
@@ -31,14 +31,14 @@ partial class Program
         }
     }
 
-    internal static string? FindUp(string relative)
+    public static string? FindUp(string relative)
     {
         for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
             if (File.Exists(Path.Combine(dir.FullName, relative))) return Path.Combine(dir.FullName, relative);
         return null;
     }
 
-    internal static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
+    public static async Task HandleAsync(TcpClient client, InstanceKeyring keyring)
     {
         string remote = client.Client.RemoteEndPoint?.ToString() ?? "?";
         // Nagle off: it would hold a small 0x1c back until the previous write is acknowledged (up to ~200 ms, issue #46).
@@ -89,6 +89,7 @@ partial class Program
                 HardcoreDeathPersistence.RetryPendingCharacter(Saves.Db, resolved.CharacterId);
                 var canonicalCharacter = new SqliteAccountStore(Saves.Db).FindCharacter(resolved.Character);
                 if (canonicalCharacter is null ||
+                    CharacterBuildImports.IsApplying(canonicalCharacter.Id) ||
                     !HardcoreDeathRules.TicketMatches(canonicalCharacter, resolved.CharacterId, resolved.League))
                 {
                     Console.WriteLine($"[gateway] {remote} character is dead or its league changed; connection refused");
@@ -127,7 +128,7 @@ partial class Program
                 conn.ArriveAt = SpotArrivals.TryRemove(ticket, out var spot) ? spot : null;
                 int level = Logic.PrepareCharacter(remote, conn, resolved.Level);
                 prepared = true;
-                var moduleHeader = ServerHooks.Header(PlayerOf(conn));
+                var moduleHeader = GameEvents.RunAreaHeader(conn);
                 // A room of today's Labyrinth names its node (LabyrinthDay): the client then builds the day's layout and
                 // applies the room's overrides and secrets, as the server's own generation of it does (ServerLevels).
                 var labyrinthNode = moduleHeader?.Terrain is null ? LabyrinthDay.NodeFor(layout.Id, seed) : null;
@@ -191,8 +192,32 @@ partial class Program
                     inbox.Complete();
                     await handlers;
                     // An open trade ends with its owner: the other side gets its items back in view and the window closes.
-                    try { await ServerHooks.PlayerLeaving(PlayerOf(conn), "disconnected"); }
+                    try { await GameEvents.RunPlayerLeaving(conn, "disconnected"); }
                     catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                    if (conn.BuildImport.Confirmed is { } build)
+                    {
+                        bool imported = false;
+                        try
+                        {
+                            Logic.Save(conn, prepared);
+                            Logic.Left(conn);
+                            conn.BuildFinalized = true;
+                            CharacterBuildImports.Apply(build);
+                            imported = true;
+                            Console.WriteLine($"[character-build] {CharacterName(conn)}: committed {build.Class} level {build.Level}");
+                        }
+                        catch (Exception e)
+                        {
+                            Console.WriteLine($"[character-build] {CharacterName(conn)}: import failed: {e.Message}");
+                            try { await conn.Commands!.Reply("Build import failed: " + e.Message); }
+                            catch (Exception send) when (send is IOException or ObjectDisposedException) { }
+                        }
+                        if (imported)
+                        {
+                            try { await conn.Commands!.Reply("Build applied. Select your character again."); }
+                            catch (Exception send) when (send is IOException or ObjectDisposedException) { }
+                        }
+                    }
                 }
             }
         }
@@ -216,18 +241,19 @@ partial class Program
             // The connection ends (a logout, an area change, a crash of the client): what waits in memory is saved now.
             try
             {
-                Logic.Save(left, prepared);
+                if (!left.BuildFinalized) Logic.Save(left, prepared);
             }
             catch (Exception e)
             {
                 Console.WriteLine($"[gateway] {remote} unsaved progress not saved at disconnect (kept for the next save): {ServerLog.Describe(e)}");
             }
             // What follows must run whatever the rules do, or the player stays in the instance.
-            try { Logic.Left(left); }
+            try { if (!left.BuildFinalized) Logic.Left(left); }
             catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
             left.Instance.RemovePlayer(left.PeerId);
             if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
             Instances.Leave(left.Instance);
+            CharacterBuildImports.Release(left);
         }
         if (ticket != 0) await InstanceControl.CallAsync(new ControlRequest { Op = "leave", Ticket = ticket });
         string? dump = left is not null && PacketHistory.DumpFolder is { } folder
@@ -240,7 +266,7 @@ partial class Program
     // The read loop's part: decrypts one read, frames it (InstanceProtocol.SplitClientMessages), answers its 0x1b ticks with
     // 0x1c at once and queues the rest for RunHandlers. readAt is when the read completed: a tick answered more than
     // ClientInbox.SlowAfter later is logged.
-    internal static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
+    public static async Task OnClientData(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] data, ClientState conn,
         ClientInbox inbox, long readAt)
     {
         ciphers.Receive.Process(data);
@@ -277,7 +303,7 @@ partial class Program
 
     // The connection's handler task: every message but the ticks, one read at a time and in order (ClientInbox). A handler
     // that runs longer than ClientInbox.SlowAfter is logged. An error or 0x153 closes the connection by cancelling the read.
-    internal static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunHandlers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ClientInbox inbox, CancellationTokenSource reading)
     {
         await Task.Yield();   // the read loop starts at once; the handlers run beside it
@@ -325,7 +351,7 @@ partial class Program
     // cells) of the player starts chasing: it walks (Move action 0x1ab, skill 0x2909; the client paths it) to its own cell
     // around the player (MonsterSurround), re-ordered when that cell has moved by 3+ cells. Beyond twice the range it gives up and stops.
     // Positions are the server's estimates (PlayerWalk at MonsterVarieties MovementSpeed cells/s).
-    internal static async Task WhilePaused(ClientState conn)
+    public static async Task WhilePaused(ClientState conn)
     {
         while (conn.Paused && !conn.Closed) await Task.Delay(100);
     }
@@ -338,13 +364,14 @@ partial class Program
     // A factory samples clock-sensitive state and constructs its packet after earlier sends; null sends nothing.
     /// <summary>Sees every message before it is encrypted and written (the module's mirror of shared monsters to the other
     /// clients); it must copy what it keeps.</summary>
-    internal static Action<ConnectionCiphers, byte[]>? Outgoing;
+    public static Action<ConnectionCiphers, byte[]>? Outgoing;
+    [ThreadStatic] public static WorldOutput.Packet? WritingWorldRecord;
 
     // How often a state sync that an update loop offers every 16-32 ms may take the send gate. The packets are
     // idempotent snapshots, so a skipped step publishes nothing lost, and the input handlers stop queueing behind them.
-    internal const double SyncPublishMilliseconds = 100;
+    public const double SyncPublishMilliseconds = 100;
 
-    internal static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
+    public static async Task Send(string remote, NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes, string? log,
         Func<bool>? still = null, Func<byte[]?>? atGate = null, string? sync = null)
     {
         var gate = SendGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
@@ -374,23 +401,8 @@ partial class Program
             }
             // Nothing to send (a sync with no change): nothing written, nothing in the history.
             if (bytes.Length == 0) return;
-            if (log is not null)
-            {
-                string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
-                // Explicit traces retain synchronous output; normal summaries cannot stall the wire on disk IO.
-                if (ServerTrace.Packets) Console.WriteLine(line);
-                else PacketSummaries.Value.Write(line);
-            }
-            if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
-                Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
-            HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
-            sentId = (ushort)(bytes[0] << 8 | bytes[1]);   // Temporary lag instrumentation: the id, read before Write encrypts it
-            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
-            if (Outgoing is { } outgoing) outgoing(ciphers, bytes);
-            string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
-                ? Convert.ToHexString(bytes) : null;
-            await Write(stream, ciphers, bytes);
-            if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
+            sentId = (ushort)(bytes[0] << 8 | bytes[1]);
+            await WritePacket(remote, stream, ciphers, bytes, log);
         }
         finally
         {
@@ -409,6 +421,31 @@ partial class Program
         }
     }
 
+    // Called under SendGate. Diagnostics and the shared-object observer see actual transmission, not queueing.
+    public static async Task WritePacket(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        byte[] bytes, string? log, WorldOutput.Packet? record = null)
+    {
+            if (log is not null)
+            {
+                string line = $"[gateway] {remote} => {log}: {Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 96)))}";
+                // Explicit traces retain synchronous output; normal summaries cannot stall the wire on disk IO.
+                if (ServerTrace.Packets) Console.WriteLine(line);
+                else PacketSummaries.Value.Write(line);
+            }
+            if (ServerTrace.Packets && PacketHistory.Kept(sent: true, PacketHistory.IdOf(bytes)))
+                Console.WriteLine($"[packets] {remote} => 0x{PacketHistory.IdOf(bytes):x4} {bytes.Length} B: {Convert.ToHexString(bytes)}");
+            HistoryFor(ciphers).Sent(bytes);   // before Write, which encrypts the bytes in place
+            // What this client is sent may concern others too (the instance's shared monsters: SharedMonsters.cs).
+            var previousRecord = WritingWorldRecord;
+            WritingWorldRecord = record;
+            try { if (Outgoing is { } outgoing) outgoing(ciphers, bytes); }
+            finally { WritingWorldRecord = previousRecord; }
+            string? trace = MoveTrace && bytes.Length >= 6 && (bytes[0] << 8 | bytes[1]) is 0x01ab or 0x01b7 or 0x01ba
+                ? Convert.ToHexString(bytes) : null;
+            await Write(stream, ciphers, bytes);
+            if (trace is not null) Console.WriteLine($"[move-trace] qpc={Stopwatch.GetTimestamp()} send {trace}");
+    }
+
     // A run of sends that each would take the send gate on their own (the player tick's eleven state publications: Antiquarian,
     // Onslaught, totems, Spirit Chieftain, recent hits, attacker slows, Lifetap, leech, Petrified Blood, enemy auras,
     // blind) queue in a batch and take the gate once, in their order, each still evaluated at the gate as on its own; the
@@ -424,7 +461,7 @@ partial class Program
     /// <summary>Runs <paramref name="body"/>, whose sends to this connection take the send gate together at its end.
     /// Its result is the body's. A send inside returns before it is published, so the body must not rely on one having
     /// gone out.</summary>
-    internal static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
+    public static async Task<bool> SendBatched(string remote, NetworkStream stream, ConnectionCiphers ciphers, Func<Task<bool>> body)
     {
         if (CurrentSendBatch.Value is not null) return await body();
         var batch = new SendBatch(ciphers);
@@ -496,7 +533,7 @@ partial class Program
 
     // The wire itself: the keystream must be applied and written in one order, so encryption and the write share this
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
-    internal static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
+    public static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
         if (ControlledPlayers.IsTransport(ciphers)) return;
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
@@ -517,11 +554,11 @@ partial class Program
 
     // A tick's answer (0x1c) only reports that the server is there: it needs no game state, so it takes the wire alone
     // and goes out between two other packets instead of waiting behind their state callbacks (combat, Rage, stats).
-    internal static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
+    public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
 
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();
-    internal static ConnectionPerformance MetricsFor(ConnectionCiphers ciphers) => ConnectionMetrics.GetValue(ciphers, _ => new());
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, PacketHistory> PacketHistories = new();
-    internal static PacketHistory HistoryFor(ConnectionCiphers ciphers) => PacketHistories.GetValue(ciphers, _ => new());
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> WireGates = new();
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, ConnectionPerformance> ConnectionMetrics = new();
+    public static ConnectionPerformance MetricsFor(ConnectionCiphers ciphers) => ConnectionMetrics.GetValue(ciphers, _ => new());
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, PacketHistory> PacketHistories = new();
+    public static PacketHistory HistoryFor(ConnectionCiphers ciphers) => PacketHistories.GetValue(ciphers, _ => new());
 }

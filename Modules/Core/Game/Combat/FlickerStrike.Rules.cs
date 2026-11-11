@@ -3,11 +3,44 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
+    // The client's Flicker Strike action selects these MiscAnimated resources by skill_art_variation.
+    // In is the departure effect and Out is the arrival effect (their sound events confirm the direction).
+    internal static async Task FlickerArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint gem, (int X, int Y) from, (int X, int Y) to)
+    {
+        int variation = SkillArtVariation(conn, gem);
+        var (departure, arrival) = variation switch
+        {
+            1 => ("Metadata/Effects/Microtransactions/Spells/flicker_strike/ninja_smoke/rig_in.ao", "Metadata/Effects/Microtransactions/Spells/flicker_strike/ninja_smoke/rig_out.ao"),
+            2 => ("Metadata/Effects/Microtransactions/Spells/flicker_strike/necro_smoke/rig_in.ao", "Metadata/Effects/Microtransactions/Spells/flicker_strike/necro_smoke/rig_out.ao"),
+            4 => ("Metadata/Effects/Spells/monsters_effects/act10/Kitava/unique_minion/flicker_strike/disappear.ao", "Metadata/Effects/Spells/monsters_effects/act10/Kitava/unique_minion/flicker_strike/appear.ao"),
+            _ => ("Metadata/Effects/Spells/flicker_strike_new/Flicker_In.ao", "Metadata/Effects/Spells/flicker_strike_new/Flicker_Out.ao")
+        };
+        uint first, second;
+        lock (conn.Monsters)
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            first = conn.NextObjectId++;
+            second = conn.NextObjectId++;
+        }
+        await Send(remote, stream, ciphers,
+            [.. InstanceEntities.CreateObject(first, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(from.X, from.Y, departure).Blob()),
+             .. InstanceProtocol.EnterWakeZone(first),
+             .. InstanceEntities.CreateObject(second, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(to.X, to.Y, arrival).Blob()),
+             .. InstanceProtocol.EnterWakeZone(second)],
+            $"Flicker Strike art variation {variation}: departure ({from.X}, {from.Y}), arrival ({to.X}, {to.Y})");
+        SendAfter(2, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await Send(remote, stream, ciphers, [.. InstanceProtocol.RemoveObject(first), .. InstanceProtocol.RemoveObject(second)], null);
+        });
+    }
+
     /// <summary>Where Flicker Strike takes the player: the monster the client's action picks (FlickerStrike) and the
     /// landing next to it. Null when no monster is in range: the client then strikes where the player stands.</summary>
-    internal static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
+    public static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
         ushort skillId, (int X, int Y) player, (int X, int Y) aim, uint clicked, double now)
     {
         var stats = SupportedSkill(conn, skillId).Stats;
@@ -34,11 +67,11 @@ static partial class Game
     static readonly ConditionalWeakTable<ClientState, FlickerSpeed> FlickerSpeeds = new();
 
     // The running buff's movement bonus, for the pools (PoolsFor); 0 when none runs.
-    internal static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;
+    public static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;
 
     // After an accepted Flicker Strike use: the buff and the faster movement speed, and both gone when it runs out
     // (a later use's buff takes over).
-    internal static async Task GrantFlickerSpeed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task GrantFlickerSpeed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;

@@ -5,7 +5,7 @@ using GameServer.Core;
 
 
 /// <summary>How a monster type starts: as usual, or waiting to rise (MonsterEmerge).</summary>
-enum EmergeKind
+public enum EmergeKind
 {
     /// <summary>An ordinary monster (or one whose entrance the server does not play).</summary>
     None,
@@ -32,7 +32,7 @@ enum EmergeKind
 /// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
 /// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
 /// </summary>
-sealed class MonsterEmerge(string folder = "data")
+public sealed class MonsterEmerge(string folder = "data")
 {
     /// <summary>How near (grid cells) the player comes before a monster rises; its aggro range when that is shorter. The
     /// official server decides it in the monster's .ais file, which the client does not have: 24 cells keeps the emerge
@@ -40,7 +40,7 @@ sealed class MonsterEmerge(string folder = "data")
     public const int Range = 24;
 
     // Eight 3.29.3b opening-capture events support this bounded calibration.
-    internal const int StrandDrownedRange = 60;
+    public const int StrandDrownedRange = 60;
 
     static int WakeRange(string areaId, MonsterCatalog.Variety? variety) =>
         areaId == TutorialObjects.Strand && variety?.Id.StartsWith(
@@ -168,8 +168,9 @@ sealed class MonsterEmerge(string folder = "data")
         {
             m.Aggro = true;
             m.LastTarget = null;
-            // A little past the clip, so the client has finished the action before the AI's first order.
-            m.BusyUntil = now + seconds + 0.3;
+            // The clip-end callback completes Emerge in both modes (141e933b0 → 141e934b0 → 141e8f670).
+            // No extra idle tail follows the clip; the next AI decision may run once it ends.
+            m.BusyUntil = now + seconds;
         }
         watching = g.Watching = conn.DormantMonsters.Count + g.Lurking.Count > 0;
         return risen;

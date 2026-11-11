@@ -2,18 +2,18 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
-static partial class Game
+public static partial class Game
 {
-    internal sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
+    public sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
     {
         public string? Get(string key) => get(key);
         public bool Change(string key, Func<string?, string?> apply) => change(key, apply);
     }
 
-    internal static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
-    internal static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
+    public static readonly Lazy<ModuleItemCrafting> StandardCrafting = new(() => new(Items!, Rolls!));
+    public static readonly Lazy<ModuleItemCrafting> HardModeCrafting = new(() => new(HardModeItems!.Value, HardModeRolls!.Value));
 
-    internal sealed class ModuleWorld(ClientState conn) : IPlayerWorld
+    public sealed class ModuleWorld(ClientState conn) : IPlayerWorld
     {
         Task Send(byte[] message, string? log) => Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, message, log);
 
@@ -33,9 +33,9 @@ static partial class Game
             var (x, y, rotation) = scene.Station(slot, editorKey);
             uint id = conn.NextObjectId++;
             var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
-            await Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
+            await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
                 $"0x02bb create {name} 0x{id:x} at ({x}, {y})");
-            await Send(InstanceProtocol.EnterWakeZone(id), null);
+            await SendWorldRecord(conn, id, () => InstanceProtocol.EnterWakeZone(id));
             await RegisterStationaryCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, metadataPath, x, y, rotation, editorKey);
             return id;
         }
@@ -83,10 +83,10 @@ static partial class Game
             lock (conn.Npcs) return conn.Npcs.GetValueOrDefault(conn.TalkingTo);
         }
 
-        public Task NpcSay(NpcOption option)
+        public Task NpcSay(string npc, string option, int index, int row)
         {
             conn.InNpcTalk = true;
-            return Send(InstanceNpcs.Talk(conn.TalkingTo, (byte)option.Index), $"0x0084 npc 0x{conn.TalkingTo:x} {option.Npc} talks: NPCTalk row {option.Row} \"{option.Option}\" (index {option.Index})");
+            return Send(InstanceNpcs.Talk(conn.TalkingTo, (byte)index), $"0x0084 npc 0x{conn.TalkingTo:x} {npc} talks: NPCTalk row {row} \"{option}\" (index {index})");
         }
 
         public void NpcEndTalk() => conn.InNpcTalk = false;
@@ -151,7 +151,7 @@ static partial class Game
 }
 
 /// <summary>The Gateway's item rules for one data set, as modules see them.</summary>
-sealed class ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls) : IItemCrafting
+public sealed class ModuleItemCrafting(ItemCatalog catalog, ItemRolls rolls) : IItemCrafting
 {
     readonly Lazy<IReadOnlySet<string>> _modTypes = new(() =>
         catalog.Mods.All.Select(m => m.ModType).Where(t => t.Length > 0).ToHashSet(StringComparer.OrdinalIgnoreCase));

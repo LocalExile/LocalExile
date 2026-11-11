@@ -11,7 +11,7 @@ using GameServer.Core;
 /// points_from_level, skill_points_from_passives and extra_skill_points, 15-progression.md §2), so the server sends them
 /// there. Refund points are spent, so a flag credits its refund points once (the save's QuestRefundsCredited).</para>
 /// </summary>
-sealed class QuestStaticRewards
+public sealed class QuestStaticRewards
 {
     public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(string Stat, int Value)> Stats);
 

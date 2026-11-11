@@ -7,17 +7,18 @@ using GameServer.Core;
 /// HASH16), each type's components from data/item-types.json (`python -I scripts/re/ot_components.py --items --json
 /// data/item-types.json`), flask charges from ComponentCharges and stack sizes from CurrencyItems. All game data: it stays in data/ and loads on first use.
 /// </summary>
-sealed class ItemCatalog
+public sealed class ItemCatalog
 {
     /// <summary>What the stash tabs hold (<see cref="StashRules"/>), loaded on first use; tests set their own.</summary>
     public StashRules Stash
     {
         get => _stash ??= StashRules.Load(_folder, _rows.Value.Rows);
-        internal set => _stash = value;
+        set => _stash = value;
     }
 
     private StashRules? _stash;
     private readonly string _folder;
+    private readonly Lazy<HashSet<int>> _activeGemEffects;
 
     public ItemCatalog(string folder, bool hardMode = false, LimitSettings? limits = null)
     {
@@ -27,6 +28,7 @@ sealed class ItemCatalog
         _rows = new(() => Load(folder, Mods));
         _byHash = new(() => _rows.Value.Rows.GroupBy(t => t.Hash).ToDictionary(g => g.Key, g => g.First()));
         _gems = new(() => LoadGems(folder, hardMode));
+        _activeGemEffects = new(() => LoadActiveGemEffects(folder));
         _requirements = new(() => LoadRequirements(folder));
         _shieldBlocks = new(() => LoadShieldBlocks(folder));
         _weaponCrits = new(() => LoadWeaponCrits(folder));
@@ -82,6 +84,9 @@ sealed class ItemCatalog
     {
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+        /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's
+        /// walk to it takes as the target's size (a Scroll of Wisdom 1, a Rustic Sash 2, a Plate Vest 3).</summary>
+        public byte GroundSize { get; init; } = 1;
 
         /// <summary>A quest item's Quest component (its .it, item-types.json "quest"), or null for other items.</summary>
         public QuestItemFlags? Quest { get; init; }
@@ -318,8 +323,20 @@ sealed class ItemCatalog
     {
         if (ByHash(gem.TypeHash) is not { } t || Gem(t) is not { IsSupport: false } g || g.Variants.Count == 0) yield break;
         var v = g.Variant(gem.GemVariant);
-        if (v.Effect >= 0) yield return v.Effect;
-        if (v.Effect2 >= 0) yield return v.Effect2;
+        if (_activeGemEffects.Value.Contains(v.Effect)) yield return v.Effect;
+        if (_activeGemEffects.Value.Contains(v.Effect2)) yield return v.Effect2;
+    }
+
+    // Hybrid gems such as Automation carry an active effect and a support effect.
+    // The Actor skill constructor dereferences ActiveSkill (+0x63) even for a secondary effect.
+    static HashSet<int> LoadActiveGemEffects(string folder)
+    {
+        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
+        if (!GameServer.Core.ClientTables.Exists(path)) return [];
+        using var doc = GameTables.Open(path);
+        return doc.RootElement.EnumerateArray().Select((row, i) => (Row: row, Index: i))
+            .Where(r => !r.Row.GetProperty("IsSupport").GetBoolean() && r.Row.GetProperty("ActiveSkill").ValueKind == JsonValueKind.Number)
+            .Select(r => r.Index).ToHashSet();
     }
 
     /// <summary>A gem item's level from its experience (<see cref="GemType.Level"/>), 1 for an unknown gem type.</summary>
@@ -576,6 +593,7 @@ sealed class ItemCatalog
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
         if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
+        if (t.Id == AbyssJewels.StygianVise) return ([new(SocketColour.Abyss)], null);
         // 3.29: sockets are white by default; each has a chance to roll its attribute colour that rises with item level
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
@@ -610,7 +628,9 @@ sealed class ItemCatalog
         return new(t.Hash, t.Components, t.VisualIdentity)
         {
             DefenceBaseRoll = defenceBaseRoll ?? (t.Components.Contains("Armour") ? (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) : (byte)0),
-            Charges = t.MaxCharges, Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t) : sockets ?? [],
+            Charges = t.MaxCharges,
+            Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
+                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : []),
             Links = ResonatorSockets(t) > 0 ? null : links,
             Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };
@@ -721,6 +741,8 @@ sealed class ItemCatalog
                     Tags = new HashSet<string>([.. itemTags.GetValueOrDefault(id) ?? [],
                         .. r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.GetProperty("ModDomain").GetInt32(),
+                    GroundSize = r.TryGetProperty("SizeOnGround", out var ground) && ground.ValueKind == JsonValueKind.Number
+                        ? (byte)ground.GetInt32() : (byte)1,
                     Quest = questFlags.GetValueOrDefault(id),
                     ClassRow = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cr ? cr.GetInt32() : -1,
                     Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||
@@ -743,4 +765,4 @@ sealed class ItemCatalog
 /// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
 /// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
 /// QuestStaticRewards keys by that flag).</summary>
-sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);
+public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);

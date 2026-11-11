@@ -13,7 +13,7 @@ using GameServer.Core;
 /// sent. Names stay empty: the client names a record from its catalogue.
 /// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
 /// </summary>
-sealed class MtxCatalog(string folder = "data")
+public sealed class MtxCatalog(string folder = "data")
 {
     private readonly Lazy<List<InstanceMicrotransactions.Record>> _owned = new(() => Load(folder));
     private Dictionary<uint, InstanceMicrotransactions.Record>? _byId;
@@ -59,7 +59,7 @@ sealed class MtxCatalog(string folder = "data")
     }
 
     /// <summary>Each row's HASH32 in table order (null for a row without one), or null without the file.</summary>
-    internal static List<uint?>? Hashes(string path)
+    public static List<uint?>? Hashes(string path)
     {
         if (!ClientTables.Exists(path)) return null;
         using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
@@ -79,7 +79,7 @@ sealed class MtxCatalog(string folder = "data")
 /// 17 is none.
 /// Game data, loaded on first use; without <c>data/tables</c> nothing applies.
 /// </summary>
-sealed class CosmeticEffects(string folder = "data")
+public sealed class CosmeticEffects(string folder = "data")
 {
     /// <summary>One cosmetic's effect: ItemVisualIdentity / ItemVisualEffect HASH16s (0 for none), its stats (Stats
     /// row + 1, value) and, for a pet, its <c>Pet.dat</c> row + 1 (0 otherwise).</summary>
@@ -237,7 +237,7 @@ sealed class CosmeticEffects(string folder = "data")
 /// Variant (Righteous Fire: <c>righteous_fire_ring</c>, <c>righteous_fire_buff_visual</c>, <c>righteous_fire_aura_visual</c>),
 /// and the projectile (ProjectilesArtVariations: Fireball's <c>fireball</c> → Metadata/Projectiles/StygianFireball …).
 /// </summary>
-sealed class SkillArt(string folder = "data")
+public sealed class SkillArt(string folder = "data")
 {
     readonly Lazy<(Dictionary<(string, int), string> Animated, Dictionary<(string, int), ushort> BuffVisuals,
         Dictionary<(string, int), string> Projectiles)> _data = new(() => Load(folder));

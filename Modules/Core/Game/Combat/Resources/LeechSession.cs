@@ -1,7 +1,7 @@
 
 
 /// <summary>Owner-local leech state. All callers hold the owner's combat lock and use its pausable game clock.</summary>
-sealed class LeechSession
+public sealed class LeechSession
 {
     public LeechRecoveryState Life { get; } = new();
     public LeechRecoveryState Mana { get; } = new();

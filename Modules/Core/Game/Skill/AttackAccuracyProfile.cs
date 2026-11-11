@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 /// <summary>Attacker inputs, captured at bow release or sampled at melee contact. Target evasion, rarity and
 /// distance are supplied at actual contact. Final hand aliases are outputs, not raw sources.</summary>
-readonly record struct AttackAccuracyProfile(int Rating, int MoreVsUnique = 0, int MoreInCloseRange = 0,
+public readonly record struct AttackAccuracyProfile(int Rating, int MoreVsUnique = 0, int MoreInCloseRange = 0,
     bool CannotBeEvaded = false)
 {
     public static AttackAccuracyProfile From(CharacterStats.Pools pools, IReadOnlyDictionary<uint, int> player,

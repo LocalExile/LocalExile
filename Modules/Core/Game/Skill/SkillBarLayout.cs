@@ -5,7 +5,7 @@
 /// GrantedEffects Id, "Action/&lt;Id&gt;" or "" (<see cref="CharacterSaves.Save.SkillBar"/>). Only empty slots take new
 /// skills: the slots the player set stay as they are.
 /// </summary>
-static class SkillBarLayout
+public static class SkillBarLayout
 {
     /// <summary>The left mouse button: the default attack's slot on a new bar.</summary>
     public const int AttackSlot = 0;

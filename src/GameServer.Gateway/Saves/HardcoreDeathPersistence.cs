@@ -5,7 +5,7 @@ using GameServer.Core.Diagnostics;
 
 /// <summary>Commits the terminal HC outcome together with the character's carried progress, before any death packets.
 /// Account stash rows are deliberately untouched: carried items migrate, the source league's bank does not.</summary>
-static class HardcoreDeathPersistence
+public static class HardcoreDeathPersistence
 {
     sealed record PendingDeath(string Database, string Character, Guid Id, League Source, Action Flush, DateTimeOffset AtUtc);
     static readonly ConcurrentDictionary<(string Database, Guid Id), PendingDeath> Pending = new();

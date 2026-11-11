@@ -5,12 +5,12 @@ using GameServer.Core.World;
 /// visited damage type, so its increased bucket and typed more modifiers cannot be reconstructed from merged totals.
 /// Pinned PoB CalcOffence.lua (16de4b82), calcDamage:35-140, uses the same visited-type set.
 /// </summary>
-static class PlayerHitDamage
+public static class PlayerHitDamage
 {
     public static DamagePacket Resolve(DamagePacket raw, Func<string, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,
         IEnumerable<(string Name, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
-        bool secondary = false, bool wieldingWand = false, bool retaliation = false)
+        bool secondary = false, bool wieldingWand = false, bool retaliation = false, bool wieldingBow = false)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
         // area and projectile buckets apply, and no attack/spell support classification.
@@ -40,6 +40,8 @@ static class PlayerHitDamage
             + (manaLeech ? get("damage_+%_while_mana_leeching") : 0)
             + (shieldLeech ? get("damage_+%_while_es_leeching") : 0)
             + (fullShield ? get("damage_+%_on_full_energy_shield") : 0);
+        bool bowAttack = wieldingBow && !spell && !secondary;
+        if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_hit_and_ailment_damage_+%");
         var typed = DamageTypes.ConversionOrder.Select(type =>
             (History: DamageTypes.HistoryOf(type), Increased: get($"{type.ToString().ToLowerInvariant()}_damage_+%"))).ToArray();
         int elemental = get("elemental_damage_+%")
@@ -52,6 +54,8 @@ static class PlayerHitDamage
             if (DamageStats.Prohibited(path.Type, get, attack: !spell && !secondary)
                 || GemSupportDamage.Prohibited(path.Type, modifiers)) continue;
             double increased = common;
+            if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get("physical_bow_damage_+%");
+            if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get("bow_elemental_damage_+%");
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
             if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental;
@@ -80,11 +84,17 @@ static class PlayerHitDamage
         // multiplier here. Both routes apply it once. Rage remains outside this resolver in the attack caller.
         if (skillTypes?.Contains(32) == true || skillTypes?.Contains(35) == true)
             result = result.Scale(Math.Max(0, 1 + get("skitterbots_trap_mine_damage_+%_final") / 100.0));
+        // Ritual of Awakening: "3% more Damage per Summoned Totem", the count the server sends (Hierophant). Here, not
+        // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
+        if (get("hierophant_passive_damage_+%_final_per_totem") is var perTotem and not 0)
+            result = result.Scale(Math.Max(0, 1 + (double)perTotem * get("number_of_active_totems") / 100));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
     static double SpellMore(Func<string, int> get, DamageTypeHistory history) =>
         Math.Max(0, 1 + get("spell_damage_aura_spell_damage_+%_final") / 100.0)
+        // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
+        * Math.Max(0, 1 + get("spell_damage_+%_final_from_arcane_surge") / 100.0)
         * ((history & DamageTypeHistory.Lightning) != 0
             ? Math.Max(0, 1 + get("wrath_aura_spell_lightning_damage_+%_final") / 100.0) : 1);
 

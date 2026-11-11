@@ -2,14 +2,14 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Monsters that rise from the ground (MonsterEmerge.cs); loaded with the first monster spawned.
-    internal static readonly MonsterEmerge Emerges = new();
+    public static readonly MonsterEmerge Emerges = new();
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    internal static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         bool start;
         lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
@@ -22,7 +22,7 @@ static partial class Game
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead.
-    internal static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
@@ -59,7 +59,20 @@ static partial class Game
         }
     }
 
-    internal static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    // The Emerge action's 0x1ab is being written (its send gate, under conn.Monsters). A lockstep client's Actor counts
+    // the action's time down by the frame's length in each tick from the order's own frame on and ends it in the tick
+    // that uses it up; an order that comes in that frame waits for that tick, so its walk takes its first step time a
+    // frame later than one started at the frame's start. The monster is therefore busy to the end of that frame, and its
+    // first order goes out in the next one. Tick trace 2026-11-10: a 3.333 s Emerge ordered in frame n took a chase
+    // sent in n + 101 only after its walker's tick, as did a 3.533 s one for n + 107, and one sent in n + 108 at once;
+    // a Sand Spitter's 0.99 s attack ended in n + 30 (LockstepCountdownFrames less the order's own frame, each time).
+    public static void EmergeStartsLocked(ClientState conn, SpawnedMonster m, double seconds)
+    {
+        if (conn.LockstepClient && conn.LockstepFrame is { } frame && LockstepCountdownFrames((float)seconds) is { } frames)
+            m.BusyUntil = Math.Max(m.BusyUntil, frame.Start + frames * (frame.End - frame.Start));
+    }
+
+    public static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;
@@ -71,12 +84,16 @@ static partial class Game
             await Send(remote, stream, ciphers, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
             ToOthers(conn, id, [.. messages[0], .. messages[1]]);
-            // A server action waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag (0x141e9afc0, looked at
-            // again every 0.25 s); only then does it move to +0x1b0 and play.
+            // Predictive mode waits for 0x1ac in the pending-action gate (0x141e9afc0); lockstep starts directly.
+            // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e99d50).
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
-            await Send(remote, stream, ciphers, messages[1],
+            await Send(remote, stream, ciphers, [],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",
-                still: Still);
+                still: Still, atGate: () =>
+                {
+                    lock (conn.Monsters) EmergeStartsLocked(conn, m, seconds);
+                    return messages[1];
+                });
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {

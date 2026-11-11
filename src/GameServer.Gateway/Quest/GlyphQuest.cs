@@ -8,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// waterfall and the client's invisible blockers stand in the cave room <c>to_cave.arm</c>, whose cells the wall's tile
 /// shares, so they are placed from the wall's record.
 /// </summary>
-static class GlyphQuest
+public static class GlyphQuest
 {
     public const string Area = "1_1_3", Passage = "1_1_4_1";
     public const string KnowsAboutGlyphs = "a1q4-KnowsAboutGlyphs", SeenGlyphWall = "a1q4-SeenGlyphWall", PlacedGlyphs = "a1q4-PlacedGlyphs";

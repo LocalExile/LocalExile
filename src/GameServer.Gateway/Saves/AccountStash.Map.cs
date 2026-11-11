@@ -14,7 +14,7 @@ using GameServer.Core.Protocol.Instance;
 /// so <see cref="MapDestination"/> routes it to the first page of its own kind that has room: its base type, its visual
 /// identity for a legendary map, or the guardian named by its map modifiers (#382).
 /// </summary>
-sealed partial class AccountStash
+public sealed partial class AccountStash
 {
     /// <summary>Pages the client expects per map base (its tier button's page strip).</summary>
     public const int MapPages = 6;

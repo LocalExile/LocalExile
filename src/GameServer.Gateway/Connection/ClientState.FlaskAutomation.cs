@@ -1,36 +1,36 @@
 using System.Collections.Concurrent;
 
 // Reload-persistent data only: no Game delegate, task, module type or lifetime is retained here.
-readonly record struct FlaskAutomationEvent(FlaskEnchantments.Trigger Trigger, uint Item, byte Slot, long Activation = 0);
-sealed class FlaskAutomationChain
+public readonly record struct FlaskAutomationEvent(FlaskEnchantments.Trigger Trigger, uint Item, byte Slot, long Activation = 0);
+public sealed class FlaskAutomationChain
 {
-    internal readonly HashSet<uint> Accepted = [];
-    internal readonly HashSet<FlaskAutomationEvent> Pending = [];
-    internal bool Finished;
+    public readonly HashSet<uint> Accepted = [];
+    public readonly HashSet<FlaskAutomationEvent> Pending = [];
+    public bool Finished;
 }
-readonly record struct FlaskAutomationStep(FlaskAutomationEvent Signal, FlaskAutomationChain Chain, bool Root)
+public readonly record struct FlaskAutomationStep(FlaskAutomationEvent Signal, FlaskAutomationChain Chain, bool Root)
 {
-    internal FlaskEnchantments.Trigger Trigger => Signal.Trigger;
-    internal uint Item => Signal.Item;
-    internal byte Slot => Signal.Slot;
-    internal long Activation => Signal.Activation;
+    public FlaskEnchantments.Trigger Trigger => Signal.Trigger;
+    public uint Item => Signal.Item;
+    public byte Slot => Signal.Slot;
+    public long Activation => Signal.Activation;
 }
-enum FlaskOutputPool { None, Life, Mana }
-sealed record FlaskOutput(byte[] Packet, string? Log = null, FlaskOutputPool Pool = FlaskOutputPool.None,
-    UtilityFlasks.Active? UtilityStart = null)
+public enum FlaskOutputPool { None, Life, Mana }
+public sealed record FlaskOutput(byte[] Packet, string? Log = null, FlaskOutputPool Pool = FlaskOutputPool.None,
+    UtilityFlasks.Active? UtilityStart = null, uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false)
 {
     public static implicit operator FlaskOutput(byte[] packet) => new(packet);
 }
-sealed class FlaskAutomationState
+public sealed class FlaskAutomationState
 {
     readonly Lock gate = new();
-    internal readonly ConcurrentQueue<FlaskAutomationStep> Events = new();
+    public readonly ConcurrentQueue<FlaskAutomationStep> Events = new();
     readonly HashSet<FlaskAutomationEvent> roots = [];
-    internal readonly SemaphoreSlim UseGate = new(1, 1);
+    public readonly SemaphoreSlim UseGate = new(1, 1);
     // Presentation receipts and revisions are accessed under Monsters, including at the send gate.
-    internal readonly List<FlaskOutput> Packets = [];
-    internal long StatRevision, PresentedStatRevision;
-    internal void Enqueue(FlaskAutomationEvent signal, FlaskAutomationChain? chain = null)
+    public readonly List<FlaskOutput> Packets = [];
+    public long StatRevision, PresentedStatRevision;
+    public void Enqueue(FlaskAutomationEvent signal, FlaskAutomationChain? chain = null)
     {
         lock (gate)
         {
@@ -43,16 +43,16 @@ sealed class FlaskAutomationState
     }
     // Game calls these while holding Monsters. Its accepted callback also holds FlaskBarGate:
     // the head/progress check, charge deduction and accepted mark form one synchronous transaction.
-    internal bool CanAccept(FlaskAutomationStep step, uint item)
+    public bool CanAccept(FlaskAutomationStep step, uint item)
     {
         lock (gate) return Events.TryPeek(out var head) && head == step && !step.Chain.Finished
             && !step.Chain.Accepted.Contains(item);
     }
-    internal void Accepted(FlaskAutomationStep step, uint item)
+    public void Accepted(FlaskAutomationStep step, uint item)
     {
         lock (gate) step.Chain.Accepted.Add(item);
     }
-    internal void Complete(FlaskAutomationStep step)
+    public void Complete(FlaskAutomationStep step)
     {
         lock (gate)
         {
@@ -63,12 +63,12 @@ sealed class FlaskAutomationState
             { step.Chain.Finished = true; step.Chain.Accepted.Clear(); }
         }
     }
-    internal void Discard()
+    public void Discard()
     {
         lock (gate) while (Events.TryPeek(out var head)) Complete(head);
     }
 }
-sealed partial class ClientState
+public sealed partial class ClientState
 {
-    internal FlaskAutomationState FlaskAutomation { get; } = new();
+    public FlaskAutomationState FlaskAutomation { get; } = new();
 }

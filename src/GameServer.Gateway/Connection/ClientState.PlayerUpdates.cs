@@ -1,6 +1,6 @@
 // Named roles share one generation claim, while retaining each loop's existing cadence.
-enum PlayerUpdateRole { Recovery, Player, MonsterAi, MonsterRegeneration, LivingCollisions, Charges, Fortification, Rage, FlaskCharges, FlaskGrounds, MonsterAction, Tour, Minions, Footsteps }
-interface IPlayerUpdateSchedule
+public enum PlayerUpdateRole { Recovery, Player, MonsterAi, MonsterRegeneration, LivingCollisions, Charges, Fortification, Rage, FlaskCharges, FlaskGrounds, MonsterAction, Tour, Minions, Footsteps }
+public interface IPlayerUpdateSchedule
 {
     double Now(ClientState conn);
     double ResourceNow(ClientState conn) => Now(conn);
@@ -8,14 +8,14 @@ interface IPlayerUpdateSchedule
     Task Wait(PlayerUpdateRole role, int milliseconds, CancellationToken stopping) => Wait(milliseconds, stopping);
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
-    internal ITransientCombatState? PlayerUpdatesState;
-    internal double FootstepRun;
-    internal readonly Dictionary<uint, double> TemporarySkillEffects = [];
-    internal ConnectionWorker PlayerUpdatesWorker { get; } = new("player-updates");
+    public ITransientCombatState? PlayerUpdatesState;
+    public double FootstepRun;
+    public readonly Dictionary<uint, double> TemporarySkillEffects = [];
+    public ConnectionWorker PlayerUpdatesWorker { get; } = new("player-updates");
 
-    internal void RetirePlayerUpdates()
+    public void RetirePlayerUpdates()
     {
         lock (Monsters)
         {
@@ -27,7 +27,7 @@ sealed partial class ClientState
 }
 
 // Host-owned identities, not a retained Game closure; removal cannot touch a replacement runtime.
-sealed class ConnectionProjectileRetirement(ClientState conn, IProjectileRuntime runtime) : IDisposable
+public sealed class ConnectionProjectileRetirement(ClientState conn, IProjectileRuntime runtime) : IDisposable
 {
     public void Dispose()
     {

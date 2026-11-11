@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task<bool> Desecrate(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<bool> Desecrate(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, (int X, int Y) aim, Func<bool> current)
     {
         var gem = SupportedSkill(conn, source);
@@ -40,7 +40,7 @@ static partial class Game
                     while (conn.Summons.Corpses.Count > maximum)
                     {
                         uint expired = conn.Summons.Corpses.Dequeue();
-                        if (conn.Monsters.Remove(expired)) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(expired), "old Desecrate corpse removed"));
+                        if (conn.Monsters.Remove(expired)) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(expired), "old Desecrate corpse removed", WorldId: expired, RemovesObject: true));
                         conn.Instance.World.MonsterOrigins.TryRemove(expired, out _);
                     }
                 });

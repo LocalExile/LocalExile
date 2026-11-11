@@ -115,7 +115,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Legs = legs(index); p.LegStart = position;
             p.ExpiresAt = Now + Time(p.Legs.Lifetime);
             // The first leg aims where the volley put this projectile's aim point, at the use's aim distance.
-            StartLeg(p, p.Legs.First(position, position + direction * (use.Aim - use.Origin).Length), publish: false);
+            var legAim = p.Legs.EndsAfterLegs && (use.Aim - use.Origin).Length <= 1e-6
+                ? position + direction
+                : position + direction * (use.Aim - use.Origin).Length;
+            StartLeg(p, p.Legs.First(position, legAim), publish: false);
+        }
+        else if (split && continuing is { } cont && p.Profile.Legs is not null && cont.Legs?.Continue(direction) is { } continuedLegs)
+        {
+            p.Legs = continuedLegs; p.LegStart = position;
+            StartLeg(p, continuedLegs.First(position, position + direction * p.Profile.Range), publish: false);
         }
         Publish(ProjectileEventKind.Spawn, p);
         StartStages(p);
@@ -277,14 +285,20 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             if (Continue(p, target, world.Actors(Now, Now))) return;
             End(p, ProjectileEndReason.Enemy, victim: target.Key);
         }
-        else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0)
+        else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
+            && blockedLegs.NextTurn(p.Position + c.Normal * .001, blocked: true) is { } blockedTurn)
         {
             p.Position += c.Normal * .001;
-            StartLeg(p, blockedLegs.Next(p.Position, blocked: true));
+            ApplyLegTurn(p, blockedTurn);
             p.WaitUntil = (Now / TickQuanta + 1) * TickQuanta;
         }
         else if (c.End == ProjectileEndReason.Distance && p.Legs is { } legs && p.Phase == 0 && !p.LegLeashed)
-            StartLeg(p, legs.Next(p.Position, blocked: false));
+        {
+            if (legs.NextTurn(p.Position, blocked: false) is { } turn)
+                ApplyLegTurn(p, turn);
+            else if (legs.EndsAfterLegs)
+                End(p, ProjectileEndReason.Distance);
+        }
         else if (c.End == ProjectileEndReason.Terrain)
         {
             if (AllowsTerminalArea(p) && (p.Phase == 0 || p.Profile.ContactAreaOnReturn)
@@ -306,6 +320,23 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         else End(p, c.End!.Value);
     }
 
+    void ApplyLegTurn(ProjectileEntity p, ProjectileLegTurn turn)
+    {
+        if (turn.SecondaryProfile is { } secondaryProfile)
+        {
+            var secondaryDir = turn.SecondaryDirection.Length > 0 ? turn.SecondaryDirection.Unit : p.Direction;
+            var secondaryUse = p.Use with
+            {
+                Profile = secondaryProfile,
+                Origin = p.Position,
+                Aim = p.Position + secondaryDir * secondaryProfile.Range
+            };
+            var secondary = Spawn(secondaryUse, p.UseId, p.EmissionId, p.Id, p.Position, secondaryDir, continuing: p);
+            secondary.Split = p.Split;
+        }
+        StartLeg(p, turn.Leg);
+    }
+
     void StartLeg(ProjectileEntity p, ProjectileLeg leg, bool publish = true)
     {
         var delta = leg.Target - p.Position;
@@ -324,6 +355,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     }
 
     bool CanContinue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => p.Phase == 0 && p.Profile.OutboundHitLimit is not null
+        || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
         || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
         || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors).Any()))
         || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
@@ -355,6 +387,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         // Explicit contact budgets limit actor attempts, never the remaining flight.
         if (p.Phase == 0 && profile.OutboundHitLimit is not null) return true;
         if (p.Split > 0 && !profile.CannotSplit && Split(p, actors)) return true;
+        if (p.Phase == 0 && p.Legs is { TurnsOnEnemy: true } legs && legs.NextTurn(p.Position, blocked: false) is { } turn)
+        {
+            ApplyLegTurn(p, turn);
+            return true;
+        }
         if (p.Phase > 0 && profile.PierceAllOnReturn && !profile.CannotPierce) return true;
         if (!profile.CannotPierce && p.Pierce != 0) { if (p.Pierce > 0) p.Pierce--; return true; }
         if (!profile.CannotFork && p.Fork > 0)

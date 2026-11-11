@@ -10,7 +10,7 @@ using GameServer.Core;
 /// by default (jewels 3-4), at most the configured prefix/suffix caps (three/three and two/two by default), and a name
 /// from Words.dat word lists 1 (prefix) and 2 (suffix), drawn by the same tag weights.
 /// </summary>
-sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
+public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettings? settings = null)
 {
     readonly SystemSettings _settings = settings ?? SystemSettings.Default;
 
@@ -171,7 +171,7 @@ sealed class ItemRolls(ItemCatalog catalog, string folder = "data", SystemSettin
     /// <summary>The number of rare affixes: the ordinary weighted 4-6 (jewels 3-4), extended by however far the
     /// configured caps exceed the class default (six ordinary, four jewel) and capped at the two caps' sum. With the
     /// defaults this is exactly the old 4-6 / 3-4 distribution.</summary>
-    internal static int RareAffixCount(int weighted, int maxPrefix, int maxSuffix, int defaultSum)
+    public static int RareAffixCount(int weighted, int maxPrefix, int maxSuffix, int defaultSum)
     {
         int cap = Math.Max(0, maxPrefix) + Math.Max(0, maxSuffix);
         int extra = Math.Max(0, maxPrefix + maxSuffix - defaultSum);

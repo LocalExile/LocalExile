@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-sealed partial class AccountStash
+public sealed partial class AccountStash
 {
     public int UniqueParent(int tab)
     {

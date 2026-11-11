@@ -5,9 +5,9 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    public static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         int frames = 0;
@@ -47,9 +47,10 @@ static partial class Game
     }
 
     // The client does not stop for is_frozen (live 2026-11-01), and virtual_action_speed_+% at -100, which would stop it,
-    // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands and lets
-    // it go on with its walk after, as the server's walk does.
-    internal static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands. A
+    // predictive client goes on with its walk after, as the server's walk does; a lockstep one stands until its next order
+    // (PlayerHitRecoveryRecordLocked: the same message and handler; the freeze itself is not traced).
+    public static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -63,6 +64,7 @@ static partial class Game
                 double now = conn.Clock.Elapsed.TotalSeconds, left = conn.ElementalAilments.FreezeUntil(now) - now;
                 if (left <= 0 || conn.PlayerLife == 0 || conn.LeavingArea || conn.Paused) return null;
                 conn.FreezeShown = conn.FreezeGeneration;
+                if (conn.LockstepClient) conn.Walk.Cancel(now);
                 return [.. InstanceProtocol.ActorAnimation(PlayerId, (float)left, PlayerHitRecovery.TakeHitAnimation),
                     .. ResyncPacketLocked(conn, now)];
             }
@@ -70,7 +72,7 @@ static partial class Game
     }
 
     // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
-    internal static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
             if (!CurrentGameWork || conn.HeldMove is null) return;
@@ -94,7 +96,7 @@ static partial class Game
 
     // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of
     // scripts/re/frida/trace-sync.js. scripts/re/sync_report.py compares the two.
-    internal static void TraceSync(ClientState conn)
+    public static void TraceSync(ClientState conn)
     {
         if (!conn.PlayerSent) return;
         var line = new System.Text.StringBuilder();
@@ -114,7 +116,7 @@ static partial class Game
         Console.WriteLine(line);
     }
 
-    internal static void PublishPlayerPose(ClientState conn)
+    public static void PublishPlayerPose(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -127,7 +129,7 @@ static partial class Game
 
     // Called under the owner's lock. Publish experience and final scale in an immutable template, retaining other creation stats,
     // equipment and skills. Observers read published snapshots and never lock another connection's simulation.
-    internal static void RefreshPeerScale(ClientState conn, int scale)
+    public static void RefreshPeerScale(ClientState conn, int scale)
     {
         if (conn.PeerTemplate is not { } template) return;
         if (template.Experience != conn.Experience)
@@ -154,25 +156,40 @@ static partial class Game
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
     const uint TownStanceStat = 21141;
 
-    internal static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var ids = conn.Instance.PlayersExcept(conn.PeerId).Select(p => p.Id)
             .Concat(conn.SeenPlayers.Keys).Distinct().ToArray();
         foreach (uint id in ids)
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+        {
+            // A resurrected peer is a new incarnation. Release the send gate while its old removal crosses the wire.
+            if (conn.LockstepClient && conn.SeenPlayers.TryGetValue(id, out var old) && old.Life == 0
+                && conn.Instance.Player(id) is { Life: > 0 })
+                await SendWorldRemoval(remote, stream, ciphers, conn, id, atGate: () =>
+                {
+                    if (!conn.SeenPlayers.TryGetValue(id, out var current) || current.Life != 0
+                        || conn.Instance.Player(id) is not { Life: > 0 }) return null;
+                    conn.SeenPlayers.Remove(id);
+                    lock (conn.Monsters) conn.PeerWalks.Remove(id);
+                    return InstanceProtocol.RemoveObject(id);
+                });
+            await SendWorldBatch(conn, [], admission =>
             {
                 if (CombatLifetime is not null && !CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
-                var packets = new List<byte[]>();
+                var packets = new WorldRecordBuilder(conn, admission);
                 // Read after waiting: queued creation/change must not restore an older scale or departed owner.
                 if (conn.Instance.Player(id) is not { } peer)
                 {
-                    if (conn.SeenPlayers.Remove(id)) packets.Add(InstanceProtocol.RemoveObject(id));
-                    return packets.SelectMany(p => p).ToArray();
+                    if (conn.SeenPlayers.Remove(id)) packets.Remove(id);
+                    lock (conn.Monsters) conn.PeerWalks.Remove(id);
+                    return packets.Build();
                 }
                 bool exists = conn.SeenPlayers.TryGetValue(peer.Id, out var previous);
+                if (conn.LockstepClient && exists && (previous!.Life == 0 && peer.Life > 0
+                    || !conn.WorldOutput.PublishedObject(peer.Id).IsReady)) return null;
                 if (!exists || previous!.Life == 0 && peer.Life > 0)
                 {
-                    if (exists) packets.Add(InstanceProtocol.RemoveObject(peer.Id));
+                    if (exists) packets.Remove(peer.Id);
                     // The beach wake-up is the owner's alone: observers get no action to end that stance with.
                     // Its skills, for the actions the owner's uses play on it (SharedMonsters.cs MirrorPlayerAction), all
                     // but the wake-up's.
@@ -183,12 +200,16 @@ static partial class Game
                     // the client drew every other player in its combat stance there.
                     if (InTown(conn))
                         player = player with { Stats = [.. (player.Stats ?? []).Where(s => s.Key != TownStanceStat), (TownStanceStat, 1)] };
-                    packets.Add(InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
-                    packets.Add(InstanceProtocol.EnterWakeZone(peer.Id));
+                    packets.Create(peer.Id, InstanceEntities.CreateObject(peer.Id, peer.Type, player.Blob()));
+                    // A lockstep client runs the player's copy itself from here on: so does its estimate (PeerWalks).
+                    if (conn.LockstepClient)
+                        lock (conn.Monsters)
+                            conn.PeerWalks[peer.Id] = conn.NewPeerWalk(peer.Id, peer.X, peer.Y, peer.Owner?.Walk.Speed ?? Program.WalkSpeed);
+                    packets.Presentation(peer.Id, InstanceProtocol.EnterWakeZone(peer.Id));
                     // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e9da30)
                     // when its equipment changes, not when it is created: without this every other player stood in the
                     // combat stance (Frida 2026-11-01: the pick ran only for the local player, on its own 0x2bc).
-                    packets.Add(InstanceEntities.PlayerEquipmentUpdate(peer.Id, player.Equipped ?? []));
+                    packets.Presentation(peer.Id, InstanceEntities.PlayerEquipmentUpdate(peer.Id, player.Equipped ?? []));
                 }
                 else
                 {
@@ -198,48 +219,57 @@ static partial class Game
                     const ushort Move = 0x2909;
                     var destination = peer.Destination ?? (peer.X, peer.Y);
                     var heading = previous!.Destination ?? (previous.X, previous.Y);
-                    if (destination != heading && destination != (peer.X, peer.Y))
-                        packets.Add(InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
+                    // A player on a connection of its own walks here by the orders its client is sent (SharedMonsters.cs
+                    // MirrorPlayerAction), and its copy stops where those end. Only a player without one (a
+                    // server-driven one) is walked from its published pose.
+                    bool ordered = peer.Owner is { } owner && Program.InGame.ContainsKey(owner);
+                    if (!ordered && destination != heading && destination != (peer.X, peer.Y))
+                        packets.World(peer.Id, InstanceProtocol.ActionStarted(peer.Id, peer.X, peer.Y, destination.X, destination.Y, Move, 0xffff, 0x0408));
                     else if (destination == (peer.X, peer.Y) && (previous.X, previous.Y) != (peer.X, peer.Y)
                         && Math.Max(Math.Abs(previous.X - peer.X), Math.Abs(previous.Y - peer.Y)) > 20 && heading == (previous.X, previous.Y))
-                        packets.Add(InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
-                    else if (destination == (peer.X, peer.Y) && heading != destination)
+                    {
+                        packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                        lock (conn.Monsters)
+                            if (conn.PeerWalks.TryGetValue(peer.Id, out var jumped)) jumped.Teleport(peer.X, peer.Y, conn.Clock.Elapsed.TotalSeconds);
+                    }
+                    else if (!ordered && destination == (peer.X, peer.Y) && heading != destination)
                     {
                         // Stopped short of where it was going (a body in the way): the observers' walk stops there too.
-                        packets.Add(InstanceProtocol.ActionEnded(peer.Id));
-                        packets.Add(InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
+                        packets.World(peer.Id, InstanceProtocol.ActionEnded(peer.Id));
+                        packets.World(peer.Id, InstanceProtocol.Teleport(peer.Id, peer.X, peer.Y, 0x7fffffff));
                     }
                     if (previous.Life != peer.Life)
-                        packets.Add(InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
+                        packets.World(peer.Id, InstanceProtocol.LifeUpdate(peer.Id, peer.Life));
                     if (previous.Template.Experience != peer.Template.Experience)
-                        packets.Add(InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
+                        packets.World(peer.Id, InstanceEntities.PlayerExperienceUpdate(peer.Id, peer.Template.Experience));
                     if (Stats.Key("level") is uint levelKey)
                     {
                         int level = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
                         int oldLevel = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == levelKey).Value;
-                        if (level != oldLevel) packets.Add(InstanceEntities.StatsUpdate(peer.Id, [(levelKey, level)]));
+                        if (level != oldLevel) packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(levelKey, level)]));
                     }
                     if (Progression.LevelFor(peer.Template.Experience, CharacterStats.LevelStarts)
                         > Progression.LevelFor(previous.Template.Experience, CharacterStats.LevelStarts))
                     {
                         uint effect = conn.NextObjectId++;
                         conn.TemporarySkillEffects[effect] = AreaTime(conn) + 3;
-                        packets.Add(InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        packets.Create(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                             new EffectObject(peer.X, peer.Y, "Metadata/Effects/misc/levelup_new/rig.ao")
                             { Parent = peer.Id }.Blob()));
-                        packets.Add(InstanceProtocol.EnterWakeZone(effect));
+                        packets.Presentation(effect, InstanceProtocol.EnterWakeZone(effect));
                     }
                     int scale = (peer.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     int before = (previous.Template.Stats ?? []).SingleOrDefault(s => s.Key == ActorScale.Final).Value;
                     if (scale != before)
-                        packets.Add(InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
+                        packets.World(peer.Id, InstanceEntities.StatsUpdate(peer.Id, [(ActorScale.Final, scale)]));
                 }
                 conn.SeenPlayers[peer.Id] = peer;
-                return packets.SelectMany(p => p).ToArray();
-            });
+                return packets.Build();
+            }, transport: (remote, stream, ciphers));
+        }
     }
 
-    internal static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         using (ProjectileMutation(conn, phase: "collision"))
         {
@@ -258,7 +288,7 @@ static partial class Game
     // the steps taken since the last pass, the player's and every monster's, each against the cells the others hold at
     // that moment: on a predictive client in time order; on a lockstep client frame by frame as its world ticks
     // (StepFrames). Called under conn.Monsters.
-    internal static void StepWalkers(ClientState conn, double now)
+    public static void StepWalkers(ClientState conn, double now)
     {
         double from = conn.WalkersSteppedTo;
         // A lockstep client's walkers move only in its frames, so whole frames are replayed, up to the start of the frame
@@ -269,9 +299,13 @@ static partial class Game
         if (now <= from) return;
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
+        // A lockstep client's killed monster walks until its death reaches the client (ClientState.Corpse).
         foreach (var (id, m) in conn.Monsters)
-            if (LivingCollision.StepsWithBodies(m)) walks[id] = m.Walk;
+            if (LivingCollision.StepsWithBodies(m) || conn.CorpseWalks(id, m)) walks[id] = m.Walk;
         if (conn.PlayerSent && conn.PlayerLife > 0) walks[PlayerId] = conn.Walk;
+        // The other players' copies on a lockstep client: walkers like any other, ticked in id order.
+        if (frame is not null)
+            foreach (var (id, copy) in conn.PeerWalks) walks[id] = copy;
         if (frame is { } f)
         {
             StepFrames(conn, walks, from, now, f.End - f.Start);
@@ -354,6 +388,13 @@ static partial class Game
                     continue;
                 }
                 if (!walks.TryGetValue(id, out var walk)) continue;
+                // The client's Actor ended an in-place action in the frame before: its stop ends the walk that was left
+                // going under the action, with this tick's steps (SpawnedMonster.ClientActionWalkStop).
+                if (conn.Monsters.GetValueOrDefault(id) is { ClientActionWalkStop: { } stopAt } acting && start >= stopAt - 1e-6)
+                {
+                    acting.ClientActionWalkStop = null;
+                    if (walk.Moving(start)) walk.StopAfter(end, start);
+                }
                 for (int round = 0; round < 8; round++)
                 {
                     bool stopped = false;
@@ -362,6 +403,8 @@ static partial class Game
                     if (stopped || walk.Reached || walk.ArrivesAt > end) break;
                     walk.Repath(walk.ArrivesAt);
                 }
+                // A corpse's death clip clears its body in its own turn: the walkers after it step without it.
+                if (conn.CorpseClears(id, start)) bodies.Remove(id);
             }
             // Game_TRACE=sync: every walker's cell after the frame, with how far it is into its step and the step's length,
             // on the QPC clock of scripts/re/frida/trace-sync.js.
@@ -386,14 +429,14 @@ static partial class Game
     // order carries it to its own generation until the gate places it, and a give-up or a freeze, which send nothing,
     // keep it (NextPlannedAction); a swing order, a flinch, a stage and a transfer move the action generation on and end
     // it. Out of the wake zone its copy does not tick.
-    internal static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
+    public static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
         conn.LockstepClient && m.ClientChase == m.ActionGeneration && !m.Dead && m.Life > 0 && !m.Asleep;
 
     // A lockstep client's attack on a monster that is walking up (placed at its gate, goal not met) while it is still the
     // player's action: an order the client takes ends it (a Move within two cells is none: PlaceLockstepPlayerMove places
     // nothing), as do a hit's recovery and a transfer; a target gone from the area ends it too (not traced). A closed one
     // is failed here, so the attack's task wakes. Under conn.Monsters.
-    internal static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
+    public static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
     {
         if (!conn.LockstepClient || conn.LockstepAttack is not { Open: true } attack) return null;
         if (conn.ActionCount == attack.Action && conn.PlayerSent && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
@@ -445,7 +488,7 @@ static partial class Game
             bool walking = walk.ArrivesAt > end;
             if (InGoal(walk.Position(end)))
             {
-                walk.StopAfter(walking ? end + length : walk.ArrivesAt);
+                walk.StopAfter(walking ? end + length : walk.ArrivesAt, end);
                 return (WalkUpResult.Swings, timerFrom);
             }
             if (walking)
@@ -464,7 +507,7 @@ static partial class Game
                 // frame being sent).
                 bool met = walk.ReachedGoal;
                 walk.Restore(before);
-                walk.StopAfter(end + length);
+                walk.StopAfter(end + length, end);
                 return (met ? WalkUpResult.Swings : WalkUpResult.Fails, end);
             }
             walk.Approach(target.X, target.Y, up.Reach, Math.Max(walk.ArrivesAt, start), up.Tolerance, walk.Precision);

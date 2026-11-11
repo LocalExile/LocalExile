@@ -33,6 +33,10 @@ Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
 Party and guild lines are not sent. A whisper is typed `@Name text`.
 
+The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
+Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
+inbox filename instead. Raising only the server's packet limit does not change these client limits.
+
 ## 2. Server → client text
 
 Candidates that read a wide string were found by mapping every S→C factory case to its class and read function (slot
@@ -340,9 +344,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
-    3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
-       (`0x141e9afc0`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
-       and attacks like any other.
+    3. S→C **0x1ac**: predictive mode waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
+       (`0x141e9afc0`, otherwise checked every 0.25 s). Lockstep starts directly. Both modes end Emerge with its clip
+       (`0x141e99d50`), with no additional recovery tail; the monster then becomes eligible to chase and attack.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
     one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
@@ -419,7 +423,7 @@ Global, trade and whisper lines leave the Gateway for a chat server, GGG's split
 it across its areas, so players of separate Gateways can talk. Local lines stay in the Gateway.
 
 The Chat module runs a chat server on a free loopback port, so each Gateway has chat alone. A mod moves the players to
-another server with `UseChatServer(host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
+another server with `ChatRoutes.Use(id, host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
 `Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
 connection drops, each reason once, and tries again at an area change after 60 s.
 

@@ -6,9 +6,10 @@
 /// modifier, as Path of Building's calcRadius does: floor(base × floor(100 × √(increased × more)) / 100). Increased:
 /// base_skill_area_of_effect_+% (passives, gem quality), skill_area_of_effect_+% and, for spells, spell_area_of_effect_+%.
 /// More: each of the "_final" area stats; active_skill_area_of_effect_radius_+%_final scales the radius itself. The
-/// skill's stats include the player's. Conditional area stats (per charge, per attribute, "recently") are not modelled.
+/// skill's stats include the player's. Discharge's more area per removable charge counts; other conditional area stats (per
+/// attribute, "recently") are not modelled.
 /// </summary>
-static class SkillArea
+public static class SkillArea
 {
     public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX";
 
@@ -18,13 +19,16 @@ static class SkillArea
     public static int BaseRadius(string? effect, Func<string, int> get) =>
         get("active_skill_base_area_of_effect_radius") is int radius and > 0 ? radius
             : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
-            : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : 12;
+            : effect == "FireTrap" ? 15 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
+            : effect == "StormCall" ? 20 : 12;
 
     static readonly string[] MoreArea =
     [
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
         "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
     ];
+
+    const string MorePerRemovableCharge = "area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge";
 
     /// <summary>The base form of increased area: the player's goes into the panel total <c>skill_area_of_effect_+%</c>
     /// (PanelStats), a skill's own (gem quality) stays in it.</summary>
@@ -55,6 +59,9 @@ static class SkillArea
         int increased = Increased(get, spell);
         double mod = Math.Max(0, 1 + increased / 100.0);
         foreach (string more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        // Discharge: more area per removable charge it will spend (the charges above the minimum).
+        if (get(MorePerRemovableCharge) is int perCharge and not 0)
+            mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get($"current_removable_{Charges.Name(t)}_charges"))) / 100.0);
         return mod;
     }
 
@@ -83,7 +90,7 @@ static class SkillArea
 /// tunables: they are ESTIMATES to calibrate against the live client (stand at a known distance in front, and time the
 /// hit at a known distance).
 /// </summary>
-static class GroundSlamWave
+public static class GroundSlamWave
 {
     /// <summary>ActionTypes "DistanceScaledGroundSlam" HASH16 (row 3): the action of the player's Ground Slam and its
     /// alternate-quality and Royale forms (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale

@@ -13,7 +13,7 @@ using GameServer.Core.Protocol.Instance;
 /// has not measured yet counts once all of its passives are allocated, with the theme on its smalls and every notable's
 /// row, and its own socket excluded from the count.
 /// </summary>
-static class ClusterJewelStats
+public static class ClusterJewelStats
 {
     /// <summary>The theme statistic's target: the character stat each <c>local_affliction_jewel_small_nodes_grant_*</c>
     /// feeds. Stats the server does not read (or has no model for, such as the per-skill-type speed grants) are absent,
@@ -44,6 +44,24 @@ static class ClusterJewelStats
 
     const string NotablePrefix = "local_affliction_notable_";
     const string KeystonePrefix = "local_jewel_expansion_keystone_";
+
+    // The item's local stat and the PassiveSkills ID sometimes use different names.
+    public static PassiveTree.Node? Keystone(Item jewel)
+    {
+        foreach (var (stat, value) in Entries(jewel))
+        {
+            if (value == 0 || !stat.StartsWith(KeystonePrefix, StringComparison.Ordinal)) continue;
+            string suffix = stat[KeystonePrefix.Length..] switch
+            {
+                "hollow_palm_technique" => "dragon_style",
+                "natures_patience" => "nature's_patience",
+                "veterans_awareness" => "veteran's_awareness",
+                var id => id,
+            };
+            if (Program.Passives.FindById("affliction_keystone_" + suffix) is { IsKeystone: true } node) return node;
+        }
+        return null;
+    }
 
     /// <summary>The item's mods as (stat id, value) pairs, every section, in item order.</summary>
     public static List<(string Stat, int Value)> Entries(Item jewel)
@@ -76,6 +94,10 @@ static class ClusterJewelStats
                 int offset = id - layout.Base;
                 switch (layout.ByOffset.GetValueOrDefault(offset))
                 {
+                    case ClusterJewelLayout.Kind.Keystone:
+                        if (Keystone(item.Item) is { } keystone)
+                            foreach (var stat in keystone.Stats) yield return stat;
+                        break;
                     case ClusterJewelLayout.Kind.Small:
                         foreach (var stat in Theme(item.Item, 1, mods, stats)) yield return stat;
                         break;
@@ -137,7 +159,15 @@ static class ClusterJewelStats
     {
         var notables = Notables(jewel);
         if (order >= notables.Count) yield break;
-        string row = "affliction_notable_" + notables[order][NotablePrefix.Length..];
+        string suffix = notables[order][NotablePrefix.Length..] switch
+        {
+            "arcane_focus" => "arcane_adept",
+            "summer_commander" => "fiery_commander",
+            "winter_commander" => "icy_commander",
+            "grounded_commander" => "shocking_commander",
+            var id => id,
+        };
+        string row = "affliction_notable_" + suffix;
         if (Program.Passives.FindById(row) is not { } node) yield break;
         foreach (var (key, value) in node.Stats) yield return (key, value);
     }

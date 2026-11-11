@@ -20,7 +20,7 @@
 /// standard effects stop, the special per-charge stats (<see cref="Rule.Special"/>) and <see cref="DamageMore"/>'s
 /// ailment multiplier take the count, and the special rows show it.
 /// </summary>
-static class ChargeEffects
+public static class ChargeEffects
 {
     /// <summary>Metadata/Characters/Character.ot's per-charge stats (the Brine charge ones belong to another charge
     /// type and are left out). They are the base forms the panel rows sum and <see cref="PerCharge"/> reads.</summary>

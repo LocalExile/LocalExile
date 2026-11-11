@@ -12,7 +12,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// (Words.dat keys). <see cref="Effects"/> are the numbers the server's calculations read. One set per monster; kept
 /// with the instance (SavedMonster) so a re-entered area has the same mods.
 /// </summary>
-sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> NameWords, MonsterModEffects Effects)
+public sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> NameWords, MonsterModEffects Effects)
 {
     public static readonly MonsterModSet None = new([], [], MonsterModEffects.None);
 
@@ -25,7 +25,7 @@ sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> Nam
 /// on the player, its walk, the player's hit chance and the damage the player deals read. Only the stats in
 /// <see cref="MonsterModCatalog.Modelled"/> act; the others are kept for the record.
 /// </summary>
-sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
+public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 {
     public static readonly MonsterModEffects None = new(new Dictionary<string, int>());
 
@@ -193,7 +193,7 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 /// pool for tests). Counts: <see cref="AffixCount"/>. A rare monster is named from Words.dat lists 3 (monster prefix)
 /// and 4 (monster suffix) by the same tag weights.
 /// </summary>
-sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
+public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
 {
     public const int Domain = 3, Prefix = 1, Suffix = 2;
     public const int MonsterPrefixWords = 3, MonsterSuffixWords = 4;

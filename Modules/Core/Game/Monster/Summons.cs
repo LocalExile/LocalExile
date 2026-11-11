@@ -3,9 +3,9 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly SummonCatalog SummonData = new();
+    public static readonly SummonCatalog SummonData = new();
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 
@@ -22,7 +22,7 @@ static partial class Game
         CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => JsonSerializer.Serialize(conn.Summons.GuardianEquipment));
     }
 
-    internal static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
+    public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.LimitStat.Length == 0) return 1;
         var player = CharacterPlayerStats(conn);
@@ -83,7 +83,7 @@ static partial class Game
         return true;
     }
 
-    internal static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null)
@@ -144,7 +144,7 @@ static partial class Game
             owned: (id, monster) =>
             {
                 if (consumed is not null) consumed.CorpseConsumed = true;
-                if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed"));
+                if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
                 while (conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == definition.Family && !g.Monster.Dead) >= limit)
                     RemoveSummonLocked(conn, conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead)
@@ -170,7 +170,7 @@ static partial class Game
         conn.Minions.StatRevision++;
     }
 
-    internal static async Task SummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task SummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var state = conn.Summons;
         if (!state.Restored)
@@ -202,7 +202,7 @@ static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
             if (state.HolyBuff != 0 && now >= state.HolyRegenerationUntil)
             {
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, state.HolyBuff), null));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, state.HolyBuff), null, WorldId: PlayerId));
                 state.HolyBuff = 0; state.HolyRegenerationPerMinute = 0; conn.Minions.StatRevision++;
             }
             var player = now >= state.RefreshAt && state.Fighters.Count > 0 ? CharacterPlayerStats(conn) : null;

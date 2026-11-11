@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     static GolemState.Golem? OwnedFighter(ClientState conn, uint id) =>
         conn.Golems.All.GetValueOrDefault(id) ?? conn.Reservations.Fighters.GetValueOrDefault(id) ?? conn.Summons.Fighters.GetValueOrDefault(id);
@@ -149,7 +149,7 @@ static partial class Game
         }
     }
 
-    internal static int SkitterAilmentStat(GolemState.Golem fighter, string name)
+    public static int SkitterAilmentStat(GolemState.Golem fighter, string name)
     {
         int Get(string n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n);
         return name switch {
@@ -162,10 +162,10 @@ static partial class Game
     static void ReservationStackBuffLocked(ClientState conn, ref ushort instance, ref int shown, int count, ushort row)
     {
         if (shown == count) return;
-        if (instance != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, instance), null));
+        if (instance != 0) conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, instance), null, WorldId: PlayerId));
         instance = 0; shown = count;
         if (count > 0)
             conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(PlayerId, instance = conn.NextBuff++, row, PlayerId,
-                stacks: (ushort)Math.Min(ushort.MaxValue, count)), "reservation stacks"));
+                stacks: (ushort)Math.Min(ushort.MaxValue, count)), "reservation stacks", WorldId: PlayerId));
     }
 }

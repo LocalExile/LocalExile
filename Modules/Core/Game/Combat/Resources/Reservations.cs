@@ -1,4 +1,4 @@
-static partial class Game
+public static partial class Game
 {
     static readonly IReadOnlyDictionary<string, string> ReservationNames = new Dictionary<string, string>
     {
@@ -15,10 +15,12 @@ static partial class Game
         ["Vulnerability"] = "vulnerability", ["Despair"] = "despair", ["Punishment"] = "punishment",
     };
 
-    internal static bool IsBlasphemySupport(string effect) => effect is "SupportBlasphemy"
+    static string ReservationStatName(string family) => ReservationNames.GetValueOrDefault(family, family.ToLowerInvariant());
+
+    public static bool IsBlasphemySupport(string effect) => effect is "SupportBlasphemy"
         or "SupportAwakenedBlasphemy" or "SupportEldritchBlasphemy" or "SupportBlasphemyPlus";
 
-    internal static (bool Life, int Efficiency) ReservationContext(ClientState conn, ushort skill)
+    public static (bool Life, int Efficiency) ReservationContext(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         var player = CharacterStatSources(conn).Stats;
@@ -35,7 +37,7 @@ static partial class Game
         int efficiency = Own("base_reservation_efficiency_+%") + Own("reservation_efficiency_+%")
             + Own($"base_{resource}_reservation_efficiency_+%") + Own($"{resource}_reservation_efficiency_+%");
         string effect = AuraCatalog.Family(SkillsFor(conn).EffectId(gem.Effect) ?? "");
-        string name = ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant());
+        string name = ReservationStatName(effect);
         if (!life)
         {
             efficiency += Get(name + "_mana_reservation_efficiency_+%")
@@ -51,11 +53,11 @@ static partial class Game
         return (life, efficiency);
     }
 
-    internal static bool ReservationBudgetFits(ClientState conn) => ReservationBudgetFits(conn,
+    public static bool ReservationBudgetFits(ClientState conn) => ReservationBudgetFits(conn,
         conn.PetrifiedBlood.Active ? conn.PetrifiedBlood.ManaPercent : 0,
         conn.PetrifiedBlood.ReservesLife, conn.PetrifiedBlood.ReservationEfficiencyPct);
 
-    internal static bool ReservationBudgetFits(ClientState conn, int percent, bool reservesLife, int efficiency)
+    public static bool ReservationBudgetFits(ClientState conn, int percent, bool reservesLife, int efficiency)
     {
         int mana = reservesLife ? 0 : PetrifiedBlood.Required(conn.Pools.Mana, conn.Pools.ManaReservationEfficiencyPct, percent, efficiency);
         int life = reservesLife ? PetrifiedBlood.Required(conn.Pools.Life, conn.Pools.LifeReservationEfficiencyPct, percent, efficiency) : 0;
@@ -63,7 +65,7 @@ static partial class Game
             && (long)AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values) + life + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true) < conn.Pools.Life;
     }
 
-    internal static void ClampReservedResources(ClientState conn)
+    public static void ClampReservedResources(ClientState conn)
     {
         conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);

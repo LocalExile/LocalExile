@@ -5,10 +5,10 @@ using GameServer.Core.World;
 /// non-damaging ailments). Each inflicted ailment keeps its own magnitude and duration; only the strongest of a kind
 /// applies. They stay on a corpse until they run out. Guarded by the Monsters lock, on the connection's pauseable clock.
 /// </summary>
-sealed class MonsterElementalAilments
+public sealed class MonsterElementalAilments
 {
-    internal enum Kind { Chill, Freeze, Shock }
-    internal sealed record Effect(Kind Kind, double From, double Until, double Magnitude)
+    public enum Kind { Chill, Freeze, Shock }
+    public sealed record Effect(Kind Kind, double From, double Until, double Magnitude)
     {
         // Glacial Wave: a chill from a hit of a player with enemies_chilled_by_hits_take_damage_increased_by_chill_effect
         // / ..._deal_damage_lessened_by_chill_effect, as the player had them when it landed.
@@ -86,7 +86,7 @@ sealed class MonsterElementalAilments
     /// Proliferation's and the ascendancy's. The calculators scale none of them by area of effect; <see cref="SpreadRadius"/>
     /// does.
     /// </summary>
-    internal static int ProliferationRadius(Kind kind, Func<string, int> get)
+    public static int ProliferationRadius(Kind kind, Func<string, int> get)
     {
         int elemental = Math.Max(get("elemental_status_effect_aura_radius"), get("elementalist_elemental_status_effect_aura_radius"));
         int ascendancy = get("ascendancy_non_damaging_elemental_ailment_proliferation_radius");
@@ -111,7 +111,7 @@ sealed class MonsterElementalAilments
     /// <summary>The cells an ailment spreads: that radius grown by the area of effect modifier <paramref name="area"/>
     /// (SkillArea.Modifier) like a skill's area, × its square root truncated to two places (wiki Elemental proliferation:
     /// the area of proliferation is affected by modifiers to area of effect).</summary>
-    internal static int SpreadRadius(Kind kind, Func<string, int> attacker, double area) =>
+    public static int SpreadRadius(Kind kind, Func<string, int> attacker, double area) =>
         (int)Math.Floor(ProliferationRadius(kind, attacker) * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100);
 
     /// <summary>This monster's own chills, freezes and shocks that spread, alive or a corpse. Each is an aura of its own
@@ -133,7 +133,7 @@ sealed class MonsterElementalAilments
     /// below 5% (the modifiers count before both limits). A <paramref name="minimum"/> ("Shocks from your Hits always
     /// increase Damage taken by at least X%") raises the base before the modifiers (wiki Shock), so a hit that deals the
     /// ailment's damage gets at least it.</summary>
-    internal static int Effectiveness(double damage, double threshold, double modifiers, int cap, int minimum = 0)
+    public static int Effectiveness(double damage, double threshold, double modifiers, int cap, int minimum = 0)
     {
         if (damage <= 0 || threshold <= 0) return 0;
         int effect = (int)Math.Min(cap, Math.Floor(Math.Max(50 * Math.Pow(damage / threshold, .4), minimum) * modifiers));
@@ -327,8 +327,8 @@ sealed class MonsterElementalAilments
     /// <summary>The buff instance each kind always has on its monster: the top of the range, which
     /// <see cref="ClientState.NextBuff"/> never hands out, so a monster's frequent ailment changes take nothing from the
     /// connection's counter and never meet another buff's instance on the same object.</summary>
-    internal static ushort Instance(Kind kind) => (ushort)(FirstInstance + (int)kind);
-    internal const ushort FirstInstance = ushort.MaxValue - 2;
+    public static ushort Instance(Kind kind) => (ushort)(FirstInstance + (int)kind);
+    public const ushort FirstInstance = ushort.MaxValue - 2;
 
     /// <summary>The buffs to take off and put on so the client shows what applies at <paramref name="now"/>: a kind
     /// whose strongest magnitude changed is sent again (the old one removed first, on the same instance); expired effects

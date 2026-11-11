@@ -1,9 +1,9 @@
 /// <summary>What the connection holds for the game's rules, in the rules' types. A reload gives new types: what an old one holds starts over.</summary>
-static class ClientStateRules
+public static class ClientStateRules
 {
     extension(ClientState conn)
     {
-        internal RampageWorld RampageWorld
+        public RampageWorld RampageWorld
         {
             get
             {
@@ -28,19 +28,25 @@ static class ClientStateRules
             }
         }
 
-        internal VaalUseReservation? VaalUse
+        public VaalUseReservation? VaalUse
         {
             get => conn.VaalUseState as VaalUseReservation;
             set => conn.VaalUseState = value;
         }
 
-        internal Game.ProjectileSession? ProjectileRuntime
+        internal Game.WinterOrbRuntime? OrbRuntime
+        {
+            get => conn.WinterOrbState as Game.WinterOrbRuntime;
+            set => conn.WinterOrbState = value;
+        }
+
+        public Game.ProjectileSession? ProjectileRuntime
         {
             get => conn.ProjectileRuntimeState as Game.ProjectileSession;
             set => conn.ProjectileRuntimeState = value;
         }
 
-        internal Game.StatSourcesResult? StatSourcesCache
+        public Game.StatSourcesResult? StatSourcesCache
         {
             get => conn.StatSourcesCacheState as Game.StatSourcesResult;
             set => conn.StatSourcesCacheState = value;

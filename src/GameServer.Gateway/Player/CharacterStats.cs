@@ -14,7 +14,7 @@ using GameServer.Core;
 /// increased evasion; 1% increased maximum energy shield per 10 intelligence and 1% increased melee physical damage per 5
 /// strength. Without these stats the client falls back to the base for level 1 (the Witch's 50 life and 40 mana).
 /// </summary>
-static class CharacterStats
+public static class CharacterStats
 {
     public sealed record Pools(int Level, uint Life, uint Mana, int Accuracy, uint Experience,
         int Armour = 0, int ArmourPct = 0, int Evasion = BaseEvasion, int EvasionPct = 0,
@@ -52,17 +52,17 @@ static class CharacterStats
         int? EvasionWhileMoving = null)
     {
         // Identifies the transient source snapshot used by this immutable pool calculation, including with-clones.
-        internal long FortificationRevision { get; init; }
+        public long FortificationRevision { get; init; }
         // Calculated zero attributes are valid; legacy partial pool records may still need class defaults.
-        internal bool AttributesResolved { get; init; }
+        public bool AttributesResolved { get; init; }
         // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
         // once per pool build (BuildPoolsFor), never a full stat build on those paths. 0/false: the character has none.
-        internal int AttackerSlowPct { get; init; }
-        internal int EnemyRegenerationOnHitPct { get; init; }
-        internal int VsBlindedCriticalPct { get; init; }
-        internal bool WhileMovingStats { get; init; }
+        public int AttackerSlowPct { get; init; }
+        public int EnemyRegenerationOnHitPct { get; init; }
+        public int VsBlindedCriticalPct { get; init; }
+        public bool WhileMovingStats { get; init; }
         // Real pool builds retain the signed base before the one final floor; legacy partial pools use their rating.
-        internal long AccuracyBase { get; init; } = Accuracy;
+        public long AccuracyBase { get; init; } = Accuracy;
     }
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,

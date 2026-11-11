@@ -10,7 +10,7 @@ using GameServer.Core;
 /// <para>Quest chests without an .ot of their own (the Golden Hand's altar, Victario's stashes, Siosa's book stands) are
 /// Chests.dat rows: the client builds them from InheritsFrom (QuestChest), with the row's AOFiles model.</para>
 /// </summary>
-static class QuestObjectTypes
+public static class QuestObjectTypes
 {
     /// <summary>A quest object type: its deserialized components in order, Transitionable's last state (2 when the .ot
     /// does not say), its Positioned size (object_size − 1, at least 1), whether it blocks, and the model when the type

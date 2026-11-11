@@ -22,10 +22,10 @@ public sealed class SurvivorsLeagueTests
         Assert.Equal("Void", league.Parent);
         Assert.True(leagues.CanEnter("Survivors"));
         Assert.Contains(leagues.Entries(), entry => entry.Name == "Survivors");
-        Assert.Contains("Survivors/SurvivorsRun", league.Modules);
-        Assert.Contains("Survivors/SurvivorsSkills", league.Modules);
-        Assert.Contains("Survivors/SurvivorsRewards", league.Modules);
-        Assert.DoesNotContain(leagues.Find("Standard")!.Modules, module => module.StartsWith("Survivors/"));
+        Assert.Contains("Custom/Survivors/SurvivorsRun", league.Modules);
+        Assert.Contains("Custom/Survivors/SurvivorsSkills", league.Modules);
+        Assert.Contains("Custom/Survivors/SurvivorsRewards", league.Modules);
+        Assert.DoesNotContain(leagues.Find("Standard")!.Modules, module => module.StartsWith("Custom/Survivors/"));
 
         var skills = new ModuleLifetime("SurvivorsSkills");
         var rewards = new ModuleLifetime("SurvivorsRewards");
@@ -35,6 +35,7 @@ public sealed class SurvivorsLeagueTests
             runs.Stop(ex => throw ex);
             rewards.Stop(ex => throw ex);
             skills.Stop(ex => throw ex);
+            foreach (string id in new[] { "SurvivorsRun", "SurvivorsRewards", "SurvivorsSkills" }) GameEventOwners.Release(id, GameEventOwners.ModuleRank);
         });
         new SurvivorsSkillsModule().Load(Context(skills));
         new SurvivorsRewardsModule().Load(Context(rewards));
@@ -238,10 +239,9 @@ public sealed class SurvivorsLeagueTests
         protected override object? Invoke(MethodInfo? method, object?[]? args) => method!.Name switch
         {
             "get_Lifetime" => Lifetime,
-            "OnChatCommand" or "OnAreaGenerated" or "OnPlayerLeaving" or "OnPacket" => new Registration(),
+            "get_Manifest" => new ModManifest(Lifetime.Id, "0", ModKind.Feature, [], Lifetime.Id + ".dll"),
             _ => throw new NotSupportedException(method.Name),
         };
-        sealed class Registration : IDisposable { public void Dispose() { } }
     }
 
     sealed class Cleanup(Action run) : IDisposable { public void Dispose() => run(); }

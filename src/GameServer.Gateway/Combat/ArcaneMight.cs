@@ -1,5 +1,5 @@
 /// <summary>Modern Arcane Might grants. Consumes resolved spell INC/RED; does not produce spell modifiers.</summary>
-static class ArcaneMight
+public static class ArcaneMight
 {
     public const string Basic = "additive_spell_damage_modifiers_apply_to_attack_damage";
     public const string Ratio = "additive_spell_damage_modifiers_apply_to_attack_damage_at_%_value";

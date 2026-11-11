@@ -4,16 +4,16 @@ using GameServer.Core.Protocol.Login;
 using Progression = GameServer.Core.World.Progression;
 using DamageModel = GameServer.Core.World.DamageModel;
 
-static partial class Game
+public static partial class Game
 {
     // Called before inventory loading or any save normalization on a real connection.
-    internal static void CheckAscendancyClientCompatibility(ClientState conn) =>
+    public static void CheckAscendancyClientCompatibility(ClientState conn) =>
         AscendancyClientCompatibility.RequirePlayable(conn, CharacterSaves.Load(CharacterName(conn))?.MainAscendancy?.Selection);
 
     // Read-only admission checks, shared with LoadProgress: no inventory normalization or gold migration. A saved
     // Intuitive Leap/Thread of Hope needs the saved items to prove its bypass nodes, so PlayerInventories.For may load
     // them read-only here; a save-less character has no passives and does not build a start kit.
-    internal static void ValidateSavedProgress(ClientState conn, CharacterSaves.Save? save)
+    public static void ValidateSavedProgress(ClientState conn, CharacterSaves.Save? save)
     {
         // Without the tree the saved passives can't be checked; dropping them would lose them at the next save.
         if (save?.Passives is { Count: > 0 } && !PassivesFor(conn).Loaded)
@@ -30,7 +30,7 @@ static partial class Game
     // The character's experience and passives from its save; returns its level. The saved experience decides the level: the
     // account's (the ticket's) is only a copy for the character list, which a failed update at a level-up leaves behind. A save
     // without experience (an older one) starts at the account's level. Passives beyond the level's points are dropped.
-    internal static int LoadProgress(ClientState conn, int level)
+    public static int LoadProgress(ClientState conn, int level)
     {
         var save = CharacterSaves.Load(CharacterName(conn));
         // Quest flags whose refund points were never credited (QuestStaticRewards; a save from before the credit): now, once.
@@ -118,7 +118,7 @@ static partial class Game
     // The character's stats from its allocated passives and the global mods of its active equipped items (ItemModStats),
     // by client stat key. Worn items whose requirements the class, the passives and the other active items do not meet are
     // inactive (ItemModStats.Inactive): remembered per character for the weapon profile and the gem skills.
-    internal static (Dictionary<uint, int> Stats, AttributeModifiers Attributes) CharacterStatSources(ClientState conn,
+    public static (Dictionary<uint, int> Stats, AttributeModifiers Attributes) CharacterStatSources(ClientState conn,
         IEnumerable<ushort>? nodes = null, int? level = null)
     {
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
@@ -150,7 +150,7 @@ static partial class Game
     }
 
     // Shared equipment/passive resolver. The requirement snapshot uses this without publishing caches or pools.
-    internal static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
+    public static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
         List<ItemModStats.Worn> Worn) EquipmentStatSources(
         ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IEnumerable<ushort>? nodes = null, int? level = null)
@@ -240,6 +240,21 @@ static partial class Game
             if (tree.Find(node) is { } passive)
                 nodeStats[node] = passive.IsAscendancy && selectedDefinition is not null
                     ? AscendancyPolicies.NodeStats(conn, selectedDefinition, node, passive.Stats) : passive.Stats;
+        var radiusJewels = treeJewels
+            .Where(i => Passives.ClusterNodeForSlot(i.X) is null)
+            .Select(i => (Socket: tree.JewelNodeForSlot(i.X), Conversion: RadiusJewelCatalogue.ReadConversion(i.Item, catalog.Mods)))
+            .Where(x => x.Socket is not null && x.Conversion is not null)
+            .OrderBy(x => x.Socket)
+            .Select(x => (Socket: x.Socket!.Value, Conversion: x.Conversion!))
+            .ToList();
+        var tattooEffect = new Dictionary<ushort, int>();
+        foreach (var (socket, conversion) in radiusJewels)
+            if (conversion.TattooEffectPct != 0)
+                foreach (ushort node in tree.NodesInRadius(socket, conversion.Radius))
+                    if (tattoos.ContainsKey(node))
+                        tattooEffect[node] = tattooEffect.GetValueOrDefault(node) + conversion.TattooEffectPct;
+        IReadOnlyList<(uint Key, int Value)> TattooEffect(ushort node, IReadOnlyList<(uint Key, int Value)> stats) =>
+            tattooEffect.TryGetValue(node, out int pct) ? ScaleStats(stats, pct) : stats;
         // An applied tattoo replaces the allocated passive's stats. A timeless jewel that replaces the node still
         // wins (the tattoo is disabled); an augmenting timeless jewel adds its stats to the tattoo stats.
         // Makanga/Honoured Makanga tattoos are conditional on the number of allocated direct neighbours: when the
@@ -260,7 +275,8 @@ static partial class Game
                     bool tattooActive = entry.RequiresAdjacent > 0
                         ? adjacent >= entry.RequiresAdjacent
                         : entry.MaxAdjacent <= 0 || adjacent <= entry.MaxAdjacent;
-                    nodeStats[node] = tattooActive ? tattooStats : [];
+                    nodeStats[node] = !tattooActive ? [] : name == "Journey Tattoo of Makanui"
+                        ? tattooStats : TattooEffect(node, tattooStats);
                 }
         var conquered = new HashSet<ushort>();
         if (timeless.Spec is { } timelessSpec)
@@ -280,13 +296,6 @@ static partial class Game
         // passive additions and resistance additions; Might of the Meek's effect/suppression are collected here and
         // applied after the pass; the second pass computes the per-node scaling from the resulting stats. A passive
         // conquered by a timeless jewel is left alone, matching the client.
-        var radiusJewels = items.Items(PlayerInventories.PassiveJewels)
-            .Where(i => Passives.ClusterNodeForSlot(i.X) is null)
-            .Select(i => (Socket: tree.JewelNodeForSlot(i.X), Conversion: RadiusJewelCatalogue.ReadConversion(i.Item, catalog.Mods)))
-            .Where(x => x.Socket is not null && x.Conversion is not null)
-            .OrderBy(x => x.Socket)
-            .Select(x => (Socket: x.Socket!.Value, Conversion: x.Conversion!))
-            .ToList();
 
         // The first pass matches Path of Building's "Other" radius jewels: conversions, notable replacements,
         // passive additions and resistance-scaled additions. Might of the Meek's effect and suppression are
@@ -296,6 +305,7 @@ static partial class Game
         var suppressedSmalls = new HashSet<ushort>();
         foreach (var (socket, conversion) in radiusJewels)
         {
+            if (!allocated.Contains(socket)) continue;
             var affected = tree.NodesInRadius(socket, conversion.Radius).ToList();
             if (conversion.EffectPct != 0 || conversion.SuppressNotables || conversion.SuppressAllocatedSmalls)
                 foreach (ushort node in affected)
@@ -391,7 +401,7 @@ static partial class Game
             if (suppressedNotables.Contains(node)) return [];
             // Unnatural Instinct grants a tattoo on an unallocated small passive, not the original passive.
             var stats = tattoos.TryGetValue(node, out string? tattooName) && TattooStats.For(tattooName) is { } tattoo
-                ? tattoo : passive.Stats;
+                ? TattooEffect(node, tattoo) : passive.Stats;
             return effectPct.TryGetValue(node, out int pct) && pct != 0 && !passive.IsKeystone
                 ? ScaleStats(stats, pct) : stats;
         }
@@ -442,7 +452,7 @@ static partial class Game
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             }
         }
-        foreach (var (key, value) in TattooCountingStats(tattoos, allocated))
+        foreach (var (key, value) in TattooCountingStats(tattoos, allocated, tattooEffect))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in scalingStats)
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
@@ -450,7 +460,9 @@ static partial class Game
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         // Socketed cluster jewels' own passives: each node gives its theme, notables or nothing (ClusterJewelStats).
         var clusterJewels = items.Items(PlayerInventories.PassiveJewels)
-            .Where(i => ClusterSize(i.Item) is not null).OrderBy(i => i.X).ToList();
+            .Where(i => ClusterSize(i.Item) is not null
+                && (tree.JewelNodeForSlot(i.X) is { } ordinary && allocated.Contains(ordinary) || ClusterSlotOpen(conn, i.X)))
+            .OrderBy(i => i.X).ToList();
         foreach (var (key, value) in ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats))
             passives[key] = passives.GetValueOrDefault(key) + value;
         // Threshold jewels: Path of Building's Threshold pass sums the attributes of every ordinary passive in
@@ -483,6 +495,13 @@ static partial class Game
                         $"{Stats.Name(effect.Key)} {effect.Value}");
                 }
         }
+        if (Stats.Key(StolenMods.RandomSourceStat) is uint stealKey)
+            foreach (var jewel in treeJewels)
+                if (tree.JewelNodeForSlot(jewel.X) is ushort source && tree.ClusterNodeForSlot(jewel.X) is null)
+                {
+                    int count = InspiredLearning.Granted(jewel.Item, catalog.Mods, tree, source, allocated);
+                    if (count > 0) passives[stealKey] = passives.GetValueOrDefault(stealKey) + count;
+                }
         // Might in All Forms: Dexterity and Intelligence from allocated passives in the jewel's radius count toward
         // the Strength melee damage bonus, one percent per five points like Strength itself. The summed view is
         // divided once so the truncation matches CharacterStats' str / 5.
@@ -534,7 +553,9 @@ static partial class Game
         ItemModStats.Worn WithGems(ItemModStats.Worn item)
         {
             foreach (var socket in item.Item.Sockets)
-                if (socket.Gem is { } gem && SocketedGemRequirements(conn, gem, requirementsPct) is var g)
+                if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
+                    item = item with { Level = Math.Max(item.Level, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods)) };
+                else if (socket.Gem is { } gem && SocketedGemRequirements(conn, gem, requirementsPct) is var g)
                     item = item with { Level = Math.Max(item.Level, g.Level), Strength = Math.Max(item.Strength, g.Str),
                         Dexterity = Math.Max(item.Dexterity, g.Dex), Intelligence = Math.Max(item.Intelligence, g.Int) };
             return item;
@@ -556,7 +577,7 @@ static partial class Game
             Stats.Key($"virtual_{attribute}_for_requirements") is uint key && dev.TryGetValue(key, out int set) ? set : value;
         var (inactive, active) = ItemModStats.ResolveEquipment(wornItems, level ?? conn.Pools.Level, active =>
         {
-            var (str, dex, intel) = AttributeInputs(RawAttributes(active.Select(w => w.Item)), dev)
+            var (str, dex, intel) = AttributeInputs(RawAttributes(AbyssJewels.Sources(active.Select(w => w.Item), catalog)), dev)
                 .Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
             return (ForRequirements("strength", str), ForRequirements("dexterity", dex), ForRequirements("intelligence", intel));
         }, before, ItemsFor(conn).Mods);
@@ -568,6 +589,7 @@ static partial class Game
             if (exempt.Count > 0) active = [.. active, .. exempt];
             inactive.ExceptWith(exemptions);
         }
+        active = AbyssJewels.Sources(active, catalog).ToArray();
         var rawAttributes = RawAttributes(active);
         var conditionAttributes = AttributeInputs(rawAttributes, dev)
             .Apply(c.Strength + (conn.God ? 1000 : 0), c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
@@ -596,9 +618,11 @@ static partial class Game
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
+        GrandSpectrum.Apply(sources, Stats);
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);
+        AbyssJewels.Count(active, catalog, Stats, sources);
         var attributes = AttributeInputs(rawAttributes, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         return (sources, attributes, inactive, wornItems);
@@ -606,11 +630,11 @@ static partial class Game
 
     // "Items and Gems have X% increased/reduced Attribute Requirements", rounded down (PoB CalcPerform m_floor).
     // shortcut: only passives (and /set_stat) count, not an item's own global mod, which would decide its own activation.
-    internal const string AttributeRequirementsStat = "global_item_attribute_requirements_+%";
-    internal static int ScaledRequirement(int requirement, int increasedPct) =>
+    public const string AttributeRequirementsStat = "global_item_attribute_requirements_+%";
+    public static int ScaledRequirement(int requirement, int increasedPct) =>
         requirement <= 0 ? requirement : (int)Math.Max(0, (long)requirement * (100 + increasedPct) / 100);
 
-    internal static int AttributeRequirementsPct(ClientState conn)
+    public static int AttributeRequirementsPct(ClientState conn)
     {
         if (Stats.Key(AttributeRequirementsStat) is not uint key) return 0;
         lock (conn.Monsters)
@@ -636,7 +660,7 @@ static partial class Game
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, AttributeRequirementSource> AttributeRequirementSources = new();
 
     /// <summary>The inputs of CharacterStatSources' passive and equipment sum, compared by value (items by reference).</summary>
-    internal sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
+    public sealed record StatSourcesKey(ushort[] Nodes, IReadOnlyDictionary<ushort, ushort> Masteries,
         GameServer.Core.Protocol.Instance.InventoryItem[] Worn, Dictionary<uint, int> Dev, int ClassRow, bool God, int Level,
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
@@ -663,15 +687,15 @@ static partial class Game
             && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active));
     }
 
-    internal sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
+    public sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
         HashSet<uint> Inactive, List<ItemModStats.Worn> Worn);
 
     // Only raw attribute keys are inputs. A final pool/panel attribute must never feed the flat bucket on a rebuild.
-    internal static AttributeModifiers AttributeInputs(IReadOnlyDictionary<string, long> raw, IReadOnlyDictionary<uint, int> dev) =>
+    public static AttributeModifiers AttributeInputs(IReadOnlyDictionary<string, long> raw, IReadOnlyDictionary<uint, int> dev) =>
         AttributeModifiers.FromWide(name => Stats.Key(name) is uint key && dev.TryGetValue(key, out int value)
             ? value : raw.GetValueOrDefault(name));
 
-    internal static CharacterStats.Pools PoolsFor(ClientState conn, int level)
+    public static CharacterStats.Pools PoolsFor(ClientState conn, int level)
     {
         lock (conn.Monsters)
         {
@@ -689,7 +713,7 @@ static partial class Game
         }
     }
 
-    internal static CharacterStats.Pools BuildPoolsFor(ClientState conn, int level)
+    public static CharacterStats.Pools BuildPoolsFor(ClientState conn, int level)
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
@@ -936,7 +960,7 @@ static partial class Game
     // A /set_stat value for a block stat, flat armour or Glancing Blows replaces that stat's raw passive and equipment sum,
     // as in the client's stats (CharacterPlayerStats). Only these: the other raw inputs have their own replacement in
     // BuildPoolsFor, or a consumer that adds the dev value on top of the pools (attack speed).
-    internal static bool IsDevDefenceInput(string? name) => name is not null
+    public static bool IsDevDefenceInput(string? name) => name is not null
         && (name.Contains("block", StringComparison.Ordinal) || name is "base_physical_damage_reduction_rating" or "keystone_glancing_blows");
 
     static Dictionary<uint, int> WithDevDefenceInputs(ClientState conn, Dictionary<uint, int> sources)
@@ -948,7 +972,7 @@ static partial class Game
         return merged ?? sources;
     }
 
-    internal static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProfile weapons, AttributeModifiers attributes)
+    public static CharacterStats.Bonus PassiveBonus(Dictionary<uint, int> stats, WeaponProfile weapons, AttributeModifiers attributes)
     {
         int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
         int allRes = Get("base_resist_all_elements_%");
@@ -1143,7 +1167,7 @@ static partial class Game
     // /add_passive_points; the client computes the same from the level in 0x33 and its extra_skill_points field), the
     // allocated nodes and the selected mastery effects. The client allows that many nodes plus the points the allocated
     // nodes grant themselves.
-    internal static (ushort Points, ushort RefundPoints, List<ushort> Nodes, Dictionary<ushort, ushort> Masteries) PassiveState(ClientState conn)
+    public static (ushort Points, ushort RefundPoints, List<ushort> Nodes, Dictionary<ushort, ushort> Masteries) PassiveState(ClientState conn)
     {
         lock (conn.Monsters)
             return ((ushort)Math.Min(ushort.MaxValue, Progression.PassivePoints(conn.Pools.Level) + conn.ExtraPassivePoints + QuestPassivePoints(conn)),
@@ -1151,7 +1175,7 @@ static partial class Game
     }
 
     // Drops the last allocated passives beyond the level's points (call under the Monsters lock).
-    internal static void TrimPassives(ClientState conn, int level)
+    public static void TrimPassives(ClientState conn, int level)
     {
         int points = Progression.PassivePoints(level) + conn.ExtraPassivePoints + QuestPassivePoints(conn) + AscendancyOrdinaryPoints(conn);
         TrimOrdinaryPassives(conn, conn.Passives, points);
@@ -1159,7 +1183,7 @@ static partial class Game
         NormalizePassiveJewels(conn);
     }
 
-    internal static void ValidateOrdinaryPassives(ClientState conn, IEnumerable<ushort> nodes, AscendancyProgress ascendancy,
+    public static void ValidateOrdinaryPassives(ClientState conn, IEnumerable<ushort> nodes, AscendancyProgress ascendancy,
         IReadOnlyDictionary<ushort, HashSet<ushort>>? bypass = null)
     {
         var candidate = nodes as IReadOnlyCollection<ushort> ?? nodes.ToArray();
@@ -1173,7 +1197,7 @@ static partial class Game
     // with the socket(s) of the jewels that grant each one. The candidate set decides whether the jewel's own socket
     // is still allocated; skipItemId simulates taking that jewel out before the item move validates the remaining
     // tree.
-    internal static Dictionary<ushort, HashSet<ushort>> AllocationBypassNodes(ClientState conn, IEnumerable<ushort> candidate,
+    public static Dictionary<ushort, HashSet<ushort>> AllocationBypassNodes(ClientState conn, IEnumerable<ushort> candidate,
         uint? skipItemId = null)
     {
         var allocated = candidate.ToHashSet();
@@ -1188,12 +1212,7 @@ static partial class Game
             if (Passives.JewelNodeForSlot(item.X) is not ushort socket || !allocated.Contains(socket)) continue;
             if (ImpossibleEscapeCatalogue.Read(item.Item, mods) is { } escape)
             {
-                // New items store the PassiveSkillGraphId; the GraphIdForRow path keeps old row-valued items working.
-                ushort? keystoneId = Passives.GraphIdForRow(escape.Value);
-                if (keystoneId is null && escape.Value is > 0 and <= ushort.MaxValue
-                    && Passives.Find((ushort)escape.Value) is { IsKeystone: true } direct)
-                    keystoneId = direct.GraphId;
-                if (keystoneId is ushort keystone && allocated.Contains(keystone))
+                if (ImpossibleEscapeCatalogue.ForStoredValue(escape.Value) is { GraphId: var keystone })
                     foreach (ushort node in Passives.NodesInRadius(keystone, escape.Radius))
                         if (node != keystone && Passives.Find(node) is { IsAscendancy: false, IsStart: false,
                             IsMastery: false, IsProxy: false, IsExpansion: false })
@@ -1223,7 +1242,7 @@ static partial class Game
 
     // A batch may list its leaf before its prerequisite. Removing the last allocation alone could orphan that leaf.
     // Keep the historical last-first preference, but only remove a node whose remaining tree is still connected.
-    internal static void TrimOrdinaryPassives(ClientState conn, List<ushort> nodes, int points,
+    public static void TrimOrdinaryPassives(ClientState conn, List<ushort> nodes, int points,
         AscendancyProgress? ascendancy = null)
     {
         ascendancy ??= conn.MainAscendancy;
@@ -1256,7 +1275,7 @@ static partial class Game
 
     // Chooses the main ascendancy (/ascendancy, the Ascendancy Chamber's class selector) and saves it; the caller reloads
     // the area to show its tree. An AscendancyRuleException leaves everything as it was.
-    internal static void SelectMainAscendancy(ClientState conn, AscendancyCatalog.Definition chosen)
+    public static void SelectMainAscendancy(ClientState conn, AscendancyCatalog.Definition chosen)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
         AscendancyClientCompatibility.RequirePlayable(conn, chosen.Identity);
@@ -1280,7 +1299,7 @@ static partial class Game
     }
 
     // Earns the Labyrinth tiers' ascendancy points (two each, once: AscendancyRules.AwardKeys), saved, and sends the tree.
-    internal static async Task<int> AwardAscendancyPoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<int> AwardAscendancyPoints(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         IEnumerable<string> awards)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
@@ -1304,7 +1323,7 @@ static partial class Game
 
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
     // Ascendancy.dat row. Only in a Labyrinth's last room, for an unascended character; the area reloads with the new class.
-    internal static async Task ChooseAscendancyClass(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    public static async Task ChooseAscendancyClass(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
     {
         byte baseClass = (byte)Skills.ClassFor(conn.ClassRow).IntegerId;
         var chosen = Ascendancies.Choices(baseClass).FirstOrDefault(d => d.Identity.Family == AscendancyFamily.Normal && d.TableRow == row);
@@ -1321,7 +1340,7 @@ static partial class Game
 
     // The character's passive skill tree (0x33): its level (from which the client counts the points), its class (the
     // tree's start) and the allocated nodes.
-    internal static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SendPassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (QuestKillCommitOutput is { } output)
         {
@@ -1340,7 +1359,7 @@ static partial class Game
     /// tree socket, a medium one in a large tree socket or in a large jewel's socket, and so on), and their ids are the
     /// client's layout indices (202, 206 live), never a PassiveSkillGraphId.
     /// </summary>
-    internal static async Task ChangeClusterPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task ChangeClusterPassive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort node, bool allocate)
     {
         bool socketed = ClusterJewelSocketed(conn);
@@ -1366,9 +1385,9 @@ static partial class Game
 
     /// <summary>The largest cluster jewel node id the client sends with the expansion flag: its own layout index, well
     /// below the PassiveSkillGraphId range of the tree's nodes.</summary>
-    internal const ushort MaxClusterNodeId = 0xFFF;
+    public const ushort MaxClusterNodeId = 0xFFF;
 
-    internal static (byte[] Bytes, string Label) PassivesMessage(ClientState conn)
+    public static (byte[] Bytes, string Label) PassivesMessage(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -1402,13 +1421,13 @@ static partial class Game
     }
 
     // The native family selector is a world stat, independently of the character's stored league.
-    internal static IReadOnlyDictionary<uint, int>? LeagueStatsFor(ClientState conn) =>
+    public static IReadOnlyDictionary<uint, int>? LeagueStatsFor(ClientState conn) =>
         AscendancyPolicies.AreaStats(conn, conn.MainAscendancy.Selection);
 
-    internal static int AscendancyOrdinaryPoints(ClientState conn) =>
+    public static int AscendancyOrdinaryPoints(ClientState conn) =>
         Game.AscendancyRules.OrdinaryPointsGranted((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, conn.MainAscendancy);
 
-    internal static byte PackedClass(ClientState conn)
+    public static byte PackedClass(ClientState conn)
     {
         byte baseClass = (byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId;
         byte number = Game.AscendancyRules.Validate(baseClass, conn.MainAscendancy)?.ClassNo ?? 0;
@@ -1419,7 +1438,7 @@ static partial class Game
     // points and complete ordinary/ascendancy connectivity, then saved, applied to the stats and sent back (0x33).
     // A gold respec (goldRespec) refunds only allocated nodes and charges their cost (PassiveTree.GoldRespecCost); a
     // refund-point refund (refundPoints) spends one saved point per node. /reset_passives sets neither.
-    internal static async Task<string?> ChangePassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<string?> ChangePassives(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         IReadOnlyList<ushort> nodes, bool allocate, string why, ushort? masteryEffect = null, bool goldRespec = false,
         bool refundPoints = false)
     {
@@ -1553,7 +1572,7 @@ static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                 $"0x01b1 player life {conn.PlayerLife} (passives)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }
@@ -1565,7 +1584,7 @@ static partial class Game
     // Experience from a kill: added (up to the last level), sent as the Player component's experience (0x2bc; the client
     // derives the level and plays the level up from it), saved, and at a new level the level's stats, life and passive
     // points from current experience and the account's level (Auth set_level, for the character list).
-    internal static async Task GainExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task GainExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint gain, string why, Func<ControlRequest, Task<ControlResponse>>? control = null)
     {
         if (RecordExperienceGain(conn, gain) is { } change)
@@ -1581,14 +1600,14 @@ static partial class Game
     // item's own component has no skill gems. Sent as the socket's equipment row 0x00bf item change, the same item id removed
     // and added again (the replace idiom: an addition of a known id alone is dropped as a duplicate, so the client would keep
     // the stale gem), so the client's gem XP bar and tooltip follow; the next save keeps it.
-    internal static async Task GainGemExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint gain)
+    public static async Task GainGemExperience(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint gain)
     {
         var (packets, leveled) = CommitGemExperience(conn, gain);
         foreach (var packet in packets) await Send(remote, stream, ciphers, packet, "gem experience");
         if (leveled) await SendSkills(remote, stream, ciphers, conn);
     }
 
-    internal static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain,
+    public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(ClientState conn, uint gain,
         List<(byte Row, uint[] Items)>? projectRows = null)
     {
         lock (conn.Monsters)
@@ -1601,9 +1620,13 @@ static partial class Game
             var changed = items.ChangeSocketedGems((itemId, gem) =>
             {
                 if (IsInactive(conn, itemId) || ItemsFor(conn).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(conn).Gem(baseType) is not { } type) return null;
-                // -1 is a corrupted gem over its cap (GemType.Level), and at its last level's threshold a gem gains no more.
-                int lastLevel = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
-                int cap = lastLevel < type.MaxLevel ? type.ExperienceFor(lastLevel + 1) - 1 : type.ExperienceFor(type.MaxLevel);
+                // The experience stops one point below the next level's threshold, where the client draws the "+", so a
+                // kill never levels a gem: only the player's click (0x31, or Level Up All's 0x32) writes the threshold.
+                // A gem already above the highest level the character meets keeps its experience and gains nothing.
+                int level = ItemsFor(conn).GemLevel(gem);
+                if (level < 0) return null; // -1 is a corrupted gem over its cap (GemType.Level)
+                int allowed = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
+                int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
                 if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
                 return gem with { GemExperience = (int)Math.Min((long)gem.GemExperience + share, cap) };
             });

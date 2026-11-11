@@ -10,7 +10,7 @@ using GameServer.Core;
 /// for about half of them (StateMachine, DiesAfterTime …) and then the client shows "Buffer Underflow".
 /// Both files are game data: they stay in data/ and are loaded on first use.
 /// </summary>
-sealed class MonsterCatalog(string folder = "data")
+public sealed class MonsterCatalog(string folder = "data")
 {
     public sealed record Variety(int Row, string Id, string Name, string BaseType, string? AnimatedObject, IReadOnlyList<string>? Components,
         int LifeMultiplier = 100, int MonsterType = -1, StateMachineData? StateMachine = null, byte TransitionStates = 1,
@@ -22,6 +22,13 @@ sealed class MonsterCatalog(string folder = "data")
         /// <summary>Native Positioned.blocking, independent of targetability. Missing optional metadata retains
         /// the earlier living-body assumption; the extracted resolved type supplies explicit false values.</summary>
         public bool PositionedBlocking { get; init; } = true;
+        /// <summary>The type's Stats set_phase_through_objects (object-types.json "phases"): the client's Pathfinding
+        /// phases for it, so it is no body to any other walker and no living body stops it (Maven's orbs).</summary>
+        public bool Phases { get; init; }
+        /// <summary>The type's Pathfinding immobile (object-types.json "immobile"): the client never walks it. A Move's
+        /// 0x1ab only puts it on the order's from cell (no path search, no step: a unique Maven's orb, traced
+        /// 2026-11-10), so it gets no chase, like a variety with MovementSpeed 0.</summary>
+        public bool Immobile { get; init; }
         /// <summary>The row's HASH16: the key the client's MonsterVarieties table and the statue task use.</summary>
         public ushort Hash16 { get; init; }
         /// <summary>
@@ -62,6 +69,28 @@ sealed class MonsterCatalog(string folder = "data")
     /// the 0.4 s minimum applies.
     /// </summary>
     public IReadOnlyList<HitAnimation> TakeHit(string id) => _takeHit.Value.GetValueOrDefault(id) ?? [];
+
+    /// <summary>
+    /// When the variety's death clip clears the corpse's body from the client's paths, in ms from the clip's start (its
+    /// remove_collidability event; data/monster-takehit.json "death"), null when it has none: the client then clears the
+    /// body with the death itself. 150 for a file written before the entry existed (most varieties' value).
+    /// </summary>
+    public int? CorpseUnblockMs(string id) => _corpse.Value is { } known ? known.GetValueOrDefault(id) : 150;
+
+    private readonly Lazy<Dictionary<string, int?>?> _corpse = new(() => LoadCorpse(folder));
+
+    static Dictionary<string, int?>? LoadCorpse(string folder)
+    {
+        string path = Path.Combine(folder, "monster-takehit.json");
+        if (!File.Exists(path)) return null;
+        using var doc = GameTables.Open(path);
+        Dictionary<string, int?>? result = null;
+        foreach (var p in doc.RootElement.EnumerateObject())
+            if (p.Value.TryGetProperty("death", out var death) && death.ValueKind == JsonValueKind.Object)
+                (result ??= [])[p.Name] = death.TryGetProperty("unblock", out var ms) && ms.ValueKind == JsonValueKind.Number
+                    ? ms.GetInt32() : null;
+        return result;
+    }
 
     static Dictionary<string, HitAnimation[]> LoadTakeHit(string folder)
     {
@@ -264,6 +293,8 @@ sealed class MonsterCatalog(string folder = "data")
         var transitionStates = new Dictionary<string, byte>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
         var blocking = new Dictionary<string, bool>();
+        var phasing = new HashSet<string>();
+        var immobile = new HashSet<string>();
         string types = Path.Combine(folder, "object-types.json");
         if (ClientTables.Exists(types))
         {
@@ -279,6 +310,8 @@ sealed class MonsterCatalog(string folder = "data")
                     if (block.ValueKind is JsonValueKind.True or JsonValueKind.False) blocking[type] = block.GetBoolean();
                     else if (block.ValueKind == JsonValueKind.String && bool.TryParse(block.GetString(), out bool value)) blocking[type] = value;
                 }
+                if (t.TryGetProperty("phases", out var phases) && phases.ValueKind == JsonValueKind.True) phasing.Add(type);
+                if (t.TryGetProperty("immobile", out var fixedPlace) && fixedPlace.ValueKind == JsonValueKind.True) immobile.Add(type);
                 // Files generated before the StateMachine data have no "shared_states": those types stay unsupported.
                 if (t.TryGetProperty("shared_states", out var ss) && t.TryGetProperty("shared_timers", out var st))
                     stateMachines[type] = new([.. ss.EnumerateArray().Select(e => e[1].GetInt32())], st.GetArrayLength(),
@@ -324,7 +357,7 @@ sealed class MonsterCatalog(string folder = "data")
                     r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
-                        PositionedBlocking = blocking.GetValueOrDefault(type, true),
+                        PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
                         Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,

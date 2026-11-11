@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static readonly Lazy<PassiveGrantedSkills> GrantedSkills = new(() => NewGrantedSkills(false));
     static readonly Lazy<PassiveGrantedSkills> RuthlessGrantedSkills = new(() => NewGrantedSkills(true));
@@ -60,7 +60,7 @@ static partial class Game
     /// spends the skill's 0.3 s cooldown (with cooldown recovery; a roll while it recovers is not made) and queues the
     /// summon for the minion step. True when one was queued.
     /// </summary>
-    internal static bool TriggerElementalRelicLocked(ClientState conn, SpawnedMonster target, bool hit, bool killed,
+    public static bool TriggerElementalRelicLocked(ClientState conn, SpawnedMonster target, bool hit, bool killed,
         (int X, int Y)? allyAt = null)
     {
         if (!CurrentGameWork || !target.Hostile || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea) return false;
@@ -133,7 +133,7 @@ static partial class Game
     // and chill change the step rate (the wiki: movement speed raises the frequency). It starts over when the walk ends, as
     // the run animation does.
     // Shield Charge walks its charge (ShieldCharge.cs), so it takes steps at the charge speed, as the wiki says.
-    internal static int FootstepsDue(ClientState conn, ref double run, double from, double now)
+    public static int FootstepsDue(ClientState conn, ref double run, double from, double now)
     {
         double before = run, until = Math.Min(now, conn.Walk.ArrivesAt);
         if (until > from) run += (until - from) * conn.Walk.Speed / WalkSpeed;
@@ -145,7 +145,7 @@ static partial class Game
     // The footstep skills that trigger now: none while the player is dead, leaving, frozen or stunned, in town or in the
     // grace period, nor a disabled one (Devout of Gruthkul's "Your Spells are disabled": the wiki says it disables Abberath's
     // Fury).
-    internal static IReadOnlyList<PassiveGrantedSkills.Grant> FootstepSkills(ClientState conn, double now)
+    public static IReadOnlyList<PassiveGrantedSkills.Grant> FootstepSkills(ClientState conn, double now)
     {
         List<ushort> nodes;
         lock (conn.Monsters)
@@ -160,11 +160,11 @@ static partial class Game
 
     // A granted spell's hit (no gem, no supports): its base damage with the player's increases, added damage and conversion,
     // as a supported spell's (SupportedHitFor); Spell Skills deal no Damage zeroes it (SkillDamageContext).
-    internal static DamagePacket GrantedSpellHit(ClientState conn, int effect, int level) => GrantedSpell(conn, effect, level).Hit;
+    public static DamagePacket GrantedSpellHit(ClientState conn, int effect, int level) => GrantedSpell(conn, effect, level).Hit;
 
     // The hit, and what its ignite takes: the flat damage (base and added, after conversion, before any increase; wiki
     // Ignite), the caster's and the skill's stats and the damage context.
-    internal static (DamagePacket Hit, DamagePacket Flat, Dictionary<uint, int> Stats, SkillDamageContext Context) GrantedSpell(
+    public static (DamagePacket Hit, DamagePacket Flat, Dictionary<uint, int> Stats, SkillDamageContext Context) GrantedSpell(
         ClientState conn, int effect, int level)
     {
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
@@ -184,7 +184,7 @@ static partial class Game
     // hostile monster within its radius (FootstepExplosionRadius grown by area of effect, SkillArea) of the player, as an
     // area spell's sweep (AreaSkillHit) without a gem: no cost, no cast time, crits and rolls per monster, every hit before
     // the sweep's deaths. A landed hit ignites a surviving monster with its 25% chance or a critical strike (IgniteFromHit).
-    internal static async Task TriggerFootstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task TriggerFootstepSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PassiveGrantedSkills.Grant skill)
     {
         var rules = CombatLifetime; var source = AscendancyPolicies.SourceOwner(conn);
@@ -211,16 +211,16 @@ static partial class Game
             if (art is not null) effectObject = conn.NextObjectId++;
         }
         if (effectObject is uint obj)
-            await Send(remote, stream, ciphers, [], null, atGate: () =>
+            await SendWorldCreate(conn, obj, () =>
             {
                 lock (conn.Monsters)
                 {
                     if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return null;
                     conn.TemporarySkillEffects[obj] = AreaTime(conn) + PassiveGrantedSkills.ExplosionArtMs / 1000.0;
-                    return [.. InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-                        new EffectObject(at.X, at.Y, art!).Blob()), .. InstanceProtocol.EnterWakeZone(obj)];
+                    return InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                        new EffectObject(at.X, at.Y, art!).Blob());
                 }
-            });
+            }, wake: true, transport: (remote, stream, ciphers));
         if (!CurrentSource() || targets.Count == 0) return;
 
         using (ProjectileMutation(conn))
@@ -306,8 +306,8 @@ static partial class Game
     // art created before replacement. Permanent connection state holds only object ids and deadlines.
     // Polled every 50 ms: with no temporary art at all there is nothing to remove, so the send gate and the Monsters lock
     // are left alone (a racy read of the count only delays a removal to the next poll).
-    internal static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : Send(remote, stream, ciphers, [], null, atGate: () =>
+    public static Task SendTemporarySkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        conn.TemporarySkillEffects.Count == 0 ? Task.CompletedTask : SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
@@ -316,7 +316,9 @@ static partial class Game
                 var due = conn.TemporarySkillEffects.Where(p => p.Value <= now).Select(p => p.Key).ToArray();
                 if (due.Length == 0) return null;
                 foreach (uint id in due) conn.TemporarySkillEffects.Remove(id);
-                return [.. due.SelectMany(InstanceProtocol.RemoveObject)];
+                var records = new WorldRecordBuilder(conn, admission);
+                foreach (uint id in due) records.Remove(id);
+                return records.Build();
             }
-        });
+        }, transport: (remote, stream, ciphers));
 }

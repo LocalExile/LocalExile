@@ -7,7 +7,7 @@ using GameServer.Core.World;
 /// local increases since 3.25), local attack speed, and the local added elemental/chaos damage the weapon adds to every
 /// hit (scaled by the local elemental damage increases; physical quality does not touch it).
 /// </summary>
-static class ItemWeapons
+public static class ItemWeapons
 {
     public static SkillCatalog.Unarmed Of(int attackMs, int minDamage, int maxDamage, int range,
         IReadOnlyDictionary<string, int> local, int quality)

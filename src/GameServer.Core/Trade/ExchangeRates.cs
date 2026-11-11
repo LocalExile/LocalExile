@@ -9,7 +9,7 @@ namespace GameServer.Core.Trade;
 public sealed record ExchangePrice(double Chaos, double Volume, double[][]? History = null);
 
 /// <summary>
-/// The official leagues' Currency Exchange prices, as a mod publishes them (<c>IModContext.PublishExchangeRates</c>) and the module trades at them. Every price is
+/// The official leagues' Currency Exchange prices, as a mod publishes them (<c>ExchangeRateStore.Publish</c>) and the module trades at them. Every price is
 /// in chaos, so that no path through several items pays more than it costs.
 /// </summary>
 /// <param name="SourceHour">The latest digest's hour, unix seconds.</param>

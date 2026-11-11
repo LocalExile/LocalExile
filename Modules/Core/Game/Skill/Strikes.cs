@@ -1,6 +1,6 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // BuffDefinitions skill_location_memory (invisible, CancelOnDeath, behaviour RecordSkillUseLocations): the client keeps a
     // Strike skill's previous locations in it, and its melee action (0x141c9d7c0) finds it by the skill id and ActionTypes

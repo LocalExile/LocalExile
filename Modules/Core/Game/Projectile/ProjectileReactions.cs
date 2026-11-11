@@ -2,9 +2,9 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
+    public static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster monster, double at)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
@@ -12,7 +12,7 @@ static partial class Game
     }
 
     // Called synchronously under XP -> combat lock. The outbox contains notifications of committed results.
-    internal static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
+    public static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
         MonsterHit hit, int damage, ProjectileOffense shot, bool critical, StunHit stun)
     {
         var conn = session.Conn;
@@ -27,15 +27,17 @@ static partial class Game
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
-            session.Packet(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
+            session.World(id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]));
         // Native Actor TakeHit recovery (0x1d1), as the melee path sends: a rig-only clip (0x1b2) leaves the client
         // monster walking while the server's estimate has stopped (11-skills.md "Hit reaction").
         // Built in the send gate, which places a lockstep client's recovery in its frames (TakeHitPacket).
         if (HitReaction.TryFlinch(target, stun, now, random))
         {
             double until = target.FlinchUntil;
-            session.Packet(() => TakeHitPacket(conn, id, target, until, now));
+            session.World(id, () => TakeHitPacket(conn, id, target, until, now));
         }
+        // The life update follows its hit message in the attacker's turn (HitOrder); one with no hit message stays.
+        (uint Key, ushort Hit, ushort Life) order = default;
         if (shot.HitPacket)
         {
             // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
@@ -45,10 +47,15 @@ static partial class Game
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
-            session.Packet(InstanceProtocol.ActionHit(contact.Projectile.Use.Emitter.Id, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
-                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
+            // The emitter is the attacker: the player, or his totem. Only the player's own hit goes into his turn of the frame
+            // (HitOrder); a totem's stays at the frame's start, as monsters' and minions' hits do.
+            uint attacker = contact.Projectile.Use.Emitter.Id;
+            if (attacker == PlayerId) order = HitOrder(conn, PlayerId);
+            session.World(attacker, InstanceProtocol.ActionHit(attacker, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
+                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000)),
+                orderKey: order.Key, checkpoint: order.Hit));
         }
-        session.Packet(InstanceProtocol.LifeUpdate(id, hit.Life),
+        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
             + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
@@ -72,7 +79,7 @@ static partial class Game
         }
     }
 
-    internal static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
+    public static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
     {
         if (monster.StageActionStarted) return;
         var stage = monster.Stage!;
@@ -85,19 +92,19 @@ static partial class Game
         monster.BusyUntil = recoveryAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageEffectAt = effectAt / (double)ProjectileRuntime.QuantaPerSecond;
         monster.StageActionStarted = true;
-        session.Packet(InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, session.Conn.MonsterOrderFlags),
+        session.World(id, InstanceProtocol.ActionStarted(id, pos.X, pos.Y, pos.X, pos.Y, StageSkillId, 0xffff, session.Conn.MonsterOrderFlags),
             $"monster 0x{id:x} starts stage t={now:0.000000}; effect={monster.StageEffectAt:0.000000}, recovery={monster.BusyUntil:0.000000}");
         session.Runtime.Schedule(effectAt, Publish);
         session.Runtime.Schedule(recoveryAt, Publish);
         void Publish()
         {
             double time = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-            if (AdvanceMonsterStage(session.Conn, id, monster, time) is { } bytes)
-                session.Packet(bytes, $"monster 0x{id:x} stage {(monster.StageRunning ? "effect" : "complete")} t={time:0.000000}; life={monster.Life}");
+            if (AdvanceMonsterStageRecords(session.Conn, id, monster, time) is { } bytes)
+                session.WorldRecords(id, () => bytes, $"monster 0x{id:x} stage {(monster.StageRunning ? "effect" : "complete")} t={time:0.000000}; life={monster.Life}");
         }
     }
 
-    internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
+    public static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
         bool playerKill = true)
     {
         var conn = session.Conn;
@@ -112,7 +119,7 @@ static partial class Game
         ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
-            session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
+            session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
@@ -137,7 +144,7 @@ static partial class Game
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
-            session.Packet(InstanceEntities.PlayerExperienceUpdate(PlayerId, change.After));
+            session.World(PlayerId, InstanceEntities.PlayerExperienceUpdate(PlayerId, change.After));
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
@@ -145,7 +152,7 @@ static partial class Game
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
-                session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
+                session.World(PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
                 // Account-level persistence is a projection of the committed XP ledger.
@@ -171,7 +178,7 @@ static partial class Game
             || !GameEvents.AllowsLoot(conn)) return;
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;
-        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(monster, position));
+        var modded = GameEvents.RunDrops(conn, ModMonster(monster, position));
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
@@ -194,16 +201,16 @@ static partial class Game
         }
     }
 
-    internal static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
+    public static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
         PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
-    internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
+    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {
-        session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
-        session.Packet(InstanceProtocol.EnterWakeZone(id));
+        session.Create(id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
+        session.World(id, InstanceProtocol.EnterWakeZone(id));
     }
 
-    internal static void CommitProjectileFlaskGain(ProjectileSession session,
+    public static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)
     {
         var conn = session.Conn;
@@ -227,7 +234,7 @@ static partial class Game
                 items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
     }
 
-    internal static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
+    public static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
     {
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;

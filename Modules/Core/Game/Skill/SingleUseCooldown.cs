@@ -2,7 +2,7 @@
 
 /// <summary>One accepted use, reserved before ordinary action side effects. Async continuations keep this original
 /// witness; a later action may cancel it, but cancellation never refunds an accepted use.</summary>
-sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch, bool Instant, bool Reserved = true,
+public sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch, bool Instant, bool Reserved = true,
     SingleUseCooldownState? State = null, int UseVersion = 0)
 {
     bool consumed;
@@ -16,7 +16,9 @@ sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch
         lock (conn.Monsters)
         {
             if (!Current(conn)) return false;
-            if (Reserved) State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant);
+            // A lockstep instant consumes its use when the queued action executes. An immediate state
+            // snapshot can arrive first and make that action fail its native available-use check.
+            if (Reserved) State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
             return true;
         }
     }

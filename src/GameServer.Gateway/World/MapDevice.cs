@@ -8,7 +8,7 @@ using GameServer.Core;
 /// may hold when Activate (C→S 0x00d8) is pressed, which area a map opens (Maps.dat <c>Regular_WorldAreasKey</c>), and
 /// each character's open map: its area, its instance once someone entered it, and the portals left.
 /// </summary>
-sealed class MapDevice
+public sealed class MapDevice
 {
     /// <summary>Portals one activation opens; each takes one player into the map once.</summary>
     public const int PortalCount = 6;

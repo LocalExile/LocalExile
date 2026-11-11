@@ -12,7 +12,7 @@ using GameServer.Core;
 /// Gold respec (Bestel's Respecialisation): a node costs VillageBalancePerLevelShared.dat's GoldRespecCost at the
 /// character's level times the node's multiplier, as the client's per-node cost 0x141f019b0 computes it.
 /// </summary>
-sealed class PassiveTree(string folder = "data", bool hardMode = false)
+public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 {
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1, bool IsKeystone = false,

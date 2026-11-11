@@ -2,31 +2,31 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>"Gain Soul Eater during any Flask Effect": while a flask effect is on the player, enemies killed within
     /// this radius feed a soul (poedb: 60 units). Each soul gives 5% increased attack and cast speed and 1% character
     /// size; one is lost every 0.5 s after 4 s without a kill.</summary>
-    internal const string SoulEaterStat = "gain_soul_eater_during_flask_effect";
-    internal const int SoulEaterRadius = 60;
+    public const string SoulEaterStat = "gain_soul_eater_during_flask_effect";
+    public const int SoulEaterRadius = 60;
     /// <summary>BuffDefinitions row "soul_eater_aura" (277): the aura around the eater. Invisible as an icon, its
     /// BuffVisuals 288 EPK draws the soul visuals (the same aura BuffTemplate "MapModPlayerSoulEater" gives a player).</summary>
-    internal const ushort SoulEaterAuraRow = 277;
+    public const ushort SoulEaterAuraRow = 277;
     /// <summary>BuffDefinitions row "soul_eater_player" (279), the player's Soul Eater buff: ShowCount with
     /// <c>virtual_soul_eater_maximum_stacks</c> as its maximum.</summary>
-    internal const ushort SoulEaterBuffRow = 279;
+    public const ushort SoulEaterBuffRow = 279;
 
     static bool SoulEaterStatPresent(IReadOnlyDictionary<uint, int> stats) =>
         Stats.Key(SoulEaterStat) is uint key && stats.GetValueOrDefault(key) != 0;
 
     // "Any Flask Effect": a running utility flask, a permanent one from a belt's always-apply effect, or a life/mana
     // flask still recovering. Life and mana flasks keep no utility effect here, but their recovery is a flask effect too.
-    internal static bool AnyFlaskEffect(ClientState conn) =>
+    public static bool AnyFlaskEffect(ClientState conn) =>
         conn.UtilityFlaskEffects.Sources().Count > 0 || MagebloodSources(conn, _ => 0).Count > 0 || conn.FlaskEffects.Any;
 
     /// <summary>The client's own "during any Flask Effect" conditions and its native flask logic read <c>using_flask</c>
     /// (a stat, not the server's evaluated stats): 1 while any effect is on. Soul Eater's soul visuals are one of them.</summary>
-    internal static void WithUsingFlask(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithUsingFlask(ClientState conn, Dictionary<uint, int> stats)
     {
         if (Stats.Key("using_flask") is uint key) stats[key] = AnyFlaskEffect(conn) ? 1 : 0;
     }
@@ -37,11 +37,11 @@ static partial class Game
         return (int)Math.Clamp(SoulEaterState.MaximumStacks + (long)bonus, 0, ushort.MaxValue);
     }
 
-    internal static bool SoulEaterActive(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
+    public static bool SoulEaterActive(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
         SoulEaterStatPresent(stats) && AnyFlaskEffect(conn);
 
     /// <summary>The buff's attack speed part, added to the final main-hand value without rebuilding the pools.</summary>
-    internal static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static int SoulEaterAttackSpeed(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         if (!SoulEaterActive(conn, stats)) return 0;
         conn.SoulEater.SetMaximum(SoulEaterMaximum(stats));
@@ -49,7 +49,7 @@ static partial class Game
     }
 
     /// <summary>The stat snapshot's part: the attack/cast speed buckets and the capped character size.</summary>
-    internal static void WithSoulEater(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithSoulEater(ClientState conn, Dictionary<uint, int> stats)
     {
         bool active = SoulEaterActive(conn, stats);
         conn.SoulEater.Enabled = active;
@@ -71,7 +71,7 @@ static partial class Game
     }
 
     /// <summary>An enemy killed at <paramref name="at"/>: one soul when the buff is active and the player is near.</summary>
-    internal static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at)
+    public static void SoulEaterSoul(ClientState conn, uint id, (int X, int Y) at)
     {
         if (!conn.SoulEater.Enabled) return;
         lock (conn.Monsters)
@@ -89,8 +89,11 @@ static partial class Game
     /// player tick (250 ms) like Rage and Onslaught, so a pack's kills coalesce into one update instead of one per corpse.
     /// The aura is its own buff (as a self aura's source buff is): its EPK draws the soul visuals; the counted buff is the
     /// icon the client shows.</summary>
-    internal static byte[]? SoulEaterPresentation(ClientState conn, string remote, NetworkStream stream,
-        ConnectionCiphers ciphers)
+    public static byte[]? SoulEaterPresentation(ClientState conn, string remote, NetworkStream stream,
+        ConnectionCiphers ciphers) => SoulEaterRecords(conn, new WorldRecordBuilder(conn, null)) is { } batch
+            ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
+
+    static OutputBatch? SoulEaterRecords(ClientState conn, WorldRecordBuilder bytes)
     {
         lock (conn.Monsters)
         {
@@ -105,7 +108,6 @@ static partial class Game
             bool statsChanged = auraChanged || stacks != conn.SoulEater.SentStacks || usingFlask != conn.SoulEater.SentUsingFlask;
             if (!active) conn.SoulEater.Souls.Clear();
             if (!statsChanged && conn.SoulEater.Souls.Count == 0) return null;
-            var bytes = new List<byte>();
             if (conn.SoulEater.Souls.Count > 0)
             {
                 // One line per soul, from the corpse to the player, as the official server's ServerBeamEffect.
@@ -113,10 +115,10 @@ static partial class Game
                 foreach (var (soulId, sx, sy) in conn.SoulEater.Souls)
                 {
                     uint beam = conn.NextObjectId++;
-                    bytes.AddRange(InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
+                    bytes.Create(beam, InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
                         new BeamEffectObject(sx, sy, soulId, px * BeamEffectObject.WorldPerCell,
                             py * BeamEffectObject.WorldPerCell, PlayerId).Blob()));
-                    bytes.AddRange(InstanceProtocol.EnterWakeZone(beam));
+                    bytes.Presentation(beam, InstanceProtocol.EnterWakeZone(beam));
                     // The connection owns the expiry so the replacement Game module can retire it after a reload.
                     conn.TemporarySkillEffects[beam] = AreaTime(conn) + 0.6;
                 }
@@ -126,13 +128,13 @@ static partial class Game
             {
                 if (!active)
                 {
-                    bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.AuraBuff));
+                    bytes.World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.AuraBuff));
                     conn.SoulEater.AuraBuff = 0;
                 }
                 else
                 {
                     conn.SoulEater.AuraBuff = conn.NextBuff++;
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.SoulEater.AuraBuff, SoulEaterAuraRow, PlayerId,
+                    bytes.World(PlayerId, InstanceEntities.AddBuff(PlayerId, conn.SoulEater.AuraBuff, SoulEaterAuraRow, PlayerId,
                         auraSource: true, displayState: 0));
                 }
             }
@@ -140,13 +142,13 @@ static partial class Game
             {
                 if (stacks == 0)
                 {
-                    if (conn.SoulEater.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.Buff));
+                    if (conn.SoulEater.Buff != 0) bytes.World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.Buff));
                     conn.SoulEater.Buff = 0;
                 }
                 else
                 {
                     if (conn.SoulEater.Buff == 0) conn.SoulEater.Buff = conn.NextBuff++;
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.SoulEater.Buff, SoulEaterBuffRow, PlayerId,
+                    bytes.World(PlayerId, InstanceEntities.AddBuff(PlayerId, conn.SoulEater.Buff, SoulEaterBuffRow, PlayerId,
                         stacks: (ushort)Math.Min(ushort.MaxValue, stacks)));
                 }
             }
@@ -154,18 +156,18 @@ static partial class Game
             {
                 // Attack and cast speed are in the character's stats; the skill list carries the attack time the client
                 // swings with, so both go out when a soul is gained or lost.
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
+                bytes.World(PlayerId, PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.World(PlayerId, PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 conn.SoulEater.SentStacks = SoulEaterCount(conn, now);
                 conn.SoulEater.SentUsingFlask = usingFlask;
                 Console.WriteLine($"[gateway] {CharacterName(conn)} Soul Eater {conn.SoulEater.SentStacks}/{conn.SoulEater.Limit}");
             }
-            return [.. bytes];
+            return bytes.Build();
         }
     }
 
-    internal static Task SendSoulEater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => SoulEaterPresentation(conn, remote, stream, ciphers));
+    public static Task SendSoulEater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        SendWorldBatch(conn, [], admission => SoulEaterRecords(conn, new(conn, admission)), transport: (remote, stream, ciphers));
 
     // The souls the client should see: none while the source is off or the player is dead, otherwise the decaying count.
     static int SoulEaterCount(ClientState conn, double now) =>

@@ -4,10 +4,10 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Projectiles;
 
-static partial class Game
+public static partial class Game
 {
     static readonly ConditionalWeakTable<TotemState.Totem, SupportedGem> TotemSources = new();
-    internal static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
+    public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true && UsesProjectileRuntime(effect)
         && ResolveProjectileDefinition(effect) is not null
@@ -17,20 +17,22 @@ static partial class Game
         && a.SourceGem is not null && b.SourceGem is not null
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
         && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
-    internal static void BindTotemSource(ClientState conn, TotemState.Totem totem)
+    public static void BindTotemSource(ClientState conn, TotemState.Totem totem)
     {
         TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
     }
 
-    internal static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
+    public static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
     {
         var caster = new Dictionary<uint, int>(owner);
         // This prohibition belongs to the owner (Ancestral Bond); type prohibitions remain inherited.
         caster.Remove(StatKeys.SpellSkillsDealNoDamage);
+        // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
+        if (Stats.Key(ArcaneSurgeSpellMore) is uint arcane) caster.Remove(arcane);
         return caster;
     }
 
-    internal static double? TotemCastSeconds(ClientState conn, ushort skill)
+    public static double? TotemCastSeconds(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         if (SkillsFor(conn).IsAttack(gem.Effect)) return TotemAttackSeconds(conn, skill);
@@ -38,13 +40,16 @@ static partial class Game
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         // is_totem describes the placement skill. The proxy casts the underlying spell with its support penalty.
         int Read(string name) => name == "is_totem" ? 0 : Get(name);
+        // The owner's Arcane Surge cast speed is his buff's, not the totem's.
+        var owner = CharacterPlayerStats(conn);
         int speed = FinalCastSpeedPct(Read, () => HoldingFishingRod(conn),
-            CastSpeedPct(CharacterPlayerStats(conn)) + GolemStat(gem.Stats, "base_cast_speed_+%") + Get("totem_skill_cast_speed_+%"));
+            CastSpeedPct(owner) - GolemStat(owner, "arcane_surge_cast_speed_+%")
+            + GolemStat(gem.Stats, "base_cast_speed_+%") + Get("totem_skill_cast_speed_+%"));
         return SpellCastTiming.ForSkill(SkillsFor(conn), gem.Effect, speed)?.DurationMilliseconds is int ms
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }
 
-    internal static GrantedSkill? TotemProxy(ClientState conn, ushort skill)
+    public static GrantedSkill? TotemProxy(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         var payload = new Dictionary<uint, int>(gem.Stats);
@@ -69,7 +74,7 @@ static partial class Game
         return proxy is null ? null : proxy with { Parent = (PlayerId, skill) };
     }
 
-    internal static bool SpellTotemCurrent(ClientState conn, TotemState.Totem totem)
+    public static bool SpellTotemCurrent(ClientState conn, TotemState.Totem totem)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
             || !totem.Alive(conn.Clock.Elapsed.TotalSeconds)) return false;
@@ -84,14 +89,24 @@ static partial class Game
             && IsTotemSkill(conn, totem.SkillId);
     }
 
-    internal static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, List<byte> bytes)
+    {
+        var records = new WorldRecordBuilder(conn, null);
+        TickSpellTotemsLocked(remote, stream, ciphers, conn, records);
+        bytes.AddRange(records.Bytes());
+    }
+
+    static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, WorldRecordBuilder bytes)
     {
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var totem in conn.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())
         {
             if (!SpellTotemCurrent(conn, totem)) { totem.DiedAt = now; continue; }
             if (conn.Paused || now < totem.NextCast) continue;
+            // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
+            if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(totem.Id).IsReady) continue;
             double range = TotemTargetRange(conn, totem.SkillId);
             var target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
                 && Dist(p.Value.Walk.Position(now), totem.At) <= range)
@@ -102,7 +117,7 @@ static partial class Game
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
-            bytes.AddRange(InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
+            bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, 0x0408));
             var lifetime = CombatLifetime;
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),

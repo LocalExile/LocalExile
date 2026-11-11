@@ -1,11 +1,11 @@
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // Conservative starting archetypes: ordinary connected allocations, wearable bases and compatible links.
     // No requirement exemptions or hidden attribute bonuses are used for a controlled character.
-    internal static CharacterSaves.Save BuildControlledPlayer(CharacterClass characterClass, int level)
+    public static CharacterSaves.Save BuildControlledPlayer(CharacterClass characterClass, int level)
     {
         level = Math.Clamp(level, 1, 100);
         var cls = Skills.ClassFor(Skills.RowOfClass((int)characterClass));
