@@ -12,6 +12,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Analysis artifacts alone provide no installed gameplay support or native proof.
 - Generate the Gateway's C→S length table from [c2s.md](../docs/protocol/c2s.md) (287 instance ids with an exact length;
   `KnownClientLength` has 101, beside the variable-length readers in `SplitClientMessages`).
+- Integrate the reviewed C→S length candidates into the Gateway after native verification.
+  The [offline export](../docs/re/tooling.md) audits the current table and lists candidates from the checked-in inventory.
   `SplitClientMessages` drops the rest of a read at an unknown id, so every message after it in that read is lost.
 - Mods: the rest after the [mod host](../status/setup-and-tooling.md) ([modding](../docs/dev/modding.md)).
   Catalog overrides (a mod replacing rows of the Gateway's catalogs) are the hook the host does not have yet.

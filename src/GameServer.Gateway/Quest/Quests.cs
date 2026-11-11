@@ -87,6 +87,8 @@ public static partial class Quests
         /// <summary>A chest no room or tile places (a7q7's seven Fireflies in The Dread Thicket: the real server places them):
         /// the engine spreads the area's scattered chests over its walk map, the same cells for the same seed.</summary>
         public bool Scattered { get; init; }
+        // An encounter chest unlocks for the instance but holds a separate quest item for each character.
+        public string[]? Guards { get; init; }
     }
     /// <summary>The monster appears at the room or tile object when the player first comes within <see cref="SightRange"/> of
     /// it in the instance, unless <see cref="Until"/> is set (a10q1: Plaguewing from KitavaDemonSpawnerPlaguewing as the

@@ -16,9 +16,10 @@ public readonly record struct ContactPoint(float X, float Y, float Z)
     public ContactPoint Scaled(double factor) => new((float)(X * factor), (float)(Y * factor), (float)(Z * factor));
 }
 
-/// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position.</summary>
+/// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position, and
+/// every contact keyframe's time in order (empty when the data predates the "contacts" key).</summary>
 public readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
-    bool CancellationKnown = false, int? Cancel = null);
+    bool CancellationKnown = false, int? Cancel = null, IReadOnlyList<int>? Contacts = null);
 
 /// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
 public enum CastAnimationKind { Attack, Projectile, Area, Buff }
@@ -109,10 +110,30 @@ public sealed class AnimationContacts(string folder = "data")
         SkillAttackClip(animatedObject, weapon, skillClip) is { } found
             ? (found.Name, (double)found.Clip.Contact / found.Clip.Length) : null;
 
+    /// <summary>
+    /// When a melee attack skill's <paramref name="index"/>-th strike lands, as a fraction of its clip, and the clip's
+    /// name: the skill's own clip as <see cref="SkillAttackContact"/> finds it, its <paramref name="index"/>-th contact
+    /// keyframe. Double Strike swings twice in one clip, and when the second swing lands differs per class rig
+    /// (doublestrike_sword: 300 and 666 of 1000 ms for the Str rig, 299 and 899 for the Hunter's), so the frame is read
+    /// rather than assumed. Null when the rig has no such clip or the clip has fewer contact frames — the caller then
+    /// decides how to place the strike (a modelled fallback, never a constant here).
+    /// </summary>
+    public (string Name, double Contact)? SkillAttackContactAt(string animatedObject, WeaponProfile weapon, string? skillClip,
+        int index)
+    {
+        if (SkillAttackClip(animatedObject, weapon, skillClip) is not { } found || found.Clip.Length <= 0
+            || found.Clip.Contacts is not { } frames || index < 0 || index >= frames.Count) return null;
+        return (found.Name, (double)frames[index] / found.Clip.Length);
+    }
+
     private (string Name, AnimationClip Clip)? SkillAttackClip(string animatedObject, WeaponProfile weapon, string? skillClip)
     {
         if (string.IsNullOrEmpty(skillClip) || !_byAo.Value.TryGetValue(animatedObject, out var actor)) return null;
         var anims = actor.Clips;
+        // GemAttackContactDelay returns the clip whose first contact drives this use. Accept that exact name so a second
+        // strike reads the same weapon-combination variant (for example doublestrike_sword_claw), not merely the main-hand
+        // suffix variant that the generic resolver would otherwise choose.
+        if (anims.TryGetValue(skillClip, out var exact) && exact.Length > 0) return (skillClip, exact);
         if (anims.TryGetValue($"{skillClip}_{WeaponSuffix(weapon) ?? "unarmed"}", out var stance) && stance.Length > 0)
             return ($"{skillClip}_{WeaponSuffix(weapon) ?? "unarmed"}", stance);
         foreach (string prefix in (string[])[skillClip + "_", "attack_" + skillClip])
@@ -249,13 +270,28 @@ public sealed class AnimationContacts(string folder = "data")
                 foreach (var entry in listedIndices.EnumerateObject())
                     if (entry.Value.ValueKind == JsonValueKind.Number && entry.Value.TryGetUInt32(out uint index))
                         indices[entry.Name] = index;
+            // Every contact frame of a clip, in order. Absent in data extracted before the key existed (it is git-ignored,
+            // so a checkout may still hold the older file): the clip then has only its earliest contact, and skills that
+            // ask for a later frame get null and model the timing themselves.
+            var frames = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            if (ao.Value.TryGetProperty("contacts", out var contactFrames) && contactFrames.ValueKind == JsonValueKind.Object)
+                foreach (var entry in contactFrames.EnumerateObject())
+                    if (entry.Value.ValueKind == JsonValueKind.Array)
+                    {
+                        var times = new List<int>();
+                        foreach (var frame in entry.Value.EnumerateArray())
+                            if (frame.ValueKind == JsonValueKind.Array && frame.GetArrayLength() == 2
+                                && frame[0].ValueKind == JsonValueKind.Number && frame[0].TryGetInt32(out int ms)) times.Add(ms);
+                        if (times.Count > 0) frames[entry.Name] = times;
+                    }
             var clips = ao.Value.GetProperty("animations").EnumerateObject()
                 .ToDictionary(a => a.Name, a => new AnimationClip(a.Value[0].GetInt32(), a.Value[1].GetInt32(),
                     positions.TryGetValue(a.Name, out var point) ? point : null,
                     indices.GetValueOrDefault(a.Name, uint.MaxValue),
                     ao.Value.TryGetProperty("cancels", out var cancels) && cancels.TryGetProperty(a.Name, out _),
                     ao.Value.TryGetProperty("cancels", out cancels) && cancels.TryGetProperty(a.Name, out var cancel)
-                        && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null), StringComparer.OrdinalIgnoreCase);
+                        && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null,
+                    frames.TryGetValue(a.Name, out var times) ? times : null), StringComparer.OrdinalIgnoreCase);
             // The default attack's stance pools cover the wand's ACT-selected clip too, which main's "defaultWand" pools
             // served before the stance pools replaced them.
             var pools = new Dictionary<string, DefaultAttackClip[]>(StringComparer.Ordinal);
