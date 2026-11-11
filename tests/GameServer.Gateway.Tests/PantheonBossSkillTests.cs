@@ -58,6 +58,7 @@ public class PantheonBossSkillTests
         foreach (string raised in new[] { CampaignBosses.TotemVariety, CampaignBosses.EggVariety,
             CampaignBosses.SpiderHatch, CampaignBosses.GarukhanMinion, CampaignBosses.AvariusStatue,
             CampaignBosses.KaomArcher, CampaignBosses.BloodElemental, CampaignBosses.PietyEye,
+            CampaignBosses.AtziriKnight, CampaignBosses.AtziriMirror,
             CampaignBosses.ShavronneSkeleton, CampaignBosses.DaressoStatue })
         {
             var variety = monsters.Find(raised);
@@ -75,6 +76,7 @@ public class PantheonBossSkillTests
             CampaignBosses.Malachai2, CampaignBosses.Avarius, CampaignBosses.AvariusReassembled,
             CampaignBosses.AvariusDivine, CampaignBosses.IzaroMaul, CampaignBosses.IzaroOneHand,
             CampaignBosses.IzaroDualWield,
+            CampaignBosses.Atziri, CampaignBosses.Atziri2,
             CampaignBosses.ShavronneTower,
             CampaignBosses.BruteTower, CampaignBosses.Maligaro, CampaignBosses.GeneralAdus, CampaignBosses.Vilenta })
         {

@@ -125,6 +125,8 @@ static class CampaignBosses
         // The Labyrinth: Izaro's taunt, his leaving, the shield he raises and the lieutenants the arena calls for.
         5583, 5558, 5582, 5580,
         5922,                          // effect_driven_attack: it releases its own effect, no hit of its own
+        // Atziri: the demons she calls and the mirrors she raises are spawns, not hits.
+        3386, 3401, 3402,
     ];
 
     // The summon rows whose monster the data names: what the boss raises and how many at a time. The rows'
@@ -141,6 +143,8 @@ static class CampaignBosses
     internal const string PietyEye = "Metadata/Monsters/SummonedSkull/SummonedArcaneEye";      // an eye of the abomination
     internal const string ShavronneSkeleton = "Metadata/Monsters/Skeletons/SkeletonCasterLightning";
     internal const string DaressoStatue = "Metadata/Monsters/BloodElemental/BloodElemental";   // the arena statue stands in
+    internal const string AtziriKnight = "Metadata/Monsters/Skeletons/SkeletonMeleeKnightElementalSwordAtziri";
+    internal const string AtziriMirror = "Metadata/Monsters/Atziri/AtziriMirror";
 
     internal static readonly Dictionary<int, (string Variety, int Count)> Spawns = new()
     {
@@ -152,6 +156,8 @@ static class CampaignBosses
         [6674] = (ShavronneSkeleton, 2),                   // summon_specific_monsters_on_self
         [6675] = (ShavronneSkeleton, 2),                   // summon_specific_monsters_on_target
         [4614] = (DaressoStatue, 2),                       // daresso_summon_clones (the arena's statues fight)
+        [3386] = (AtziriKnight, 3),                        // atziri_summon_demons
+        [3401] = (AtziriMirror, 2), [3402] = (AtziriMirror, 2), // atziri_mirror_image (her own copies)
     };
 
     // How many monsters one boss may have alive at once; a summon row that would go past it raises nothing.
@@ -218,6 +224,8 @@ static class CampaignBosses
         [8904] = 9, [8896] = 12, [357] = 7, [5603] = 10, [6388] = 11, [5637] = 10,
         // The Labyrinth: Izaro's leap slam, Voll's slam, Voll's charge and his ornaments.
         [811] = 12, [4386] = 14, [4362] = 16, [5535] = 10,
+        // Atziri's storm calls, flameblasts and spear throws, empowered slower, and her two spawns.
+        [3387] = 8, [3389] = 10, [3392] = 9, [3393] = 11, [3397] = 6, [3398] = 7, [3386] = 20, [3401] = 25, [3402] = 25,
     };
 
     // Ground art of the kit's skills (checked against the client's metadata; where a skill has none, its cast
@@ -339,6 +347,10 @@ static class CampaignBosses
     internal const string IzaroOneHand = "Metadata/Monsters/Labyrinth/LabyrinthBossOneHandAndShield";
     internal const string IzaroDualWield = "Metadata/Monsters/Labyrinth/LabyrinthBossDualWield";
 
+    // The Apex of Sacrifice's Atziri, both forms (she has no Default Attack: the spear throw is what she swings with).
+    internal const string Atziri = "Metadata/Monsters/Atziri/Atziri";
+    internal const string Atziri2 = "Metadata/Monsters/Atziri/Atziri2";
+
     // Brutus: his plain swing is row 491 (his own Default Attack, not 406), then the hook that pulls the player in,
     // the ground slam and the spiked ground it leaves.
     internal static readonly int[] BrutusEffects = [491, 2395, 4003, 3971];
@@ -388,6 +400,11 @@ static class CampaignBosses
     internal static readonly int[] IzaroOneHandEffects = [482, 4362, 5922, 5535];
     // Izaro, two swords: the swing, the leap slam and the effect-driven attack.
     internal static readonly int[] IzaroDualWieldEffects = [482, 811, 5922, 5535];
+    // Atziri: the spear throw (her only attack-like row, so it is her swing), Storm Call and its empowered form, the
+    // Flameblast and its empowered form, the demons she calls and the mirrors of herself.
+    internal static readonly int[] AtziriEffects = [3397, 3387, 3392, 3398, 3389, 3393, 3386, 3401];
+    // Her second form (Atziri2) is the same kit but for its own mirror row.
+    internal static readonly int[] Atziri2Effects = [3397, 3387, 3392, 3398, 3389, 3393, 3386, 3402];
 
     // What stands in for a campaign boss's own swing where the kit's first row is not an attack (BasicEffect).
     static readonly Dictionary<string, int> ActBasic = new()
@@ -399,6 +416,8 @@ static class CampaignBosses
         [IzaroMaul] = 482,         // his rows' "melee" is the swing, for all three weapons
         [IzaroOneHand] = 482,
         [IzaroDualWield] = 482,
+        [Atziri] = 3397,           // no Default Attack in her row: the spear throw is her basic skill
+        [Atziri2] = 3397,
     };
 
     internal static bool IsAct(MonsterCatalog.Variety? v) => v?.Id is Brutus or Merveil or MerveilTwisted or Weaver
@@ -409,7 +428,10 @@ static class CampaignBosses
     // The Lord's Labyrinth's Izaro: one body, the day's weapon.
     internal static bool IsLabyrinth(MonsterCatalog.Variety? v) => v?.Id is IzaroMaul or IzaroOneHand or IzaroDualWield;
 
-    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsLabyrinth(v)
+    // The Apex of Sacrifice's Atziri, both forms.
+    internal static bool IsApex(MonsterCatalog.Variety? v) => v?.Id is Atziri or Atziri2;
+
+    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsLabyrinth(v) || IsApex(v)
         || IsTukohama(v)
         || IsAbberath(v) || IsRyslatha(v) || IsGreust(v) || IsGruthkul(v) || IsArakaali(v) || IsYugul(v)
         || IsSolaris(v) || IsLunaris(v) || IsShakari(v) || IsGarukhan(v));
@@ -420,6 +442,8 @@ static class CampaignBosses
         IzaroMaul => IzaroMaulEffects,
         IzaroOneHand => IzaroOneHandEffects,
         IzaroDualWield => IzaroDualWieldEffects,
+        Atziri => AtziriEffects,
+        Atziri2 => Atziri2Effects,
         Merveil => MerveilEffects,
         MerveilTwisted => MerveilTwistedEffects,
         Weaver => WeaverEffects,
