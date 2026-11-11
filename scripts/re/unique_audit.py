@@ -23,13 +23,17 @@ The default output goes under `Tools/re/out/` (git-ignored). Nothing outside the
 """
 import argparse
 import json
+import os
 import pathlib
 import re
+import sys
 from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 ROOT = pathlib.Path(".")
 SEED = ROOT / "src/GameServer.Gateway/Item/UniqueItemSeed.cs"
-TABLES = ROOT / "data/tables"
 DEFAULT_OUT = ROOT / "Tools/re/out/unique-audit.md"
 DEFAULT_JSON = ROOT / "Tools/re/out/unique-audit.json"
 
@@ -130,17 +134,17 @@ def main():
     parser.add_argument("--top", type=int, default=40, help="how many uncovered stats to list")
     args = parser.parse_args()
 
-    mods = {row["Id"]: row for row in json.loads((TABLES / "Mods.json").read_text(encoding="utf-8-sig"))}
+    mods = {row["Id"]: row for row in clientdb.table("Mods")}
     # StatsKey1..8 are indexes into Stats.dat, not ids (ModCatalog reads them that way).
-    stat_rows = json.loads((TABLES / "Stats.json").read_text(encoding="utf-8-sig"))
+    stat_rows = clientdb.table("Stats")
     stats = {row["Id"]: row for row in stat_rows}
 
     def stat_id(row, i):
         index = row.get(f"StatsKey{i}")
         return stat_rows[index]["Id"] if isinstance(index, int) and 0 <= index < len(stat_rows) else None
-    bases = {row["Id"]: row for row in json.loads((TABLES / "BaseItemTypes.json").read_text(encoding="utf-8-sig"))}
+    bases = {row["Id"]: row for row in clientdb.table("BaseItemTypes")}
     words = {(row["Text"] or "").replace("\u2019", "'").lower()
-             for row in json.loads((TABLES / "Words.json").read_text(encoding="utf-8-sig"))
+             for row in clientdb.table("Words")
              if row["Wordlist"] == 6 and row["Text"]}
     # Names the seed spells the way PoB does while Words uses the client's spelling (UniqueCatalog.NameKey).
     spellings = {"Rigwald's Charge": "Rigvald's Charge", "The Broken Elegy": "Broken Elegy",
@@ -214,7 +218,7 @@ def main():
     lines = [
         "# Unique mechanic coverage audit",
         "",
-        f"Seed definitions: **{summary['definitions']}**. Generated from `{SEED.as_posix()}` and `data/tables/`;",
+        f"Seed definitions: **{summary['definitions']}**. Generated from `{SEED.as_posix()}` and the client tables (data/client.db);",
         "run `python scripts/re/unique_audit.py` again after the seed or the data changes.",
         "",
         "A stat is *covered* when its id appears as a string literal in the scanned C# sources, or matches the ids an",

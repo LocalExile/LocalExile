@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Delve;
 
@@ -85,7 +86,7 @@ public sealed partial class DelveModule
         if (_sulphite.TryGetValue(conn, out _) || !conn.PlayerSent || conn.Closed || conn.LeavingArea || conn.Instance is null) return;
         var opened = MapDevice.InInstance(conn.Layout.Hash, conn.InstanceNumber);
         if (opened is null || !MapSulphite.Present(opened.Value.Map.Mods)) return;
-        if (!GameServer.Core.ClientTables.Exists("data/tables/DelveResourcePerLevel.json") || !GameServer.Core.ClientTables.Exists("data/tables/DelveUpgrades.json")) return;
+        if (!ClientTables.Has("DelveResourcePerLevel") || !ClientTables.Has("DelveUpgrades")) return;
         var positions = MapSulphite.Positions(conn.Layout, conn.Seed);
         var encounter = new SulphiteEncounter
         {

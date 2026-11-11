@@ -17,7 +17,7 @@ yet confirmed on screen).
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
   of the monster when it dies (melee, Fireball or Righteous Fire). Amount (`Progression.MonsterExperience`):
   DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity ×
-  the level penalty × the party share, rounded. The rarity multipliers are the hidden rarity mods in Mods.json
+  the level penalty × the party share, rounded. The rarity multipliers are the hidden rarity mods in the Mods table
   (`monster_slain_experience_+%`): magic +250% (×3.5), rare +750% (×8.5), unique +450% (×5.5).
 - **Level penalty** (`Progression.LevelPenalty`, the wiki's Experience page): safe zone 3 + level / 16; beyond it, with d
   the levels past it, ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). At level 95 and above
@@ -133,7 +133,7 @@ The ordinary tree's 21 large jewel sockets are the client's `PassiveJewels1` inv
 inventory id 24, 60x1). Pane cell `x` is the `PassiveJewelSlots.dat` row; that row's first column (`Slot`) is the
 `PassiveSkills.dat` row of the socket node. Rows 21-56 are cluster-jewel expansion slots and rows 57-59 are
 ascendancy charm sockets, so only slots 0-20 are ordinary jewel sockets. `PassiveTree.JewelNodeForSlot` and
-`JewelSlotForNode` expose this mapping from `PassiveJewelSlots.json` and `PassiveSkills.json`.
+`JewelSlotForNode` expose this mapping from `PassiveJewelSlots` and `PassiveSkills`.
 
 A jewel is moved in like any inventory item: C->S 0x2a places the held item at (slot, 0), 0x4a swaps it onto an
 occupied cell, and 0x28 picks it up. The server checks that the slot is an ordinary socket, its node is allocated in

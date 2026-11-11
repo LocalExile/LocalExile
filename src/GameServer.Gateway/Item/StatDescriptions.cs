@@ -1,14 +1,14 @@
+using GameServer.Core;
 /// <summary>
-/// The English stat descriptions (data/stat-descriptions.txt: Metadata/StatDescriptions/stat_descriptions.txt without its
-/// translations, `game-pack stat-descriptions`): how the client words a mod's stats ("{0:+d} to maximum Life"). A
+/// The English stat descriptions (client.db's stat_descriptions, one description block per row, from
+/// data/stat-descriptions.txt: Metadata/StatDescriptions/stat_descriptions.txt without its translations,
+/// `game-pack stat-descriptions`): how the client words a mod's stats ("{0:+d} to maximum Life"). A
 /// description covers one or more stats; each variant applies when every stat's value meets its condition ("#" any,
 /// "5" exactly, "1|#" at least 1, "#|-1" at most -1, "!0" not 0), and its handlers ("negate 1") change a value before it
 /// is shown. Tools read them through the Gateway's `crafter` mode; the server itself words nothing with them.
 /// </summary>
 public sealed class StatDescriptions
 {
-    public const string DefaultFile = "data/stat-descriptions.txt";
-
     /// <param name="Conditions">One per stat, as written ("#", "1|#", "!0").</param>
     /// <param name="Handlers">(name, 1-based stat index), in order.</param>
     public sealed record Variant(IReadOnlyList<string> Conditions, string Text, IReadOnlyList<(string Name, int Stat)> Handlers);
@@ -29,8 +29,14 @@ public sealed class StatDescriptions
     /// <summary>The first description that covers the stat, or null.</summary>
     public Description? For(string stat) => _byStat.GetValueOrDefault(stat);
 
-    public static StatDescriptions Load(string path = DefaultFile) =>
-        GameServer.Core.ClientTables.Exists(path) ? Parse(GameServer.Core.ClientTables.ReadLines(path)) : new([]);
+    public static StatDescriptions Load() =>
+        Parse(ClientTables.TableOrEmpty("stat_descriptions").SelectMany(r => Lines(r.Text("block")!)));
+
+    static IEnumerable<string> Lines(string block)
+    {
+        using var reader = new StringReader(block);
+        for (string? line; (line = reader.ReadLine()) is not null;) yield return line;
+    }
 
     public static StatDescriptions Parse(IEnumerable<string> lines)
     {

@@ -33,11 +33,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Not yet: fewer charges in acts 6 to 10 and maps; charges on taking a critical strike (monsters deal none) and at
   maximum frenzy charges (none here).
   Checked live: kill and crit charges and the hostile-area rule; charges when hit and every 3 seconds by tests.
-  Code: `FlaskCharges.cs`, Gateway (`Program.FlaskCharges.cs`).
+  Code: `FlaskCharges.cs`, Game module (`Modules/Core/Game/Flask/FlaskCharges.cs`).
   Docs: [13](../docs/protocol/13-items.md) §8b.
 - Flask modifier composition (#75): the validation counts and Standard/Ruthless observations in this entry are
-  historical LocalExile evidence. This branch ports ordinary-mode calculations; fresh automated results and
-  outstanding native checks are in the [port record](../docs/dev/issue75-port.md).
+  historical LocalExile evidence. This branch ports ordinary-mode calculations; native checks are outstanding.
   Raw character charge-gain sources resolve into the native virtual once,
   then multiply local flask charge recovery with fractional carry. Generic and resource-specific recovery-rate
   factors multiply; hybrid Life/Mana keep independent rates, native buff rows 5/9, queues and lifetimes.
@@ -89,7 +88,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [Ward and native evidence](../docs/game/antiquarian.md).
   Not yet: ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
   suffixes reach the panel only), Aquamarine's chilled ground, the smoke cloud's art, leech suffixes.
-  Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, Gateway (`UseUtilityFlask`, `RunUtilityFlasks`, `RunFlaskGrounds`).
+  Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, the Game module (`UseUtilityFlask`, `RunFlaskGrounds`).
   Docs: [13](../docs/protocol/13-items.md) §8a.
 - Items: the start kit (Characters.dat skill and support gems, two life flasks on keys 1–2 and a mana flask on key 5)
   in the inventories, and the class weapon with two linked sockets worn in the main hand (`Game_START_WEAPON=ground`:
@@ -141,12 +140,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2f.
 - Game content in world.db (2026-11-09, [#734](https://github.com/LocalExile/LocalExile/issues/734)): `mod_stat_overrides`,
-  `limit_overrides`, `catalog_entries`, `system_settings`, `unique_weights` and the drop tables are world.db content
+  `limit_overrides`, the item and jewel catalogues, `system_settings`, `unique_weights` and the drop tables are world.db content
   built from `sql/` (Agents/docs/dev/databases.md); a change is an update file. The Gateway loads the rows at startup
   and atomically republishes them on `/reload`, so no restart is needed; a bad row keeps the previous snapshot.
   Limits currently cover the Historic timeless jewel, Impossible Escape, radius unique jewels and the tattoo total/group
-  caps. `catalog_entries` holds the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
-  catalogues (1,299 / 76 / 43 / 6 / 48 / 190 rows; the unique rows are the generated PoB catalogue with the 3.29
+  caps. Typed tables hold the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
+  catalogues (`unique_items`, `radius_jewels`, `unique_jewels`, `timeless_jewels`, `tattoo_effects`, `jewel_visuals`;
+  1,304 / 76 / 43 / 6 / 78 / 190 rows; the unique rows are the generated PoB catalogue with the 3.29
   corrections). `system_settings` holds 53 numeric knobs, checked on load: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
   shield 3, belt 0, two-handed 6), rare prefix/suffix caps (3/3 ordinary, 2/2 jewels), passive points per level, gold
   chance/amount/auto-loot, the 150-cell projectile maximum range, six drop multipliers, pack density/size, experience
@@ -181,12 +181,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shield-only increases now affect character defences without changing local item values or converted Life.
   Native application, clearing, weapon swaps and Gateway-restart checks passed with final half-up pool rounding.
   Ward conversions, ring-slot and jewel-radius mechanics remain separate work.
-  Code: `ItemDefences.cs`, `Program.Equipment.cs`, `Program.Progression.cs`, `PathOfBuildingItems.cs`.
+  Code: `ItemDefences.cs`, `Modules/Core/Game/Item/Equipment.cs`, `Modules/Core/Game/Passive/Progression.cs`.
   Docs: [13](../docs/protocol/13-items.md) §2, [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: shared by the account's characters of one league (S→C 0x2aa), saved with that league's stash, sent on area
   entry; every league has its own stash and gold, Standard keeps the account's stash from before (`AccountStash.Key`);
   monsters drop piles of gold (normal 40%, magic 75%, rare and unique always;
   (3 + 1.2 × level) × 1/2/5/15, our own numbers, `ItemDrops.Gold`), and picking one up adds it to the gold;
+  gold within 15 cells of the player is picked up by itself (player tick; the `gold_auto_loot_radius` setting);
   gold within the configured radius (default 20 cells) is picked up in full without late-drop ghosts;
   older per-character gold moves into the account at login; `/gold <±amount>`.
   Code: `InstanceEntities.Gold`, `AccountStash`, Gateway.
@@ -207,7 +208,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   scarabs), and a map kill rolls our own base `drop_card_chance_pct`/`drop_scarab_chance_pct`; both settings are
   editable live. The boss and divination-card area tables are seeded (630 bosses, 108 boss items, 555 area/card pairs) but
   no roll reads them yet; [drop-data-schema](../docs/dev/drop-data-schema.md) has the schema and the next steps.
-  Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
+  Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods`) are still
   loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
   monsters. One drop event's stackable items of one type become stacks up to its `CurrencyItems` StackSize (twenty-one
   divine orbs lie as 10, 10 and 1), instead of one world item per unit (`ItemDrops.Stacked`).
@@ -270,7 +271,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fourteen native captures recorded at `63c1039` verify ordinary/repeat use, refusals, inventory/stash combinations,
   unchanged outcomes and restart persistence; fresh checks of the merged branch remain open.
   Ward ranges count for eligibility, but Ward character calculations and recovery remain unimplemented.
-  Code: `CurrencyEffects.Sacred`, Gateway (`Program.Items.cs`).
+  Code: `CurrencyEffects.Sacred`, Game module (`Modules/Core/Game/Item/Items.cs`).
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules: local zero-ES modifiers override this item's base, mods and quality only for ES.
   Supported equipment ES-to-Life conversion truncates each item's contribution, removes all equipment ES and adds
@@ -283,7 +284,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated coverage passes; historical native conversion and corrupted-item ES controls are recorded at `0bae37a`
   and `c9060e4` (see the protocol reference for values).
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.
-  Code: `ItemDefences.cs`, `ItemModStats.cs`, Gateway (`Program.Equipment.cs`).
+  Code: `ItemDefences.cs`, `ItemModStats.cs`, Game module (`Modules/Core/Game/Item/Equipment.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2-§2d.
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
@@ -315,7 +316,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).
   Not yet: other uniques' mechanics, chancing, the "effects cannot be removed" backstop, the Foulborn rightmost variant,
-  Replica Headhunter and Enkindling (`UniqueCatalog`, `Program.Mageblood`, `StolenMods`, `Program.UniqueBelts`;
+  Replica Headhunter and Enkindling (`UniqueCatalog`, `Game.Mageblood`, `StolenMods`, the UniqueBelts module;
   [13](../docs/protocol/13-items.md) §2e, §8a).
 
 - Ruthless uses native mod/flask alternatives, reduced tunable drops and vendor returns, and refuses bench crafting.

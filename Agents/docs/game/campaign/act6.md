@@ -16,16 +16,15 @@ in the Wetlands), a6q7 "The Cloven One" (Bestel: Abberath at Prisoner's Gate). T
 dies a Sin NPC appears next to the corpse and opens the Pantheon screen (Tukohama is the first, it unlocks "Open
 Pantheon" at Sin in town). Four Books of Skill (+1 passive each: a6q3, a6q6, a6q7; a6q4's is a Book of Regrets, +2
 respec only).
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects`, `lg.ps1 grep` of the room files),
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects`, `lg.ps1 grep` of the room files),
 the unpacked `.ot`/`.it` text (references, not copied), the wiki (Fandom mirror, 2026-10-30), poedb not needed.
 
 ## Status (implemented, played live 2026-10-30)
 
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act6.cs`,
 [12](../../protocol/12-quests.md) §15) and was played unattended by the campaign runner (driver steps `a6q4`, `a6q5`,
-`a6q3`, `a6q2`, `a6q7`, `a6q6`, `a6q1`) before the game moved into modules; on the modules the oracle
-(`QuestEngineTests`) plays it after Act 5: every quest of the act complete, the Brine King, Tukohama, Abberath and
-Ryslatha unlocked in the [Pantheon](pantheon.md), arrival in the Bridge Encampment. What differs from the sections below:
+`a6q3`, `a6q2`, `a6q7`, `a6q6`, `a6q1`) before the game moved into modules; it has not been played on the modules
+yet. What differs from the sections below:
 - The Twilight Strand, The Karui Fortress and The Southern Forest fail at seed 1 in the client as in the port: they are
   played at a seed the client built (`ServerLevels.PlayableSeed`, `ServerLevelAreas.SeedsInPlaceOfOne`).
 - The Beacon's carts use the room's rail placements (live 2026-11-06). Both routes form one rail chain; each delivery

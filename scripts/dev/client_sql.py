@@ -7,8 +7,8 @@
          one dated update per changed table with only the differing rows (INSERT / UPDATE of the changed columns /
          DELETE). A new table gets its base file and a full data file; a table whose columns changed is recreated. It
          lists the fixes (sql/updates/client_fixes/) that touch a changed table, to check by hand. It does the same for
-         the generated files the servers read (FILES: data/*.json and stat-descriptions.txt from extract-data.ps1's
-         generators), kept in the client_files table; the first run writes its base file and every row.
+         the generated tables (generated_tables.py: the data/*.json and stat-descriptions.txt files extract-data.ps1's
+         generators write, as snake_case tables). Without data/tables/ it diffs only the generated tables.
 
 Column types (the server rebuilds the JSON rows from them, GameServer.Core ClientTables):
   _row INTEGER PRIMARY KEY  the row's index in the table (other tables refer to rows by index)
@@ -26,6 +26,8 @@ import tempfile
 import unicodedata
 from datetime import datetime, timezone
 
+import generated_tables
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TABLES = os.path.join(ROOT, "data", "tables")
 SQL = os.path.join(ROOT, "sql")
@@ -35,21 +37,6 @@ FIXES = os.path.join(SQL, "updates", "client_fixes")
 DATA = os.path.join(ROOT, "data")
 BATCH = 500  # rows per INSERT statement
 CLIENT = "3.29.3c"
-
-# The files extract-data.ps1's generators write that the servers read, kept in client.db's client_files table (one row
-# per entry; GameServer.Core ClientTables rebuilds data/<file> from them). Not data/game-files.zip: the client's own files.
-FILES = ["area-transitions.json", "room-points.json", "object-types.json", "monster-contacts.json", "monster-takehit.json",
-         "item-types.json", "vendor-stock.json", "hideouts.json", "animation-contacts.json", "projectile-clips.json",
-         "passive-skill-graphs.json", "delve-paths.json", "client-constants.json", "stat-descriptions.txt"]
-# Only these keys: the GGPK root hash describes the local Content.ggpk (Patch writes it to data/client-constants.json).
-KEEP = {"client-constants.json": ["HncMask"]}
-SPLIT = 64  # a top-level list or object with more entries is one row per entry
-FILES_TABLE = "client_files"
-FILES_BASE = (f"-- The generated files (scripts/dev/client_sql.py FILES), one row per entry; ClientTables rebuilds data/<file>.\n"
-              f"-- Its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.\n"
-              f"CREATE TABLE {FILES_TABLE} (\n    file TEXT NOT NULL,\n    part TEXT NOT NULL,\n    ord INTEGER NOT NULL,\n"
-              f"    value TEXT NOT NULL,\n    PRIMARY KEY (file, part)\n);\n")
-
 
 def q(name):
     return '"' + name.replace('"', '""') + '"'
@@ -126,81 +113,25 @@ def insert_sql(name, columns, types, rows):
     return "".join(out)
 
 
-def file_rows(name):
-    """A generated file as client_files rows, (part, value) in the file's order, or None without the file. A JSON
-    document's top-level entries are rows, and so is each entry of a top-level list or object bigger than SPLIT entries
-    (part: the JSON array of keys and indexes leading to it; value: its JSON). A text file is one row per block (a line
-    that does not start with whitespace and the indented lines after it), the value its exact text as a JSON string."""
-    path = os.path.join(DATA, name)
-    if not os.path.isfile(path):
-        return None
-    dump = lambda v: json.dumps(v, ensure_ascii=False, separators=(",", ":"))
-    with open(path, encoding="utf-8-sig", newline="") as f:
-        text = f.read()
-    if name.endswith(".txt"):
-        blocks = []
-        for line in text.splitlines(keepends=True):
-            if not blocks or line[:1] not in (" ", "\t", "\r", "\n"):
-                blocks.append(line)
-            else:
-                blocks[-1] += line
-        return [(dump([i]), dump(b)) for i, b in enumerate(blocks)]
-    doc = json.loads(text)
-    if name in KEEP:
-        doc = {k: doc[k] for k in KEEP[name]}
-    rows = []
-    entries = doc.items() if isinstance(doc, dict) else enumerate(doc)
-    for key, value in entries:
-        if isinstance(value, (dict, list)) and len(value) > SPLIT:
-            inner = value.items() if isinstance(value, dict) else enumerate(value)
-            rows.extend((dump([key, k]), dump(v)) for k, v in inner)
-        else:
-            rows.append((dump([key]), dump(value)))
-    return rows
-
-
-def files_insert(name, rows):
-    """rows: (ord, part, value)."""
-    out = []
-    head = "INSERT INTO client_files (file, part, ord, value) VALUES\n"
-    for start in range(0, len(rows), BATCH):
-        chunk = rows[start:start + BATCH]
-        out.append(head + ",\n".join(f"({text(name)}, {text(p)}, {o}, {text(v)})" for o, p, v in chunk) + ";\n")
-    return "".join(out)
-
-
-def files_diff(db, when):
-    """The generated files (FILES) against client_files in the original data: the base table when it is missing, and one
-    dated update per changed file with only its differing rows."""
-    changed = []
-    if not os.path.isfile(os.path.join(BASE, FILES_TABLE + ".sql")):
-        write(os.path.join(BASE, FILES_TABLE + ".sql"), FILES_BASE)
-        db.executescript(FILES_BASE)
-    for name in FILES:
-        rows = file_rows(name)
-        if rows is None:
-            print(f"client-sql: {name}: not in data\\ (run scripts/dev/extract-data.ps1); left as it is")
+def generated():
+    """The generated tables (generated_tables.py), {table: (rows, columns, types)}, from the files in data/; and the
+    files that are missing (their tables are left as they are)."""
+    out, missing = {}, []
+    for name in generated_tables.FILES:
+        path = os.path.join(DATA, name)
+        if not os.path.isfile(path):
+            missing.append(name)
             continue
-        old = {p: (o, v) for p, o, v in db.execute("SELECT part, ord, value FROM client_files WHERE file = ?", (name,))}
-        inserts, updates = [], []
-        for o, (p, v) in enumerate(rows):
-            if p not in old:
-                inserts.append((o, p, v))
-                continue
-            sets = ([f"ord = {o}"] if old[p][0] != o else []) + ([f"value = {text(v)}"] if old[p][1] != v else [])
-            if sets:
-                updates.append(f"UPDATE client_files SET {', '.join(sets)} WHERE file = {text(name)} AND part = {text(p)};\n")
-        gone = sorted(set(old) - {p for p, _ in rows})
-        if not (inserts or updates or gone):
-            continue
-        stem = name.rsplit(".", 1)[0]
-        what = f"all {len(rows)} rows" if not old else f"{len(inserts)} new, {len(updates)} changed, {len(gone)} removed row(s)"
-        body = "".join(f"DELETE FROM client_files WHERE file = {text(name)} AND part = {text(p)};\n" for p in gone)
-        write(os.path.join(UPDATES, f"{when}_file_{stem}.sql"),
-              f"-- Generated file data/{name}: {what} ({CLIENT}). Written by scripts/dev/client-sql.ps1.\n"
-              + body + "".join(updates) + files_insert(name, inserts))
-        changed.append((name, what))
-    return changed
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            for table, rows in generated_tables.tables(name, f.read()).items():
+                columns = generated_tables.columns(rows)
+                out[table] = (rows, columns, {c: column_type(r.get(c) for r in rows) for c in columns})
+    return out, missing
+
+
+def is_client(name):
+    """A client table (PascalCase) rather than a generated one (snake_case) or the updater's own."""
+    return name != name.lower()
 
 
 def stamp():
@@ -265,66 +196,91 @@ def same(a, b, kind):
     return a == b
 
 
+def table_update(db, name, rows, columns, types, existing, when, what):
+    """One table against the original data: a new table gets its base file and a data file with every row, a table
+    whose columns changed is recreated, and otherwise only the differing rows are written. Returns the change or None.
+    what: "Client table" or "Generated table"."""
+    head = f"-- {what} {name}"
+    tail = " Written by scripts/dev/client-sql.ps1.\n"
+    if name not in existing:
+        write(os.path.join(BASE, name + ".sql"),
+              f"{head} (new in {CLIENT}); its rows come from sql/updates/client/." + tail + create_sql(name, columns, types))
+        write(os.path.join(UPDATES, f"{when}_{name}.sql"),
+              f"{head}: new, {len(rows)} rows." + tail + insert_sql(name, columns, types, list(enumerate(rows))))
+        return f"new, {len(rows)} rows"
+    info = db.execute(f"PRAGMA table_info({q(name)})").fetchall()
+    had = [(r[1], r[2]) for r in info if r[1] != "_row"]
+    if had != [(c, types[c]) for c in columns]:
+        write(os.path.join(UPDATES, f"{when}_{name}.sql"),
+              f"{head}: its columns changed in {CLIENT}; recreated with all {len(rows)} rows." + tail
+              + f"DROP TABLE {q(name)};\n" + create_sql(name, columns, types)
+              + insert_sql(name, columns, types, list(enumerate(rows))))
+        return f"columns changed, recreated ({len(rows)} rows)"
+    old = {r[0]: r[1:] for r in db.execute(f"SELECT * FROM {q(name)} ORDER BY {q('_row')}")}
+    inserts, updates = [], []
+    for i, row in enumerate(rows):
+        if i not in old:
+            inserts.append((i, row))
+            continue
+        sets = [f"{q(c)} = {literal(row.get(c), types[c])}" for c, v in zip(columns, old[i])
+                if not same(decode(v, types[c]), row.get(c), types[c])]
+        if sets:
+            updates.append(f"UPDATE {q(name)} SET {', '.join(sets)} WHERE {q('_row')} = {i};\n")
+    deletes = [i for i in old if i >= len(rows)]
+    if not (inserts or updates or deletes):
+        return None
+    text = f"{head}: {len(inserts)} new, {len(updates)} changed, {len(deletes)} removed row(s) in {CLIENT}." + tail
+    if deletes:
+        text += f"DELETE FROM {q(name)} WHERE {q('_row')} >= {len(rows)};\n"
+    text += "".join(updates) + insert_sql(name, columns, types, inserts)
+    write(os.path.join(UPDATES, f"{when}_{name}.sql"), text)
+    return f"{len(inserts)} new, {len(updates)} changed, {len(deletes)} removed"
+
+
+def drop(name, when, why):
+    write(os.path.join(UPDATES, f"{when}_{name}.sql"),
+          f"-- Table {name}: {why}. Written by scripts/dev/client-sql.ps1.\n" + f"DROP TABLE {q(name)};\n")
+
+
 def diff(_):
     when = stamp()
     with tempfile.TemporaryDirectory() as scratch:
         db = sqlite3.connect(os.path.join(scratch, "original.db"))
         build_original(db)
-        existing = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")} - {FILES_TABLE}
-        names = table_names()
-        changed = []
-        for name in names:
-            rows, columns, types = read_table(name)
-            if name not in existing:
-                write(os.path.join(BASE, name + ".sql"),
-                      f"-- Client table {name} (new in {CLIENT}); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.\n"
-                      + create_sql(name, columns, types))
-                write(os.path.join(UPDATES, f"{when}_{name}.sql"),
-                      f"-- Client table {name}: new, {len(rows)} rows. Written by scripts/dev/client-sql.ps1.\n"
-                      + insert_sql(name, columns, types, list(enumerate(rows))))
-                changed.append((name, f"new, {len(rows)} rows"))
-                continue
-            info = db.execute(f"PRAGMA table_info({q(name)})").fetchall()
-            had = [(r[1], r[2]) for r in info if r[1] != "_row"]
-            if had != [(c, types[c]) for c in columns]:
-                write(os.path.join(UPDATES, f"{when}_{name}.sql"),
-                      f"-- Client table {name}: its columns changed in {CLIENT}; recreated with all {len(rows)} rows. "
-                      "Written by scripts/dev/client-sql.ps1.\n"
-                      + f"DROP TABLE {q(name)};\n" + create_sql(name, columns, types)
-                      + insert_sql(name, columns, types, list(enumerate(rows))))
-                changed.append((name, f"columns changed, recreated ({len(rows)} rows)"))
-                continue
-            old = {r[0]: r[1:] for r in db.execute(f"SELECT * FROM {q(name)} ORDER BY {q('_row')}")}
-            inserts, updates, deletes = [], [], []
-            for i, row in enumerate(rows):
-                if i not in old:
-                    inserts.append((i, row))
-                    continue
-                sets = [f"{q(c)} = {literal(row.get(c), types[c])}" for c, v in zip(columns, old[i])
-                        if not same(decode(v, types[c]), row.get(c), types[c])]
-                if sets:
-                    updates.append(f"UPDATE {q(name)} SET {', '.join(sets)} WHERE {q('_row')} = {i};\n")
-            deletes = [i for i in old if i >= len(rows)]
-            if not (inserts or updates or deletes):
-                continue
-            text = f"-- Client table {name}: {len(inserts)} new, {len(updates)} changed, {len(deletes)} removed row(s) in {CLIENT}. " \
-                   "Written by scripts/dev/client-sql.ps1.\n"
-            if deletes:
-                text += f"DELETE FROM {q(name)} WHERE {q('_row')} >= {len(rows)};\n"
-            text += "".join(updates) + insert_sql(name, columns, types, inserts)
-            write(os.path.join(UPDATES, f"{when}_{name}.sql"), text)
-            changed.append((name, f"{len(inserts)} new, {len(updates)} changed, {len(deletes)} removed"))
-        for name in sorted(existing - set(names)):
-            write(os.path.join(UPDATES, f"{when}_{name}.sql"),
-                  f"-- Client table {name}: not in the {CLIENT} client any more. Written by scripts/dev/client-sql.ps1.\n"
-                  + f"DROP TABLE {q(name)};\n")
-            changed.append((name, "removed"))
-        files = files_diff(db, when)
+        existing = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        changed, files = [], []
+        if os.path.isdir(TABLES):
+            names = table_names()
+            for name in names:
+                rows, columns, types = read_table(name)
+                if what := table_update(db, name, rows, columns, types, existing, when, "Client table"):
+                    changed.append((name, what))
+            for name in sorted(n for n in existing - set(names) if is_client(n)):
+                drop(name, when, f"not in the {CLIENT} client any more")
+                changed.append((name, "removed"))
+        else:
+            print(f"client-sql: {TABLES} is missing (scripts/dev/extract-data.ps1 -Only tables): the client tables are left as they are")
+        tables, missing = generated()
+        # SQLite (and Windows' file names) ignore case: a generated table must not share a client table's name.
+        clash = sorted(n for n in tables if n.lower() in {e.lower() for e in existing if is_client(e)})
+        if clash:
+            sys.exit(f"client-sql: generated table(s) {', '.join(clash)} share a client table's name: rename them in generated_tables.py")
+        for name in missing:
+            print(f"client-sql: {name}: not in data\\ (run scripts/dev/extract-data.ps1); its tables are left as they are")
+        for name, (rows, columns, types) in tables.items():
+            if what := table_update(db, name, rows, columns, types, existing, when, "Generated table"):
+                files.append((name, what))
+        # A generated table no file makes any more, and the old client_files store. Not when a file is missing: its
+        # tables are unknown then.
+        if not missing:
+            for name in sorted(n for n in existing - set(tables) if not is_client(n) and n != "updates"):
+                drop(name, when, "no generated file makes it any more")
+                files.append((name, "removed"))
         db.close()
     for name, what in changed + files:
         print(f"client-sql: {name}: {what}")
-    print(f"client-sql: {len(changed)} table(s) changed ({when})" if changed else "client-sql: the client tables are unchanged")
-    print(f"client-sql: {len(files)} generated file(s) changed ({when})" if files else "client-sql: the generated files are unchanged")
+    print(f"client-sql: {len(changed)} client table(s) changed ({when})" if changed else "client-sql: the client tables are unchanged")
+    print(f"client-sql: {len(files)} generated table(s) changed ({when})" if files else "client-sql: the generated tables are unchanged")
     if changed and os.path.isdir(FIXES):
         touched = {n for n, _ in changed}
         for f in sorted(os.listdir(FIXES)):

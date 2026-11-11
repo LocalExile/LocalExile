@@ -9,14 +9,14 @@ Without a1q4's flag an invisible wall in front of the cave stops the player (§2
 
 ## 1. The data model
 
-| Table (`data/tables/`) | What it holds | a1q4 |
+| Client table (client.db) | What it holds | a1q4 |
 |---|---|---|
-| `Quest.json` | one row per quest: `Id`, `Act`, `Name`, `QuestId`, icon | row 2: `a1q4`, act 1, "Breaking Some Eggs", `QuestId` 4, `Art/2DArt/QuestIcons/mudflats.dds` |
-| `QuestFlags.json` | named boolean flags, `Id` + `HASH32` | rows 23–25, 29, 34–37, 50–52 below |
-| `QuestStates.json` | the quest log text per state: `Quest` (Quest row), `Order`, `FlagsPresent` / `FlagsMissing` (QuestFlags rows), `Text`, `Message`, `MapPinsKeys1`, `MapPinsTexts` | rows 20–28 |
-| `QuestItems.json` | league quest items (`TriggeredQuestFlag`, `Script` …) | 53 rows, none of the campaign's: the campaign's quest items name their flags in their `.it` Quest component (§5) |
-| `BaseItemTypes.json` | the items | rows 1531–1533: the glyphs |
-| `Chests.json` | chest types: `Id`, `Name`, `AOFiles`, `BaseItemTypesKey` | rows 183–185: the Rhoa Nests |
+| `Quest` | one row per quest: `Id`, `Act`, `Name`, `QuestId`, icon | row 2: `a1q4`, act 1, "Breaking Some Eggs", `QuestId` 4, `Art/2DArt/QuestIcons/mudflats.dds` |
+| `QuestFlags` | named boolean flags, `Id` + `HASH32` | rows 23–25, 29, 34–37, 50–52 below |
+| `QuestStates` | the quest log text per state: `Quest` (Quest row), `Order`, `FlagsPresent` / `FlagsMissing` (QuestFlags rows), `Text`, `Message`, `MapPinsKeys1`, `MapPinsTexts` | rows 20–28 |
+| `QuestItems` | league quest items (`TriggeredQuestFlag`, `Script` …) | 53 rows, none of the campaign's: the campaign's quest items name their flags in their `.it` Quest component (§5) |
+| `BaseItemTypes` | the items | rows 1531–1533: the glyphs |
+| `Chests` | chest types: `Id`, `Name`, `AOFiles`, `BaseItemTypesKey` | rows 183–185: the Rhoa Nests |
 
 A quest's progress is the set of its flags; the quest log shows the first `QuestStates` row (by `Order`) whose
 `FlagsPresent` are all set and whose `FlagsMissing` are all clear.
@@ -199,16 +199,13 @@ each object once, where the client has it.
 - **The quest log** (`QuestStates`): the first `QuestStates` row by Order whose flags match, Order 0 "Quest Complete";
   `CharacterStartQuestState` presets (`Act1Complete` …) with their quests and flags.
 
-**The oracle** (`QuestSimulator`, `QuestEngineTests`): an act's events (enter, see, kill, near, open a chest, pick
+**The oracle** (`QuestSimulator`): an act's events (enter, see, kill, near, open a chest, pick
 up, talk, reward, use an item) played through the same tables, NPCTalk rows, item flags, static rewards, the Gateway's
-exits and the client's WorldAreas gates; a step the game would refuse throws. After Act 1 the flags contain
-`Act1Complete`'s and a1q1–a1q8 are complete; after Act 2 (all three bandits killed) `Act2CompleteEramir`'s, after
-Act 3 `Act3Complete`'s, after Act 4 `Act4Complete`'s, each act's quests complete (Acts 5 and 6 have no preset of their
-own: every quest of theirs reaches its "complete" row); after Act 6 Acts 7 and 8 reach `E3EndOfAct8`'s act 7–8
-flags, Acts 9 and 10 `EpilogueAtlasDemo`'s act 7–10 flags, every
-quest of acts 7–10 and the Epilogue completes with the campaign's 24 quest passive and 20 refund points, and Kitava's
-Act 10 penalty counts only once his end earns `EndGameAvailable` (`QuestSimulator.Unearned`, as
-`ClientState.UnearnedQuestFlags`); later acts add their sequence and preset.
+exits and the client's WorldAreas gates; a step the game would refuse throws. The presets an act should reach are `Act1Complete`, `Act2CompleteEramir`
+(all three bandits killed), `Act3Complete`, `Act4Complete`, every Act 5 and 6 quest's "complete" row, `E3EndOfAct8`'s
+act 7–8 flags and `EpilogueAtlasDemo`'s act 7–10 flags. Kitava's Act 10 penalty counts only once his end earns
+`EndGameAvailable` (`QuestSimulator.Unearned`, as `ClientState.UnearnedQuestFlags`). No test plays the sequences since
+the Gateway tests were wiped.
 Played live on 2026-10-30 with the real client (OfflineWitch in a copied save, seed 1 instances, the bridge, `/tp`, and a
 temporary kill command): a1q8, a1q7, a1q2, a1q9's part, a1q6 and a1q3 into Act 2, and
 a1q5 and a1q4 again on the engine; afterwards the save had every `Act1Complete` flag, 2 quest passive points and 2
@@ -221,7 +218,7 @@ The checklist (data to read, the act file, the oracle, the docs) is [campaign qu
 ("Adding a quest", "Adding an act"). In short: read the quest's rows, add its `Quest` to its act's table
 (`Modules/Core/World/QuestObjects/Acts/Act<n>.cs`) with one rule per event the server must see and per world change,
 code only what the data cannot say (a1q4's Glyph Wall: `GlyphQuest`, with an oracle handler in
-`QuestSimulator.ObjectHandlers`), and extend the act's oracle sequence in `QuestEngineTests`.
+`QuestSimulator.ObjectHandlers`), and play the act's sequence through the oracle.
 
 ## 6. a1q1 "Enemy at the Gate": The Twilight Strand
 

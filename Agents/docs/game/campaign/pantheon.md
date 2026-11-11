@@ -4,7 +4,7 @@ How the Pantheon works in the 3.29 client and what the server must do for the ca
 how the player chooses a major and a minor god, how the choice is shown, and what each god grants. Part of the
 [campaign quest reference](../campaign-quests.md).
 
-Sources: `data/tables` (PantheonPanelLayout, PantheonSouls, NPCTalk, QuestFlags, ClientStrings, Stats), RePoE 3.29.3.3
+Sources: the client tables (PantheonPanelLayout, PantheonSouls, NPCTalk, QuestFlags, ClientStrings, Stats), RePoE 3.29.3.3
 stat translations, the wiki (Fandom mirror, Pantheon page, 2026-10-30), and the client (`Client/Game.exe`,
 `scripts/re/xr.py`, `dis.py`, the C→S list in [c2s.md](../../protocol/c2s.md)). Played live once, before the game moved
 into modules (§7); the panel's display of the choice is not checked yet.

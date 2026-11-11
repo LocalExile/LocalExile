@@ -27,7 +27,8 @@ that fails names itself and the error.
 ## Protected files
 
 `.github/CODEOWNERS` lists what only the maintainer can approve: agent instructions and guides, repository controls,
-scripts and tools, build files, the launcher, the patch server, mod loading and legal files.
+build files and dependencies, the launcher, the patch server, mod loading, the SQL schema and the `auth` and
+`characters` updates, and legal files.
 Gateway and module code is not on the list and still runs on the machine of whoever launches it, so review it as code.
 
 ## Merging lists

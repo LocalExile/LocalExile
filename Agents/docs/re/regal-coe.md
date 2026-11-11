@@ -60,14 +60,7 @@ already `Unmodifiable`.
 `unmodifiable` flag and happily upgrades a magic Sanctuary Map.
 LocalExile keeps the refusal, matching the local client flag and the Transmutation/Augmentation policy.
 
-## Automated coverage
-
-`RegalTests` checks the 12/6983 rare pool, the 11/6483 full-item pool, the 20,000-draw rare-pool distribution, the rare
-name, preserved implicits/quality/sockets/links/charges, flask and unmodifiable refusal, unsupported/no-Mods/unknown
-bases, corrupted/mirrored and non-magic items.
-`RegalGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, exactly one orb spent, a full magic item becoming rare with three affixes, saved mods and
-name after cache eviction, refused second use, and flask/unmodifiable refusal without spending.
+## Verification
 
 No fresh real-client run was made for this change yet.
 The old live check of the unvalidated path (2026-10-21) is not evidence for the new admission rules; native

@@ -99,45 +99,34 @@ public sealed class MapRunCatalog
     public static MapRunCatalog Load(string folder)
     {
         var fragments = new Dictionary<int, Fragment>();
-        string fragPath = Path.Combine(folder, "tables", "MapFragmentMods.json");
-        if (ClientTables.Exists(fragPath))
+        if (ClientTables.Has("MapFragmentMods"))
         {
-            using var doc = GameTables.Open(fragPath);
-            foreach (var row in doc.RootElement.EnumerateArray())
+            foreach (var row in ClientTables.Table("MapFragmentMods"))
             {
-                if (row.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } baseKey) continue;
-                int[] mods = row.TryGetProperty("ModsKeys", out var keys) && keys.ValueKind == JsonValueKind.Array
-                    ? [.. keys.EnumerateArray().Where(k => k.ValueKind == JsonValueKind.Number).Select(k => k.GetInt32())]
-                    : [];
-                fragments[baseKey.GetInt32()] = new(
-                    row.TryGetProperty("MapFragmentFamilies", out var fam) && fam.ValueKind == JsonValueKind.Number ? fam.GetInt32() : -1,
-                    row.TryGetProperty("MapFragmentLimit", out var lim) && lim.ValueKind == JsonValueKind.Number ? Math.Max(1, lim.GetInt32()) : 1,
-                    row.TryGetProperty("MinAreaLevel", out var min) && min.ValueKind == JsonValueKind.Number ? min.GetInt32() : 1,
+                if (row.IntOrNull("BaseItemTypesKey") is not int baseKey) continue;
+                int[] mods = [.. row.Ints("ModsKeys")];
+                fragments[baseKey] = new(
+                    (row.IntOrNull("MapFragmentFamilies") ?? -1),
+                    row.IntOrNull("MapFragmentLimit") is int lim ? Math.Max(1, lim) : 1,
+                    (row.IntOrNull("MinAreaLevel") ?? 1),
                     mods);
             }
         }
 
         var recipes = new List<Recipe>();
-        string recPath = Path.Combine(folder, "tables", "MapDeviceRecipes.json");
-        if (ClientTables.Exists(recPath))
+        if (ClientTables.Has("MapDeviceRecipes"))
         {
-            using var doc = GameTables.Open(recPath);
-            foreach (var row in doc.RootElement.EnumerateArray())
+            foreach (var row in ClientTables.Table("MapDeviceRecipes"))
             {
-                int area = row.TryGetProperty("WorldArea", out var wa) && wa.ValueKind == JsonValueKind.Number ? wa.GetInt32() : 0;
+                int area = (row.IntOrNull("WorldArea") ?? 0);
                 if (area <= 0) continue;
-                int[] items = row.TryGetProperty("RecipeItems", out var list) && list.ValueKind == JsonValueKind.Array
-                    ? [.. list.EnumerateArray().Where(k => k.ValueKind == JsonValueKind.Number).Select(k => k.GetInt32())]
-                    : [];
+                int[] items = [.. row.Ints("RecipeItems")];
                 if (items.Length == 0) continue;
                 // __col9: one item from the list (Maven invitations). Else the full multiset (Atziri, Shaper, 4× uber).
-                bool anyOne = row.TryGetProperty("__col9", out var one) && one.ValueKind is JsonValueKind.True or JsonValueKind.False
-                    && one.GetBoolean();
-                int[] recipeMods = row.TryGetProperty("Mods", out var recMods) && recMods.ValueKind == JsonValueKind.Array
-                    ? [.. recMods.EnumerateArray().Where(k => k.ValueKind == JsonValueKind.Number).Select(k => k.GetInt32())]
-                    : [];
-                recipes.Add(new(row.GetProperty("Id").GetString() ?? "", items, anyOne,
-                    area, row.TryGetProperty("AreaLevel", out var lv) && lv.ValueKind == JsonValueKind.Number ? lv.GetInt32() : 0,
+                bool anyOne = row.BoolOrNull("__col9") == true;
+                int[] recipeMods = [.. row.Ints("Mods")];
+                recipes.Add(new(row.Text("Id") ?? "", items, anyOne,
+                    area, (row.IntOrNull("AreaLevel") ?? 0),
                     recipeMods));
             }
         }
@@ -147,19 +136,15 @@ public sealed class MapRunCatalog
     static Dictionary<int, (int Scale, IReadOnlyList<string> Stats)> LoadQualityTypes(string folder)
     {
         var types = new Dictionary<int, (int, IReadOnlyList<string>)>();
-        string statsPath = Path.Combine(folder, "tables", "Stats.json"), altPath = Path.Combine(folder, "tables", "AlternateQualityTypes.json");
-        if (!ClientTables.Exists(statsPath) || !ClientTables.Exists(altPath)) return types;
-        using var statsDoc = GameTables.Open(statsPath);
-        var stats = statsDoc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "").ToList();
-        using var alt = GameTables.Open(altPath);
+        if (!ClientTables.Has("Stats") || !ClientTables.Has("AlternateQualityTypes")) return types;
+        var stats = ClientTables.Table("Stats").Select(r => r.Text("Id") ?? "").ToList();
+        var alt = ClientTables.Table("AlternateQualityTypes");
         int row = 0;
-        foreach (var r in alt.RootElement.EnumerateArray())
+        foreach (var r in alt)
         {
-            int scale = r.TryGetProperty("__col5", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetInt32() : 100;
-            string[] ids = r.TryGetProperty("MapStats", out var list) && list.ValueKind == JsonValueKind.Array
-                ? [.. list.EnumerateArray().Where(k => k.ValueKind == JsonValueKind.Number).Select(k => k.GetInt32())
-                    .Where(i => i >= 0 && i < stats.Count).Select(i => stats[i]).Where(id => id.Length > 0)]
-                : [];
+            int scale = (r.IntOrNull("__col5") ?? 100);
+            string[] ids = [.. r.Ints("MapStats")
+                    .Where(i => i >= 0 && i < stats.Count).Select(i => stats[i]).Where(id => id.Length > 0)];
             if (ids.Length > 0) types[row] = (scale, ids);
             row++;
         }

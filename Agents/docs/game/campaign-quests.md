@@ -13,7 +13,7 @@ is where the pieces live and the checklists for adding a quest and an act.
 | Rule types, `On.*`, the queries, the registry | Gateway `src/GameServer.Gateway/Quest/Quests.cs` | `Quests.Rule` records, `Quests.Quest` (a table), `Quests.Act` (one act), `Quests.Register`, `Quests.OnMonsterKilled`, `FlagToEnter` … |
 | Quest items, static rewards, the quest log | Gateway `Quest/QuestItems.cs`, `QuestStaticRewards.cs`, `QuestStates.cs`, `Item/ItemCatalog.cs` (`BaseType.Quest`) | the `.it` Quest component's grant, extra, remove and use flags; QuestStaticRewards' points and stats; QuestStates, CharacterStartQuestState presets, SessionQuestFlags |
 | Quest objects and their placements | Gateway `Quest/QuestObjectTypes.cs`, Core `Protocol/Instance/QuestObject.cs` | a type's components from `data/object-types.json` (and Chests.dat rows), the generic blob, where an area places a type |
-| The oracle | Gateway `Quest/QuestSimulator.cs`, `tests/GameServer.Gateway.Tests/QuestEngineTests.cs` | an act's events through the same tables and data; a step the game would refuse throws |
+| The oracle | Gateway `Quest/QuestSimulator.cs` | an act's events through the same tables and data; a step the game would refuse throws |
 | Per-connection state | Gateway `Connection/ClientState.cs` (`QuestChests`, `QuestObjects`, `QuestNear`, `QuestNpcs` …), `Quest/QuestNpc.cs`, `Saves/CharacterSaves.cs` (`QuestRefundsCredited`), `Saves/InstanceStore.cs` (instance states) | kept across a module reload |
 | The engine's hooks | Game module `Modules/Core/Game/World/Quest/` (`QuestEngine.cs`, `QuestNpcs.cs`, `NpcScripts.cs`), `World/Quests.cs` (flag commits, shown exits) | area entry, kills, chests, quest objects, NPCs, dialogue scripts, sights, thresholds, quest items, static rewards |
 | The acts' tables | QuestObjects module `Modules/Core/World/QuestObjects/Acts/Act<n>.cs` | one class per act deriving `Quests.Act`, with the act's Id constants |
@@ -94,10 +94,10 @@ sealed class Act1 : Act
    manifest bump in `scripts/dev/extract-data.ps1` and `GameDataFiles.cs`).
 3. **Code only what the data cannot say**, in the QuestObjects module next to the act, called from the module's hooks;
    give the oracle a handler for a code-driven object (`QuestSimulator.ObjectHandlers`, as a1q4's Glyph Wall).
-4. **The oracle.** Add the quest's events to its act's sequence in `QuestEngineTests` (the act's preset must hold
-   afterwards and every quest reach its "complete" row); the data check (every rule names real flags, monsters, items,
-   NPCs and creatable objects) runs over every registered act by itself. A PR adds at most two tests: an act extends
-   the existing ones (its sequence after `Act1`, its preset beside `Act1Complete`) rather than adding a test per quest.
+4. **The oracle.** `QuestSimulator` plays an act's events through the same tables and data, and throws on a step the
+   game would refuse; a Gateway test that plays the act's sequence (the act's preset must hold afterwards and every
+   quest reach its "complete" row) is the check. A PR adds at most two tests (AGENTS.md): one sequence per act, not a
+   test per quest.
 5. **Docs.** The quest's section in [12](../protocol/12-quests.md) (or the act's page in `campaign/act<n>.md`), its
    entry moved from [roadmap/quests.md](../../roadmap/quests.md) to [status/quests.md](../../status/quests.md) once it is
    played with the real client.
@@ -110,8 +110,8 @@ sealed class Act1 : Act
    `DiallaTownWithered`, Oriath Docks' `InnocenceTown`) go in the town's list in `NPC/TownNpcs.cs`, in the same change as
    their `On.Npc` rules: a town NPC no rule manages always stands, so without the rules both stages would.
 3. Code-driven pieces in the QuestObjects module; their oracle handlers.
-4. `QuestEngineTests`: the act's sequence (`internal static void Act<n>(QuestSimulator s)`) played after the earlier
-   acts, its CharacterStartQuestState preset checked as Act 1's.
+4. The act's sequence played through `QuestSimulator` after the earlier acts, its CharacterStartQuestState preset
+   checked (step 4 above).
 5. `dotnet build GameServer.slnx` and the Core, Data and Gateway tests; the docs as above.
 6. Play it with the real client.
 

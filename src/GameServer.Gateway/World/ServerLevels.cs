@@ -316,11 +316,10 @@ public static class ServerLevels
         var levels = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllText(Path.Combine("data", "tables", "WorldAreas.json")));
-            foreach (var row in doc.RootElement.EnumerateArray())
-                levels[row.GetProperty("Id").GetString() ?? ""] = row.GetProperty("AreaLevel").GetInt32();
+            foreach (var row in ClientTables.Table("WorldAreas"))
+                levels[row.Text("Id") ?? ""] = row.Int("AreaLevel");
         }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException) { }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or KeyNotFoundException) { }
         return levels;
     });
 

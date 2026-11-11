@@ -8,6 +8,7 @@ using GameServer.Data.Terrain.Generation;
 using GgDump;
 using LevelGenTool;
 using static LevelGenTool.Shared;
+using GameServer.Core;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -243,11 +244,11 @@ static void TourList(string outFile, int randomSeeds, bool supportedOnly)
         ? File.ReadLines(failures).Select(l => l.Split(' ')).Where(f => f.Length > 2).Select(f => $"{f[1]} {f[2].TrimEnd(':')}").ToHashSet()
         : [];
     // Towns and hideouts always get seed 1 (InstanceRegistry, Auth's SeedFor), so a tour stop at another seed never arrives.
-    string worldAreas = Path.Combine(root, "data", "tables", "WorldAreas.json");
-    var towns = File.Exists(worldAreas)
-        ? JsonDocument.Parse(File.ReadAllBytes(worldAreas)).RootElement.EnumerateArray()
-            .Where(r => r.GetProperty("IsTown").GetBoolean() || r.TryGetProperty("IsHideout", out var h) && h.ValueKind == JsonValueKind.True)
-            .Select(r => r.GetProperty("Id").GetString()!).ToHashSet()
+    string clientDb = Path.Combine(root, "data", "client.db");
+    var towns = File.Exists(clientDb)
+        ? ClientTable.Load(clientDb, "WorldAreas")
+            .Where(r => r.Bool("IsTown") || r.BoolOrNull("IsHideout") == true)
+            .Select(r => r.Text("Id")!).ToHashSet()
         : ["1_1_town"];
     var supported = supportedOnly
         ? GameServer.Core.World.ServerLevelAreas.Load(Path.Combine(root, GameServer.Core.World.ServerLevelAreas.BaselineFile))
@@ -395,9 +396,8 @@ static void QuestObjectsList(string filter, uint seed, bool rooms = false)
     var files = Files();
     string root = Root();
     var levels = new Dictionary<string, int>(StringComparer.Ordinal);
-    using (var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json"))))
-        foreach (var row in doc.RootElement.EnumerateArray())
-            if (row.GetProperty("Id").GetString() is { } id) levels.TryAdd(id, row.GetProperty("AreaLevel").GetInt32());
+    foreach (var row in ClientTable.Load(Path.Combine(root, "data", "client.db"), "WorldAreas"))
+        if (row.Text("Id") is { } id) levels.TryAdd(id, row.Int("AreaLevel"));
     static bool Plain(string type) => type.Length == 0 || type == "Metadata/MiscellaneousObjects/Doodad"
         || type.StartsWith("Metadata/MiscellaneousObjects/Environment/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Effects/", StringComparison.Ordinal)

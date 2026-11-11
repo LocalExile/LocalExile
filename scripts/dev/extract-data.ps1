@@ -2,8 +2,9 @@
 # every entry of the manifest below whose output is missing or whose stamp in data/extract-stamps.json differs from the
 # manifest's version, and skips the rest. Read-only on the GGPK (it works while the client runs); never touches the
 # client or the patch servers.
-# The servers read the client tables and the generated files from client.db, built from sql/ (databases.md): of this
-# manifest they need only the entries marked Servers, which live.ps1 and a release extract (-Servers). The full
+# The servers read the client tables and the generated ones (these generators' output as tables) from client.db, built
+# from sql/ (databases.md): of this manifest they need only the entries marked Servers, which live.ps1 and a release
+# extract (-Servers). The full
 # manifest is the maintainer's input to scripts/dev/client-sql.ps1 diff after a client patch or a generator change.
 #   -Servers       only the entries the servers read (Servers = $true) and those they need
 #   -Force         run every entry

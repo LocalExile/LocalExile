@@ -151,8 +151,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GrantedSkill`, `SkillCatalog.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §10a.
 - Local combat package: stationary default melee attacks no longer take the 150 ms walk-in offset.
-  Native evidence in this entry belongs to LocalExile; the standalone destination port has automated validation
-  and still needs a native rerun, as recorded in the [port record](../docs/dev/ranged-monster-actions-port.md).
+  Native evidence in this entry belongs to LocalExile; the port still needs a native rerun.
   An in-range unarmed attack had no approach and its authoritative hit arrived 312 ms after the action echo
   (757 ms attack, attack1 contact baseline); positive walk-ins retain compensation.
   Ordinary ground/object wand attacks create native WandProjectile bolts, apply damage at the first actual collision,
@@ -167,8 +166,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The faster monster planner issued its first chase after 38 to 50 ms in native controls, without duplicate orders.
   Turn tracking, full 2.4 s Drowned attack pacing and actual Escape-menu pause/resume were also verified.
   Full off-hand timing/damage and nonzero intrinsic attack repeats are not implemented.
-  Code: `Program.Combat.cs`, `Program.RangedAttacks.cs`, `AnimationContacts.cs`, `AnimationVariantSelector.cs`,
-  `Program.Monsters.cs`, `HitReaction.cs`.
+  Code: `Modules/Core/Game/Combat/Combat.cs`, `Modules/Core/Game/Projectile/RangedAttacks.cs`, `AnimationContacts.cs`, `AnimationVariantSelector.cs`,
+  `Modules/Core/Game/Monster/Monsters.cs`, `HitReaction.cs`.
   Evidence: `artifacts/combat-validation/`, `artifacts/wand-ai-validation/wand-native-summary.json`
   and `wand-after-object.json`; docs: [11](../docs/protocol/11-skills.md).
 - Impale: ordinary melee/bow and supported projectile/area hits store the actual pre-mitigation physical roll,
@@ -178,7 +177,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   local/attack/spell scope, real Impale Support and all three selected chance aliases have automated coverage.
   Historical 2026-10-20 native observations used the old maximum-roll implementation; current native checks,
   conditional sources and advanced application/consumption rules remain open.
-  Code: `Impale.cs`, `ImpaleStats.cs`, `Program.Impale.cs`, `Program.Combat.cs`, `OrdinaryRangedShot.cs`.
+  Code: `Impale.cs`, `ImpaleStats.cs`, `Modules/Core/Game/Combat/Resources/Impale.cs`, `Modules/Core/Game/Combat/Combat.cs`, `OrdinaryRangedShot.cs`.
   Docs: [20](../docs/protocol/20-damage.md) §3a and [11](../docs/protocol/11-skills.md) §14.
 - Offence panel damage rows: the hit the server swings with becomes `main_hand_minimum/maximum_total_damage` and the
   per-type minimum/maximum rows, with `skill_uses_main_hand` so the client shows them;
@@ -359,7 +358,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Still apart: the start cell is the server's walk position, often a few cells from the client's, so the paths run
   parallel but offset, and a live check still saw a drawn spark hit with no damage now and then.
   GGG's server sends no object for ordinary bow arrows either, so the live client draws them itself (live capture
-  2026-10-29, [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
+  2026-10-29, [11-skills §17](../docs/protocol/11-skills.md#17-live-reference-ranged-attacks-on-gggs-servers)).
   Tornado Shot fires `Metadata/Projectiles/TornadoShotArrow` (`SkillCatalog.ProjectileFallbacks`; its row is not named
   after the effect, so every use was refused and the server walked on while the client stopped, 2026-10-29); it is the
   basic straight-flight arrow only: the secondary arrows from the target point are not modelled yet.
@@ -462,18 +461,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Converted charges (2026-10-29): under the three "gain … instead of" unique flags the held Endurance / Frenzy / Power
   charges are Brutal / Affliction / Absorption Charges: the special `current_*` and `minimum_*` rows and BuffDefinitions
   1757–1759 buffs, the standard effects off, Brutal's triple-damage chance and stun threshold per charge applied, and
-  Affliction's more ailment damage in the ailment panel rows (`ConvertedChargesGatewayTests`, `ChargeEffectsTests`,
-  `ChargeSessionTests`, `ChargeBuffsTests`; live 2026-10-29 with the flags set by `/set_stat`: the Brutal row, the
-  zeroed Endurance row and the swapped buff). Reap's Blood Charges (2026-10-29): a use whose hit
+  Affliction's more ailment damage in the ailment panel rows (live 2026-10-29 with the flags set by `/set_stat`: the
+  Brutal row, the zeroed Endurance row and the swapped buff). Reap's Blood Charges (2026-10-29): a use whose hit
   leaves an enemy alive gives one, a kill takes one, up to Character.ot's 5 plus the enchantment; the charges held are
   15% more damage per charge on the hits and the Offence rows and 20% more cost, with the Charges tab rows, the
   `show_blood_charge_info` gate and BuffDefinitions 1822; no duration (none in the tables), not carried across
-  areas (`BloodChargesTests`, `BloodChargesGatewayTests`; live 2026-10-29: rows, gain, loss and buff with a socketed
-  Reap). Spirit, Siphoning, Blitz and Challenger
+  areas (live 2026-10-29: rows, gain, loss and buff with a socketed Reap). Spirit, Siphoning, Blitz and Challenger
   have no reachable player source here (abyss-jewel / Elder-Shaper counting, none in 3.29), the Affliction
   non-damaging effect and Absorption recoup have no consumer.
   Code: `Charges.cs`, `ChargeGains.cs`, `ChargeEffects.cs`, `ChargeSession.cs`, `ChargeBuffs.cs`,
-  `Program.Charges.cs`, `ChargePanelStats.cs`, `BloodCharges.cs`, `Program.BloodCharges.cs`.
+  `Modules/Core/Game/Combat/Resources/Charges.cs`, `ChargePanelStats.cs`, `BloodCharges.cs`, `Modules/Core/Game/Combat/Resources/BloodCharges.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §15.
 - Discharge and Discharge of Misery: per removable charge, lightning (Power), fire (Endurance) and cold (Frenzy)
   base damage and the gem's more area per charge; a use spends the charges above the minimum once, shared by its
@@ -491,7 +488,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   (`total_*_recovery_per_minute_from_regeneration`).
   Evidence scope for the imported issue #75 entries: earlier test counts and Standard/Ruthless native matrices
   describe the source LocalExile revisions, not a fresh native run of this branch. Private game-mode mechanics
-  are excluded; current automated results and remaining checks are in the [port record](../docs/dev/issue75-port.md).
+  are excluded.
   Six native Character.ot defaults now enter the original sources once: Brand limit 3, Brutal triple-damage/stun
   coefficients 3/10, Affliction damage/non-damaging coefficients 8/8 and Absorption recoup coefficient 12.
   Real Brand item +1 and Brand Equity +2 give actor 6; compatible linked Foulgrasp gives selected 8.
@@ -579,15 +576,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   gem attacks, whose per-use / DPS / attacks-per-second rows average both hands (`DualWieldPanel`); the spell
   effective / twice-critical chance (luck, then Assassin bifurcation); secondary-damage rows for
   flagged spells and for Bear Trap / Herald of Ice from their own secondary base damage (generic buckets only,
-  `Program.SecondaryPanel.cs`); `skill_show_average_damage_instead_of_dps`; the 32 Bleeding / Ignite / Poison damage per second rows
+  `Modules/Core/Game/Player/SecondaryPanel.cs`); `skill_show_average_damage_instead_of_dps`; the 32 Bleeding / Ignite / Poison damage per second rows
   per hand, spell and secondary context (`AilmentPanelStats`, from the hit's raw packet and conversion with the
   ailment buckets and DoT multipliers); stun-by-kind flags, brand per-target limit, Spirit maximum and the Siphoning
   damage-taken coefficient. 60 new automated cases pass with real sword/dagger, Cyclone and Fireball fixtures; the
   owner's live run of 2026-10-29 (base `7fd944be`) passed the batch's test plan (off hand and clearing, ailment rows,
   effective critical, secondary blocks, Defence estimates under `/set_stat`). Actual ailment application and
-  Elder/Shaper and abyss-jewel item counting (Spirit, Siphoning; deferred behind #60) remain open
-  ([review](../docs/dev/issue75-review.md#offence-defence-misc-and-charges-row-batch)).
-  Code: `PanelStats.cs`, `PanelStatDefaults.cs`, `AilmentPanelStats.cs`, `Program.OffHandPanel.cs`, `DualWieldPanel.cs`,
+  Elder/Shaper and abyss-jewel item counting (Spirit, Siphoning; deferred behind #60) remain open.
+  Code: `PanelStats.cs`, `PanelStatDefaults.cs`, `AilmentPanelStats.cs`, `Modules/Core/Game/Player/OffHandPanel.cs`, `DualWieldPanel.cs`,
   Gateway (`CharacterPlayerStats`, `HandLocalStats`, `GemSkills`).
   Docs: [11](../docs/protocol/11-skills.md) §14.
 - Character-panel leech limits: full maximum pools supply separate per-instance amounts and total recovery caps.
@@ -621,7 +617,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   maximum-rate doubling flag. Source/removal, duplicate flags, caps, duration, instant and conversion controls pass;
   current Vaal Pact acquisition and native stacking/recovery parity are not implied by raw-flag support.
   Attack gain on hit recovers Life, Mana and ES; not checked live ([20](../docs/protocol/20-damage.md) §5b).
-  Code: `LeechLimits.cs`, `LeechSources.cs`, `LeechRecoveryState.cs`, `LeechSession.cs`, Gateway (`Program.Leech`, resource writer).
+  Code: `LeechLimits.cs`, `LeechSources.cs`, `LeechRecoveryState.cs`, `LeechSession.cs`, Gateway (`Game.Leech`, resource writer).
   Docs: [20](../docs/protocol/20-damage.md) §5b.
 - Ordinary Life/Mana regeneration: flat and maximum-pool percentage sources receive regeneration and recovery increases.
   The matching prohibitions stop recovery, and the panel/native prediction inputs share the actual resource writer.
@@ -831,7 +827,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   formatter evidence remains partial. Unlink/relink uses host removal and re-equipping, not in-place mutation.
   Relog restores the baseline and exact item contents; original copied saves and stashes remain unchanged.
   Official critical-weighted DPS, damage over time and special skill mechanics remain separate.
-  Code: Gateway (`PlayerSkills`), `SpellPanelStats.cs`; tests: `SupportedSpellPanelTests.cs`.
+  Code: Gateway (`PlayerSkills`), `SpellPanelStats.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §9.
 
 - Ordinary percentage attributes: typed and all-attribute increases act once on the complete class/passive/active-item
@@ -1017,7 +1013,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Each exploding corpse shows a generic gore burst; the native art is not traced.
   Global flat added damage and flat crit chance (the wiki's Explode page applies both), on-hit effects and the
   client's 0.22 s wave delay are not modelled.
-  Code: `Warcries.cs`, `UseChargeSkillCore`, `SingleUseCooldown.cs`.
+  Code: `Warcries.cs`, `UseWarcry`, `SingleUseCooldown.cs`.
   Docs: [11](../docs/protocol/11-skills.md) section 10i.
 - Strike targeting: a melee Strike's spirit strikes (`melee_attack_number_of_spirit_strikes`) hit the monsters the
   client picks, mirrored from its scan and its seeded shuffle, for gem Strikes and the default attack.
@@ -1307,8 +1303,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Code: `UtilityFlasks.cs`, `OnslaughtOnKill.cs`.
 - **Stats.** The client's stat key is the Stats.dat row + 1 with the vendored schema
   ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes stat names or keys.
-  The [357-stat ledger](../docs/dev/issue75-stat-ledger.md) tracks current individual review state and remaining
-  scope. The inventory validates exact membership; these states do not count completed implementations.
+  The 357 virtual stats behind the panel still need individual tracing ([11](../docs/protocol/11-skills.md) §14).
   The player's life, mana, accuracy, armour and evasion come from its class and level, with the attributes' bonuses
   (energy shield, evasion and melee physical damage increases);
   accuracy also takes its flat/increased passives, weapon-specific stats and Accuracy Mastery (rating for the panel,
@@ -1484,11 +1479,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Release captures position and offense; target movement, evasion, defenses and impales resolve on contact.
   Issue #75 accuracy entropy/critical confirmation, one critical roll per use, raw penetration, actual-roll impales and
   direct-hit leech run in this same engine. Resource recovery catches up projectiles before consuming leech; corpses
-  retain the ordinary lifetime. Combined automated regressions cover Ward/slot defences, mana conversion and contact
-  recovery. Details and test receipts: [merge review](../docs/dev/issue75-review.md#upstream-merge-resolution).
+  retain the ordinary lifetime.
   The later main merge composes Gambler, Vaal credit, incoming ailments and league modes with these stat consumers.
-  Combined regressions cover direct-only leech and once-only soul credit under held output, plus mode-aware defences.
-  Its [validation report](../docs/dev/issue75-review.md#main-merge-league-modes-gambler-and-vaal-souls) records the decisions.
   Native revalidation of that combined build remains pending; the wider 357-stat goal stays paused.
   Pause freezes the game horizon, transfer/retirement invalidates epochs, and released shots survive later actions.
   Ordinary bows and wands share one release path on that runtime: the shot is scheduled at the accepted input's weapon
@@ -1526,7 +1518,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   away, so toward the player, 9 steps up: `projectile_uses_contact_position`; `data/monster-contacts.json`,
   `scripts/re/monster_contacts.py`), lobbed at the player's cell but no closer than the skill's
   `projectile_minimum_range` (4.6 cells), team 2, and its landing splash (`Game_MONSTER_MORTAR_RADIUS`, default 10
-  cells) runs the monster contact pipeline (`HostileProjectileOffense`, `Program.ProjectileHostile.cs`). Not checked
+  cells) runs the monster contact pipeline (`HostileProjectileOffense`, `Modules/Core/Game/Projectile/ProjectileHostile.cs`). Not checked
   live yet: that the client seeds a monster's clip choice from the sequence, and the dead zone. Another monster's
   projectile object plays its rig's flight clip from spawn and its impact clip where it lands
   (`data/projectile-clips.json`: every Projectiles row's clip indexes and lengths,
@@ -1545,8 +1537,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   missing captures use the bare offset.
   Creation, glide and stop retain the same height; independent effects still follow client terrain.
   Platforms/doodads still need a surface model (#182). Integer walk estimates and shared radius remain approximations.
-  Code: Core `Projectiles/`, Gateway `Projectiles/` (`Program.ProjectileRanged.cs`), `Program.RangedAttacks.cs`,
-  `OrdinaryRangedAttack.cs`, `OrdinaryRangedShot.cs`, `Program.Combat.cs` and `ClientState.cs`.
+  Code: Core `Projectiles/`, Gateway `Projectiles/` (`Modules/Core/Game/Projectile/ProjectileRanged.cs`), `Modules/Core/Game/Projectile/RangedAttacks.cs`,
+  `OrdinaryRangedAttack.cs`, `OrdinaryRangedShot.cs`, `Modules/Core/Game/Combat/Combat.cs` and `ClientState.cs`.
   Docs: [framework](../docs/game/projectile-framework.md), [11](../docs/protocol/11-skills.md) section 10.
 - **Combat.** The player's default attack kills monsters with server-side damage (no monster armour yet; each damage
   type of a hit takes the monster's own base resistance with the hit's penetration subtracted from the capped value,

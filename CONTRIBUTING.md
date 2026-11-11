@@ -23,7 +23,7 @@ robocopy "<your PoE 3.29.3c folder>" Client /E; Copy-Item Client\PathOfExile.exe
 dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493
-# needs Node.js (+ npm install in Tools/ooz) and Python 3.9+: live.ps1 extracts the game data first (scripts/dev/extract-data.ps1)
+# needs Node.js (+ npm install in Tools/ooz): live.ps1 extracts the game data it needs first (scripts/dev/extract-data.ps1 -Servers)
 # create an account + character: GameServer.Host and GameServer.DevClient (Agents/GettingStarted.md, step 8)
 .\scripts\dev\live.ps1 -Walkmaps   # -Walkmaps is optional: needs `pip install frida`, captures walk maps
 ```

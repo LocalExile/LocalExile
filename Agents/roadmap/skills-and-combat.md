@@ -54,9 +54,9 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
 
 ### The player's real stats
 
-Track the exact issue #75 target in the [357-stat ledger](../docs/dev/issue75-stat-ledger.md). Partial audit
-records retain their unresolved scope; pending records need individual tracing. No current-branch completion
-certificate follows from a historical native run or a matching source name. The inventory rejects membership drift.
+The issue #75 target is the 357 virtual stats behind the character panel ([11-skills §14](../docs/protocol/11-skills.md)).
+Each needs its sources, consumers and lifecycle traced; no completion follows from a historical native run or a
+matching source name.
 
 Ordinary melee/bow now share defender evasion entropy and independent critical confirmation, with target
 evasion modifiers/Blind, target Masteries, qualified raw cannot-evade flags and evaded-arrow continuation.
@@ -77,12 +77,11 @@ include real supports and local weapon inputs. Remaining work includes condition
 extra applications and consumption overrides, strongest/Impaler mechanics, native count/visual publication,
 corpse consumers, critical-only spell chance presentation and official duration tick rounding. Validate source,
 support, weapon, pause, transition and relog behavior in the current native client when other agents release
-the shared testing resources. See [damage §3a](../docs/protocol/20-damage.md) and the
-[review report](../docs/dev/issue75-review.md); automated coverage does not close these rows.
+the shared testing resources. See [damage §3a](../docs/protocol/20-damage.md).
 
 Issue #75 validation counts and Standard/Ruthless native matrices below describe the source LocalExile revisions.
-This branch ports their completed ordinary-mode calculations; fresh build/test results, scope exclusions and
-remaining native checks are recorded in [the port record](../docs/dev/issue75-port.md).
+This branch ports their completed ordinary-mode calculations, without the private game-mode mechanics; the native
+checks have not been repeated on it.
 
 - **Known:** client stat key = Stats.dat row + 1 ([11](../docs/protocol/11-skills.md) §8); `/set_stat` takes names.
   The server must send final values (the client derives none): the attack's are computed in
@@ -539,7 +538,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Spitter's attack2 would spit 75 ms earlier and 1.3 cells farther back), the grid handedness of a keyframe's lateral
   offset (not applied), MonsterVarieties `MinimumAttackDistance` (6 for the Spitter) and the minimum-range dead zone,
   all to check live.
-- **Live reference** ([port record](../docs/dev/ranged-monster-actions-port.md) "Live reference", 2026-10-29/30): GGG's
+- **Live reference** ([11-skills §17](../docs/protocol/11-skills.md#17-live-reference-ranged-attacks-on-gggs-servers), 2026-10-29/30): GGG's
   server sends no object for a player's bow shot or a Sand Spitter's mortar, and the client draws both.
   A lockstep client draws its own bow shot and wand bolt from the count on its record
   ([status](../status/skills-and-combat.md)); probe whether a predictive client does too with that count (a

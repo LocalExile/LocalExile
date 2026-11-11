@@ -6,7 +6,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Works (verified with the real client)
 
 - Experience and levels: kills within 150 cells give DefaultMonsterStats experience × the variety's multiplier ×
-  rarity (the hidden rarity mods in Mods.json) × the level penalty (safe zone, level 95+ and the effective monster
+  rarity (the hidden rarity mods in the Mods table) × the level penalty (safe zone, level 95+ and the effective monster
   level above 70) × the party share (every living player within 150 cells, (level + 10)^2.71), with the gems' 10% taken
   before the penalty (S→C 0x2bc Player experience; the client derives the level);
   a new level sends its stats, full life and mana, the passive points and the account's level;
@@ -78,7 +78,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   An end-to-end client check (`scripts/dev/jewel_selftest.py`) covers insert/remove with no node taken, the small and
   notable stats of a large cluster, a medium cluster in a large one's socket, and a normal jewel with +80 life in a
   cluster socket.
-  Code: `Program.Items.cs` (`ClusterJewelSocketed`, `ClusterNodeBudget`, `CreateClusterJewel`, `CreateVoices`),
+  Code: `Modules/Core/Game/Item/Items.cs` (`ClusterJewelSocketed`, `ClusterNodeBudget`, `CreateClusterJewel`, `CreateVoices`),
   `ClusterJewelStats.cs`, Gateway (`ChangeClusterPassive`). Docs: [cluster-jewels](../docs/game/cluster-jewels.md).
 
 - Timeless jewels roll a faction seed and current conqueror in ordinary unique generation.
@@ -96,8 +96,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   rows missing from Path of Building's reference data.
   Keystone stat rows are applied, but the conqueror keystones' special gameplay mechanics (Divine Flesh, Chainbreaker and
   the rest) are still missing.
-  Code: `TimelessJewelCatalog.cs`, `TimelessJewelEngine.cs`, `PassiveTree` geometry/radius, `Program.Progression.cs`
-  (`EquipmentStatSources`), `Program.Items.cs` (`PassiveJewelRefusal`). Docs:
+  Code: `TimelessJewelCatalog.cs`, `TimelessJewelEngine.cs`, `PassiveTree` geometry/radius, `Modules/Core/Game/Passive/Progression.cs`
+  (`EquipmentStatSources`), `Modules/Core/Game/Item/Items.cs` (`PassiveJewelRefusal`). Docs:
   [timeless-jewels](../docs/game/timeless-jewels.md).
 
 - Radius unique jewels (pilot 2026-10-29): all **78 rows / 76 distinct names** with a `Radius:` line are classified in

@@ -54,14 +54,7 @@ target without spending.
 **Unmodifiable bases.** CoE's `is_modifiable` does not read the base `unmodifiable` flag and adds a mod to a rare
 Sanctuary Map. LocalExile refuses it, as with the other currency checks.
 
-## Automated coverage
-
-`ExaltedTests` checks the nine-mod 5150 pool, the one-affix addition and preserved name/mods, the full three-and-three
-refusal, the jewel 2+2 refusal and 2+1 suffix addition, preserved implicits/quality/sockets/links/charges,
-unmodifiable, rare-flask, unsupported/no-Mods/unknown/empty-pool bases, corrupted/mirrored and non-rare items.
-`ExaltedGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, two additions spending one orb each, saved mods and name after cache eviction, and
-refused full/flask/jewel/unmodifiable targets without spending.
+## Verification
 
 No fresh real-client run was made for this change yet.
 The old live check of the unvalidated path (2026-10-21) is not evidence for the new admission rules; native

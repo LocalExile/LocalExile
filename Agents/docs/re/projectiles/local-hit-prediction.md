@@ -168,7 +168,7 @@ Client table `+0x88 → 0x1421c2f40` first reads raw stat pairs and then **direc
 | 3 | u8 | `0x1421c301a` | component reset `+0x30` |
 
 It is nine bytes after the compact-count/pair prefix; with zero pairs the component requires ten bytes.
-This is the formerly unnamed trailer in [entity creation](../../protocol/04-player-entity.md#41-component-1-0x1421c2f40-stats-like-10-bytes-minimal).
+This is the formerly unnamed trailer in [entity creation](../../protocol/04-player-entity.md#41-component-1-0x1421c98b0-stats-like-10-bytes-minimal) (3.29.3c `0x1421c98b0`).
 There is no byte swap on these direct loads, and they do not become raw stat key/value entries.
 Creation data overwrites constructor defaults: reset zero continues the supplied accumulator/timer;
 reset nonzero defers initialization to the next reached trial and its current action sequence.
