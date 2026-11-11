@@ -438,7 +438,10 @@ static partial class Game
     internal sealed record SupportedHitInputs(GameServer.Core.World.DamagePacket Raw, Func<string, int> Get,
         GameServer.Core.World.DamageConversion Conversion, bool Attack, bool Melee, bool Area, bool Projectile,
         List<(string Name, int Value)> Modifiers, HashSet<int> Types, SkillHitPlan Plan, Dictionary<uint, int> Caster,
-        bool WieldingWand = false);
+        bool WieldingWand = false)
+    {
+        public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
+    }
 
     internal static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, SupportedGem? capturedGem = null)
@@ -475,7 +478,7 @@ static partial class Game
         return new(raw, Get, DamageStats.Conversion(stats, Stats, attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
             Projectile: attack ? types.Contains(2) : Get("base_is_projectile") != 0, modifiers, types, plan, caster,
-            WieldingWand: attack && (weapon ?? WeaponFor(conn)).WieldingWand);
+            WieldingWand: attack && (weapon ?? WeaponFor(conn)).WieldingWand) { FrozenStats = new Dictionary<uint, int>(stats) };
     }
 
     internal static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,

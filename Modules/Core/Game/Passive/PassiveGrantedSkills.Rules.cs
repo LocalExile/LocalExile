@@ -243,11 +243,13 @@ static partial class Game
             var types = Supports.Of(skill.Effect)?.Types.ToHashSet();
             long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint damageKey
                 ? (long)player.GetValueOrDefault(damageKey) + own.GetValueOrDefault(damageKey) : 0;
-            AreaSkillDamageProfile Profile(long increased)
+            AreaSkillDamageProfile Profile(long increased, int webs = 0)
             {
-                var hit = context.Hit(PlayerHitDamage.Resolve(raw, Merged, conversion, spell: true,
+                increased += SpiderDamageIncrease(Merged, webs);
+                var woven = SpiderRawDamage(raw, Merged, webs, AddedEffectiveness(conn, skill.Effect, skill.Level));
+                var hit = context.Hit(PlayerHitDamage.Resolve(woven, Merged, conversion, spell: true,
                     area: Merged("is_area_damage") != 0, skillTypes: types, additionalIncreased: increased));
-                var rows = AilmentPanelStats.Compute(new("spell", Spell: true), raw, conversion, Merged, increased);
+                var rows = AilmentPanelStats.Compute(new("spell", Spell: true), woven, conversion, Merged, increased);
                 var ignite = MonsterIgnites.Settings.From(rows, "spell", Merged);
                 var poison = MonsterPoisons.Settings.From(rows, "spell", Merged);
                 double fireFactor = context.OverTime(new(DamageType.Fire, 1, 1)).DamagePerSecond;
@@ -283,7 +285,9 @@ static partial class Game
                 if (!conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)
                     || !m.Hostile || m.Dead || m.Life == 0 || m.Invulnerable || m.Asleep
                     || conn.AsleepMonsters.Contains(id)) continue;
-                var profile = Blinded(conn, id) ? blindedProfile : normalProfile;
+                var profile = m.SpiderWebs.Count(ProjectileWorldTime(conn)) is > 0 and var webs
+                    ? Profile(Blinded(conn, id) ? additionalIncreased : 0, webs)
+                    : Blinded(conn, id) ? blindedProfile : normalProfile;
                 if (MonsterBlocks(m, Random.Shared, spell: true)) continue;
                 var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, Random.Shared);
                 bool critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);

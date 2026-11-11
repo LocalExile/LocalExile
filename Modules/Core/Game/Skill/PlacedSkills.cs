@@ -117,7 +117,9 @@ static partial class Game
                 additionalIncreased: increased, capturedInputs: inputs),
             SupportedPoison(conn, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs));
         var normal = Profile(0);
-        return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell);
+        return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell)
+            { Spider = CaptureSpiderDamage(conn, inputs, AddedEffectiveness(conn, gem.Effect, gem.Level), context: true,
+                local: inputs.Attack ? MainHandLocalSources(conn) : null) };
     }
 
     static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -303,6 +305,8 @@ static partial class Game
                 ? Blinded(conn, id) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
+            if (placed.Offense?.Spider is { } spider && m.SpiderWebs.Count(now) is > 0 and var webs)
+                profile = SpiderDamageProfile(spider, webs, Blinded(conn, id));
             var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesMitigated(m, mitigated, spell, now);

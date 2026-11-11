@@ -1,5 +1,6 @@
 using GameServer.Core.World;
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
@@ -86,6 +87,54 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(132, Game.MonsterTakesRolled(target, DamagePacket.Of(DamageType.Chaos, 100, 100), false, now: schedule.At));
             Assert.Equal(1.32, Game.MonsterDotTaken(target, DamageType.Chaos, schedule.At), 6);
             Assert.Equal(.9, Game.SpiderOutgoingFactor(target, schedule.At), 6);
+            var weaveStats = new Dictionary<uint, int>(Game.CharacterPlayerStats(conn));
+            int W(string n) => Program.Stats.Key(n) is uint key ? weaveStats.GetValueOrDefault(key) : 0;
+            const string perMin = "minimum_added_chaos_damage_per_spiders_web_on_enemy";
+            const string perMax = "maximum_added_chaos_damage_per_spiders_web_on_enemy";
+            const string three = "hit_and_ailment_damage_+%_vs_enemies_affected_by_at_least_3_spiders_webs";
+            Assert.InRange(W(perMin), 8, 10);
+            Assert.InRange(W(perMax), 13, 15);
+            Assert.InRange(W(three), 40, 60);
+            var wovenSource = new SpiderDamageSource(DamagePacket.Of(DamageType.Physical, 100, 100),
+                new DamageConversion().AddGain(DamageType.Physical, DamageType.Chaos, 50), weaveStats,
+                weaveStats, false, false, false, false, [], new HashSet<int> { 1 }, 1);
+            for (int webs = 0; webs <= 4; webs++)
+            {
+                var woven = Game.SpiderDamageProfile(wovenSource, webs, false);
+                double factor = 1 + (W("damage_+%") + (webs >= 3 ? W(three) : 0)) / 100d;
+                Assert.Equal((150 + W(perMin) * webs) * factor, woven.Hit.MinTotal, 6);
+                Assert.InRange(woven.Poison.Min, (150 + W(perMin) * webs) * factor * .3 - 1d / 60,
+                    (150 + W(perMin) * webs) * factor * .3 + 1d / 60);
+            }
+            weaveStats[Program.Stats.Key(PlayerHitDamage.VsBlindedDamageStat)!.Value] = 40;
+            var together = Game.SpiderDamageProfile(wovenSource, 3, true);
+            Assert.Equal((150 + W(perMin) * 3) * (1 + (W("damage_+%") + W(three) + 40) / 100d), together.Hit.MinTotal, 6);
+            var prohibitedStats = new Dictionary<uint, int>(weaveStats) { [Program.Stats.Key("deal_no_non_physical_damage")!.Value] = 1 };
+            var prohibited = Game.SpiderDamageProfile(wovenSource with { Stats = prohibitedStats }, 3, true);
+            Assert.Equal(0, prohibited.Hit[DamageType.Chaos].Max);
+            Assert.Equal(0, prohibited.Poison.Max);
+            var frozenWeave = Game.SpiderDamageProfile(wovenSource, 4, false);
+            var fireballGem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
+            inventory.Add(PlayerInventories.Weapon1, 0, 0,
+                ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!)
+                    with { Sockets = [new(SocketColour.White, fireballGem)] });
+            conn.Pools = Game.PoolsFor(conn, 100);
+            var fireball = Assert.Single(Game.GemSkillEffects(conn), g => Program.Skills.EffectId(g.Effect) == "Fireball");
+            var captureSession = new Game.ProjectileSession("weave-release", wire.Stream, wire.Ciphers, conn);
+            SpiderDamageSource frozenProjectile;
+            try
+            {
+                var use = Game.CaptureGemProjectile(conn, captureSession, fireball.Id, fireball, (110, 100), new SkillCriticalRoll(9999));
+                var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+                frozenProjectile = Assert.IsType<SpiderDamageSource>(shot.Spider);
+                Assert.Equal(shot.Hit.MinTotal, Game.SpiderDamageProfile(frozenProjectile, 0, false).Hit.MinTotal, 6);
+                Assert.True(shot.Against(false, 4).Hit.MinTotal > shot.Hit.MinTotal);
+                Assert.True(shot.Against(false, 4).Poison.Min > shot.Poison.Min);
+                Assert.Equal(shot.Against(false, 4).Hit.MinTotal,
+                    Game.SpiderDamageProfile(frozenProjectile, 4, false).Hit.MinTotal, 6);
+            }
+            finally { captureSession.Invalidate(); await captureSession.OutputCompleted; }
+            double capturedMinimum = Game.SpiderDamageProfile(frozenProjectile, 4, false).Hit.MinTotal;
             Assert.Equal(90, Game.MonsterModHit(target, DamagePacket.Of(DamageType.Physical, 100, 100),
                 100, 100, new AspectRoll(99), out _, now: schedule.At).MinTotal);
             target.MaimedUntil = schedule.At + 1;
@@ -118,6 +167,13 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Null(conn.Reservations.SpiderOwner);
             Assert.Equal(4, target.SpiderWebs.Count(schedule.At));
             Assert.Equal(earnedUntil, target.SpiderWebs.Until(schedule.At));
+            var afterRemoval = Game.SpiderDamageProfile(wovenSource, 4, false);
+            Assert.Equal(frozenWeave.Hit.MinTotal, afterRemoval.Hit.MinTotal, 6);
+            Assert.Equal(frozenWeave.Hit.MaxTotal, afterRemoval.Hit.MaxTotal, 6);
+            Assert.Equal(frozenWeave.Poison, afterRemoval.Poison);
+            Assert.Equal(capturedMinimum, Game.SpiderDamageProfile(frozenProjectile, 4, false).Hit.MinTotal, 6);
+            Assert.Null(Game.CaptureSpiderDamage(conn, Game.SupportedHitInputsFor(conn, fireball.Id)!,
+                Game.AddedEffectiveness(conn, fireball.Effect, fireball.Level)));
             schedule.At = earnedUntil;
             Game.SpiderAspectTickLocked(conn, schedule.At);
             Assert.Equal(0, target.SpiderWebs.Count(schedule.At));

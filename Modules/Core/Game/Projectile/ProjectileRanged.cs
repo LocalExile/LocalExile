@@ -79,6 +79,10 @@ static partial class Game
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
+            Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
+                new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
+                Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<string, int>(sourceWeapon.LocalSources),
+                Bow: !wand),
             SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
             VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),

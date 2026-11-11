@@ -552,6 +552,9 @@ static partial class Game
         long additionalIncreased = 0;
         if (Blinded(conn, targetId, at) && Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint key)
             additionalIncreased = (long)player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
+        int webs = target.SpiderWebs.Count(at);
+        additionalIncreased += SpiderDamageIncrease(n => GolemStat(player, n), webs);
+        player = SpiderAttackStats(player, webs);
         return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, additionalIncreased),
             DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
             DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
@@ -1842,6 +1845,7 @@ static partial class Game
         HitResistances.Mods mods = default;
         AreaSkillDamageProfile sweepProfile = default!;
         AreaSkillDamageProfile? blindedProfile = null;
+        SpiderDamageSource? sweepSpider = null;
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
@@ -1918,6 +1922,8 @@ static partial class Game
                                 SupportedPoison(conn, skillId, spell, player, shield, increased, capturedInputs));
                         }
                         sweepProfile = Profile(0);
+                        sweepSpider = CaptureSpiderDamage(conn, capturedInputs,
+                            AddedEffectiveness(conn, admittedGem.Effect, admittedGem.Level), context: true, local: local);
                         if (additionalIncreased != 0) blindedProfile = Profile(additionalIncreased);
                         pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                         mods = HitResistMods(player, skillStats);
@@ -1930,6 +1936,11 @@ static partial class Game
                     // The target's condition is chosen before accuracy, crit RNG, on-hit hooks and the hit's own Blind.
                     var profile = Blinded(conn, id) && blindedProfile is not null
                         ? blindedProfile : sweepProfile;
+                    if (sweepSpider is { } spider && m.SpiderWebs.Count(ProjectileWorldTime(conn)) is > 0 and var webs)
+                    {
+                        var woven = SpiderDamageProfile(spider, webs, Blinded(conn, id));
+                        profile = new(woven.Hit.Scale(ruthless), woven.Ignite, woven.Bleed, woven.Poison);
+                    }
                     var contactHit = profile.Hit;
                     if (VaalExecutor(conn, gem.Effect))
                     {

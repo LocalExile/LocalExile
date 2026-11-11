@@ -5,7 +5,10 @@ sealed class PlacedSkills
     internal sealed record DamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
     internal sealed record DamageSnapshot(DamageProfile Normal, DamageProfile Blinded,
-        IReadOnlyDictionary<uint, int> Caster, bool Spell);
+        IReadOnlyDictionary<uint, int> Caster, bool Spell)
+    {
+        public SpiderDamageSource? Spider { get; init; }
+    }
 
     internal sealed record Placed(uint Id, ushort Skill, int Effect, (int X, int Y) At, bool Mine,
         double Armed, double Until, DamagePacket Damage, IReadOnlyDictionary<uint, int> Own,

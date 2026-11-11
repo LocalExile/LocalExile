@@ -284,8 +284,8 @@ static partial class Game
             }
             // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
             // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
-            shot = shot.Against(Blinded(Conn, contact.Target.Id));
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            shot = shot.Against(Blinded(Conn, contact.Target.Id), target.SpiderWebs.Count(at));
             int hitChance = 100;
             if (!shot.Spell)
             {

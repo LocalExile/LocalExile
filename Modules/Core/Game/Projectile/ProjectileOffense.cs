@@ -48,6 +48,8 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
     /// Blinded target, or null when the shot has none.</summary>
     public ProjectileOffenseAlternate? VsBlinded { get; init; }
+    public SpiderDamageSource? Spider { get; init; }
+    public SpiderDamageSource? SpiderArea { get; init; }
     public int? SecondFormCriticalChance { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
@@ -68,8 +70,16 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
-    internal ProjectileOffense Against(bool targetWasBlinded) => targetWasBlinded && VsBlinded is { } alternate
-        ? this with
+    internal ProjectileOffense Against(bool targetWasBlinded, int webs = 0)
+    {
+        if (webs > 0 && Spider is { } spider)
+        {
+            var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded);
+            return this with { Hit = profile.Hit, AreaHit = SpiderArea is { } area
+                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded).Hit : AreaHit,
+                Ignite = profile.Ignite, Bleed = profile.Bleed, Poison = profile.Poison };
+        }
+        return targetWasBlinded && VsBlinded is { } alternate ? this with
         {
             Hit = alternate.Hit,
             AreaHit = alternate.AreaHit,
@@ -78,4 +88,5 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
             Poison = alternate.Poison,
         }
         : this;
+    }
 }
