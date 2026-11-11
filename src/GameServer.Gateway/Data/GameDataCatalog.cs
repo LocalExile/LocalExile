@@ -15,7 +15,7 @@ static class GameDataCatalog
     static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
     /// <summary>Raise when UniqueItemSeed corrects existing rows, so that databases already seeded take the correction.</summary>
-    const string UniqueSeedRevision = "4";
+    const string UniqueSeedRevision = "5";
 
     static readonly UniqueCatalog.Definition[] UniqueSeed = UniqueCatalog.Seed;
     static readonly RadiusJewelCatalogue.Entry[] RadiusSeed = RadiusJewelCatalogue.Seed;

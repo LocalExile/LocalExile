@@ -611,6 +611,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 {
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
+    /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
+    public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
@@ -662,7 +664,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     break;
                 case "Buffs": w.U16(0); break;
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
-                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
+                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, EnergyShield); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
                     if (AnimatedObject is null) w.U8(0);
                     else w.U8(1).WStr32(AnimatedObject);

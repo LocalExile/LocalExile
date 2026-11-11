@@ -93,6 +93,34 @@ sealed class MonsterIgnites
     /// <summary>The native <c>ignited</c> buff instance on the monster while it burns (BuffDefinitions row 0).</summary>
     public ushort? Buff;
 
+    /// <summary>The attacking object shown as the buff source (0 for generic self-created ailments).</summary>
+    public uint BuffSource;
+
+    /// <summary>Moves the active instances and integration state to a fresh owner without restarting either.</summary>
+    public void MoveTo(MonsterIgnites target)
+    {
+        if (ReferenceEquals(this, target)) return;
+        target.active.AddRange(active);
+        target.last = last;
+        target.carry = carry;
+        target.expiryRate = expiryRate;
+        target.Stacks = Stacks;
+        target.LastApplied = LastApplied;
+        target.DiedBurning = DiedBurning;
+        target.BuffSource = BuffSource;
+        target.Buff = null;
+
+        active.Clear();
+        last = 0;
+        carry = 0;
+        expiryRate = 1;
+        Stacks = 1;
+        LastApplied = 0;
+        DiedBurning = false;
+        BuffSource = 0;
+        Buff = null;
+    }
+
     public bool Burning => active.Count > 0;
 
     /// <summary>Nothing burns and no buff is shown.</summary>
@@ -135,8 +163,14 @@ sealed class MonsterIgnites
     /// <summary>The whole damage the strongest ignites deal (<see cref="Dealing"/>) from the last advance to
     /// <paramref name="until"/>, through every start and end in between, times the target's mitigation
     /// <paramref name="factor"/>; the fraction carries to the next advance. Ended ignites are dropped.</summary>
-    public int Advance(double until, double factor, double aggravatedExtra = 0)
+    public int Advance(double until, double factor, double aggravatedExtra = 0) =>
+        Advance(until, factor, aggravatedExtra, out _);
+
+    /// <summary>The same advance, also reporting the end of the last cut where the active set dealt positive damage:
+    /// not the frame time, and null when no positive mitigated subinterval existed.</summary>
+    public int Advance(double until, double factor, double aggravatedExtra, out double? lastDamageAt)
     {
+        lastDamageAt = null;
         if (active.Count == 0 || !(until > last)) return 0;
         var cuts = active.SelectMany(i => new[] { i.From, i.Until }).Where(t => last < t && t < until)
             .Append(last).Append(until).Distinct().Order().ToArray();
@@ -144,8 +178,11 @@ sealed class MonsterIgnites
         for (int k = 1; k < cuts.Length; k++)
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
-            damage += Dealing(active.Where(i => i.From <= mid && mid < i.Until).ToList(), aggravatedExtra)
-                * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            double seconds = cuts[k] - cuts[k - 1];
+            double mitigated = Dealing(active.Where(i => i.From <= mid && mid < i.Until).ToList(), aggravatedExtra)
+                * Math.Max(0, factor);
+            if (mitigated > 0 && seconds > 0) lastDamageAt = cuts[k];
+            damage += mitigated * seconds;
         }
         last = until;
         active.RemoveAll(i => i.Until <= until);

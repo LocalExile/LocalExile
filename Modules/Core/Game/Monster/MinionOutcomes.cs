@@ -195,6 +195,7 @@ static partial class Game
                     if (output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
                     if (output.Kind == PlayerMinions.OutputKind.GolemAction) return GolemActionPresentation(conn, output);
                     if (output.Kind == PlayerMinions.OutputKind.GolemIncoming) return GolemIncomingPresentation(conn, output);
+                    if (output.Kind == PlayerMinions.OutputKind.EnergyShield) return GolemEnergyShieldPresentation(conn, output);
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
                     {

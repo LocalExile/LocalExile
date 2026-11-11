@@ -40,6 +40,7 @@ public class ConditionalItemStatsTests
         Doppelganger_guise_owns_its_toggle_and_final_consumers();
         Scorpion_call_uses_the_real_shared_stance_owner();
         Yriel_beast_source_owns_real_ursa_condition_and_physical_consumer();
+        Bonemeld_counts_live_non_vaal_owner_minions_in_final_pools();
     }
 
     static ModCatalog.Mod Mod(string id) => Program.Items.Mods.All.Single(m => m.Id == id);
@@ -85,6 +86,53 @@ public class ConditionalItemStatsTests
             {
                 var speed = Mod("AttackAndMovementSpeedBeastialMinionUnique__1");
                 var chaos = Mod("AddedChaosDamageToAttacksBeastialMinionUnique__1");
+                var physical = Mod("AddedPhysicalDamageToAttacksBeastialMinionUnique__1");
+                var bleed = Mod("ProjectileAttacksChanceToBleedBeastialMinionUnique__1_");
+                var poison = Mod("ProjectileAttacksChanceToPoisonBeastialMinionUnique__1");
+                var maim = Mod("ProjectileAttacksChanceToMaimBeastialMinionUnique__1");
+                string[] profileIds =
+                [
+                    "GrantsSummonBeastUrsaUnique__1",
+                    "GrantsSummonBeastRhoaUnique__1",
+                    "GrantsSummonBeastSnakeUnique__1",
+                    "AddedPhysicalDamageToAttacksBeastialMinionUnique__1",
+                    "AttackAndMovementSpeedBeastialMinionUnique__1",
+                    "AddedChaosDamageToAttacksBeastialMinionUnique__1",
+                    "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
+                    "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
+                    "ProjectileAttacksChanceToPoisonBeastialMinionUnique__1",
+                ];
+                bool IsProfileMod(ItemMod mod) =>
+                    Program.Items.Mods.ByHash(mod.Hash)?.Id is { } id && profileIds.Contains(id);
+                string grantId = snake ? "GrantsSummonBeastSnakeUnique__1"
+                    : rhoa ? "GrantsSummonBeastRhoaUnique__1" : "GrantsSummonBeastUrsaUnique__1";
+                var profileMods = new List<ItemMod>
+                {
+                    Mod(grantId).Roll(ModSection.Explicit, new Random(1601)),
+                };
+                if (rhoa)
+                {
+                    profileMods.Add(speed.Roll(ModSection.Explicit, new Random(1801)) with { Values = [20] });
+                    profileMods.Add(bleed.Roll(ModSection.Explicit, new Random(1803)));
+                }
+                else if (snake)
+                {
+                    profileMods.Add(chaos.Roll(ModSection.Explicit, new Random(1802)) with { Values = [27, 42] });
+                    profileMods.Add(poison.Roll(ModSection.Explicit, new Random(1804)));
+                }
+                else
+                {
+                    profileMods.Add(physical.Roll(ModSection.Explicit, new Random(1802)));
+                    profileMods.Add(maim.Roll(ModSection.Explicit, new Random(1805)));
+                }
+                item = item with
+                {
+                    Mods = [
+                        .. item.Mods.Where(mod => !IsProfileMod(mod)),
+                        .. profileMods,
+                    ]
+                };
+                // Shared consumer fixture: diagnostic hybrid, not ordinary-catalogue proof.
                 item = item with
                 {
                     Mods = [
@@ -95,25 +143,25 @@ public class ConditionalItemStatsTests
                 };
                 if (projectileAilments)
                 {
-                    var bleed = Mod("ProjectileAttacksChanceToBleedBeastialMinionUnique__1_");
-                    var poison = Mod("ProjectileAttacksChanceToPoisonBeastialMinionUnique__1");
+                    string[] chances =
+                    [
+                        "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
+                        "ProjectileAttacksChanceToPoisonBeastialMinionUnique__1",
+                        "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
+                    ];
+                    bool IsChanceMod(ItemMod mod) =>
+                        Program.Items.Mods.ByHash(mod.Hash)?.Id is { } id && chances.Contains(id);
                     item = item with
                     {
                         Mods = [
-                            .. item.Mods,
+                            .. item.Mods.Where(mod => !IsChanceMod(mod)),
                             bleed.Roll(ModSection.Explicit, new Random(1803)) with { Values = [100] },
                             poison.Roll(ModSection.Explicit, new Random(1804)) with { Values = [100] },
+                            maim.Roll(ModSection.Explicit, new Random(1805)) with { Values = [100] },
                         ]
                     };
                 }
-                if (!rhoa && !snake) return item;
-                var ursa = Mod("GrantsSummonBeastUrsaUnique__1");
-                var replacement = Mod(snake ? "GrantsSummonBeastSnakeUnique__1" : "GrantsSummonBeastRhoaUnique__1")
-                    .Roll(ModSection.Explicit, new Random(1601));
-                return item with
-                {
-                    Mods = [.. item.Mods.Select(mod => mod.Hash == ursa.Hash ? replacement : mod)]
-                };
+                return item;
             }
 
             InventoryItem EquipYriel(ClientState target, bool rhoa = false, bool snake = false,
@@ -121,8 +169,9 @@ public class ConditionalItemStatsTests
             {
                 var items = (ItemCatalog)global::Game.ItemsFor(target)!;
                 var inventory = (PlayerInventories)global::Game.ItemsOf(target)!;
+                string variant = snake ? "Snake" : rhoa ? "Rhoa" : "Ursa";
                 var yriel = YrielWithBeastGrant(
-                    new UniqueCatalog(items).Create("Yriel's Fostering", new Random(504))!, rhoa, snake,
+                    new UniqueCatalog(items).Create($"Yriel's Fostering ({variant})", new Random(504))!, rhoa, snake,
                     projectileAilments);
                 foreach (var old in inventory.Items(PlayerInventories.BodyArmour))
                     inventory.Remove(PlayerInventories.BodyArmour, old.Id);
@@ -178,6 +227,103 @@ public class ConditionalItemStatsTests
             }
             DamageRange Physical(ClientState target) => Attack(target)[GameServer.Core.World.DamageType.Physical];
 
+            void Yriel_catalogue_factory_creates_complete_pinned_and_ordinary_profiles()
+            {
+                var uniques = new UniqueCatalog(Program.Items);
+                string[] common =
+                [
+                    "IncreasedAccuracyUnique__1",
+                    "LocalIncreasedEvasionRatingPercentUnique__9",
+                    "IncreasedLifeUniqueBodyStrDexInt1",
+                    "ProjectileAttackCriticalStrikeChanceUnique__1",
+                ];
+                var profiles = new (string Name, string[] Mods)[]
+                {
+                    ("Ursa",
+                    [
+                        "GrantsSummonBeastUrsaUnique__1",
+                        "AddedPhysicalDamageToAttacksBeastialMinionUnique__1",
+                        "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
+                    ]),
+                    ("Rhoa",
+                    [
+                        "GrantsSummonBeastRhoaUnique__1",
+                        "AttackAndMovementSpeedBeastialMinionUnique__1",
+                        "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
+                    ]),
+                    ("Snake",
+                    [
+                        "GrantsSummonBeastSnakeUnique__1",
+                        "AddedChaosDamageToAttacksBeastialMinionUnique__1",
+                        "ProjectileAttacksChanceToPoisonBeastialMinionUnique__1",
+                    ]),
+                };
+                var profileOnly = profiles.SelectMany(profile => profile.Mods).ToHashSet(StringComparer.Ordinal);
+                string ModId(ItemMod mod) => Program.Items.Mods.ByHash(mod.Hash)!.Id;
+                ItemMod ModOn(Item item, string id) => Assert.Single(item.Mods, mod => ModId(mod) == id);
+
+                var canonicalDefinition = uniques.Find("Yriel's Fostering");
+                Assert.NotNull(canonicalDefinition);
+                var canonical = uniques.Create(canonicalDefinition!, new FixedRandom(0))!;
+                Assert.Equal("Rhoa", uniques.Find("yriel\u2019s fostering (rhoa)")?.CreationVariant);
+                Assert.Null(uniques.Find("Yriel's Fostering (unknown)"));
+
+                foreach (var profile in profiles)
+                {
+                    var definition = uniques.Find($"Yriel's Fostering ({profile.Name})");
+                    Assert.NotNull(definition);
+                    Assert.Equal(profile.Name, definition!.CreationVariant);
+                    var pinned = uniques.Create(definition, new Random(504))!;
+                    Assert.Equal(canonical.NameWords, pinned.NameWords);
+                    Assert.Equal(canonical.VisualIdentity, pinned.VisualIdentity);
+
+                    var actualProfile = pinned.Mods.Where(mod => profileOnly.Contains(ModId(mod)))
+                        .Select(ModId).ToArray();
+                    Assert.Equal(profile.Mods.Length, actualProfile.Length);
+                    Assert.All(profile.Mods, id => Assert.Contains(id, actualProfile));
+                    Assert.All(profile.Mods, id => Assert.Single(pinned.Mods, mod => ModId(mod) == id));
+                    Assert.All(common, id => Assert.Single(pinned.Mods, mod => ModId(mod) == id));
+                    foreach (string id in profile.Mods.Concat(common))
+                    {
+                        var itemMod = ModOn(pinned, id);
+                        var catalogueMod = Program.Items.Mods.ByHash(itemMod.Hash)!;
+                        for (int stat = 0; stat < itemMod.Values.Count; stat++)
+                        {
+                            var (min, max) = catalogueMod.RangeAt(stat);
+                            Assert.InRange(itemMod.Values[stat], min, max);
+                        }
+                    }
+                }
+
+                for (int pick = 0; pick < profiles.Length; pick++)
+                {
+                    var ordinary = uniques.Create(canonicalDefinition!, new FixedRandom(pick))!;
+                    var actualProfile = ordinary.Mods.Where(mod => profileOnly.Contains(ModId(mod)))
+                        .Select(ModId).ToArray();
+                    Assert.Equal(profiles[pick].Mods.Length, actualProfile.Length);
+                    Assert.All(profiles[pick].Mods, id => Assert.Contains(id, actualProfile));
+                }
+
+                var snake = uniques.Create(uniques.Find("Yriel's Fostering (Snake)")!, new Random(504))!;
+                string savedCharacter = "YrielCatalogue" + Guid.NewGuid().ToString("N");
+                CharacterSaves.Write(savedCharacter, new CharacterSaves.Save(new()
+                {
+                    [PlayerInventories.BodyArmour] =
+                    [
+                        new(1, 0, 0, CharacterSaves.ToSaved(snake, Program.Items.Mods)),
+                    ],
+                }));
+                var saved = Assert.Single(CharacterSaves.Load(savedCharacter)!.Inventories[PlayerInventories.BodyArmour]);
+                var restored = CharacterSaves.FromSaved(saved.Item, Program.Items);
+                Assert.Equal(snake.NameWords, restored.NameWords);
+                Assert.Equal(snake.VisualIdentity, restored.VisualIdentity);
+                Assert.Equal(string.Join("|", snake.Mods.Select(mod =>
+                        $"{ModId(mod)}:{mod.Section}:{string.Join(',', mod.Values)}")),
+                    string.Join("|", restored.Mods.Select(mod =>
+                        $"{ModId(mod)}:{mod.Section}:{string.Join(',', mod.Values)}")));
+            }
+            Yriel_catalogue_factory_creates_complete_pinned_and_ordinary_profiles();
+
             Projectile_attack_ailments_use_real_captured_offense_and_frozen_source_conditions();
 
             void Projectile_attack_ailments_use_real_captured_offense_and_frozen_source_conditions()
@@ -215,6 +361,17 @@ public class ConditionalItemStatsTests
 
                 var projectileActor = Assert.Single(global::Game.GemSkillEffects(projectileConn),
                     g => global::Game.SkillsFor(projectileConn).EffectId(g.Effect) == "SummonBeastialUrsa");
+                string[] handAliases =
+                [
+                    "virtual_total_main_hand_chance_to_bleed_on_hit_%",
+                    "virtual_total_main_hand_chance_to_poison_on_hit_%",
+                    "main_hand_maim_on_hit_%",
+                ];
+                var beforeBeastStats = global::Game.FinalPlayerStats(projectileConn)
+                    .ToDictionary(s => s.Item1, s => s.Item2);
+                int PanelValue(IReadOnlyDictionary<uint, int> values, string stat) =>
+                    values.GetValueOrDefault(Program.Stats.Key(stat)!.Value);
+                foreach (var alias in handAliases) Assert.Equal(0, PanelValue(beforeBeastStats, alias));
                 Ready(projectileConn);
                 Assert.True(Cast(projectileConn, projectileActor.Id));
                 global::Game.PlayerMinionsTick("test", wire.Stream, wire.Ciphers, projectileConn,
@@ -225,19 +382,80 @@ public class ConditionalItemStatsTests
                     projectileConn.Clock.Elapsed.TotalSeconds)["_if_you_have_beast_minion"]);
                 var projectileStats = global::Game.FinalPlayerStats(projectileConn)
                     .ToDictionary(s => s.Item1, s => s.Item2);
+                Dictionary<uint, int> PublishedRows(ClientState conn, uint skillId) =>
+                    Assert.Single(global::Game.PlayerSkills(conn), skill => skill.Id == skillId).Stats!
+                    .ToDictionary(stat => stat.Key, stat => stat.Value);
+                uint PublishedSkill(string effect) => Assert.Single(global::Game.GemSkillEffects(projectileConn),
+                    grant => global::Game.SkillsFor(projectileConn).EffectId(grant.Effect) == effect).Id;
+                Assert.Equal(100, PanelValue(projectileStats, "virtual_total_main_hand_chance_to_bleed_on_hit_%"));
+                Assert.Equal(100, PanelValue(projectileStats, "virtual_total_main_hand_chance_to_poison_on_hit_%"));
+                Assert.Equal(100, PanelValue(projectileStats, "main_hand_maim_on_hit_%"));
+                Assert.Equal(0, PanelValue(projectileStats, "virtual_total_off_hand_chance_to_bleed_on_hit_%"));
+                Assert.Equal(0, PanelValue(projectileStats, "virtual_total_off_hand_chance_to_poison_on_hit_%"));
+                Assert.Equal(0, PanelValue(projectileStats, "off_hand_maim_on_hit_%"));
+                var repeatedProjectileStats = global::Game.FinalPlayerStats(projectileConn)
+                    .ToDictionary(s => s.Item1, s => s.Item2);
+                Assert.True(projectileStats.OrderBy(s => s.Key).SequenceEqual(repeatedProjectileStats.OrderBy(s => s.Key)));
+
+                var defaultAttackRows = PublishedRows(projectileConn, SkillCatalog.FirstSkillId);
+                Assert.Equal(100, defaultAttackRows.GetValueOrDefault(
+                    Program.Stats.Key("virtual_total_main_hand_chance_to_bleed_on_hit_%")!.Value));
+                Assert.Equal(100, defaultAttackRows.GetValueOrDefault(
+                    Program.Stats.Key("virtual_total_main_hand_chance_to_poison_on_hit_%")!.Value));
+                Assert.Equal(100, defaultAttackRows.GetValueOrDefault(
+                    Program.Stats.Key("main_hand_maim_on_hit_%")!.Value));
+                Assert.Equal(defaultAttackRows.OrderBy(stat => stat.Key),
+                    PublishedRows(projectileConn, SkillCatalog.FirstSkillId).OrderBy(stat => stat.Key));
+                var burningArrowRows = PublishedRows(projectileConn, PublishedSkill("BurningArrow"));
+                Assert.Equal(100, burningArrowRows.GetValueOrDefault(
+                    Program.Stats.Key("virtual_total_main_hand_chance_to_bleed_on_hit_%")!.Value));
+                Assert.Equal(100, burningArrowRows.GetValueOrDefault(
+                    Program.Stats.Key("virtual_total_main_hand_chance_to_poison_on_hit_%")!.Value));
+                Assert.Equal(100, burningArrowRows.GetValueOrDefault(
+                    Program.Stats.Key("main_hand_maim_on_hit_%")!.Value));
+                Assert.Equal(burningArrowRows.OrderBy(stat => stat.Key),
+                    PublishedRows(projectileConn, PublishedSkill("BurningArrow")).OrderBy(stat => stat.Key));
+                var fireballRows = PublishedRows(projectileConn, PublishedSkill("Fireball"));
+                foreach (var alias in handAliases) Assert.Equal(0, fireballRows.GetValueOrDefault(Program.Stats.Key(alias)!.Value));
+
+                var chanceSources = new Dictionary<string, int>
+                {
+                    ["bleed_on_hit_with_attacks_%"] = 10,
+                    ["local_chance_to_bleed_on_hit_%"] = 20,
+                    ["projectile_attacks_chance_to_bleed_on_hit_%_if_you_have_beast_minion"] = 30,
+                    ["projectile_attacks_chance_to_poison_on_hit_%_if_you_have_beast_minion"] = 50,
+                };
+                static int Source(Dictionary<string, int> stats, string name) => stats.GetValueOrDefault(name);
+                var chanceRows = PanelStats.Compute(name => Source(chanceSources, name),
+                    name => name == "local_chance_to_bleed_on_hit_%" ? Source(chanceSources, name) : 0,
+                    mainProjectileAttack: true, offProjectileAttack: true).ToDictionary(r => r.Stat, r => r.Value);
+                Assert.Equal(60, chanceRows.GetValueOrDefault("virtual_total_main_hand_chance_to_bleed_on_hit_%"));
+                Assert.Equal(50, chanceRows.GetValueOrDefault("virtual_total_off_hand_chance_to_poison_on_hit_%"));
+                chanceSources["bleed_on_hit_with_attacks_%"] = 70;
+                chanceSources["projectile_attacks_chance_to_bleed_on_hit_%_if_you_have_beast_minion"] = 70;
+                Assert.Equal(100, PanelStats.Compute(name => Source(chanceSources, name),
+                    name => name == "local_chance_to_bleed_on_hit_%" ? Source(chanceSources, name) : 0,
+                    mainProjectileAttack: true).Single(r => r.Stat == "virtual_total_main_hand_chance_to_bleed_on_hit_%").Value);
+                Assert.Equal(100, PanelStats.Compute(name => Source(chanceSources, name),
+                    name => name == "local_chance_to_bleed_on_hit_%" ? Source(chanceSources, name) : 0,
+                    mainProjectileAttack: true).Single(r => r.Stat == "virtual_total_main_hand_chance_to_bleed_on_hit_%").Value);
+                Assert.Equal(100, projectileStats.GetValueOrDefault(Program.Stats.Key(
+                    "projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion")!.Value));
+                Assert.Equal(0, projectileStats.GetValueOrDefault(
+                    Program.Stats.Key("maim_on_hit_%") ?? 0));
 
                 // Keep one production session and do not start its update pump.
                 var projectileSession = new global::Game.ProjectileSession(
                     "test", wire.Stream, wire.Ciphers, projectileConn);
                 projectileConn.ProjectileRuntime = projectileSession;
 
-                SpawnedMonster Target(uint id, int dx)
+                SpawnedMonster Target(uint id, int dx, bool hostile = true)
                 {
                     var from = projectileConn.Walk.Position(global::Game.ProjectileWorldTime(projectileConn));
                     var monster = new SpawnedMonster($"Yriel projectile target 0x{id:x}",
                         new PlayerWalk(from.X + dx, from.Y, 0), 0, 0, 100_000)
                     {
-                        Hostile = true,
+                        Hostile = hostile,
                         Life = 100_000,
                         NoRewards = true,
                     };
@@ -249,13 +467,14 @@ public class ConditionalItemStatsTests
                     session.Runtime.Release(use);
                     session.AdvanceTo(session.Runtime.Now + ProjectileRuntime.Time(.5));
                 }
-                void AssertPayload(ProjectileUse use, int bleedChance, int poisonChance)
+                void AssertPayload(ProjectileUse use, int bleedChance, int poisonChance, int maimChance)
                 {
                     var offense = Assert.IsType<ProjectileOffense>(use.Payload);
                     Assert.Equal(bleedChance, offense.Bleed.Chance);
                     Assert.Equal(poisonChance, offense.Poison.ProjectileChance);
+                    Assert.Equal(maimChance, offense.MaimChance);
                 }
-                void AssertAilments(SpawnedMonster monster, bool expectedBleed, bool expectedPoison)
+                void AssertHitEffects(SpawnedMonster monster, bool expectedBleed, bool expectedPoison, bool expectedMaim)
                 {
                     double now = projectileSession.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
                     if (expectedBleed)
@@ -278,10 +497,32 @@ public class ConditionalItemStatsTests
                         Assert.Equal(0, monster.Poisons.Stacks(now));
                         Assert.Equal(0, monster.Poisons.TotalDps(now));
                     }
+                    if (expectedMaim)
+                    {
+                        Assert.True(monster.MaimedUntil > now);
+                        Assert.Equal(0, global::Game.MaimedPhysicalTaken(monster, now));
+                    }
+                    else
+                    {
+                        Assert.False(monster.MaimedUntil > now);
+                    }
                 }
                 void RemoveTarget(uint id)
                 {
                     lock (projectileConn.Monsters) projectileConn.Monsters.Remove(id);
+                }
+                void AssertNoMaimContact(uint id, Action<SpawnedMonster>? configure = null, bool hostile = true)
+                {
+                    var target = Target(id, 12, hostile);
+                    configure?.Invoke(target);
+                    double maimedBefore = target.MaimedUntil;
+                    var aim = target.Walk.Position(global::Game.ProjectileWorldTime(projectileConn));
+                    var use = global::Game.CaptureOrdinaryRangedProjectile(projectileConn, projectileSession,
+                        ((int)aim.X, (int)aim.Y), global::OrdinaryRangedAttack.Arrow, (ushort)id, new SkillCriticalRoll(0), null);
+                    AssertPayload(use, bleedChance: 100, poisonChance: 100, maimChance: 100);
+                    Release(use, projectileSession);
+                    Assert.Equal(maimedBefore, target.MaimedUntil);
+                    RemoveTarget(id);
                 }
 
                 try
@@ -293,10 +534,10 @@ public class ConditionalItemStatsTests
                         ((int)ordinaryAim.X, (int)ordinaryAim.Y), global::OrdinaryRangedAttack.Arrow, 0x18b2,
                         new SkillCriticalRoll(0), null);
                     Release(ordinary, projectileSession);
-                    AssertPayload(ordinary, bleedChance: 100, poisonChance: 100);
+                    AssertPayload(ordinary, bleedChance: 100, poisonChance: 100, maimChance: 100);
                     Assert.True(ordinaryTarget.Life < 100_000);
                     Assert.True(ordinaryTarget.Life > 0);
-                    AssertAilments(ordinaryTarget, expectedBleed: true, expectedPoison: true);
+                    AssertHitEffects(ordinaryTarget, expectedBleed: true, expectedPoison: true, expectedMaim: true);
                     RemoveTarget(ordinaryBeforeRetirement);
 
                     const uint attackTargetId = 0x18b3;
@@ -307,7 +548,7 @@ public class ConditionalItemStatsTests
                     var attack = global::Game.CaptureGemProjectile(projectileConn, projectileSession, arrow.Id, arrow,
                         ((int)attackAim.X, (int)attackAim.Y), new SkillCriticalRoll(0));
                     Release(attack, projectileSession);
-                    AssertPayload(attack, bleedChance: 100, poisonChance: 100);
+                    AssertPayload(attack, bleedChance: 100, poisonChance: 100, maimChance: 100);
                     var attackOffense = Assert.IsType<ProjectileOffense>(attack.Payload);
                     Assert.Equal(0, attackOffense.Hit[GameServer.Core.World.DamageType.Physical].Min);
                     Assert.Equal(0, attackOffense.Hit[GameServer.Core.World.DamageType.Physical].Max);
@@ -320,7 +561,7 @@ public class ConditionalItemStatsTests
                     Assert.Equal(0, actualDefaultAttackPoison.ProjectileChance);
                     Assert.True(attackTarget.Life < 100_000);
                     Assert.True(attackTarget.Life > 0);
-                    AssertAilments(attackTarget, expectedBleed: false, expectedPoison: true);
+                    AssertHitEffects(attackTarget, expectedBleed: false, expectedPoison: true, expectedMaim: true);
                     RemoveTarget(attackTargetId);
 
                     const uint spellTargetId = 0x18b4;
@@ -331,11 +572,67 @@ public class ConditionalItemStatsTests
                     var spellUse = global::Game.CaptureGemProjectile(projectileConn, projectileSession, spell.Id, spell,
                         ((int)spellAim.X, (int)spellAim.Y), new SkillCriticalRoll(0));
                     Release(spellUse, projectileSession);
-                    AssertPayload(spellUse, bleedChance: 0, poisonChance: 0);
+                    AssertPayload(spellUse, bleedChance: 0, poisonChance: 0, maimChance: 0);
                     Assert.True(spellTarget.Life < 100_000);
                     Assert.True(spellTarget.Life > 0);
-                    AssertAilments(spellTarget, expectedBleed: false, expectedPoison: false);
+                    AssertHitEffects(spellTarget, expectedBleed: false, expectedPoison: false, expectedMaim: false);
                     RemoveTarget(spellTargetId);
+
+                    const uint immuneTargetId = 0x18b7;
+                    AssertNoMaimContact(immuneTargetId, target =>
+                        target.Mods = new MonsterModSet([], [],
+                            new MonsterModEffects(new Dictionary<string, int> { { "immune_to_maim", 1 } })));
+
+                    const uint avoidTargetId = 0x18b8;
+                    AssertNoMaimContact(avoidTargetId, target =>
+                        target.Mods = new MonsterModSet([], [],
+                            new MonsterModEffects(new Dictionary<string, int> { { "avoid_maim_%_chance", 100 } })));
+
+                    const uint friendlyTargetId = 0x18b9;
+                    AssertNoMaimContact(friendlyTargetId, hostile: false);
+
+                    const uint invulnerableTargetId = 0x18ba;
+                    AssertNoMaimContact(invulnerableTargetId, target => target.KingGrace = true);
+
+                    const uint deadTargetId = 0x18bb;
+                    AssertNoMaimContact(deadTargetId, target =>
+                    {
+                        target.Dead = true;
+                        target.Life = 0;
+                    });
+
+                    const uint staleTargetId = 0x18bc;
+                    var stale = Target(staleTargetId, 12);
+                    var staleAim = stale.Walk.Position(global::Game.ProjectileWorldTime(projectileConn));
+                    var staleUse = global::Game.CaptureOrdinaryRangedProjectile(projectileConn, projectileSession,
+                        ((int)staleAim.X, (int)staleAim.Y), global::OrdinaryRangedAttack.Arrow, 0x18bc,
+                        new SkillCriticalRoll(0), null);
+                    AssertPayload(staleUse, bleedChance: 100, poisonChance: 100, maimChance: 100);
+                    var staleRuntime = projectileSession.Runtime;
+                    long staleUseId = staleRuntime.Release(staleUse);
+                    var actualProjectile = staleRuntime.Projectiles.First(projectile =>
+                        projectile.UseId == staleUseId);
+                    Assert.Equal(100, Assert.IsType<ProjectileOffense>(actualProjectile.Use.Payload).MaimChance);
+                    var oldActorKey = projectileSession.ActorKey(staleTargetId, stale);
+                    RemoveTarget(staleTargetId);
+                    var replacement = Target(staleTargetId, 12);
+                    double replacementMaimed = replacement.MaimedUntil;
+                    uint replacementLife = replacement.Life;
+                    Assert.NotEqual(oldActorKey, projectileSession.ActorKey(staleTargetId, replacement));
+                    Assert.Equal(ProjectileHitResult.Miss, projectileSession.Hit(new ProjectileDamage(
+                        actualProjectile, oldActorKey, staleRuntime.Now, "recycled", default)));
+                    Assert.Equal(replacementMaimed, replacement.MaimedUntil);
+                    Assert.Equal(replacementLife, replacement.Life);
+                    RemoveTarget(staleTargetId);
+
+                    const uint deadlineTargetId = 0x18bd;
+                    var deadlineTarget = Target(deadlineTargetId, 12);
+                    double controlledNow = projectileSession.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                    Assert.True(global::Game.TryMaimOnHitLocked(
+                        deadlineTarget, 100, 0, controlledNow, new Random(1806)));
+                    Assert.Equal(controlledNow + global::Game.MaimSeconds, deadlineTarget.MaimedUntil);
+                    Assert.Equal(0, global::Game.MaimedPhysicalTaken(deadlineTarget, controlledNow));
+                    RemoveTarget(deadlineTargetId);
 
                     // Capture and start the ordinary bow flight while both the real beast and its item source exist.
                     const uint frozenTargetId = 0x18b5;
@@ -345,7 +642,7 @@ public class ConditionalItemStatsTests
                         ((int)frozenAim.X, (int)frozenAim.Y), global::OrdinaryRangedAttack.Arrow, 0x18b5,
                         new SkillCriticalRoll(0), null);
                     projectileSession.Runtime.Release(frozen);
-                    AssertPayload(frozen, bleedChance: 100, poisonChance: 100);
+                    AssertPayload(frozen, bleedChance: 100, poisonChance: 100, maimChance: 100);
                     Assert.Equal(100_000u, frozenTarget.Life);
 
                     Assert.NotNull(inventory.Remove(PlayerInventories.BodyArmour, projectileWorn.Id));
@@ -354,12 +651,30 @@ public class ConditionalItemStatsTests
                     Assert.Null(projectileConn.Beasts.Active);
                     Assert.False(global::Game.ItemConditionFlags(projectileConn,
                         projectileConn.Clock.Elapsed.TotalSeconds)["_if_you_have_beast_minion"]);
+                    var clearedStats = global::Game.FinalPlayerStats(projectileConn).ToDictionary(s => s.Item1, s => s.Item2);
+                    foreach (var alias in handAliases) Assert.Equal(0, PanelValue(clearedStats, alias));
+                    var clearedDefaultRows = PublishedRows(projectileConn, SkillCatalog.FirstSkillId);
+                    var clearedBurningArrowRows = PublishedRows(projectileConn, PublishedSkill("BurningArrow"));
+                    var clearedFireballRows = PublishedRows(projectileConn, PublishedSkill("Fireball"));
+                    foreach (var alias in handAliases)
+                    {
+                        var key = Program.Stats.Key(alias)!.Value;
+                        Assert.Equal(0, clearedDefaultRows.GetValueOrDefault(key));
+                        Assert.Equal(0, clearedBurningArrowRows.GetValueOrDefault(key));
+                        Assert.Equal(0, clearedFireballRows.GetValueOrDefault(key));
+                    }
+                    Assert.Equal(clearedDefaultRows.OrderBy(stat => stat.Key),
+                        PublishedRows(projectileConn, SkillCatalog.FirstSkillId).OrderBy(stat => stat.Key));
+                    Assert.Equal(clearedBurningArrowRows.OrderBy(stat => stat.Key),
+                        PublishedRows(projectileConn, PublishedSkill("BurningArrow")).OrderBy(stat => stat.Key));
+                    Assert.Equal(clearedFireballRows.OrderBy(stat => stat.Key),
+                        PublishedRows(projectileConn, PublishedSkill("Fireball")).OrderBy(stat => stat.Key));
                     Assert.Equal(100_000u, frozenTarget.Life);
 
                     projectileSession.AdvanceTo(projectileSession.Runtime.Now + ProjectileRuntime.Time(.5));
                     Assert.True(frozenTarget.Life < 100_000);
                     Assert.True(frozenTarget.Life > 0);
-                    AssertAilments(frozenTarget, expectedBleed: true, expectedPoison: true);
+                    AssertHitEffects(frozenTarget, expectedBleed: true, expectedPoison: true, expectedMaim: true);
                     RemoveTarget(frozenTargetId);
 
                     const uint afterRetirementTargetId = 0x18b6;
@@ -370,10 +685,10 @@ public class ConditionalItemStatsTests
                         projectileSession, ((int)afterRetirementAim.X, (int)afterRetirementAim.Y),
                         global::OrdinaryRangedAttack.Arrow, 0x18b6, new SkillCriticalRoll(0), null);
                     Release(afterRetirement, projectileSession);
-                    AssertPayload(afterRetirement, bleedChance: 0, poisonChance: 0);
+                    AssertPayload(afterRetirement, bleedChance: 0, poisonChance: 0, maimChance: 0);
                     Assert.True(afterRetirementTarget.Life < 100_000);
                     Assert.True(afterRetirementTarget.Life > 0);
-                    AssertAilments(afterRetirementTarget, expectedBleed: false, expectedPoison: false);
+                    AssertHitEffects(afterRetirementTarget, expectedBleed: false, expectedPoison: false, expectedMaim: false);
                     RemoveTarget(afterRetirementTargetId);
                 }
                 finally
@@ -729,6 +1044,42 @@ public class ConditionalItemStatsTests
             });
             BlockedPending("later action", blocked => { lock (blocked.Monsters) blocked.ActionCount++; });
             BlockedPending("retired", blocked => blocked.RageRetired = true, blocked => blocked.RageRetired = false);
+            {
+                var melee = NewConnection(character + "FreshMelee");
+                EquipYriel(melee, projectileAilments: true);
+                var meleeActor = Assert.Single(global::Game.GemSkillEffects(melee),
+                    g => global::Game.SkillsFor(melee).EffectId(g.Effect) == "SummonBeastialUrsa");
+                Ready(melee);
+                Assert.True(Cast(melee, meleeActor.Id));
+                global::Game.PlayerMinionsTick("test", lifecycleWire.Stream, lifecycleWire.Ciphers, melee,
+                    melee.Clock.Elapsed.TotalSeconds).GetAwaiter().GetResult();
+                Assert.NotNull(melee.Beasts.Active);
+                var meleeStats = global::Game.FinalPlayerStats(melee).ToDictionary(s => s.Item1, s => s.Item2);
+                foreach (var qualified in new[]
+                         {
+                             "projectile_attacks_chance_to_bleed_on_hit_%_if_you_have_beast_minion",
+                             "projectile_attacks_chance_to_poison_on_hit_%_if_you_have_beast_minion",
+                             "projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion",
+                         })
+                    Assert.Equal(100, meleeStats.GetValueOrDefault(Program.Stats.Key(qualified)!.Value));
+                foreach (var alias in new[]
+                         {
+                             "virtual_total_main_hand_chance_to_bleed_on_hit_%",
+                             "virtual_total_main_hand_chance_to_poison_on_hit_%",
+                             "main_hand_maim_on_hit_%",
+                         })
+                    Assert.Equal(0, meleeStats.GetValueOrDefault(Program.Stats.Key(alias)!.Value));
+                var meleeDefaultRows = Assert.Single(global::Game.PlayerSkills(melee),
+                    skill => skill.Id == SkillCatalog.FirstSkillId).Stats!
+                    .ToDictionary(stat => stat.Key, stat => stat.Value);
+                foreach (var alias in new[]
+                         {
+                             "virtual_total_main_hand_chance_to_bleed_on_hit_%",
+                             "virtual_total_main_hand_chance_to_poison_on_hit_%",
+                             "main_hand_maim_on_hit_%",
+                         })
+                    Assert.Equal(0, meleeDefaultRows.GetValueOrDefault(Program.Stats.Key(alias)!.Value));
+            }
             var oldLifetime = global::Game.CombatLifetime;
             var blockedReplacementLifetime = new ModuleLifetime("replacement-beast-pending");
             try
@@ -1351,6 +1702,563 @@ public class ConditionalItemStatsTests
                 PlayerInventories.Forget(character);
                 global::Game.InactiveItems.TryRemove(character, out _);
             }
+            lifetime.Stop(ex => throw ex);
+            global::Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseSaves(savePath);
+        }
+    }
+
+    void Bonemeld_counts_live_non_vaal_owner_minions_in_final_pools()
+    {
+        string savePath = Path.Combine(Path.GetTempPath(), $"localexile-bonemeld-{Guid.NewGuid():N}.db");
+        Saves.Open(savePath);
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = global::Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        global::Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        using var wire = new Wire();
+        var conn = new ClientState(new(1, "bonemeld-runtime", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            Character = "BonemeldRuntime",
+            Instance = new(),
+            PlayerLife = 1000,
+            PlayerMana = 1000,
+            PlayerSent = true,
+            Experience = CharacterStats.ExperienceFor(100),
+            Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+            LeagueModule = new(new GameServer.Core.Accounts.League("bonemeld-test", "Standard", false, false),
+                new HashSet<string>(["Game"])),
+        };
+        try
+        {
+            int ownerFireSource = 85, ownerColdSource = 44, ownerLightningSource = 3, ownerChaosSource = -57;
+            int minionFireResistance = 0;
+            // Raw flat sources make every final defence rating observable, not just the increased percentage buckets.
+            using var flatDefenceSources = GameEvents.PlayerStatSources.Add("Game", (sourceConn, sources) =>
+            {
+                if (!ReferenceEquals(sourceConn, conn)) return sources;
+                foreach (string stat in new[] { "base_physical_damage_reduction_rating", "base_evasion_rating",
+                             "base_maximum_energy_shield", "base_ward" })
+                    sources[Program.Stats.Key(stat)!.Value] = 1000;
+                uint ResistanceKey(string type) => Program.Stats.Key($"base_{type}_damage_resistance_%")!.Value;
+                sources[ResistanceKey("fire")] = sources.GetValueOrDefault(ResistanceKey("fire")) + ownerFireSource;
+                sources[ResistanceKey("cold")] = sources.GetValueOrDefault(ResistanceKey("cold")) + ownerColdSource;
+                sources[ResistanceKey("lightning")] = sources.GetValueOrDefault(ResistanceKey("lightning")) + ownerLightningSource;
+                sources[ResistanceKey("chaos")] = sources.GetValueOrDefault(ResistanceKey("chaos")) + ownerChaosSource;
+                uint minionFire = Program.Stats.Key("minion_fire_damage_resistance_%")!.Value;
+                sources[minionFire] = sources.GetValueOrDefault(minionFire) + minionFireResistance;
+                return sources;
+            });
+            foreach (string stat in new[] { "virtual_strength_for_requirements",
+                         "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
+                conn.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+            conn.Clock.Stop();
+            conn.Golems.Restored = true;
+            conn.Summons.Restored = true;
+
+            var itemCatalog = (ItemCatalog)global::Game.ItemsFor(conn)!;
+            var inventory = (PlayerInventories)global::Game.ItemsOf(conn)!;
+            Item RingWithMod(string modId, ModSection section, int value, int randomSeed, bool synthesised = false)
+            {
+                var row = itemCatalog.Mods.ById(modId)!;
+                return ItemCatalog.Create(itemCatalog.Find("Metadata/Items/Rings/Ring1")!, random: new Random(randomSeed)) with
+                {
+                    ItemLevel = 100, RequiredLevel = 1, Identified = true, Synthesised = synthesised,
+                    Mods = [new ItemMod(section, row.Hash, [value])],
+                };
+            }
+            var bonemeld = new UniqueCatalog(itemCatalog).Create("Bonemeld", new Random(504));
+            Assert.NotNull(bonemeld);
+            string ModId(ItemMod mod) => itemCatalog.Mods.ByHash(mod.Hash)?.Id ?? "";
+            var resistanceMod = Assert.Single(bonemeld!.Mods,
+                mod => ModId(mod) == "AllResistancesReducedPerActiveNonVaalSkillMinionUnique_1");
+            var defenceMod = Assert.Single(bonemeld.Mods,
+                mod => ModId(mod) == "GlobalDefensesIncreasedPerActiveNonVaalSkillMinionUnique_1");
+            var inheritedResistanceMod = Assert.Single(bonemeld.Mods,
+                mod => ModId(mod) == "MinionsGainPercentOfYourResistancesUnique_1");
+            Assert.Equal(-2, resistanceMod.Values.Single());
+            Assert.InRange(defenceMod.Values.Single(), 3, 4);
+            Assert.Equal(50, inheritedResistanceMod.Values.Single());
+            foreach (var old in inventory.Items(5)) inventory.Remove(5, old.Id);
+            var wornBonemeld = inventory.Add(5, 0, 0, bonemeld);
+
+            var golemGem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSummonFlameGolem")!);
+            var zombieGem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemRaiseZombie")!);
+            var weapon = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with
+            {
+                Sockets = [new(SocketColour.White, golemGem), new(SocketColour.White, zombieGem)],
+            };
+            foreach (var old in inventory.Items(PlayerInventories.Weapon1))
+                inventory.Remove(PlayerInventories.Weapon1, old.Id);
+            foreach (var old in inventory.Items(PlayerInventories.Offhand1))
+                inventory.Remove(PlayerInventories.Offhand1, old.Id);
+            inventory.Add(PlayerInventories.Weapon1, 0, 0, weapon);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.SendSkills("test", wire.Stream, wire.Ciphers, conn).GetAwaiter().GetResult();
+            conn.Pools = global::Game.PoolsFor(conn, conn.Pools.Level);
+            conn.PlayerLife = conn.Pools.Life;
+            Assert.DoesNotContain(wornBonemeld.Id, conn.StatSourcesCache!.Inactive);
+
+            (Dictionary<uint, int> Stats, CharacterStats.Pools Pools, long Count) Snapshot()
+            {
+                var stats = global::Game.FinalPlayerStats(conn).ToDictionary(p => p.Item1, p => p.Item2);
+                var snapshot = conn.StatSourcesCache!;
+                Assert.True(snapshot.Key.Amounts!.TryGetValue(StatConditions.ActiveNonVaalSkillMinionCount, out long count));
+                return (stats, conn.Pools, count);
+            }
+
+            void TickSummonsAt(double now)
+            {
+                Assert.False(conn.Clock.IsRunning);
+                conn.Clock.Start();
+                try
+                {
+                    global::Game.SummonsTick("test", wire.Stream, wire.Ciphers, conn, now).GetAwaiter().GetResult();
+                }
+                finally
+                {
+                    conn.Clock.Stop();
+                }
+                Assert.False(conn.Clock.IsRunning);
+                Assert.Equal(now + .5, conn.Summons.RefreshAt);
+                Assert.All(conn.Summons.Fighters.Values, fighter =>
+                {
+                    Assert.Same(fighter.Monster, conn.Monsters.GetValueOrDefault(fighter.Id));
+                    Assert.False(fighter.Monster.Dead);
+                    Assert.True(fighter.Monster.Life > 0);
+                });
+            }
+
+            var withZero = Snapshot();
+            Assert.Equal(0, withZero.Count);
+            Assert.True(withZero.Pools.Armour > 0);
+            Assert.True(withZero.Pools.Evasion > 0);
+            Assert.True(withZero.Pools.EnergyShield > 0);
+            Assert.True(withZero.Pools.Ward > 0);
+            var removedZero = inventory.Remove(5, wornBonemeld.Id);
+            Assert.NotNull(removedZero);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            var withoutZero = Snapshot();
+            Assert.Equal(0, withoutZero.Count);
+            Assert.Equal(withoutZero.Stats[Program.Stats.Key("base_chaos_damage_resistance_%")!.Value],
+                withZero.Stats[Program.Stats.Key("base_chaos_damage_resistance_%")!.Value]);
+            uint defence = Program.Stats.Key("global_defences_+%")!.Value;
+            Assert.Equal(withoutZero.Stats.GetValueOrDefault(defence), withZero.Stats.GetValueOrDefault(defence));
+            Assert.Equal(withoutZero.Pools.ArmourPct, withZero.Pools.ArmourPct);
+            inventory.Put(5, removedZero!);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.SendSkills("test", wire.Stream, wire.Ciphers, conn).GetAwaiter().GetResult();
+
+            var skills = global::Game.SkillsFor(conn);
+            var golemSource = Assert.Single(global::Game.GemSkillEffects(conn),
+                g => skills.EffectId(g.Effect) == "SummonFlameGolem");
+            var golemDefinition = global::Game.GolemData.Find("SummonFlameGolem")!;
+            uint golemId = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, conn, golemSource.Id,
+                golemDefinition, (100, 100)).GetAwaiter().GetResult();
+            Assert.NotEqual(0u, golemId);
+            var withOne = Snapshot();
+            Assert.Equal(1, withOne.Count);
+
+            var zombieSource = Assert.Single(global::Game.GemSkillEffects(conn),
+                g => skills.EffectId(g.Effect) == "RaiseZombie");
+            var corpseVariety = global::Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            const uint corpseId = 0x1000b22;
+            var corpse = new SpawnedMonster("bonemeld zombie corpse", new(100, 100, 0), 70, 8, 0)
+            {
+                Hostile = true, Dead = true, Life = 0, Variety = corpseVariety, Level = 70,
+            };
+            conn.Monsters[corpseId] = corpse;
+            uint zombieId = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, zombieSource.Id,
+                global::Game.SummonData.Find("RaiseZombie")!, (100, 100), corpseId).GetAwaiter().GetResult();
+            Assert.NotEqual(0u, zombieId);
+            var withTwo = Snapshot();
+            Assert.Equal(2, withTwo.Count);
+            Assert.Equal(75, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Fire),
+                global::Game.MaxResistance(conn, DamageType.Fire)));
+            Assert.Equal(40, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Cold),
+                global::Game.MaxResistance(conn, DamageType.Cold)));
+            Assert.Equal(-1, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Lightning),
+                global::Game.MaxResistance(conn, DamageType.Lightning)));
+            Assert.Equal(-61, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Chaos),
+                global::Game.MaxResistance(conn, DamageType.Chaos)));
+
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 1).GetAwaiter().GetResult();
+            var inheritedGolem = conn.Golems.All[golemId];
+            Assert.Equal(37, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+            Assert.Equal(20, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(-1, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Lightning));
+            Assert.Equal(-31, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+            TickSummonsAt(1.5);
+            var inheritedFighter = conn.Summons.Fighters[zombieId];
+            Assert.Equal(37, inheritedFighter.Monster.Mods.Effects.Resistance(DamageType.Fire));
+            Assert.Equal(20, inheritedFighter.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(-1, inheritedFighter.Monster.Mods.Effects.Resistance(DamageType.Lightning));
+            Assert.Equal(-31, inheritedFighter.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 1.5).GetAwaiter().GetResult();
+            Assert.Equal(37, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+
+            Assert.Empty(inventory.Items(6));
+            var maximumFireRow = Mod("SynthesisImplicitMaxFireResist2");
+            Assert.Equal((ushort)11402, maximumFireRow.Hash);
+            Assert.Equal("base_maximum_fire_damage_resistance_%", Assert.Single(maximumFireRow.Stats).Id);
+            var maximumFireRing = RingWithMod(maximumFireRow.Id, ModSection.Implicit, 3, 504, synthesised: true);
+            var maximumFirePlacement = inventory.Add(6, 0, 0, maximumFireRing);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 2).GetAwaiter().GetResult();
+            Assert.Same(inheritedGolem, conn.Golems.All[golemId]);
+            Assert.Equal(78, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Fire),
+                global::Game.MaxResistance(conn, DamageType.Fire)));
+            Assert.Equal(39, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+            Assert.NotNull(inventory.Remove(6, maximumFirePlacement.Id));
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 2.5).GetAwaiter().GetResult();
+            Assert.Same(inheritedGolem, conn.Golems.All[golemId]);
+            Assert.Equal(75, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Fire),
+                global::Game.MaxResistance(conn, DamageType.Fire)));
+            Assert.Equal(37, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+
+            var coldRow = Mod("ColdResist8");
+            Assert.Equal((ushort)3521, coldRow.Hash);
+            Assert.Equal("base_cold_damage_resistance_%", Assert.Single(coldRow.Stats).Id);
+            var coldRing = RingWithMod(coldRow.Id, ModSection.Explicit, 48, 505);
+            var coldPlacement = inventory.Add(6, 0, 0, coldRing);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 3).GetAwaiter().GetResult();
+            Assert.Equal(75, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Cold),
+                global::Game.MaxResistance(conn, DamageType.Cold)));
+            Assert.Equal(37, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(50, inheritedGolem.Player.GetValueOrDefault(
+                Program.Stats.Key("minions_gain_x_percent_of_your_resistances")!.Value));
+            Assert.NotNull(inventory.Remove(6, coldPlacement.Id));
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 3.5).GetAwaiter().GetResult();
+            Assert.Same(inheritedGolem, conn.Golems.All[golemId]);
+            Assert.Equal(40, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Cold),
+                global::Game.MaxResistance(conn, DamageType.Cold)));
+            Assert.Equal(20, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+
+            bool priorSin = conn.HasQuestFlag("SinOnKitavaDefeat");
+            if (priorSin)
+                global::Game.SetQuestFlags("test", wire.Stream, wire.Ciphers, conn, ["SinOnKitavaDefeat"], false).GetAwaiter().GetResult();
+            global::Game.SetQuestFlags("test", wire.Stream, wire.Ciphers, conn, ["SinOnKitavaDefeat"]).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 4).GetAwaiter().GetResult();
+            Assert.Same(inheritedGolem, conn.Golems.All[golemId]);
+            Assert.Equal(new[] { 51, 10, -31, -91 }, new[]
+            {
+                DamageModel.Capped(global::Game.Resistance(conn, DamageType.Fire), global::Game.MaxResistance(conn, DamageType.Fire)),
+                DamageModel.Capped(global::Game.Resistance(conn, DamageType.Cold), global::Game.MaxResistance(conn, DamageType.Cold)),
+                DamageModel.Capped(global::Game.Resistance(conn, DamageType.Lightning), global::Game.MaxResistance(conn, DamageType.Lightning)),
+                DamageModel.Capped(global::Game.Resistance(conn, DamageType.Chaos), global::Game.MaxResistance(conn, DamageType.Chaos)),
+            });
+            Assert.Equal(new[] { 25, 5, -16, -46 }, new[]
+            {
+                inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Fire),
+                inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold),
+                inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Lightning),
+                inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos),
+            });
+            global::Game.SetQuestFlags("test", wire.Stream, wire.Ciphers, conn, ["SinOnKitavaDefeat"], priorSin).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 4.5).GetAwaiter().GetResult();
+            Assert.Equal(37, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+            Assert.Equal(20, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(-1, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Lightning));
+            Assert.Equal(-31, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+
+            uint fireResistance = Program.Stats.Key("base_fire_damage_resistance_%")!.Value;
+            uint chaosResistance = Program.Stats.Key("base_chaos_damage_resistance_%")!.Value;
+            int resistanceCoefficient = resistanceMod.Values.Single();
+            int defenceCoefficient = defenceMod.Values.Single();
+            var oneMinionSubject = new StatConditions.Subject(Amounts: new Dictionary<string, long>
+            {
+                [StatConditions.ActiveNonVaalSkillMinionCount] = 1,
+            });
+            var directOne = ItemModStats.Sum([bonemeld], itemCatalog.Mods,
+                subject: oneMinionSubject, statExists: Program.Stats.Has);
+            Assert.Equal(resistanceCoefficient, directOne["base_resist_all_elements_%"]);
+            Assert.Equal(resistanceCoefficient, directOne["base_chaos_damage_resistance_%"]);
+            Assert.Equal(defenceCoefficient, directOne["global_defences_+%"]);
+            Assert.Equal(withOne.Stats[fireResistance] + resistanceCoefficient, withTwo.Stats[fireResistance]);
+            Assert.Equal(withOne.Stats[chaosResistance] + resistanceCoefficient, withTwo.Stats[chaosResistance]);
+            Assert.Equal(withOne.Pools.FireResistance + resistanceCoefficient, withTwo.Pools.FireResistance);
+            Assert.Equal(withOne.Pools.ColdResistance + resistanceCoefficient, withTwo.Pools.ColdResistance);
+            Assert.Equal(withOne.Pools.LightningResistance + resistanceCoefficient, withTwo.Pools.LightningResistance);
+            Assert.Equal(withOne.Pools.ChaosResistance + resistanceCoefficient, withTwo.Pools.ChaosResistance);
+            Assert.Equal(withOne.Pools.ArmourPct + defenceCoefficient, withTwo.Pools.ArmourPct);
+            Assert.Equal(withOne.Pools.EvasionPct + defenceCoefficient, withTwo.Pools.EvasionPct);
+            Assert.Equal(withOne.Pools.EnergyShieldPct + defenceCoefficient, withTwo.Pools.EnergyShieldPct);
+            Assert.Equal(1000 * (100 + withOne.Pools.ArmourPct) / 100, (int)withOne.Pools.Armour);
+            Assert.Equal((int)Math.Round(1015m * (100 + withOne.Pools.EvasionPct) / 100,
+                MidpointRounding.AwayFromZero), (int)withOne.Pools.Evasion);
+            Assert.Equal(1000 * (100 + withOne.Pools.EnergyShieldPct) / 100, (int)withOne.Pools.EnergyShield);
+            Assert.Equal((int)withZero.Pools.Armour + 10 * defenceCoefficient, (int)withOne.Pools.Armour);
+            Assert.Equal((int)withZero.Pools.EnergyShield + 10 * defenceCoefficient, (int)withOne.Pools.EnergyShield);
+            Assert.Equal((int)withZero.Pools.Ward + 10 * defenceCoefficient, (int)withOne.Pools.Ward);
+            Assert.Equal((int)withOne.Pools.Armour + 10 * defenceCoefficient, (int)withTwo.Pools.Armour);
+            Assert.Equal((int)Math.Round(1015m * (100 + withTwo.Pools.EvasionPct) / 100,
+                MidpointRounding.AwayFromZero), (int)withTwo.Pools.Evasion);
+            Assert.True(withTwo.Pools.Evasion > withOne.Pools.Evasion);
+            Assert.Equal((int)withOne.Pools.EnergyShield + 10 * defenceCoefficient, (int)withTwo.Pools.EnergyShield);
+            Assert.Equal((int)withOne.Pools.Ward + 10 * defenceCoefficient, (int)withTwo.Pools.Ward);
+
+            var ownedGolem = Assert.Single(conn.Minions.All, minion => minion.Id == golemId);
+            var ownedZombie = Assert.Single(conn.Minions.All, minion => minion.Id == zombieId);
+            double golemUntil = ownedGolem.Until;
+            double zombieUntil = ownedZombie.Until;
+            ownedGolem.Until = global::Game.AreaTime(conn);
+            ownedZombie.Until = global::Game.AreaTime(conn);
+            var withZeroAgain = Snapshot();
+            Assert.Equal(0, withZeroAgain.Count);
+            Assert.Equal(withTwo.Stats[fireResistance] - 2 * resistanceCoefficient, withZeroAgain.Stats[fireResistance]);
+            Assert.Equal(withTwo.Stats[chaosResistance] - 2 * resistanceCoefficient, withZeroAgain.Stats[chaosResistance]);
+            Assert.Equal(withTwo.Pools.FireResistance - 2 * resistanceCoefficient, withZeroAgain.Pools.FireResistance);
+            Assert.Equal(withTwo.Pools.ColdResistance - 2 * resistanceCoefficient, withZeroAgain.Pools.ColdResistance);
+            Assert.Equal(withTwo.Pools.LightningResistance - 2 * resistanceCoefficient, withZeroAgain.Pools.LightningResistance);
+            Assert.Equal(withTwo.Pools.ChaosResistance - 2 * resistanceCoefficient, withZeroAgain.Pools.ChaosResistance);
+            Assert.Equal(withTwo.Pools.ArmourPct - 2 * defenceCoefficient, withZeroAgain.Pools.ArmourPct);
+            Assert.Equal(withTwo.Pools.EvasionPct - 2 * defenceCoefficient, withZeroAgain.Pools.EvasionPct);
+            Assert.Equal(withTwo.Pools.EnergyShieldPct - 2 * defenceCoefficient, withZeroAgain.Pools.EnergyShieldPct);
+            Assert.Equal((int)withZero.Pools.Armour, (int)withZeroAgain.Pools.Armour);
+            Assert.Equal((int)withZero.Pools.Evasion, (int)withZeroAgain.Pools.Evasion);
+            Assert.Equal((int)withZero.Pools.EnergyShield, (int)withZeroAgain.Pools.EnergyShield);
+            Assert.Equal((int)withZero.Pools.Ward, (int)withZeroAgain.Pools.Ward);
+            ownedGolem.Until = golemUntil;
+            Assert.Equal(1, Snapshot().Count);
+            ownedZombie.Until = zombieUntil;
+            Assert.Equal(2, Snapshot().Count);
+
+            ownedZombie.Monster.Dead = true;
+            ownedZombie.Monster.Life = 0;
+            Assert.Equal(1, Snapshot().Count);
+            ownedZombie.Monster.Dead = false;
+            ownedZombie.Monster.Life = ownedZombie.Monster.MaxLife;
+            Assert.Equal(2, Snapshot().Count);
+
+            // A real fighter death removes its registry entry, then a real corpse summon restores count two. The same
+            // living golem follows the owner's changed penalty at the ordinary cadence.
+            var removedFighter = conn.Summons.Fighters[zombieId];
+            removedFighter.Monster.Dead = true;
+            removedFighter.Monster.Life = 0;
+            TickSummonsAt(5);
+            Assert.DoesNotContain(zombieId, conn.Summons.Fighters.Keys);
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 5.5).GetAwaiter().GetResult();
+            Assert.Same(inheritedGolem, conn.Golems.All[golemId]);
+            Assert.Equal(42, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Cold),
+                global::Game.MaxResistance(conn, DamageType.Cold)));
+            Assert.Equal(-59, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Chaos),
+                global::Game.MaxResistance(conn, DamageType.Chaos)));
+            Assert.Equal(21, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(-30, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+
+            const uint replacementCorpseId = 0x1000b23;
+            var replacementCorpse = new SpawnedMonster("bonemeld replacement zombie corpse", new(100, 100, 0), 70, 8, 0)
+            {
+                Hostile = true, Dead = true, Life = 0, Variety = corpseVariety, Level = 70,
+            };
+            conn.Monsters[replacementCorpseId] = replacementCorpse;
+            zombieId = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, zombieSource.Id,
+                global::Game.SummonData.Find("RaiseZombie")!, (100, 100), replacementCorpseId).GetAwaiter().GetResult();
+            Assert.NotEqual(0u, zombieId);
+            Assert.NotEqual(removedFighter.Id, zombieId);
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 6).GetAwaiter().GetResult();
+            Assert.Same(inheritedGolem, conn.Golems.All[golemId]);
+            Assert.Equal(40, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Cold),
+                global::Game.MaxResistance(conn, DamageType.Cold)));
+            Assert.Equal(-61, DamageModel.Capped(global::Game.Resistance(conn, DamageType.Chaos),
+                global::Game.MaxResistance(conn, DamageType.Chaos)));
+            Assert.Equal(20, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(-31, inheritedGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+            ownedZombie = Assert.Single(conn.Minions.All, minion => minion.Id == zombieId);
+
+            var golemMonster = conn.Monsters[golemId];
+            lock (conn.Monsters)
+            {
+                conn.Monsters[zombieId] = golemMonster;
+                Assert.Equal(1, Snapshot().Count);
+                conn.Monsters[zombieId] = ownedZombie.Monster;
+            }
+
+            var vaalRow = skills.EffectRow("VaalSummonSkeletons");
+            Assert.True(vaalRow >= 0);
+            Assert.True(skills.IsVaal(vaalRow));
+            var skeletonVariety = global::Game.Monsters.Find(
+                "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonStandard")!;
+            uint vaalId = global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, conn, skeletonVariety, 70,
+                MonsterRarity.Normal, 103, 100, friendly: true).GetAwaiter().GetResult();
+            Assert.NotEqual(0u, vaalId);
+            var vaalMonster = conn.Monsters[vaalId];
+            var vaalMinion = new PlayerMinions.Minion(vaalId, vaalMonster, "VaalSummonSkeletons", "Skeleton")
+            {
+                Until = double.PositiveInfinity,
+            };
+            Assert.False(vaalMonster.Dead);
+            Assert.True(vaalMonster.Life > 0);
+            Assert.Same(vaalMonster, conn.Monsters[vaalId]);
+            Assert.Equal(double.PositiveInfinity, vaalMinion.Until);
+            conn.Minions.Add(vaalMinion);
+            Assert.Equal(2, Snapshot().Count);
+
+            uint unknownId = global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, conn, skeletonVariety, 70,
+                MonsterRarity.Normal, 106, 100, friendly: true).GetAwaiter().GetResult();
+            Assert.NotEqual(0u, unknownId);
+            var unknownMonster = conn.Monsters[unknownId];
+            var unknownMinion = new PlayerMinions.Minion(unknownId, unknownMonster, "MissingNonVaalProvenance", "Skeleton")
+            {
+                Until = double.PositiveInfinity,
+            };
+            Assert.False(unknownMonster.Dead);
+            Assert.True(unknownMonster.Life > 0);
+            Assert.Same(unknownMonster, conn.Monsters[unknownId]);
+            Assert.Equal(double.PositiveInfinity, unknownMinion.Until);
+            conn.Minions.Add(unknownMinion);
+            Assert.Equal(2, Snapshot().Count);
+
+            var ordinaryRow = skills.EffectRow("SummonSkeletons");
+            Assert.True(ordinaryRow >= 0);
+            Assert.False(skills.IsVaal(ordinaryRow));
+            uint ordinaryId = global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, conn, skeletonVariety, 70,
+                MonsterRarity.Normal, 109, 100, friendly: true).GetAwaiter().GetResult();
+            Assert.NotEqual(0u, ordinaryId);
+            var ordinaryMonster = conn.Monsters[ordinaryId];
+            var ordinaryMinion = new PlayerMinions.Minion(ordinaryId, ordinaryMonster, "SummonSkeletons", "Skeleton")
+            {
+                Until = double.PositiveInfinity,
+            };
+            Assert.False(ordinaryMonster.Dead);
+            Assert.True(ordinaryMonster.Life > 0);
+            Assert.Same(ordinaryMonster, conn.Monsters[ordinaryId]);
+            Assert.Equal(double.PositiveInfinity, ordinaryMinion.Until);
+            conn.Minions.Add(ordinaryMinion);
+            Assert.Equal(3, Snapshot().Count);
+            conn.Minions.Remove(ordinaryId);
+            conn.Monsters.Remove(ordinaryId);
+            Assert.Equal(2, Snapshot().Count);
+
+            conn.PlayerLife = 0;
+            Assert.Equal(0, Snapshot().Count);
+            conn.PlayerLife = conn.Pools.Life;
+            Assert.Equal(2, Snapshot().Count);
+
+            // An ordinary minion-resistance source enters the same additive bucket once, and repeating the ordinary
+            // refresh changes nothing. Restore the input before the older owner-only comparisons continue.
+            int fireBeforeMinionSource = conn.Golems.All[golemId].Monster.Mods.Effects.Resistance(DamageType.Fire);
+            Assert.Equal(37, fireBeforeMinionSource);
+            minionFireResistance = 50;
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 7).GetAwaiter().GetResult();
+            var minionSourceGolem = conn.Golems.All[golemId];
+            Assert.Equal(87, minionSourceGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 7.5).GetAwaiter().GetResult();
+            Assert.Same(minionSourceGolem, conn.Golems.All[golemId]);
+            Assert.Equal(87, minionSourceGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+
+            var removedTwo = inventory.Remove(5, wornBonemeld.Id);
+            Assert.NotNull(removedTwo);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.SendSkills("test", wire.Stream, wire.Ciphers, conn).GetAwaiter().GetResult();
+            var withoutTwo = Snapshot();
+            Assert.Equal(2, withoutTwo.Count);
+            Assert.Equal(withoutTwo.Stats[fireResistance] + 2 * resistanceCoefficient, withTwo.Stats[fireResistance]);
+            Assert.Equal(withoutTwo.Stats[chaosResistance] + 2 * resistanceCoefficient, withTwo.Stats[chaosResistance]);
+            Assert.Equal(withoutTwo.Pools.FireResistance + 2 * resistanceCoefficient, withTwo.Pools.FireResistance);
+            Assert.Equal(withoutTwo.Pools.ColdResistance + 2 * resistanceCoefficient, withTwo.Pools.ColdResistance);
+            Assert.Equal(withoutTwo.Pools.LightningResistance + 2 * resistanceCoefficient, withTwo.Pools.LightningResistance);
+            Assert.Equal(withoutTwo.Pools.ChaosResistance + 2 * resistanceCoefficient, withTwo.Pools.ChaosResistance);
+            Assert.Equal(withoutTwo.Pools.ArmourPct + 2 * defenceCoefficient, withTwo.Pools.ArmourPct);
+            Assert.Equal(withoutTwo.Stats.GetValueOrDefault(defence) + 2 * defenceCoefficient,
+                withTwo.Stats.GetValueOrDefault(defence));
+            Assert.DoesNotContain(withTwo.Stats.Keys,
+                key => key == Program.Stats.Key("all_resistances_%_per_active_minion_not_from_vaal_skills")!.Value);
+            Assert.DoesNotContain(withTwo.Stats.Keys,
+                key => key == Program.Stats.Key("global_defences_+%_per_active_minion_not_from_vaal_skills")!.Value);
+
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 8).GetAwaiter().GetResult();
+            var withoutCoefficientGolem = Assert.Single(conn.Golems.All.Values);
+            Assert.Same(withoutCoefficientGolem.Monster, conn.Monsters[withoutCoefficientGolem.Id]);
+            Assert.Equal(0, withoutCoefficientGolem.Player.GetValueOrDefault(
+                Program.Stats.Key("minions_gain_x_percent_of_your_resistances")!.Value));
+
+            int IncomingLifeLoss(GolemState.Golem golem, DamageType type, double at, int expectedLoss)
+            {
+                var monster = golem.Monster;
+                Assert.Same(monster, conn.Monsters[golem.Id]);
+                Assert.Equal(0, golem.Player.GetValueOrDefault(
+                    Program.Stats.Key("minion_additional_spell_block_%")!.Value));
+                golem.ShieldPool.SetMaximum(0);
+                monster.Life = monster.MaxLife;
+                const uint attackerId = 0x07100001;
+                var attacker = new SpawnedMonster("plain bonemeld attacker", new(100, 100, 0), 100, 8, 1000);
+                conn.Monsters[attackerId] = attacker;
+                var attack = new MonsterAttack(0x4000, 1, 100, DamagePacket.Of(type, 400, 400)) { Spell = true };
+                Assert.Equal(0, attacker.Effects.CriticalChance);
+                Assert.Equal(1, monster.Effects.DamageTaken(true));
+                uint before = monster.Life;
+                try
+                {
+                    Assert.True(global::Game.GolemTakeHitLocked(conn, golem, attackerId, attacker, attack, at));
+                }
+                finally
+                {
+                    conn.Monsters.Remove(attackerId);
+                }
+                int loss = (int)(before - monster.Life);
+                Assert.Equal(expectedLoss, loss);
+                return loss;
+            }
+
+            var flameVariety = withoutCoefficientGolem.Monster.Variety!;
+            Assert.Equal(70, global::Game.Monsters.BaseResistance(flameVariety, 20, DamageType.Fire));
+            Assert.Equal(40, global::Game.Monsters.BaseResistance(flameVariety, 20, DamageType.Cold));
+            Assert.Equal(20, global::Game.Monsters.BaseResistance(flameVariety, 20, DamageType.Chaos));
+            Assert.Equal(0, withoutCoefficientGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(0, withoutCoefficientGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+            int SpellLifeLoss(int innateResistance, int inheritedResistance) =>
+                (int)Math.Round(400 * (100 - Math.Clamp(innateResistance + inheritedResistance, -200, 75)) / 100d);
+            Assert.Equal(240, SpellLifeLoss(40, 0));
+            Assert.Equal(320, SpellLifeLoss(20, 0));
+            Assert.Equal(160, SpellLifeLoss(40, 20));
+            Assert.Equal(444, SpellLifeLoss(20, -31));
+            IncomingLifeLoss(withoutCoefficientGolem, DamageType.Cold, 8.1, SpellLifeLoss(40, 0));
+            IncomingLifeLoss(withoutCoefficientGolem, DamageType.Chaos, 8.2, SpellLifeLoss(20, 0));
+            inventory.Put(5, removedTwo!);
+            global::Game.SendEquipment("test", wire.Stream, wire.Ciphers, conn, inventory).GetAwaiter().GetResult();
+            global::Game.SendSkills("test", wire.Stream, wire.Ciphers, conn).GetAwaiter().GetResult();
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 8.5).GetAwaiter().GetResult();
+            var reWornGolem = Assert.Single(conn.Golems.All.Values);
+            Assert.Same(reWornGolem.Monster, conn.Monsters[reWornGolem.Id]);
+            Assert.Equal(50, reWornGolem.Player.GetValueOrDefault(
+                Program.Stats.Key("minions_gain_x_percent_of_your_resistances")!.Value));
+            Assert.Equal(20, reWornGolem.Monster.Mods.Effects.Resistance(DamageType.Cold));
+            Assert.Equal(-31, reWornGolem.Monster.Mods.Effects.Resistance(DamageType.Chaos));
+            IncomingLifeLoss(reWornGolem, DamageType.Cold, 8.6, SpellLifeLoss(40, 20));
+            IncomingLifeLoss(reWornGolem, DamageType.Chaos, 8.7, SpellLifeLoss(20, -31));
+
+            minionFireResistance = 0;
+            global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, conn, 9).GetAwaiter().GetResult();
+            reWornGolem = Assert.Single(conn.Golems.All.Values);
+            Assert.Equal(37, reWornGolem.Monster.Mods.Effects.Resistance(DamageType.Fire));
+
+            var repeatedA = Snapshot();
+            var repeatedB = Snapshot();
+            Assert.Equal(2, repeatedA.Count);
+            Assert.Equal(repeatedA.Pools, repeatedB.Pools);
+            Assert.Equal(repeatedA.Stats.Count, repeatedB.Stats.Count);
+            Assert.All(repeatedA.Stats, stat => Assert.Equal(stat.Value, repeatedB.Stats[stat.Key]));
+
+            // The same final source feeds the ordinary ward percentage branch.
+            uint ward = Program.Stats.Key("base_ward")!.Value;
+            var withoutWard = new Dictionary<uint, int>(withoutTwo.Stats) { [ward] = 100 };
+            var wardWithSources = new Dictionary<uint, int>(repeatedA.Stats) { [ward] = 100 };
+            var attributes = global::Game.CharacterStatSources(conn).Attributes;
+            var weapons = global::Game.WeaponProfileFor(conn);
+            var withoutBonus = global::Game.PassiveBonus(withoutWard, weapons, attributes);
+            var withBonus = global::Game.PassiveBonus(wardWithSources, weapons, attributes);
+            Assert.Equal(withoutBonus.WardPct + 2 * defenceCoefficient, withBonus.WardPct);
+        }
+        finally
+        {
+            PlayerInventories.Forget(conn.Character!);
+            global::Game.InactiveItems.TryRemove(conn.Character!, out _);
             lifetime.Stop(ex => throw ex);
             global::Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!);
@@ -6305,6 +7213,11 @@ public class ConditionalItemStatsTests
             stop();
             return Task.CompletedTask;
         }
+    }
+
+    sealed class FixedRandom(int value) : Random
+    {
+        public override int Next(int maxValue) => value;
     }
 
     sealed class Wire : IDisposable

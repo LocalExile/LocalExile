@@ -29,7 +29,36 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// (null keeps the base's). The first <paramref name="Fractured"/> of <paramref name="Mods"/> are fractured.</summary>
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
-        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
+        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0)
+    {
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? CreationVariant { get; init; }
+    }
+
+    const string YrielName = "Yriel's Fostering";
+    static readonly (string Name, string[] Mods)[] YrielProfiles =
+    [
+        ("Ursa",
+        [
+            "GrantsSummonBeastUrsaUnique__1",
+            "AddedPhysicalDamageToAttacksBeastialMinionUnique__1",
+            "ProjectileAttacksChanceToMaimBeastialMinionUnique__1",
+        ]),
+        ("Rhoa",
+        [
+            "GrantsSummonBeastRhoaUnique__1",
+            "AttackAndMovementSpeedBeastialMinionUnique__1",
+            "ProjectileAttacksChanceToBleedBeastialMinionUnique__1_",
+        ]),
+        ("Snake",
+        [
+            "GrantsSummonBeastSnakeUnique__1",
+            "AddedChaosDamageToAttacksBeastialMinionUnique__1",
+            "ProjectileAttacksChanceToPoisonBeastialMinionUnique__1",
+        ]),
+    ];
+    static readonly HashSet<string> YrielProfileMods =
+        YrielProfiles.SelectMany(profile => profile.Mods).ToHashSet(StringComparer.Ordinal);
 
     /// <summary>The curated entries whose 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
@@ -44,6 +73,11 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             ["IncreasedAccuracyUniqueHelmetInt7", "LocalIncreasedEnergyShieldUniqueHelmetInt7",
              "FireResistUniqueHelmetInt7", "LifeLeechPermyriadUniqueHelmetInt7",
              "ManaLeechPermyriadUniqueHelmetInt7", "SpellDamageModifiersApplyToAttackDamageUniqueHelmetInt7"]),
+        // Fleshcrafter (3.29): the generated export omits its life-to-ES conversion row.
+        new("Fleshcrafter", "Metadata/Items/Armours/BodyArmours/BodyInt14",
+            ["LocalIncreasedEnergyShieldUniqueBodyInt1", "MinionLifeConvertedToEnergyShieldUnique__1",
+             "MinionChaosDamageDoesNotBypassESUnique__1", "MinionEnergyShieldRechargeDelayUnique__1",
+             "MinionHitsIgnoreResistanceWithESUnique__1_"]),
         // That Which Was Taken: a Crimson Jewel that rolls four random charm modifiers. Its modifiers are chosen in
         // Create rather than listed here; the definition carries the base type, name and item level.
         new("That Which Was Taken", "Metadata/Items/Jewels/JewelStr", [], 83),
@@ -107,11 +141,21 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         NessaMapStock.Build(items, folder).FirstOrDefault(e => e.Item.Rarity == ItemRarity.Unique
             && NameKey(e.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase)) is { } entry ? entry.Item : null;
 
-    public Definition? Find(string name) =>
-        All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
-        ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
-            && items.Find(d.BaseTypeId)?.Name.Equals(name[(d.Name.Length + 1)..], StringComparison.OrdinalIgnoreCase) == true)
-        ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+    public Definition? Find(string name)
+    {
+        if (TryYrielProfileName(name, out string? variant))
+        {
+            if (variant is null) return null;
+            return All.FirstOrDefault(d =>
+                       NameKey(d.Name).Equals(NameKey(YrielName), StringComparison.OrdinalIgnoreCase)) is { } definition
+                ? definition with { CreationVariant = variant }
+                : null;
+        }
+        return All.FirstOrDefault(d => NameKey(d.Name).Equals(NameKey(name), StringComparison.OrdinalIgnoreCase))
+            ?? All.FirstOrDefault(d => name.StartsWith(d.Name + " ", StringComparison.OrdinalIgnoreCase)
+                && items.Find(d.BaseTypeId)?.Name.Equals(name[(d.Name.Length + 1)..], StringComparison.OrdinalIgnoreCase) == true)
+            ?? All.FirstOrDefault(d => d.Name.Contains(name, StringComparison.OrdinalIgnoreCase));
+    }
 
     /// <summary>The word-list word a unique's name resolves to, or null when the client data has no such name. The
     /// survivors pool uses it to skip a unique the character already wears without rolling a whole item.</summary>
@@ -163,7 +207,17 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             mods.RemoveAll(m => m.Section == ModSection.Implicit);
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
-        mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
+        string[] explicitMods = definition.Mods;
+        if (NameKey(definition.Name).Equals(NameKey(YrielName), StringComparison.OrdinalIgnoreCase))
+        {
+            string variant = definition.CreationVariant ?? YrielProfiles[random.Next(YrielProfiles.Length)].Name;
+            int profileIndex = Array.FindIndex(YrielProfiles,
+                profile => profile.Name.Equals(variant, StringComparison.OrdinalIgnoreCase));
+            if (profileIndex < 0) throw new InvalidOperationException($"Unknown {YrielName} creation profile: {variant}");
+            var profile = YrielProfiles[profileIndex];
+            explicitMods = [.. definition.Mods.Where(id => !YrielProfileMods.Contains(id)), .. profile.Mods];
+        }
+        mods.AddRange(Rolled(definition, explicitMods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
         return item with { Mods = mods };
@@ -180,6 +234,18 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     static (int Min, int Max)? RollOf(Definition definition, ModCatalog.Mod mod, ModSection section, int stat) =>
         !mod.RangeOverridden(stat) && definition.Ranges?.FirstOrDefault(range => range.Mod == mod.Id && range.Stat == stat
             && range.Implicit == (section == ModSection.Implicit)) is { } own ? (own.Min, own.Max) : null;
+
+    static bool TryYrielProfileName(string name, out string? variant)
+    {
+        variant = null;
+        string key = NameKey(name), prefix = NameKey(YrielName) + " (";
+        if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!key.EndsWith(")", StringComparison.Ordinal)) return true;
+        string candidate = key[prefix.Length..^1];
+        variant = YrielProfiles.FirstOrDefault(p =>
+            p.Name.Equals(candidate, StringComparison.OrdinalIgnoreCase)).Name;
+        return true;
+    }
 
     /// <summary>The rolls of the unique an item is, for currency that rerolls its values; null for any other item.</summary>
     public StatRoll? RollsOf(Item item) =>

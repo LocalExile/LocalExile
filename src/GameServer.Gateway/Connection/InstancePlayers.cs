@@ -33,7 +33,8 @@ static class InstanceEvents
 
 sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life);
 sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
-sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination, uint Life);
+sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,
+    uint Life, uint EnergyShield = 0, uint MaximumEnergyShield = 0);
 
 partial class Program
 {

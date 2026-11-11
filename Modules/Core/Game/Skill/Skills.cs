@@ -751,9 +751,10 @@ static partial class Game
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
             int RawPanel(string stat) => Stats.Key(stat) is uint key ? panelSources.Raw.GetValueOrDefault(key) : 0;
             int OwnPanel(string stat) => Stats.Key(stat) is uint key ? own.GetValueOrDefault(key) : 0;
+            bool projectileAttack = SkillsFor(conn).IsAttack(effect) && ResolveProjectilePanelParameters(effect) is not null;
             foreach (var (stat, value) in PanelStats.Selected(RawPanel, OwnPanel, panelSources.PlayerLevel,
                 panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
-                panelSources.MainArmed, panelSources.OffArmed))
+                panelSources.MainArmed, panelSources.OffArmed, projectileAttack, projectileAttack && panelSources.OffArmed))
                 if (Stats.Key(stat) is uint key)
                     stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
             if (Stats.Key(VaalSoulCost.Aura) is uint aura)

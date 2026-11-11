@@ -25,17 +25,19 @@ namespace GameServer.Core.World;
 public static class HitResistances
 {
     /// <summary>The hit's resistance stats as a stats dictionary holds them: 1 for the flags, a percentage for the
-    /// penetration.</summary>
+    /// penetration. <see cref="Mods.UnconditionalIgnoreElemental"/> is an explicit hit fact for sources that ignore
+    /// elemental resistance without requiring a critical strike; it is kept separate from the critical flags.</summary>
     public readonly record struct Mods(int CriticalIgnoreElemental, int AttackCriticalIgnoreElemental,
-        int NonCriticalPenetration, int CannotPenetrateOrIgnore)
+        int NonCriticalPenetration, int CannotPenetrateOrIgnore, bool UnconditionalIgnoreElemental = false)
     {
-        /// <summary>The four stats by name, through the caller's name → key lookup (the client's stat key is the
+        /// <summary>The four source stats by name, through the caller's name → key lookup (the client's stat key is the
         /// Stats.dat row + 1). A stat the source does not carry reads 0.</summary>
         public static Mods From(IReadOnlyDictionary<uint, int> stats, Func<string, uint?> key) => new(
             Get(stats, key("critical_strikes_ignore_elemental_resistances")),
             Get(stats, key("attack_critical_strikes_ignore_elemental_resistances")),
             Get(stats, key("non_critical_strikes_penetrate_elemental_resistances_%")),
-            Get(stats, key("cannot_penetrate_or_ignore_elemental_resistances")));
+            Get(stats, key("cannot_penetrate_or_ignore_elemental_resistances")),
+            UnconditionalIgnoreElemental: false);
 
         private static int Get(IReadOnlyDictionary<uint, int> stats, uint? key) => key is uint k ? stats.GetValueOrDefault(k) : 0;
     }
@@ -45,11 +47,11 @@ public static class HitResistances
     /// default covers that case for the callers that only build strikes).</summary>
     public readonly record struct Strike(bool Critical, bool Attack, bool OverTime = false);
 
-    /// <summary>Whether the hit's ignore flags apply: a critical strike with the generic stat, or an attack with
-    /// the attack-only one. A damage-over-time tick can never meet the critical condition.</summary>
-    private static bool Ignored(in Strike strike, in Mods mods) =>
-        strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
-            (strike.Attack && mods.AttackCriticalIgnoreElemental != 0));
+    /// <summary>Whether the hit's ignore flags apply: an explicit unconditional elemental hit, a critical strike
+    /// with the generic stat, or an attack with the attack-only one. A damage-over-time tick can meet none.</summary>
+    private static bool Ignored(in Strike strike, in Mods mods) => !strike.OverTime &&
+        (mods.UnconditionalIgnoreElemental || strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
+            (strike.Attack && mods.AttackCriticalIgnoreElemental != 0)));
 
     /// <summary>
     /// The resistance one type of the hit mitigates with, resolved for the pass that applies cap-then-pen

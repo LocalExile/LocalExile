@@ -16,7 +16,8 @@ static partial class Game
         public long NextBuff, Life, Mana;
         public long Golems;
         public int Overrides, Auras;
-        public bool Moving;
+        public bool Moving, GolemSummonedRecently;
+        public StatSourcesResult? StatSources;
         public Dictionary<uint, int>? Stats;
         public double Baseline;
     }
@@ -37,17 +38,25 @@ static partial class Game
     static PlayerStatsEntry PlayerStatsKey(ClientState conn, double now)
     {
         int overrides;
-        lock (conn.Monsters) overrides = conn.PlayerStats.Count;
+        StatSourcesResult? statSources;
+        lock (conn.Monsters)
+        {
+            overrides = conn.PlayerStats.Count;
+            statSources = conn.StatSourcesCache;
+        }
         return new()
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
+            GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
         };
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
-        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems;
+        && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
+        && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
+        && ReferenceEquals(a.StatSources, b.StatSources);
 
     internal static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {

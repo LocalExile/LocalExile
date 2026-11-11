@@ -202,7 +202,7 @@ static partial class Game
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
                 HashSet<uint> inside = radius is int r
-                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Mods.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
+                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
                         .Select(kv => kv.Key).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
@@ -217,7 +217,7 @@ static partial class Game
                     ? PhysicalAegisRadius(conn, aegis) : 0;
                 HashSet<uint> aegisInside = aegisRadius > 0
                     ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 }
-                            && kv.Value.Mods.Effects["cannot_be_blinded"] == 0
+                            && kv.Value.Effects["cannot_be_blinded"] == 0
                             && Dist(kv.Value.Walk.Position(now), here) <= aegisRadius)
                         .Select(kv => kv.Key).ToHashSet()
                     : [];

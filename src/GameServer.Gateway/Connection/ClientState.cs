@@ -228,10 +228,15 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     // damage reduction (Game.CrushReduction).
     public double CrushedUntil = double.NegativeInfinity, CrushShownUntil;
     public ushort CrushBuff;
-    // Maimed by his hits until when and the physical damage increase its source gave, shown with its own maimed buff.
+    // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
+    // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
+    public double MaimedPhysicalTakenUntil = double.NegativeInfinity;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    public int MaimedMovementShownPct;
+    public bool MaimedMovementShown;
+    public double WalkSpeedAtZeroFactor;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
     public double HallowingFlameUntil = double.NegativeInfinity;
     public double HallowingFlamePct;

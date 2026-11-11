@@ -86,9 +86,11 @@ static partial class Game
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
-        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
-        Func<bool>? ownedAdmission = null, MonsterPlacement placement = MonsterPlacement.Proposed)
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed)
     {
         uint id;
         // Under the lock the projectile visuals and ground art take ids under: minions spawn from their own loop.
@@ -209,11 +211,18 @@ static partial class Game
         // The final maximum too: the client applies no modifier of its own (as for the player's maximum_life), so without it
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
+        uint maximumEnergyShieldValue = owned is null ? 0 : NativeEnergyShield(ownedMaximumEnergyShield);
+        uint energyShieldValue = maximumEnergyShieldValue == 0 ? 0
+            : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
+        if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
+            (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
         var states = BrineKing.StartStates(variety) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
-        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
+        uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
+        var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skills, stats)
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
+            EnergyShield = energyShieldValue,
         };
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2b9 type is its hash.
         if (QuestKillCommitOutput is { } output)
@@ -246,7 +255,9 @@ static partial class Game
                     if (!CurrentGameWork || conn.Closed || conn.LeavingArea || ownedCurrent is not null && !ownedCurrent()) return null;
                     if (ownedAdmission is not null && !ownedAdmission()) return null;
                     AddMonsterLocked(); admitted = true;
-                    return [.. create, .. InstanceProtocol.EnterWakeZone(id)];
+                    return ownedInitialDeath
+                        ? [.. create, .. InstanceProtocol.EnterWakeZone(id), .. InstanceProtocol.LifeUpdate(id, 0)]
+                        : [.. create, .. InstanceProtocol.EnterWakeZone(id)];
                 }
             });
             if (!admitted) return 0;
@@ -308,7 +319,7 @@ static partial class Game
         }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
-        if (damagedLife < life)
+        if (owned is null && damagedLife < life)
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
         if (!friendly && KingInMists.IsBoss(variety)) KingInMists.Begin(remote, stream, ciphers, conn, id);
         return id;

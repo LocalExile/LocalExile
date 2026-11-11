@@ -134,7 +134,8 @@ static partial class Game
                     if (conn.MinionOrigins.TryGetValue(id, out var origin) && !m.Dead && m.Life > 0)
                     {
                         var at = m.Walk.Position(now);
-                        minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life));
+                        minions.Add(new(id, origin, m, at.X, at.Y, m.Walk.Destination, m.Life, origin.Object.EnergyShield,
+                            SnapshotMaximumEnergyShield(origin.Object)));
                     }
             }
             conn.PublishedMinions = [.. minions];
@@ -398,7 +399,8 @@ static partial class Game
                     var o = m.Origin;
                     lock (conn.Monsters)
                         if (conn.MonsterTypes.Add((o.Row, o.Level))) packets.Add(InstanceEntities.MonsterTypes([(o.Row, o.Level)]));
-                    packets.Add(InstanceEntities.CreateObject(id, o.Type, (o.Object with { GridX = m.X, GridY = m.Y, Life = m.Life }).Blob()));
+                    packets.Add(InstanceEntities.CreateObject(id, o.Type, (o.Object with
+                        { GridX = m.X, GridY = m.Y, Life = m.Life, EnergyShield = m.EnergyShield }).Blob()));
                     packets.Add(InstanceProtocol.EnterWakeZone(id));
                     if (m.Destination != (m.X, m.Y))
                         packets.Add(InstanceProtocol.ActionStarted(id, m.X, m.Y, m.Destination.X, m.Destination.Y, 0x2909, 0xffff, 0x0408));
@@ -410,6 +412,12 @@ static partial class Game
                     else if (m.Destination == (m.X, m.Y) && Math.Max(Math.Abs(before.X - m.X), Math.Abs(before.Y - m.Y)) > 20)
                         packets.Add(InstanceProtocol.Teleport(id, m.X, m.Y, 0x7fffffff));
                     if (before.Life != m.Life) packets.Add(InstanceProtocol.LifeUpdate(id, m.Life));
+                    if (before.MaximumEnergyShield != m.MaximumEnergyShield
+                        && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
+                        packets.Add(InstanceEntities.StatsUpdate(id, [(maximumEnergyShield,
+                            (int)Math.Min(m.MaximumEnergyShield, int.MaxValue))]));
+                    if (before.EnergyShield != m.EnergyShield)
+                        packets.Add(InstanceProtocol.LifeUpdate(id, m.EnergyShield, pool: 2));
                 }
                 conn.SeenMinions[key] = m;
             }

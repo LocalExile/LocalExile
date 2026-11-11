@@ -92,6 +92,7 @@ static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, m) in conn.Monsters)
             {
+                if (OwnedGolemActor(conn, id, m)) continue;
                 if (m.Poisons.Idle) continue;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.Clear();

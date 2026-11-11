@@ -51,7 +51,7 @@ sealed class PlayerMinions
     }
     internal readonly Dictionary<uint, Attack> Attacks = [];
     // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
-    internal enum OutputKind { Packet, Life, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming }
+    internal enum OutputKind { Packet, Life, EnergyShield, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming }
     internal sealed record Output(byte[] Packet, string? Log, uint? TargetId = null, SpawnedMonster? Target = null,
         OutputKind Kind = OutputKind.Packet, double Until = 0, int Action = 0,
         AreaTransitionObject? Transition = null, GameServer.Modding.MonsterInfo? Kill = null, IReadOnlyList<AcceptedCharges>? Charges = null, byte? InventoryRow = null, IReadOnlyList<uint>? ItemIds = null, (int X, int Y)? At = null, (ushort Row, byte Level)? MonsterType = null);

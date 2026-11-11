@@ -16,6 +16,8 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public MonsterIgnites.Settings Ignite { get; init; }
     /// <summary>The bleed an attack's hits can inflict, captured at release (MonsterBleeds); the default bleeds nothing.</summary>
     public MonsterIgnites.Settings Bleed { get; init; }
+    /// <summary>The maim chance an attack's hits can inflict, captured at release; the default maims nothing.</summary>
+    public int MaimChance { get; init; }
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }

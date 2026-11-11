@@ -64,6 +64,30 @@ sealed class MonsterPoisons
     /// <summary>The native <c>poison</c> buff instance on the monster (BuffDefinitions row 10).</summary>
     public ushort? Buff;
 
+    /// <summary>The attacking object shown as the buff source (0 for generic self-created poisons).</summary>
+    public uint BuffSource;
+
+    /// <summary>Moves the active stacks and integration state to a fresh owner without restarting either.</summary>
+    public void MoveTo(MonsterPoisons target)
+    {
+        if (ReferenceEquals(this, target)) return;
+        target.active.AddRange(active);
+        target.last = last;
+        target.carry = carry;
+        target.expiryRate = expiryRate;
+        target.DiedPoisoned = DiedPoisoned;
+        target.BuffSource = BuffSource;
+        target.Buff = null;
+
+        active.Clear();
+        last = 0;
+        carry = 0;
+        expiryRate = 1;
+        DiedPoisoned = false;
+        BuffSource = 0;
+        Buff = null;
+    }
+
     public bool Poisoned => active.Count > 0;
 
     public bool Idle => active.Count == 0 && Buff is null;
@@ -94,8 +118,13 @@ sealed class MonsterPoisons
 
     /// <summary>Sums the concurrent chaos damage of all active poison stacks from last advance to <paramref name="until"/>,
     /// multiplied by the monster's chaos mitigation <paramref name="factor"/>.</summary>
-    public int Advance(double until, double factor)
+    public int Advance(double until, double factor) => Advance(until, factor, out _);
+
+    /// <summary>The same advance, also reporting the end of the last cut where the active stacks dealt positive damage:
+    /// not the frame time, and null when no positive mitigated subinterval existed.</summary>
+    public int Advance(double until, double factor, out double? lastDamageAt)
     {
+        lastDamageAt = null;
         if (active.Count == 0 || !(until > last)) return 0;
         var cuts = active.SelectMany(p => new[] { p.From, p.Until }).Where(t => last < t && t < until)
             .Append(last).Append(until).Distinct().Order().ToArray();
@@ -104,7 +133,10 @@ sealed class MonsterPoisons
         {
             double mid = (cuts[k - 1] + cuts[k]) / 2;
             double sumDps = active.Where(p => p.From <= mid && mid < p.Until).Sum(p => p.DamagePerSecond);
-            damage += sumDps * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
+            double seconds = cuts[k] - cuts[k - 1];
+            double mitigated = sumDps * Math.Max(0, factor);
+            if (mitigated > 0 && seconds > 0) lastDamageAt = cuts[k];
+            damage += mitigated * seconds;
         }
         last = until;
         active.RemoveAll(p => p.Until <= until);

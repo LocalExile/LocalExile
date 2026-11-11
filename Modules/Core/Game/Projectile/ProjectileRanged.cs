@@ -77,6 +77,7 @@ static partial class Game
                 projectileAttack: true),
             Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand,
                 projectileAttack: true),
+            MaimChance = Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
             CriticalRoll = criticalRoll, Leech = captured.Leech,
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,

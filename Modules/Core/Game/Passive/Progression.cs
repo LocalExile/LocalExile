@@ -200,8 +200,8 @@ static partial class Game
         if (exemptions.Count > 0)
             before = new HashSet<uint>((before ?? []).Where(id => !exemptions.Contains(id)));
         // Conditional item stats (issue #504) depend on state the connection keeps: the auras running now, the events of
-        // the last four seconds, and the attributes an "if you have at least N X" id compares. Capture a value snapshot
-        // for both the cache key and the resolver, so a change in any of them cannot reuse a result computed before it.
+        // the last four seconds, the attributes an "if you have at least N X" id compares, and current named amounts such
+        // as the player's active non-Vaal minion count. Capture one snapshot for both the cache key and the resolver.
         IReadOnlySet<string> auraEffects;
         double conditionNow;
         IReadOnlySet<string> recentEvents;
@@ -227,6 +227,8 @@ static partial class Game
             var measured = conn.RecentEvents.Amounts(conditionNow);
             measured.TryAdd(StatConditions.KilledEnemy, 0);
             measured.TryAdd(StatConditions.SpentMana, 0);
+            measured[StatConditions.ActiveNonVaalSkillMinionCount] =
+                ActiveNonVaalSkillMinionCountLocked(conn, conditionNow);
             recentAmounts = measured;
         }
         // A deterministic test can interleave another owner update here, after this call has captured its condition view.
@@ -656,6 +658,22 @@ static partial class Game
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);
+    }
+
+    static int ActiveNonVaalSkillMinionCountLocked(ClientState conn, double now)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return 0;
+        var skills = SkillsFor(conn);
+        int count = 0;
+        foreach (var minion in conn.Minions.All)
+        {
+            if (minion.Monster.Dead || minion.Monster.Life == 0 || now >= minion.Until
+                || !conn.Monsters.TryGetValue(minion.Id, out var held) || !ReferenceEquals(held, minion.Monster)) continue;
+            int effect = skills.EffectRow(minion.Skill);
+            // Missing provenance and a Vaal creator cannot establish this item's non-Vaal predicate.
+            if (effect >= 0 && !skills.IsVaal(effect)) count++;
+        }
+        return count;
     }
 
     static void PublishQualifiedItemLifeReservationPercent(ClientState conn, int percent)

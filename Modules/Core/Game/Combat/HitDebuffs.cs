@@ -15,11 +15,11 @@ static partial class Game
     internal const ushort CrushedBuffRow = 1600;
     internal const double CrushSeconds = 4;
     internal const int CrushReductionPct = 15;
-    // Maim (Maim Support: "30% chance to Maim on Hit"; Maimed enemies have 30% reduced Movement Speed and take 10%
-    // increased Physical Damage): its own BuffDefinitions row and four seconds.
+    // Maim (Maim Support: "30% chance to Maim on Hit"; Maimed enemies have 30% reduced Movement Speed): its own
+    // BuffDefinitions row and four seconds. The support's physical damage taken is a separate timed property; plain
+    // Maim only changes movement.
     internal const ushort MaimedBuffRow = 513;
     internal const double MaimSeconds = 4;
-    internal const int MaimedPhysicalTakenPct = 10;
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
@@ -43,31 +43,50 @@ static partial class Game
     internal static double BlindSeconds(Func<string, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get("blind_duration_+%") / 100.0);
 
-    // A hit that landed on a living monster, under the Monsters lock: Random.Shared, so a projectile's own draws stay in order.
-    internal static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<string, int> get, bool spell, bool critical, double now)
+    // A hit that landed on a living hostile monster, under the Monsters lock. <paramref name="random"/> belongs to the
+    // hit so projectile draws stay in order; callers without one use Random.Shared.
+    internal static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<string, int> get, bool spell, bool critical, double now,
+        Random? random = null)
     {
-        var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, Random.Shared);
+        if (!m.Hostile || m.Dead || m.Life == 0) return;
+        random ??= Random.Shared;
+        var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
         if (intimidate) m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds);
         if (unnerve) m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds);
-        if (RandomRolls.Chance(get("chance_to_crush_on_hit_%"), 100, Random.Shared))
+        if (RandomRolls.Chance(get("chance_to_crush_on_hit_%"), 100, random))
             m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
-        if (RandomRolls.Chance(get("maim_on_hit_%"), 100, Random.Shared))
-        {
-            m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
-            m.MaimedPhysicalTakenPct = Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%"));
-        }
-        if (BlindRoll(get, spell, critical, Random.Shared))
+        TryMaimOnHitLocked(m, get("maim_on_hit_%"),
+            Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%")), now, random);
+        if (BlindRoll(get, spell, critical, random))
             m.BlindedUntil = Math.Max(m.BlindedUntil, now + BlindSeconds(get));
+    }
+
+    /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
+    /// when the chance is at most zero, and true without drawing when it is at least the scale.</summary>
+    internal static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
+    {
+        if (!m.Hostile || m.Dead || m.Life == 0) return false;
+        if (m.Effects["immune_to_maim"] != 0 || RandomRolls.Chance(m.Effects["avoid_maim_%_chance"], 100, random))
+            return false;
+        if (!RandomRolls.Chance(chance, 100, random)) return false;
+        m.MaimedUntil = Math.Max(m.MaimedUntil, now + MaimSeconds);
+        physicalTaken = Math.Max(0, physicalTaken);
+        if (physicalTaken > 0 && (physicalTaken >= m.MaimedPhysicalTakenPct || m.MaimedPhysicalTakenUntil <= now))
+        {
+            m.MaimedPhysicalTakenPct = physicalTaken;
+            m.MaimedPhysicalTakenUntil = now + MaimSeconds;
+        }
+        return true;
     }
 
     /// <summary>The physical damage reduction Crush takes away from a monster at <paramref name="now"/> (15% while
     /// crushed, 0 otherwise); without a time Crush does not count.</summary>
     internal static int CrushReduction(SpawnedMonster m, double now) => m.CrushedUntil > now ? CrushReductionPct : 0;
 
-    /// <summary>The increased physical damage a maimed monster takes at <paramref name="now"/> (Maim's share, 0
-    /// otherwise); without a time Maim does not count.</summary>
+    /// <summary>The increased physical damage a maimed monster takes from its actual support at <paramref name="now"/>;
+    /// plain Maim gives 0.</summary>
     internal static int MaimedPhysicalTaken(SpawnedMonster m, double now) =>
-        m.MaimedUntil > now ? Math.Max(MaimedPhysicalTakenPct, m.MaimedPhysicalTakenPct) : 0;
+        m.MaimedUntil > now && m.MaimedPhysicalTakenUntil > now ? m.MaimedPhysicalTakenPct : 0;
 
     // Exposure (poedb Exposure): an unspecified value "defaults to -10% to the affected resistance", a duration "defaults to
     // 4 seconds", and "only the highest Exposure of the element applies". BuffDefinitions Fire, Cold and Lightning

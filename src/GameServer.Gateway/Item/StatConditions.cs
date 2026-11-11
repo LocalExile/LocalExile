@@ -100,6 +100,7 @@ public static class StatConditions
         "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
         "_while_unhinged", "_while_not_unhinged",
         "_if_you_have_beast_minion",
+        "_if_golem_summoned_in_past_8_seconds",
         "_while_in_blood_stance", "_in_blood_stance", "_while_in_sand_stance", "_in_sand_stance",
         "_if_changed_stance_recently", "_while_changed_stance_recently",
     ];
@@ -227,6 +228,10 @@ public static class StatConditions
     /// <summary>The real consumer names for a conditional stat that expands to more than one pool input.</summary>
     public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists)
     {
+        if (statId == AllResistancesPerActiveNonVaalMinion)
+            return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
+        if (statId == GlobalDefencesPerActiveNonVaalMinion)
+            return exists("global_defences_+%") ? ["global_defences_+%"] : [];
         if (statId == "attack_and_movement_speed_+%_if_you_have_beast_minion")
             return [.. new[] { "attack_speed_+%", "base_movement_velocity_+%" }.Where(exists)];
         if (statId == "avoid_freeze_and_chill_%_if_you_have_used_a_fire_skill_recently")
@@ -324,6 +329,9 @@ public static class StatConditions
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
     {
+        if (IsActiveNonVaalSkillMinionCoefficient(statId))
+            return subject => subject.Amounts is { } amounts
+                && amounts.ContainsKey(ActiveNonVaalSkillMinionCount) ? State.Holds : State.Fails;
         var equipment = EquipmentThresholdId.Match(statId);
         if (equipment.Success)
         {
@@ -508,6 +516,11 @@ public static class StatConditions
 
     public static int ApplyRecentAmount(string id, int value, in Subject subject)
     {
+        if (IsActiveNonVaalSkillMinionCoefficient(id))
+        {
+            long minions = subject.Amounts?.GetValueOrDefault(ActiveNonVaalSkillMinionCount) ?? 0;
+            return (int)Int128.Clamp((Int128)value * Math.Max(0, minions), int.MinValue, int.MaxValue);
+        }
         var equipment = EquipmentAmountId.Match(id);
         if (equipment.Success && subject.Value?.Invoke("equipped_" + equipment.Groups["kind"].Value) is int count)
             return (int)Math.Clamp((long)value * Math.Max(0, count), int.MinValue, int.MaxValue);
@@ -629,6 +642,15 @@ public static class StatConditions
             }
         return set;
     }
+
+    public const string ActiveNonVaalSkillMinionCount = "active_non_vaal_skill_minion_count";
+    const string AllResistancesPerActiveNonVaalMinion =
+        "all_resistances_%_per_active_minion_not_from_vaal_skills";
+    const string GlobalDefencesPerActiveNonVaalMinion =
+        "global_defences_+%_per_active_minion_not_from_vaal_skills";
+
+    public static bool IsActiveNonVaalSkillMinionCoefficient(string id) =>
+        id is AllResistancesPerActiveNonVaalMinion or GlobalDefencesPerActiveNonVaalMinion;
 
     /// <summary>What a caller can answer about the character a stat is being summed for. Null fields are unknown.</summary>
     public readonly record struct Subject(

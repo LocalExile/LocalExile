@@ -85,6 +85,8 @@ static partial class Game
         flags["_while_unhinged"] = alive && Unhinged(conn);
         flags["_while_not_unhinged"] = alive && !Unhinged(conn);
         flags["_if_you_have_beast_minion"] = HasSourceValidBeastMinion(conn);
+        flags["_if_golem_summoned_in_past_8_seconds"] =
+            GolemSummonedInPastEightSeconds(conn, AreaTime(conn));
         flags["_in_blood_stance"] = flags["_while_in_blood_stance"] = blood;
         flags["_in_sand_stance"] = flags["_while_in_sand_stance"] = sand;
         flags["_if_changed_stance_recently"] = flags["_while_changed_stance_recently"] = changedStance;
@@ -181,7 +183,9 @@ static partial class Game
             // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
             bool conditionalEquipment = before is null && current.Worn.Any(w => w.Item.Mods.Any(m =>
                 ItemsFor(conn).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
-                    && (s.Id.Contains("_if_", StringComparison.Ordinal) || s.Id.Contains("_while_", StringComparison.Ordinal))) == true));
+                    && (s.Id.Contains("_if_", StringComparison.Ordinal)
+                        || s.Id.Contains("_while_", StringComparison.Ordinal)
+                        || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id))) == true));
             if (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)

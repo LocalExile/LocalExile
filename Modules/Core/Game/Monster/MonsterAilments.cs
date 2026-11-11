@@ -89,6 +89,23 @@ static partial class Game
         m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
             : m.Ailments.ActionFactor(now) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
 
+    /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
+    /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
+    internal static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    {
+        int basePct = m.Effects.MovementPct;
+        int maimPct = now < m.MaimedUntil ? -30 : 0;
+        int totalPct = basePct + maimPct;
+        if (maimPct != 0 && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+            totalPct = Math.Max(0, totalPct);
+        double Movement(double pct) => m.Variety is { } variety
+            ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
+            : Math.Max(.01, 1 + pct / 100.0);
+        double before = Movement(basePct);
+        double after = Movement(totalPct);
+        return (after / before, totalPct);
+    }
+
     /// <summary>
     /// A player hit that landed inflicts its ailments (MonsterElementalAilments.Inflict) from the damage the monster took
     /// per type: the mitigated packet × its damage taken × the critical multiplier on a critical strike. The threshold is
@@ -135,7 +152,7 @@ static partial class Game
             else ShockOnKillLocked(conn, m, player, now);
             return;
         }
-        HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now);
+        HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, Random.Shared);
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, Random.Shared);
         int poisonStacksBefore = m.Poisons.Stacks(now);
@@ -195,20 +212,37 @@ static partial class Game
         foreach (var (id, m) in conn.Monsters)
         {
             var a = m.Ailments;
-            if (a.Idle && now >= m.ReceivedActionUntil) continue;
-            foreach (var (kind, removed, added, magnitude) in a.Present(now))
+            bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
+            if (elementalIdle && m.MaimedUntil <= now && !m.MaimedMovementShown) continue;
+            if (!elementalIdle)
             {
-                if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                foreach (var (kind, removed, added, magnitude) in a.Present(now))
+                {
+                    if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
+                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                }
             }
             double action = m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
                 : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
-            double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
-            // Maim: 30% reduced movement speed while maimed (PoB: MovementSpeed INC -30 with the Maimed condition).
-            if (m.MaimedUntil > now) walk *= 0.7;
+            // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed.
+            var movement = MaimedMovementFactor(m, now);
+            double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
+                * movement.Factor;
             if (walk != a.WalkFactor)
             {
-                if (m.Walk.Speed > 0) m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);
+                // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
+                // it without dividing by a zero factor.
+                if (walk <= 0)
+                {
+                    if (a.WalkFactor > 0) m.WalkSpeedAtZeroFactor = m.Walk.Speed / a.WalkFactor;
+                }
+                else
+                {
+                    double baseline = a.WalkFactor > 0
+                        ? m.Walk.Speed / a.WalkFactor
+                        : m.WalkSpeedAtZeroFactor;
+                    if (baseline > 0) m.Walk.SetSpeed(baseline * walk, now);
+                }
                 a.WalkFactor = walk;
             }
             int speed = (int)Math.Round(100 * (action - 1));
@@ -216,6 +250,22 @@ static partial class Game
             {
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
+            }
+            bool maimed = m.MaimedUntil > now;
+            bool maimShown = m.MaimedMovementShown;
+            bool movementChanged = maimed
+                ? !maimShown || movement.Pct != m.MaimedMovementShownPct
+                : maimShown && movement.Pct != m.MaimedMovementShownPct;
+            m.MaimedMovementShown = maimed;
+            if (movementChanged)
+            {
+                m.MaimedMovementShownPct = movement.Pct;
+                packets.Add((InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, movement.Pct)]),
+                    $"0x01b3 monster 0x{id:x} movement_velocity_+% = {movement.Pct}" + (m.MaimedMovementShown ? " (maimed)" : " (maim ends)")));
+            }
+            else if (!m.MaimedMovementShown)
+            {
+                m.MaimedMovementShownPct = 0;
             }
         }
         return packets;

@@ -261,7 +261,7 @@ sealed class IncomingDamagingAilments
     static bool PreventsPoison(Func<string, int> get) =>
         get("cannot_be_poisoned") != 0 || get("immune_to_poison") != 0;
 
-    static double SelfDuration(Func<string, int>? get, bool bleed)
+    internal static double SelfDuration(Func<string, int>? get, bool bleed)
     {
         if (get is null) return 1;
         string combined = bleed ? "combined_bleeding_duration_on_self_+%" : "combined_poison_duration_on_self_+%";

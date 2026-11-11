@@ -1082,7 +1082,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
   activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
   usable. All variants summoned in the real client; ordinary combat, buffs and repeated returns checked live.
-  Nearby ordinary auras now affect owned fighters. Partial: exact official AI priorities, some support interactions,
+  Nearby ordinary auras affect owned fighters; Speaker's Wreath scales attack and movement speed by owner Dexterity.
+  Bonemeld counts living non-Vaal owned minions into the player's resistances and global defences.
+  Partial: exact official AI priorities, some support interactions,
   sharing golem owner buffs with other players and bespoke boss damage.
   See [11](../docs/protocol/11-skills.md) section 10h; relics remain in section 13 and [Paladin](../docs/game/paladin.md).
 - Link skills: Soul, Flame, Vampiric, Protective, Intuitive and Destructive Link link one of the player's minions when
