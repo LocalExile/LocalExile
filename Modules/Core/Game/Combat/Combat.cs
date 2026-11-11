@@ -366,7 +366,11 @@ public static partial class Game
             return;
         }
         bool cryExerted;
-        lock (conn.Monsters) cryExerted = ConsumeIntimidatingCryExertLocked(conn, weapon.Melee && !ranged);
+        lock (conn.Monsters)
+        {
+            conn.RecentEvents.Record(StatConditions.UsedSkill, begun);
+            cryExerted = ConsumeIntimidatingCryExertLocked(conn, weapon.Melee && !ranged);
+        }
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
@@ -1230,12 +1234,15 @@ public static partial class Game
     {
         lock (conn.Monsters)
         {
+            conn.RecentEvents.Record(StatConditions.UsedSkill, acceptedAt);
             bool movement = SkillsFor(conn).IsMovement(effect);
             if (movement) conn.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
             if (movement && IsDashEffect(SkillsFor(conn).EffectId(effect)))
                 conn.RecentEvents.Record(StatConditions.UsedDash, acceptedAt);
             if (SkillsFor(conn).HasType(effect, "Fire"))
                 conn.RecentEvents.Record(StatConditions.UsedFireSkill, acceptedAt);
+            if (SkillsFor(conn).HasType(effect, "Cold"))
+                conn.RecentEvents.Record(StatConditions.UsedColdSkill, acceptedAt);
         }
     }
 

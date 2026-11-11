@@ -4515,13 +4515,15 @@ public class ConditionalItemStatsTests
             var dashGem = ItemCatalog.Create(catalog.Find("Metadata/Items/Gems/SkillGemDash")!);
             var fireballGem = ItemCatalog.Create(catalog.Find("Metadata/Items/Gems/SkillGemFireball")!);
             var purityFireGem = ItemCatalog.Create(catalog.Find("Metadata/Items/Gems/SkillGemFireResistAura")!);
+            var frostboltGem = ItemCatalog.Create(catalog.FindGem("Frostbolt")!.Value.Type);
             inventory.Add(PlayerInventories.Helmet, 0, 0,
                 ItemCatalog.Create(catalog.Find("Metadata/Items/Armours/Helmets/HelmetInt1")!) with
                 {
                     Sockets = [new ItemSocket(SocketColour.White, dashGem),
                         new ItemSocket(SocketColour.White, fireballGem),
-                        new ItemSocket(SocketColour.White, purityFireGem)],
-                    Links = [1, 1, 1],
+                        new ItemSocket(SocketColour.White, purityFireGem),
+                        new ItemSocket(SocketColour.White, frostboltGem)],
+                    Links = [1, 1, 1, 1],
                 });
             foreach (string stat in new[] { "virtual_strength_for_requirements",
                          "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
@@ -4598,7 +4600,8 @@ public class ConditionalItemStatsTests
                     from, aim, cooldownUse: ticket).GetAwaiter().GetResult();
             }
             conn.RecentEvents.Clear();
-            bool movementRecentAtCast = false, dashRecentAtCast = false, fireRecentAtCast = false;
+            bool movementRecentAtCast = false, dashRecentAtCast = false, fireRecentAtCast = false, coldRecentAtCast = false;
+            double coldObservedAt = 0;
             string recentCapture = "handler did not run";
             using var captureRecent = GameEvents.SkillCastAt.Add("Game", (target, effectId, _, _, _) =>
             {
@@ -4613,6 +4616,11 @@ public class ConditionalItemStatsTests
                 if (effectId is "Fireball" or "FireballHardMode")
                     fireRecentAtCast = target.RecentEvents.Happened(StatConditions.UsedFireSkill,
                         target.Clock.Elapsed.TotalSeconds);
+                if (effectId is "FrostBolt" or "FrostBoltHardMode")
+                {
+                    coldObservedAt = target.Clock.Elapsed.TotalSeconds;
+                    coldRecentAtCast = target.RecentEvents.Happened(StatConditions.UsedColdSkill, coldObservedAt);
+                }
                 return null;
             });
             Assert.Single(GameEvents.SkillCastAt.For(conn));
@@ -4621,8 +4629,25 @@ public class ConditionalItemStatsTests
                 $"skills={string.Join(",", Game.GemSkillEffects(conn).Select(g => $"{g.Id}:{g.Name}"))}");
             Assert.True(movementRecentAtCast, recentCapture);
             Assert.True(dashRecentAtCast, recentCapture);
+            Assert.True(conn.RecentEvents.Happened(StatConditions.UsedSkill, conn.Clock.Elapsed.TotalSeconds));
             Assert.True(Cast("Fireball"));
             Assert.True(fireRecentAtCast);
+            conn.RecentEvents.Clear();
+            Assert.True(Cast("FrostBolt"));
+            Assert.True(coldRecentAtCast);
+            Assert.True(conn.RecentEvents.Happened(StatConditions.UsedSkill, coldObservedAt));
+            Assert.False(conn.RecentEvents.Happened(StatConditions.UsedFireSkill, coldObservedAt));
+            Assert.True(conn.RecentEvents.Happened(StatConditions.UsedColdSkill, coldObservedAt + 3.9));
+            Assert.False(conn.RecentEvents.Happened(StatConditions.UsedColdSkill, coldObservedAt + 4));
+            const string coldFire = "fire_damage_+%_if_you_have_used_a_cold_skill_recently";
+            var coldFireMod = catalog.Mods.All.First(m => m.Stats.Any(s => s.Id == coldFire));
+            var coldFireItem = WithMod(coldFireMod.Id, 17);
+            foreach (var (at, expected) in new[] { (coldObservedAt, 17), (coldObservedAt + 4, 0) })
+            {
+                var folded = ItemModStats.Sum([coldFireItem], catalog.Mods,
+                    subject: new(Recent: conn.RecentEvents.Snapshot(at), KnownRecent: Game.TrackedItemRecentEvents), statExists: Program.Stats.Has);
+                Assert.Equal(expected, folded.GetValueOrDefault("fire_damage_+%"));
+            }
             conn.RecentEvents.Clear();
             var purity = visible.Single(g => Game.SkillsFor(conn).EffectId(g.Effect) == "PurityOfFire");
             Assert.True(Cast("PurityOfFire"),
@@ -4637,6 +4662,9 @@ public class ConditionalItemStatsTests
             fireRecentAtCast = false;
             Assert.False(Cast("Fireball"));
             Assert.False(fireRecentAtCast);
+            Assert.False(conn.RecentEvents.Happened(StatConditions.UsedSkill, conn.Clock.Elapsed.TotalSeconds));
+            Assert.False(Cast("FrostBolt"));
+            Assert.False(conn.RecentEvents.Happened(StatConditions.UsedColdSkill, conn.Clock.Elapsed.TotalSeconds));
         }
         finally
         {
