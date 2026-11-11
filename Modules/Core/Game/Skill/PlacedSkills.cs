@@ -16,6 +16,78 @@ static partial class Game
         return (types.Contains(32), types.Contains(35));
     }
 
+    private sealed record PlacedCastAdmission(ushort Skill, int Effect, bool Trap, bool Mine,
+        GemSkillIds.Gem Identity, object Area, object? Lifetime, GemSourceLifetimes.SourceLifetime Source);
+
+    // The family decision belongs to the original cast, before its first output/grace/payment await. The captured
+    // lifetime keeps the numeric skill id from adopting a physical source that was removed and reinserted.
+    private static bool TryCapturePlacedCastAdmissionLocked(ClientState conn, ushort skill,
+        out PlacedCastAdmission? admission)
+    {
+        admission = null;
+        if (!CurrentGameWork || !CurrentGameRules
+            || CurrentPlayerSkillSourceLocked(conn, skill) is not { Active: true } source)
+            return false;
+        using var scope = new PlayerStatScope(conn, fresh: true);
+        var supported = SupportedSkill(conn, skill);
+        var kind = PlacedKind(supported);
+        if (supported.Effect < 0 || supported.Effect != source.Effect) return false;
+        // A valid ordinary source has no placed family and keeps its existing path without a physical lease binding.
+        if (!kind.Trap && !kind.Mine) return true;
+        if (!supported.RequirementsMet) return false;
+        admission = new(skill, source.Effect, kind.Trap, kind.Mine, source.Identity, conn.Instance, CombatLifetime,
+            CaptureGemSourceLifetimeLocked(conn, source));
+        return true;
+    }
+
+    private static bool PlacedCastStructuralOwnerCurrentLocked(ClientState conn, PlacedCastAdmission admission,
+        int? recovery = null)
+    {
+        return CurrentGameWork && CurrentGameRules && !conn.Closed && !conn.LeavingArea && !conn.RageRetired
+            && conn.PlayerLife != 0 && ReferenceEquals(conn.Instance, admission.Area)
+            && ReferenceEquals(CombatLifetime, admission.Lifetime)
+            && (recovery is not int generation || generation == conn.ActionInterruptionGeneration)
+            && conn.GemSourceLifetimes.IsCurrent(admission.Source);
+    }
+
+    private static bool PlacedCastAdmissionCurrentLocked(ClientState conn, PlacedCastAdmission admission,
+        SupportedGem supported, int? recovery = null)
+    {
+        if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery))
+            return false;
+        var source = CurrentPlayerSkillSourceLocked(conn, admission.Skill);
+        var kind = PlacedKind(supported);
+        return supported.Effect >= 0 && supported.RequirementsMet && supported.Effect == admission.Effect
+            && kind.Trap == admission.Trap && kind.Mine == admission.Mine
+            && source is { Active: true } && source.Effect == admission.Effect
+            && source.Identity == admission.Identity && source.Identity == admission.Source.Key;
+    }
+
+    private static bool PlacedCastFamilyCurrent(ClientState conn, ushort skill, PlacedCastAdmission? admission)
+    {
+        lock (conn.Monsters)
+        {
+            if (admission is not null && !PlacedCastStructuralOwnerCurrentLocked(conn, admission))
+                return false;
+            using var scope = new PlayerStatScope(conn, fresh: true);
+            var supported = SupportedSkill(conn, skill);
+            if (admission is not null) return PlacedCastAdmissionCurrentLocked(conn, admission, supported);
+            var kind = PlacedKind(supported);
+            return supported.Effect >= 0 && !kind.Trap && !kind.Mine;
+        }
+    }
+
+    private static bool PlacedCastAdmissionCurrent(ClientState conn, PlacedCastAdmission admission, int? recovery = null)
+    {
+        lock (conn.Monsters)
+        {
+            if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery))
+                return false;
+            using var scope = new PlayerStatScope(conn, fresh: true);
+            return PlacedCastAdmissionCurrentLocked(conn, admission, SupportedSkill(conn, admission.Skill), recovery);
+        }
+    }
+
     internal static int PlacedSkillLimit(ClientState conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
@@ -33,48 +105,40 @@ static partial class Game
     }
 
     static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skill, (int X, int Y) from, (int X, int Y) aim, int recovery, Func<bool> current)
+        (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
-        var gem = SupportedSkill(conn, skill); var kind = PlacedKind(gem);
-        var player = CharacterPlayerStats(conn);
-        int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
-        double release = AreaTime(conn) + Math.Max(.05, (CastMs(conn, gem.Effect, skill) ?? 500) / 1000d);
-        var lifetime = CombatLifetime;
+        lock (conn.Monsters)
+        {
+            if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery)) return false;
+        }
+        double release = AreaTime(conn) + Math.Max(.05, (CastMs(conn, admission.Effect, admission.Skill) ?? 500) / 1000d);
         while (true)
         {
             lock (conn.Monsters)
             {
-                if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || conn.Closed || conn.LeavingArea
-                    || conn.PlayerLife == 0 || recovery != conn.ActionInterruptionGeneration) return false;
+                if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery) || !current()) return false;
                 if (!conn.Paused && AreaTime(conn) >= release) break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
-        for (int i = 0; i < PlacedSkillCount(conn, gem, kind.Mine); i++)
+        bool accepted = false;
         await Send(remote, stream, ciphers, [], "throw trap/mine", atGate: () =>
         {
             lock (conn.Monsters)
             {
-                if (!current() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
-                var context = ReservationContext(conn, skill);
-                var reserve = kind.Mine ? SupportedReservation(conn, skill) : null;
-                uint id = conn.NextObjectId++;
-                double now = AreaTime(conn);
-                double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : kind.Mine ? .6 : .975;
-                double land = now + flight;
-                var placed = new PlacedSkills.Placed(id, skill, gem.Effect, aim, kind.Mine, land + .5,
-                    land + Math.Max(0, Get(kind.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : kind.Mine ? 5 : 4)
-                        * Math.Max(.01, 1 + Get(kind.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
-                    SupportedHitFor(conn, skill, suppress: false), new Dictionary<uint, int>(gem.Stats),
-                    reserve?.Flat ?? 0, reserve?.Percent ?? 0, context.Life, context.Efficiency) { LandAt = land, Landed = false };
-                conn.Placed.All.Add(id, placed);
-                if (!ReservationBudgetFits(conn)) { conn.Placed.All.Remove(id); return null; }
-                var bytes = new List<byte>();
-                int limit = PlacedSkillLimit(conn, gem, kind.Mine);
-                if (limit == 0) { conn.Placed.All.Remove(id); return null; }
-                while (conn.Placed.All.Values.Count(p => p.Mine == kind.Mine) > limit)
-                    RemovePlacedLocked(conn, conn.Placed.All.Values.Where(p => p.Mine == kind.Mine).MinBy(p => p.Armed)!, bytes);
-                string path = kind.Mine ? "Metadata/MiscellaneousObjects/RemoteMine" : TrapVisuals.Value.GetValueOrDefault(Get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
+                if (!PlacedCastStructuralOwnerCurrentLocked(conn, admission, recovery)
+                    || !current() || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
+                using var scope = new PlayerStatScope(conn, fresh: true);
+                var gem = SupportedSkill(conn, admission.Skill);
+                if (!PlacedCastAdmissionCurrentLocked(conn, admission, gem, recovery)) return null;
+                var player = CharacterPlayerStats(conn);
+                int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
+                int count = PlacedSkillCount(conn, gem, admission.Mine);
+                int limit = PlacedSkillLimit(conn, gem, admission.Mine);
+                if (count <= 0 || limit <= 0) return null;
+                var context = ReservationContext(conn, admission.Skill);
+                var reserve = admission.Mine ? SupportedReservation(conn, admission.Skill) : null;
+                var damage = SupportedHitFor(conn, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
                 foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
                     if (Stats.Key(flag) is uint key) payload[key] = 0;
@@ -83,26 +147,68 @@ static partial class Game
                 if (Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius)
                     payload[baseRadius] = SkillArea.BaseRadius(SkillsFor(conn).EffectId(gem.Effect), Get);
                 var proxy = SkillsFor(conn).FindByRow(0x4000, gem.Effect, gem.Level, [.. payload.Select(p => (p.Key, p.Value))]);
-                if (proxy is null) { conn.Placed.All.Remove(id); return null; }
-                proxy = proxy with { Parent = (PlayerId, skill) };
+                if (proxy is null) return null;
+                proxy = proxy with { Parent = (PlayerId, admission.Skill) };
+                string path = admission.Mine
+                    ? "Metadata/MiscellaneousObjects/RemoteMine"
+                    : TrapVisuals.Value.GetValueOrDefault(Get("trap_variation"), "Metadata/MiscellaneousObjects/LightningTrap");
                 var stats = new List<(uint, int)>();
                 foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
-                    ("is_trap_object", kind.Trap ? 1 : 0), ("is_remote_mine", kind.Mine ? 1 : 0) })
+                    ("is_trap_object", admission.Trap ? 1 : 0), ("is_remote_mine", admission.Mine ? 1 : 0) })
                     if (Stats.Key(name) is uint key) stats.Add((key, value));
+                double now = AreaTime(conn);
+                double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : admission.Mine ? .6 : .975;
                 if (Stats.Key("trap_throw_arm_time_override") is uint armTime) stats.Add((armTime, (int)Math.Round(flight * 1000)));
-                bytes.AddRange(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path), new TrapMineObject(from.X, from.Y, kind.Mine, [proxy], stats).Blob()));
-                bytes.AddRange(InstanceProtocol.EnterWakeZone(id));
-                if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
-                    bytes.AddRange(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
-                bytes.AddRange(InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)flight, InstanceProtocol.FollowTerrain));
+                var bytes = new List<byte>();
+                bool committed = false;
+                for (int i = 0; i < count; i++)
+                {
+                    uint id = conn.NextObjectId++;
+                    double land = now + flight;
+                    var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, aim, admission.Mine, land + .5,
+                        land + Math.Max(0, Get(admission.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : admission.Mine ? 5 : 4)
+                            * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
+                        damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
+                        context.Life, context.Efficiency) { LandAt = land, Landed = false };
+                    conn.Placed.All.Add(id, placement);
+                    if (!ReservationBudgetFits(conn))
+                    {
+                        conn.Placed.All.Remove(id);
+                        break;
+                    }
+                    while (conn.Placed.All.Values.Count(p => p.Mine == admission.Mine) > limit)
+                    {
+                        var trim = conn.Placed.All.Values.Where(p => p.Mine == admission.Mine).MinBy(p => (p.Armed, p.Id))!;
+                        if (trim.Id == id)
+                        {
+                            // This object has not published a create in this packet yet. Removing it is local state
+                            // cleanup, not a native RemoveObject for an entity the client never saw.
+                            conn.Placed.All.Remove(id);
+                            conn.Placed.Dirty = true;
+                            conn.Minions.StatRevision++;
+                        }
+                        else RemovePlacedLocked(conn, trim, bytes);
+                    }
+                    if (!conn.Placed.All.ContainsKey(id)) continue;
+                    bytes.AddRange(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
+                        new TrapMineObject(from.X, from.Y, admission.Mine, [proxy], stats).Blob()));
+                    bytes.AddRange(InstanceProtocol.EnterWakeZone(id));
+                    if (SkillsFor(conn).ActionSkillId("BeThrown") is ushort thrown)
+                        bytes.AddRange(InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, thrown, 0xffff, 0x0408));
+                    bytes.AddRange(InstanceProtocol.MoveTo(id, aim.X, aim.Y, (float)flight, InstanceProtocol.FollowTerrain));
+                    committed = true;
+                }
+                if (!committed) return null;
+                RecordAcceptedGemUse(conn, gem.Effect);
                 conn.Placed.Dirty = true;
                 conn.Minions.StatRevision++;
                 ClampReservedResources(conn);
                 bytes.AddRange(PlacedResourcesLocked(conn));
+                accepted = true;
                 return [.. bytes];
             }
         });
-        return true;
+        return accepted;
     }
 
     static void RemovePlacedLocked(ClientState conn, PlacedSkills.Placed placed, List<byte> bytes)

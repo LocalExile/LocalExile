@@ -93,6 +93,694 @@ public sealed class GolemTests
         foreach (string stat in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
             conn.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
 
+        async Task SharedCharacterGolemSourceAba()
+        {
+            // Independent loopback clients load the same saved character (A/B) and a distinct control character (C).
+            // A/B share the production inventory instance, while every connection keeps its own send gate and local leases.
+            const string character = "SharedCharacterGolemSourceAba";
+            const string controlCharacter = "SharedCharacterGolemSourceControl";
+            const byte witchRow = 1;
+            var characterId = Guid.Parse("504c3e3b-0000-4000-8000-000000000504");
+            var controlCharacterId = Guid.Parse("504c3e3b-0000-4000-8000-000000000505");
+            var schedule = new AreaClockSchedule { At = 600 };
+            var updates = new PlayerUpdatesState(lifetime, schedule);
+            var previousContext = global::Game.AreaUpdateContext.Value;
+            global::Game.AreaUpdateContext.Value = updates;
+            using var aWire = new Wire();
+            using var bWire = new Wire();
+            using var cWire = new Wire();
+            using var dWire = new Wire();
+            ClientState? a = null, b = null, c = null, d = null;
+            try
+            {
+                var witch = Program.Skills.ClassFor(witchRow);
+                Assert.Equal(3, witch.IntegerId);
+                PlayerInventories.SetClass(character, witchRow);
+                PlayerInventories.SetClass(controlCharacter, witchRow);
+
+                ClientState Open(uint ticket, string name, Guid id, string remote, Wire wire) =>
+                    new(conn.Layout, ticket, ticket) {
+                        Character = name, CharacterId = id, Account = "shared-source-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = updates, Pools = new(100, 1, 1, 0, 0),
+                        LeagueModule = conn.LeagueModule, Wire = (remote, wire.Stream, wire.Ciphers),
+                    };
+
+                var aLive = a = Open(0xC3B0, character, characterId, "shared-source-a", aWire);
+                var bLive = b = Open(0xC3B1, character, characterId, "shared-source-b", bWire);
+                var cLive = c = Open(0xC3B2, controlCharacter, controlCharacterId, "shared-source-c", cWire);
+                aLive.Golems.Restored = true;
+                aLive.Summons.Restored = true;
+                bLive.Golems.Restored = true;
+                bLive.Summons.Restored = true;
+                cLive.Golems.Restored = true;
+                cLive.Summons.Restored = true;
+                aLive.Walk.Teleport(100, 100, schedule.At);
+                bLive.Walk.Teleport(100, 100, schedule.At);
+                cLive.Walk.Teleport(100, 100, schedule.At);
+
+                var aInventory = global::Game.ItemsOf(aLive);
+                var bInventory = global::Game.ItemsOf(bLive);
+                var cInventory = global::Game.ItemsOf(cLive);
+                Assert.Same(aInventory, bInventory);
+                Assert.NotSame(aInventory, cInventory);
+
+                var gemBase = Program.Items.FindGem("Flame Golem")!.Value;
+                var gemType = Program.Items.Gem(gemBase.Type)!;
+                var flameGem = ItemCatalog.Create(gemBase.Type) with {
+                    GemVariant = gemBase.Variant.Index,
+                    GemExperience = gemType.ExperienceFor(1),
+                };
+                var fireballBase = Program.Items.FindGem("Fireball")!.Value;
+                var fireballType = Program.Items.Gem(fireballBase.Type)!;
+                var fireballGem = ItemCatalog.Create(fireballBase.Type) with {
+                    GemVariant = fireballBase.Variant.Index,
+                    GemExperience = fireballType.ExperienceFor(1),
+                };
+                Assert.Equal(1, global::Game.ItemsFor(aLive).GemLevel(flameGem));
+                var wand = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with {
+                    Sockets = [new(SocketColour.White, flameGem), new(SocketColour.White, fireballGem)],
+                };
+                var host = aInventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                var amulet = new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!;
+                Assert.Equal("Metadata/Items/Amulets/Amulet7", Program.Items.ByHash(amulet.TypeHash)!.Id);
+                aInventory.Add(5, 0, 0, amulet);
+                var controlHost = cInventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                cInventory.Add(5, 0, 0, amulet);
+                Assert.Equal(host.Id, controlHost.Id);
+                var physicalGem = host.Item.Sockets[0].Gem!;
+                Assert.Equal(flameGem.TypeHash, physicalGem.TypeHash);
+
+                void Recalculate(ClientState client)
+                {
+                    global::Game.EquipmentStatSources(client, global::Game.ItemsOf(client).EquipmentSnapshot());
+                    client.Pools = global::Game.PoolsFor(client, client.Pools.Level);
+                    client.PlayerLife = client.Pools.Life;
+                    client.PlayerMana = client.Pools.Mana;
+                }
+                Recalculate(aLive);
+                Recalculate(bLive);
+                Recalculate(cLive);
+                Assert.Empty(aLive.PlayerStats);
+                Assert.Empty(bLive.PlayerStats);
+                Assert.Equal(100, aLive.Pools.Level);
+                Assert.True(aLive.Pools.Strength > witch.Strength);
+                Assert.True(aLive.Pools.Dexterity > witch.Dexterity);
+                Assert.True(aLive.Pools.Intelligence > witch.Intelligence);
+                Assert.Equal((aLive.Pools.Life, aLive.Pools.Mana, aLive.Pools.Strength,
+                    aLive.Pools.Dexterity, aLive.Pools.Intelligence),
+                    (bLive.Pools.Life, bLive.Pools.Mana, bLive.Pools.Strength,
+                        bLive.Pools.Dexterity, bLive.Pools.Intelligence));
+                Assert.Equal(aLive.Pools.Intelligence, cLive.Pools.Intelligence);
+                Assert.False(aLive.Closed || aLive.LeavingArea || aLive.PlayerLife == 0);
+                Assert.False(bLive.Closed || bLive.LeavingArea || bLive.PlayerLife == 0);
+                Assert.False(cLive.Closed || cLive.LeavingArea || cLive.PlayerLife == 0);
+                Assert.False(aLive.LeagueModule!.HardMode);
+                Assert.False(bLive.LeagueModule!.HardMode);
+                Assert.False(ReferenceEquals(aWire.Stream, bWire.Stream));
+                Assert.False(ReferenceEquals(aWire.Ciphers, bWire.Ciphers));
+
+                IReadOnlyList<global::Game.PlayerSkillSource> Sources(ClientState client)
+                {
+                    var equipment = global::Game.ItemsOf(client).EquipmentSnapshot();
+                    return global::Game.PlayerSkillSourcesAt(client.Character!, equipment,
+                        global::Game.InactiveItems.GetValueOrDefault(client.Character!),
+                        client.LeagueModule!, [], global::Game.WornGrantedSkillsOf(client, equipment));
+                }
+                global::Game.PlayerSkillSource FlameSource(ClientState client) => Assert.Single(
+                    Sources(client), source =>
+                        global::Game.SkillsFor(client).EffectId(source.Effect) == "SummonFlameGolem");
+                global::Game.SupportedGem Support(ClientState client, ushort source)
+                {
+                    using var scope = new global::Game.PlayerStatScope(client, fresh: true);
+                    return global::Game.SupportedSkill(client, source);
+                }
+                static bool SameStats(IReadOnlyDictionary<uint, int> left,
+                    IReadOnlyDictionary<uint, int> right) =>
+                    left.Count == right.Count && left.All(pair =>
+                        right.TryGetValue(pair.Key, out int value) && value == pair.Value);
+
+                var prepared = FlameSource(aLive);
+                Assert.Equal(prepared.Identity, FlameSource(bLive).Identity);
+                Assert.Equal(prepared.Identity, FlameSource(cLive).Identity);
+                Assert.True(prepared.Active);
+                Assert.True(FlameSource(cLive).Active);
+                Assert.Equal(physicalGem, prepared.SourceGem);
+                Assert.Equal(host.Id, prepared.Identity.Host);
+                Assert.Equal(0, prepared.Identity.Socket);
+                var preparedSupport = Support(aLive, prepared.Id);
+                Assert.True(preparedSupport.RequirementsMet);
+                Assert.Equal((1, 0), (prepared.Level, prepared.Quality));
+
+                var definition = global::Game.GolemData.Find("SummonFlameGolem")!;
+                uint aOwnerId = await global::Game.SummonGolem("test", aWire.Stream, aWire.Ciphers, aLive,
+                    prepared.Id, definition, (100, 100));
+                uint bOwnerId = await global::Game.SummonGolem("test", bWire.Stream, bWire.Ciphers, bLive,
+                    prepared.Id, definition, (100, 100));
+                uint cOwnerId = await global::Game.SummonGolem("test", cWire.Stream, cWire.Ciphers, cLive,
+                    FlameSource(cLive).Id, definition, (100, 100));
+                Assert.NotEqual(0u, aOwnerId);
+                Assert.NotEqual(0u, bOwnerId);
+                Assert.NotEqual(0u, cOwnerId);
+                var aOwner = Assert.Single(aLive.Golems.All).Value;
+                var bOwner = Assert.Single(bLive.Golems.All).Value;
+                var cOwner = Assert.Single(cLive.Golems.All).Value;
+                Assert.Equal(aOwnerId, aOwner.Id);
+                Assert.Equal(bOwnerId, bOwner.Id);
+                Assert.Equal(cOwnerId, cOwner.Id);
+                var aToken = aLive.GemSourceLifetimes.Current(prepared.Identity);
+                var bToken = bLive.GemSourceLifetimes.Current(prepared.Identity);
+                var cToken = cLive.GemSourceLifetimes.Current(prepared.Identity);
+                Assert.NotNull(aToken);
+                Assert.NotNull(bToken);
+                Assert.NotNull(cToken);
+                Assert.NotSame(aToken, bToken);
+                Assert.NotSame(aToken, cToken);
+                Assert.True(aLive.GemSourceLifetimes.IsCurrent(aToken));
+                Assert.True(bLive.GemSourceLifetimes.IsCurrent(bToken));
+                Assert.True(cLive.GemSourceLifetimes.IsCurrent(cToken));
+
+                // Same host and item id, different socket: its physical mutation must not end socket 0's source.
+                var fireballSource = Assert.Single(Sources(aLive), source =>
+                    global::Game.SkillsFor(aLive).EffectId(source.Effect) == "Fireball");
+                var unrelatedMarker = aInventory.CaptureGemSourceLifetime(fireballSource.Identity);
+                Assert.NotNull(unrelatedMarker);
+                Assert.False(unrelatedMarker.Retired);
+                Console.WriteLine($"[gateway] [test] unrelated socket marker 0x{host.Id:x}:{fireballSource.Identity.Socket}");
+                var unrelatedTarget = new InstanceItems.SocketGem(
+                    PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, (uint)fireballSource.Identity.Socket);
+                await global::Game.UnsocketGem("test", bWire.Stream, bWire.Ciphers, bLive, unrelatedTarget);
+                Assert.True(unrelatedMarker.Retired);
+                Assert.True(aLive.GemSourceLifetimes.IsCurrent(aToken));
+                Assert.True(bLive.GemSourceLifetimes.IsCurrent(bToken));
+                Assert.True(cLive.GemSourceLifetimes.IsCurrent(cToken));
+                Assert.Same(aOwner, aLive.Golems.All[aOwnerId]);
+                Assert.Same(bOwner, bLive.Golems.All[bOwnerId]);
+                Assert.Same(cOwner, cLive.Golems.All[cOwnerId]);
+                await global::Game.SocketGem("test", bWire.Stream, bWire.Ciphers, bLive, unrelatedTarget);
+                Assert.True(aLive.GemSourceLifetimes.IsCurrent(aToken));
+                Assert.True(bLive.GemSourceLifetimes.IsCurrent(bToken));
+                Assert.True(cLive.GemSourceLifetimes.IsCurrent(cToken));
+
+                var pendingPackets = new List<byte[]>();
+                var previousOutgoing = Program.Outgoing;
+                Program.Outgoing = (ciphers, bytes) =>
+                {
+                    if (ReferenceEquals(ciphers, aWire.Ciphers))
+                        lock (pendingPackets) pendingPackets.Add(bytes.ToArray());
+                    previousOutgoing?.Invoke(ciphers, bytes);
+                };
+                var pendingObjectId = aLive.NextObjectId;
+                var heldGate = Program.SendGates.GetValue(aWire.Ciphers, _ => new(1, 1));
+                Assert.True(heldGate.Wait(0));
+                bool gateHeld = true;
+                Task<uint>? pending = null;
+                try
+                {
+                    pending = global::Game.SummonGolem("test", aWire.Stream, aWire.Ciphers, aLive,
+                        prepared.Id, definition, (100, 100));
+                    Assert.False(pending.IsCompleted,
+                        "the actual A golem summon did not reach the held spawn gate");
+                    Assert.Equal(pendingObjectId + 1, aLive.NextObjectId);
+                    Assert.Same(aToken, aLive.GemSourceLifetimes.Current(prepared.Identity));
+
+                    var target = new InstanceItems.SocketGem(
+                        PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 0);
+                    var refused = target with { Socket = 999u };
+                    await global::Game.UnsocketGem("test", bWire.Stream, bWire.Ciphers, bLive, refused);
+                    Assert.True(aLive.GemSourceLifetimes.IsCurrent(aToken));
+                    Assert.True(bLive.GemSourceLifetimes.IsCurrent(bToken));
+                    Assert.Empty(aInventory.Items(PlayerInventories.Cursor));
+                    Assert.Equal(fireballGem,
+                        aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[1].Gem);
+                    Assert.False(pending.IsCompleted);
+
+                    await global::Game.UnsocketGem("test", bWire.Stream, bWire.Ciphers, bLive, target);
+                    Assert.Same(aInventory, global::Game.ItemsOf(bLive));
+                    Assert.Null(aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem);
+                    var heldGem = Assert.Single(aInventory.Items(PlayerInventories.Cursor));
+                    Assert.Equal(physicalGem, heldGem.Item);
+                    Assert.False(bLive.GemSourceLifetimes.IsCurrent(bToken));
+                    Assert.False(aLive.GemSourceLifetimes.IsCurrent(aToken));
+                    Assert.True(cLive.GemSourceLifetimes.IsCurrent(cToken));
+                    Assert.DoesNotContain(bOwnerId, bLive.Golems.All.Keys);
+
+                    await global::Game.SocketGem("test", bWire.Stream, bWire.Ciphers, bLive, target);
+                    Assert.Empty(aInventory.Items(PlayerInventories.Cursor));
+                    var restoredHost = Assert.Single(aInventory.Items(PlayerInventories.Weapon1));
+                    Assert.Equal(host.Id, restoredHost.Id);
+                    Assert.Equal(physicalGem, restoredHost.Item.Sockets[0].Gem);
+                    var after = FlameSource(aLive);
+                    Assert.Equal(prepared, after);
+                    Assert.Equal(prepared.Identity, FlameSource(bLive).Identity);
+                    var afterSupport = Support(aLive, after.Id);
+                    Assert.Equal((preparedSupport.Effect, preparedSupport.Level, preparedSupport.Quality,
+                        preparedSupport.RequirementsMet), (afterSupport.Effect, afterSupport.Level,
+                        afterSupport.Quality, afterSupport.RequirementsMet));
+                    Assert.True(SameStats(preparedSupport.Stats, afterSupport.Stats));
+                    Assert.False(aLive.GemSourceLifetimes.IsCurrent(aToken));
+                    Assert.True(cLive.GemSourceLifetimes.IsCurrent(cToken));
+
+                    var afterAbaJson = CharacterSaves.ModuleData(character, "Game.Golems");
+                    Assert.True(afterAbaJson is not null,
+                        "B's successful same-gem removal/reinsert did not save Game.Golems");
+                    var afterAba = JsonSerializer.Deserialize<GolemState.Saved[]>(afterAbaJson!) ?? [];
+                    Assert.True(afterAba.Length == 0,
+                        $"B saved an activation after the physical source ABA: {afterAbaJson}");
+
+                    string aRoster = string.Join(",", aLive.Golems.All.Keys.Order().Select(id => $"0x{id:x8}"));
+                    Console.WriteLine($"[gateway] [test] old A actor 0x{aOwnerId:x8}, expired token current="
+                        + $"{aLive.GemSourceLifetimes.IsCurrent(aToken)}, A roster=[{aRoster}]");
+                    global::Game.SaveGolems(aLive);
+                    string staleSaveJson = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                    var staleSaved = JsonSerializer.Deserialize<GolemState.Saved[]>(staleSaveJson) ?? [];
+                    string staleSummary = string.Join("; ", staleSaved.Select(entry =>
+                        $"{entry.Effect}:skill={entry.Skill},life={entry.Life},"
+                        + $"revive={entry.ReviveSeconds},summoned={entry.SummonedSecondsRemaining}"));
+                    Assert.True(staleSaved.Length == 0,
+                        "SaveGolems from the old A connection re-saved Game.Golems after the physical source ABA. "
+                        + $"saved JSON={staleSaveJson}; parsed=[{staleSummary}]; "
+                        + $"old token current={aLive.GemSourceLifetimes.IsCurrent(aToken)}; "
+                        + $"old actor=0x{aOwnerId:x8}; pending completed={pending.IsCompleted}; "
+                        + $"A gate held={gateHeld}; A roster ({aLive.Golems.All.Count})=[{aRoster}]");
+
+                    // B's actual fresh activation on the reinserted source is newer than A's held preparation.
+                    // A's Saves transaction must retain B's exact durable activation and resources.
+                    var bCurrent = FlameSource(bLive);
+                    uint bCurrentId = await global::Game.SummonGolem("test", bWire.Stream, bWire.Ciphers, bLive,
+                        bCurrent.Id, definition, (100, 100));
+                    Assert.NotEqual(0u, bCurrentId);
+                    var bCurrentActor = Assert.Single(bLive.Golems.All).Value;
+                    Assert.Equal(bCurrentId, bCurrentActor.Id);
+                    global::Game.SaveGolems(bLive);
+                    string bCurrentJson = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                    var bCurrentSaved = Assert.Single(JsonSerializer.Deserialize<GolemState.Saved[]>(bCurrentJson)!);
+                    Assert.Equal(definition.Id, bCurrentSaved.Effect);
+                    Assert.Equal(bCurrent.Id, bCurrentSaved.Skill);
+                    Assert.NotNull(bCurrentSaved.Resources);
+                    Assert.True(bCurrentSaved.Resources!.Life > 0);
+                    Assert.True(bCurrentSaved.Life > 0);
+
+                    global::Game.SaveGolems(aLive);
+                    string afterOldAJson = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                    Assert.Equal(bCurrentJson, afterOldAJson);
+                    Assert.False(pending.IsCompleted);
+
+                    uint controlAfterChange = await global::Game.SummonGolem("test", cWire.Stream, cWire.Ciphers,
+                        cLive, FlameSource(cLive).Id, definition, (100, 100));
+                    Assert.NotEqual(0u, controlAfterChange);
+                    Assert.True(cLive.GemSourceLifetimes.IsCurrent(cToken));
+                }
+                finally
+                {
+                    if (gateHeld)
+                    {
+                        heldGate.Release();
+                        gateHeld = false;
+                    }
+                    if (pending is not null && !pending.IsCompleted) await pending;
+                    Program.Outgoing = previousOutgoing;
+                }
+
+                uint pendingResult = await pending!;
+                bool HasCreate(uint id) => pendingPackets.Any(packet =>
+                    packet.Length >= 6
+                    && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                    && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) == id);
+                bool HasPacket(byte[] expected) => pendingPackets.Any(packet =>
+                    packet.AsSpan().IndexOf(expected) >= 0);
+                Assert.True(pendingResult == 0u,
+                    $"A's pending summon for allocated object 0x{pendingObjectId:x} returned "
+                    + $"0x{pendingResult:x}; create={HasCreate(pendingObjectId)}, "
+                    + $"wake={HasPacket(InstanceProtocol.EnterWakeZone(pendingObjectId))}, "
+                    + $"remove={HasPacket(InstanceProtocol.RemoveObject(pendingObjectId))}");
+                Assert.False(HasCreate(pendingObjectId));
+                Assert.False(HasPacket(InstanceProtocol.EnterWakeZone(pendingObjectId)));
+                Assert.False(HasPacket(InstanceProtocol.RemoveObject(pendingObjectId)));
+                Assert.False(aLive.GemSourceLifetimes.IsCurrent(aToken));
+
+                // A fresh A activation after the physical source changed twice is real and may claim its new source.
+                // A later save from B, whose actor used the previous physical lifetime, must retain A exactly.
+                uint bPreviousId = Assert.Single(bLive.Golems.All).Key;
+                var bPrevious = bLive.Golems.All[bPreviousId];
+                var bPreviousLease = Assert.IsType<GemSourceLifetimes.SourceLifetime>(bPrevious.GemSource);
+                var physicalTarget = new InstanceItems.SocketGem(
+                    PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 0);
+                await global::Game.UnsocketGem("test", bWire.Stream, bWire.Ciphers, bLive, physicalTarget);
+                await global::Game.SocketGem("test", bWire.Stream, bWire.Ciphers, bLive, physicalTarget);
+                Assert.False(bLive.GemSourceLifetimes.IsCurrent(bPreviousLease));
+                Assert.DoesNotContain(bPreviousId, bLive.Golems.All.Keys);
+
+                var aCurrent = FlameSource(aLive);
+                uint aFreshId = await global::Game.SummonGolem("test", aWire.Stream, aWire.Ciphers, aLive,
+                    aCurrent.Id, definition, (100, 100));
+                Assert.NotEqual(0u, aFreshId);
+                var aFreshToken = aLive.GemSourceLifetimes.Current(aCurrent.Identity);
+                Assert.NotNull(aFreshToken);
+                Assert.NotSame(aToken, aFreshToken);
+                Assert.True(aLive.GemSourceLifetimes.IsCurrent(aFreshToken));
+                var aFreshActor = aLive.Golems.All[aFreshId];
+                Assert.Same(aFreshToken, aFreshActor.GemSource);
+                var killer = new SpawnedMonster("golem reviver", new(100, 100, 1), 100, 8, 1_000_000);
+                var modestHit = new MonsterAttack(0x4000, 1, 100,
+                    DamagePacket.Of(DamageType.Physical, 100, 100)) { Spell = true };
+                Assert.True(global::Game.GolemTakeHitLocked(aLive, aFreshActor, 0x0800c3b1, killer, modestHit,
+                    schedule.At));
+                Assert.True(aFreshActor.Monster.Life < aFreshActor.Monster.MaxLife);
+                global::Game.SaveGolems(aLive);
+                string freshAJson = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                var freshASaved = Assert.Single(JsonSerializer.Deserialize<GolemState.Saved[]>(freshAJson)!);
+                Assert.NotNull(freshASaved.Resources);
+                Assert.Equal(aFreshActor.Monster.Life, freshASaved.Resources!.Life);
+                global::Game.SaveGolems(bLive);
+                Assert.Equal(freshAJson, CharacterSaves.ModuleData(character, "Game.Golems"));
+
+                // The current A actor dies through the game's own damage/deadline path. A new same-character
+                // connection restores the saved waiting actor, claims its writer, and saves the remaining 1.5s.
+                // A's late save must retain D's waiting resource state, then D's automatic revival remains the writer.
+                var lethal = new MonsterAttack(0x4000, 1, 100,
+                    DamagePacket.Of(DamageType.Physical, 1_000_000, 1_000_000)) { Spell = true };
+                Assert.True(global::Game.GolemTakeHitLocked(aLive, aFreshActor, 0x0800c3b1, killer, lethal,
+                    schedule.At));
+                Assert.True(aFreshActor.Monster.Dead);
+                Assert.Equal(schedule.At + 2, aFreshActor.ReviveAt);
+                global::Game.SaveGolems(aLive);
+                global::Game.SaveGolems(bLive);
+                var deadPreserved = Assert.Single(JsonSerializer.Deserialize<GolemState.Saved[]>(
+                    CharacterSaves.ModuleData(character, "Game.Golems")!)!);
+                Assert.Equal(aCurrent.Id, deadPreserved.Skill);
+                Assert.Equal(2, deadPreserved.ReviveSeconds);
+
+                schedule.At = 601;
+                d = Open(0xC3B3, character, characterId, "shared-source-d", dWire);
+                Assert.NotEqual(aLive.VitalsSessionId, d.VitalsSessionId);
+                d.Golems.Restored = false;
+                d.Summons.Restored = true;
+                d.Walk.Teleport(100, 100, schedule.At);
+                Recalculate(d);
+                await global::Game.GolemsTick("test", dWire.Stream, dWire.Ciphers, d, schedule.At);
+                var waiting = Assert.Single(d.Golems.Waiting);
+                Assert.Equal(aCurrent.Id, waiting.Saved.Skill);
+                Assert.Equal(603, waiting.At);
+                var waitingLease = Assert.IsType<GemSourceLifetimes.SourceLifetime>(waiting.GemSource);
+                Assert.Same(waitingLease, d.GemSourceLifetimes.Current(aCurrent.Identity));
+                Assert.False(waitingLease.Retired);
+                var waitingWriter = aInventory.GemActivationWriter("Game.Golems", aCurrent.Id);
+                Assert.True(waitingWriter is { } claimedWaiting
+                    && claimedWaiting.Owner == d.VitalsSessionId
+                    && ReferenceEquals(claimedWaiting.Marker, waitingLease.Parent));
+                uint waitingObjectId = d.NextObjectId;
+
+                schedule.At = 601.5;
+                global::Game.SaveGolems(d);
+                string dWaitingJson = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                var dWaitingSaved = Assert.Single(JsonSerializer.Deserialize<GolemState.Saved[]>(dWaitingJson)!);
+                Assert.Equal(aCurrent.Id, dWaitingSaved.Skill);
+                Assert.Equal(1.5, dWaitingSaved.ReviveSeconds);
+                global::Game.SaveGolems(aLive);
+                Assert.Equal(dWaitingJson, CharacterSaves.ModuleData(character, "Game.Golems"));
+
+                schedule.At = 603;
+                await global::Game.GolemsTick("test", dWire.Stream, dWire.Ciphers, d, schedule.At);
+                Assert.Empty(d.Golems.Waiting);
+                var dLive = Assert.Single(d.Golems.All).Value;
+                Assert.Equal(waitingObjectId, dLive.Id);
+                Assert.False(dLive.Monster.Dead);
+                string dLiveJson = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                var dLiveSaved = Assert.Single(JsonSerializer.Deserialize<GolemState.Saved[]>(dLiveJson)!);
+                Assert.Equal(0, dLiveSaved.ReviveSeconds);
+                Assert.NotNull(dLiveSaved.Resources);
+                Assert.True(dLiveSaved.Resources!.Life > 0);
+                global::Game.SaveGolems(aLive);
+                Assert.Equal(dLiveJson, CharacterSaves.ModuleData(character, "Game.Golems"));
+
+                // The automatic empty roster still publishes its queued native removal and reconciles the owner
+                // count and buff cache after saving. The source ABA retires D's exact revival lease first.
+                Assert.True(global::Game.GolemTakeHitLocked(d, dLive, 0x0800c3b3, killer, lethal, schedule.At));
+                Assert.True(dLive.Monster.Dead);
+                Assert.Equal(605, dLive.ReviveAt);
+                uint expiredId = dLive.Id;
+                var activeGolems = Program.Stats.Key("virtual_total_number_of_active_golems")!.Value;
+                Assert.Equal(1, d.Golems.OwnerStats[activeGolems]);
+                Assert.NotEmpty(d.Golems.Buffs);
+                await global::Game.UnsocketGem("test", bWire.Stream, bWire.Ciphers, bLive, physicalTarget);
+                await global::Game.SocketGem("test", bWire.Stream, bWire.Ciphers, bLive, physicalTarget);
+                Assert.True(waitingLease.Retired || !d.GemSourceLifetimes.IsCurrent(waitingLease));
+                var expiredPackets = new List<byte[]>();
+                var previousExpiredOutgoing = Program.Outgoing;
+                Program.Outgoing = (ciphers, bytes) =>
+                {
+                    if (ReferenceEquals(ciphers, dWire.Ciphers))
+                        lock (expiredPackets) expiredPackets.Add(bytes.ToArray());
+                    previousExpiredOutgoing?.Invoke(ciphers, bytes);
+                };
+                try
+                {
+                    schedule.At = dLive.ReviveAt;
+                    await global::Game.GolemsTick("test", dWire.Stream, dWire.Ciphers, d, schedule.At);
+                }
+                finally
+                {
+                    Program.Outgoing = previousExpiredOutgoing;
+                }
+                Assert.Empty(d.Golems.All);
+                Assert.Empty(d.Golems.Waiting);
+                Assert.DoesNotContain(expiredId, d.Golems.All.Keys);
+                Assert.Empty(d.Golems.OwnerStats);
+                Assert.Empty(d.Golems.Buffs);
+                Assert.Contains(expiredPackets, packet =>
+                    packet.AsSpan().IndexOf(InstanceProtocol.RemoveObject(expiredId)) >= 0);
+                Assert.Empty(JsonSerializer.Deserialize<GolemState.Saved[]>(
+                    CharacterSaves.ModuleData(character, "Game.Golems") ?? "[]")!);
+
+                var current = FlameSource(aLive);
+                uint freshId = await global::Game.SummonGolem("test", aWire.Stream, aWire.Ciphers, aLive,
+                    current.Id, definition, (100, 100));
+                Assert.NotEqual(0u, freshId);
+                var freshToken = aLive.GemSourceLifetimes.Current(current.Identity);
+                Assert.NotNull(freshToken);
+                Assert.NotSame(aToken, freshToken);
+                Assert.True(aLive.GemSourceLifetimes.IsCurrent(freshToken));
+
+                // Replacing the inventory owner is terminal for every old shared marker and local lease. Loading the
+                // same saved character again creates a new owner scope which a real current summon can use.
+                var freshMarker = aInventory.CaptureGemSourceLifetime(current.Identity);
+                Assert.NotNull(freshMarker);
+                Assert.False(freshMarker.Retired);
+                PlayerInventories.Invalidate(character);
+                Assert.False(aLive.GemSourceLifetimes.IsCurrent(freshToken));
+                Assert.True(freshMarker.Retired);
+                Assert.Null(aInventory.CaptureGemSourceLifetime(current.Identity));
+                var reloadedInventory = global::Game.ItemsOf(aLive);
+                Assert.NotSame(aInventory, reloadedInventory);
+                Assert.Equal(host.Id, Assert.Single(reloadedInventory.Items(PlayerInventories.Weapon1)).Id);
+                Recalculate(aLive);
+                var reloadedSource = FlameSource(aLive);
+                uint reloadedId = await global::Game.SummonGolem("test", aWire.Stream, aWire.Ciphers, aLive,
+                    reloadedSource.Id, definition, (100, 100));
+                Assert.NotEqual(0u, reloadedId);
+                var reloadedToken = aLive.GemSourceLifetimes.Current(reloadedSource.Identity);
+                Assert.NotNull(reloadedToken);
+                Assert.NotSame(freshToken, reloadedToken);
+                Assert.True(aLive.GemSourceLifetimes.IsCurrent(reloadedToken));
+            }
+            finally
+            {
+                if (a is not null) a.Closed = true;
+                if (b is not null) b.Closed = true;
+                if (c is not null) c.Closed = true;
+                if (d is not null) d.Closed = true;
+                PlayerInventories.Forget(character);
+                PlayerInventories.Forget(controlCharacter);
+                global::Game.InactiveItems.TryRemove(character, out _);
+                global::Game.InactiveItems.TryRemove(controlCharacter, out _);
+                global::Game.AreaUpdateContext.Value = previousContext;
+            }
+        }
+
+        async Task ReloginOrphanCleanup()
+        {
+            const string character = "ReloginOrphanCleanup";
+            var characterId = Guid.Parse("504c3e3d-0000-4000-8000-000000000504");
+            const byte witchRow = 1;
+            var schedule = new AreaClockSchedule { At = 650 };
+            var updates = new PlayerUpdatesState(lifetime, schedule);
+            var previousContext = global::Game.AreaUpdateContext.Value;
+            global::Game.AreaUpdateContext.Value = updates;
+            var sharedInstance = new InstanceState();
+            using var sourceWire = new Wire();
+            using var freshWire = new Wire();
+            using var restoredWire = new Wire();
+            ClientState? source = null, fresh = null, restored = null;
+            try
+            {
+                PlayerInventories.SetClass(character, witchRow);
+                ClientState Open(uint ticket, string remote, Wire wire) =>
+                    new(conn.Layout, ticket, ticket)
+                    {
+                        Character = character, CharacterId = characterId, Account = "relogin-orphan-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = sharedInstance,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = updates,
+                        Pools = new(100, 1, 1, 0, 0), LeagueModule = conn.LeagueModule,
+                        Wire = (remote, wire.Stream, wire.Ciphers),
+                    };
+
+                source = Open(0xC3E3, "relogin-orphan-source", sourceWire);
+                fresh = Open(0xC3E4, "relogin-orphan-fresh", freshWire);
+                Program.InGame.TryAdd(source, 0);
+                Program.InGame.TryAdd(fresh, 0);
+                foreach (var client in new[] { source, fresh })
+                {
+                    client.Golems.Restored = true;
+                    client.Summons.Restored = true;
+                    client.Walk.Teleport(100, 100, schedule.At);
+                }
+
+                // The source connection populated the instance. The fresh connection is a real re-entry that shares the
+                // same production world and therefore bypasses PopulateArea, leaving MonstersPlaced false.
+                Assert.True(global::Game.ClaimMonsterHost("relogin-orphan-source", source));
+                source.MonstersPlaced = true;
+                Assert.False(global::Game.ClaimMonsterHost("relogin-orphan-fresh", fresh));
+                Assert.False(fresh.MonstersPlaced);
+                Assert.Same(source.Instance.World, fresh.Instance.World);
+
+                var inventory = global::Game.ItemsOf(source);
+                Assert.Same(inventory, global::Game.ItemsOf(fresh));
+                var gemBase = Program.Items.FindGem("Flame Golem")!.Value;
+                var gemType = Program.Items.Gem(gemBase.Type)!;
+                var flameGem = ItemCatalog.Create(gemBase.Type) with
+                {
+                    GemVariant = gemBase.Variant.Index,
+                    GemExperience = gemType.ExperienceFor(1),
+                };
+                var wand = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                {
+                    Sockets = [new(SocketColour.White, flameGem)],
+                };
+                var host = inventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                inventory.Add(5, 0, 0, new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                void Recalculate(ClientState client)
+                {
+                    global::Game.EquipmentStatSources(client, inventory.EquipmentSnapshot());
+                    client.Pools = global::Game.PoolsFor(client, client.Pools.Level);
+                    client.PlayerLife = client.Pools.Life;
+                    client.PlayerMana = client.Pools.Mana;
+                }
+                Recalculate(source);
+                Recalculate(fresh);
+                Assert.Empty(source.PlayerStats);
+                Assert.Empty(fresh.PlayerStats);
+
+                global::Game.PlayerSkillSource Source(ClientState client)
+                {
+                    var equipment = inventory.EquipmentSnapshot();
+                    return Assert.Single(global::Game.PlayerSkillSourcesAt(client.Character!, equipment,
+                        global::Game.InactiveItems.GetValueOrDefault(client.Character!), client.LeagueModule!, [],
+                        global::Game.WornGrantedSkillsOf(client, equipment)),
+                        candidate => global::Game.SkillsFor(client).EffectId(candidate.Effect) == "SummonFlameGolem");
+                }
+                var sourceSkill = Source(source);
+                var freshSkill = Source(fresh);
+                bool Supported(ClientState client, ushort sourceId)
+                {
+                    using var scope = new global::Game.PlayerStatScope(client, fresh: true);
+                    return global::Game.SupportedSkill(client, sourceId).RequirementsMet;
+                }
+                Assert.True(Supported(source, sourceSkill.Id));
+                Assert.True(Supported(fresh, freshSkill.Id));
+                Assert.Equal(sourceSkill.Identity, freshSkill.Identity);
+                Assert.Equal(sourceSkill.Identity.Host, host.Id);
+                Assert.Equal(sourceSkill.SourceGem, host.Item.Sockets[0].Gem);
+
+                var rhoa = global::Game.Monsters.Find("Rhoa")!;
+                uint hostileId = await global::Game.SpawnMonster("relogin-orphan-source", sourceWire.Stream,
+                    sourceWire.Ciphers, source, rhoa, 70, MonsterRarity.Normal, 105, 100,
+                    name: "Unrelated shared Rhoa");
+                Assert.NotEqual(0u, hostileId);
+                var definition = global::Game.GolemData.Find("SummonFlameGolem")!;
+                uint sourceGolemId = await global::Game.SummonGolem("relogin-orphan-source", sourceWire.Stream,
+                    sourceWire.Ciphers, source, sourceSkill.Id, definition, (100, 100));
+                uint freshGolemId = await global::Game.SummonGolem("relogin-orphan-fresh", freshWire.Stream,
+                    freshWire.Ciphers, fresh, freshSkill.Id, definition, (100, 100));
+                Assert.NotEqual(0u, sourceGolemId);
+                Assert.NotEqual(0u, freshGolemId);
+                Assert.NotEqual(sourceGolemId, freshGolemId);
+
+                var world = sharedInstance.World;
+                SpawnedMonster sourceGolemObject, freshGolemObject, hostileObject;
+                lock (world.Monsters)
+                {
+                    sourceGolemObject = world.Monsters[sourceGolemId];
+                    freshGolemObject = world.Monsters[freshGolemId];
+                    hostileObject = world.Monsters[hostileId];
+                }
+                Assert.True(source.Minions.Owns(sourceGolemId, sourceGolemObject));
+                Assert.True(fresh.Minions.Owns(freshGolemId, freshGolemObject));
+                Assert.True(world.MonsterOrigins.ContainsKey(hostileId));
+                Assert.True(source.MinionOrigins.ContainsKey(sourceGolemId));
+                Assert.True(fresh.MinionOrigins.ContainsKey(freshGolemId));
+
+                string activationBefore = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                Assert.Contains(JsonSerializer.Deserialize<GolemState.Saved[]>(activationBefore)!,
+                    saved => saved.Effect == definition.Id && saved.Skill == freshSkill.Id);
+
+                var preservedSnapshot = new List<SavedMonster>();
+                sharedInstance.Monsters = preservedSnapshot;
+                fresh.Closed = true;
+                Program.GameLogicOrNull!.Closing(fresh);
+                Program.GameLogicOrNull!.Left(fresh);
+                sharedInstance.RemovePlayer(fresh.PeerId);
+                Assert.Same(preservedSnapshot, sharedInstance.Monsters);
+
+                lock (world.Monsters)
+                {
+                    Assert.DoesNotContain(freshGolemId, world.Monsters.Keys);
+                    Assert.Same(sourceGolemObject, world.Monsters[sourceGolemId]);
+                    Assert.Same(hostileObject, world.Monsters[hostileId]);
+                    Assert.DoesNotContain(world.Monsters.Values, monster => ReferenceEquals(monster, freshGolemObject));
+                }
+                Assert.True(source.Minions.Owns(sourceGolemId, sourceGolemObject));
+                Assert.True(world.MonsterOrigins.ContainsKey(hostileId));
+                Assert.True(source.MinionOrigins.ContainsKey(sourceGolemId));
+                string activationAfter = CharacterSaves.ModuleData(character, "Game.Golems") ?? "<missing>";
+                Assert.Equal(activationBefore, activationAfter);
+                Assert.Contains(JsonSerializer.Deserialize<GolemState.Saved[]>(activationAfter)!,
+                    saved => saved.Effect == definition.Id && saved.Skill == freshSkill.Id);
+
+                // The durable activation remains usable by the ordinary restoration path of the next connection.
+                restored = Open(0xC3E5, "relogin-orphan-restored", restoredWire);
+                restored.Golems.Restored = false;
+                restored.Summons.Restored = true;
+                restored.Walk.Teleport(100, 100, schedule.At);
+                Recalculate(restored);
+                await global::Game.GolemsTick("relogin-orphan-restored", restoredWire.Stream,
+                    restoredWire.Ciphers, restored, schedule.At);
+                var restoredGolem = Assert.Single(restored.Golems.All.Values);
+                Assert.Equal(definition.Id, restoredGolem.Definition.Id);
+                Assert.Equal(freshSkill.Id, restoredGolem.Source);
+                Assert.False(restoredGolem.Monster.Dead);
+                Assert.True(restoredGolem.Monster.Life > 0);
+                Assert.True(restored.Minions.Owns(restoredGolem.Id, restoredGolem.Monster));
+                lock (world.Monsters)
+                    Assert.Same(restoredGolem.Monster, world.Monsters[restoredGolem.Id]);
+            }
+            finally
+            {
+                foreach (var client in new[] { source, fresh, restored })
+                {
+                    if (client is null) continue;
+                    client.Closed = true;
+                    Program.InGame.TryRemove(client, out _);
+                }
+                PlayerInventories.Forget(character);
+                global::Game.InactiveItems.TryRemove(character, out _);
+                global::Game.AreaUpdateContext.Value = previousContext;
+            }
+        }
+
         async Task PrimordialMightOwnerWindow()
         {
             const string condition = "_if_golem_summoned_in_past_8_seconds";
@@ -2526,6 +3214,6757 @@ public sealed class GolemTests
             var combinedIgnite = new MonsterIgnites();
             Assert.True(combinedIgnite.Add(0, 1.2, 1));
             Assert.Equal(1, combinedIgnite.Advance(1, 1));
+
+            // C3A isolated authority: exercise the three public manual gem mutation handlers against one real
+            // socket host, held behind the same cipher send gate as an actual owned replacement. This fixture ends
+            // before the existing IntegerResourceAuthority control and owns all of its state and cleanup.
+            const string c3aCharacter = "AtomicGemSourceAuthority";
+            var c3aSchedule = new AreaClockSchedule();
+            var c3aUpdates = new PlayerUpdatesState(lifetime, c3aSchedule);
+            var previousC3AContext = global::Game.AreaUpdateContext.Value;
+            global::Game.AreaUpdateContext.Value = c3aUpdates;
+            ClientState? c3a = null;
+            ClientState? c3aRestored = null;
+            ClientState? c3aZombieRestored = null;
+            try
+            {
+                c3aSchedule.At = 40;
+                var c3aSelf = c3a = new ClientState(
+                    new(1, "atomic-gem-source-authority", 1000, 1000, 100, 100, null, []), 8, 1)
+                {
+                    Character = c3aCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                    PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = c3aUpdates,
+                    Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                    LeagueModule = conn.LeagueModule,
+                };
+                c3aSelf.Golems.Restored = true;
+                c3aSelf.Summons.Restored = true;
+                foreach (string stat in new[]
+                         {
+                             "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
+                             "virtual_intelligence_for_requirements",
+                         })
+                    c3aSelf.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+                c3aSelf.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 1;
+                c3aSelf.PlayerStats[Program.Stats.Key("minion_life_regeneration_rate_per_minute_%")!.Value] = -60;
+                c3aSelf.PlayerStats[Program.Stats.Key("minion_additional_spell_block_%")!.Value] = 0;
+                c3aSelf.PlayerStats[Program.Stats.Key("minion_block_%")!.Value] = 0;
+                c3aSelf.PlayerStats[Program.Stats.Key("minion_physical_damage_reduction_rating")!.Value] = 0;
+                c3aSelf.PlayerStats[Program.Stats.Key("golem_physical_damage_reduction_rating")!.Value] = 0;
+                c3aSelf.IncomingHitRandom = new LowestRandom();
+
+                var c3aInventory = global::Game.ItemsOf(c3aSelf);
+                var c3aTreeRoll = Program.Items.Mods.ById(
+                    "WeaponTreeMinionLifeAsExtraEnergyShieldReducedElementalResistance1")!
+                    .Roll(ModSection.Explicit, new Random(504));
+                Assert.Equal(15, c3aTreeRoll.Values[0]);
+                var c3aBow = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!);
+                var c3aFlameGem = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Gems/SkillGemSummonFlameGolem")!);
+                var c3aRockGem = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Gems/SkillGemSummonRockGolem")!);
+                Assert.Equal(1, global::Game.ItemsFor(c3aSelf).GemLevel(c3aFlameGem));
+                var c3aWeaponSlot = c3aInventory.Add(PlayerInventories.Weapon1, 0, 0, c3aBow with
+                {
+                    Sockets = [new(SocketColour.White, c3aFlameGem)],
+                    Mods = [.. c3aBow.Mods, c3aTreeRoll],
+                });
+                var c3aFlesh = new UniqueCatalog(Program.Items).Create("Fleshcrafter", new Random(504))!;
+                Assert.Contains(c3aFlesh.Mods, mod => Program.Items.Mods.ByHash(mod.Hash)?.Id ==
+                    "MinionLifeConvertedToEnergyShieldUnique__1");
+                c3aInventory.Add(PlayerInventories.BodyArmour, 0, 0, c3aFlesh);
+                void c3aRecalculate()
+                {
+                    global::Game.EquipmentStatSources(c3aSelf, c3aInventory.EquipmentSnapshot());
+                    c3aSelf.Pools = global::Game.PoolsFor(c3aSelf, c3aSelf.Pools.Level);
+                    c3aSelf.PlayerLife = c3aSelf.Pools.Life;
+                    c3aSelf.PlayerMana = c3aSelf.Pools.Mana;
+                }
+                c3aRecalculate();
+
+                Dictionary<uint, uint>? PlayerStatsFrom(IEnumerable<byte[]> packets)
+                {
+                    var header = InstanceEntities.StatsUpdate(Program.PlayerId, []).AsSpan(0, 12);
+                    Dictionary<uint, uint>? found = null;
+                    foreach (var packet in packets)
+                    {
+                        int offset = packet.AsSpan().IndexOf(header);
+                        if (offset < 0) continue;
+                        int cursor = offset + header.Length;
+                        uint Compact()
+                        {
+                            byte first = packet[cursor++];
+                            int following = first < 0x80 ? 0 : first < 0xc0 ? 1 : first < 0xe0 ? 2
+                                : first < 0xf0 ? 3 : 4;
+                            uint value = following == 4 ? 0u : (uint)(first & (0x7f >> following));
+                            for (int i = 0; i < following; i++) value = (value << 8) | packet[cursor++];
+                            return value;
+                        }
+                        uint count = Compact();
+                        found = [];
+                        for (uint i = 0; i < count; i++) found[Compact()] = Compact();
+                    }
+                    return found;
+                }
+
+                var c3aSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aFlameSourceKey = new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aSource.Effect);
+                var c3aDefinition = global::Game.GolemData.Find("SummonFlameGolem")!;
+                var c3aInitialPackets = new List<byte[]>();
+                var c3aBeforeInitialOutgoing = Program.Outgoing;
+                Program.Outgoing = (ciphers, bytes) =>
+                {
+                    if (ReferenceEquals(ciphers, wire.Ciphers)) lock (c3aInitialPackets) c3aInitialPackets.Add(bytes.ToArray());
+                    c3aBeforeInitialOutgoing?.Invoke(ciphers, bytes);
+                };
+                uint c3aInitialId;
+                try
+                {
+                    c3aInitialId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aSource.Id, c3aDefinition, (100, 100));
+                }
+                finally { Program.Outgoing = c3aBeforeInitialOutgoing; }
+                Assert.NotEqual(0u, c3aInitialId);
+                var c3aInitial = Assert.Single(c3aSelf.Golems.All).Value;
+                var c3aTotalGolems = Program.Stats.Key("virtual_total_number_of_active_golems")!.Value;
+                var c3aFireGolems = Program.Stats.Key("current_number_of_fire_golems")!.Value;
+                var c3aOwnerDamage = Program.Stats.Key("damage_+%")!.Value;
+                int c3aOwnerDamageValue = c3aInitial.OwnerBuff[c3aOwnerDamage];
+                Assert.True(c3aOwnerDamageValue > 0);
+                var c3aInitialStats = PlayerStatsFrom(c3aInitialPackets);
+                Assert.NotNull(c3aInitialStats);
+                Assert.Equal(1u, c3aInitialStats[c3aTotalGolems]);
+                Assert.Equal(1u, c3aInitialStats[c3aFireGolems]);
+                Assert.Equal((uint)c3aOwnerDamageValue, c3aInitialStats[c3aOwnerDamage]);
+                using (new global::Game.PlayerStatScope(c3aSelf, fresh: true))
+                    Assert.Contains(global::Game.PlayerSkills(c3aSelf), skill =>
+                        skill.Stats?.Any(stat => stat.Key == c3aOwnerDamage && stat.Value == c3aOwnerDamageValue) == true);
+                int c3aInitialActorLevel = global::Game.SupportedSkill(c3aSelf, c3aSource.Id).Stats.GetValueOrDefault(
+                    Program.Stats.Key("base_display_minion_actor_level")!.Value);
+                Assert.Equal(c3aInitialActorLevel, c3aInitial.Monster.Level);
+                Assert.True(c3aInitialActorLevel > 1);
+                Assert.True(c3aInitial.MaximumShield > 2);
+
+                // One actual physical spell with zero spell block and zero physical mitigation establishes a partial
+                // ES pool while leaving Life intact, without the Fire damage rounding loop.
+                var c3aHitSource = new SpawnedMonster("atomic gem physical spell", new(100, 100, 1), 100, 8, 1_000_000);
+                int c3aHitAmount = checked((int)(c3aInitial.Shield / 2) + 1);
+                var c3aPhysicalHit = new MonsterAttack(0x4000, 1, 100,
+                    DamagePacket.Of(DamageType.Physical, c3aHitAmount, c3aHitAmount)) { Spell = true };
+                uint c3aLifeBeforeHit = c3aInitial.Monster.Life;
+                uint c3aShieldBeforeHit = c3aInitial.Shield;
+                using (global::Game.ProjectileMutation(c3aSelf, advance: false, phase: "c3a physical spell"))
+                    Assert.True(global::Game.GolemTakeHitLocked(c3aSelf, c3aInitial, 0x09000041, c3aHitSource,
+                        c3aPhysicalHit, c3aSchedule.At), "the actual physical spell did not reach the golem");
+                Assert.Equal(c3aLifeBeforeHit, c3aInitial.Monster.Life);
+                uint c3aPartialShield = c3aInitial.Shield;
+                Assert.True(c3aPartialShield > 0);
+                Assert.True(c3aPartialShield < c3aShieldBeforeHit);
+                // Neutral fractional status control: this is not a hostile admission.
+                Assert.True(c3aInitial.Monster.Ignites.Add(c3aSchedule.At, .25, 10));
+                double c3aStatusUntil = c3aInitial.Monster.Ignites.Until;
+                uint c3aPreservedLife = c3aInitial.Monster.Life;
+
+                // Normal production XP, not a raw XP setter: Standard's null multiplier makes ten monster XP one
+                // whole gem XP. A fresh level-1 create is already waiting when the real commit changes the source
+                // to level 2, so its captured actor/pools cannot commit. The real tick rebuilds the owned golem while
+                // retaining absolute resources and status.
+                var c3aGemType = global::Game.ItemsFor(c3aSelf).Gem(
+                    global::Game.ItemsFor(c3aSelf).ByHash(c3aFlameGem.TypeHash)!)!;
+                var c3aSocketGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                int c3aLevelTwoExperience = c3aGemType.ExperienceFor(2);
+                Assert.True(c3aLevelTwoExperience > c3aSocketGem.GemExperience);
+                Assert.Null(c3aSelf.LeagueModule.Rules.GemExperienceMultiplier);
+                uint c3aGain = checked((uint)(c3aLevelTwoExperience - c3aSocketGem.GemExperience) * 10);
+                var c3aNormalXpToken = c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey);
+                var c3aNormalXpGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aNormalXpGate.Wait(0));
+                Task<uint>? c3aStaleLevelOneFresh = null;
+                List<byte[]> c3aXpPackets;
+                bool c3aLeveled;
+                try
+                {
+                    c3aStaleLevelOneFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aSource.Id, c3aDefinition, (100, 100), arrival: true);
+                    Assert.False(c3aStaleLevelOneFresh.IsCompleted,
+                        "the actual level-1 fresh golem did not reach the held create gate");
+                    (c3aXpPackets, c3aLeveled) = global::Game.CommitGemExperience(c3aSelf, c3aGain);
+                }
+                finally { c3aNormalXpGate.Release(); }
+                Assert.Equal(0u, await c3aStaleLevelOneFresh!);
+                Assert.True(c3aLeveled);
+                Assert.NotEmpty(c3aXpPackets);
+                var c3aLevelTwoGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                Assert.Equal(2, global::Game.ItemsFor(c3aSelf).GemLevel(c3aLevelTwoGem));
+                Assert.Same(c3aNormalXpToken, c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey));
+                Assert.Same(c3aInitial, Assert.Single(c3aSelf.Golems.All).Value);
+                await global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, c3aSelf, c3aSchedule.At);
+                var c3aLevelTwo = Assert.Single(c3aSelf.Golems.All).Value;
+                Assert.NotSame(c3aInitial, c3aLevelTwo);
+                var c3aLevelTwoSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                int c3aLevelTwoActorLevel = global::Game.SupportedSkill(c3aSelf, c3aLevelTwoSource.Id).Stats.GetValueOrDefault(
+                    Program.Stats.Key("base_display_minion_actor_level")!.Value);
+                Assert.Equal(c3aLevelTwoActorLevel, c3aLevelTwo.Monster.Level);
+                Assert.True(c3aLevelTwoActorLevel > c3aInitialActorLevel);
+                Assert.True(c3aLevelTwo.Monster.MaxLife > c3aInitial.Monster.MaxLife);
+                Assert.Equal(c3aPreservedLife, c3aLevelTwo.Monster.Life);
+                Assert.Equal(c3aPartialShield, c3aLevelTwo.Shield);
+                Assert.Equal(c3aStatusUntil, c3aLevelTwo.Monster.Ignites.Until);
+
+                // A replacement prepared from the current level-2 source must reject after the public "+" changes
+                // the same source to level 3. The following current tick rebuilds from the new level without healing.
+                var c3aLevelSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aGemTarget = new InstanceItems.SocketGem(
+                    PlayerInventories.InventoryId(PlayerInventories.Weapon1), c3aWeaponSlot.Id, 0);
+                var c3aLevelGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aLevelGate.Wait(0));
+                Task<uint>? c3aStaleLevelTwo = null;
+                Task<uint>? c3aStaleLevelTwoFresh = null;
+                Task? c3aLevelUp = null;
+                try
+                {
+                    c3aStaleLevelTwo = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aLevelSource.Id, c3aDefinition, (100, 100), arrival: true, replacingOld: c3aLevelTwo);
+                    Assert.False(c3aStaleLevelTwo.IsCompleted,
+                        "the actual level-2 replacement did not reach the held create gate");
+                    c3aStaleLevelTwoFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aLevelSource.Id, c3aDefinition, (100, 100), arrival: true);
+                    Assert.False(c3aStaleLevelTwoFresh.IsCompleted,
+                        "the actual level-2 fresh golem did not reach the held create gate");
+                    c3aLevelUp = global::Game.LevelUpGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                    Assert.False(c3aLevelUp.IsCompleted,
+                        "the actual level-up handler did not suspend after its synchronous mutation");
+                    var c3aLevelThreeGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                    Assert.Equal(c3aGemType.ExperienceFor(3), c3aLevelThreeGem.GemExperience);
+                    Assert.Equal(3, global::Game.ItemsFor(c3aSelf).GemLevel(c3aLevelThreeGem));
+                    Assert.Equal(3, global::Game.SupportedSkill(c3aSelf, c3aLevelSource.Id).Level);
+                }
+                finally
+                {
+                    c3aLevelGate.Release();
+                }
+                Assert.Equal(0u, await c3aStaleLevelTwo!);
+                Assert.Equal(0u, await c3aStaleLevelTwoFresh!);
+                await c3aLevelUp!;
+                Assert.Same(c3aNormalXpToken, c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey));
+                c3aSchedule.At = 40.5;
+                await global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, c3aSelf, c3aSchedule.At);
+                var c3aLevelThree = Assert.Single(c3aSelf.Golems.All).Value;
+                Assert.NotSame(c3aLevelTwo, c3aLevelThree);
+                var c3aLevelThreeTickSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                int c3aLevelThreeActorLevel = global::Game.SupportedSkill(c3aSelf, c3aLevelThreeTickSource.Id).Stats
+                    .GetValueOrDefault(Program.Stats.Key("base_display_minion_actor_level")!.Value);
+                Assert.Equal(c3aLevelThreeActorLevel, c3aLevelThree.Monster.Level);
+                Assert.True(c3aLevelThreeActorLevel > c3aLevelTwoActorLevel);
+                Assert.True(c3aLevelThree.Monster.MaxLife > c3aLevelTwo.Monster.MaxLife);
+                Assert.Equal(c3aPreservedLife, c3aLevelThree.Monster.Life);
+                Assert.Equal(c3aPartialShield, c3aLevelThree.Shield);
+                Assert.Equal(c3aStatusUntil, c3aLevelThree.Monster.Ignites.Until);
+
+                // A real cursor gem with a different effect is swapped in by the public socket handler while a
+                // replacement prepared from the old Flame source is held. The old source is gone before output
+                // resumes, so the prepared replacement must reject; the old actor lifecycle remains C3B scope.
+                c3aInventory.Add(PlayerInventories.Cursor, 0, 0, c3aRockGem);
+                var c3aLevelThreeSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aSocketGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aSocketGate.Wait(0));
+                Task<uint>? c3aStaleSocketReplacement = null;
+                Task? c3aSocketSwap = null;
+                try
+                {
+                    c3aStaleSocketReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aLevelThreeSource.Id, c3aDefinition, (100, 100), arrival: true, replacingOld: c3aLevelThree);
+                    Assert.False(c3aStaleSocketReplacement.IsCompleted);
+                    c3aSocketSwap = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                    Assert.False(c3aSocketSwap.IsCompleted,
+                        "the actual socket handler did not suspend after its synchronous mutation");
+                    var c3aSwappedSocket = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                    Assert.Equal(c3aRockGem.TypeHash, c3aSwappedSocket.TypeHash);
+                    var c3aHeldFlame = Assert.Single(c3aInventory.Items(PlayerInventories.Cursor));
+                    Assert.Equal(c3aFlameGem.TypeHash, c3aHeldFlame.Item.TypeHash);
+                    Assert.DoesNotContain(global::Game.GemSkillEffects(c3aSelf),
+                        gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                }
+                finally
+                {
+                    c3aSocketGate.Release();
+                }
+                Assert.Equal(0u, await c3aStaleSocketReplacement!);
+                await c3aSocketSwap!;
+
+                // Restore through the same public handler, then remove only the unused cursor fixture and make a
+                // fresh actual owned summon from the restored current source.
+                await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                var c3aHeldRock = Assert.Single(c3aInventory.Items(PlayerInventories.Cursor));
+                Assert.Equal(c3aRockGem.TypeHash, c3aHeldRock.Item.TypeHash);
+                Assert.NotNull(c3aInventory.Remove(PlayerInventories.Cursor, c3aHeldRock.Id));
+                var c3aRestoredSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                // The restored source has a fresh identity while the pre-swap actor remains C3B retirement scope.
+                // Leave that actor untouched and make the required fresh summon under a labelled fixture limit.
+                c3aSelf.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 2;
+                c3aRecalculate();
+                uint c3aFreshId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aRestoredSource.Id, c3aDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aFreshId);
+                var c3aFresh = c3aSelf.Golems.All[c3aFreshId];
+                Assert.Equal(c3aLevelThreeActorLevel, c3aFresh.Monster.Level);
+
+                // The public unsocket removes that current source while another replacement is prepared. The stale
+                // create rejects from the fresh source map; no assertion claims the old C3B actor must be retired.
+                var c3aFreshSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aUnsocketGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aUnsocketGate.Wait(0));
+                Task<uint>? c3aStaleUnsocketReplacement = null;
+                Task? c3aUnsocket = null;
+                try
+                {
+                    c3aStaleUnsocketReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aFreshSource.Id, c3aDefinition, (100, 100), arrival: true, replacingOld: c3aFresh);
+                    Assert.False(c3aStaleUnsocketReplacement.IsCompleted);
+                    c3aUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                    Assert.False(c3aUnsocket.IsCompleted,
+                        "the actual unsocket handler did not suspend after its synchronous mutation");
+                    Assert.Null(c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem);
+                    var c3aUnsocketHeld = Assert.Single(c3aInventory.Items(PlayerInventories.Cursor));
+                    Assert.Equal(c3aFlameGem.TypeHash, c3aUnsocketHeld.Item.TypeHash);
+                    Assert.DoesNotContain(global::Game.GemSkillEffects(c3aSelf),
+                        gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                }
+                finally
+                {
+                    c3aUnsocketGate.Release();
+                }
+                Assert.Equal(0u, await c3aStaleUnsocketReplacement!);
+                await c3aUnsocket!;
+
+                // C3B2: remove and restore the exact physical source while a fresh preparation and a replacement
+                // are both held at their create gate. The final tuple and skill id are restored, but neither stale
+                // preparation may commit against the old physical lifetime and the existing actor retires eagerly.
+                await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                c3aSelf.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 4;
+                c3aRecalculate();
+                var c3aReaddedSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                Assert.True(global::Game.SupportedSkill(c3aSelf, c3aReaddedSource.Id).RequirementsMet);
+                uint c3aRemovalOldId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aReaddedSource.Id, c3aDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aRemovalOldId);
+                var c3aRemovalOld = c3aSelf.Golems.All[c3aRemovalOldId];
+                var c3aStoneGem = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Gems/SkillGemSummonRockGolem")!);
+                c3aInventory.Change(PlayerInventories.Weapon1, c3aWeaponSlot.Id, item => item with
+                {
+                    Sockets = [.. item.Sockets, new(SocketColour.White, c3aStoneGem)],
+                });
+                c3aRecalculate();
+                var c3aStoneSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonStoneGolem");
+                var c3aStoneDefinition = global::Game.GolemData.Find("SummonStoneGolem")!;
+                uint c3aStoneId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aStoneSource.Id, c3aStoneDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aStoneId);
+                var c3aStone = c3aSelf.Golems.All[c3aStoneId];
+                Assert.NotEqual(c3aDefinition.Buff, c3aStoneDefinition.Buff);
+                Assert.True(c3aSelf.Golems.Buffs.TryGetValue(c3aDefinition.Buff, out var c3aFlameBuff));
+                Assert.True(c3aSelf.Golems.Buffs.TryGetValue(c3aStoneDefinition.Buff, out _));
+                var c3aRemovalToken = c3aSelf.GemSourceLifetimes.Current(
+                    new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aReaddedSource.Effect));
+                Assert.NotNull(c3aRemovalToken);
+                // Supplemental neutral fixture: seed the removal-observable collections so cleanup can be checked.
+                // These entries do not exercise pending, hazard, pulse, or incoming-hit producers or admission.
+                var c3aEnemy = new SpawnedMonster("c3a direct minion source enemy", new(100, 100, 1), 100, 8, 1_000_000);
+                const uint c3aEnemyId = 0x0800c3b2;
+                c3aSelf.Monsters[c3aEnemyId] = c3aEnemy;
+                c3aRemovalOld.Pending = new(c3aRemovalOld.Abilities[0], c3aEnemyId, c3aEnemy, (100, 100),
+                    c3aSchedule.At, 0);
+                var c3aRemovalHazard = new GolemState.Hazard(1, (100, 100), c3aSchedule.At + 5, 2, 1,
+                    DamageType.Physical) { Object = 0x0900c3b2 };
+                c3aRemovalOld.Hazards.Add(c3aRemovalHazard);
+                c3aRemovalOld.Pulses.Add(new(c3aRemovalOld.Abilities[0], (100, 100), c3aSchedule.At + 5, 1));
+                c3aSelf.Golems.IncomingHits.Add(new(c3aEnemyId, c3aEnemy, c3aRemovalOld,
+                    new MonsterAttack(1, 1, 100, DamagePacket.Of(DamageType.Physical, 1, 1)), 0));
+                c3aSelf.Golems.Waiting.Add(new(new(c3aDefinition.Id, c3aReaddedSource.Id, ReviveSeconds: 5),
+                    c3aSchedule.At + 5));
+                var c3aStoneGolems = Program.Stats.Key("current_number_of_stone_golems")!.Value;
+                long c3aGolemVersion = c3aSelf.Golems.Version;
+                long c3aMinionRevision = c3aSelf.Minions.StatRevision;
+                var c3aRemovalGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aRemovalGate.Wait(0));
+                Task<uint>? c3aStaleFresh = null;
+                Task<uint>? c3aStaleReplacement = null;
+                Task? c3aRemovalUnsocket = null;
+                Task? c3aRemovalSocket = null;
+                try
+                {
+                    c3aStaleFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aReaddedSource.Id, c3aDefinition, (100, 100), arrival: true);
+                    c3aStaleReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aReaddedSource.Id, c3aDefinition, (100, 100), arrival: true, replacingOld: c3aRemovalOld);
+                    Assert.False(c3aStaleFresh.IsCompleted);
+                    Assert.False(c3aStaleReplacement.IsCompleted);
+                    c3aRemovalUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aGemTarget);
+                    Assert.False(c3aRemovalUnsocket.IsCompleted);
+                    Assert.DoesNotContain(c3aRemovalOldId, c3aSelf.Golems.All.Keys);
+                    Assert.DoesNotContain(c3aRemovalOldId, c3aSelf.Monsters.Keys);
+                    Assert.False(c3aSelf.Minions.Owns(c3aRemovalOldId, c3aRemovalOld.Monster));
+                    Assert.Same(c3aStone, c3aSelf.Golems.All[c3aStoneId]);
+                    Assert.Null(c3aRemovalOld.Pending);
+                    Assert.Empty(c3aRemovalOld.Hazards);
+                    Assert.Empty(c3aRemovalOld.Pulses);
+                    Assert.DoesNotContain(c3aSelf.Golems.IncomingHits, hit => ReferenceEquals(hit.Target, c3aRemovalOld));
+                    Assert.DoesNotContain(c3aSelf.Golems.Waiting,
+                        waiting => waiting.Saved.Skill == c3aReaddedSource.Id);
+                    Assert.False(c3aSelf.Golems.Buffs.ContainsKey(c3aDefinition.Buff));
+                    Assert.True(c3aSelf.Golems.Buffs.ContainsKey(c3aStoneDefinition.Buff));
+                    Assert.Equal(1, c3aSelf.Golems.OwnerStats[c3aTotalGolems]);
+                    Assert.False(c3aSelf.Golems.OwnerStats.ContainsKey(c3aFireGolems));
+                    Assert.Equal(1, c3aSelf.Golems.OwnerStats[c3aStoneGolems]);
+                    Assert.True(c3aSelf.Golems.Version > c3aGolemVersion);
+                    Assert.True(c3aSelf.Minions.StatRevision > c3aMinionRevision);
+                    using (new global::Game.PlayerStatScope(c3aSelf, fresh: true))
+                    {
+                        var c3aImmediateStats = global::Game.CharacterPlayerStats(c3aSelf);
+                        Assert.Equal(1, c3aImmediateStats[c3aTotalGolems]);
+                        Assert.False(c3aImmediateStats.ContainsKey(c3aFireGolems));
+                        Assert.Equal(1, c3aImmediateStats[c3aStoneGolems]);
+                    }
+                    var c3aBuffRemoval = InstanceEntities.RemoveBuff(Program.PlayerId, c3aFlameBuff.Instance);
+                    var c3aQueuedBuffRemoval = Assert.Single(c3aSelf.Minions.OutputQueue,
+                        output => output.Packet.AsSpan().SequenceEqual(c3aBuffRemoval));
+                    Assert.Null(c3aQueuedBuffRemoval.TargetId);
+                    var c3aGolemRows = JsonSerializer.Deserialize<GolemState.Saved[]>(
+                        CharacterSaves.ModuleData(c3aCharacter, "Game.Golems")!)!;
+                    Assert.DoesNotContain(c3aGolemRows, row => row.Skill == c3aReaddedSource.Id);
+                    Assert.Contains(c3aGolemRows, row => row.Effect == c3aStoneDefinition.Id);
+                    Assert.DoesNotContain(JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+                        CharacterSaves.ModuleData(c3aCharacter, "Game.SummonedMinions")!)!,
+                        row => row.Source == c3aReaddedSource.Id);
+                    c3aRemovalSocket = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aGemTarget);
+                    Assert.False(c3aRemovalSocket.IsCompleted);
+                    var c3aReturnedGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                    var c3aReturnedSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                        gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                    Assert.Equal(new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aReaddedSource.Effect),
+                        new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aReturnedSource.Effect));
+                    Assert.Equal(c3aReaddedSource.Id, c3aReturnedSource.Id);
+                    Assert.Equal(c3aGemType.ExperienceFor(3), c3aReturnedGem.GemExperience);
+                    Assert.True(global::Game.SupportedSkill(c3aSelf, c3aReturnedSource.Id).RequirementsMet);
+                    Assert.DoesNotContain(c3aRemovalOldId, c3aSelf.Golems.All.Keys);
+                    Assert.Null(c3aSelf.GemSourceLifetimes.Current(
+                        new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aReaddedSource.Effect)));
+                }
+                finally
+                {
+                    c3aRemovalGate.Release();
+                }
+                Assert.Equal(0u, await c3aStaleFresh!);
+                Assert.Equal(0u, await c3aStaleReplacement!);
+                await c3aRemovalUnsocket!;
+                await c3aRemovalSocket!;
+                Assert.Null(c3aSelf.GemSourceLifetimes.Current(
+                    new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aReaddedSource.Effect)));
+                var c3aRemovalWire = new List<byte[]>();
+                var c3aPreviousOutgoing = Program.Outgoing;
+                Program.Outgoing = (ciphers, bytes) =>
+                {
+                    if (ReferenceEquals(ciphers, wire.Ciphers)) lock (c3aRemovalWire) c3aRemovalWire.Add(bytes.ToArray());
+                    c3aPreviousOutgoing?.Invoke(ciphers, bytes);
+                };
+                try { await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf); }
+                finally { Program.Outgoing = c3aPreviousOutgoing; }
+                Assert.Contains(c3aRemovalWire, packet => packet.SequenceEqual(InstanceEntities.RemoveBuff(
+                    Program.PlayerId, c3aFlameBuff.Instance)));
+                Assert.DoesNotContain(c3aSelf.Minions.OutputQueue,
+                    output => output.Packet.AsSpan().SequenceEqual(InstanceEntities.RemoveBuff(Program.PlayerId, c3aFlameBuff.Instance)));
+                c3aSelf.Monsters.Remove(c3aEnemyId);
+                c3aRestored = new ClientState(
+                    new(1, "atomic-gem-source-restored", 1000, 1000, 100, 100, null, []), 9, 1)
+                {
+                    Character = c3aCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                    PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = c3aUpdates,
+                    Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                    LeagueModule = conn.LeagueModule,
+                };
+                foreach (string stat in new[] { "virtual_strength_for_requirements",
+                             "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
+                    c3aRestored.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+                c3aRestored.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 4;
+                global::Game.EquipmentStatSources(c3aRestored, c3aInventory.EquipmentSnapshot());
+                c3aRestored.Pools = global::Game.PoolsFor(c3aRestored, c3aRestored.Pools.Level);
+                c3aRestored.PlayerLife = c3aRestored.Pools.Life;
+                c3aRestored.PlayerMana = c3aRestored.Pools.Mana;
+                await global::Game.GolemsTick("test", wire.Stream, wire.Ciphers, c3aRestored, c3aSchedule.At);
+                await global::Game.SummonsTick("test", wire.Stream, wire.Ciphers, c3aRestored, c3aSchedule.At);
+                Assert.Equal(c3aStoneDefinition.Id, Assert.Single(c3aRestored.Golems.All).Value.Definition.Id);
+                Assert.Empty(c3aRestored.Summons.Fighters);
+                var c3aPostRemovalSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                uint c3aPostRemovalId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aPostRemovalSource.Id, c3aDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aPostRemovalId);
+                var c3aPostRemoval = c3aSelf.Golems.All[c3aPostRemovalId];
+
+                // Same-effect physical replacement: a real second level-3 Flame gem takes the identical host/socket,
+                // so effect, identity and skill id all return unchanged. The old token and actor must still retire.
+                var c3aBeforeSwapSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aBeforeSwapToken = c3aSelf.GemSourceLifetimes.Current(
+                    new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aBeforeSwapSource.Effect));
+                Assert.NotNull(c3aBeforeSwapToken);
+                var c3aPhysicalGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                Assert.Equal(3, global::Game.ItemsFor(c3aSelf).GemLevel(c3aPhysicalGem));
+                c3aInventory.Add(PlayerInventories.Cursor, 0, 0, c3aPhysicalGem with { });
+                var c3aSwapGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aSwapGate.Wait(0));
+                Task<uint>? c3aStaleSwapFresh = null;
+                Task<uint>? c3aStaleSwapReplacement = null;
+                Task? c3aSameEffectSwap = null;
+                try
+                {
+                    c3aStaleSwapFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aBeforeSwapSource.Id, c3aDefinition, (100, 100), arrival: true);
+                    c3aStaleSwapReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aBeforeSwapSource.Id, c3aDefinition, (100, 100), arrival: true, replacingOld: c3aPostRemoval);
+                    Assert.False(c3aStaleSwapFresh.IsCompleted);
+                    Assert.False(c3aStaleSwapReplacement.IsCompleted);
+                    c3aSameEffectSwap = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aGemTarget);
+                    Assert.False(c3aSameEffectSwap.IsCompleted);
+                    Assert.DoesNotContain(c3aPostRemovalId, c3aSelf.Golems.All.Keys);
+                    Assert.DoesNotContain(c3aPostRemovalId, c3aSelf.Monsters.Keys);
+                    Assert.Null(c3aSelf.GemSourceLifetimes.Current(
+                        new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aBeforeSwapSource.Effect)));
+                    var c3aSwappedGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                    var c3aSwappedSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                        gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                    Assert.Equal(c3aPhysicalGem.TypeHash, c3aSwappedGem.TypeHash);
+                    Assert.Equal(c3aPhysicalGem.GemExperience, c3aSwappedGem.GemExperience);
+                    Assert.Equal(c3aPhysicalGem.GemVariant, c3aSwappedGem.GemVariant);
+                    Assert.Equal(c3aPhysicalGem.Quality, c3aSwappedGem.Quality);
+                    Assert.Equal(new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aBeforeSwapSource.Effect),
+                        new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aSwappedSource.Effect));
+                    Assert.Equal(c3aBeforeSwapSource.Id, c3aSwappedSource.Id);
+                    Assert.True(global::Game.SupportedSkill(c3aSelf, c3aSwappedSource.Id).RequirementsMet);
+                }
+                finally
+                {
+                    c3aSwapGate.Release();
+                }
+                Assert.Equal(0u, await c3aStaleSwapFresh!);
+                Assert.Equal(0u, await c3aStaleSwapReplacement!);
+                await c3aSameEffectSwap!;
+                Assert.Null(c3aSelf.GemSourceLifetimes.Current(
+                    new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aBeforeSwapSource.Effect)));
+                var c3aPostSwapSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                uint c3aPostSwapId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aPostSwapSource.Id, c3aDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aPostSwapId);
+                var c3aPostSwapToken = c3aSelf.GemSourceLifetimes.Current(
+                    new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aBeforeSwapSource.Effect));
+                Assert.NotNull(c3aPostSwapToken);
+                Assert.NotSame(c3aBeforeSwapToken, c3aPostSwapToken);
+
+                // Positive source-lifetime controls: failed physical handlers, an unchanged skill publication,
+                // normal experience and level-up retain the same token. A successful physical removal still retires it.
+                var c3aPositiveSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aPositiveSourceKey = new GemSkillIds.Gem(c3aWeaponSlot.Id, 0, c3aPositiveSource.Effect);
+                var c3aLiveToken = c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey);
+                Assert.NotNull(c3aLiveToken);
+                var c3aSwapHeld = Assert.Single(c3aInventory.Items(PlayerInventories.Cursor));
+                Assert.NotNull(c3aInventory.Remove(PlayerInventories.Cursor, c3aSwapHeld.Id));
+                await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                Assert.Same(c3aLiveToken, c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey));
+                await global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aGemTarget with { Socket = 7 });
+                Assert.Same(c3aLiveToken, c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey));
+                await global::Game.SendSkills("test", wire.Stream, wire.Ciphers, c3aSelf);
+                Assert.Same(c3aLiveToken, c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey));
+                int c3aPositiveLevel = global::Game.SupportedSkill(c3aSelf, c3aPositiveSource.Id).Level;
+                global::Game.CommitGemExperience(c3aSelf, 1);
+                Assert.Equal(c3aPositiveLevel, global::Game.SupportedSkill(c3aSelf, c3aPositiveSource.Id).Level);
+                Assert.Same(c3aLiveToken, c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey));
+                await global::Game.LevelUpGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                Assert.Equal(c3aPositiveLevel + 1, global::Game.SupportedSkill(c3aSelf, c3aPositiveSource.Id).Level);
+                Assert.Same(c3aLiveToken, c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey));
+
+                await global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                Assert.Null(c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey));
+                var c3aPositiveHeld = Assert.Single(c3aInventory.Items(PlayerInventories.Cursor));
+                await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf, c3aGemTarget);
+                Assert.Equal(c3aPhysicalGem.TypeHash, c3aPositiveHeld.Item.TypeHash);
+                var c3aAfterReadditionSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                uint c3aAfterReadditionId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers,
+                    c3aSelf, c3aAfterReadditionSource.Id, c3aDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aAfterReadditionId);
+                var c3aAfterReadditionToken = c3aSelf.GemSourceLifetimes.Current(c3aPositiveSourceKey);
+                Assert.NotNull(c3aAfterReadditionToken);
+                Assert.NotSame(c3aLiveToken, c3aAfterReadditionToken);
+
+                // Real Raise Zombie source and actual public handlers. restoredVariety is a labelled fixture that
+                // bypasses corpse admission; it does not replace the production SummonFighter source guard.
+                var c3aZombieGem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemRaiseZombie")!);
+                c3aInventory.Change(PlayerInventories.Weapon1, c3aWeaponSlot.Id, item => item with
+                {
+                    Sockets = [.. item.Sockets, new(SocketColour.White, c3aZombieGem)],
+                });
+                c3aSelf.PlayerStats[Program.Stats.Key("number_of_zombies_allowed")!.Value] = 3;
+                c3aRecalculate();
+                var c3aZombieSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "RaiseZombie");
+                var c3aZombieDefinition = global::Game.SummonData.Find("RaiseZombie")!;
+                uint c3aZombieId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aZombieSource.Id, c3aZombieDefinition, (100, 100),
+                    restoredVariety: c3aZombieDefinition.Variety);
+                Assert.NotEqual(0u, c3aZombieId);
+                var c3aZombie = c3aSelf.Summons.Fighters[c3aZombieId];
+                var c3aZombieTarget = new InstanceItems.SocketGem(
+                    PlayerInventories.InventoryId(PlayerInventories.Weapon1), c3aWeaponSlot.Id, 2);
+                var c3aZombieGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aZombieGate.Wait(0));
+                Task<uint>? c3aStaleZombieFresh = null;
+                Task<uint>? c3aStaleZombieReplacement = null;
+                Task? c3aZombieUnsocket = null;
+                Task? c3aZombieSocket = null;
+                try
+                {
+                    c3aStaleZombieFresh = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aZombieSource.Id, c3aZombieDefinition, (100, 100),
+                        restoredVariety: c3aZombieDefinition.Variety);
+                    c3aStaleZombieReplacement = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aZombieSource.Id, c3aZombieDefinition, (100, 100),
+                        restoredVariety: c3aZombieDefinition.Variety, replacingOld: c3aZombie);
+                    Assert.False(c3aStaleZombieFresh.IsCompleted);
+                    Assert.False(c3aStaleZombieReplacement.IsCompleted);
+                    c3aZombieUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aZombieTarget);
+                    Assert.False(c3aZombieUnsocket.IsCompleted);
+                    Assert.DoesNotContain(c3aZombieId, c3aSelf.Summons.Fighters.Keys);
+                    Assert.DoesNotContain(c3aZombieId, c3aSelf.Summons.Definitions.Keys);
+                    Assert.DoesNotContain(c3aZombieId, c3aSelf.Summons.Until.Keys);
+                    Assert.DoesNotContain(c3aZombieId, c3aSelf.Monsters.Keys);
+                    Assert.False(c3aSelf.Minions.Owns(c3aZombieId, c3aZombie.Monster));
+                    Assert.DoesNotContain(JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+                        CharacterSaves.ModuleData(c3aCharacter, "Game.SummonedMinions")!)!,
+                        row => row.Source == c3aZombieSource.Id);
+                    c3aZombieSocket = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aZombieTarget);
+                    Assert.False(c3aZombieSocket.IsCompleted);
+                    Assert.Equal(c3aZombieGem.TypeHash,
+                        c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[2].Gem!.TypeHash);
+                    Assert.DoesNotContain(c3aSelf.Summons.Fighters.Values,
+                        fighter => fighter.Source == c3aZombieSource.Id);
+                }
+                finally
+                {
+                    c3aZombieGate.Release();
+                }
+                Assert.Equal(0u, await c3aStaleZombieFresh!);
+                Assert.Equal(0u, await c3aStaleZombieReplacement!);
+                await c3aZombieUnsocket!;
+                await c3aZombieSocket!;
+                Assert.DoesNotContain(c3aSelf.Summons.Fighters.Values,
+                    fighter => fighter.Source == c3aZombieSource.Id);
+                var c3aReturnedZombieSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "RaiseZombie");
+                c3aZombieRestored = new ClientState(
+                    new(1, "atomic-gem-source-zombie-restored", 1000, 1000, 100, 100, null, []), 10, 1)
+                {
+                    Character = c3aCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                    PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = c3aUpdates,
+                    Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                    LeagueModule = conn.LeagueModule,
+                };
+                foreach (string stat in new[] { "virtual_strength_for_requirements",
+                             "virtual_dexterity_for_requirements", "virtual_intelligence_for_requirements" })
+                    c3aZombieRestored.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+                c3aZombieRestored.PlayerStats[Program.Stats.Key("number_of_zombies_allowed")!.Value] = 3;
+                global::Game.EquipmentStatSources(c3aZombieRestored, c3aInventory.EquipmentSnapshot());
+                c3aZombieRestored.Pools = global::Game.PoolsFor(c3aZombieRestored, c3aZombieRestored.Pools.Level);
+                c3aZombieRestored.PlayerLife = c3aZombieRestored.Pools.Life;
+                c3aZombieRestored.PlayerMana = c3aZombieRestored.Pools.Mana;
+                await global::Game.SummonsTick("test", wire.Stream, wire.Ciphers, c3aZombieRestored, c3aSchedule.At);
+                Assert.DoesNotContain(c3aZombieRestored.Summons.Fighters.Values,
+                    fighter => fighter.Definition.Id == "RaiseZombie");
+                uint c3aReturnedZombieId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aReturnedZombieSource.Id, c3aZombieDefinition, (100, 100),
+                    restoredVariety: c3aZombieDefinition.Variety);
+                Assert.NotEqual(0u, c3aReturnedZombieId);
+                var c3aReturnedZombie = c3aSelf.Summons.Fighters[c3aReturnedZombieId];
+                var c3aZombieLevelKey = new GemSkillIds.Gem(c3aWeaponSlot.Id, 2, c3aReturnedZombieSource.Effect);
+
+                // The real Raise Zombie source stays on the same physical socket lifetime through the public level-up
+                // handler. A fresh create captured at level 1 must reject when that source becomes level 2, while a new
+                // create from the current source succeeds at the current supported actor level.
+                var c3aZombieLevelToken = c3aSelf.GemSourceLifetimes.Current(c3aZombieLevelKey);
+                Assert.NotNull(c3aZombieLevelToken);
+                var c3aZombieLevelGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aZombieLevelGate.Wait(0));
+                Task<uint>? c3aStaleZombieLevelFresh = null;
+                Task? c3aZombieLevelUp = null;
+                try
+                {
+                    c3aStaleZombieLevelFresh = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aReturnedZombieSource.Id, c3aZombieDefinition, (100, 100),
+                        restoredVariety: c3aZombieDefinition.Variety);
+                    Assert.False(c3aStaleZombieLevelFresh.IsCompleted,
+                        "the actual level-1 fresh zombie did not reach the held create gate");
+                    c3aZombieLevelUp = global::Game.LevelUpGem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aZombieTarget);
+                    Assert.False(c3aZombieLevelUp.IsCompleted,
+                        "the actual Raise Zombie level-up did not suspend after its synchronous mutation");
+                    var leveledZombieGem = c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[2].Gem!;
+                    Assert.Equal(2, global::Game.ItemsFor(c3aSelf).GemLevel(leveledZombieGem));
+                    Assert.Equal(2, global::Game.SupportedSkill(c3aSelf, c3aReturnedZombieSource.Id).Level);
+                    Assert.Same(c3aZombieLevelToken,
+                        c3aSelf.GemSourceLifetimes.Current(c3aZombieLevelKey));
+                }
+                finally { c3aZombieLevelGate.Release(); }
+                Assert.Equal(0u, await c3aStaleZombieLevelFresh!);
+                await c3aZombieLevelUp!;
+                Assert.Same(c3aZombieLevelToken,
+                    c3aSelf.GemSourceLifetimes.Current(c3aZombieLevelKey));
+                var c3aZombieLevelTwoSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "RaiseZombie");
+                int c3aZombieLevelTwoActorLevel = global::Game.SupportedSkill(c3aSelf, c3aZombieLevelTwoSource.Id).Stats
+                    .GetValueOrDefault(Program.Stats.Key("base_display_minion_actor_level")!.Value);
+                uint c3aZombieLevelTwoId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aZombieLevelTwoSource.Id, c3aZombieDefinition, (100, 100),
+                    restoredVariety: c3aZombieDefinition.Variety);
+                Assert.NotEqual(0u, c3aZombieLevelTwoId);
+                var c3aZombieLevelTwo = c3aSelf.Summons.Fighters[c3aZombieLevelTwoId];
+                Assert.Same(c3aZombieLevelTwo, c3aSelf.Summons.Fighters[c3aZombieLevelTwoId]);
+                Assert.True(c3aSelf.Minions.Owns(c3aZombieLevelTwoId, c3aZombieLevelTwo.Monster));
+                Assert.Equal(c3aZombieLevelTwoActorLevel, c3aZombieLevelTwo.Monster.Level);
+                Assert.Same(c3aReturnedZombie, c3aSelf.Summons.Fighters[c3aReturnedZombieId]);
+
+                // The real worn Fleshcrafter changes the current player profile on the same Flame source lifetime. The
+                // source remains qualified by the fixture's real attributes, but the fresh create captured from the old
+                // profile cannot commit; a new create from the current profile can.
+                var c3aProviderBody = Assert.Single(c3aInventory.Items(PlayerInventories.BodyArmour));
+                var c3aProviderSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aProviderToken = c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey);
+                Assert.NotNull(c3aProviderToken);
+                Dictionary<uint, int> c3aProviderBefore;
+                using (new global::Game.PlayerStatScope(c3aSelf, fresh: true))
+                    c3aProviderBefore = new(global::Game.CharacterPlayerStats(c3aSelf));
+                var c3aProviderGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aProviderGate.Wait(0));
+                Task<uint>? c3aStaleProviderFresh = null;
+                Task? c3aProviderPickup = null;
+                try
+                {
+                    c3aStaleProviderFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aProviderSource.Id, c3aDefinition, (100, 100), arrival: true);
+                    Assert.False(c3aStaleProviderFresh.IsCompleted,
+                        "the actual Fleshcrafter-profile fresh golem did not reach the held create gate");
+                    c3aProviderPickup = global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        new InstanceItems.PickUpItem(PlayerInventories.InventoryId(PlayerInventories.BodyArmour),
+                            c3aProviderBody.Id, 3, 0, 0));
+                    Assert.False(c3aProviderPickup.IsCompleted,
+                        "the actual Fleshcrafter pickup did not suspend after its synchronous profile mutation");
+                    Assert.Empty(c3aInventory.Items(PlayerInventories.BodyArmour));
+                    Assert.Equal(c3aProviderBody.Id,
+                        Assert.Single(c3aInventory.Items(PlayerInventories.Cursor)).Id);
+                    var currentProviderSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                        gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                    Assert.Equal(c3aProviderSource.Id, currentProviderSource.Id);
+                    Assert.True(global::Game.SupportedSkill(c3aSelf, currentProviderSource.Id).RequirementsMet);
+                    Assert.Same(c3aProviderToken,
+                        c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey));
+                    Dictionary<uint, int> c3aProviderAfter;
+                    using (new global::Game.PlayerStatScope(c3aSelf, fresh: true))
+                        c3aProviderAfter = new(global::Game.CharacterPlayerStats(c3aSelf));
+                    Assert.Contains(c3aProviderBefore, pair => !c3aProviderAfter.TryGetValue(pair.Key, out int value)
+                        || value != pair.Value);
+                }
+                finally { c3aProviderGate.Release(); }
+                Assert.Equal(0u, await c3aStaleProviderFresh!);
+                await c3aProviderPickup!;
+                var c3aProviderCurrentSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                uint c3aProviderFreshId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aProviderCurrentSource.Id, c3aDefinition, (100, 100), arrival: true);
+                Assert.NotEqual(0u, c3aProviderFreshId);
+                var c3aProviderFresh = c3aSelf.Golems.All[c3aProviderFreshId];
+                Assert.True(c3aSelf.Minions.Owns(c3aProviderFreshId, c3aProviderFresh.Monster));
+                await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.BodyArmour),
+                        0, 0, 0, 3, 0, 0));
+                Assert.Equal(c3aProviderBody.Id, Assert.Single(c3aInventory.Items(PlayerInventories.BodyArmour)).Id);
+                Assert.True(global::Game.SupportedSkill(c3aSelf, c3aProviderCurrentSource.Id).RequirementsMet);
+                Assert.Same(c3aProviderToken,
+                    c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey));
+
+                // A below-threshold normal experience share changes the stored gem experience but not level, quality,
+                // owned skill stats, player stats, identity or lifetime. The prepared fresh golem must remain admissible.
+                var c3aPartialSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "SummonFlameGolem");
+                var c3aPartialToken = c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey);
+                Assert.NotNull(c3aPartialToken);
+                int c3aPartialBeforeLevel;
+                int c3aPartialBeforeQuality;
+                Dictionary<uint, int> c3aPartialOwnBefore;
+                Dictionary<uint, int> c3aPartialPlayerBefore;
+                using (new global::Game.PlayerStatScope(c3aSelf, fresh: true))
+                {
+                    var partialBefore = global::Game.SupportedSkill(c3aSelf, c3aPartialSource.Id);
+                    c3aPartialBeforeLevel = partialBefore.Level;
+                    c3aPartialBeforeQuality = partialBefore.Quality;
+                    c3aPartialOwnBefore = new(partialBefore.Stats);
+                    c3aPartialPlayerBefore = new(global::Game.CharacterPlayerStats(c3aSelf));
+                }
+                var c3aPartialGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aPartialGate.Wait(0));
+                Task<uint>? c3aPartialFresh = null;
+                List<byte[]> c3aPartialPackets = [];
+                bool c3aPartialLeveled = false;
+                try
+                {
+                    c3aPartialFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, c3aSelf,
+                        c3aPartialSource.Id, c3aDefinition, (100, 100), arrival: true);
+                    Assert.False(c3aPartialFresh.IsCompleted,
+                        "the actual partial-XP fresh golem did not reach the held create gate");
+                    (c3aPartialPackets, c3aPartialLeveled) = global::Game.CommitGemExperience(c3aSelf, 10);
+                    Assert.False(c3aPartialLeveled);
+                    using (new global::Game.PlayerStatScope(c3aSelf, fresh: true))
+                    {
+                        var partialAfter = global::Game.SupportedSkill(c3aSelf, c3aPartialSource.Id);
+                        var partialPlayerAfter = global::Game.CharacterPlayerStats(c3aSelf);
+                        Assert.Equal(c3aPartialBeforeLevel, partialAfter.Level);
+                        Assert.Equal(c3aPartialBeforeQuality, partialAfter.Quality);
+                        Assert.True(c3aPartialOwnBefore.Count == partialAfter.Stats.Count
+                            && c3aPartialOwnBefore.All(pair => partialAfter.Stats.TryGetValue(pair.Key, out int value)
+                                && value == pair.Value));
+                        Assert.True(c3aPartialPlayerBefore.Count == partialPlayerAfter.Count
+                            && c3aPartialPlayerBefore.All(pair => partialPlayerAfter.TryGetValue(pair.Key, out int value)
+                                && value == pair.Value));
+                    }
+                }
+                finally { c3aPartialGate.Release(); }
+                Assert.Single(c3aPartialPackets);
+                var c3aPartialFreshId = await c3aPartialFresh!;
+                Assert.NotEqual(0u, c3aPartialFreshId);
+                var c3aPartialFreshActor = c3aSelf.Golems.All[c3aPartialFreshId];
+                Assert.True(c3aSelf.Minions.Owns(c3aPartialFreshId, c3aPartialFreshActor.Monster));
+                Assert.Same(c3aPartialToken,
+                    c3aSelf.GemSourceLifetimes.Current(c3aFlameSourceKey));
+
+                // Fixture-only client state, real Animate Guardian source and catalog equipment. One Guardian is already
+                // live; both pending admissions prepare the same base gear while the shared send gate is held.
+                await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+                var c3aGuardianGem = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Gems/SkillGemAnimateArmour")!);
+                c3aInventory.Change(PlayerInventories.Weapon1, c3aWeaponSlot.Id, item => item with
+                {
+                    Sockets = [.. item.Sockets, new(SocketColour.White, c3aGuardianGem)],
+                });
+                c3aRecalculate();
+                var c3aGuardianSource = Assert.Single(global::Game.GemSkillEffects(c3aSelf),
+                    gem => global::Game.SkillsFor(c3aSelf).EffectId(gem.Effect) == "AnimateGuardian");
+                var c3aGuardianDefinition = global::Game.SummonData.Find("AnimateGuardian")!;
+                var c3aGuardianBody = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Armours/BodyArmours/BodyStr1")!);
+                var c3aGuardianHelmet = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Armours/Helmets/HelmetStr1")!);
+                var c3aGuardianBoots = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Armours/Boots/BootsStr1")!);
+                var c3aGuardianShield = ItemCatalog.Create(Program.Items.Find(
+                    "Metadata/Items/Armours/Shields/ShieldStr1")!);
+                uint c3aGuardianBodyGround = c3aSelf.Instance.Ground.Add(
+                    new WorldItemObject(100, 100, c3aGuardianBody));
+                uint c3aGuardianLiveId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aGuardianSource.Id, c3aGuardianDefinition, (100, 100), c3aGuardianBodyGround);
+                Assert.NotEqual(0u, c3aGuardianLiveId);
+                Assert.Null(c3aSelf.Instance.Ground.Get(c3aGuardianBodyGround));
+                var c3aGuardianLive = Assert.Single(c3aSelf.Summons.Fighters.Values,
+                    fighter => fighter.Definition.Kind == "AnimatedGuardian");
+                Assert.Equal(c3aGuardianLiveId, c3aGuardianLive.Id);
+                Assert.Same(c3aGuardianBody,
+                    Assert.Single(c3aSelf.Summons.GuardianEquipment, slot => slot.Key == 1).Value);
+                await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+
+                uint c3aGuardianHelmetGround = c3aSelf.Instance.Ground.Add(
+                    new WorldItemObject(100, 100, c3aGuardianHelmet));
+                uint c3aGuardianBootsGround = c3aSelf.Instance.Ground.Add(
+                    new WorldItemObject(100, 100, c3aGuardianBoots));
+                var c3aGuardianRacePackets = new List<byte[]>();
+                var c3aGuardianRaceGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aGuardianRaceGate.Wait(0));
+                var c3aGuardianBeforeRaceOutgoing = Program.Outgoing;
+                Program.Outgoing = (ciphers, bytes) =>
+                {
+                    if (ReferenceEquals(ciphers, wire.Ciphers))
+                        lock (c3aGuardianRacePackets) c3aGuardianRacePackets.Add(bytes.ToArray());
+                    c3aGuardianBeforeRaceOutgoing?.Invoke(ciphers, bytes);
+                };
+                Task<uint>? c3aGuardianHelmetAdmission = null;
+                Task<uint>? c3aGuardianBootsAdmission = null;
+                uint c3aGuardianHelmetId = 0;
+                uint c3aGuardianBootsId = 0;
+                bool c3aGuardianRaceGateHeld = true;
+                uint c3aGuardianObjectStart = c3aSelf.NextObjectId;
+                try
+                {
+                    c3aGuardianHelmetAdmission = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers,
+                        c3aSelf, c3aGuardianSource.Id, c3aGuardianDefinition, (100, 100), c3aGuardianHelmetGround);
+                    c3aGuardianBootsAdmission = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers,
+                        c3aSelf, c3aGuardianSource.Id, c3aGuardianDefinition, (100, 100), c3aGuardianBootsGround);
+                    Assert.False(c3aGuardianHelmetAdmission.IsCompleted,
+                        "the actual helmet admission did not reach the held send gate");
+                    Assert.False(c3aGuardianBootsAdmission.IsCompleted,
+                        "the actual boots admission did not reach the held send gate");
+                    Assert.Equal(c3aGuardianObjectStart + 2, c3aSelf.NextObjectId);
+                    c3aGuardianRaceGate.Release();
+                    c3aGuardianRaceGateHeld = false;
+                    var c3aGuardianRaceResults =
+                        await Task.WhenAll(c3aGuardianHelmetAdmission, c3aGuardianBootsAdmission);
+                    c3aGuardianHelmetId = c3aGuardianRaceResults[0];
+                    c3aGuardianBootsId = c3aGuardianRaceResults[1];
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+                }
+                finally
+                {
+                    if (c3aGuardianRaceGateHeld) c3aGuardianRaceGate.Release();
+                    if (c3aGuardianHelmetAdmission is not null && c3aGuardianBootsAdmission is not null)
+                        await Task.WhenAll(c3aGuardianHelmetAdmission, c3aGuardianBootsAdmission);
+                    Program.Outgoing = c3aGuardianBeforeRaceOutgoing;
+                }
+                Assert.Equal(1, (c3aGuardianHelmetId != 0 ? 1 : 0) + (c3aGuardianBootsId != 0 ? 1 : 0));
+                bool c3aHelmetWon = c3aGuardianHelmetId != 0;
+                uint c3aGuardianAcceptedId = c3aHelmetWon ? c3aGuardianHelmetId : c3aGuardianBootsId;
+                uint c3aGuardianStaleObjectId = c3aHelmetWon ? c3aGuardianObjectStart + 1 : c3aGuardianObjectStart;
+                uint c3aGuardianWinningGround = c3aHelmetWon ? c3aGuardianHelmetGround : c3aGuardianBootsGround;
+                uint c3aGuardianRetainedGround = c3aHelmetWon ? c3aGuardianBootsGround : c3aGuardianHelmetGround;
+                int c3aGuardianWinningSlot = c3aHelmetWon ? 4 : 9;
+                Assert.Null(c3aSelf.Instance.Ground.Get(c3aGuardianWinningGround));
+                Assert.Same(c3aHelmetWon ? c3aGuardianBoots : c3aGuardianHelmet,
+                    c3aSelf.Instance.Ground.Get(c3aGuardianRetainedGround)!.Item);
+                Assert.DoesNotContain(c3aGuardianStaleObjectId, c3aSelf.Summons.Fighters.Keys);
+                Assert.DoesNotContain(c3aGuardianStaleObjectId, c3aSelf.Monsters.Keys);
+                var c3aGuardianCurrent = Assert.Single(c3aSelf.Summons.Fighters.Values,
+                    fighter => fighter.Definition.Kind == "AnimatedGuardian");
+                Assert.Equal(c3aGuardianAcceptedId, c3aGuardianCurrent.Id);
+                Assert.Equal(new byte[] { 1, (byte)c3aGuardianWinningSlot },
+                    c3aSelf.Summons.GuardianEquipment.Keys.Order());
+                Assert.Same(c3aGuardianBody, c3aSelf.Summons.GuardianEquipment[1]);
+                Assert.Same(c3aHelmetWon ? c3aGuardianHelmet : c3aGuardianBoots,
+                    c3aSelf.Summons.GuardianEquipment[(byte)c3aGuardianWinningSlot]);
+                Assert.Equal(c3aGuardianCurrent.Equipment, c3aSelf.Summons.GuardianEquipment);
+
+                byte[] c3aGuardianWake = InstanceProtocol.EnterWakeZone(c3aGuardianAcceptedId);
+                List<byte[]> c3aGuardianPackets;
+                lock (c3aGuardianRacePackets) c3aGuardianPackets = [.. c3aGuardianRacePackets];
+                int CountSequence(IEnumerable<byte[]> packets, byte[] expected)
+                {
+                    int count = 0;
+                    foreach (var packet in packets)
+                        for (int at = 0; at + expected.Length <= packet.Length; at++)
+                            if (packet.AsSpan(at, expected.Length).SequenceEqual(expected)) count++;
+                    return count;
+                }
+                int CountCreate(IEnumerable<byte[]> packets, uint id) => packets.Count(packet => packet.Length >= 6
+                    && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                    && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) == id);
+                Assert.Equal(1, CountCreate(c3aGuardianPackets, c3aGuardianAcceptedId));
+                Assert.Equal(1, CountSequence(c3aGuardianPackets, c3aGuardianWake));
+                Assert.Equal(0, CountCreate(c3aGuardianPackets, c3aGuardianStaleObjectId));
+                Assert.Equal(0, CountSequence(c3aGuardianPackets,
+                    InstanceProtocol.EnterWakeZone(c3aGuardianStaleObjectId)));
+                Assert.Equal(1, CountSequence(c3aGuardianPackets,
+                    InstanceProtocol.RemoveObject(c3aGuardianWinningGround)));
+                Assert.Equal(1, CountSequence(c3aGuardianPackets,
+                    InstanceProtocol.RemoveObject(c3aGuardianLiveId)));
+                Assert.Equal(0, CountSequence(c3aGuardianPackets,
+                    InstanceProtocol.RemoveObject(c3aGuardianRetainedGround)));
+                Assert.Equal(0, CountSequence(c3aGuardianPackets,
+                    InstanceProtocol.RemoveObject(c3aGuardianStaleObjectId)));
+
+                global::Game.SaveSummons(c3aSelf);
+                var c3aGuardianSaved = JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+                    CharacterSaves.ModuleData(c3aCharacter, "Game.SummonedMinions")!)!;
+                var c3aGuardianSavedRow = Assert.Single(c3aGuardianSaved,
+                    row => row.Effect == "AnimateGuardian");
+                Assert.Equal(c3aGuardianSource.Id, c3aGuardianSavedRow.Source);
+                Assert.Equal(c3aGuardianDefinition.Variety, c3aGuardianSavedRow.Variety);
+                Assert.Equal(new byte[] { 1, (byte)c3aGuardianWinningSlot },
+                    c3aGuardianSavedRow.Equipment!.Keys.Order());
+                Assert.Equal(c3aGuardianBody.TypeHash, c3aGuardianSavedRow.Equipment[1].TypeHash);
+                Assert.Equal(c3aHelmetWon ? c3aGuardianHelmet.TypeHash : c3aGuardianBoots.TypeHash,
+                    c3aGuardianSavedRow.Equipment[(byte)c3aGuardianWinningSlot].TypeHash);
+                var c3aGuardianSavedGear = JsonSerializer.Deserialize<Dictionary<byte, Item>>(
+                    CharacterSaves.ModuleData(c3aCharacter, "Game.AnimatedGuardianEquipment")!)!;
+                Assert.Equal(new byte[] { 1, (byte)c3aGuardianWinningSlot }, c3aGuardianSavedGear.Keys.Order());
+                Assert.Equal(c3aGuardianBody.TypeHash, c3aGuardianSavedGear[1].TypeHash);
+                Assert.Equal(c3aHelmetWon ? c3aGuardianHelmet.TypeHash : c3aGuardianBoots.TypeHash,
+                    c3aGuardianSavedGear[(byte)c3aGuardianWinningSlot].TypeHash);
+
+                uint c3aGuardianRetryId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, c3aSelf,
+                    c3aGuardianSource.Id, c3aGuardianDefinition, (100, 100), c3aGuardianRetainedGround);
+                Assert.NotEqual(0u, c3aGuardianRetryId);
+                Assert.Null(c3aSelf.Instance.Ground.Get(c3aGuardianRetainedGround));
+                var c3aGuardianRetry = c3aSelf.Summons.Fighters[c3aGuardianRetryId];
+                Assert.Equal(new byte[] { 1, 4, 9 }, c3aGuardianRetry.Equipment.Keys.Order());
+                Assert.Same(c3aGuardianBody, c3aGuardianRetry.Equipment[1]);
+                Assert.Same(c3aGuardianHelmet, c3aGuardianRetry.Equipment[4]);
+                Assert.Same(c3aGuardianBoots, c3aGuardianRetry.Equipment[9]);
+                Assert.Equal(c3aGuardianRetry.Equipment, c3aSelf.Summons.GuardianEquipment);
+                global::Game.SaveSummons(c3aSelf);
+                var c3aGuardianRetrySaved = Assert.Single(JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+                    CharacterSaves.ModuleData(c3aCharacter, "Game.SummonedMinions")!)!,
+                    row => row.Effect == "AnimateGuardian");
+                Assert.Equal(new byte[] { 1, 4, 9 }, c3aGuardianRetrySaved.Equipment!.Keys.Order());
+                Assert.Equal(c3aGuardianSource.Id, c3aGuardianRetrySaved.Source);
+                Assert.Equal(c3aGuardianDefinition.Variety, c3aGuardianRetrySaved.Variety);
+                Assert.Equal(c3aGuardianBody.TypeHash, c3aGuardianRetrySaved.Equipment[1].TypeHash);
+                Assert.Equal(c3aGuardianHelmet.TypeHash, c3aGuardianRetrySaved.Equipment[4].TypeHash);
+                Assert.Equal(c3aGuardianBoots.TypeHash, c3aGuardianRetrySaved.Equipment[9].TypeHash);
+                var c3aGuardianRetrySavedGear = JsonSerializer.Deserialize<Dictionary<byte, Item>>(
+                    CharacterSaves.ModuleData(c3aCharacter, "Game.AnimatedGuardianEquipment")!)!;
+                Assert.Equal(new byte[] { 1, 4, 9 }, c3aGuardianRetrySavedGear.Keys.Order());
+                Assert.Equal(c3aGuardianBody.TypeHash, c3aGuardianRetrySavedGear[1].TypeHash);
+                Assert.Equal(c3aGuardianHelmet.TypeHash, c3aGuardianRetrySavedGear[4].TypeHash);
+                Assert.Equal(c3aGuardianBoots.TypeHash, c3aGuardianRetrySavedGear[9].TypeHash);
+                await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+
+                // The ground-less return carries its Guardian baseline too. A pending gear refresh based on the current
+                // three slots cannot overwrite the newer accepted shield slot; a later fresh ground-less refresh can.
+                uint c3aGuardianShieldGround = c3aSelf.Instance.Ground.Add(
+                    new WorldItemObject(100, 100, c3aGuardianShield));
+                Assert.Empty(c3aSelf.Instance.Ground.Within(1000, 1000, 15, _ => true));
+                var c3aGuardianShieldGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aGuardianShieldGate.Wait(0));
+                Task<uint>? c3aGuardianShieldAdmission = null;
+                Task<uint>? c3aGuardianNoGroundAdmission = null;
+                uint c3aGuardianShieldId = 0;
+                uint c3aGuardianNoGroundId = 0;
+                bool c3aGuardianShieldGateHeld = true;
+                uint c3aGuardianShieldObjectStart = c3aSelf.NextObjectId;
+                try
+                {
+                    c3aGuardianShieldAdmission = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers,
+                        c3aSelf, c3aGuardianSource.Id, c3aGuardianDefinition, (100, 100), c3aGuardianShieldGround);
+                    c3aGuardianNoGroundAdmission = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers,
+                        c3aSelf, c3aGuardianSource.Id, c3aGuardianDefinition, (1000, 1000));
+                    Assert.False(c3aGuardianShieldAdmission.IsCompleted);
+                    Assert.False(c3aGuardianNoGroundAdmission.IsCompleted);
+                    Assert.Equal(c3aGuardianShieldObjectStart + 2, c3aSelf.NextObjectId);
+                    c3aGuardianShieldGate.Release();
+                    c3aGuardianShieldGateHeld = false;
+                    var c3aGuardianShieldResults =
+                        await Task.WhenAll(c3aGuardianShieldAdmission, c3aGuardianNoGroundAdmission);
+                    c3aGuardianShieldId = c3aGuardianShieldResults[0];
+                    c3aGuardianNoGroundId = c3aGuardianShieldResults[1];
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+                }
+                finally
+                {
+                    if (c3aGuardianShieldGateHeld) c3aGuardianShieldGate.Release();
+                    if (c3aGuardianShieldAdmission is not null && c3aGuardianNoGroundAdmission is not null)
+                        await Task.WhenAll(c3aGuardianShieldAdmission, c3aGuardianNoGroundAdmission);
+                }
+                Assert.NotEqual(0u, c3aGuardianShieldId);
+                Assert.Equal(0u, c3aGuardianNoGroundId);
+                Assert.Null(c3aSelf.Instance.Ground.Get(c3aGuardianShieldGround));
+                Assert.DoesNotContain(c3aGuardianShieldObjectStart + 1, c3aSelf.Summons.Fighters.Keys);
+                var c3aGuardianShieldCurrent = Assert.Single(c3aSelf.Summons.Fighters.Values,
+                    fighter => fighter.Definition.Kind == "AnimatedGuardian");
+                Assert.Equal(c3aGuardianShieldId, c3aGuardianShieldCurrent.Id);
+                Assert.Equal(new byte[] { 1, 3, 4, 9 }, c3aGuardianShieldCurrent.Equipment.Keys.Order());
+                Assert.Equal(new byte[] { 1, 3, 4, 9 }, c3aSelf.Summons.GuardianEquipment.Keys.Order());
+                Assert.Same(c3aGuardianShield, c3aSelf.Summons.GuardianEquipment[3]);
+                global::Game.SaveSummons(c3aSelf);
+                Assert.Equal(new byte[] { 1, 3, 4, 9 }, JsonSerializer.Deserialize<Dictionary<byte, Item>>(
+                    CharacterSaves.ModuleData(c3aCharacter, "Game.AnimatedGuardianEquipment")!)!.Keys.Order());
+
+                uint c3aGuardianFreshNoGroundId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers,
+                    c3aSelf, c3aGuardianSource.Id, c3aGuardianDefinition, (1000, 1000));
+                Assert.NotEqual(0u, c3aGuardianFreshNoGroundId);
+                var c3aGuardianFreshNoGround = c3aSelf.Summons.Fighters[c3aGuardianFreshNoGroundId];
+                Assert.Equal(new byte[] { 1, 3, 4, 9 }, c3aGuardianFreshNoGround.Equipment.Keys.Order());
+                Assert.Same(c3aGuardianShield, c3aGuardianFreshNoGround.Equipment[3]);
+                Assert.Equal(c3aGuardianFreshNoGround.Equipment, c3aSelf.Summons.GuardianEquipment);
+                global::Game.SaveSummons(c3aSelf);
+                await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+
+                // A pending gear admission prepared from the live Guardian cannot resurrect after the actual hit/death
+                // path clears GuardianEquipment in place and SummonsTick removes the actor.
+                c3aSelf.PauseHeld = false;
+                if (!c3aSelf.Clock.IsRunning) c3aSelf.Clock.Start();
+                Assert.False(c3aSelf.Paused);
+                uint c3aGuardianDeathShieldGround = c3aSelf.Instance.Ground.Add(
+                    new WorldItemObject(100, 100, c3aGuardianShield));
+                var c3aGuardianDeathGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                Assert.True(c3aGuardianDeathGate.Wait(0));
+                Task<uint>? c3aGuardianDeathAdmission = null;
+                Task? c3aGuardianDeathTick = null;
+                try
+                {
+                    c3aGuardianDeathAdmission = global::Game.SummonFighter("test", wire.Stream, wire.Ciphers,
+                        c3aSelf, c3aGuardianSource.Id, c3aGuardianDefinition, (100, 100), c3aGuardianDeathShieldGround);
+                    Assert.False(c3aGuardianDeathAdmission.IsCompleted,
+                        "the actual shield admission did not reach the held send gate");
+                    Assert.Same(c3aGuardianFreshNoGround, Assert.Single(c3aSelf.Summons.Fighters.Values,
+                        fighter => fighter.Definition.Kind == "AnimatedGuardian"));
+                    Assert.Same(c3aGuardianFreshNoGround.Monster,
+                        c3aSelf.Monsters[c3aGuardianFreshNoGround.Id]);
+                    var c3aGuardianAttacker = new SpawnedMonster("guardian-race-attacker",
+                        new(100, 100, 1), 100, 8, 1000);
+                    using (global::Game.ProjectileMutation(c3aSelf, advance: false,
+                               phase: "guardian race lethal hit"))
+                        Assert.True(global::Game.GolemTakeHitLocked(c3aSelf, c3aGuardianFreshNoGround,
+                            0x0A3E3A01, c3aGuardianAttacker,
+                            new(0x4000, 1, 100,
+                                DamagePacket.Of(DamageType.Physical, 1_000_000_000, 1_000_000_000))
+                                { Spell = true }, c3aSchedule.At));
+                    Assert.True(c3aGuardianFreshNoGround.Monster.Dead);
+                    c3aGuardianDeathTick = global::Game.SummonsTick(
+                        "test", wire.Stream, wire.Ciphers, c3aSelf, c3aSchedule.At);
+                    Assert.Empty(c3aSelf.Summons.GuardianEquipment);
+                    Assert.DoesNotContain(c3aSelf.Summons.Fighters.Values,
+                        fighter => fighter.Definition.Kind == "AnimatedGuardian");
+                }
+                finally
+                {
+                    c3aGuardianDeathGate.Release();
+                    if (c3aGuardianDeathTick is not null) await c3aGuardianDeathTick;
+                    if (c3aGuardianDeathAdmission is not null) await c3aGuardianDeathAdmission;
+                }
+                Assert.Equal(0u, await c3aGuardianDeathAdmission!);
+                Assert.Same(c3aGuardianShield, c3aSelf.Instance.Ground.Get(c3aGuardianDeathShieldGround)!.Item);
+                Assert.Empty(c3aSelf.Summons.GuardianEquipment);
+                await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, c3aSelf);
+                global::Game.SaveSummons(c3aSelf);
+                Assert.Equal("{}", CharacterSaves.ModuleData(c3aCharacter, "Game.AnimatedGuardianEquipment"));
+                Assert.DoesNotContain(JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+                    CharacterSaves.ModuleData(c3aCharacter, "Game.SummonedMinions")!)!,
+                    row => row.Effect == "AnimateGuardian");
+
+                var c3aGuardianRestored = new ClientState(
+                    new(1, "guardian-death-restored", 1000, 1000, 100, 100, null, []), 11, 1)
+                {
+                    Character = c3aCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                    PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = c3aUpdates,
+                    Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                    LeagueModule = conn.LeagueModule,
+                };
+                try
+                {
+                    global::Game.EquipmentStatSources(c3aGuardianRestored, c3aInventory.EquipmentSnapshot());
+                    c3aGuardianRestored.Pools = global::Game.PoolsFor(c3aGuardianRestored,
+                        c3aGuardianRestored.Pools.Level);
+                    c3aGuardianRestored.PlayerLife = c3aGuardianRestored.Pools.Life;
+                    c3aGuardianRestored.PlayerMana = c3aGuardianRestored.Pools.Mana;
+                    await global::Game.SummonsTick("test", wire.Stream, wire.Ciphers,
+                        c3aGuardianRestored, c3aSchedule.At);
+                    Assert.Empty(c3aGuardianRestored.Summons.GuardianEquipment);
+                    Assert.DoesNotContain(c3aGuardianRestored.Summons.Fighters.Values,
+                        fighter => fighter.Definition.Kind == "AnimatedGuardian");
+                }
+                finally { c3aGuardianRestored.Closed = true; }
+            }
+            finally
+            {
+                global::Game.AreaUpdateContext.Value = previousC3AContext;
+                if (c3aZombieRestored is not null) c3aZombieRestored.Closed = true;
+                if (c3aRestored is not null) c3aRestored.Closed = true;
+                if (c3a is not null)
+                {
+                    c3a.Closed = true;
+                    PlayerInventories.Forget(c3aCharacter);
+                    global::Game.InactiveItems.TryRemove(c3aCharacter, out _);
+                }
+            }
+
+            await SharedCharacterGolemSourceAba();
+            await ReloginOrphanCleanup();
+            await GemProgressionSourceLifetime();
+            await PassiveQualificationRetirement();
+            await PassiveJewelWriterAuthority();
+            await ClusterQualificationRetirement();
+            await EquipmentSourceAuthority();
+            await DependentOwnerRetirement();
+            await PartialPlacementBudget();
+            await RighteousFireSourceOwnership();
+            await RighteousFireSpellMoreProfile();
+            await RighteousFireRadiusProfile();
+            await RighteousFireRelightPickAndDiagnosticBoundaries();
+
+            async Task GemProgressionSourceLifetime()
+            {
+                // Real Flame Golem thresholds with an isolated inventory. Virtual requirement attributes are diagnostic
+                // setup; every qualification-changing write below is the actual normal-XP/command/LevelUp path.
+                const string progressionCharacter = "GemProgressionSourceLifetime";
+                var progressionSchedule = new AreaClockSchedule();
+                var progressionUpdates = new PlayerUpdatesState(lifetime, progressionSchedule);
+                var previousProgressionContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = progressionUpdates;
+                ClientState? progression = null;
+                try
+                {
+                    progressionSchedule.At = 50;
+                    var self = progression = new ClientState(
+                        new(1, "gem-progression-source-lifetime", 1000, 1000, 100, 100, null, []), 12, 1)
+                    {
+                        Character = progressionCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = progressionUpdates,
+                        Pools = new(100, 10000, 10000, 2, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 2;
+
+                    var inventory = global::Game.ItemsOf(self);
+                    var baseType = Program.Items.Find("Metadata/Items/Gems/SkillGemSummonFlameGolem")!;
+                    var gemType = global::Game.ItemsFor(self).Gem(baseType)!;
+                    var gemTemplate = ItemCatalog.Create(baseType);
+                    int effect = gemType.Variant(gemTemplate.GemVariant).Effect;
+                    Item GemAt(int level) => gemTemplate with { GemExperience = gemType.ExperienceFor(level) };
+                    (int Str, int Dex, int Int) Requirements(int level) =>
+                        global::Game.GemAttributeRequirements(self, GemAt(level), gemType, effect);
+                    static bool Increases((int Str, int Dex, int Int) next, (int Str, int Dex, int Int) before) =>
+                        next.Str >= before.Str && next.Dex >= before.Dex && next.Int >= before.Int
+                        && next != before;
+                    int crossing = Enumerable.Range(1, gemType.MaxLevel - 1).FirstOrDefault(level =>
+                        Increases(Requirements(level + 1), Requirements(level)));
+                    Assert.InRange(crossing, 1, gemType.MaxLevel - 1);
+                    var currentRequirements = Requirements(crossing);
+                    var nextRequirements = Requirements(crossing + 1);
+
+                    void SetDiagnosticRequirements((int Str, int Dex, int Int) requirements)
+                    {
+                        self.PlayerStats[Program.Stats.Key("virtual_strength_for_requirements")!.Value] = requirements.Str;
+                        self.PlayerStats[Program.Stats.Key("virtual_dexterity_for_requirements")!.Value] = requirements.Dex;
+                        self.PlayerStats[Program.Stats.Key("virtual_intelligence_for_requirements")!.Value] = requirements.Int;
+                    }
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+
+                    SetDiagnosticRequirements(currentRequirements);
+                    var wand = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!);
+                    var host = inventory.Add(PlayerInventories.Weapon1, 0, 0, wand with
+                    {
+                        Sockets = [new(SocketColour.White, GemAt(crossing))],
+                    });
+                    Recalculate();
+
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source() => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == "SummonFlameGolem");
+                    Item SocketGem() => inventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!;
+                    bool LastSavedSource(ushort source) =>
+                        JsonSerializer.Deserialize<GolemState.Saved[]>(
+                            CharacterSaves.ModuleData(progressionCharacter, "Game.Golems") ?? "[]")!
+                        .Any(row => row.Skill == source);
+
+                    var source = Source();
+                    var sourceKey = source.Identity;
+                    var definition = global::Game.GolemData.Find("SummonFlameGolem")!;
+                    var totalGolems = Program.Stats.Key("virtual_total_number_of_active_golems")!.Value;
+                    var fireGolems = Program.Stats.Key("current_number_of_fire_golems")!.Value;
+                    var target = new InstanceItems.SocketGem(
+                        PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 0);
+                    var replies = new List<string>();
+                    var commands = new ChatCommands
+                    {
+                        Send = (bytes, label) => Program.Send("test", wire.Stream, wire.Ciphers, bytes, label),
+                        Reply = text => { replies.Add(text); return Task.CompletedTask; },
+                    };
+                    self.Commands = CommandsFeature.Register(commands, "test", wire.Stream, wire.Ciphers, self);
+
+                    uint actorId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        source.Id, definition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, actorId);
+                    var actor = self.Golems.All[actorId];
+                    var token = self.GemSourceLifetimes.Current(sourceKey);
+                    Assert.NotNull(token);
+                    Assert.True(LastSavedSource(source.Id));
+                    Assert.True(self.Golems.Buffs.ContainsKey(definition.Buff));
+                    Assert.Equal(1, self.Golems.OwnerStats[totalGolems]);
+                    Assert.Equal(1, self.Golems.OwnerStats[fireGolems]);
+
+                    var normalGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(normalGate.Wait(0));
+                    Task<uint> staleNormalFresh = null!;
+                    Task normalXp = null!;
+                    try
+                    {
+                        staleNormalFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            source.Id, definition, (100, 100), arrival: true);
+                        Assert.False(staleNormalFresh.IsCompleted);
+                        int delta = gemType.ExperienceFor(crossing + 1) - gemType.ExperienceFor(crossing);
+                        normalXp = global::Game.GainGemExperience("test", wire.Stream, wire.Ciphers, self,
+                            checked((uint)delta * 10));
+                        Assert.False(normalXp.IsCompleted,
+                            "actual normal gem XP did not suspend after its synchronous qualification mutation");
+                        Assert.Equal(crossing + 1, global::Game.ItemsFor(self).GemLevel(SocketGem()));
+                        var inactive = Assert.Single(Sources(), row => row.Identity == sourceKey);
+                        Assert.False(inactive.Active);
+                        Assert.False(global::Game.SupportedSkill(self, inactive.Id).RequirementsMet);
+                        Assert.DoesNotContain(actorId, self.Golems.All.Keys);
+                        Assert.DoesNotContain(actorId, self.Monsters.Keys);
+                        Assert.False(self.Minions.Owns(actorId, actor.Monster));
+                        Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+                        Assert.DoesNotContain(self.Golems.Buffs.Keys, buff => buff == definition.Buff);
+                        Assert.False(self.Golems.OwnerStats.ContainsKey(fireGolems));
+                        Assert.False(LastSavedSource(source.Id));
+                    }
+                    finally { normalGate.Release(); }
+                    Assert.Equal(0u, await staleNormalFresh);
+                    await normalXp;
+
+                    // Restore qualification through the real /set_stat command. This creates no retired actor or token.
+                    await commands.RunAsync($"/set_stat strength {nextRequirements.Str}");
+                    await commands.RunAsync($"/set_stat dexterity {nextRequirements.Dex}");
+                    await commands.RunAsync($"/set_stat intelligence {nextRequirements.Int}");
+                    Assert.True(Source().Active);
+                    Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+
+                    // Reset the isolated fixture to the crossing level, then make a fresh real command-path lease.
+                    inventory.Change(PlayerInventories.Weapon1, host.Id, item => item with
+                    {
+                        Sockets = [item.Sockets[0] with { Gem = GemAt(crossing) }],
+                    });
+                    await commands.RunAsync($"/set_stat strength {currentRequirements.Str}");
+                    await commands.RunAsync($"/set_stat dexterity {currentRequirements.Dex}");
+                    await commands.RunAsync($"/set_stat intelligence {currentRequirements.Int}");
+                    var commandSource = Source();
+                    uint commandActorId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        commandSource.Id, definition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, commandActorId);
+                    var commandActor = self.Golems.All[commandActorId];
+                    var commandToken = self.GemSourceLifetimes.Current(sourceKey);
+                    Assert.NotNull(commandToken);
+                    Assert.True(LastSavedSource(commandSource.Id));
+
+                    var commandGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(commandGate.Wait(0));
+                    Task<uint> staleCommandFresh = null!;
+                    Task highCommand = null!;
+                    try
+                    {
+                        staleCommandFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            commandSource.Id, definition, (100, 100), arrival: true);
+                        Assert.False(staleCommandFresh.IsCompleted);
+                        highCommand = commands.RunAsync($"/gem_xp {gemType.ExperienceFor(crossing + 1)}");
+                        Assert.False(highCommand.IsCompleted,
+                            "actual /gem_xp dispatch did not suspend after its synchronous qualification mutation");
+                        Assert.Equal(crossing + 1, global::Game.ItemsFor(self).GemLevel(SocketGem()));
+                        var inactive = Assert.Single(Sources(), row => row.Identity == sourceKey);
+                        Assert.False(inactive.Active);
+                        Assert.DoesNotContain(commandActorId, self.Golems.All.Keys);
+                        Assert.False(self.Minions.Owns(commandActorId, commandActor.Monster));
+                        Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+                        Assert.DoesNotContain(self.Golems.Buffs.Keys, buff => buff == definition.Buff);
+                        Assert.False(self.Golems.OwnerStats.ContainsKey(fireGolems));
+                        Assert.False(LastSavedSource(commandSource.Id));
+                    }
+                    finally { commandGate.Release(); }
+                    Assert.Equal(0u, await staleCommandFresh);
+                    await highCommand;
+                    Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+
+                    var lowerGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(lowerGate.Wait(0));
+                    Task lowerCommand = null!;
+                    try
+                    {
+                        lowerCommand = commands.RunAsync($"/gem_xp {gemType.ExperienceFor(crossing)}");
+                        Assert.False(lowerCommand.IsCompleted);
+                        Assert.Equal(crossing, global::Game.ItemsFor(self).GemLevel(SocketGem()));
+                        Assert.True(Source().Active);
+                        Assert.True(global::Game.SupportedSkill(self, Source().Id).RequirementsMet);
+                        Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+                        Assert.Empty(self.Golems.All);
+                        Assert.False(LastSavedSource(commandSource.Id));
+                    }
+                    finally { lowerGate.Release(); }
+                    await lowerCommand;
+                    Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+
+                    await commands.RunAsync("/gem_xp near");
+                    Assert.Equal(gemType.ExperienceFor(crossing + 1) - 1, SocketGem().GemExperience);
+                    Assert.Equal(crossing, global::Game.ItemsFor(self).GemLevel(SocketGem()));
+                    Assert.True(Source().Active);
+                    Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+
+                    var restoredSource = Source();
+                    uint restoredId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        restoredSource.Id, definition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, restoredId);
+                    var restoredActor = self.Golems.All[restoredId];
+                    var restoredToken = self.GemSourceLifetimes.Current(sourceKey);
+                    Assert.NotNull(restoredToken);
+                    Assert.NotSame(commandToken, restoredToken);
+                    Assert.True(LastSavedSource(restoredSource.Id));
+
+                    int experienceBeforeRefusal = SocketGem().GemExperience;
+                    replies.Clear();
+                    await global::Game.LevelUpGem("test", wire.Stream, wire.Ciphers, self, target);
+                    Assert.Contains(replies, reply => reply.Contains("requires", StringComparison.OrdinalIgnoreCase));
+                    Assert.Equal(experienceBeforeRefusal, SocketGem().GemExperience);
+                    Assert.Same(restoredToken, self.GemSourceLifetimes.Current(sourceKey));
+                    Assert.Same(restoredActor, self.Golems.All[restoredId]);
+                    Assert.True(self.Minions.Owns(restoredId, restoredActor.Monster));
+                    Assert.True(self.Golems.Buffs.ContainsKey(definition.Buff));
+                    Assert.True(LastSavedSource(restoredSource.Id));
+
+                    var restoredLife = restoredActor.Monster.Life;
+                    var restoredShield = restoredActor.Shield;
+                    var sameLevelGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(sameLevelGate.Wait(0));
+                    Task<uint> sameLevelFresh = null!;
+                    Task sameLevelCommand = null!;
+                    try
+                    {
+                        sameLevelFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            restoredSource.Id, definition, (100, 100), arrival: true);
+                        Assert.False(sameLevelFresh.IsCompleted);
+                        int experienceBeforeSameLevel = SocketGem().GemExperience;
+                        sameLevelCommand = commands.RunAsync($"/gem_xp {gemType.ExperienceFor(crossing)}");
+                        Assert.False(sameLevelCommand.IsCompleted,
+                            "actual /gem_xp same-level update did not suspend after its mutation");
+                        Assert.Equal(gemType.ExperienceFor(crossing), SocketGem().GemExperience);
+                        Assert.True(SocketGem().GemExperience < experienceBeforeSameLevel);
+                        Assert.Equal(crossing, global::Game.ItemsFor(self).GemLevel(SocketGem()));
+                        Assert.True(Source().Active);
+                        Assert.True(global::Game.SupportedSkill(self, restoredSource.Id).RequirementsMet);
+                        Assert.Same(restoredToken, self.GemSourceLifetimes.Current(sourceKey));
+                        Assert.Same(restoredActor, self.Golems.All[restoredId]);
+                        Assert.Equal(restoredLife, restoredActor.Monster.Life);
+                        Assert.Equal(restoredShield, restoredActor.Shield);
+                        Assert.True(self.Minions.Owns(restoredId, restoredActor.Monster));
+                        Assert.True(self.Golems.Buffs.ContainsKey(definition.Buff));
+                        Assert.True(LastSavedSource(restoredSource.Id));
+                    }
+                    finally { sameLevelGate.Release(); }
+                    await sameLevelCommand;
+                    uint sameLevelFreshId = await sameLevelFresh;
+                    Assert.NotEqual(0u, sameLevelFreshId);
+                    var sameLevelFreshActor = self.Golems.All[sameLevelFreshId];
+                    Assert.True(self.Minions.Owns(sameLevelFreshId, sameLevelFreshActor.Monster));
+                    Assert.Same(restoredToken, self.GemSourceLifetimes.Current(sourceKey));
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousProgressionContext;
+                    if (progression is not null)
+                    {
+                        progression.Closed = true;
+                        PlayerInventories.Forget(progressionCharacter);
+                        global::Game.InactiveItems.TryRemove(progressionCharacter, out _);
+                    }
+                }
+            }
+
+            async Task PassiveQualificationRetirement()
+            {
+                // The measured ordinary Witch path: 57226 is reachable from the implicit start and 21678 is its leaf.
+                // Real catalogued gems and equipment cross the Clarity 4 / Flame Golem 1 attributes at 42 Intelligence.
+                const string retirementCharacter = "PassiveQualificationRetirement";
+                const ushort connected = 57226, intelligenceLeaf = 21678;
+                var retirementSchedule = new AreaClockSchedule();
+                var retirementUpdates = new PlayerUpdatesState(lifetime, retirementSchedule);
+                var previousRetirementContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = retirementUpdates;
+                ClientState? retirement = null;
+                try
+                {
+                    retirementSchedule.At = 55;
+                    PlayerInventories.SetClass(retirementCharacter, 1);
+                    CharacterSaves.SetRefundPoints(retirementCharacter, 1);
+                    var seed = CharacterSaves.Load(retirementCharacter)!;
+                    var self = retirement = new ClientState(
+                        new(1, "passive-qualification-retirement", 1000, 1000, 100, 100, null, []), 13, 1)
+                    {
+                        Character = retirementCharacter, ClassRow = 1, Instance = new(), PlayerSent = true,
+                        Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = retirementUpdates,
+                        Pools = new(100, 1, 1, 0, 0), LeagueModule = conn.LeagueModule,
+                    };
+                    self.Passives = [.. seed.Passives ?? []];
+                    self.MainAscendancy = seed.MainAscendancy ?? new();
+                    self.MasteryEffects = new(seed.MasteryEffects ?? []);
+                    self.RefundPoints = seed.RefundPoints ?? 0;
+                    self.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(seed);
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.Walk.Teleport(100, 100, retirementSchedule.At);
+
+                    Item GemAt(string name, int level)
+                    {
+                        var found = Program.Items.FindGem(name)!.Value;
+                        var type = global::Game.ItemsFor(self).Gem(found.Type)!;
+                        return ItemCatalog.Create(found.Type) with
+                        {
+                            GemVariant = found.Variant.Index,
+                            GemExperience = type.ExperienceFor(level),
+                        };
+                    }
+                    var clarityGem = GemAt("Clarity", 4);
+                    var vitalityGem = GemAt("Vitality", 1);
+                    var flameGem = GemAt("Summon Flame Golem", 1);
+                    var inventory = global::Game.ItemsOf(self);
+                    // One socketed gem's requirements qualify its whole host. Keep the unrelated Vitality source in a
+                    // separate real item so it can remain active when Clarity and Flame Golem lose the ten Intelligence.
+                    inventory.Add(PlayerInventories.Weapon1, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                        {
+                            Sockets =
+                            [
+                                new ItemSocket(SocketColour.White, clarityGem),
+                                new ItemSocket(SocketColour.White, flameGem),
+                                new ItemSocket(SocketColour.White, null),
+                            ],
+                            Links = [2],
+                        });
+                    inventory.Add(PlayerInventories.BodyArmour, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Armours/BodyArmours/BodyStr1")!) with
+                        {
+                            Sockets = [new ItemSocket(SocketColour.White, vitalityGem)],
+                            Links = [1],
+                        });
+                    inventory.Add(5, 0, 0, ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Amulets/Amulet3")!));
+                    inventory.Add(PlayerInventories.Belt, 0, 0, ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Belts/Belt4")!));
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                    }
+                    Recalculate();
+                    self.PlayerLife = self.Pools.Life;
+                    self.PlayerMana = self.Pools.Mana;
+
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        lock (self.Monsters) return global::Game.CaptureGemSourceRowsLocked(self);
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    Dictionary<uint, int> PlayerStats()
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return new(global::Game.CharacterPlayerStats(self));
+                    }
+                    bool Met(string effect)
+                    {
+                        var source = Source(effect);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return global::Game.SupportedSkill(self, source.Id).RequirementsMet;
+                    }
+                    void AssertSameAura(AuraCatalog.Aura expected, AuraCatalog.Aura? actual)
+                    {
+                        Assert.NotNull(actual);
+                        Assert.Equal(expected.SkillId, actual.SkillId);
+                        Assert.Equal(expected.Effect, actual.Effect);
+                        Assert.Equal(expected.Buff, actual.Buff);
+                        Assert.Equal(expected.SourceBuff, actual.SourceBuff);
+                        Assert.Equal(expected.ManaFlat, actual.ManaFlat);
+                        Assert.Equal(expected.ManaPercent, actual.ManaPercent);
+                        Assert.Equal(expected.Level, actual.Level);
+                        Assert.Equal(expected.Quality, actual.Quality);
+                    }
+                    void AssertRequirements(int intelligence, bool clarity, bool flame)
+                    {
+                        var snapshot = global::Game.CurrentGemRequirements(self);
+                        Assert.Equal(intelligence, snapshot.Intelligence);
+                        Assert.True(snapshot.Strength >= 50);
+                        Assert.Equal(clarity,
+                            global::Game.GemRequirementsUnmetAt(self, clarityGem, snapshot) is null);
+                        Assert.Equal(flame,
+                            global::Game.GemRequirementsUnmetAt(self, flameGem, snapshot) is null);
+                        Assert.Null(global::Game.GemRequirementsUnmetAt(self, vitalityGem, snapshot));
+                        Assert.Equal(clarity, Met("Clarity"));
+                        Assert.Equal(flame, Met("SummonFlameGolem"));
+                        Assert.True(Met("Vitality"));
+                    }
+
+                    AssertRequirements(32, clarity: false, flame: false);
+                    Assert.Null(await global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                        [connected, intelligenceLeaf], true, "qualification fixture"));
+                    Assert.Equal([connected, intelligenceLeaf], self.Passives);
+                    AssertRequirements(42, clarity: true, flame: true);
+                    Assert.Empty(self.Auras);
+                    Assert.Empty(self.Golems.All);
+                    Assert.Null(self.GemSourceLifetimes.Current(Source("Clarity").Identity));
+                    Assert.Null(self.GemSourceLifetimes.Current(Source("SummonFlameGolem").Identity));
+
+                    var claritySource = Source("Clarity");
+                    var clarityReservation = global::Game.SupportedReservationCost(self, claritySource.Id);
+                    Assert.NotNull(clarityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        claritySource.Id, claritySource.Effect, claritySource.Name, clarityReservation.Value,
+                        claritySource.Level, claritySource.Quality));
+                    var vitalitySource = Source("Vitality");
+                    var vitalityReservation = global::Game.SupportedReservationCost(self, vitalitySource.Id);
+                    Assert.NotNull(vitalityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        vitalitySource.Id, vitalitySource.Effect, vitalitySource.Name, vitalityReservation.Value,
+                        vitalitySource.Level, vitalitySource.Quality));
+                    var oldClarity = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    var oldVitality = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Vitality");
+                    var flameSource = Source("SummonFlameGolem");
+                    var flameDefinition = global::Game.GolemData.Find("SummonFlameGolem")!;
+                    uint oldFlameId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        flameSource.Id, flameDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, oldFlameId);
+                    var oldFlame = self.Golems.All[oldFlameId];
+                    var oldLease = self.GemSourceLifetimes.Current(flameSource.Identity);
+                    Assert.NotNull(oldLease);
+                    Assert.True(self.Minions.Owns(oldFlameId, oldFlame.Monster));
+                    Assert.True(LastSavedGolem(retirementCharacter, flameSource.Id));
+                    Assert.Contains("Clarity", CharacterSaves.Load(retirementCharacter)!.ActiveAuras ?? []);
+                    Assert.Contains("Vitality", CharacterSaves.Load(retirementCharacter)!.ActiveAuras ?? []);
+
+                    var statsWithBoth = PlayerStats();
+                    var clarityRegeneration = Program.Stats.Key("base_mana_regeneration_rate_per_minute")!.Value;
+                    var vitalityRegeneration = Program.Stats.Key("base_life_regeneration_rate_per_minute")!.Value;
+                    Assert.True(statsWithBoth.GetValueOrDefault(clarityRegeneration) > 0);
+                    int vitalityRegenerationWithBoth = statsWithBoth.GetValueOrDefault(vitalityRegeneration);
+                    uint reservedWithBoth = (uint)global::Game.ReservedMana(self);
+                    self.PlayerLife = self.Pools.Life / 2;
+                    self.PlayerMana = (uint)global::Game.UnreservedMana(self) / 2;
+                    uint lifeBeforeRefund = self.PlayerLife;
+
+                    async Task<List<byte[]>> CaptureHeld(
+                        Func<Task<string?>> work, Action suspended, string? expectedErrorSubstring = null)
+                    {
+                        var packets = new List<byte[]>();
+                        var previousOutput = Program.Outgoing;
+                        var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(gate.Wait(0));
+                        Task<string?>? pending = null;
+                        bool released = false;
+                        Program.Outgoing = (seen, bytes) =>
+                        {
+                            if (ReferenceEquals(seen, wire.Ciphers)) lock (packets) packets.Add(bytes.ToArray());
+                            previousOutput?.Invoke(seen, bytes);
+                        };
+                        try
+                        {
+                            pending = work();
+                            Assert.False(pending.IsCompleted,
+                                "the accepted mutation did not suspend at its first output");
+                            suspended();
+                            gate.Release();
+                            released = true;
+                            var error = await pending;
+                            if (expectedErrorSubstring is null) Assert.Null(error);
+                            else Assert.Contains(expectedErrorSubstring, error ?? string.Empty);
+                            return packets;
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                if (!released) gate.Release();
+                                if (pending is not null && !pending.IsCompleted) await pending;
+                            }
+                            finally { Program.Outgoing = previousOutput; }
+                        }
+                    }
+
+                    var retirementPackets = await CaptureHeld(
+                        () => global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                            [intelligenceLeaf], false, "refund qualifying leaf", refundPoints: true),
+                        () =>
+                        {
+                            Assert.Equal([connected], self.Passives);
+                            Assert.Equal((ushort)0, self.RefundPoints);
+                            AssertRequirements(32, clarity: false, flame: false);
+                            Assert.DoesNotContain(oldClarity.SkillId, self.Auras.Keys);
+                            AssertSameAura(oldVitality, self.Auras.GetValueOrDefault(vitalitySource.Id));
+                            Assert.DoesNotContain(oldFlameId, self.Golems.All.Keys);
+                            Assert.False(self.Minions.Owns(oldFlameId, oldFlame.Monster));
+                            Assert.Null(self.GemSourceLifetimes.Current(flameSource.Identity));
+                            Assert.True(oldLease.Retired || !self.GemSourceLifetimes.IsCurrent(oldLease));
+                            Assert.False(LastSavedGolem(retirementCharacter, flameSource.Id));
+                            var saved = CharacterSaves.Load(retirementCharacter)!;
+                            Assert.DoesNotContain("Clarity", saved.ActiveAuras ?? []);
+                            Assert.Contains("Vitality", saved.ActiveAuras ?? []);
+                            Assert.True((uint)global::Game.ReservedMana(self) < reservedWithBoth);
+                            Assert.Equal(lifeBeforeRefund, self.PlayerLife);
+                            Assert.True(self.PlayerLife <= self.Pools.Life);
+                            Assert.True(self.PlayerMana <= (uint)global::Game.UnreservedMana(self));
+                            var stats = PlayerStats();
+                            Assert.Equal(0, stats.GetValueOrDefault(clarityRegeneration));
+                            Assert.Equal(vitalityRegenerationWithBoth,
+                                stats.GetValueOrDefault(vitalityRegeneration));
+                        });
+                    Assert.Contains(retirementPackets, packet =>
+                        packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, oldClarity.Buff)) >= 0);
+                    if (oldClarity.SourceBuff is ushort sourceBuff)
+                        Assert.Contains(retirementPackets, packet =>
+                            packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, sourceBuff)) >= 0);
+
+                    var oldFlameRemoval = InstanceProtocol.RemoveObject(oldFlameId);
+                    var previousRemovalOutput = Program.Outgoing;
+                    var removalPackets = new List<byte[]>();
+                    Program.Outgoing = (seen, bytes) =>
+                    {
+                        if (ReferenceEquals(seen, wire.Ciphers)) lock (removalPackets) removalPackets.Add(bytes.ToArray());
+                        previousRemovalOutput?.Invoke(seen, bytes);
+                    };
+                    try
+                    {
+                        await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    }
+                    finally { Program.Outgoing = previousRemovalOutput; }
+                    Assert.Contains(retirementPackets.Concat(removalPackets),
+                        packet => packet.AsSpan().IndexOf(oldFlameRemoval) >= 0);
+
+                    var restoredPackets = await CaptureHeld(
+                        () => global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                            [intelligenceLeaf], true, "restore qualification fixture"),
+                        () =>
+                        {
+                            Assert.Equal([connected, intelligenceLeaf], self.Passives);
+                            AssertRequirements(42, clarity: true, flame: true);
+                            var onlyRestoredAura = Assert.Single(self.Auras.Values);
+                            Assert.Equal("Vitality", onlyRestoredAura.EffectId);
+                            Assert.DoesNotContain(self.Auras.Values,
+                                aura => aura.EffectId is "Clarity" or "FlameGolem");
+                            AssertSameAura(oldVitality, onlyRestoredAura);
+                            Assert.Empty(self.Golems.All);
+                            Assert.Null(self.GemSourceLifetimes.Current(flameSource.Identity));
+                            var restoredSaved = CharacterSaves.Load(retirementCharacter)!;
+                            Assert.Equal(["Vitality"], restoredSaved.ActiveAuras ?? []);
+                            Assert.False(LastSavedGolem(retirementCharacter, flameSource.Id));
+                        });
+                    Assert.DoesNotContain(restoredPackets, packet =>
+                        packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, oldClarity.Buff)) >= 0);
+
+                    claritySource = Source("Clarity");
+                    clarityReservation = global::Game.SupportedReservationCost(self, claritySource.Id);
+                    Assert.NotNull(clarityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        claritySource.Id, claritySource.Effect, claritySource.Name, clarityReservation.Value,
+                        claritySource.Level, claritySource.Quality));
+                    var newClarity = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.NotEqual(oldClarity.Buff, newClarity.Buff);
+                    flameSource = Source("SummonFlameGolem");
+                    uint newFlameId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        flameSource.Id, flameDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, newFlameId);
+                    Assert.NotEqual(oldFlameId, newFlameId);
+                    var newFlame = self.Golems.All[newFlameId];
+                    var newLease = self.GemSourceLifetimes.Current(flameSource.Identity);
+                    Assert.NotNull(newLease);
+                    Assert.NotSame(oldLease, newLease);
+                    Assert.True(self.Minions.Owns(newFlameId, newFlame.Monster));
+                    Assert.True(LastSavedGolem(retirementCharacter, flameSource.Id));
+
+                    var noOpClaritySource = Source("Clarity");
+                    var noOpVitalitySource = Source("Vitality");
+                    var noOpClarity = self.Auras[noOpClaritySource.Id];
+                    var noOpVitality = self.Auras[noOpVitalitySource.Id];
+                    var noOpFlameSource = Source("SummonFlameGolem");
+                    var noOpFlame = self.Golems.All[newFlameId];
+                    var noOpLease = self.GemSourceLifetimes.Current(noOpFlameSource.Identity);
+                    Assert.NotNull(noOpLease);
+                    uint noOpLife = self.PlayerLife, noOpMana = self.PlayerMana;
+                    uint noOpFlameLife = noOpFlame.Monster.Life, noOpFlameShield = noOpFlame.Shield;
+                    var noOpSaved = CharacterSaves.Load(retirementCharacter)!;
+                    var noOpSavedPassives = noOpSaved.Passives?.ToArray() ?? Array.Empty<ushort>();
+                    var noOpSavedRefundPoints = noOpSaved.RefundPoints;
+                    var noOpSavedActiveAuras = noOpSaved.ActiveAuras?.ToArray() ?? Array.Empty<string>();
+                    bool noOpSavedGolem = LastSavedGolem(retirementCharacter, noOpFlameSource.Id);
+                    await CaptureHeld(
+                        () => global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                            [intelligenceLeaf], true, "same qualification no-op"),
+                        () =>
+                        {
+                            AssertSameAura(noOpClarity, self.Auras.GetValueOrDefault(noOpClaritySource.Id));
+                            AssertSameAura(noOpVitality, self.Auras.GetValueOrDefault(noOpVitalitySource.Id));
+                            Assert.Same(noOpFlame, self.Golems.All[newFlameId]);
+                            Assert.Same(noOpLease, self.GemSourceLifetimes.Current(noOpFlameSource.Identity));
+                            Assert.Equal(noOpLife, self.PlayerLife);
+                            Assert.Equal(noOpMana, self.PlayerMana);
+                            Assert.Equal(noOpFlameLife, noOpFlame.Monster.Life);
+                            Assert.Equal(noOpFlameShield, noOpFlame.Shield);
+                            Assert.True(noOpClaritySource.Equals(Source("Clarity")));
+                            var saved = CharacterSaves.Load(retirementCharacter)!;
+                            Assert.Equal(noOpSavedPassives, saved.Passives ?? []);
+                            Assert.Equal(noOpSavedRefundPoints, saved.RefundPoints);
+                            Assert.Equal(noOpSavedActiveAuras, saved.ActiveAuras ?? []);
+                            Assert.Equal(noOpSavedGolem, LastSavedGolem(retirementCharacter, noOpFlameSource.Id));
+                        });
+                    AssertSameAura(noOpClarity, self.Auras.GetValueOrDefault(noOpClaritySource.Id));
+                    AssertSameAura(noOpVitality, self.Auras.GetValueOrDefault(noOpVitalitySource.Id));
+                    Assert.Same(noOpLease, self.GemSourceLifetimes.Current(noOpFlameSource.Identity));
+                    var noOpFinalSaved = CharacterSaves.Load(retirementCharacter)!;
+                    Assert.Equal(noOpSavedPassives, noOpFinalSaved.Passives ?? []);
+                    Assert.Equal(noOpSavedRefundPoints, noOpFinalSaved.RefundPoints);
+                    Assert.Equal(noOpSavedActiveAuras, noOpFinalSaved.ActiveAuras ?? []);
+                    Assert.Equal(noOpSavedGolem, LastSavedGolem(retirementCharacter, noOpFlameSource.Id));
+
+                    var refusedClarity = self.Auras[noOpClaritySource.Id];
+                    var refusedVitality = self.Auras[noOpVitalitySource.Id];
+                    var refusedFlame = self.Golems.All[newFlameId];
+                    var refusedLease = self.GemSourceLifetimes.Current(noOpFlameSource.Identity);
+                    Assert.NotNull(refusedLease);
+                    uint refusedLife = self.PlayerLife, refusedMana = self.PlayerMana;
+                    uint refusedFlameLife = refusedFlame.Monster.Life, refusedFlameShield = refusedFlame.Shield;
+                    var refusedSaved = CharacterSaves.Load(retirementCharacter)!;
+                    var refusedSavedPassives = refusedSaved.Passives?.ToArray() ?? Array.Empty<ushort>();
+                    var refusedSavedRefundPoints = refusedSaved.RefundPoints;
+                    var refusedSavedActiveAuras = refusedSaved.ActiveAuras?.ToArray() ?? Array.Empty<string>();
+                    bool refusedSavedGolem = LastSavedGolem(retirementCharacter, noOpFlameSource.Id);
+                    await CaptureHeld(
+                        () => global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                            [intelligenceLeaf], false, "refused refund without points", refundPoints: true),
+                        () =>
+                        {
+                            Assert.Equal([connected, intelligenceLeaf], self.Passives);
+                            Assert.Equal((ushort)0, self.RefundPoints);
+                            AssertSameAura(refusedClarity, self.Auras.GetValueOrDefault(noOpClaritySource.Id));
+                            AssertSameAura(refusedVitality, self.Auras.GetValueOrDefault(noOpVitalitySource.Id));
+                            Assert.Same(refusedFlame, self.Golems.All[newFlameId]);
+                            Assert.Same(refusedLease, self.GemSourceLifetimes.Current(noOpFlameSource.Identity));
+                            Assert.Equal(refusedLife, self.PlayerLife);
+                            Assert.Equal(refusedMana, self.PlayerMana);
+                            Assert.Equal(refusedFlameLife, refusedFlame.Monster.Life);
+                            Assert.Equal(refusedFlameShield, refusedFlame.Shield);
+                            Assert.Contains("Clarity", CharacterSaves.Load(retirementCharacter)!.ActiveAuras ?? []);
+                            Assert.Contains("Vitality", CharacterSaves.Load(retirementCharacter)!.ActiveAuras ?? []);
+                            Assert.True(LastSavedGolem(retirementCharacter, noOpFlameSource.Id));
+                            var saved = CharacterSaves.Load(retirementCharacter)!;
+                            Assert.Equal(refusedSavedPassives, saved.Passives ?? []);
+                            Assert.Equal(refusedSavedRefundPoints, saved.RefundPoints);
+                            Assert.Equal(refusedSavedActiveAuras, saved.ActiveAuras ?? []);
+                            Assert.Equal(refusedSavedGolem, LastSavedGolem(retirementCharacter, noOpFlameSource.Id));
+                        }, "not enough refund points");
+                    AssertSameAura(refusedClarity, self.Auras.GetValueOrDefault(noOpClaritySource.Id));
+                    AssertSameAura(refusedVitality, self.Auras.GetValueOrDefault(noOpVitalitySource.Id));
+                    Assert.Same(refusedLease, self.GemSourceLifetimes.Current(noOpFlameSource.Identity));
+                    Assert.Same(refusedFlame, self.Golems.All[newFlameId]);
+                    var refusedFinalSaved = CharacterSaves.Load(retirementCharacter)!;
+                    Assert.Equal(refusedSavedPassives, refusedFinalSaved.Passives ?? []);
+                    Assert.Equal(refusedSavedRefundPoints, refusedFinalSaved.RefundPoints);
+                    Assert.Equal(refusedSavedActiveAuras, refusedFinalSaved.ActiveAuras ?? []);
+                    Assert.Equal(refusedSavedGolem, LastSavedGolem(retirementCharacter, noOpFlameSource.Id));
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousRetirementContext;
+                    if (retirement is not null)
+                    {
+                        retirement.Closed = true;
+                        PlayerInventories.Forget(retirementCharacter);
+                        global::Game.InactiveItems.TryRemove(retirementCharacter, out _);
+                    }
+                }
+
+                bool LastSavedGolem(string character, ushort source) =>
+                    JsonSerializer.Deserialize<GolemState.Saved[]>(
+                        CharacterSaves.ModuleData(character, "Game.Golems") ?? "[]")!
+                    .Any(row => row.Skill == source);
+            }
+
+            async Task PassiveJewelWriterAuthority()
+            {
+                // Real Witch ClassRow 1 path from the measured 82-Intelligence point to ordinary jewel cell 1. Clarity 14
+                // needs 93 Intelligence, while Flame Golem's own 35-Intelligence requirement remains met. A real
+                // Fertile Mind supplies the missing 16..24 Intelligence and therefore qualifies the whole wand host.
+                const string character = "PassiveJewelWriterAuthority";
+                const byte witchClassRow = 1;
+                ushort[] connectedPath = [57264, 37569, 36542, 4397, 31875, 60398, 7388, 36634];
+                const byte socketX = 1;
+                var schedule = new AreaClockSchedule();
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = updates;
+                ClientState? retirement = null;
+                try
+                {
+                    schedule.At = 57;
+                    PlayerInventories.SetClass(character, witchClassRow);
+                    CharacterSaves.SetRefundPoints(character, 2);
+                    var seed = CharacterSaves.Load(character)!;
+                    var self = retirement = new ClientState(
+                        new(1, "passive-jewel-writer-authority", 1000, 1000, 100, 100, null, []), 14, 1)
+                    {
+                        Character = character, ClassRow = witchClassRow, Instance = new(), PlayerSent = true,
+                        Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = updates,
+                        Pools = new(100, 1, 1, 0, 0),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Passives = [.. seed.Passives ?? []];
+                    self.MainAscendancy = seed.MainAscendancy ?? new();
+                    self.MasteryEffects = new(seed.MasteryEffects ?? []);
+                    self.RefundPoints = seed.RefundPoints ?? 0;
+                    self.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(seed);
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.Walk.Teleport(100, 100, schedule.At);
+
+                    Item GemAt(string name, int level)
+                    {
+                        var found = Program.Items.FindGem(name)!.Value;
+                        var type = global::Game.ItemsFor(self).Gem(found.Type)!;
+                        return ItemCatalog.Create(found.Type) with
+                        {
+                            GemVariant = found.Variant.Index,
+                            GemExperience = type.ExperienceFor(level),
+                        };
+                    }
+                    var clarityGem = GemAt("Clarity", 14);
+                    var vitalityGem = GemAt("Vitality", 1);
+                    var flameGem = GemAt("Summon Flame Golem", 1);
+                    var inventory = global::Game.ItemsOf(self);
+                    inventory.Add(PlayerInventories.Weapon1, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                        {
+                            Sockets =
+                            [
+                                new ItemSocket(SocketColour.White, clarityGem),
+                                new ItemSocket(SocketColour.White, flameGem),
+                                new ItemSocket(SocketColour.White, null),
+                            ],
+                            Links = [2],
+                        });
+                    inventory.Add(PlayerInventories.BodyArmour, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Armours/BodyArmours/BodyStr1")!) with
+                        {
+                            Sockets = [new ItemSocket(SocketColour.White, vitalityGem)],
+                            Links = [1],
+                        });
+                    inventory.Add(5, 0, 0, ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Amulets/Amulet3")!));
+                    inventory.Add(PlayerInventories.Belt, 0, 0, ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Belts/Belt4")!));
+
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    Recalculate();
+
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        lock (self.Monsters) return global::Game.CaptureGemSourceRowsLocked(self);
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    Dictionary<uint, int> PlayerStats()
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return new(global::Game.CharacterPlayerStats(self));
+                    }
+                    bool Met(string effect)
+                    {
+                        var source = Source(effect);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return global::Game.SupportedSkill(self, source.Id).RequirementsMet;
+                    }
+                    void AssertSameAura(AuraCatalog.Aura expected, AuraCatalog.Aura? actual)
+                    {
+                        Assert.NotNull(actual);
+                        Assert.Equal(expected.SkillId, actual.SkillId);
+                        Assert.Equal(expected.Effect, actual.Effect);
+                        Assert.Equal(expected.Buff, actual.Buff);
+                        Assert.Equal(expected.SourceBuff, actual.SourceBuff);
+                        Assert.Equal(expected.ManaFlat, actual.ManaFlat);
+                        Assert.Equal(expected.ManaPercent, actual.ManaPercent);
+                        Assert.Equal(expected.Level, actual.Level);
+                        Assert.Equal(expected.Quality, actual.Quality);
+                    }
+                    void AssertRequirements(int intelligence, bool clarity, bool flame)
+                    {
+                        var snapshot = global::Game.CurrentGemRequirements(self);
+                        Assert.True(snapshot.Strength >= 50);
+                        Assert.Equal(14, snapshot.Dexterity);
+                        Assert.Equal(intelligence, snapshot.Intelligence);
+                        var clarityType = global::Game.ItemsFor(self).Gem(Program.Items.FindGem("Clarity")!.Value.Type)!;
+                        var flameType = global::Game.ItemsFor(self).Gem(
+                            Program.Items.FindGem("Summon Flame Golem")!.Value.Type)!;
+                        Assert.Equal(93, global::Game.GemAttributeRequirements(self, clarityGem, clarityType,
+                            clarityType.Variant(clarityGem.GemVariant).Effect).Int);
+                        Assert.Equal(35, global::Game.GemAttributeRequirements(self, flameGem, flameType,
+                            flameType.Variant(flameGem.GemVariant).Effect).Int);
+                        Assert.Equal(54, global::Game.SkillsFor(self).PlayerLevelReq(
+                            clarityType.Variant(clarityGem.GemVariant).Effect,
+                            global::Game.ItemsFor(self).GemLevel(clarityGem)));
+                        Assert.Equal(clarity,
+                            global::Game.GemRequirementsUnmetAt(self, clarityGem, snapshot) is null);
+                        Assert.Equal(flame,
+                            global::Game.GemRequirementsUnmetAt(self, flameGem, snapshot) is null);
+                        Assert.Null(global::Game.GemRequirementsUnmetAt(self, vitalityGem, snapshot));
+                        Assert.Equal(clarity, Met("Clarity"));
+                        Assert.Equal(clarity && flame, Met("SummonFlameGolem"));
+                        Assert.True(Met("Vitality"));
+                    }
+                    bool LastSavedGolem(ushort source) =>
+                        JsonSerializer.Deserialize<GolemState.Saved[]>(
+                            CharacterSaves.ModuleData(character, "Game.Golems") ?? "[]")!
+                        .Any(row => row.Skill == source);
+
+                    Assert.Null(await global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                        connectedPath, true, "passive jewel writer fixture"));
+                    Assert.Equal(connectedPath, self.Passives);
+                    AssertRequirements(82, clarity: false, flame: true);
+
+                    var fertilityDefinition = Program.Items.Mods.ById("IntelligenceUniqueJewel11")!;
+                    var conversionDefinition = Program.Items.Mods.ById("JewelDexToInt")!;
+                    Item FertileMind(int randomSeed)
+                    {
+                        var item = new UniqueCatalog(Program.Items).Create("Fertile Mind", new Random(randomSeed));
+                        Assert.NotNull(item);
+                        var intelligence = Assert.Single(item.Mods, mod => mod.Hash == fertilityDefinition.Hash);
+                        Assert.InRange(Assert.Single(intelligence.Values), fertilityDefinition.RangeAt(0).Min,
+                            fertilityDefinition.RangeAt(0).Max);
+                        Assert.Contains(item.Mods, mod => mod.Hash == conversionDefinition.Hash);
+                        return item;
+                    }
+                    int JewelIntelligence(Item item)
+                    {
+                        var intelligence = Assert.Single(item.Mods, mod => mod.Hash == fertilityDefinition.Hash);
+                        return Assert.Single(intelligence.Values);
+                    }
+                    void AssertCursor(InventoryItem? expected)
+                    {
+                        var cursor = inventory.Items(PlayerInventories.Cursor);
+                        if (expected is null) Assert.Empty(cursor);
+                        else Assert.Equal(expected.Id, Assert.Single(cursor).Id);
+                    }
+                    async Task PutCursorInMain(InventoryItem expected, byte x)
+                    {
+                        AssertCursor(expected);
+                        await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                                x, 0, 0, 3, 0, 0));
+                        Assert.Equal(expected.Id, Assert.Single(inventory.Items(PlayerInventories.MainInventory)).Id);
+                        AssertCursor(null);
+                    }
+                    var fertileA = inventory.Add(PlayerInventories.Cursor, 0, 0, FertileMind(504));
+                    AssertCursor(fertileA);
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            socketX, 0, 0, 3, 0, 0));
+                    AssertCursor(null);
+                    Assert.Equal(fertileA.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels), item => item.X == socketX).Id);
+                    var fertileAIntelligence = JewelIntelligence(fertileA.Item);
+                    Assert.InRange(fertileAIntelligence, 16, 24);
+                    AssertRequirements(82 + fertileAIntelligence, clarity: true, flame: true);
+                    Assert.Equal((ushort)2, self.RefundPoints);
+
+                    var vitalitySource = Source("Vitality");
+                    var vitalityReservation = global::Game.SupportedReservationCost(self, vitalitySource.Id);
+                    Assert.NotNull(vitalityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        vitalitySource.Id, vitalitySource.Effect, vitalitySource.Name, vitalityReservation.Value,
+                        vitalitySource.Level, vitalitySource.Quality));
+                    var vitality = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Vitality");
+                    var flameDefinition = global::Game.GolemData.Find("SummonFlameGolem")!;
+
+                    async Task<(AuraCatalog.Aura Clarity, uint FlameId, GolemState.Golem Flame,
+                        GemSourceLifetimes.SourceLifetime Lease, global::Game.PlayerSkillSource FlameSource)> Activate()
+                    {
+                        Assert.DoesNotContain(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                        var claritySource = Source("Clarity");
+                        var clarityReservation = global::Game.SupportedReservationCost(self, claritySource.Id);
+                        Assert.NotNull(clarityReservation);
+                        Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                            claritySource.Id, claritySource.Effect, claritySource.Name, clarityReservation.Value,
+                            claritySource.Level, claritySource.Quality));
+                        var flameSource = Source("SummonFlameGolem");
+                        uint id = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            flameSource.Id, flameDefinition, (100, 100), arrival: true);
+                        Assert.NotEqual(0u, id);
+                        var flame = self.Golems.All[id];
+                        Assert.True(self.Minions.Owns(id, flame.Monster));
+                        var lease = self.GemSourceLifetimes.Current(flameSource.Identity);
+                        Assert.NotNull(lease);
+                        Assert.Contains("Clarity", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                        Assert.Contains("Vitality", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                        Assert.True(LastSavedGolem(flameSource.Id));
+                        return (self.Auras[claritySource.Id], id, flame, lease, flameSource);
+                    }
+                    var (initialClarity, initialFlameId, initialFlame, initialLease, initialFlameSource) =
+                        await Activate();
+                    var statsWithBoth = PlayerStats();
+                    var clarityRegeneration = Program.Stats.Key("base_mana_regeneration_rate_per_minute")!.Value;
+                    var vitalityRegeneration = Program.Stats.Key("base_life_regeneration_rate_per_minute")!.Value;
+                    Assert.True(statsWithBoth.GetValueOrDefault(clarityRegeneration) > 0);
+                    int vitalityRegenerationWithBoth = statsWithBoth.GetValueOrDefault(vitalityRegeneration);
+                    uint reservedWithBoth = (uint)global::Game.ReservedMana(self);
+
+                    async Task<List<byte[]>> CaptureHeld(Func<Task> work, Action suspended, string message)
+                    {
+                        var packets = new List<byte[]>();
+                        var previousOutput = Program.Outgoing;
+                        var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(gate.Wait(0));
+                        Task? pending = null;
+                        bool released = false;
+                        Program.Outgoing = (seen, bytes) =>
+                        {
+                            if (ReferenceEquals(seen, wire.Ciphers)) lock (packets) packets.Add(bytes.ToArray());
+                            previousOutput?.Invoke(seen, bytes);
+                        };
+                        try
+                        {
+                            pending = work();
+                            Assert.False(pending.IsCompleted, message);
+                            suspended();
+                            gate.Release();
+                            released = true;
+                            await pending;
+                            return packets;
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                if (!released) gate.Release();
+                                if (pending is not null && !pending.IsCompleted) await pending;
+                            }
+                            finally { Program.Outgoing = previousOutput; }
+                        }
+                    }
+
+                    async Task<List<byte[]>> PublishOutcomes()
+                    {
+                        var packets = new List<byte[]>();
+                        var previousOutput = Program.Outgoing;
+                        Program.Outgoing = (seen, bytes) =>
+                        {
+                            if (ReferenceEquals(seen, wire.Ciphers)) lock (packets) packets.Add(bytes.ToArray());
+                            previousOutput?.Invoke(seen, bytes);
+                        };
+                        try
+                        {
+                            await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                            return packets;
+                        }
+                        finally { Program.Outgoing = previousOutput; }
+                    }
+
+                    void AssertInventoryPair(IReadOnlyList<byte[]> outputs, byte firstRow, byte secondRow,
+                        uint firstRemoved, uint firstAdded, uint secondRemoved, uint secondAdded)
+                    {
+                        uint firstInventory = PlayerInventories.InventoryId(firstRow);
+                        uint secondInventory = PlayerInventories.InventoryId(secondRow);
+                        var changes = outputs.Where(packet => packet.Length >= 15
+                                && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceItems.InventoryChangeId)
+                            .Select(packet =>
+                            {
+                                uint inventory = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(3));
+                                uint revision = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(7));
+                                uint removedCount = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(11));
+                                uint removedFirst = removedCount == 0
+                                    ? 0
+                                    : BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(15));
+                                int addedCountAt = 15 + checked((int)removedCount * 4);
+                                uint addedCount = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(addedCountAt));
+                                uint addedFirst = addedCount == 0
+                                    ? 0
+                                    : BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(addedCountAt + 4));
+                                return (Inventory: inventory, Revision: revision,
+                                    RemovedFirst: removedFirst, AddedFirst: addedFirst);
+                            })
+                            .Where(change => change.Inventory == firstInventory || change.Inventory == secondInventory)
+                            .ToArray();
+                        Assert.Collection(changes,
+                            first =>
+                            {
+                                Assert.Equal(firstInventory, first.Inventory);
+                                Assert.Equal(firstRemoved, first.RemovedFirst);
+                                Assert.Equal(firstAdded, first.AddedFirst);
+                            },
+                            second =>
+                            {
+                                Assert.Equal(secondInventory, second.Inventory);
+                                Assert.Equal(secondRemoved, second.RemovedFirst);
+                                Assert.Equal(secondAdded, second.AddedFirst);
+                            });
+                    }
+
+                    void AssertRetiredAtGate(AuraCatalog.Aura oldClarity, uint oldFlameId,
+                        GolemState.Golem oldFlame, GemSourceLifetimes.SourceLifetime oldLease,
+                        global::Game.PlayerSkillSource oldFlameSource, uint lifeBefore, uint manaBefore)
+                    {
+                        AssertRequirements(82, clarity: false, flame: true);
+                        Assert.DoesNotContain(oldClarity.SkillId, self.Auras.Keys);
+                        AssertSameAura(vitality, self.Auras.GetValueOrDefault(vitalitySource.Id));
+                        Assert.DoesNotContain(oldFlameId, self.Golems.All.Keys);
+                        Assert.False(self.Minions.Owns(oldFlameId, oldFlame.Monster));
+                        Assert.Null(self.GemSourceLifetimes.Current(oldFlameSource.Identity));
+                        Assert.True(oldLease.Retired || !self.GemSourceLifetimes.IsCurrent(oldLease));
+                        Assert.False(LastSavedGolem(oldFlameSource.Id));
+                        var saved = CharacterSaves.Load(character)!;
+                        Assert.DoesNotContain("Clarity", saved.ActiveAuras ?? []);
+                        Assert.Contains("Vitality", saved.ActiveAuras ?? []);
+                        Assert.True((uint)global::Game.ReservedMana(self) < reservedWithBoth);
+                        Assert.Equal(lifeBefore, self.PlayerLife);
+                        Assert.Equal(manaBefore, self.PlayerMana);
+                        Assert.True(self.PlayerLife <= self.Pools.Life);
+                        Assert.True(self.PlayerMana <= (uint)global::Game.UnreservedMana(self));
+                        var stats = PlayerStats();
+                        Assert.Equal(0, stats.GetValueOrDefault(clarityRegeneration));
+                        Assert.Equal(vitalityRegenerationWithBoth, stats.GetValueOrDefault(vitalityRegeneration));
+                    }
+                    async Task AssertRemovedPackets(IReadOnlyList<byte[]> producer, AuraCatalog.Aura oldClarity,
+                        uint oldFlameId)
+                    {
+                        var all = producer.Concat(await PublishOutcomes()).ToArray();
+                        Assert.Contains(all, packet =>
+                            packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, oldClarity.Buff)) >= 0);
+                        if (oldClarity.SourceBuff is ushort sourceBuff)
+                            Assert.Contains(all, packet =>
+                                packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, sourceBuff)) >= 0);
+                        Assert.Contains(all, packet =>
+                            packet.AsSpan().IndexOf(InstanceProtocol.RemoveObject(oldFlameId)) >= 0);
+                    }
+
+                    self.PlayerLife = self.Pools.Life / 2;
+                    self.PlayerMana = (uint)global::Game.UnreservedMana(self) / 2;
+                    uint pickupLife = self.PlayerLife, pickupMana = self.PlayerMana;
+                    var pickupPackets = await CaptureHeld(
+                        async () => await global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PickUpItem(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                fertileA.Id, 3, 0, 0)),
+                        () =>
+                        {
+                            Assert.Equal(fertileA.Id, Assert.Single(
+                                inventory.Items(PlayerInventories.Cursor)).Id);
+                            Assert.Empty(inventory.Items(PlayerInventories.PassiveJewels));
+                            AssertRetiredAtGate(initialClarity, initialFlameId, initialFlame, initialLease,
+                                initialFlameSource, pickupLife, pickupMana);
+                        },
+                        "the actual passive-jewel pickup did not suspend at its first output");
+                    AssertInventoryPair(pickupPackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, fertileA.Id, 0, 0, fertileA.Id);
+                    await AssertRemovedPackets(pickupPackets, initialClarity, initialFlameId);
+
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            socketX, 0, 0, 3, 0, 0));
+                    AssertCursor(null);
+                    AssertRequirements(82 + fertileAIntelligence, clarity: true, flame: true);
+                    Assert.Empty(self.Golems.All);
+                    Assert.Null(self.GemSourceLifetimes.Current(Source("SummonFlameGolem").Identity));
+                    void AssertSingleVitality() =>
+                        AssertSameAura(vitality, Assert.Single(self.Auras.Values));
+                    AssertSingleVitality();
+
+                    var heldJewel = inventory.Add(PlayerInventories.Cursor, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Jewels/JewelInt")!));
+                    AssertCursor(heldJewel);
+                    Assert.Equal((ushort)2, self.RefundPoints);
+                    var (heldClarity, heldFlameId, heldFlame, heldLease, heldFlameSource) = await Activate();
+                    self.PlayerLife = self.Pools.Life / 2;
+                    self.PlayerMana = (uint)global::Game.UnreservedMana(self) / 2;
+                    uint heldLife = self.PlayerLife, heldMana = self.PlayerMana;
+                    var heldPackets = await CaptureHeld(
+                        async () => await global::Game.HeldOntoItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.ItemAction(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                fertileA.Id, 0, 3, 0), "passive jewel held placement"),
+                        () =>
+                        {
+                            Assert.Equal(heldJewel.Id, Assert.Single(
+                                inventory.Items(PlayerInventories.PassiveJewels)).Id);
+                            Assert.Equal(fertileA.Id, Assert.Single(
+                                inventory.Items(PlayerInventories.Cursor)).Id);
+                            AssertRetiredAtGate(heldClarity, heldFlameId, heldFlame, heldLease,
+                                heldFlameSource, heldLife, heldMana);
+                        },
+                        "the actual passive-jewel held placement did not suspend at its first output");
+                    AssertInventoryPair(heldPackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, fertileA.Id, heldJewel.Id, heldJewel.Id, fertileA.Id);
+                    await AssertRemovedPackets(heldPackets, heldClarity, heldFlameId);
+
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            socketX, 0, 0, 3, 0, 0));
+                    AssertCursor(heldJewel);
+                    AssertRequirements(82 + fertileAIntelligence, clarity: true, flame: true);
+                    AssertSingleVitality();
+                    Assert.Empty(self.Golems.All);
+                    Assert.Null(self.GemSourceLifetimes.Current(Source("SummonFlameGolem").Identity));
+
+                    var (placeClarity, placeFlameId, placeFlame, placeLease, placeFlameSource) = await Activate();
+                    self.PlayerLife = self.Pools.Life / 2;
+                    self.PlayerMana = (uint)global::Game.UnreservedMana(self) / 2;
+                    uint placeLife = self.PlayerLife, placeMana = self.PlayerMana;
+                    var placePackets = await CaptureHeld(
+                        async () => await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PlaceItem(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                socketX, 0, 0, 3, 0, 0)),
+                        () =>
+                        {
+                            Assert.Equal(heldJewel.Id, Assert.Single(
+                                inventory.Items(PlayerInventories.PassiveJewels)).Id);
+                            AssertCursor(fertileA);
+                            AssertRetiredAtGate(placeClarity, placeFlameId, placeFlame, placeLease,
+                                placeFlameSource, placeLife, placeMana);
+                        },
+                        "the actual passive-jewel placement swap did not suspend at its first output");
+                    AssertInventoryPair(placePackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, fertileA.Id, heldJewel.Id, heldJewel.Id, fertileA.Id);
+                    await AssertRemovedPackets(placePackets, placeClarity, placeFlameId);
+
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            socketX, 0, 0, 3, 0, 0));
+                    AssertCursor(heldJewel);
+                    AssertRequirements(82 + fertileAIntelligence, clarity: true, flame: true);
+                    AssertSingleVitality();
+                    await PutCursorInMain(heldJewel, 0);
+                    var (qualifiedClarity, qualifiedFlameId, qualifiedFlame, qualifiedLease,
+                        qualifiedFlameSource) = await Activate();
+                    var fertileB = inventory.Add(PlayerInventories.Cursor, 0, 0, FertileMind(505));
+                    AssertCursor(fertileB);
+                    var qualifiedPackets = await CaptureHeld(
+                        async () => await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PlaceItem(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                socketX, 0, 0, 3, 0, 0)),
+                        () =>
+                        {
+                            Assert.Equal(fertileB.Id, Assert.Single(
+                                inventory.Items(PlayerInventories.PassiveJewels)).Id);
+                            AssertCursor(fertileA);
+                            AssertRequirements(82 + JewelIntelligence(fertileB.Item),
+                                clarity: true, flame: true);
+                            AssertSameAura(qualifiedClarity,
+                                self.Auras.GetValueOrDefault(qualifiedClarity.SkillId));
+                            AssertSameAura(vitality, self.Auras.GetValueOrDefault(vitalitySource.Id));
+                            Assert.Same(qualifiedFlame, self.Golems.All[qualifiedFlameId]);
+                            Assert.Same(qualifiedLease,
+                                self.GemSourceLifetimes.Current(qualifiedFlameSource.Identity));
+                            Assert.True(self.Minions.Owns(qualifiedFlameId, qualifiedFlame.Monster));
+                            Assert.Contains("Clarity", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                            Assert.Contains("Vitality", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                            Assert.True(LastSavedGolem(qualifiedFlameSource.Id));
+                        },
+                        "the qualified passive-jewel swap did not suspend at its first output");
+                    AssertInventoryPair(qualifiedPackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, fertileA.Id, fertileB.Id, fertileB.Id, fertileA.Id);
+                    var qualifiedPublished = await PublishOutcomes();
+                    Assert.DoesNotContain(qualifiedPackets.Concat(qualifiedPublished), packet =>
+                        packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(
+                            Program.PlayerId, qualifiedClarity.Buff)) >= 0);
+                    Assert.DoesNotContain(qualifiedPackets.Concat(qualifiedPublished), packet =>
+                        packet.AsSpan().IndexOf(InstanceProtocol.RemoveObject(qualifiedFlameId)) >= 0);
+
+                    // The cursor already holds fertileA: the public pickup writer must refuse without touching the
+                    // active owners, the pane, the durable aura/golem state or the refund point.
+                    var refusedSaved = CharacterSaves.Load(character)!;
+                    var refusedAuras = refusedSaved.ActiveAuras?.ToArray() ?? [];
+                    bool refusedGolem = LastSavedGolem(qualifiedFlameSource.Id);
+                    await global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PickUpItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels), fertileB.Id, 3, 0, 0));
+                    Assert.Equal(fertileB.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels)).Id);
+                    AssertCursor(fertileA);
+                    Assert.Equal((ushort)2, self.RefundPoints);
+                    AssertSameAura(qualifiedClarity, self.Auras.GetValueOrDefault(qualifiedClarity.SkillId));
+                    AssertSameAura(vitality, self.Auras.GetValueOrDefault(vitalitySource.Id));
+                    Assert.Same(qualifiedFlame, self.Golems.All[qualifiedFlameId]);
+                    Assert.Same(qualifiedLease,
+                        self.GemSourceLifetimes.Current(qualifiedFlameSource.Identity));
+                    var refusedAfter = CharacterSaves.Load(character)!;
+                    Assert.Equal(refusedAuras, refusedAfter.ActiveAuras ?? []);
+                    Assert.Equal((ushort)2, refusedAfter.RefundPoints);
+                    Assert.Equal(refusedGolem, LastSavedGolem(qualifiedFlameSource.Id));
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousContext;
+                    if (retirement is not null)
+                    {
+                        retirement.Closed = true;
+                        PlayerInventories.Forget(character);
+                        global::Game.InactiveItems.TryRemove(character, out _);
+                    }
+                }
+            }
+
+            async Task ClusterQualificationRetirement()
+            {
+                const string character = "ClusterQualificationRetirement";
+                const byte witchClassRow = 1;
+                const ushort clusterCell = 20, clusterNode = 202;
+                ushort[] connectedPath =
+                [
+                    57226, 21678, 32210, 8948, 27659, 37671,
+                    27415, 32710, 49605, 22618, 21033, 21984,
+                ];
+                var schedule = new AreaClockSchedule();
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = updates;
+                ClientState? isolated = null;
+                try
+                {
+                    schedule.At = 59;
+                    PlayerInventories.SetClass(character, witchClassRow);
+                    CharacterSaves.SetRefundPoints(character, 1);
+                    var seed = CharacterSaves.Load(character)!;
+                    var self = isolated = new ClientState(
+                        new(1, "cluster-qualification-retirement", 1000, 1000, 100, 100, null, []), 15, 1)
+                    {
+                        Character = character, ClassRow = witchClassRow, Instance = new(), PlayerSent = true,
+                        Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = updates,
+                        Pools = new(100, 1, 1, 0, 0), LeagueModule = conn.LeagueModule,
+                    };
+                    self.Passives = [.. seed.Passives ?? []];
+                    self.ClusterPassives = [.. seed.ClusterPassives ?? []];
+                    self.MainAscendancy = seed.MainAscendancy ?? new();
+                    self.MasteryEffects = new(seed.MasteryEffects ?? []);
+                    self.RefundPoints = seed.RefundPoints ?? 0;
+                    self.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(seed);
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.Walk.Teleport(100, 100, schedule.At);
+
+                    Item GemAt(string name, int level)
+                    {
+                        var found = Program.Items.FindGem(name)!.Value;
+                        var type = global::Game.ItemsFor(self).Gem(found.Type)!;
+                        return ItemCatalog.Create(found.Type) with
+                        {
+                            GemVariant = found.Variant.Index,
+                            GemExperience = type.ExperienceFor(level),
+                        };
+                    }
+                    var clarityGem = GemAt("Clarity", 16);
+                    var vitalityGem = GemAt("Vitality", 1);
+                    var flameGem = GemAt("Summon Flame Golem", 1);
+                    var inventory = global::Game.ItemsOf(self);
+                    inventory.Add(PlayerInventories.Weapon1, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                        {
+                            Sockets =
+                            [
+                                new ItemSocket(SocketColour.White, clarityGem),
+                                new ItemSocket(SocketColour.White, flameGem),
+                                new ItemSocket(SocketColour.White, null),
+                            ],
+                            Links = [2],
+                        });
+                    inventory.Add(PlayerInventories.BodyArmour, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Armours/BodyArmours/BodyStr1")!) with
+                        {
+                            Sockets = [new ItemSocket(SocketColour.White, vitalityGem)],
+                            Links = [1],
+                        });
+                    var amberType = Program.Items.Find("Metadata/Items/Amulets/Amulet3")!;
+                    var heavyType = Program.Items.Find("Metadata/Items/Belts/Belt4")!;
+                    Assert.Equal("Amber Amulet", amberType.Name);
+                    Assert.Equal("Heavy Belt", heavyType.Name);
+                    inventory.Add(5, 0, 0, ItemCatalog.Create(amberType));
+                    inventory.Add(PlayerInventories.Belt, 0, 0, ItemCatalog.Create(heavyType));
+
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    Recalculate();
+
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        lock (self.Monsters) return global::Game.CaptureGemSourceRowsLocked(self);
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    Dictionary<uint, int> PlayerStats()
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return new(global::Game.CharacterPlayerStats(self));
+                    }
+                    bool Met(string effect)
+                    {
+                        var source = Source(effect);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return global::Game.SupportedSkill(self, source.Id).RequirementsMet;
+                    }
+                    void AssertAuraValues(AuraCatalog.Aura expected, AuraCatalog.Aura? actual)
+                    {
+                        Assert.NotNull(actual);
+                        Assert.Equal(expected.SkillId, actual.SkillId);
+                        Assert.Equal(expected.Effect, actual.Effect);
+                        Assert.Equal(expected.EffectId, actual.EffectId);
+                        Assert.Equal(expected.Name, actual.Name);
+                        Assert.Equal(expected.Buff, actual.Buff);
+                        Assert.Equal(expected.BuffRow, actual.BuffRow);
+                        Assert.Equal(expected.SourceBuff, actual.SourceBuff);
+                        Assert.Equal(expected.ManaFlat, actual.ManaFlat);
+                        Assert.Equal(expected.ManaPercent, actual.ManaPercent);
+                        Assert.Equal(expected.LifeFlat, actual.LifeFlat);
+                        Assert.Equal(expected.LifePercent, actual.LifePercent);
+                        Assert.Equal(expected.Level, actual.Level);
+                        Assert.Equal(expected.Quality, actual.Quality);
+                        Assert.Equal(expected.ReservesLife, actual.ReservesLife);
+                        Assert.Equal(expected.AffectsSelf, actual.AffectsSelf);
+                        Assert.Equal(expected.SupportEffectPct, actual.SupportEffectPct);
+                        Assert.Equal(expected.ReservationEfficiencyPct, actual.ReservationEfficiencyPct);
+                    }
+                    void AssertRequirements(int intelligence, bool hostQualified)
+                    {
+                        var snapshot = global::Game.CurrentGemRequirements(self);
+                        Assert.Equal(102, intelligence - (hostQualified ? 3 : 0));
+                        Assert.Equal(intelligence, snapshot.Intelligence);
+                        Assert.Equal(24, snapshot.Dexterity);
+                        Assert.True(snapshot.Strength >= 50);
+                        var clarityType = global::Game.ItemsFor(self).Gem(
+                            Program.Items.FindGem("Clarity")!.Value.Type)!;
+                        var flameType = global::Game.ItemsFor(self).Gem(
+                            Program.Items.FindGem("Summon Flame Golem")!.Value.Type)!;
+                        Assert.Equal(103, global::Game.GemAttributeRequirements(self, clarityGem, clarityType,
+                            clarityType.Variant(clarityGem.GemVariant).Effect).Int);
+                        Assert.Equal(35, global::Game.GemAttributeRequirements(self, flameGem, flameType,
+                            flameType.Variant(flameGem.GemVariant).Effect).Int);
+                        Assert.Equal(60, global::Game.SkillsFor(self).PlayerLevelReq(
+                            clarityType.Variant(clarityGem.GemVariant).Effect,
+                            global::Game.ItemsFor(self).GemLevel(clarityGem)));
+                        Assert.Equal(hostQualified,
+                            global::Game.GemRequirementsUnmetAt(self, clarityGem, snapshot) is null);
+                        Assert.Null(global::Game.GemRequirementsUnmetAt(self, flameGem, snapshot));
+                        Assert.Null(global::Game.GemRequirementsUnmetAt(self, vitalityGem, snapshot));
+                        Assert.Equal(hostQualified, Met("Clarity"));
+                        Assert.Equal(hostQualified, Met("SummonFlameGolem"));
+                        Assert.True(Met("Vitality"));
+                    }
+                    void AssertCursor(InventoryItem? expected)
+                    {
+                        var cursor = inventory.Items(PlayerInventories.Cursor);
+                        if (expected is null) Assert.Empty(cursor);
+                        else Assert.Equal(expected.Id, Assert.Single(cursor).Id);
+                    }
+                    async Task PutCursorInMain(InventoryItem expected, byte x)
+                    {
+                        AssertCursor(expected);
+                        await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PlaceItem(
+                                PlayerInventories.InventoryId(PlayerInventories.MainInventory), x, 0, 0, 3, 0, 0));
+                        Assert.Equal(expected.Id, Assert.Single(
+                            inventory.Items(PlayerInventories.MainInventory), item => item.X == x).Id);
+                        AssertCursor(null);
+                    }
+                    bool LastSavedGolem(ushort source) =>
+                        JsonSerializer.Deserialize<GolemState.Saved[]>(
+                            CharacterSaves.ModuleData(character, "Game.Golems") ?? "[]")!
+                        .Any(row => row.Skill == source);
+                    void SetRefundPoints(ushort points)
+                    {
+                        self.RefundPoints = points;
+                        CharacterSaves.SetRefundPoints(character, points);
+                    }
+
+                    Assert.Null(await global::Game.ChangePassives("test", wire.Stream, wire.Ciphers, self,
+                        connectedPath, true, "cluster qualification fixture"));
+                    Assert.Equal(connectedPath, self.Passives);
+                    AssertRequirements(102, hostQualified: false);
+                    Assert.Equal((ushort)1, self.RefundPoints);
+
+                    var cluster = global::CommandsRules.CreateClusterJewel(2, 8, 2, null,
+                        ["AfflictionJewelSmallPassivesGrantInt_"])!;
+                    Assert.Equal(ItemRarity.Magic, cluster.Rarity);
+                    Assert.Equal(8, global::Game.ClusterNodeBudget(cluster));
+                    Assert.Equal(2, global::Game.ClusterSocketCount(cluster));
+                    var explicitIntelligence = Program.Items.Mods.ById("AfflictionJewelSmallPassivesGrantInt_")!;
+                    var rolledIntelligence = Assert.Single(cluster.Mods,
+                        mod => mod.Hash == explicitIntelligence.Hash);
+                    Assert.Equal([3], rolledIntelligence.Values);
+                    Assert.Contains(global::Game.ItemsFor(self).Mods.ByHash(explicitIntelligence.Hash)!.Stats,
+                        stat => stat.Id == "local_affliction_jewel_small_nodes_grant_int");
+
+                    var clusterHeld = inventory.Add(PlayerInventories.Cursor, 0, 0, cluster);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.Cursor)).Id);
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterCell, 0, 0, 3, 0, 0));
+                    AssertCursor(null);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    var layout = ClusterJewelLayout.For(clusterCell, clusterHeld.Item);
+                    Assert.NotNull(layout);
+                    Assert.Equal(195, layout.Base);
+                    Assert.Equal(12, layout.Total);
+                    Assert.Equal(ClusterJewelLayout.Kind.Small,
+                        layout.ByOffset.GetValueOrDefault(clusterNode - layout.Base));
+                    Assert.Empty(self.ClusterPassives);
+                    AssertRequirements(102, hostQualified: false);
+
+                    await global::Game.ChangeClusterPassive("test", wire.Stream, wire.Ciphers, self,
+                        clusterNode, true);
+                    Assert.Equal([clusterNode], self.ClusterPassives);
+                    Assert.Equal([clusterNode], CharacterSaves.Load(character)!.ClusterPassives ?? []);
+                    AssertRequirements(105, hostQualified: true);
+
+                    var vitalitySource = Source("Vitality");
+                    var vitalityReservation = global::Game.SupportedReservationCost(self, vitalitySource.Id);
+                    Assert.NotNull(vitalityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        vitalitySource.Id, vitalitySource.Effect, vitalitySource.Name, vitalityReservation.Value,
+                        vitalitySource.Level, vitalitySource.Quality));
+                    var vitality = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Vitality");
+                    var expectedVitality = vitality with { };
+                    var flameDefinition = global::Game.GolemData.Find("SummonFlameGolem")!;
+
+                    async Task<(AuraCatalog.Aura Clarity, uint FlameId, GolemState.Golem Flame,
+                        GemSourceLifetimes.SourceLifetime Lease, global::Game.PlayerSkillSource FlameSource)> Activate()
+                    {
+                        Assert.DoesNotContain(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                        var claritySource = Source("Clarity");
+                        var clarityReservation = global::Game.SupportedReservationCost(self, claritySource.Id);
+                        Assert.NotNull(clarityReservation);
+                        Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                            claritySource.Id, claritySource.Effect, claritySource.Name, clarityReservation.Value,
+                            claritySource.Level, claritySource.Quality));
+                        var flameSource = Source("SummonFlameGolem");
+                        uint id = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            flameSource.Id, flameDefinition, (100, 100), arrival: true);
+                        Assert.NotEqual(0u, id);
+                        var flame = self.Golems.All[id];
+                        Assert.True(self.Minions.Owns(id, flame.Monster));
+                        var lease = self.GemSourceLifetimes.Current(flameSource.Identity);
+                        Assert.NotNull(lease);
+                        Assert.Contains("Clarity", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                        Assert.Contains("Vitality", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                        Assert.True(LastSavedGolem(flameSource.Id));
+                        return (self.Auras[claritySource.Id], id, flame, lease, flameSource);
+                    }
+                    var (oldClarity, oldFlameId, oldFlame, oldLease, oldFlameSource) = await Activate();
+                    var statsWithBoth = PlayerStats();
+                    var clarityRegeneration = Program.Stats.Key("base_mana_regeneration_rate_per_minute")!.Value;
+                    var vitalityRegeneration = Program.Stats.Key("base_life_regeneration_rate_per_minute")!.Value;
+                    Assert.True(statsWithBoth.GetValueOrDefault(clarityRegeneration) > 0);
+                    int vitalityRegenerationWithBoth = statsWithBoth.GetValueOrDefault(vitalityRegeneration);
+                    uint reservedWithBoth = (uint)global::Game.ReservedMana(self);
+
+                    async Task<List<byte[]>> CaptureHeld(Func<Task> work, Action suspended, string message)
+                    {
+                        var packets = new List<byte[]>();
+                        var previousOutput = Program.Outgoing;
+                        var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(gate.Wait(0));
+                        Task? pending = null;
+                        bool released = false;
+                        Program.Outgoing = (seen, bytes) =>
+                        {
+                            if (ReferenceEquals(seen, wire.Ciphers)) lock (packets) packets.Add(bytes.ToArray());
+                            previousOutput?.Invoke(seen, bytes);
+                        };
+                        try
+                        {
+                            pending = work();
+                            Assert.False(pending.IsCompleted, message);
+                            suspended();
+                            gate.Release();
+                            released = true;
+                            await pending;
+                            return packets;
+                        }
+                        finally
+                        {
+                            try
+                            {
+                                if (!released) gate.Release();
+                                if (pending is not null && !pending.IsCompleted) await pending;
+                            }
+                            finally { Program.Outgoing = previousOutput; }
+                        }
+                    }
+
+                    async Task<List<byte[]>> PublishOutcomes()
+                    {
+                        var packets = new List<byte[]>();
+                        var previousOutput = Program.Outgoing;
+                        Program.Outgoing = (seen, bytes) =>
+                        {
+                            if (ReferenceEquals(seen, wire.Ciphers)) lock (packets) packets.Add(bytes.ToArray());
+                            previousOutput?.Invoke(seen, bytes);
+                        };
+                        try
+                        {
+                            await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                            return packets;
+                        }
+                        finally { Program.Outgoing = previousOutput; }
+                    }
+
+                    async Task<List<byte[]>> Capture(Func<Task> work)
+                    {
+                        var packets = new List<byte[]>();
+                        var previousOutput = Program.Outgoing;
+                        Program.Outgoing = (seen, bytes) =>
+                        {
+                            if (ReferenceEquals(seen, wire.Ciphers)) lock (packets) packets.Add(bytes.ToArray());
+                            previousOutput?.Invoke(seen, bytes);
+                        };
+                        try
+                        {
+                            await work();
+                            return packets;
+                        }
+                        finally { Program.Outgoing = previousOutput; }
+                    }
+
+                    void AssertInventoryPair(IReadOnlyList<byte[]> outputs, byte firstRow, byte secondRow,
+                        uint firstRemoved, uint firstAdded, uint secondRemoved, uint secondAdded)
+                    {
+                        uint firstInventory = PlayerInventories.InventoryId(firstRow);
+                        uint secondInventory = PlayerInventories.InventoryId(secondRow);
+                        var changes = outputs.Where(packet => packet.Length >= 15
+                                && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceItems.InventoryChangeId)
+                            .Select(packet =>
+                            {
+                                uint inventory = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(3));
+                                uint removedCount = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(11));
+                                uint removedFirst = removedCount == 0
+                                    ? 0
+                                    : BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(15));
+                                int addedCountAt = 15 + checked((int)removedCount * 4);
+                                uint addedCount = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(addedCountAt));
+                                uint addedFirst = addedCount == 0
+                                    ? 0
+                                    : BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(addedCountAt + 4));
+                                return (Inventory: inventory, RemovedFirst: removedFirst, AddedFirst: addedFirst);
+                            })
+                            .Where(change => change.Inventory == firstInventory || change.Inventory == secondInventory)
+                            .ToArray();
+                        Assert.Collection(changes,
+                            first =>
+                            {
+                                Assert.Equal(firstInventory, first.Inventory);
+                                Assert.Equal(firstRemoved, first.RemovedFirst);
+                                Assert.Equal(firstAdded, first.AddedFirst);
+                            },
+                            second =>
+                            {
+                                Assert.Equal(secondInventory, second.Inventory);
+                                Assert.Equal(secondRemoved, second.RemovedFirst);
+                                Assert.Equal(secondAdded, second.AddedFirst);
+                            });
+                    }
+
+                    self.PlayerLife = self.Pools.Life / 2;
+                    self.PlayerMana = (uint)global::Game.UnreservedMana(self) / 2;
+                    uint lifeBeforeRefund = self.PlayerLife, manaBeforeRefund = self.PlayerMana;
+                    var retirementPackets = await CaptureHeld(
+                        () => global::Game.ChangeClusterPassive("test", wire.Stream, wire.Ciphers, self,
+                            clusterNode, false),
+                        () =>
+                        {
+                            Assert.Empty(self.ClusterPassives);
+                            AssertRequirements(102, hostQualified: false);
+                            Assert.DoesNotContain(oldClarity.SkillId, self.Auras.Keys);
+                            AssertAuraValues(expectedVitality, self.Auras.GetValueOrDefault(vitalitySource.Id));
+                            Assert.DoesNotContain(oldFlameId, self.Golems.All.Keys);
+                            Assert.False(self.Minions.Owns(oldFlameId, oldFlame.Monster));
+                            Assert.Null(self.GemSourceLifetimes.Current(oldFlameSource.Identity));
+                            Assert.True(oldLease.Retired || !self.GemSourceLifetimes.IsCurrent(oldLease));
+                            Assert.False(LastSavedGolem(oldFlameSource.Id));
+                            Assert.Empty(self.Summons.Fighters);
+                            var saved = CharacterSaves.Load(character)!;
+                            Assert.Empty(saved.ClusterPassives ?? []);
+                            Assert.DoesNotContain("Clarity", saved.ActiveAuras ?? []);
+                            Assert.Contains("Vitality", saved.ActiveAuras ?? []);
+                            Assert.True((uint)global::Game.ReservedMana(self) < reservedWithBoth);
+                            Assert.Equal(lifeBeforeRefund, self.PlayerLife);
+                            Assert.Equal(manaBeforeRefund, self.PlayerMana);
+                            Assert.True(self.PlayerLife <= self.Pools.Life);
+                            Assert.True(self.PlayerMana <= (uint)global::Game.UnreservedMana(self));
+                            var stats = PlayerStats();
+                            Assert.Equal(0, stats.GetValueOrDefault(clarityRegeneration));
+                            Assert.Equal(vitalityRegenerationWithBoth,
+                                stats.GetValueOrDefault(vitalityRegeneration));
+                        },
+                        "the actual cluster refund did not suspend at its first tree output");
+                    var removed = retirementPackets.Concat(await PublishOutcomes()).ToArray();
+                    Assert.Contains(removed, packet =>
+                        packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(
+                            Program.PlayerId, oldClarity.Buff)) >= 0);
+                    if (oldClarity.SourceBuff is ushort sourceBuff)
+                        Assert.Contains(removed, packet =>
+                            packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(
+                                Program.PlayerId, sourceBuff)) >= 0);
+                    Assert.Contains(removed, packet =>
+                        packet.AsSpan().IndexOf(InstanceProtocol.RemoveObject(oldFlameId)) >= 0);
+
+                    await global::Game.ChangeClusterPassive("test", wire.Stream, wire.Ciphers, self,
+                        clusterNode, true);
+                    Assert.Equal([clusterNode], self.ClusterPassives);
+                    AssertRequirements(105, hostQualified: true);
+                    Assert.DoesNotContain(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.Empty(self.Golems.All);
+                    Assert.Null(self.GemSourceLifetimes.Current(oldFlameSource.Identity));
+                    AssertAuraValues(expectedVitality, Assert.Single(self.Auras.Values));
+                    var (freshClarity, freshFlameId, freshFlame, freshLease, freshFlameSource) = await Activate();
+                    Assert.NotEqual(oldClarity.Buff, freshClarity.Buff);
+                    Assert.NotEqual(oldClarity.SourceBuff, freshClarity.SourceBuff);
+                    Assert.NotEqual(oldFlameId, freshFlameId);
+                    Assert.NotSame(oldLease, freshLease);
+
+                    var expectedFreshClarity = freshClarity with { };
+                    var expectedFreshVitality = vitality with { };
+                    uint noOpLife = self.PlayerLife, noOpMana = self.PlayerMana;
+                    uint noOpFlameLife = freshFlame.Monster.Life, noOpFlameShield = freshFlame.Shield;
+                    var noOpSaved = CharacterSaves.Load(character)!;
+                    var noOpSavedClusters = noOpSaved.ClusterPassives?.ToArray() ?? [];
+                    var noOpSavedAuras = noOpSaved.ActiveAuras?.ToArray() ?? [];
+                    bool noOpSavedGolem = LastSavedGolem(freshFlameSource.Id);
+                    await CaptureHeld(
+                        () => global::Game.ChangeClusterPassive("test", wire.Stream, wire.Ciphers, self,
+                            clusterNode, true),
+                        () =>
+                        {
+                            Assert.Equal([clusterNode], self.ClusterPassives);
+                            AssertAuraValues(expectedFreshClarity,
+                                self.Auras.GetValueOrDefault(freshClarity.SkillId));
+                            AssertAuraValues(expectedFreshVitality,
+                                self.Auras.GetValueOrDefault(vitalitySource.Id));
+                            Assert.Same(freshFlame, self.Golems.All[freshFlameId]);
+                            Assert.Same(freshLease,
+                                self.GemSourceLifetimes.Current(freshFlameSource.Identity));
+                            Assert.Equal(noOpLife, self.PlayerLife);
+                            Assert.Equal(noOpMana, self.PlayerMana);
+                            Assert.Equal(noOpFlameLife, freshFlame.Monster.Life);
+                            Assert.Equal(noOpFlameShield, freshFlame.Shield);
+                            var saved = CharacterSaves.Load(character)!;
+                            Assert.Equal(noOpSavedClusters, saved.ClusterPassives ?? []);
+                            Assert.Equal(noOpSavedAuras, saved.ActiveAuras ?? []);
+                            Assert.Equal(noOpSavedGolem, LastSavedGolem(freshFlameSource.Id));
+                        },
+                        "the qualified same-node allocation did not suspend at its first tree output");
+                    AssertAuraValues(expectedFreshClarity, self.Auras.GetValueOrDefault(freshClarity.SkillId));
+                    Assert.Same(freshLease, self.GemSourceLifetimes.Current(freshFlameSource.Identity));
+
+                    await CaptureHeld(
+                        () => global::Game.ChangeClusterPassive("test", wire.Stream, wire.Ciphers, self,
+                            (ushort)(global::Game.MaxClusterNodeId + 1), true),
+                        () =>
+                        {
+                            Assert.Equal([clusterNode], self.ClusterPassives);
+                            AssertAuraValues(expectedFreshClarity,
+                                self.Auras.GetValueOrDefault(freshClarity.SkillId));
+                            AssertAuraValues(expectedFreshVitality,
+                                self.Auras.GetValueOrDefault(vitalitySource.Id));
+                            Assert.Same(freshFlame, self.Golems.All[freshFlameId]);
+                            Assert.Same(freshLease,
+                                self.GemSourceLifetimes.Current(freshFlameSource.Identity));
+                            Assert.Equal(noOpLife, self.PlayerLife);
+                            Assert.Equal(noOpMana, self.PlayerMana);
+                            Assert.Equal(noOpFlameLife, freshFlame.Monster.Life);
+                            Assert.Equal(noOpFlameShield, freshFlame.Shield);
+                            var saved = CharacterSaves.Load(character)!;
+                            Assert.Equal(noOpSavedClusters, saved.ClusterPassives ?? []);
+                            Assert.Equal(noOpSavedAuras, saved.ActiveAuras ?? []);
+                            Assert.Equal(noOpSavedGolem, LastSavedGolem(freshFlameSource.Id));
+                        },
+                        "the refused out-of-range cluster node did not suspend at its tree output");
+                    Assert.Equal([clusterNode], self.ClusterPassives);
+                    AssertAuraValues(expectedFreshClarity, self.Auras.GetValueOrDefault(freshClarity.SkillId));
+                    Assert.Same(freshFlame, self.Golems.All[freshFlameId]);
+                    Assert.Same(freshLease, self.GemSourceLifetimes.Current(freshFlameSource.Identity));
+
+                    AssertCursor(null);
+                    Assert.Equal((ushort)1, self.RefundPoints);
+                    await global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PickUpItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterHeld.Id, 3, 0, 0));
+                    AssertCursor(null);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    Assert.Equal((ushort)1, self.RefundPoints);
+
+                    var replacementA = inventory.Add(PlayerInventories.Cursor, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Jewels/JewelInt")!));
+                    AssertCursor(replacementA);
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterCell, 0, 0, 3, 0, 0));
+                    AssertCursor(replacementA);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    await PutCursorInMain(replacementA, 0);
+
+                    var replacementB = inventory.Add(PlayerInventories.Cursor, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Jewels/JewelInt")!));
+                    await global::Game.HeldOntoItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.ItemAction(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterHeld.Id, 0, 3, 0), "cluster allocation removal refusal");
+                    AssertCursor(replacementB);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    await PutCursorInMain(replacementB, 1);
+                    Assert.Equal((ushort)1, self.RefundPoints);
+                    AssertAuraValues(expectedFreshClarity, self.Auras.GetValueOrDefault(freshClarity.SkillId));
+                    Assert.Same(freshFlame, self.Golems.All[freshFlameId]);
+                    Assert.Same(freshLease, self.GemSourceLifetimes.Current(freshFlameSource.Identity));
+                    Assert.Equal(noOpSavedClusters, CharacterSaves.Load(character)!.ClusterPassives ?? []);
+                    Assert.Equal(noOpSavedAuras, CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                    Assert.True(LastSavedGolem(freshFlameSource.Id));
+
+                    await global::Game.ChangeClusterPassive("test", wire.Stream, wire.Ciphers, self,
+                        clusterNode, false);
+                    await PublishOutcomes();
+                    Assert.Empty(self.ClusterPassives);
+                    AssertRequirements(102, hostQualified: false);
+                    Assert.DoesNotContain(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.Empty(self.Golems.All);
+                    AssertAuraValues(expectedVitality, Assert.Single(self.Auras.Values));
+                    SetRefundPoints(0);
+                    Assert.Empty(CharacterSaves.Load(character)!.ClusterPassives ?? []);
+                    Assert.Equal((ushort)0, CharacterSaves.Load(character)!.RefundPoints);
+
+                    AssertCursor(null);
+                    await global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PickUpItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterHeld.Id, 3, 0, 0));
+                    AssertCursor(null);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+
+                    var replacementC = inventory.Add(PlayerInventories.Cursor, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Jewels/JewelInt")!));
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterCell, 0, 0, 3, 0, 0));
+                    AssertCursor(replacementC);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    await PutCursorInMain(replacementC, 2);
+
+                    var replacementD = inventory.Add(PlayerInventories.Cursor, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Jewels/JewelInt")!));
+                    await global::Game.HeldOntoItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.ItemAction(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterHeld.Id, 0, 3, 0), "cluster refund-point removal refusal");
+                    AssertCursor(replacementD);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    await PutCursorInMain(replacementD, 3);
+                    Assert.Equal((ushort)0, self.RefundPoints);
+                    Assert.Equal((ushort)0, CharacterSaves.Load(character)!.RefundPoints);
+                    AssertAuraValues(expectedVitality, Assert.Single(self.Auras.Values));
+                    Assert.Empty(self.Golems.All);
+                    Assert.Empty(self.Summons.Fighters);
+
+                    SetRefundPoints(1);
+                    var pickupPackets = await Capture(() =>
+                        global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PickUpItem(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                clusterHeld.Id, 3, 0, 0)));
+                    AssertInventoryPair(pickupPackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, clusterHeld.Id, 0, 0, clusterHeld.Id);
+                    AssertCursor(clusterHeld);
+                    Assert.Empty(inventory.Items(PlayerInventories.PassiveJewels));
+                    Assert.Equal((ushort)0, self.RefundPoints);
+                    Assert.Equal((ushort)0, CharacterSaves.Load(character)!.RefundPoints);
+                    AssertAuraValues(expectedVitality, Assert.Single(self.Auras.Values));
+                    Assert.Empty(self.Golems.All);
+
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterCell, 0, 0, 3, 0, 0));
+                    AssertCursor(null);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+
+                    SetRefundPoints(1);
+                    var replacementE = inventory.Add(PlayerInventories.Cursor, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Jewels/JewelInt")!));
+                    var placeSwapPackets = await Capture(() =>
+                        global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PlaceItem(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                clusterCell, 0, 0, 3, 0, 0)));
+                    AssertInventoryPair(placeSwapPackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, clusterHeld.Id, replacementE.Id, replacementE.Id, clusterHeld.Id);
+                    AssertCursor(clusterHeld);
+                    Assert.Equal(replacementE.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    Assert.Equal((ushort)0, self.RefundPoints);
+                    Assert.Equal((ushort)0, CharacterSaves.Load(character)!.RefundPoints);
+                    AssertAuraValues(expectedVitality, Assert.Single(self.Auras.Values));
+
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(
+                            PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                            clusterCell, 0, 0, 3, 0, 0));
+                    AssertCursor(replacementE);
+                    Assert.Equal(clusterHeld.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+
+                    SetRefundPoints(1);
+                    var heldSwapPackets = await Capture(() =>
+                        global::Game.HeldOntoItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.ItemAction(
+                                PlayerInventories.InventoryId(PlayerInventories.PassiveJewels),
+                                clusterHeld.Id, 0, 3, 0), "legal held cluster removal"));
+                    AssertInventoryPair(heldSwapPackets, PlayerInventories.PassiveJewels,
+                        PlayerInventories.Cursor, clusterHeld.Id, replacementE.Id, replacementE.Id, clusterHeld.Id);
+                    AssertCursor(clusterHeld);
+                    Assert.Equal(replacementE.Id, Assert.Single(
+                        inventory.Items(PlayerInventories.PassiveJewels),
+                        item => item.X == clusterCell).Id);
+                    Assert.Equal((ushort)0, self.RefundPoints);
+                    Assert.Equal((ushort)0, CharacterSaves.Load(character)!.RefundPoints);
+                    AssertAuraValues(expectedVitality, Assert.Single(self.Auras.Values));
+                    Assert.Empty(self.Golems.All);
+                    Assert.Empty(self.Summons.Fighters);
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousContext;
+                    if (isolated is not null)
+                    {
+                        isolated.Closed = true;
+                        PlayerInventories.Forget(character);
+                        global::Game.InactiveItems.TryRemove(character, out _);
+                    }
+                }
+            }
+
+            async Task EquipmentSourceAuthority()
+            {
+                // Isolated actual-equipment authority: public pickup/place and the real 0xdd dispatch, one-handed
+                // catalogue wands, real socketed Golem gems and a persistent real Astramentis requirement source.
+                const string equipmentCharacter = "EquipmentSourceAuthority";
+                var equipmentSchedule = new AreaClockSchedule();
+                var equipmentUpdates = new PlayerUpdatesState(lifetime, equipmentSchedule);
+                var previousEquipmentContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = equipmentUpdates;
+                ClientState? equipment = null;
+                try
+                {
+                    equipmentSchedule.At = 60;
+                    var self = equipment = new ClientState(
+                        new(1, "equipment-source-authority", 1000, 1000, 100, 100, null, []), 11, 1)
+                    {
+                        Character = equipmentCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = equipmentUpdates,
+                        // Real base attributes stay below the Golem gems' requirements; Astramentis supplies the persistent
+                        // remainder. Two Golems are the labelled capacity fixture, not a virtual-attribute shortcut.
+                        Pools = new(100, 10000, 10000, 2, 0, Strength: 65, Dexterity: 65, Intelligence: 65),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 2;
+
+                    var inventory = global::Game.ItemsOf(self);
+                    var wandType = Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!;
+                    var wandA = ItemCatalog.Create(wandType);
+                    var wandB = ItemCatalog.Create(wandType);
+                    var flameGem = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Gems/SkillGemSummonFlameGolem")!);
+                    var stoneGem = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Gems/SkillGemSummonRockGolem")!);
+                    var astramentis = new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!;
+                    var a = inventory.Add(PlayerInventories.Weapon1, 0, 0, wandA with
+                    {
+                        Sockets = [new(SocketColour.White, flameGem)],
+                    });
+                    var b = inventory.Add(PlayerInventories.Offhand1, 0, 0, wandB with
+                    {
+                        Sockets = [new(SocketColour.White, stoneGem)],
+                    });
+                    const byte amuletRow = 5;
+                    var amulet = inventory.Add(amuletRow, 0, 0, astramentis);
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    Recalculate();
+
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        Assert.Empty(self.Passives);
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(),
+                        source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    byte[] PickupMessage(byte row, uint itemId) => new LoginWriter()
+                        .U16(InstanceItems.PickUpItemId)
+                        .U32(PlayerInventories.InventoryId(row)).U32(itemId).U8(3).U8(0).U8(0).ToArray();
+                    void AssertPromotionPickupWire(IReadOnlyList<byte[]> outputs, byte mainRow, uint picked, uint promoted)
+                    {
+                        uint mainInventory = PlayerInventories.InventoryId(mainRow);
+                        uint cursorInventory = PlayerInventories.InventoryId(PlayerInventories.Cursor);
+                        uint offhandInventory = PlayerInventories.InventoryId((byte)(mainRow + 1));
+                        var changes = outputs.Where(packet => packet.Length >= 15
+                                && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceItems.InventoryChangeId)
+                            .Select(packet =>
+                            {
+                                uint inventory = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(3));
+                                uint revision = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(7));
+                                uint removedCount = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(11));
+                                uint removedFirst = removedCount == 0
+                                    ? 0
+                                    : BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(15));
+                                int addedCountAt = 15 + checked((int)removedCount * 4);
+                                uint addedCount = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(addedCountAt));
+                                uint addedFirst = addedCount == 0
+                                    ? 0
+                                    : BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(addedCountAt + 4));
+                                return (Inventory: inventory, Revision: revision, RemovedFirst: removedFirst,
+                                    AddedFirst: addedFirst);
+                            })
+                            .Where(change => change.Inventory == mainInventory || change.Inventory == cursorInventory
+                                || change.Inventory == offhandInventory)
+                            .ToArray();
+
+                        Assert.Collection(changes,
+                            change =>
+                            {
+                                Assert.Equal(mainInventory, change.Inventory);
+                                Assert.Equal(picked, change.RemovedFirst);
+                                Assert.Equal(0u, change.AddedFirst);
+                            },
+                            change =>
+                            {
+                                Assert.Equal(cursorInventory, change.Inventory);
+                                Assert.Equal(0u, change.RemovedFirst);
+                                Assert.Equal(picked, change.AddedFirst);
+                            },
+                            change =>
+                            {
+                                Assert.Equal(offhandInventory, change.Inventory);
+                                Assert.Equal(promoted, change.RemovedFirst);
+                                Assert.Equal(0u, change.AddedFirst);
+                            },
+                            change =>
+                            {
+                                Assert.Equal(mainInventory, change.Inventory);
+                                Assert.Equal(0u, change.RemovedFirst);
+                                Assert.Equal(promoted, change.AddedFirst);
+                            });
+                        Assert.Equal(changes[0].Revision + 1, changes[^1].Revision);
+                    }
+                    bool Met(global::Game.PlayerSkillSource source) =>
+                        global::Game.SupportedSkill(self, source.Id).RequirementsMet;
+                    bool LastSavedSource(ushort source) =>
+                        JsonSerializer.Deserialize<GolemState.Saved[]>(
+                            CharacterSaves.ModuleData(equipmentCharacter, "Game.Golems") ?? "[]")!
+                        .Any(row => row.Skill == source);
+
+                    // Row 14 is the inactive main hand. The public 0x28 handler must still promote its one-handed off
+                    // hand without activating the set or reconciling the unchanged active sources.
+                    var activeFlameBefore = Source("SummonFlameGolem");
+                    var activeStoneBefore = Source("SummonStoneGolem");
+                    var inactiveMain = inventory.Add(PlayerInventories.Weapon2, 0, 0, wandA);
+                    var inactiveOff = inventory.Add(PlayerInventories.Offhand2, 0, 0, wandB);
+                    var inactivePackets = new List<byte[]>();
+                    var previousInactiveOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers)) lock (inactivePackets) inactivePackets.Add(bytes.ToArray());
+                        previousInactiveOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    try
+                    {
+                        await global::Game.OnClientMessages("test", wire.Stream, wire.Ciphers,
+                            [(InstanceItems.PickUpItemId, PickupMessage(PlayerInventories.Weapon2, inactiveMain.Id))], [], self);
+                    }
+                    finally { Program.Outgoing = previousInactiveOutgoing; }
+                    Assert.Equal((byte)0, inventory.WeaponSet);
+                    Assert.Equal(inactiveMain.Id, Assert.Single(inventory.Items(PlayerInventories.Cursor)).Id);
+                    Assert.Equal(inactiveOff.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon2)).Id);
+                    Assert.Empty(inventory.Items(PlayerInventories.Offhand2));
+                    Assert.Equal(activeFlameBefore.Identity, Source("SummonFlameGolem").Identity);
+                    Assert.Equal(activeStoneBefore.Identity, Source("SummonStoneGolem").Identity);
+                    AssertPromotionPickupWire(inactivePackets, PlayerInventories.Weapon2, inactiveMain.Id, inactiveOff.Id);
+                    Assert.NotNull(inventory.Remove(PlayerInventories.Weapon2, inactiveOff.Id));
+                    Assert.NotNull(inventory.Remove(PlayerInventories.Cursor, inactiveMain.Id));
+                    Assert.Empty(inventory.Items(PlayerInventories.Weapon2));
+                    Assert.Empty(inventory.Items(PlayerInventories.Offhand2));
+                    Assert.Empty(inventory.Items(PlayerInventories.Cursor));
+
+                    var flameSource = Source("SummonFlameGolem");
+                    var stoneSource = Source("SummonStoneGolem");
+                    Assert.True(Met(flameSource));
+                    Assert.True(Met(stoneSource));
+                    var flameDefinition = global::Game.GolemData.Find("SummonFlameGolem")!;
+                    var stoneDefinition = global::Game.GolemData.Find("SummonStoneGolem")!;
+                    uint flameId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        flameSource.Id, flameDefinition, (100, 100), arrival: true);
+                    uint stoneId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        stoneSource.Id, stoneDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, flameId);
+                    Assert.NotEqual(0u, stoneId);
+                    var flameActor = self.Golems.All[flameId];
+                    var stoneActor = self.Golems.All[stoneId];
+                    var flameKey = flameSource.Identity;
+                    var stoneKey = stoneSource.Identity;
+                    var flameToken = self.GemSourceLifetimes.Current(flameKey);
+                    var stoneToken = self.GemSourceLifetimes.Current(stoneKey);
+                    Assert.NotNull(flameToken);
+                    Assert.NotNull(stoneToken);
+                    Assert.True(LastSavedSource(flameSource.Id));
+                    Assert.True(LastSavedSource(stoneSource.Id));
+
+                    var pickupGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(pickupGate.Wait(0));
+                    Task<uint> stalePickupFresh = null!;
+                    Task<uint> stalePickupReplacement = null!;
+                    Task pickup = null!;
+                    var pickupPackets = new List<byte[]>();
+                    var previousPickupOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers)) lock (pickupPackets) pickupPackets.Add(bytes.ToArray());
+                        previousPickupOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    try
+                    {
+                        try
+                        {
+                            stalePickupFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                                flameSource.Id, flameDefinition, (100, 100), arrival: true);
+                            stalePickupReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                                flameSource.Id, flameDefinition, (100, 100), arrival: true, replacingOld: flameActor);
+                            Assert.False(stalePickupFresh.IsCompleted);
+                            Assert.False(stalePickupReplacement.IsCompleted);
+                            pickup = global::Game.OnClientMessages("test", wire.Stream, wire.Ciphers,
+                                [(InstanceItems.PickUpItemId, PickupMessage(PlayerInventories.Weapon1, a.Id))], [], self);
+                            Assert.False(pickup.IsCompleted,
+                                "the actual equipment pickup did not suspend after synchronous pickup, promotion and retirement");
+                            Assert.Equal(a.Id, Assert.Single(inventory.Items(PlayerInventories.Cursor)).Id);
+                            Assert.Equal(b.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon1)).Id);
+                            Assert.Empty(inventory.Items(PlayerInventories.Offhand1));
+                            var canonical = Sources();
+                            Assert.DoesNotContain(canonical, source => source.Identity == flameKey);
+                            var promoted = Assert.Single(canonical, source => source.Identity == stoneKey);
+                            Assert.Equal(stoneSource.Id, promoted.Id);
+                            Assert.True(Met(promoted));
+                            Assert.DoesNotContain(flameId, self.Golems.All.Keys);
+                            Assert.False(self.Minions.Owns(flameId, flameActor.Monster));
+                            Assert.Null(self.GemSourceLifetimes.Current(flameKey));
+                            Assert.False(LastSavedSource(flameSource.Id));
+                            Assert.Same(stoneActor, self.Golems.All[stoneId]);
+                            Assert.True(self.Minions.Owns(stoneId, stoneActor.Monster));
+                            Assert.Same(stoneToken, self.GemSourceLifetimes.Current(stoneKey));
+                            Assert.True(self.Golems.Buffs.ContainsKey(stoneDefinition.Buff));
+                            Assert.True(LastSavedSource(stoneSource.Id));
+                        }
+                        finally { pickupGate.Release(); }
+                        Assert.Equal(0u, await stalePickupFresh);
+                        Assert.Equal(0u, await stalePickupReplacement);
+                        await pickup;
+                        AssertPromotionPickupWire(pickupPackets, PlayerInventories.Weapon1, a.Id, b.Id);
+                    }
+                    finally
+                    {
+                        Program.Outgoing = previousPickupOutgoing;
+                    }
+
+                    // A failed public placement captures its old source but cannot retire it. The held A remains on the
+                    // cursor and B's promoted actor, lifetime and owner buff continue unchanged.
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.BodyArmour),
+                            0, 0, 0, 3, 0, 0));
+                    Assert.Equal(a.Id, Assert.Single(inventory.Items(PlayerInventories.Cursor)).Id);
+                    Assert.Equal(b.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon1)).Id);
+                    Assert.Same(stoneActor, self.Golems.All[stoneId]);
+                    Assert.Same(stoneToken, self.GemSourceLifetimes.Current(stoneKey));
+
+                    // Rewearing A displaces B. A's old physical lifetime stays gone; B retires before the real cursor
+                    // output can resume. A fresh current preparation then creates a new actor from the same item id.
+                    var placeGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(placeGate.Wait(0));
+                    Task<uint> stalePlaceFresh = null!;
+                    Task<uint> stalePlaceReplacement = null!;
+                    Task replacing = null!;
+                    try
+                    {
+                        stalePlaceFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            stoneSource.Id, stoneDefinition, (100, 100), arrival: true);
+                        stalePlaceReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            stoneSource.Id, stoneDefinition, (100, 100), arrival: true, replacingOld: stoneActor);
+                        Assert.False(stalePlaceFresh.IsCompleted);
+                        Assert.False(stalePlaceReplacement.IsCompleted);
+                        replacing = global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.Weapon1),
+                                0, 0, 0, 3, 0, 0));
+                        Assert.False(replacing.IsCompleted,
+                            "the actual equipment placement did not suspend after the replaced host retired");
+                        Assert.Equal(a.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon1)).Id);
+                        Assert.Equal(b.Id, Assert.Single(inventory.Items(PlayerInventories.Cursor)).Id);
+                        Assert.DoesNotContain(stoneId, self.Golems.All.Keys);
+                        Assert.False(self.Minions.Owns(stoneId, stoneActor.Monster));
+                        Assert.Null(self.GemSourceLifetimes.Current(stoneKey));
+                        Assert.False(LastSavedSource(stoneSource.Id));
+                        Assert.DoesNotContain(self.Golems.Buffs.Keys, buff => buff == stoneDefinition.Buff);
+                        var rewearSource = Source("SummonFlameGolem");
+                        Assert.True(Met(rewearSource));
+                        Assert.Equal(flameSource.Id, rewearSource.Id);
+                        Assert.Null(self.GemSourceLifetimes.Current(flameKey));
+                    }
+                    finally { placeGate.Release(); }
+                    Assert.Equal(0u, await stalePlaceFresh);
+                    Assert.Equal(0u, await stalePlaceReplacement);
+                    await replacing;
+                    var rewornSource = Source("SummonFlameGolem");
+                    uint rewornId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        rewornSource.Id, flameDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, rewornId);
+                    var rewornActor = self.Golems.All[rewornId];
+                    Assert.True(LastSavedSource(rewornSource.Id));
+
+                    // Put B into the inactive second set, then use the actual 0xdd dispatch. The old active A actor and
+                    // lifetime end before the first row output; a swap back before that output cannot revive the token.
+                    var heldB = Assert.Single(inventory.Items(PlayerInventories.Cursor));
+                    Assert.Equal(b.Id, heldB.Id);
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.Weapon2),
+                            0, 0, 0, 3, 0, 0));
+                    Assert.Equal(b.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon2)).Id);
+                    var activeA = Source("SummonFlameGolem");
+                    var activeAKey = activeA.Identity;
+                    var activeAToken = self.GemSourceLifetimes.Current(activeAKey);
+                    Assert.NotNull(activeAToken);
+                    var swapGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(swapGate.Wait(0));
+                    Task<uint> staleSwapFresh = null!;
+                    Task<uint> staleSwapReplacement = null!;
+                    Task toSecondSet = null!;
+                    Task toFirstSet = null!;
+                    try
+                    {
+                        staleSwapFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            activeA.Id, flameDefinition, (100, 100), arrival: true);
+                        staleSwapReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            activeA.Id, flameDefinition, (100, 100), arrival: true, replacingOld: rewornActor);
+                        Assert.False(staleSwapFresh.IsCompleted);
+                        Assert.False(staleSwapReplacement.IsCompleted);
+                        toSecondSet = global::Game.OnClientMessages("test", wire.Stream, wire.Ciphers,
+                            [(InstanceProtocol.SwapWeaponsId, new byte[] { 0xdd, 0, 1 })], [], self);
+                        Assert.False(toSecondSet.IsCompleted,
+                            "the actual 0xdd dispatch did not suspend after its four-row mutation");
+                        Assert.Equal((byte)1, inventory.WeaponSet);
+                        Assert.Equal(b.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon1)).Id);
+                        Assert.Empty(inventory.Items(PlayerInventories.Offhand1));
+                        Assert.Equal(a.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon2)).Id);
+                        Assert.Empty(inventory.Items(PlayerInventories.Offhand2));
+                        Assert.DoesNotContain(rewornId, self.Golems.All.Keys);
+                        Assert.False(self.Minions.Owns(rewornId, rewornActor.Monster));
+                        Assert.Null(self.GemSourceLifetimes.Current(activeAKey));
+                        Assert.True(Met(Source("SummonStoneGolem")));
+
+                        toFirstSet = global::Game.OnClientMessages("test", wire.Stream, wire.Ciphers,
+                            [(InstanceProtocol.SwapWeaponsId, new byte[] { 0xdd, 0, 0 })], [], self);
+                        Assert.False(toFirstSet.IsCompleted);
+                        Assert.Equal((byte)0, inventory.WeaponSet);
+                        Assert.Equal(a.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon1)).Id);
+                        Assert.Empty(inventory.Items(PlayerInventories.Offhand1));
+                        Assert.Equal(b.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon2)).Id);
+                        Assert.Empty(inventory.Items(PlayerInventories.Offhand2));
+                        Assert.Null(self.GemSourceLifetimes.Current(activeAKey));
+                        Assert.Empty(self.Golems.All);
+                    }
+                    finally { swapGate.Release(); }
+                    Assert.Equal(0u, await staleSwapFresh);
+                    Assert.Equal(0u, await staleSwapReplacement);
+                    await toSecondSet;
+                    await toFirstSet;
+                    var swappedBackSource = Source("SummonFlameGolem");
+                    uint swappedBackId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        swappedBackSource.Id, flameDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, swappedBackId);
+                    var swappedBackActor = self.Golems.All[swappedBackId];
+                    var swappedBackToken = self.GemSourceLifetimes.Current(swappedBackSource.Identity);
+                    Assert.NotNull(swappedBackToken);
+
+                    var sameSetGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(sameSetGate.Wait(0));
+                    Task sameSet = null!;
+                    try
+                    {
+                        sameSet = global::Game.OnClientMessages("test", wire.Stream, wire.Ciphers,
+                            [(InstanceProtocol.SwapWeaponsId, new byte[] { 0xdd, 0, 0 })], [], self);
+                        Assert.False(sameSet.IsCompleted);
+                        Assert.Equal((byte)0, inventory.WeaponSet);
+                        Assert.Same(swappedBackActor, self.Golems.All[swappedBackId]);
+                        Assert.Same(swappedBackToken, self.GemSourceLifetimes.Current(swappedBackSource.Identity));
+                    }
+                    finally { sameSetGate.Release(); }
+                    await sameSet;
+                    Assert.Same(swappedBackActor, self.Golems.All[swappedBackId]);
+                    Assert.Same(swappedBackToken, self.GemSourceLifetimes.Current(swappedBackSource.Identity));
+
+                    // Both real hosts are active together. Removing the actual Astramentis makes their actual gem
+                    // requirements fail while the hosts stay equipped, so both actors and lifetimes end before output.
+                    var inactiveB = Assert.Single(inventory.Items(PlayerInventories.Weapon2));
+                    Assert.NotNull(inventory.Remove(PlayerInventories.Weapon2, inactiveB.Id));
+                    var bothOffhand = inventory.Add(PlayerInventories.Offhand1, 0, 0, inactiveB.Item);
+                    Recalculate();
+                    var bothFlame = Source("SummonFlameGolem");
+                    var bothStone = Source("SummonStoneGolem");
+                    Assert.True(Met(bothFlame));
+                    Assert.True(Met(bothStone));
+                    uint bothStoneId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        bothStone.Id, stoneDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, bothStoneId);
+                    var bothStoneActor = self.Golems.All[bothStoneId];
+                    var bothFlameToken = self.GemSourceLifetimes.Current(bothFlame.Identity);
+                    var bothStoneToken = self.GemSourceLifetimes.Current(bothStone.Identity);
+                    Assert.NotNull(bothFlameToken);
+                    Assert.NotNull(bothStoneToken);
+
+                    var amuletGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(amuletGate.Wait(0));
+                    Task<uint> staleAttributeFresh = null!;
+                    Task<uint> staleAttributeReplacement = null!;
+                    Task removeAmulet = null!;
+                    try
+                    {
+                        staleAttributeFresh = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            bothFlame.Id, flameDefinition, (100, 100), arrival: true);
+                        staleAttributeReplacement = global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                            bothFlame.Id, flameDefinition, (100, 100), arrival: true, replacingOld: swappedBackActor);
+                        Assert.False(staleAttributeFresh.IsCompleted);
+                        Assert.False(staleAttributeReplacement.IsCompleted);
+                        removeAmulet = global::Game.PickUpItem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.PickUpItem(PlayerInventories.InventoryId(amuletRow),
+                                amulet.Id, 3, 0, 0));
+                        Assert.False(removeAmulet.IsCompleted,
+                            "the actual Astramentis pickup did not suspend after retiring both invalid sources");
+                        Assert.Equal(amulet.Id, Assert.Single(inventory.Items(PlayerInventories.Cursor)).Id);
+                        Assert.Equal(a.Id, Assert.Single(inventory.Items(PlayerInventories.Weapon1)).Id);
+                        Assert.Equal(bothOffhand.Id, Assert.Single(inventory.Items(PlayerInventories.Offhand1)).Id);
+                        var unqualified = Sources();
+                        var flameHost = Assert.Single(unqualified, source => source.Identity == bothFlame.Identity);
+                        var stoneHost = Assert.Single(unqualified, source => source.Identity == bothStone.Identity);
+                        Assert.False(flameHost.Active);
+                        Assert.False(stoneHost.Active);
+                        var inactiveHosts = global::Game.InactiveItems.GetValueOrDefault(self.Character) ?? [];
+                        Assert.Contains(flameHost.Identity.Host, inactiveHosts);
+                        Assert.Contains(stoneHost.Identity.Host, inactiveHosts);
+                        Assert.False(Met(flameHost));
+                        Assert.False(Met(stoneHost));
+                        Assert.Empty(self.Golems.All);
+                        Assert.Null(self.GemSourceLifetimes.Current(bothFlame.Identity));
+                        Assert.Null(self.GemSourceLifetimes.Current(bothStone.Identity));
+                        Assert.DoesNotContain(self.Golems.Buffs.Keys,
+                            buff => buff == flameDefinition.Buff || buff == stoneDefinition.Buff);
+                        Assert.False(LastSavedSource(bothFlame.Id));
+                        Assert.False(LastSavedSource(bothStone.Id));
+                    }
+                    finally { amuletGate.Release(); }
+                    Assert.Equal(0u, await staleAttributeFresh);
+                    Assert.Equal(0u, await staleAttributeReplacement);
+                    await removeAmulet;
+
+                    await global::Game.PlaceItem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.PlaceItem(PlayerInventories.InventoryId(amuletRow),
+                            0, 0, 0, 3, 0, 0));
+                    var eligibleAgain = Source("SummonFlameGolem");
+                    Assert.True(Met(eligibleAgain));
+                    Assert.Empty(self.Golems.All);
+                    Assert.Null(self.GemSourceLifetimes.Current(eligibleAgain.Identity));
+                    uint eligibleAgainId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        eligibleAgain.Id, flameDefinition, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, eligibleAgainId);
+                    Assert.Contains(eligibleAgainId, self.Golems.All.Keys);
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousEquipmentContext;
+                    if (equipment is not null)
+                    {
+                        equipment.Closed = true;
+                        PlayerInventories.Forget(equipmentCharacter);
+                        global::Game.InactiveItems.TryRemove(equipmentCharacter, out _);
+                    }
+                }
+            }
+
+            async Task DependentOwnerRetirement()
+            {
+                // Actual public source removal must end auras, Petrified Blood, placed skills and the last Holy Relic
+                // before the first inventory/equipment output can resume. The fixture uses catalogue gems and real
+                // production activation/create paths; only the deferred-life seed is a labelled existing-state control.
+                const string ownerCharacter = "DependentOwnerRetirement";
+                var ownerSchedule = new AdvancingAreaClockSchedule();
+                var ownerUpdates = new PlayerUpdatesState(lifetime, ownerSchedule);
+                var previousOwnerContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = ownerUpdates;
+                ClientState? owner = null;
+                try
+                {
+                    ownerSchedule.At = 100;
+                    var self = owner = new ClientState(
+                        new(1, "dependent-owner-retirement", 1000, 1000, 100, 100, null, []), 10, 1)
+                    {
+                        Character = ownerCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = ownerUpdates,
+                        Pools = new(100, 10000, 10000, 2, 0),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 1;
+                    self.PlayerStats[Program.Stats.Key("number_of_relics_allowed")!.Value] = 1;
+                    self.Walk.Teleport(100, 100, ownerSchedule.At);
+
+                    Item Gem(string name)
+                    {
+                        var type = Program.Items.FindGem(name)!.Value;
+                        return ItemCatalog.Create(type.Type) with { GemVariant = type.Variant.Index };
+                    }
+                    var inventory = global::Game.ItemsOf(self);
+                    var bodyHost = inventory.Add(PlayerInventories.BodyArmour, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Armours/BodyArmours/BodyStr1")!)
+                        with
+                        {
+                            Sockets = new[] { "Clarity", "Vitality", "Petrified Blood", "Stormblast Mine" }
+                                .Select(name => new ItemSocket(SocketColour.White, Gem(name))).ToArray(),
+                            Links = [4],
+                        });
+                    var weaponHost = inventory.Add(PlayerInventories.Weapon1, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!)
+                        with
+                        {
+                            Sockets = new[] { "Fire Trap", "Summon Holy Relic", "Summon Flame Golem" }
+                                .Select(name => new ItemSocket(SocketColour.White, Gem(name))).ToArray(),
+                            Links = [3],
+                        });
+                    const byte amuletRow = 5;
+                    inventory.Add(amuletRow, 0, 0, new UniqueCatalog(Program.Items).Create(
+                        "Astramentis", new Random(504))!);
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    InstanceItems.SocketGem Target(byte row, uint host, uint socket) =>
+                        new(PlayerInventories.InventoryId(row), host, socket);
+                    Dictionary<uint, int> PlayerStats()
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return new(global::Game.CharacterPlayerStats(self));
+                    }
+                    Recalculate();
+
+                    Assert.All(Sources(), source =>
+                    {
+                        var supported = global::Game.SupportedSkill(self, source.Id);
+                        var unmet = global::Game.GemRequirementsUnmet(self, supported.SourceGem);
+                        Assert.True(source.Active,
+                            $"{source.Name} source is inactive; actual GemRequirementsUnmet: {unmet ?? "null"}");
+                        Assert.True(supported.RequirementsMet,
+                            $"{source.Name} requirements are not met; actual GemRequirementsUnmet: {unmet ?? "null"}");
+                    });
+
+                    var claritySource = Source("Clarity");
+                    var clarityReservation = global::Game.SupportedReservationCost(self, claritySource.Id);
+                    Assert.NotNull(clarityReservation);
+                    var statsBeforeClarity = PlayerStats();
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self, claritySource.Id,
+                        claritySource.Effect, claritySource.Name, clarityReservation!.Value,
+                        claritySource.Level, claritySource.Quality));
+                    claritySource = Source("Clarity");
+                    var clarityAura = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.Equal(claritySource.Id, clarityAura.SkillId);
+                    Assert.Contains("Clarity", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                    Assert.Contains(PlayerStats(), pair => !statsBeforeClarity.TryGetValue(pair.Key, out int before)
+                        || before != pair.Value);
+                    Assert.True(global::Game.ReservedMana(self) > 0);
+
+                    var vitalitySource = Source("Vitality");
+                    var vitalityReservation = global::Game.SupportedReservationCost(self, vitalitySource.Id);
+                    Assert.NotNull(vitalityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self, vitalitySource.Id,
+                        vitalitySource.Effect, vitalitySource.Name, vitalityReservation!.Value,
+                        vitalitySource.Level, vitalitySource.Quality));
+                    vitalitySource = Source("Vitality");
+                    Assert.Single(self.Auras.Values, aura => aura.EffectId == "Vitality");
+                    uint reservedWithBoth = (uint)global::Game.ReservedMana(self);
+                    Assert.Equal(2, self.Auras.Count);
+
+                    var clarityPackets = new List<byte[]>();
+                    var previousClarityOutput = Program.Outgoing;
+                    Program.Outgoing = (seen, bytes) =>
+                    {
+                        if (ReferenceEquals(seen, wire.Ciphers)) lock (clarityPackets) clarityPackets.Add(bytes.ToArray());
+                        previousClarityOutput?.Invoke(seen, bytes);
+                    };
+                    Task removeClarity;
+                    var clarityGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(clarityGate.Wait(0));
+                    try
+                    {
+                        try
+                        {
+                            removeClarity = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                                Target(PlayerInventories.BodyArmour, bodyHost.Id, 0));
+                            Assert.False(removeClarity.IsCompleted);
+                            Assert.DoesNotContain(claritySource.Id, self.Auras.Keys);
+                            Assert.Contains(vitalitySource.Id, self.Auras.Keys);
+                            Assert.True(global::Game.ReservedMana(self) < reservedWithBoth);
+                            Assert.DoesNotContain("Clarity", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                            Assert.Contains("Vitality", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                        }
+                        finally { clarityGate.Release(); }
+                        await removeClarity;
+                    }
+                    finally { Program.Outgoing = previousClarityOutput; }
+                    var clarityRemoval = InstanceEntities.RemoveBuff(Program.PlayerId, clarityAura.Buff);
+                    Assert.Contains(clarityPackets, packet => packet.AsSpan().IndexOf(clarityRemoval) >= 0);
+
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                        Target(PlayerInventories.BodyArmour, bodyHost.Id, 0));
+                    Assert.True(Source("Clarity").Active);
+                    Assert.DoesNotContain(claritySource.Id, self.Auras.Keys);
+                    Assert.DoesNotContain("Clarity", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+
+                    // Reinsertion alone stays inactive. Activate the real Clarity source, then remove it again and let
+                    // the first old Actor update observe the stale numeric id while the replacement source and aura are
+                    // committed reentrantly behind that send gate. The later legacy callback must leave this new owner alone.
+                    var currentClaritySource = Source("Clarity");
+                    var currentClarityReservation = global::Game.SupportedReservationCost(self, currentClaritySource.Id);
+                    Assert.NotNull(currentClarityReservation);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        currentClaritySource.Id, currentClaritySource.Effect, currentClaritySource.Name,
+                        currentClarityReservation!.Value, currentClaritySource.Level, currentClaritySource.Quality));
+                    var currentClarityAura = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.NotSame(clarityAura, currentClarityAura);
+                    Assert.Contains("Clarity", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                    var currentStatsBeforeStale = PlayerStats();
+                    uint currentReservedBeforeStale = (uint)global::Game.ReservedMana(self);
+                    uint currentManaBeforeStale = self.PlayerMana;
+                    var vitalityAura = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Vitality");
+
+                    var stalePackets = new List<byte[]>();
+                    var previousStaleOutput = Program.Outgoing;
+                    Task staleRemoveClarity = null!;
+                    Task staleReinsert = null!;
+                    Task<bool> staleReactivate = null!;
+                    global::Game.PlayerSkillSource? staleReplacementSource = null;
+                    AuraCatalog.Aura? staleReplacementAura = null;
+                    Dictionary<uint, int>? staleStatsBeforeLegacy = null;
+                    bool staleActorSeen = false, staleGoneAbsentAtActor = false, staleSavedBeforeLegacy = false;
+                    bool staleVitalityBeforeLegacy = false, staleCurrentWorkAfterReactivation = false;
+                    byte staleActorGoneCount = 0;
+                    uint staleReservedBeforeLegacy = 0, staleManaBeforeLegacy = 0;
+                    Program.Outgoing = (seen, bytes) =>
+                    {
+                        if (ReferenceEquals(seen, wire.Ciphers))
+                        {
+                            byte[] wireBytes = bytes.ToArray();
+                            lock (stalePackets) stalePackets.Add(wireBytes);
+                            int actorAt = -1;
+                            for (int at = 0; !staleActorSeen && at + 19 <= wireBytes.Length; at++)
+                                if (BinaryPrimitives.ReadUInt16BigEndian(wireBytes.AsSpan(at)) == InstanceEntities.ComponentUpdateId
+                                    && BinaryPrimitives.ReadUInt32BigEndian(wireBytes.AsSpan(at + 2)) == Program.PlayerId
+                                    && BinaryPrimitives.ReadUInt32BigEndian(wireBytes.AsSpan(at + 6)) == 0
+                                    && BinaryPrimitives.ReadUInt16BigEndian(wireBytes.AsSpan(at + 10)) == 0
+                                    && wireBytes[at + 14] == PlayerObject.ActorComponentIndex
+                                    && (wireBytes[at + 15] & 0x20) != 0
+                                    && wireBytes[at + 18] == 1
+                                    && !self.ClientSkillIds.Contains(currentClaritySource.Id))
+                                {
+                                    actorAt = at;
+                                    break;
+                                }
+                            if (actorAt >= 0)
+                            {
+                                staleActorSeen = true;
+                                staleActorGoneCount = wireBytes[actorAt + 18];
+                                staleGoneAbsentAtActor = !self.ClientSkillIds.Contains(currentClaritySource.Id)
+                                    && Sources().All(source => source.Id != currentClaritySource.Id)
+                                    && !self.Auras.ContainsKey(currentClaritySource.Id);
+
+                                // Disarm before either real handler can publish reentrantly. Both commit synchronously
+                                // before their first gate wait; the observer never awaits or releases either task.
+                                staleReinsert = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                                    Target(PlayerInventories.BodyArmour, bodyHost.Id, 0));
+                                var replacementSource = Source("Clarity");
+                                staleReplacementSource = replacementSource;
+                                staleReactivate = global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                                    replacementSource.Id, replacementSource.Effect, replacementSource.Name,
+                                    currentClarityReservation.Value, replacementSource.Level, replacementSource.Quality);
+                                staleReplacementAura = self.Auras.GetValueOrDefault(replacementSource.Id);
+                                staleReservedBeforeLegacy = (uint)global::Game.ReservedMana(self);
+                                staleManaBeforeLegacy = self.PlayerMana;
+                                staleStatsBeforeLegacy = PlayerStats();
+                                staleSavedBeforeLegacy =
+                                    CharacterSaves.Load(ownerCharacter)!.ActiveAuras!.Contains("Clarity");
+                                staleCurrentWorkAfterReactivation =
+                                    global::Game.CurrentGameRules && global::Game.CurrentGameWork;
+                                staleVitalityBeforeLegacy = self.Auras.GetValueOrDefault(vitalitySource.Id) is { } vitality
+                                    && vitality.SkillId == vitalityAura.SkillId
+                                    && vitality.Effect == vitalityAura.Effect
+                                    && vitality.Buff == vitalityAura.Buff
+                                    && vitality.SourceBuff == vitalityAura.SourceBuff
+                                    && vitality.ManaFlat == vitalityAura.ManaFlat
+                                    && vitality.ManaPercent == vitalityAura.ManaPercent
+                                    && vitality.Level == vitalityAura.Level
+                                    && vitality.Quality == vitalityAura.Quality;
+                            }
+                        }
+                        previousStaleOutput?.Invoke(seen, bytes);
+                    };
+                    try
+                    {
+                        staleRemoveClarity = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                            Target(PlayerInventories.BodyArmour, bodyHost.Id, 0));
+                        await staleRemoveClarity;
+                        Assert.True(staleReinsert is not null, "the stale Actor update did not start source reinsertion");
+                        await staleReinsert;
+                        Assert.True(staleReactivate is not null, "the replacement Clarity was not reactivated");
+                        Assert.True(await staleReactivate);
+                    }
+                    finally { Program.Outgoing = previousStaleOutput; }
+                    Assert.True(staleActorSeen);
+                    Assert.True(staleGoneAbsentAtActor);
+                    Assert.Equal((byte)1, staleActorGoneCount);
+                    Assert.NotNull(staleReplacementSource);
+                    var replacementSource = staleReplacementSource!;
+                    Assert.Equal(currentClaritySource.Id, replacementSource.Id);
+                    Assert.Equal(currentClaritySource.Identity, replacementSource.Identity);
+                    var replacementAura = Assert.IsType<AuraCatalog.Aura>(staleReplacementAura);
+                    Assert.NotSame(currentClarityAura, replacementAura);
+                    Assert.NotEqual(currentClarityAura.Buff, replacementAura.Buff);
+                    Assert.NotEqual(currentClarityAura.SourceBuff, replacementAura.SourceBuff);
+                    var currentAuraAfterStale = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.Equal(replacementAura.SkillId, currentAuraAfterStale.SkillId);
+                    Assert.Equal(replacementAura.Effect, currentAuraAfterStale.Effect);
+                    Assert.Equal(replacementAura.Buff, currentAuraAfterStale.Buff);
+                    Assert.Equal(replacementAura.SourceBuff, currentAuraAfterStale.SourceBuff);
+                    Assert.Equal(replacementAura.ManaFlat, currentAuraAfterStale.ManaFlat);
+                    Assert.Equal(replacementAura.ManaPercent, currentAuraAfterStale.ManaPercent);
+                    Assert.Equal(replacementAura.Level, currentAuraAfterStale.Level);
+                    Assert.Equal(replacementAura.Quality, currentAuraAfterStale.Quality);
+                    Assert.True(global::Game.SupportedSkill(self, currentClaritySource.Id).RequirementsMet);
+                    Assert.Contains("Clarity", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                    Assert.True(staleSavedBeforeLegacy);
+                    Assert.Equal(staleReservedBeforeLegacy, (uint)global::Game.ReservedMana(self));
+                    Assert.Equal(staleManaBeforeLegacy, self.PlayerMana);
+                    Assert.Equal(currentReservedBeforeStale, (uint)global::Game.ReservedMana(self));
+                    Assert.Equal(currentManaBeforeStale, self.PlayerMana);
+                    Assert.True(staleCurrentWorkAfterReactivation);
+                    Assert.True(staleVitalityBeforeLegacy);
+                    var vitalityAfterStale = Assert.Single(self.Auras.Values, aura => aura.EffectId == "Vitality");
+                    Assert.Equal(vitalityAura.SkillId, vitalityAfterStale.SkillId);
+                    Assert.Equal(vitalityAura.Effect, vitalityAfterStale.Effect);
+                    Assert.Equal(vitalityAura.Buff, vitalityAfterStale.Buff);
+                    Assert.Equal(vitalityAura.SourceBuff, vitalityAfterStale.SourceBuff);
+                    Assert.Equal(vitalityAura.ManaFlat, vitalityAfterStale.ManaFlat);
+                    Assert.Equal(vitalityAura.ManaPercent, vitalityAfterStale.ManaPercent);
+                    Assert.Equal(vitalityAura.Level, vitalityAfterStale.Level);
+                    Assert.Equal(vitalityAura.Quality, vitalityAfterStale.Quality);
+                    Assert.Contains("Vitality", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                    Assert.NotNull(staleStatsBeforeLegacy);
+                    var currentStatsAfterStale = PlayerStats();
+                    Assert.True(currentStatsBeforeStale.Count == staleStatsBeforeLegacy.Count
+                        && currentStatsBeforeStale.All(pair => staleStatsBeforeLegacy.TryGetValue(pair.Key, out int value)
+                            && value == pair.Value));
+                    Assert.True(staleStatsBeforeLegacy.Count == currentStatsAfterStale.Count
+                        && staleStatsBeforeLegacy.All(pair => currentStatsAfterStale.TryGetValue(pair.Key, out int value)
+                            && value == pair.Value));
+                    Assert.DoesNotContain(stalePackets, packet =>
+                        packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, replacementAura.Buff)) >= 0
+                        || packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId,
+                            replacementAura.SourceBuff ?? 0)) >= 0);
+
+                    // Supplemental control: a retired/cancelled output generation cannot let a retained legacy callback
+                    // mutate the real current owner, its persisted activation or its reservation even when the current
+                    // canonical source is valid.
+                    var guardedQueue = self.Minions.OutputQueue.Count;
+                    var guardedReserved = (uint)global::Game.ReservedMana(self);
+                    var guardedMana = self.PlayerMana;
+                    var guardedStats = PlayerStats();
+                    var guardedAura = self.Auras[currentClaritySource.Id];
+                    var previousOutputGuard = Program.ProjectileOutputGuard.Value;
+                    Program.ProjectileOutputGuard.Value = () => false;
+                    try
+                    {
+                        await global::Game.EndSkillEffects("test", wire.Stream, wire.Ciphers, self,
+                            [currentClaritySource.Id]);
+                    }
+                    finally { Program.ProjectileOutputGuard.Value = previousOutputGuard; }
+                    var guardedAuraAfter = self.Auras[currentClaritySource.Id];
+                    Assert.Equal(guardedAura.SkillId, guardedAuraAfter.SkillId);
+                    Assert.Equal(guardedAura.Effect, guardedAuraAfter.Effect);
+                    Assert.Equal(guardedAura.Buff, guardedAuraAfter.Buff);
+                    Assert.Equal(guardedAura.SourceBuff, guardedAuraAfter.SourceBuff);
+                    Assert.Equal(guardedAura.ManaFlat, guardedAuraAfter.ManaFlat);
+                    Assert.Equal(guardedAura.ManaPercent, guardedAuraAfter.ManaPercent);
+                    Assert.Equal(guardedAura.Level, guardedAuraAfter.Level);
+                    Assert.Equal(guardedAura.Quality, guardedAuraAfter.Quality);
+                    Assert.Contains("Clarity", CharacterSaves.Load(ownerCharacter)!.ActiveAuras!);
+                    Assert.Equal(guardedQueue, self.Minions.OutputQueue.Count);
+                    Assert.Equal(guardedReserved, (uint)global::Game.ReservedMana(self));
+                    Assert.Equal(guardedMana, self.PlayerMana);
+                    var guardedStatsAfter = PlayerStats();
+                    Assert.True(guardedStats.Count == guardedStatsAfter.Count
+                        && guardedStats.All(pair => guardedStatsAfter.TryGetValue(pair.Key, out int value)
+                            && value == pair.Value));
+
+                    await global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                        Target(PlayerInventories.BodyArmour, bodyHost.Id, 1));
+                    Assert.DoesNotContain(self.Auras.Values, aura => aura.EffectId == "Vitality");
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                        Target(PlayerInventories.BodyArmour, bodyHost.Id, 1));
+
+                    var petrifiedSource = Source("PetrifiedBlood");
+                    var petrifiedReservation = global::Game.SupportedReservationCost(self, petrifiedSource.Id);
+                    Assert.NotNull(petrifiedReservation);
+                    Assert.True(await global::Game.TogglePetrifiedBlood("test", wire.Stream, wire.Ciphers, self,
+                        petrifiedSource.Id, petrifiedSource.Effect, petrifiedSource.Name,
+                        petrifiedReservation!.Value, petrifiedSource.Level, petrifiedSource.Quality));
+                    Assert.True(self.PetrifiedBlood.Active);
+                    Assert.True(CharacterSaves.Load(ownerCharacter)!.PetrifiedBlood);
+                    self.PetrifiedBlood.AddDeferred(ownerSchedule.At, 40);
+                    Assert.True(self.PetrifiedBlood.Display(ownerSchedule.At + 1).PerMinute > 0);
+                    uint reservedWithPetrified = (uint)global::Game.ReservedMana(self);
+                    Task removePetrified;
+                    var petrifiedGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(petrifiedGate.Wait(0));
+                    try
+                    {
+                        removePetrified = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                            Target(PlayerInventories.BodyArmour, bodyHost.Id, 2));
+                        Assert.False(removePetrified.IsCompleted);
+                        Assert.False(self.PetrifiedBlood.Active);
+                        Assert.False(CharacterSaves.Load(ownerCharacter)!.PetrifiedBlood);
+                        Assert.True(global::Game.ReservedMana(self) < reservedWithPetrified);
+                        Assert.True(self.PetrifiedBlood.Display(ownerSchedule.At + 1).PerMinute > 0);
+                    }
+                    finally { petrifiedGate.Release(); }
+                    await removePetrified;
+                    Assert.True(self.PetrifiedBlood.Take(ownerSchedule.At + PetrifiedBlood.DeferSeconds) > 0);
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                        Target(PlayerInventories.BodyArmour, bodyHost.Id, 2));
+                    global::Game.ReconcileOwnAuras(self, validateSkills: true);
+                    Assert.False(self.PetrifiedBlood.Active);
+                    Assert.False(CharacterSaves.Load(ownerCharacter)!.PetrifiedBlood);
+
+                    var mineSource = Source("StormblastMine");
+                    var trapSource = Source("FireTrap");
+                    ownerSchedule.At = 110;
+                    var mineCast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self, mineSource.Id,
+                        (100, 100), (105, 105));
+                    ownerSchedule.At = 112;
+                    Assert.True(await mineCast);
+                    var trapCast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self, trapSource.Id,
+                        (100, 100), (107, 107));
+                    ownerSchedule.At = 114;
+                    Assert.True(await trapCast);
+                    var minePlaced = Assert.Single(self.Placed.All.Values, placed => placed.Skill == mineSource.Id);
+                    var trapPlaced = Assert.Single(self.Placed.All.Values, placed => placed.Skill == trapSource.Id);
+                    uint placedReserved = (uint)global::Game.ReservedMana(self);
+                    Task removeMine;
+                    var mineGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(mineGate.Wait(0));
+                    try
+                    {
+                        removeMine = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                            Target(PlayerInventories.BodyArmour, bodyHost.Id, 3));
+                        Assert.False(removeMine.IsCompleted);
+                        Assert.DoesNotContain(minePlaced.Id, self.Placed.All.Keys);
+                        Assert.Contains(trapPlaced.Id, self.Placed.All.Keys);
+                        Assert.True(global::Game.ReservedMana(self) < placedReserved);
+                        var cleanup = Assert.Single(self.Minions.OutputQueue,
+                            output => output.Log == "placed skill source removed");
+                        Assert.Equal(InstanceProtocol.RemoveObject(minePlaced.Id), cleanup.Packet);
+                    }
+                    finally { mineGate.Release(); }
+                    await removeMine;
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                        Target(PlayerInventories.BodyArmour, bodyHost.Id, 3));
+                    Assert.DoesNotContain(self.Placed.All.Values, placed => placed.Skill == mineSource.Id);
+
+                    IReadOnlyList<PlacedSkills.Placed> PlacedFor(ushort skill) =>
+                        [.. self.Placed.All.Values.Where(placed => placed.Skill == skill)];
+                    bool HasPacket(IEnumerable<byte[]> packets, byte[] expected) =>
+                        packets.Any(packet => packet.AsSpan().IndexOf(expected) >= 0);
+                    bool HasCreate(IEnumerable<byte[]> packets, uint id) =>
+                        packets.Any(packet => packet.Length >= 6
+                            && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                            && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) == id);
+                    byte[] ExpectedMineCreate(ushort skill, uint id)
+                    {
+                        using var scope = new global::Game.PlayerStatScope(self, fresh: true);
+                        var gem = global::Game.SupportedSkill(self, skill);
+                        var player = global::Game.CharacterPlayerStats(self);
+                        int Get(string name) => global::Program.Stats.Key(name) is uint key
+                            ? gem.Stats.GetValueOrDefault(key) + player.GetValueOrDefault(key) : 0;
+                        var payload = new Dictionary<uint, int>(gem.Stats);
+                        foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped",
+                            "base_skill_is_mined" })
+                            if (global::Program.Stats.Key(flag) is uint key) payload[key] = 0;
+                        if (global::Program.Stats.Key("active_skill_area_of_effect_radius") is uint radius)
+                            payload[radius] = (int)global::Game.SkillRadius(self, gem.Stats, true, gem.Effect);
+                        if (global::Program.Stats.Key("active_skill_base_area_of_effect_radius") is uint baseRadius)
+                            payload[baseRadius] = SkillArea.BaseRadius(
+                                global::Game.SkillsFor(self).EffectId(gem.Effect), Get);
+                        var proxy = global::Game.SkillsFor(self).FindByRow(0x4000, gem.Effect, gem.Level,
+                            [.. payload.Select(pair => (pair.Key, pair.Value))]);
+                        Assert.NotNull(proxy);
+                        proxy = proxy! with { Parent = (Program.PlayerId, skill) };
+                        var stats = new List<(uint, int)>();
+                        foreach (var (name, value) in new[] { ("maximum_life", 1), ("uses_no_mana", 1),
+                            ("is_trap_object", 0), ("is_remote_mine", 1) })
+                            if (global::Program.Stats.Key(name) is uint key) stats.Add((key, value));
+                        double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs
+                            ? armMs / 1000d : .6;
+                        if (global::Program.Stats.Key("trap_throw_arm_time_override") is uint armTime)
+                            stats.Add((armTime, (int)Math.Round(flight * 1000)));
+                        return InstanceEntities.CreateObject(id,
+                            InstanceEntities.ObjectTypeHash("Metadata/MiscellaneousObjects/RemoteMine"),
+                            new TrapMineObject(100, 100, true, [proxy], stats).Blob());
+                    }
+
+                    // Actual paid output is suspended by its own one-shot observer. The observer starts the real
+                    // physical removal and reinsertion and disarms before either handler can publish. Both handlers
+                    // mutate synchronously before their first send wait, so the old cast resumes with a retired lease.
+                    mineSource = Source("StormblastMine");
+                    var paidMineLease = self.GemSourceLifetimes.Capture(mineSource.Identity);
+                    var paidMineIds = self.Placed.All.Keys.ToHashSet();
+                    uint paidMineObjectStart = self.NextObjectId;
+                    var paidMinePackets = new List<byte[]>();
+                    var previousPaidMineOutgoing = Program.Outgoing;
+                    Task paidMineUnsocket = null!;
+                    Task paidMineSocket = null!;
+                    bool replacedAtPaidOutput = false;
+                    void CollectPaidMine(ConnectionCiphers ciphers, byte[] bytes)
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers)) lock (paidMinePackets) paidMinePackets.Add(bytes.ToArray());
+                        previousPaidMineOutgoing?.Invoke(ciphers, bytes);
+                    }
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        CollectPaidMine(ciphers, bytes);
+                        if (!ReferenceEquals(ciphers, wire.Ciphers) || bytes.Length < 2
+                            || BinaryPrimitives.ReadUInt16BigEndian(bytes) != 0x01b1)
+                            return;
+                        lock (paidMinePackets)
+                        {
+                            if (replacedAtPaidOutput) return;
+                            replacedAtPaidOutput = true;
+                            Program.Outgoing = CollectPaidMine;
+                            paidMineUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                                Target(PlayerInventories.BodyArmour, bodyHost.Id, 3));
+                            paidMineSocket = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                                Target(PlayerInventories.BodyArmour, bodyHost.Id, 3));
+                        }
+                    };
+                    Task<bool> stalePaidMine = null!;
+                    try
+                    {
+                        stalePaidMine = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            mineSource.Id, (100, 100), (109, 109));
+                        Assert.True(replacedAtPaidOutput,
+                            "the actual paid mine output did not reach the one-shot physical source replacement");
+                        Assert.False(await stalePaidMine);
+                        await paidMineUnsocket;
+                        await paidMineSocket;
+                    }
+                    finally { Program.Outgoing = previousPaidMineOutgoing; }
+                    Assert.Equal(mineSource.Id, Source("StormblastMine").Id);
+                    Assert.Null(self.GemSourceLifetimes.Current(mineSource.Identity));
+                    Assert.NotSame(paidMineLease, self.GemSourceLifetimes.Current(mineSource.Identity));
+                    Assert.Equal(paidMineObjectStart, self.NextObjectId);
+                    Assert.True(paidMineIds.SetEquals(self.Placed.All.Keys));
+                    Assert.DoesNotContain(paidMinePackets, packet => HasCreate([packet], paidMineObjectStart)
+                        || packet.AsSpan().IndexOf(InstanceProtocol.EnterWakeZone(paidMineObjectStart)) >= 0);
+
+                    // The same physical source now has a fresh continuous lifetime. A pending cast levels it through the
+                    // real normal-XP commit while the final send gate is held; the old cast must construct its proxy,
+                    // damage and reservation from that one new profile rather than its level-one admission copy.
+                    mineSource = Source("StormblastMine");
+                    var mineGem = inventory.Items(PlayerInventories.BodyArmour).Single(item => item.Id == bodyHost.Id)
+                        .Item.Sockets[3].Gem!;
+                    var mineGemType = global::Game.ItemsFor(self).Gem(
+                        global::Game.ItemsFor(self).ByHash(mineGem.TypeHash)!)!;
+                    int mineLevelBefore = global::Game.ItemsFor(self).GemLevel(mineGem);
+                    Assert.InRange(mineLevelBefore, 1, mineGemType.MaxLevel - 1);
+                    Dictionary<uint, int> mineOwnBefore;
+                    global::Game.SupportedGem mineSupportedBefore;
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                    {
+                        mineSupportedBefore = global::Game.SupportedSkill(self, mineSource.Id);
+                        mineOwnBefore = new(mineSupportedBefore.Stats);
+                    }
+                    var mineXpSchedule = new HeldAfterFirstAreaWaitSchedule { At = 120 };
+                    var mineXpUpdates = new PlayerUpdatesState(lifetime, mineXpSchedule);
+                    var previousMineXpContext = global::Game.AreaUpdateContext.Value;
+                    global::Game.AreaUpdateContext.Value = mineXpUpdates;
+                    Task<bool> mineXpCast;
+                    List<byte[]> mineXpPackets = [];
+                    var previousMineXpOutgoing = Program.Outgoing;
+                    global::GemSourceLifetimes.SourceLifetime? mineXpLease = null;
+                    try
+                    {
+                        var currentMine = Source("StormblastMine");
+                        uint mineXpObjectStart = self.NextObjectId;
+                        Program.Outgoing = (ciphers, bytes) =>
+                        {
+                            if (ReferenceEquals(ciphers, wire.Ciphers)) lock (mineXpPackets) mineXpPackets.Add(bytes.ToArray());
+                            previousMineXpOutgoing?.Invoke(ciphers, bytes);
+                        };
+                        mineXpCast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            currentMine.Id, (100, 100), (110, 110));
+                        var first = await Task.WhenAny(mineXpCast, mineXpSchedule.Entered.Task);
+                        Assert.True(ReferenceEquals(mineXpSchedule.Entered.Task, first),
+                            "the actual mine XP cast completed or failed before its post-payment release wait");
+                        mineXpLease = self.GemSourceLifetimes.Current(currentMine.Identity);
+                        Assert.NotNull(mineXpLease);
+                        var mineXpGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(mineXpGate.Wait(0));
+                        bool mineXpGateHeld = true;
+                        try
+                        {
+                            mineXpSchedule.Resume();
+                            Assert.False(mineXpCast.IsCompleted,
+                                "the actual mine cast did not remain at its final send after release");
+                            Assert.Equal(mineXpObjectStart, self.NextObjectId);
+                            uint gain = checked((uint)((mineGemType.ExperienceFor(mineLevelBefore + 1)
+                                - mineGem.GemExperience) * 10));
+                            var (xpPackets, leveled) = global::Game.CommitGemExperience(self, gain);
+                            Assert.True(leveled);
+                            Assert.NotEmpty(xpPackets);
+                            var leveledMineGem = inventory.Items(PlayerInventories.BodyArmour)
+                                .Single(item => item.Id == bodyHost.Id).Item.Sockets[3].Gem!;
+                            Assert.Equal(mineLevelBefore + 1, global::Game.ItemsFor(self).GemLevel(leveledMineGem));
+                            Assert.Same(mineXpLease, self.GemSourceLifetimes.Current(currentMine.Identity));
+                            mineXpGate.Release();
+                            mineXpGateHeld = false;
+                            Assert.True(await mineXpCast);
+                            global::Game.SupportedGem mineSupportedAfter;
+                            global::SkillCatalog.ReservationCost? mineReservationAfter;
+                            (bool Life, int Efficiency) mineContextAfter;
+                            DamagePacket expectedMineDamage;
+                            byte[] expectedMineCreate;
+                            var mineAfter = Assert.Single(PlacedFor(currentMine.Id),
+                                placed => placed.Id >= mineXpObjectStart);
+                            Assert.Equal(mineXpObjectStart, mineAfter.Id);
+                            Assert.Same(mineXpLease, self.GemSourceLifetimes.Current(currentMine.Identity));
+                            using (new global::Game.PlayerStatScope(self, fresh: true))
+                            {
+                                mineSupportedAfter = global::Game.SupportedSkill(self, currentMine.Id);
+                                mineReservationAfter = global::Game.SupportedReservationCost(self, currentMine.Id);
+                                mineContextAfter = global::Game.ReservationContext(self, currentMine.Id);
+                                expectedMineDamage = global::Game.SupportedHitFor(self, currentMine.Id, suppress: false);
+                            }
+                            expectedMineCreate = ExpectedMineCreate(currentMine.Id, mineAfter.Id);
+                            Assert.Equal(mineSupportedAfter.Level, mineLevelBefore + 1);
+                            Assert.True(mineOwnBefore.Count == mineSupportedAfter.Stats.Count
+                                && mineOwnBefore.Any(pair => mineSupportedAfter.Stats.GetValueOrDefault(pair.Key) != pair.Value));
+                            Assert.True(mineAfter.Own.Count == mineSupportedAfter.Stats.Count
+                                && mineAfter.Own.All(pair => mineSupportedAfter.Stats.TryGetValue(pair.Key, out int value)
+                                    && value == pair.Value));
+                            foreach (var type in DamageTypes.ConversionOrder)
+                                Assert.Equal(expectedMineDamage[type], mineAfter.Damage[type]);
+                            Assert.Equal(mineReservationAfter!.Value.ManaFlat, mineAfter.Flat);
+                            Assert.Equal(mineReservationAfter.Value.ManaPercent, mineAfter.Percent);
+                            Assert.Equal(mineContextAfter.Life, mineAfter.ReservesLife);
+                            Assert.Equal(mineContextAfter.Efficiency, mineAfter.Efficiency);
+                            Assert.True(HasPacket(mineXpPackets, expectedMineCreate));
+                            Assert.True(HasPacket(mineXpPackets, InstanceProtocol.EnterWakeZone(mineAfter.Id)));
+                            Assert.True(HasPacket(mineXpPackets, InstanceProtocol.LifeUpdate(Program.PlayerId,
+                                self.PlayerLife, self.PlayerReservedLife)));
+                            Assert.True(HasPacket(mineXpPackets, InstanceProtocol.LifeUpdate(Program.PlayerId,
+                                self.PlayerMana, (uint)global::Game.ReservedMana(self), pool: global::Game.ManaPool)));
+                            Assert.Empty(self.Summons.Fighters);
+                        }
+                        finally
+                        {
+                            if (mineXpGateHeld) mineXpGate.Release();
+                            if (!mineXpCast.IsCompleted) await mineXpCast;
+                        }
+                    }
+                    finally
+                    {
+                        Program.Outgoing = previousMineXpOutgoing;
+                        global::Game.AreaUpdateContext.Value = previousMineXpContext;
+                    }
+
+                    // The same physical gem is removed and reinserted behind the FINAL placement send. The cast has
+                    // already reached its at-gate mutation request, so a still-current numeric skill id cannot adopt
+                    // the replacement lifetime or allocate a native object.
+                    var abaSource = Source("StormblastMine");
+                    var abaLease = self.GemSourceLifetimes.Current(abaSource.Identity);
+                    Assert.NotNull(abaLease);
+                    var abaSchedule = new HeldAfterFirstAreaWaitSchedule { At = 125 };
+                    var abaUpdates = new PlayerUpdatesState(lifetime, abaSchedule);
+                    var previousAbaContext = global::Game.AreaUpdateContext.Value;
+                    global::Game.AreaUpdateContext.Value = abaUpdates;
+                    var abaPackets = new List<byte[]>();
+                    var previousAbaOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers)) lock (abaPackets) abaPackets.Add(bytes.ToArray());
+                        previousAbaOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    uint abaObjectStart = self.NextObjectId;
+                    Task<bool> staleAba = null!;
+                    Task abaUnsocket = null!, abaSocket = null!;
+                    bool abaGateHeld = false;
+                    uint abaReservedAtGate = 0, abaReservedLifeAtGate = 0;
+                    HashSet<uint> abaIdsAtGate = [];
+                    try
+                    {
+                        staleAba = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            abaSource.Id, (100, 100), (115, 115), actionToken: self.ActionCount);
+                        var first = await Task.WhenAny(staleAba, abaSchedule.Entered.Task);
+                        Assert.Same(abaSchedule.Entered.Task, first);
+                        var abaGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(abaGate.Wait(0));
+                        abaGateHeld = true;
+                        try
+                        {
+                            abaSchedule.Resume();
+                            Assert.False(staleAba.IsCompleted,
+                                "the actual mine cast did not remain at its final send after release");
+                            Assert.Equal(abaObjectStart, self.NextObjectId);
+                            abaUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                                Target(PlayerInventories.BodyArmour, bodyHost.Id, 3));
+                            Assert.False(abaUnsocket.IsCompleted);
+                            Assert.False(self.GemSourceLifetimes.IsCurrent(abaLease));
+                            abaSocket = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                                Target(PlayerInventories.BodyArmour, bodyHost.Id, 3));
+                            Assert.False(abaSocket.IsCompleted);
+                            var refreshedMine = Source("StormblastMine");
+                            Assert.Equal(abaSource.Id, refreshedMine.Id);
+                            Assert.True(abaLease.Retired || !self.GemSourceLifetimes.IsCurrent(abaLease));
+                            Assert.True(refreshedMine.Active);
+                            using (new global::Game.PlayerStatScope(self, fresh: true))
+                                Assert.True(global::Game.SupportedSkill(self, refreshedMine.Id).RequirementsMet);
+                            Assert.Null(self.GemSourceLifetimes.Current(refreshedMine.Identity));
+                            Assert.True(global::Game.PlayerActionCurrent(self, self.ActionCount));
+                            abaReservedAtGate = (uint)global::Game.ReservedMana(self);
+                            abaReservedLifeAtGate = self.PlayerReservedLife;
+                            abaIdsAtGate = self.Placed.All.Keys.ToHashSet();
+                        }
+                        finally
+                        {
+                            if (abaGateHeld)
+                            {
+                                abaGate.Release();
+                                abaGateHeld = false;
+                            }
+                        }
+                        Assert.False(await staleAba);
+                        await abaUnsocket;
+                        await abaSocket;
+                        Assert.Equal(abaObjectStart, self.NextObjectId);
+                        Assert.DoesNotContain(abaObjectStart, self.Placed.All.Keys);
+                        Assert.False(HasCreate(abaPackets, abaObjectStart));
+                        Assert.DoesNotContain(abaPackets,
+                            packet => packet.AsSpan().IndexOf(InstanceProtocol.EnterWakeZone(abaObjectStart)) >= 0);
+                        Assert.Equal(abaReservedAtGate, (uint)global::Game.ReservedMana(self));
+                        Assert.Equal(abaReservedLifeAtGate, self.PlayerReservedLife);
+                        Assert.True(abaIdsAtGate.SetEquals(self.Placed.All.Keys));
+                    }
+                    finally
+                    {
+                        if (abaGateHeld)
+                            Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                        abaSchedule.Resume();
+                        if (staleAba is not null && !staleAba.IsCompleted) await staleAba;
+                        if (abaUnsocket is not null) await abaUnsocket;
+                        if (abaSocket is not null) await abaSocket;
+                        Program.Outgoing = previousAbaOutgoing;
+                        global::Game.AreaUpdateContext.Value = previousAbaContext;
+                    }
+                    var abaFreshSource = Source("StormblastMine");
+                    ownerSchedule.At = 126;
+                    Assert.True(await global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                        abaFreshSource.Id, (100, 100), (116, 116)));
+                    var abaFreshLease = self.GemSourceLifetimes.Current(abaFreshSource.Identity);
+                    Assert.NotNull(abaFreshLease);
+                    Assert.True(self.GemSourceLifetimes.IsCurrent(abaFreshLease));
+                    Assert.NotSame(abaLease, abaFreshLease);
+                    Assert.True(PlacedFor(abaFreshSource.Id).MaxBy(placed => placed.Id)!.Mine);
+
+                    // A different real support replaces the mine-conferring support while the cast waits at its final
+                    // send. The original mine family must be refused; a fresh use is admitted as a trap.
+                    var driftHost = inventory.Add(PlayerInventories.Offhand1, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                        {
+                            Sockets = [new(SocketColour.White, Gem("Fireball")),
+                                new(SocketColour.White, Gem("Blastchain Mine Support"))],
+                            Links = [2],
+                        });
+                    Recalculate();
+                    var driftSource = Source("Fireball");
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                        Assert.Equal((false, true), global::Game.PlacedKind(global::Game.SupportedSkill(self, driftSource.Id)));
+                    var driftIds = self.Placed.All.Keys.ToHashSet();
+                    uint driftObjectStart = self.NextObjectId;
+                    var driftSchedule = new HeldAfterFirstAreaWaitSchedule { At = 130 };
+                    var driftUpdates = new PlayerUpdatesState(lifetime, driftSchedule);
+                    var previousDriftContext = global::Game.AreaUpdateContext.Value;
+                    global::Game.AreaUpdateContext.Value = driftUpdates;
+                    Task<bool>? staleDrift = null;
+                    Task driftUnsocket = null!;
+                    Task driftSocket = null!;
+                    global::GemSourceLifetimes.SourceLifetime? driftLease = null;
+                    bool driftGateHeld = false;
+                    try
+                    {
+                        staleDrift = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            driftSource.Id, (100, 100), (111, 111));
+                        var first = await Task.WhenAny(staleDrift!, driftSchedule.Entered.Task);
+                        Assert.Same(driftSchedule.Entered.Task, first);
+                        driftLease = self.GemSourceLifetimes.Current(driftSource.Identity);
+                        Assert.NotNull(driftLease);
+                        var driftGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(driftGate.Wait(0));
+                        driftGateHeld = true;
+                        try
+                        {
+                            driftSchedule.Resume();
+                            Assert.False(staleDrift!.IsCompleted,
+                                "the actual mine cast did not remain at its final send after release");
+                            Assert.Equal(driftObjectStart, self.NextObjectId);
+                            driftUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                                new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Offhand1),
+                                    driftHost.Id, 1));
+                            var blastchain = Assert.Single(inventory.Items(PlayerInventories.Cursor));
+                            Assert.NotNull(inventory.Remove(PlayerInventories.Cursor, blastchain.Id));
+                            inventory.Add(PlayerInventories.Cursor, 0, 0, Gem("Trap Support"));
+                            driftSocket = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                                new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Offhand1),
+                                    driftHost.Id, 1));
+                            Assert.Equal(driftSource.Id, Source("Fireball").Id);
+                            using (new global::Game.PlayerStatScope(self, fresh: true))
+                                Assert.Equal((true, false), global::Game.PlacedKind(global::Game.SupportedSkill(self,
+                                    Source("Fireball").Id)));
+                        }
+                        finally
+                        {
+                            if (driftGateHeld)
+                            {
+                                driftGate.Release();
+                                driftGateHeld = false;
+                            }
+                        }
+                        Assert.False(await staleDrift!);
+                        await driftUnsocket;
+                        await driftSocket;
+                    }
+                    finally
+                    {
+                        if (driftGateHeld)
+                            Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                        driftSchedule.Resume();
+                        if (staleDrift is not null && !staleDrift.IsCompleted) await staleDrift;
+                        if (driftUnsocket is not null) await driftUnsocket;
+                        if (driftSocket is not null) await driftSocket;
+                        global::Game.AreaUpdateContext.Value = previousDriftContext;
+                    }
+                    Assert.Same(driftLease, self.GemSourceLifetimes.Current(driftSource.Identity));
+                    Assert.Equal(driftObjectStart, self.NextObjectId);
+                    Assert.True(driftIds.SetEquals(self.Placed.All.Keys));
+
+                    driftSource = Source("Fireball");
+                    var driftPackets = new List<byte[]>();
+                    var previousDriftOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers)) lock (driftPackets) driftPackets.Add(bytes.ToArray());
+                        previousDriftOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    try
+                    {
+                        ownerSchedule.At = 140;
+                        Assert.True(await global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            driftSource.Id, (100, 100), (112, 112)));
+                    }
+                    finally { Program.Outgoing = previousDriftOutgoing; }
+                    var driftPlaced = Assert.Single(PlacedFor(driftSource.Id));
+                    Assert.False(driftPlaced.Mine);
+                    Assert.True(HasCreate(driftPackets, driftPlaced.Id));
+                    Assert.True(HasPacket(driftPackets, InstanceProtocol.EnterWakeZone(driftPlaced.Id)));
+
+                    // The inverse family transition is also fixed at admission. A real ordinary Fireball pending at
+                    // its final gate must not become the newly inserted mine profile, while a later use may do so.
+                    await global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Offhand1),
+                            driftHost.Id, 1));
+                    var trapSupport = Assert.Single(inventory.Items(PlayerInventories.Cursor));
+                    Assert.NotNull(inventory.Remove(PlayerInventories.Cursor, trapSupport.Id));
+                    inventory.Add(PlayerInventories.Cursor, 0, 0, Gem("Blastchain Mine Support"));
+                    uint ordinaryObjectStart = self.NextObjectId;
+                    uint ordinaryManaBefore = self.PlayerMana, ordinaryLifeBefore = self.PlayerLife;
+                    var ordinaryPackets = new List<byte[]>();
+                    var previousOrdinaryOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers)) lock (ordinaryPackets) ordinaryPackets.Add(bytes.ToArray());
+                        previousOrdinaryOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    Task<bool>? staleOrdinary = null;
+                    Task? ordinaryGrace = null, ordinarySocket = null;
+                    bool ordinaryGateHeld = false;
+                    bool staleOrdinaryResult = true;
+                    try
+                    {
+                        var ordinarySource = Source("Fireball");
+                        var ordinaryLease = self.GemSourceLifetimes.Current(ordinarySource.Identity);
+                        Assert.NotNull(ordinaryLease);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            Assert.Equal((false, false), global::Game.PlacedKind(global::Game.SupportedSkill(self,
+                                ordinarySource.Id)));
+                        var ordinaryGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(ordinaryGate.Wait(0));
+                        ordinaryGateHeld = true;
+                        ordinaryGrace = global::Game.StartGracePeriod("test", wire.Stream, wire.Ciphers, self);
+                        Assert.False(ordinaryGrace.IsCompleted,
+                            "the real grace-period begin packet did not suspend on the held send gate");
+                        staleOrdinary = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            ordinarySource.Id, (100, 100), (113, 113));
+                        Assert.False(staleOrdinary!.IsCompleted,
+                            "the ordinary cast did not suspend at EndGracePeriod's output");
+                        ordinarySocket = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                            new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Offhand1),
+                                driftHost.Id, 1));
+                        var ordinaryAfterSource = Source("Fireball");
+                        Assert.Equal(ordinarySource.Id, ordinaryAfterSource.Id);
+                        Assert.Same(ordinaryLease, self.GemSourceLifetimes.Current(ordinaryAfterSource.Identity));
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            Assert.Equal((false, true), global::Game.PlacedKind(global::Game.SupportedSkill(self,
+                                ordinarySource.Id)));
+                    }
+                    finally
+                    {
+                        if (ordinaryGateHeld)
+                            Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                        if (ordinaryGrace is not null) await ordinaryGrace;
+                        if (staleOrdinary is not null)
+                        {
+                            staleOrdinaryResult = await staleOrdinary!;
+                        }
+                        if (ordinarySocket is not null) await ordinarySocket;
+                        Program.Outgoing = previousOrdinaryOutgoing;
+                    }
+                    Assert.False(staleOrdinaryResult);
+                    Assert.Equal(ordinaryObjectStart, self.NextObjectId);
+                    Assert.Equal(ordinaryManaBefore, self.PlayerMana);
+                    Assert.Equal(ordinaryLifeBefore, self.PlayerLife);
+                    Assert.DoesNotContain(ordinaryPackets, packet => packet.Length >= 6
+                        && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId);
+                    Assert.DoesNotContain(ordinaryPackets,
+                        packet => packet.AsSpan().IndexOf(InstanceProtocol.EnterWakeZone(ordinaryObjectStart)) >= 0);
+                    var freshOrdinarySource = Source("Fireball");
+                    ownerSchedule.At = 146;
+                    Assert.True(await global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                        freshOrdinarySource.Id, (100, 100), (114, 114)));
+                    Assert.True(PlacedFor(freshOrdinarySource.Id).MaxBy(placed => placed.Id)!.Mine);
+
+                    // An initially unqualified placed source is refused synchronously by admission capture. Making the
+                    // same physical gem legal during the held grace output cannot turn that request into a later cast.
+                    var amulet = Assert.Single(inventory.Items(amuletRow));
+                    var removedAmulet = inventory.Remove(amuletRow, amulet.Id);
+                    Assert.NotNull(removedAmulet);
+                    Recalculate();
+                    var unqualifiedSource = Source("StormblastMine");
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                        Assert.False(global::Game.SupportedSkill(self, unqualifiedSource.Id).RequirementsMet);
+                    uint unqualifiedObjectStart = self.NextObjectId;
+                    uint unqualifiedManaBefore = self.PlayerMana, unqualifiedLifeBefore = self.PlayerLife;
+                    var unqualifiedPackets = new List<byte[]>();
+                    var previousUnqualifiedOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers))
+                            lock (unqualifiedPackets) unqualifiedPackets.Add(bytes.ToArray());
+                        previousUnqualifiedOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    Task<bool>? unqualifiedCast = null;
+                    Task? unqualifiedGrace = null;
+                    bool unqualifiedGateHeld = false;
+                    bool amuletRestored = false;
+                    try
+                    {
+                        var unqualifiedGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(unqualifiedGate.Wait(0));
+                        unqualifiedGateHeld = true;
+                        unqualifiedGrace = global::Game.StartGracePeriod("test", wire.Stream, wire.Ciphers, self);
+                        Assert.False(unqualifiedGrace.IsCompleted);
+                        unqualifiedCast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            unqualifiedSource.Id, (100, 100), (117, 117));
+                        Assert.True(unqualifiedCast!.IsCompleted,
+                            "an initially unqualified placed source waited instead of refusing at admission capture");
+                        Assert.False(await unqualifiedCast!);
+                        Assert.Equal(unqualifiedObjectStart, self.NextObjectId);
+                        Assert.Equal(unqualifiedManaBefore, self.PlayerMana);
+                        Assert.Equal(unqualifiedLifeBefore, self.PlayerLife);
+                        inventory.Add(amuletRow, 0, 0, removedAmulet!.Item);
+                        Recalculate();
+                        amuletRestored = true;
+                        var legalAgain = Source("StormblastMine");
+                        Assert.Equal(unqualifiedSource.Id, legalAgain.Id);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            Assert.True(global::Game.SupportedSkill(self, legalAgain.Id).RequirementsMet);
+                    }
+                    finally
+                    {
+                        if (!amuletRestored)
+                        {
+                            inventory.Add(amuletRow, 0, 0, removedAmulet!.Item);
+                            Recalculate();
+                        }
+                        if (unqualifiedGateHeld)
+                            Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                        if (unqualifiedGrace is not null) await unqualifiedGrace;
+                        if (unqualifiedCast is not null) Assert.False(await unqualifiedCast);
+                        Program.Outgoing = previousUnqualifiedOutgoing;
+                    }
+                    Assert.DoesNotContain(unqualifiedPackets, packet => packet.Length >= 6
+                        && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId);
+                    Assert.DoesNotContain(unqualifiedPackets,
+                        packet => packet.AsSpan().IndexOf(InstanceProtocol.EnterWakeZone(unqualifiedObjectStart)) >= 0);
+                    var legalSource = Source("StormblastMine");
+                    ownerSchedule.At = 147;
+                    Assert.True(await global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                        legalSource.Id, (100, 100), (118, 118)));
+                    Assert.True(PlacedFor(legalSource.Id).MaxBy(placed => placed.Id)!.Mine);
+
+                    // Supplementary controlled profile: real gem support still supplies the skill and family, while
+                    // these player values exercise count-over-limit batching without manually seeding Placed.All.
+                    var countKey = Program.Stats.Key("number_of_additional_mines_to_place")!.Value;
+                    var limitKey = Program.Stats.Key("base_number_of_remote_mines_allowed")!.Value;
+                    var additionalLimitKey =
+                        Program.Stats.Key("number_of_additional_remote_mines_allowed")!.Value;
+                    bool hadCount = self.PlayerStats.TryGetValue(countKey, out int previousCount);
+                    bool hadLimit = self.PlayerStats.TryGetValue(limitKey, out int previousLimit);
+                    bool hadAdditionalLimit =
+                        self.PlayerStats.TryGetValue(additionalLimitKey, out int previousAdditionalLimit);
+                    int baselineLimit;
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                        baselineLimit = global::Game.PlacedSkillLimit(self,
+                            global::Game.SupportedSkill(self, legalSource.Id), true);
+                    Assert.True(baselineLimit > 1);
+                    var countPackets = new List<byte[]>();
+                    var previousCountOutgoing = Program.Outgoing;
+                    Task<bool>? countedCast = null;
+                    try
+                    {
+                        global::Game.SupportedGem countedGem;
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            countedGem = global::Game.SupportedSkill(self, legalSource.Id);
+                        self.PlayerStats[countKey] = 1 - countedGem.Stats.GetValueOrDefault(countKey);
+                        self.PlayerStats[limitKey] = 1 - countedGem.Stats.GetValueOrDefault(limitKey);
+                        self.PlayerStats[additionalLimitKey] =
+                            -countedGem.Stats.GetValueOrDefault(additionalLimitKey);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                        {
+                            countedGem = global::Game.SupportedSkill(self, legalSource.Id);
+                            Assert.Equal(2, global::Game.PlacedSkillCount(self, countedGem, true));
+                            Assert.Equal(1, global::Game.PlacedSkillLimit(self, countedGem, true));
+                        }
+                        uint firstId = self.NextObjectId;
+                        Program.Outgoing = (ciphers, bytes) =>
+                        {
+                            if (ReferenceEquals(ciphers, wire.Ciphers))
+                                lock (countPackets) countPackets.Add(bytes.ToArray());
+                            previousCountOutgoing?.Invoke(ciphers, bytes);
+                        };
+                        ownerSchedule.At = 148;
+                        countedCast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            legalSource.Id, (100, 100), (119, 119));
+                        Assert.True(await countedCast!);
+                        Assert.True(HasPacket(countPackets, ExpectedMineCreate(legalSource.Id, firstId)));
+                        Assert.True(HasPacket(countPackets, ExpectedMineCreate(legalSource.Id, firstId + 1)));
+                        Assert.DoesNotContain(firstId, self.Placed.All.Keys);
+                        Assert.Contains(firstId + 1, self.Placed.All.Keys);
+                        Assert.True(HasPacket(countPackets, InstanceProtocol.RemoveObject(firstId)));
+                        Assert.DoesNotContain(countPackets,
+                            packet => packet.AsSpan().IndexOf(InstanceProtocol.RemoveObject(firstId + 1)) >= 0);
+                    }
+                    finally
+                    {
+                        if (countedCast is not null && !countedCast.IsCompleted) await countedCast;
+                        Program.Outgoing = previousCountOutgoing;
+                        if (hadCount) self.PlayerStats[countKey] = previousCount;
+                        else self.PlayerStats.Remove(countKey);
+                        if (hadLimit) self.PlayerStats[limitKey] = previousLimit;
+                        else self.PlayerStats.Remove(limitKey);
+                        if (hadAdditionalLimit) self.PlayerStats[additionalLimitKey] = previousAdditionalLimit;
+                        else self.PlayerStats.Remove(additionalLimitKey);
+                    }
+
+                    // Recovery, action, current work/output, current module lifetime and original instance are checked
+                    // inside the held final send. Each refused mutation must leave the current owners/resources intact.
+                    async Task AssertFinalControlRefused(ushort skill, double at, Action? mutate = null,
+                        Action? restore = null, int? actionToken = null, bool outputGuard = false)
+                    {
+                        var beforeIds = self.Placed.All.Keys.ToHashSet();
+                        var schedule = new HeldAfterFirstAreaWaitSchedule { At = at };
+                        var updates = new PlayerUpdatesState(lifetime, schedule);
+                        var previousContext = global::Game.AreaUpdateContext.Value;
+                        global::Game.AreaUpdateContext.Value = updates;
+                        var previousOutputGuard = Program.ProjectileOutputGuard.Value;
+                        bool outputAllowed = true;
+                        if (outputGuard) Program.ProjectileOutputGuard.Value = () => outputAllowed;
+                        bool restored = false;
+                        void RestoreOnce()
+                        {
+                            if (restored) return;
+                            restored = true;
+                            restore?.Invoke();
+                        }
+                        Task<bool>? cast = null;
+                        bool gateHeld = false;
+                        try
+                        {
+                            cast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self, skill,
+                                (100, 100), (113 + (int)at % 7, 113), actionToken: actionToken);
+                            var first = await Task.WhenAny(cast!, schedule.Entered.Task);
+                            Assert.Same(schedule.Entered.Task, first);
+                            uint objectStart = self.NextObjectId;
+                            var reserved = (uint)global::Game.ReservedMana(self);
+                            uint reservedLife = self.PlayerReservedLife;
+                            uint life = self.PlayerLife, mana = self.PlayerMana;
+                            var gate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                            Assert.True(gate.Wait(0));
+                            gateHeld = true;
+                            try
+                            {
+                                schedule.Resume();
+                                Assert.False(cast!.IsCompleted);
+                                Assert.Equal(objectStart, self.NextObjectId);
+                                if (outputGuard) outputAllowed = false;
+                                else mutate?.Invoke();
+                            }
+                            finally
+                            {
+                                if (gateHeld)
+                                {
+                                    gate.Release();
+                                    gateHeld = false;
+                                }
+                            }
+                            Assert.False(await cast!);
+                            RestoreOnce();
+                            Assert.Equal(objectStart, self.NextObjectId);
+                            Assert.True(beforeIds.SetEquals(self.Placed.All.Keys));
+                            Assert.Equal(reserved, (uint)global::Game.ReservedMana(self));
+                            Assert.Equal(reservedLife, self.PlayerReservedLife);
+                            Assert.Equal(life, self.PlayerLife);
+                            Assert.Equal(mana, self.PlayerMana);
+                        }
+                        finally
+                        {
+                            if (gateHeld)
+                                Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                            schedule.Resume();
+                            if (cast is not null && !cast.IsCompleted) await cast;
+                            RestoreOnce();
+                            if (outputGuard) Program.ProjectileOutputGuard.Value = previousOutputGuard;
+                            global::Game.AreaUpdateContext.Value = previousContext;
+                        }
+                    }
+
+                    trapSource = Source("FireTrap");
+                    // Controlled lifecycle fixture: this is the same computed ActionInterruptionGeneration a hostile
+                    // interruption would advance, without claiming this mutation is an actual incoming hit.
+                    await AssertFinalControlRefused(trapSource.Id, 150,
+                        () => self.FreezeGeneration++);
+                    await AssertFinalControlRefused(trapSource.Id, 151,
+                        () => self.ActionCount++, actionToken: self.ActionCount);
+                    await AssertFinalControlRefused(trapSource.Id, 152, outputGuard: true);
+                    var previousRules = global::Game.CombatLifetime;
+                    await AssertFinalControlRefused(trapSource.Id, 153,
+                        () => global::Game.CombatLifetime = new ModuleLifetime("PlacedAdmissionOther"),
+                        () => global::Game.CombatLifetime = previousRules);
+                    // Controlled lifecycle fixture for the C# init-only property. This does not change the host API:
+                    // the original instance is restored exactly once after the cast observes the mismatch.
+                    var instanceProperty = typeof(ClientState).GetProperty(nameof(ClientState.Instance))!;
+                    var previousInstance = self.Instance;
+                    await AssertFinalControlRefused(trapSource.Id, 154,
+                        () => instanceProperty.SetValue(self, new InstanceState()),
+                        () => instanceProperty.SetValue(self, previousInstance));
+
+                    // Existing-state fixture: seed one recent Fire use, then the actual final-gate refusal must not
+                    // refresh it. The only principal action is the real Fire Trap cast below.
+                    double retainedRecentAt = self.Clock.Elapsed.TotalSeconds;
+                    self.RecentEvents.Clear();
+                    self.RecentEvents.Record(StatConditions.UsedFireSkill, retainedRecentAt);
+                    Assert.True(self.RecentEvents.Happened(StatConditions.UsedFireSkill, retainedRecentAt));
+                    double? retainedExpiry = self.RecentEvents.NextExpiry(retainedRecentAt);
+                    await AssertFinalControlRefused(trapSource.Id, 155, outputGuard: true);
+                    Assert.False(self.RecentEvents.Happened(StatConditions.UsedFireSkill, retainedExpiry!.Value));
+                    Assert.True(self.RecentEvents.Happened(StatConditions.UsedFireSkill, retainedRecentAt));
+                    Assert.True(self.RecentEvents.Happened(StatConditions.SpentMana, retainedRecentAt));
+
+                    self.RecentEvents.Clear();
+                    uint acceptedTrapStart = self.NextObjectId;
+                    ownerSchedule.At = 156;
+                    Assert.True(await global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                        trapSource.Id, (100, 100), (121, 121)));
+                    double acceptedRecentEnd = self.Clock.Elapsed.TotalSeconds;
+                    Assert.True(self.RecentEvents.Happened(StatConditions.UsedFireSkill, acceptedRecentEnd));
+                    Assert.False(self.RecentEvents.Happened(StatConditions.UsedFireSkill,
+                        acceptedRecentEnd + RecentEvents.WindowSeconds));
+                    var acceptedTrap = Assert.Single(PlacedFor(trapSource.Id), placed => placed.Id >= acceptedTrapStart);
+                    Assert.False(acceptedTrap.Mine);
+
+                    var flameSource = Source("SummonFlameGolem");
+                    uint flameId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        flameSource.Id, global::Game.GolemData.Find("SummonFlameGolem")!, (100, 100), arrival: true);
+                    Assert.NotEqual(0u, flameId);
+                    var holySource = Source("SummonHolyRelic");
+                    var holyDefinition = global::Game.SummonData.Find("SummonHolyRelic")!;
+                    uint holyId = await global::Game.SummonFighter("test", wire.Stream, wire.Ciphers, self,
+                        holySource.Id, holyDefinition, (100, 100));
+                    Assert.NotEqual(0u, holyId);
+                    var relic = self.Summons.Fighters[holyId];
+                    var nova = Assert.Single(relic.Abilities, ability => ability.Effect is 9927 or 9928);
+                    global::Game.HolyRelicRegenerationLocked(self, relic, nova, ownerSchedule.At);
+                    Assert.NotEqual(0, self.Summons.HolyBuff);
+                    ushort holyBuff = self.Summons.HolyBuff;
+                    Task removeHoly;
+                    var holyGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(holyGate.Wait(0));
+                    try
+                    {
+                        removeHoly = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                            Target(PlayerInventories.Weapon1, weaponHost.Id, 1));
+                        Assert.False(removeHoly.IsCompleted);
+                        Assert.DoesNotContain(holyId, self.Summons.Fighters.Keys);
+                        Assert.Contains(flameId, self.Golems.All.Keys);
+                        Assert.Equal(0, self.Summons.HolyBuff);
+                        Assert.DoesNotContain(Sources(), source => source.Id == holySource.Id);
+                        Assert.DoesNotContain(JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+                            CharacterSaves.ModuleData(ownerCharacter, "Game.SummonedMinions") ?? "[]")!,
+                            row => row.Source == holySource.Id);
+                        Assert.Contains(self.Minions.OutputQueue,
+                            output => output.Packet.AsSpan().SequenceEqual(
+                                InstanceEntities.RemoveBuff(Program.PlayerId, holyBuff)));
+                    }
+                    finally { holyGate.Release(); }
+                    await removeHoly;
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousOwnerContext;
+                    if (owner is not null)
+                    {
+                        owner.Closed = true;
+                        PlayerInventories.Forget(ownerCharacter);
+                        global::Game.InactiveItems.TryRemove(ownerCharacter, out _);
+                    }
+                }
+            }
+
+            async Task PartialPlacementBudget()
+            {
+                // Real Witch level-100 attributes, catalogue item rolls and level-20 auras leave exactly eight flat
+                // mana for a five-mine request. The production loop publishes only while each two-mana reservation
+                // fits; this covers that flat-mana edge only, not Life/percent budgeting or an arbitrary build matrix.
+                const string budgetCharacter = "PartialPlacementBudget";
+                const byte witchRow = 1;
+                const int expectedMana = 706, auraReserved = 698, mineReserve = 2;
+                var budgetSchedule = new HeldAfterFirstAreaWaitSchedule { At = 230 };
+                var budgetUpdates = new PlayerUpdatesState(lifetime, budgetSchedule);
+                var previousBudgetContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = budgetUpdates;
+                ClientState? budget = null;
+                try
+                {
+                    var witch = Program.Skills.ClassFor(witchRow);
+                    Assert.Equal(3, witch.IntegerId);
+                    Assert.Equal((14, 14, 32), (witch.Strength, witch.Dexterity, witch.Intelligence));
+                    var self = budget = new ClientState(
+                        new(1, "partial-placement-budget", 1000, 1000, 100, 100, null, []), 10, 1)
+                    {
+                        Character = budgetCharacter, ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = budgetUpdates,
+                        Pools = new(100, 1, 1, 0, 0),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    PlayerInventories.SetClass(budgetCharacter, witchRow);
+                    self.Walk.Teleport(100, 100, budgetSchedule.At);
+                    Assert.Empty(self.PlayerStats);
+
+                    Item Gem(string name, int level)
+                    {
+                        var type = Program.Items.FindGem(name)!.Value;
+                        var gemType = Program.Items.Gem(type.Type)!;
+                        return ItemCatalog.Create(type.Type) with
+                        {
+                            GemVariant = type.Variant.Index,
+                            GemExperience = gemType.ExperienceFor(level),
+                        };
+                    }
+                    var inventory = global::Game.ItemsOf(self);
+                    var bodyHost = inventory.Add(PlayerInventories.BodyArmour, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find("Metadata/Items/Armours/BodyArmours/BodyStr1")!)
+                        with
+                        {
+                            Sockets = [
+                                new(SocketColour.White, Gem("Clarity", 20)),
+                                new(SocketColour.White, Gem("Precision", 20)),
+                                new(SocketColour.White, Gem("Vitality", 20)),
+                            ],
+                        });
+                    var wandHost = inventory.Add(PlayerInventories.Weapon1, 0, 0,
+                        ItemCatalog.Create(Program.Items.Find(
+                            "Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!)
+                        with
+                        {
+                            Sockets = [
+                                new(SocketColour.White, Gem("Stormblast Mine", 1)),
+                                new(SocketColour.White, Gem("Minefield Support", 1)),
+                            ],
+                            Links = [2],
+                        });
+
+                    var amulet = new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!;
+                    var amuletBase = Program.Items.Find("Metadata/Items/Amulets/Amulet7")!;
+                    Assert.Equal(amuletBase.Hash, amulet.TypeHash);
+                    ushort amuletVisual = amulet.VisualIdentity;
+                    var originalAmuletMods = amulet.Mods.ToArray();
+                    Item SetExistingRoll(Item item, string id, int value)
+                    {
+                        var mod = Program.Items.Mods.ById(id);
+                        Assert.NotNull(mod);
+                        Assert.Single(item.Mods, roll => roll.Hash == mod.Hash);
+                        Assert.InRange(value, mod.RangeAt(0).Min, mod.RangeAt(0).Max);
+                        return item with
+                        {
+                            Mods = [.. item.Mods.Select(roll => roll.Hash == mod.Hash
+                                ? roll with { Values = [value] } : roll)],
+                        };
+                    }
+                    amulet = SetExistingRoll(amulet, "AllAttributesImplicitAmulet1", 16);
+                    amulet = SetExistingRoll(amulet, "AllAttributesUniqueAmulet8", 96);
+                    Assert.Equal(amuletVisual, amulet.VisualIdentity);
+                    Assert.Equal(originalAmuletMods.Length, amulet.Mods.Count);
+                    Assert.Equal(16, amulet.Mods.Single(roll =>
+                        Program.Items.Mods.ByHash(roll.Hash)?.Id == "AllAttributesImplicitAmulet1").Values.Single());
+                    Assert.Equal(96, amulet.Mods.Single(roll =>
+                        Program.Items.Mods.ByHash(roll.Hash)?.Id == "AllAttributesUniqueAmulet8").Values.Single());
+                    inventory.Add(5, 0, 0, amulet);
+
+                    var ringBase = Program.Items.Find("Metadata/Items/Rings/Ring1")!;
+                    var ringImplicit = Assert.Single(ringBase.Implicits!);
+                    var ring = ItemCrafter.Build(Program.Items, new ItemRolls(Program.Items), $$"""
+                        {"base":"{{ringBase.Id}}","rarity":"rare","itemLevel":100,
+                         "mods":[{"id":"{{ringImplicit.Id}}"},
+                                 {"id":"Strength5","values":[30]},
+                                 {"id":"Dexterity5","values":[30]}]}
+                        """, 100, new Random(504), out string? ringError);
+                    Assert.Null(ringError);
+                    Assert.NotNull(ring);
+                    Assert.Equal((ItemRarity.Rare, ringBase.Hash, 2),
+                        (ring.Rarity, ring.TypeHash, ring.NameWords.Count));
+                    Assert.Equal([ModSection.Implicit, ModSection.Explicit, ModSection.Explicit],
+                        ring.Mods.Select(roll => roll.Section));
+                    Assert.Equal([30, 30], ring.Mods.Skip(1).Select(roll => Assert.Single(roll.Values)));
+                    inventory.Add(6, 0, 0, ring);
+
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    void AssertAuraValues(AuraCatalog.Aura expected, AuraCatalog.Aura? actual)
+                    {
+                        Assert.NotNull(actual);
+                        Assert.Equal(expected.SkillId, actual.SkillId);
+                        Assert.Equal(expected.Effect, actual.Effect);
+                        Assert.Equal(expected.EffectId, actual.EffectId);
+                        Assert.Equal(expected.Name, actual.Name);
+                        Assert.Equal(expected.Buff, actual.Buff);
+                        Assert.Equal(expected.BuffRow, actual.BuffRow);
+                        Assert.Equal(expected.SourceBuff, actual.SourceBuff);
+                        Assert.Equal(expected.ManaFlat, actual.ManaFlat);
+                        Assert.Equal(expected.ManaPercent, actual.ManaPercent);
+                        Assert.Equal(expected.LifeFlat, actual.LifeFlat);
+                        Assert.Equal(expected.LifePercent, actual.LifePercent);
+                        Assert.Equal(expected.Level, actual.Level);
+                        Assert.Equal(expected.Quality, actual.Quality);
+                        Assert.Equal(expected.ReservesLife, actual.ReservesLife);
+                        Assert.Equal(expected.AffectsSelf, actual.AffectsSelf);
+                        Assert.Equal(expected.SupportEffectPct, actual.SupportEffectPct);
+                        Assert.Equal(expected.ReservationEfficiencyPct, actual.ReservationEfficiencyPct);
+                    }
+                    Recalculate();
+                    Assert.Equal((156, 156, 144, 100),
+                        (self.Pools.Strength, self.Pools.Dexterity, self.Pools.Intelligence, self.Pools.Level));
+                    Assert.Equal((uint)expectedMana, self.Pools.Mana);
+                    Assert.Empty(self.PlayerStats);
+                    Assert.All(inventory.EquipmentSnapshot(), equipped => Assert.DoesNotContain(
+                        equipped.Item.Item.Mods, roll =>
+                            Program.Items.Mods.ByHash(roll.Hash)?.Stats.Any(stat =>
+                                stat.Id.Contains("mana", StringComparison.Ordinal)) == true));
+
+                    var auraSources = new (string Name, int Reserve)[]
+                    {
+                        ("Clarity", 279), ("Precision", 186), ("Vitality", 233),
+                    };
+                    foreach (var (name, reserve) in auraSources)
+                    {
+                        var source = Source(name);
+                        Assert.Equal(20, source.Level);
+                        Assert.True(source.Active);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                        {
+                            var supported = global::Game.SupportedSkill(self, source.Id);
+                            Assert.True(supported.RequirementsMet);
+                            Assert.Null(global::Game.GemRequirementsUnmet(self, supported.SourceGem));
+                        }
+                        var cost = global::Game.SupportedReservationCost(self, source.Id);
+                        Assert.NotNull(cost);
+                        Assert.Equal((reserve, 0, 0, 0),
+                            (cost!.Value.ManaFlat, cost.Value.ManaPercent,
+                                cost.Value.LifeFlat, cost.Value.LifePercent));
+                        Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                            source.Id, source.Effect, source.Name, cost.Value, source.Level, source.Quality));
+                    }
+                    var activeAuras = auraSources.Select(aura =>
+                        Assert.Single(self.Auras.Values, current => current.EffectId == aura.Name)).ToArray();
+                    string[] savedAuras = [.. CharacterSaves.Load(budgetCharacter)!.ActiveAuras!.Order()];
+                    Assert.Equal(["Clarity", "Precision", "Vitality"], savedAuras);
+                    Assert.Equal(auraReserved, global::Game.ReservedMana(self));
+                    Assert.Equal(8, global::Game.UnreservedMana(self));
+                    Assert.Equal(8u, self.PlayerMana);
+
+                    var mineSource = Source("StormblastMine");
+                    var mineSupported = global::Game.SupportedSkill(self, mineSource.Id);
+                    var mineCost = global::Game.SupportedReservationCost(self, mineSource.Id);
+                    Assert.NotNull(mineCost);
+                    Assert.Equal((false, true), global::Game.PlacedKind(mineSupported));
+                    Assert.Equal(5, global::Game.PlacedSkillCount(self, mineSupported, true));
+                    Assert.Empty(self.Placed.All);
+                    Assert.Equal(0, mineSupported.Stats.GetValueOrDefault(
+                        Program.Stats.Key("base_number_of_remote_mines_allowed")!.Value));
+                    Assert.Equal(3, mineSupported.Stats.GetValueOrDefault(
+                        Program.Stats.Key("number_of_additional_remote_mines_allowed")!.Value));
+                    Assert.Equal(18, global::Game.PlacedSkillLimit(self, mineSupported, true));
+                    Assert.Equal((mineReserve, 0),
+                        (mineCost!.Value.ManaFlat, mineCost.Value.ManaPercent));
+                    Assert.Equal((false, 0), global::Game.ReservationContext(self, mineSource.Id));
+                    Assert.Equal((mineReserve, 0),
+                        global::Game.SupportedReservation(self, mineSource.Id)!.Value);
+                    var minefield = Assert.Single(mineSupported.Supports);
+                    Assert.Equal(140, minefield.CostMultiplier);
+                    var manaKey = Program.Stats.Key("mana_cost")!.Value;
+                    Assert.Equal(2u, global::Game.ManaCost(Program.Stats, Program.Skills,
+                        mineSupported.Effect, mineSupported.Level, mineSupported.Quality));
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                        Assert.Equal(2, global::Game.SupportedStats(self, mineSource.Id).GetValueOrDefault(manaKey));
+
+                    await global::Game.StartGracePeriod("test", wire.Stream, wire.Ciphers, self);
+                    double baselineTime = global::Game.ResourceEffectsTime(self);
+                    long spentBefore = self.RecentEvents.Amounts(baselineTime)
+                        .GetValueOrDefault(StatConditions.SpentMana);
+                    uint lifeBeforeMines = self.PlayerLife;
+                    uint objectStart = self.NextObjectId;
+                    var minePackets = new List<byte[]>();
+                    var previousMineOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers))
+                            lock (minePackets) minePackets.Add(bytes.ToArray());
+                        previousMineOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    Task<bool> budgetCast = null!;
+                    bool mineGateHeld = false;
+                    try
+                    {
+                        budgetCast = global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, self,
+                            mineSource.Id, (100, 100), (110, 110));
+                        var first = await Task.WhenAny(budgetCast, budgetSchedule.Entered.Task);
+                        Assert.Same(budgetSchedule.Entered.Task, first);
+                        var mineGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(mineGate.Wait(0));
+                        mineGateHeld = true;
+                        try
+                        {
+                            budgetSchedule.Resume();
+                            Assert.False(budgetCast.IsCompleted,
+                                "the paid mine cast did not remain at its final send after release");
+                            Assert.Equal(objectStart, self.NextObjectId);
+                            Assert.Empty(self.Placed.All);
+                            Assert.Equal(auraReserved, global::Game.ReservedMana(self));
+                            Assert.Equal(6u, self.PlayerMana);
+                            double paymentObservedTime = global::Game.ResourceEffectsTime(self);
+                            Assert.True(paymentObservedTime >= baselineTime);
+                            Assert.Equal(spentBefore + 2, self.RecentEvents.Amounts(paymentObservedTime)
+                                .GetValueOrDefault(StatConditions.SpentMana));
+                        }
+                        finally
+                        {
+                            mineGate.Release();
+                            mineGateHeld = false;
+                        }
+                        Assert.True(await budgetCast);
+                    }
+                    finally
+                    {
+                        if (mineGateHeld)
+                            Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                        budgetSchedule.Resume();
+                        if (budgetCast is not null && !budgetCast.IsCompleted) await budgetCast;
+                        Program.Outgoing = previousMineOutgoing;
+                    }
+
+                    var minePlaced = self.Placed.All.Values.OrderBy(placed => placed.Id).ToArray();
+                    Assert.Equal(4, minePlaced.Length);
+                    Assert.Equal([objectStart, objectStart + 1, objectStart + 2, objectStart + 3],
+                        minePlaced.Select(placed => placed.Id));
+                    Assert.Equal(objectStart + 5, self.NextObjectId);
+                    Assert.All(minePlaced, placed =>
+                    {
+                        Assert.Equal(mineSource.Id, placed.Skill);
+                        Assert.True(placed.Mine);
+                        Assert.Equal((mineReserve, 0, false),
+                            (placed.Flat, placed.Percent, placed.ReservesLife));
+                    });
+                    var mineLease = self.GemSourceLifetimes.Current(mineSource.Identity);
+                    Assert.NotNull(mineLease);
+                    Assert.Equal((uint)expectedMana, self.Pools.Mana);
+                    Assert.Equal(expectedMana, global::Game.ReservedMana(self));
+                    Assert.Equal(0, global::Game.UnreservedMana(self));
+                    Assert.Equal(0u, self.PlayerMana);
+                    Assert.Equal(lifeBeforeMines, self.PlayerLife);
+                    double committedTime = global::Game.ResourceEffectsTime(self);
+                    Assert.True(committedTime >= baselineTime);
+                    Assert.Equal(spentBefore + 2, self.RecentEvents.Amounts(committedTime)
+                        .GetValueOrDefault(StatConditions.SpentMana));
+
+                    int CountSequence(IEnumerable<byte[]> packets, byte[] expected)
+                    {
+                        int count = 0;
+                        foreach (var packet in packets)
+                            for (int at = 0; at + expected.Length <= packet.Length; at++)
+                                if (packet.AsSpan(at, expected.Length).SequenceEqual(expected)) count++;
+                        return count;
+                    }
+                    void AssertAuraBuffPacketsRetained(IEnumerable<byte[]> packets)
+                    {
+                        foreach (var aura in activeAuras)
+                        {
+                            Assert.DoesNotContain(packets, packet =>
+                                packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(Program.PlayerId, aura.Buff)) >= 0);
+                            if (aura.SourceBuff is ushort sourceBuff)
+                                Assert.DoesNotContain(packets, packet =>
+                                    packet.AsSpan().IndexOf(InstanceEntities.RemoveBuff(
+                                        Program.PlayerId, sourceBuff)) >= 0);
+                        }
+                    }
+                    var remoteMineHash =
+                        InstanceEntities.ObjectTypeHash("Metadata/MiscellaneousObjects/RemoteMine");
+                    var created = new List<uint>();
+                    foreach (var packet in minePackets)
+                        for (int at = 0; at + 16 <= packet.Length; at++)
+                            if (BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(at)) ==
+                                    InstanceEntities.CreateObjectId
+                                && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(at + 12)) ==
+                                    remoteMineHash)
+                                created.Add(BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(at + 2)));
+                    Assert.Equal(minePlaced.Select(placed => placed.Id), created);
+                    var profile = global::Game.SupportedSkill(self, mineSource.Id);
+                    double flight;
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                    {
+                        var player = global::Game.CharacterPlayerStats(self);
+                        int Get(string name) => Program.Stats.Key(name) is uint key
+                            ? profile.Stats.GetValueOrDefault(key) + player.GetValueOrDefault(key) : 0;
+                        flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : .6;
+                    }
+                    var thrown = global::Game.SkillsFor(self).ActionSkillId("BeThrown");
+                    Assert.NotNull(thrown);
+                    foreach (var placed in minePlaced)
+                    {
+                        Assert.Equal(1, CountSequence(minePackets, InstanceProtocol.EnterWakeZone(placed.Id)));
+                        Assert.Equal(1, CountSequence(minePackets, InstanceProtocol.ActionStarted(
+                            placed.Id, 100, 100, 110, 110,
+                            thrown.Value, 0xffff, 0x0408)));
+                        Assert.Equal(1, CountSequence(minePackets, InstanceProtocol.MoveTo(placed.Id, 110, 110,
+                            (float)flight, InstanceProtocol.FollowTerrain)));
+                    }
+                    uint rejectedId = objectStart + 4;
+                    Assert.DoesNotContain(minePackets, packet => packet.AsSpan().IndexOf(
+                        InstanceProtocol.RemoveObject(rejectedId)) >= 0);
+                    foreach (var aura in activeAuras)
+                    {
+                        AssertAuraValues(aura, self.Auras.GetValueOrDefault(aura.SkillId));
+                    }
+                    AssertAuraBuffPacketsRetained(minePackets);
+                    Assert.Equal(savedAuras, CharacterSaves.Load(budgetCharacter)!.ActiveAuras!.Order());
+
+                    var cleanupPackets = new List<byte[]>();
+                    var previousCleanupOutgoing = Program.Outgoing;
+                    Program.Outgoing = (ciphers, bytes) =>
+                    {
+                        if (ReferenceEquals(ciphers, wire.Ciphers))
+                            lock (cleanupPackets) cleanupPackets.Add(bytes.ToArray());
+                        previousCleanupOutgoing?.Invoke(ciphers, bytes);
+                    };
+                    Task removeMineSource = null!;
+                    bool cleanupGateHeld = false;
+                    try
+                    {
+                        var cleanupGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                        Assert.True(cleanupGate.Wait(0));
+                        cleanupGateHeld = true;
+                        try
+                        {
+                            removeMineSource = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                                new InstanceItems.SocketGem(
+                                    PlayerInventories.InventoryId(PlayerInventories.Weapon1), wandHost.Id, 0));
+                            Assert.False(removeMineSource.IsCompleted);
+                            Assert.Empty(self.Placed.All);
+                            Assert.False(self.GemSourceLifetimes.IsCurrent(mineLease));
+                            Assert.Null(self.GemSourceLifetimes.Current(mineSource.Identity));
+                            Assert.Equal(auraReserved, global::Game.ReservedMana(self));
+                            Assert.Equal(8, global::Game.UnreservedMana(self));
+                            Assert.Equal(0u, self.PlayerMana);
+                            Assert.Equal(lifeBeforeMines, self.PlayerLife);
+                            var expectedCleanup = minePlaced.SelectMany(placed =>
+                                InstanceProtocol.RemoveObject(placed.Id)).ToArray();
+                            var cleanup = Assert.Single(self.Minions.OutputQueue,
+                                output => output.Log == "placed skill source removed");
+                            Assert.Equal(expectedCleanup, cleanup.Packet);
+                            foreach (var aura in activeAuras)
+                                AssertAuraValues(aura, self.Auras.GetValueOrDefault(aura.SkillId));
+                            Assert.Equal(savedAuras, CharacterSaves.Load(budgetCharacter)!.ActiveAuras!.Order());
+                        }
+                        finally
+                        {
+                            cleanupGate.Release();
+                            cleanupGateHeld = false;
+                        }
+                        await removeMineSource;
+                        await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    }
+                    finally
+                    {
+                        if (cleanupGateHeld)
+                            Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1)).Release();
+                        if (removeMineSource is not null && !removeMineSource.IsCompleted) await removeMineSource;
+                        Program.Outgoing = previousCleanupOutgoing;
+                    }
+                    foreach (var placed in minePlaced)
+                        Assert.Equal(1, CountSequence(cleanupPackets,
+                            InstanceProtocol.RemoveObject(placed.Id)));
+                    Assert.DoesNotContain(cleanupPackets, packet => packet.AsSpan().IndexOf(
+                        InstanceProtocol.RemoveObject(rejectedId)) >= 0);
+                    AssertAuraBuffPacketsRetained(cleanupPackets);
+
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self,
+                        new InstanceItems.SocketGem(
+                            PlayerInventories.InventoryId(PlayerInventories.Weapon1), wandHost.Id, 0));
+                    var reinserted = Source("StormblastMine");
+                    Assert.True(reinserted.Active);
+                    using (new global::Game.PlayerStatScope(self, fresh: true))
+                        Assert.True(global::Game.SupportedSkill(self, reinserted.Id).RequirementsMet);
+                    Assert.Empty(self.Placed.All);
+                    Assert.Null(self.GemSourceLifetimes.Current(reinserted.Identity));
+                    Assert.Equal(auraReserved, global::Game.ReservedMana(self));
+                    Assert.Equal(8, global::Game.UnreservedMana(self));
+                    Assert.Equal(0u, self.PlayerMana);
+                    foreach (var aura in activeAuras)
+                        AssertAuraValues(aura, self.Auras.GetValueOrDefault(aura.SkillId));
+                    Assert.Equal(savedAuras, CharacterSaves.Load(budgetCharacter)!.ActiveAuras!.Order());
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousBudgetContext;
+                    if (budget is not null)
+                    {
+                        budget.Closed = true;
+                        PlayerInventories.Forget(budgetCharacter);
+                        global::Game.InactiveItems.TryRemove(budgetCharacter, out _);
+                    }
+                }
+            }
+
+            async Task RighteousFireSourceOwnership()
+            {
+                const string rfCharacter = "RighteousFireSourceOwnership";
+                var rfSchedule = new AreaClockSchedule { At = 140 };
+                var rfUpdates = new PlayerUpdatesState(lifetime, rfSchedule);
+                var previousRfContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = rfUpdates;
+                ClientState? rfOwner = null;
+                var emitted = new List<byte[]>();
+                var previousOutgoing = Program.Outgoing;
+                Program.Outgoing = (seen, bytes) =>
+                {
+                    if (ReferenceEquals(seen, wire.Ciphers)) lock (emitted) emitted.Add(bytes.ToArray());
+                    previousOutgoing?.Invoke(seen, bytes);
+                };
+                try
+                {
+                    var self = rfOwner = new ClientState(
+                        new(1, "righteous-fire-source-ownership", 1000, 1000, 100, 100, null, []), 12, 1)
+                    {
+                        Character = rfCharacter, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = rfUpdates,
+                        Pools = new(100, 10000, 10000, 2, 0, Strength: 65, Dexterity: 65, Intelligence: 65),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Golems.Restored = true;
+                    self.Summons.Restored = true;
+                    self.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 1;
+                    self.Walk.Teleport(100, 100, rfSchedule.At);
+
+                    Item Gem(string name)
+                    {
+                        var type = Program.Items.FindGem(name)!.Value;
+                        return ItemCatalog.Create(type.Type) with { GemVariant = type.Variant.Index };
+                    }
+                    var inventory = global::Game.ItemsOf(self);
+                    var wand = ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                    {
+                        Sockets = [
+                            new ItemSocket(SocketColour.White, Gem("Righteous Fire")),
+                            new ItemSocket(SocketColour.White, Gem("Clarity")),
+                            new ItemSocket(SocketColour.White, Gem("Summon Flame Golem")),
+                        ],
+                        Links = [1, 1, 1],
+                    };
+                    var host = inventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                    const byte amuletRow = 5;
+                    inventory.Add(amuletRow, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source(string effect) => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == effect);
+                    InstanceItems.SocketGem Target(uint hostId, uint socket) =>
+                        new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), hostId, socket);
+                    Task Activate(global::Game.PlayerSkillSource source) =>
+                        global::Game.ActivateRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            source.Id, source.Effect, source.Level, source.Quality, source.Gem);
+                    bool HasPacket(IEnumerable<byte[]> packets, byte[] expected) =>
+                        packets.Any(packet => packet.AsSpan().IndexOf(expected) >= 0);
+                    bool HasBuffAdd(IEnumerable<byte[]> packets, ushort instance, ushort row, ushort skill)
+                    {
+                        byte[] prefix = InstanceEntities.AddBuff(Program.PlayerId, instance, row,
+                            Program.PlayerId, skill).AsSpan(0, 22).ToArray();
+                        return packets.Any(packet => packet.AsSpan().IndexOf(prefix) >= 0);
+                    }
+                    bool HasCreate(IEnumerable<byte[]> packets, uint id) =>
+                        packets.Any(packet => packet.Length >= 6
+                            && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                            && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) == id);
+                    void AssertCleanupQueued(RighteousFireState state, IReadOnlyList<(uint Id, ushort Buff)> enemyAuras)
+                    {
+                        var queue = self.Minions.OutputQueue.Select(output => output.Packet).ToArray();
+                        Assert.True(HasPacket(queue, InstanceEntities.RemoveBuff(Program.PlayerId, state.Buff)));
+                        Assert.True(HasPacket(queue, InstanceEntities.RemoveBuff(Program.PlayerId, state.SelfAura)));
+                        if (state.Ring is uint ring)
+                            Assert.True(HasPacket(queue, InstanceProtocol.RemoveObject(ring)));
+                        foreach (var (id, buff) in enemyAuras)
+                            Assert.True(HasPacket(queue, InstanceEntities.RemoveBuff(id, buff)));
+                    }
+                    Recalculate();
+                    var rf = Source("RighteousFire");
+                    Assert.True(rf.Active);
+                    Assert.True(global::Game.SupportedSkill(self, rf.Id).RequirementsMet);
+                    var clarity = Source("Clarity");
+                    var clarityCost = global::Game.SupportedReservationCost(self, clarity.Id);
+                    Assert.NotNull(clarityCost);
+                    Assert.True(await global::Game.ToggleAura("test", wire.Stream, wire.Ciphers, self,
+                        clarity.Id, clarity.Effect, clarity.Name, clarityCost!.Value, clarity.Level, clarity.Quality));
+                    var golem = Source("SummonFlameGolem");
+                    uint golemId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
+                        golem.Id, global::Game.GolemData.Find("SummonFlameGolem")!, (90, 90), arrival: true);
+                    Assert.NotEqual(0u, golemId);
+
+                    // The activation commits before its first native add, then the actual gem source retires while that
+                    // first add is held. Reinsertion returns the same numeric skill id under a new lease, never old state.
+                    var firstGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(firstGate.Wait(0));
+                    Task oldActivation = null!, removeRf = null!, reinsertRf = null!, currentActivation = null!;
+                    RighteousFireState oldState = null!;
+                    var oldLease = self.GemSourceLifetimes.Current(rf.Identity);
+                    try
+                    {
+                        oldActivation = Activate(rf);
+                        Assert.False(oldActivation.IsCompleted);
+                        oldState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        oldLease = oldState.SourceLifetime;
+                        Assert.NotNull(oldLease);
+                        removeRf = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self, Target(host.Id, 0));
+                        Assert.False(removeRf.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        Assert.False(self.GemSourceLifetimes.IsCurrent(oldLease));
+                        AssertCleanupQueued(oldState, []);
+
+                        reinsertRf = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target(host.Id, 0));
+                        Assert.False(reinsertRf.IsCompleted);
+                        var replacement = Source("RighteousFire");
+                        Assert.Equal(rf.Id, replacement.Id);
+                        currentActivation = Activate(replacement);
+                        Assert.False(currentActivation.IsCompleted);
+                        var currentState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        Assert.Same(self.GemSourceLifetimes.Current(replacement.Identity), currentState.SourceLifetime);
+                        Assert.NotSame(oldLease, currentState.SourceLifetime);
+                    }
+                    finally { firstGate.Release(); }
+                    await oldActivation;
+                    await removeRf;
+                    await reinsertRf;
+                    await currentActivation;
+                    var currentRf = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    var currentLease = currentRf.SourceLifetime;
+                    Assert.NotNull(currentLease);
+                    Assert.Same(self.GemSourceLifetimes.Current(Source("RighteousFire").Identity), currentLease);
+                    Assert.False(HasBuffAdd(emitted, oldState.Buff, global::Game.RighteousFireBuffRow,
+                        oldState.Skill));
+                    Assert.False(HasBuffAdd(emitted, oldState.SelfAura, global::Game.RighteousFireAuraBuffRow,
+                        oldState.Skill));
+                    if (oldState.Ring is uint oldRing)
+                    {
+                        Assert.False(HasCreate(emitted, oldRing));
+                        Assert.False(HasPacket(emitted, InstanceProtocol.EnterWakeZone(oldRing)));
+                    }
+                    Assert.True(HasBuffAdd(emitted, currentRf.Buff, global::Game.RighteousFireBuffRow,
+                        currentRf.Skill));
+                    Assert.True(HasBuffAdd(emitted, currentRf.SelfAura, global::Game.RighteousFireAuraBuffRow,
+                        currentRf.Skill));
+                    if (currentRf.Ring is uint currentRing)
+                    {
+                        Assert.True(HasCreate(emitted, currentRing));
+                        Assert.True(HasPacket(emitted, InstanceProtocol.EnterWakeZone(currentRing)));
+                    }
+
+                    // A real catalogue monster is admitted by the production spawn path. Current RF commits damage and
+                    // its enemy aura; the next resource/player steps cannot resurrect that aura after source cleanup.
+                    var variety = global::Game.Monsters.Find("Rhoa");
+                    Assert.NotNull(variety);
+                    rfSchedule.At = 141;
+                    uint targetId = await global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, self,
+                        variety!, 70, MonsterRarity.Normal, 102, 100, name: "Righteous Fire Rhoa");
+                    Assert.NotEqual(0u, targetId);
+                    var target = self.Monsters[targetId];
+                    Assert.True(target.Hostile);
+                    uint burningLife = target.Life;
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, currentRf, .25);
+                    Assert.True(target.Life < burningLife);
+                    Assert.True(currentRf.Auras.TryGetValue(targetId, out ushort enemyBuff));
+
+                    var secondGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(secondGate.Wait(0));
+                    Task secondUnsocket;
+                    try
+                    {
+                        var enemyAuras = new[] { (targetId, enemyBuff) };
+                        secondUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                            Target(host.Id, 0));
+                        Assert.False(secondUnsocket.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        Assert.False(self.GemSourceLifetimes.IsCurrent(currentLease));
+                        AssertCleanupQueued(currentRf, enemyAuras);
+                    }
+                    finally { secondGate.Release(); }
+                    await secondUnsocket;
+
+                    uint staleLife = target.Life;
+                    double staleBurn = target.Burn;
+                    int staleQueue = self.Minions.OutputQueue.Count;
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, currentRf, .25);
+                    Assert.Equal(staleLife, target.Life);
+                    Assert.Equal(staleBurn, target.Burn);
+                    Assert.Equal(staleQueue, self.Minions.OutputQueue.Count);
+                    Assert.Empty(currentRf.Auras);
+
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target(host.Id, 0));
+                    var replacementRf = Source("RighteousFire");
+                    await Activate(replacementRf);
+                    var replacementState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    Assert.NotSame(currentRf, replacementState);
+                    staleLife = target.Life;
+                    staleBurn = target.Burn;
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, currentRf, .25);
+                    Assert.Equal(staleLife, target.Life);
+                    Assert.Equal(staleBurn, target.Burn);
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, replacementState, .25);
+                    Assert.True(target.Life < staleLife);
+                    Assert.True(replacementState.Auras.ContainsKey(targetId));
+
+                    // An old gone-row snapshot carrying the reused numeric id cannot end this canonical current source.
+                    await global::Game.EndSkillEffects("test", wire.Stream, wire.Ciphers, self, [replacementRf.Id]);
+                    Assert.Same(replacementState, self.RighteousFire);
+                    Assert.Same(replacementState.SourceLifetime,
+                        self.GemSourceLifetimes.Current(replacementRf.Identity));
+
+                    // Older captured ownership cannot end the replacement, even with the same numeric skill id.
+                    var replacementLease = replacementState.SourceLifetime;
+                    await global::Game.EndRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                        "older expected owner", currentRf);
+                    Assert.Same(replacementState, self.RighteousFire);
+                    Assert.Same(replacementLease, self.GemSourceLifetimes.Current(replacementRf.Identity));
+                    Assert.Equal(replacementState.Buff, self.RighteousFire!.Buff);
+                    uint lifeBeforeEnd = self.PlayerLife, manaBeforeEnd = self.PlayerMana;
+                    int reservedBeforeEnd = global::Game.ReservedMana(self);
+                    Assert.Contains(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.Contains(golemId, self.Golems.All.Keys);
+                    await global::Game.EndRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                        "current expected owner", replacementState);
+                    Assert.Null(self.RighteousFire);
+                    await global::Game.EndRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                        "already ended", replacementState);
+                    Assert.Equal(lifeBeforeEnd, self.PlayerLife);
+                    Assert.Equal(manaBeforeEnd, self.PlayerMana);
+                    Assert.Equal(reservedBeforeEnd, global::Game.ReservedMana(self));
+                    Assert.Contains(self.Auras.Values, aura => aura.EffectId == "Clarity");
+                    Assert.Contains(golemId, self.Golems.All.Keys);
+
+                    async Task RunRecoveryStep(Action resourceAt)
+                    {
+                        PlayerUpdatesState? updates = null;
+                        updates = new PlayerUpdatesState(lifetime, new OneResourceStepSchedule(
+                            self.Clock.Elapsed.TotalSeconds, resourceAt, () => updates!.Stop.Cancel()));
+                        self.PlayerUpdatesState = updates;
+                        Assert.True(self.PlayerUpdatesWorker.TryStart(self, lifetime, null, updates,
+                            out long generation));
+                        updates.Generation = generation;
+                        try
+                        {
+                            await global::Game.RunResourceRecovery("test", wire.Stream, wire.Ciphers, self, updates);
+                        }
+                        finally
+                        {
+                            self.PlayerUpdatesWorker.Complete(lifetime, null, updates, generation);
+                            self.RetirePlayerUpdates();
+                        }
+                    }
+
+                    var resourceRf = Source("RighteousFire");
+                    await Activate(resourceRf);
+                    self.EnergyShield.SetMaximum(0, refill: true);
+                    self.PlayerLife = global::Game.LifeCap(self);
+                    uint positiveBefore = self.PlayerLife;
+                    var positiveState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    await RunRecoveryStep(() => { });
+                    Assert.True(self.PlayerLife < positiveBefore);
+                    Assert.True(self.PlayerLife > 1);
+                    Assert.Same(positiveState, self.RighteousFire);
+
+                    self.PlayerLife = global::Game.LifeCap(self);
+                    uint sourceOffBefore = self.PlayerLife;
+                    var sourceOffState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    bool callbackSawCurrentState = false;
+                    var resourceGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(resourceGate.Wait(0));
+                    Task sourceOff = null!, recovery = null!;
+                    try
+                    {
+                        recovery = RunRecoveryStep(() =>
+                        {
+                            callbackSawCurrentState = ReferenceEquals(self.RighteousFire, sourceOffState);
+                            sourceOff = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self,
+                                Target(host.Id, 0));
+                        });
+                        Assert.Null(self.RighteousFire);
+                        Assert.False(sourceOff.IsCompleted);
+                    }
+                    finally { resourceGate.Release(); }
+                    await recovery;
+                    await sourceOff;
+                    Assert.True(callbackSawCurrentState,
+                        "the resource boundary did not observe the captured RF before actual source removal");
+                    Assert.NotSame(sourceOffState, self.RighteousFire);
+                    Assert.True(self.PlayerLife >= sourceOffBefore,
+                        $"an ended RF burned through the next resource boundary: {sourceOffBefore} -> {self.PlayerLife}");
+                }
+                finally
+                {
+                    Program.Outgoing = previousOutgoing;
+                    global::Game.AreaUpdateContext.Value = previousRfContext;
+                    if (rfOwner is not null)
+                    {
+                        rfOwner.Closed = true;
+                        PlayerInventories.Forget(rfCharacter);
+                        global::Game.InactiveItems.TryRemove(rfCharacter, out _);
+                    }
+                }
+            }
+
+            async Task RighteousFireSpellMoreProfile()
+            {
+                // Isolated ordinary spells and attacks beside a real RF gem. Raw gem experience is fixture preparation
+                // only; every level below is crossed through normal XP or the public level-up request.
+                const string character = "RighteousFireSpellMoreProfile";
+                var schedule = new AreaClockSchedule { At = 160 };
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = updates;
+                ClientState? owner = null;
+                try
+                {
+                    var self = owner = new ClientState(
+                        new(1, "righteous-fire-spell-more", 1000, 1000, 100, 100, null, []), 12, 1)
+                    {
+                        Character = character, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = updates,
+                        Pools = new(100, 10000, 10000, 2, 0, Strength: 65, Dexterity: 65, Intelligence: 65),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Walk.Teleport(100, 100, schedule.At);
+                    const string moreName = "righteous_fire_spell_damage_+%_final";
+                    uint moreKey = Program.Stats.Key(moreName)!.Value;
+                    Item Gem(string name, int? rawExperience = null)
+                    {
+                        var found = Program.Items.FindGem(name)!.Value;
+                        var gem = ItemCatalog.Create(found.Type) with { GemVariant = found.Variant.Index };
+                        return rawExperience is int experience ? gem with { GemExperience = experience } : gem;
+                    }
+                    var rfBase = Program.Items.FindGem("Righteous Fire")!.Value;
+                    var rfGemType = global::Game.ItemsFor(self).Gem(rfBase.Type)!;
+                    var rfTemplate = ItemCatalog.Create(rfBase.Type) with { GemVariant = rfBase.Variant.Index };
+                    int rfEffect = rfGemType.Variant(rfTemplate.GemVariant).Effect;
+                    int SpellMoreAt(int level) => global::Game.SkillsFor(self)
+                        .EffectStats(rfEffect, level).Where(stat => stat.Item1 == moreKey).Select(stat => stat.Item2)
+                        .DefaultIfEmpty(0).Sum();
+                    int crossing = Enumerable.Range(2, rfGemType.MaxLevel - 1)
+                        .First(level => SpellMoreAt(level) > SpellMoreAt(level - 1));
+                    Assert.InRange(crossing, 2, rfGemType.MaxLevel);
+
+                    var inventory = global::Game.ItemsOf(self);
+                    var wand = ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                    {
+                        Sockets = [
+                            new ItemSocket(SocketColour.White,
+                                Gem("Righteous Fire", rfGemType.ExperienceFor(crossing) - 1)),
+                            new ItemSocket(SocketColour.White, Gem("Fireball", 0)),
+                            new ItemSocket(SocketColour.White, Gem("Power Siphon", 0)),
+                        ],
+                        Links = [1, 1, 1],
+                    };
+                    var host = inventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                    const byte amuletRow = 5;
+                    inventory.Add(amuletRow, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    void Recalculate()
+                    {
+                        global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                        self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                        self.PlayerLife = self.Pools.Life;
+                        self.PlayerMana = self.Pools.Mana;
+                    }
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source(string effect)
+                    {
+                        int effectRow = global::Game.SkillsFor(self).EffectRow(effect);
+                        Assert.True(effectRow >= 0);
+                        return Assert.Single(Sources(), source => source.Effect == effectRow);
+                    }
+                    Item Socketed(uint hostId, int socket) => inventory.Items(PlayerInventories.Weapon1)
+                        .Single(item => item.Id == hostId).Item.Sockets[socket].Gem!;
+                    int GemLevel(uint hostId, int socket) => global::Game.ItemsFor(self).GemLevel(Socketed(hostId, socket));
+                    InstanceItems.SocketGem Target(uint hostId, uint socket) =>
+                        new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), hostId, socket);
+                    Task Activate(global::Game.PlayerSkillSource source) =>
+                        global::Game.ActivateRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            source.Id, source.Effect, source.Level, source.Quality, source.Gem);
+                    DamagePacket Hit(global::Game.PlayerSkillSource source) =>
+                        global::Game.SupportedHitFor(self, source.Id, suppress: false);
+                    int PlayerMore()
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return global::Game.CharacterPlayerStats(self).GetValueOrDefault(moreKey);
+                    }
+                    int OwnMore(global::Game.PlayerSkillSource source)
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                            return global::Game.SupportedSkill(self, source.Id).Stats.GetValueOrDefault(moreKey);
+                    }
+                    static double MoreFactor(int more) => Math.Max(0, 1 + more / 100.0);
+                    void AssertSpellMore(DamagePacket before, int beforeMore, DamagePacket after, int afterMore)
+                    {
+                        var expected = before.Scale(MoreFactor(afterMore) / MoreFactor(beforeMore));
+                        Assert.Equal(expected.MinTotal, after.MinTotal, 9);
+                        Assert.Equal(expected.MaxTotal, after.MaxTotal, 9);
+                    }
+
+                    Recalculate();
+                    var rf = Source("RighteousFire");
+                    var fireball = Source("Fireball");
+                    var powerSiphon = Source("PowerSiphon");
+                    Assert.False(global::Game.SkillsFor(self).IsAttack(fireball.Effect));
+                    Assert.True(global::Game.SkillsFor(self).IsAttack(powerSiphon.Effect));
+                    Assert.All(new[] { rf, fireball, powerSiphon },
+                        source => Assert.True(global::Game.SupportedSkill(self, source.Id).RequirementsMet));
+                    Assert.Equal(crossing - 1, rf.Level);
+                    Assert.Equal(crossing - 1, GemLevel(host.Id, 0));
+                    Assert.Equal(0, PlayerMore());
+
+                    var fireballBefore = Hit(fireball);
+                    var attackBefore = Hit(powerSiphon);
+                    Assert.True(fireballBefore.MinTotal > 0);
+                    Assert.True(attackBefore.MinTotal > 0);
+
+                    // The accepted activation source captures its own current neutral value and publishes it through the
+                    // ordinary player/stat and SupportedHitFor routes without direct RF or bonus setup.
+                    var activationGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(activationGate.Wait(0));
+                    Task? activation = null;
+                    RighteousFireState activated = null!;
+                    try
+                    {
+                        activation = Activate(rf);
+                        Assert.False(activation.IsCompleted);
+                        activated = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        Assert.Equal(SpellMoreAt(crossing - 1), activated.SpellDamageMore);
+                        Assert.Equal(activated.SpellDamageMore, OwnMore(rf));
+                        Assert.Equal(activated.SpellDamageMore, PlayerMore());
+                        var fireballAfter = Hit(fireball);
+                        AssertSpellMore(fireballBefore, 0, fireballAfter, activated.SpellDamageMore);
+                        var attackAfter = Hit(powerSiphon);
+                        Assert.Equal(attackBefore.MinTotal, attackAfter.MinTotal, 9);
+                        Assert.Equal(attackBefore.MaxTotal, attackAfter.MaxTotal, 9);
+                    }
+                    finally { activationGate.Release(); }
+                    await activation!;
+                    Assert.Same(activated, self.RighteousFire);
+
+                    // An unrelated expired output guard is not authority over the current RF source or its projection.
+                    var sourceLease = activated.SourceLifetime;
+                    Assert.NotNull(sourceLease);
+                    Assert.Same(sourceLease, self.GemSourceLifetimes.Current(rf.Identity));
+                    int activationMore = activated.SpellDamageMore;
+                    int outputCount = self.Minions.OutputQueue.Count;
+                    var previousOutputGuard = Program.ProjectileOutputGuard.Value;
+                    Program.ProjectileOutputGuard.Value = () => false;
+                    try
+                    {
+                        Assert.False(global::Game.CurrentGameWork);
+                        await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, activated, .25);
+                        Assert.Same(activated, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(rf.Identity));
+                        Assert.Equal(activationMore, activated.SpellDamageMore);
+                        Assert.Equal(outputCount, self.Minions.OutputQueue.Count);
+                        global::Game.RecomputePoolsAndSpeed(self);
+                        Assert.Same(activated, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(rf.Identity));
+                        Assert.Equal(activationMore, activated.SpellDamageMore);
+                        Assert.Equal(activationMore, PlayerMore());
+                        AssertSpellMore(fireballBefore, 0, Hit(fireball), activationMore);
+                    }
+                    finally { Program.ProjectileOutputGuard.Value = previousOutputGuard; }
+
+                    // Real normal XP: one gem experience crosses an adjacent real SpellMore increase. The held output
+                    // proves the retained state, resources and spell hit advance before the first send resumes.
+                    int oldMore = activated.SpellDamageMore;
+                    int newMore = SpellMoreAt(crossing);
+                    Assert.True(newMore > oldMore);
+                    uint lifeBeforeGain = self.PlayerLife, manaBeforeGain = self.PlayerMana;
+                    uint shieldBeforeGain = self.EnergyShield.Current;
+                    var debtBeforeGain = self.PetrifiedBlood.Display(schedule.At);
+                    var fireballAtOld = Hit(fireball);
+                    var attackAtOld = Hit(powerSiphon);
+                    var experienceGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(experienceGate.Wait(0));
+                    Task? normalExperience = null;
+                    try
+                    {
+                        normalExperience = global::Game.GainGemExperience(
+                            "test", wire.Stream, wire.Ciphers, self, 10);
+                        Assert.False(normalExperience.IsCompleted);
+                        Assert.Same(activated, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(rf.Identity));
+                        Assert.Equal(activated.Buff, self.RighteousFire!.Buff);
+                        Assert.Equal(activated.SelfAura, self.RighteousFire!.SelfAura);
+                        Assert.Equal(activated.Ring, self.RighteousFire!.Ring);
+                        Assert.Equal(crossing, GemLevel(host.Id, 0));
+                        Assert.Equal(1, GemLevel(host.Id, 1));
+                        Assert.Equal(1, GemLevel(host.Id, 2));
+                        Assert.Equal(newMore, activated.SpellDamageMore);
+                        Assert.Equal(newMore, OwnMore(rf));
+                        Assert.Equal(newMore, PlayerMore());
+                        AssertSpellMore(fireballAtOld, oldMore, Hit(fireball), newMore);
+                        var attackAtNew = Hit(powerSiphon);
+                        Assert.Equal(attackAtOld.MinTotal, attackAtNew.MinTotal, 9);
+                        Assert.Equal(attackAtOld.MaxTotal, attackAtNew.MaxTotal, 9);
+                        Assert.Equal(lifeBeforeGain, self.PlayerLife);
+                        Assert.Equal(manaBeforeGain, self.PlayerMana);
+                        Assert.Equal(shieldBeforeGain, self.EnergyShield.Current);
+                        Assert.Equal(debtBeforeGain, self.PetrifiedBlood.Display(schedule.At));
+                    }
+                    finally { experienceGate.Release(); }
+                    await normalExperience!;
+
+                    // A real catalogue Rhoa gives an independent first-tick burn control. The next level changes only the
+                    // neutral RF spell-more input; RF's own damage-over-time still must not consume that spell-hit factor.
+                    schedule.At = 161;
+                    var variety = global::Game.Monsters.Find("Rhoa");
+                    Assert.NotNull(variety);
+                    uint firstTargetId = await global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, self,
+                        variety!, 70, MonsterRarity.Normal, 102, 100, name: "RF Spell More baseline Rhoa");
+                    var firstTarget = self.Monsters[firstTargetId];
+                    Assert.Equal(0, firstTarget.Burn);
+                    uint firstTargetLife = firstTarget.Life;
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, activated, .25);
+                    uint firstTickLoss = firstTargetLife - firstTarget.Life;
+                    Assert.True(firstTickLoss > 0);
+
+                    var oldLevelMore = activated.SpellDamageMore;
+                    var fireballBeforeLevelUp = Hit(fireball);
+                    var attackBeforeLevelUp = Hit(powerSiphon);
+                    uint lifeBeforeLevelUp = self.PlayerLife, manaBeforeLevelUp = self.PlayerMana;
+                    uint shieldBeforeLevelUp = self.EnergyShield.Current;
+                    var debtBeforeLevelUp = self.PetrifiedBlood.Display(schedule.At);
+                    var levelUpGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(levelUpGate.Wait(0));
+                    Task? publicLevelUp = null;
+                    int nextLevelMore = SpellMoreAt(crossing + 1);
+                    try
+                    {
+                        publicLevelUp = global::Game.LevelUpGem(
+                            "test", wire.Stream, wire.Ciphers, self, Target(host.Id, 0));
+                        Assert.False(publicLevelUp.IsCompleted);
+                        Assert.Same(activated, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(rf.Identity));
+                        Assert.Equal(activated.Buff, self.RighteousFire!.Buff);
+                        Assert.Equal(activated.SelfAura, self.RighteousFire!.SelfAura);
+                        Assert.Equal(activated.Ring, self.RighteousFire!.Ring);
+                        Assert.Equal(crossing + 1, GemLevel(host.Id, 0));
+                        Assert.Equal(nextLevelMore, activated.SpellDamageMore);
+                        Assert.NotEqual(oldLevelMore, nextLevelMore);
+                        Assert.Equal(nextLevelMore, OwnMore(rf));
+                        Assert.Equal(nextLevelMore, PlayerMore());
+                        AssertSpellMore(fireballBeforeLevelUp, oldLevelMore, Hit(fireball), nextLevelMore);
+                        var attackAfterLevelUp = Hit(powerSiphon);
+                        Assert.Equal(attackBeforeLevelUp.MinTotal, attackAfterLevelUp.MinTotal, 9);
+                        Assert.Equal(attackBeforeLevelUp.MaxTotal, attackAfterLevelUp.MaxTotal, 9);
+                        Assert.Equal(lifeBeforeLevelUp, self.PlayerLife);
+                        Assert.Equal(manaBeforeLevelUp, self.PlayerMana);
+                        Assert.Equal(shieldBeforeLevelUp, self.EnergyShield.Current);
+                        Assert.Equal(debtBeforeLevelUp, self.PetrifiedBlood.Display(schedule.At));
+                    }
+                    finally { levelUpGate.Release(); }
+                    await publicLevelUp!;
+
+                    uint freshTargetId = await global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, self,
+                        variety, 70, MonsterRarity.Normal, 104, 100, name: "RF Spell More fresh Rhoa");
+                    var freshTarget = self.Monsters[freshTargetId];
+                    Assert.Equal(firstTarget.MaxLife, freshTarget.MaxLife);
+                    Assert.Equal(0, freshTarget.Burn);
+                    uint freshTargetLife = freshTarget.Life;
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, activated, .25);
+                    Assert.Equal(firstTickLoss, freshTargetLife - freshTarget.Life);
+
+                    // Turning the physical RF source off clears the current owner and projection before the held output.
+                    var fireballWithoutRf = fireballBefore;
+                    var attackWithoutRf = attackBefore;
+                    var removeGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(removeGate.Wait(0));
+                    Task? remove = null;
+                    try
+                    {
+                        remove = global::Game.UnsocketGem(
+                            "test", wire.Stream, wire.Ciphers, self, Target(host.Id, 0));
+                        Assert.False(remove.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        Assert.False(self.GemSourceLifetimes.IsCurrent(sourceLease));
+                        Assert.Equal(0, PlayerMore());
+                        AssertSpellMore(fireballWithoutRf, 0, Hit(fireball), 0);
+                        var attackOff = Hit(powerSiphon);
+                        Assert.Equal(attackWithoutRf.MinTotal, attackOff.MinTotal, 9);
+                        Assert.Equal(attackWithoutRf.MaxTotal, attackOff.MaxTotal, 9);
+                    }
+                    finally { removeGate.Release(); }
+                    await remove!;
+
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target(host.Id, 0));
+                    var restored = Source("RighteousFire");
+                    Assert.True(restored.Active);
+                    Assert.True(global::Game.SupportedSkill(self, restored.Id).RequirementsMet);
+                    Assert.Null(self.RighteousFire);
+                    Assert.Equal(0, PlayerMore());
+
+                    await Activate(restored);
+                    var reactivated = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    Assert.Equal(crossing + 1, restored.Level);
+                    Assert.Equal(nextLevelMore, reactivated.SpellDamageMore);
+                    Assert.Equal(nextLevelMore, PlayerMore());
+                    AssertSpellMore(fireballWithoutRf, 0, Hit(fireball), nextLevelMore);
+                }
+                finally
+                {
+                    global::Game.AreaUpdateContext.Value = previousContext;
+                    if (owner is not null)
+                    {
+                        owner.Closed = true;
+                        PlayerInventories.Forget(character);
+                        global::Game.InactiveItems.TryRemove(character, out _);
+                    }
+                }
+            }
+
+            async Task RighteousFireRadiusProfile()
+            {
+                // Real RF gem, real Astramentis and real normal-XP/public progression. Raw gem experience is setup only;
+                // every radius change below is crossed by the production gem experience path.
+                const string character = "RighteousFireRadiusProfile";
+                var schedule = new AreaClockSchedule { At = 200 };
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = updates;
+                ClientState? owner = null;
+                var emitted = new List<byte[]>();
+                var previousOutgoing = Program.Outgoing;
+                Program.Outgoing = (seen, bytes) =>
+                {
+                    if (ReferenceEquals(seen, wire.Ciphers)) lock (emitted) emitted.Add(bytes.ToArray());
+                    previousOutgoing?.Invoke(seen, bytes);
+                };
+                try
+                {
+                    var self = owner = new ClientState(
+                        new(1, "righteous-fire-radius", 1000, 1000, 100, 100, null, []), 12, 1)
+                    {
+                        Character = character, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = updates,
+                        Pools = new(100, 10000, 10000, 2, 0, Strength: 65, Dexterity: 65, Intelligence: 65),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Walk.Teleport(100, 100, schedule.At);
+
+                    Item Gem(string name, int experience)
+                    {
+                        var found = Program.Items.FindGem(name)!.Value;
+                        return ItemCatalog.Create(found.Type) with
+                        {
+                            GemVariant = found.Variant.Index,
+                            GemExperience = experience,
+                        };
+                    }
+                    var rfBase = Program.Items.FindGem("Righteous Fire")!.Value;
+                    var rfGemType = global::Game.ItemsFor(self).Gem(rfBase.Type)!;
+                    var rfTemplate = ItemCatalog.Create(rfBase.Type) with { GemVariant = rfBase.Variant.Index };
+                    int rfEffect = rfGemType.Variant(rfTemplate.GemVariant).Effect;
+                    int RadiusAt(int level)
+                    {
+                        var own = global::Game.SkillsFor(self).EffectStats(rfEffect, level)
+                            .ToDictionary(stat => stat.Item1, stat => stat.Item2);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                        {
+                            var merged = global::Game.MergeSkillStats(global::Game.AreaPlayerStats(self), own);
+                            int Get(string name, int fallback) =>
+                                Program.Stats.Key(name) is uint key && merged.TryGetValue(key, out int value)
+                                    ? value : fallback;
+                            return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18),
+                                name => Get(name, 0), spell: true);
+                        }
+                    }
+                    var radiusLevels = Enumerable.Range(2, rfGemType.MaxLevel - 1)
+                        .Where(level => RadiusAt(level) > RadiusAt(level - 1)).ToList();
+                    Assert.Equal(18, RadiusAt(1));
+                    if (rfGemType.MaxLevel >= 20) Assert.Equal(23, RadiusAt(20));
+                    Assert.True(radiusLevels.Count >= 4,
+                        $"real Righteous Fire data has only {radiusLevels.Count} measured radius increases");
+
+                    var inventory = global::Game.ItemsOf(self);
+                    int initialExperience = radiusLevels[0] == 1 ? 0 : rfGemType.ExperienceFor(radiusLevels[0]) - 1;
+                    var wand = ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                    {
+                        Sockets = [new ItemSocket(SocketColour.White, Gem("Righteous Fire", initialExperience))],
+                        Links = [1],
+                    };
+                    var host = inventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                    inventory.Add(5, 0, 0, new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                    self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                    // Existing-state control: legal partial pools and neutral debt are fixture state. AddDeferred is
+                    // NOT a hostile-hit producer and does not activate Petrified Blood.
+                    self.PlayerLife = Math.Max(1u, self.Pools.Life / 2);
+                    self.PlayerMana = Math.Max(1u, self.Pools.Mana / 3);
+                    self.PetrifiedBlood.AddDeferred(schedule.At, 40);
+                    uint positiveLife = self.PlayerLife, positiveMana = self.PlayerMana;
+                    var existingDebt = self.PetrifiedBlood.Display(schedule.At);
+                    Assert.InRange(positiveLife, 1u, self.Pools.Life - 1);
+                    Assert.InRange(positiveMana, 1u, self.Pools.Mana - 1);
+                    Assert.True(existingDebt.PerMinute > 0);
+                    Assert.True(existingDebt.Expiry > schedule.At);
+
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source() => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == "RighteousFire");
+                    InstanceItems.SocketGem Target(uint socket) =>
+                        new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, socket);
+                    int CurrentGemLevel() => global::Game.ItemsFor(self).GemLevel(
+                        inventory.Items(PlayerInventories.Weapon1).Single(item => item.Id == host.Id)
+                            .Item.Sockets[0].Gem!);
+                    int CurrentGemExperience() => inventory.Items(PlayerInventories.Weapon1)
+                        .Single(item => item.Id == host.Id).Item.Sockets[0].Gem!.GemExperience;
+                    uint GainToLevel(int level) =>
+                        (uint)((rfGemType.ExperienceFor(level) - CurrentGemExperience()) * 10);
+                    Task Activate(global::Game.PlayerSkillSource source) =>
+                        global::Game.ActivateRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            source.Id, source.Effect, source.Level, source.Quality, source.Gem);
+                    int Mark()
+                    {
+                        lock (emitted) return emitted.Count;
+                    }
+                    List<byte[]> Since(int mark)
+                    {
+                        lock (emitted) return [.. emitted.Skip(mark)];
+                    }
+                    bool HasPacket(IEnumerable<byte[]> packets, byte[] expected) =>
+                        packets.Any(packet => packet.AsSpan().IndexOf(expected) >= 0);
+                    bool HasCreate(IEnumerable<byte[]> packets, uint id) =>
+                        packets.Any(packet => packet.Length >= 6
+                            && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                            && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) == id);
+                    bool HasBuffAdd(IEnumerable<byte[]> packets, ushort instance, ushort row, ushort skill)
+                    {
+                        byte[] prefix = InstanceEntities.AddBuff(Program.PlayerId, instance, row,
+                            Program.PlayerId, skill).AsSpan(0, 22).ToArray();
+                        return packets.Any(packet => packet.AsSpan().IndexOf(prefix) >= 0);
+                    }
+                    List<PlayerMinions.Output> RingOutputs(IEnumerable<PlayerMinions.Output> outputs,
+                        RighteousFireState state, uint ring) => outputs.Where(output =>
+                            output.Kind == PlayerMinions.OutputKind.RighteousFireRing
+                            && ReferenceEquals(output.RighteousFireRing?.State, state)
+                            && output.RighteousFireRing.Ring == ring).ToList();
+                    var replies = new List<string>();
+                    var commands = new ChatCommands
+                    {
+                        Send = (bytes, label) => Program.Send("test", wire.Stream, wire.Ciphers, bytes, label),
+                        Reply = text => { replies.Add(text); return Task.CompletedTask; },
+                    };
+                    self.Commands = CommandsFeature.Register(commands, "test", wire.Stream, wire.Ciphers, self);
+
+                    // An actual activation is held after its owner commits but before any send. Source-off retires that
+                    // exact owner; its pending buff and ring creates/wake never reach the wire.
+                    Assert.Equal(radiusLevels[0] - 1, CurrentGemLevel());
+                    var activationGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(activationGate.Wait(0));
+                    Task? staleActivation = null, staleUnsocket = null;
+                    RighteousFireState staleState = null!;
+                    uint staleRing;
+                    try
+                    {
+                        staleActivation = Activate(Source());
+                        Assert.False(staleActivation.IsCompleted);
+                        staleState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        staleRing = Assert.IsType<uint>(staleState.Ring);
+                        staleUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self, Target(0));
+                        Assert.False(staleUnsocket.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                    }
+                    finally { activationGate.Release(); }
+                    await staleActivation!;
+                    await staleUnsocket!;
+                    Assert.False(HasCreate(emitted, staleRing));
+                    Assert.False(HasPacket(emitted, InstanceProtocol.EnterWakeZone(staleRing)));
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target(0));
+                    var source = Source();
+                    int freshMark = Mark();
+                    await Activate(source);
+                    Assert.Equal(radiusLevels[0] - 1, CurrentGemLevel());
+                    var live = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    uint liveRing = Assert.IsType<uint>(live.Ring);
+                    var freshActivationPackets = Since(freshMark);
+                    Assert.True(HasCreate(freshActivationPackets, liveRing));
+                    Assert.True(HasPacket(freshActivationPackets, InstanceProtocol.EnterWakeZone(liveRing)));
+
+                    int oldRadius = live.Radius;
+                    int newRadius = RadiusAt(radiusLevels[0]);
+                    Assert.True(newRadius > oldRadius);
+                    var variety = global::Game.Monsters.Find("Rhoa");
+                    Assert.NotNull(variety);
+                    int stopRange = Math.Max(2, variety!.ObjectSize + 1);
+                    int targetX = 100 + newRadius + stopRange;
+                    uint targetId = await global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, self,
+                        variety, 70, MonsterRarity.Normal, targetX, 100, name: "RF radius boundary Rhoa");
+                    var target = self.Monsters[targetId];
+                    double targetDistance = global::Game.Dist((100, 100), target.Walk.Position(schedule.At));
+                    Assert.True(targetDistance > oldRadius + target.StopRange);
+                    Assert.True(targetDistance <= newRadius + target.StopRange);
+                    uint targetLife = target.Life;
+                    double targetBurn = target.Burn;
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, live, .25);
+                    Assert.Equal(targetLife, target.Life);
+                    Assert.Equal(targetBurn, target.Burn);
+                    Assert.DoesNotContain(targetId, live.Auras.Keys);
+
+                    var sourceLease = live.SourceLifetime;
+                    Assert.NotNull(sourceLease);
+                    uint lifeBefore = self.PlayerLife, manaBefore = self.PlayerMana;
+                    uint shieldBefore = self.EnergyShield.Current;
+                    var debtBefore = self.PetrifiedBlood.Display(schedule.At);
+                    Assert.Equal(positiveLife, lifeBefore);
+                    Assert.Equal(positiveMana, manaBefore);
+                    Assert.Equal(existingDebt, debtBefore);
+                    Assert.Equal(radiusLevels[0] - 1, CurrentGemLevel());
+                    var xpGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(xpGate.Wait(0));
+                    Task? normalExperience = null;
+                    try
+                    {
+                        normalExperience = global::Game.GainGemExperience(
+                            "test", wire.Stream, wire.Ciphers, self, 10);
+                        Assert.False(normalExperience.IsCompleted);
+                        Assert.Same(live, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
+                        Assert.Equal(newRadius, live.Radius);
+                        Assert.Equal(radiusLevels[0], CurrentGemLevel());
+                        Assert.NotEqual(liveRing, Assert.IsType<uint>(live.Ring));
+                        uint pendingRing = Assert.IsType<uint>(live.Ring);
+                        Assert.Equal(lifeBefore, self.PlayerLife);
+                        Assert.Equal(manaBefore, self.PlayerMana);
+                        Assert.Equal(shieldBefore, self.EnergyShield.Current);
+                        Assert.Equal(debtBefore, self.PetrifiedBlood.Display(schedule.At));
+                        var pending = RingOutputs(self.Minions.OutputQueue, live, pendingRing);
+                        Assert.Contains(pending, output => HasCreate([output.Packet], pendingRing));
+                        Assert.Contains(pending, output => output.Packet.SequenceEqual(
+                            InstanceProtocol.EnterWakeZone(pendingRing)));
+                        Assert.Contains(self.Minions.OutputQueue, output => output.Packet.SequenceEqual(
+                            InstanceProtocol.RemoveObject(liveRing)));
+                    }
+                    finally { xpGate.Release(); }
+                    await normalExperience!;
+
+                    int ringMark = Mark();
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    var ringPackets = Since(ringMark);
+                    var newRing = Assert.IsType<uint>(live.Ring);
+                    Assert.True(HasPacket(ringPackets, InstanceProtocol.RemoveObject(liveRing)));
+                    Assert.True(HasCreate(ringPackets, newRing));
+                    Assert.True(HasPacket(ringPackets, InstanceProtocol.EnterWakeZone(newRing)));
+                    Assert.False(HasBuffAdd(ringPackets, live.Buff, global::Game.RighteousFireBuffRow, live.Skill));
+                    Assert.False(HasBuffAdd(ringPackets, live.SelfAura, global::Game.RighteousFireAuraBuffRow, live.Skill));
+                    Assert.Same(live, self.RighteousFire);
+                    Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
+                    Assert.Equal(lifeBefore, self.PlayerLife);
+                    Assert.Equal(manaBefore, self.PlayerMana);
+                    Assert.Equal(shieldBefore, self.EnergyShield.Current);
+                    Assert.Equal(debtBefore, self.PetrifiedBlood.Display(schedule.At));
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, live, .25);
+                    Assert.True(target.Life < targetLife);
+                    Assert.Contains(targetId, live.Auras.Keys);
+
+                    // Same level/profile means no ring identity or queued presentation change.
+                    int queueBefore = self.Minions.OutputQueue.Count;
+                    uint stableRing = Assert.IsType<uint>(live.Ring);
+                    int stableRadius = live.Radius;
+                    global::Game.RecomputePoolsAndSpeed(self);
+                    Assert.Equal(stableRing, live.Ring);
+                    Assert.Equal(stableRadius, live.Radius);
+                    Assert.Equal(queueBefore, self.Minions.OutputQueue.Count);
+
+                    // A held actual activation commits the original ring, then real progression crosses a radius step.
+                    // The activation's immutable original create/wake are stale; only the retained owner's new ring goes.
+                    await global::Game.EndRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                        "radius profile fixture reset", live);
+                    while (CurrentGemLevel() < radiusLevels[1] - 1)
+                    {
+                        int nextLevel = CurrentGemLevel() + 1;
+                        await global::Game.LevelUpGem("test", wire.Stream, wire.Ciphers, self, Target(0));
+                        Assert.Equal(nextLevel, CurrentGemLevel());
+                    }
+                    Assert.Equal(radiusLevels[1] - 1, CurrentGemLevel());
+                    var secondSource = Source();
+                    var activationProgressGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(activationProgressGate.Wait(0));
+                    Task? heldActivation = null, heldProgression = null;
+                    RighteousFireState retained = null!;
+                    uint retainedStartingRing;
+                    ringMark = Mark();
+                    try
+                    {
+                        heldActivation = Activate(secondSource);
+                        Assert.Equal(radiusLevels[1] - 1, CurrentGemLevel());
+                        retained = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        retainedStartingRing = Assert.IsType<uint>(retained.Ring);
+                        int retainedRadius = retained.Radius;
+                        heldProgression = global::Game.LevelUpGem(
+                            "test", wire.Stream, wire.Ciphers, self, Target(0));
+                        Assert.False(heldProgression.IsCompleted);
+                        Assert.Equal(radiusLevels[1], CurrentGemLevel());
+                        Assert.Same(retained, self.RighteousFire);
+                        Assert.Same(retained.SourceLifetime, self.GemSourceLifetimes.Current(secondSource.Identity));
+                        Assert.Equal(RadiusAt(radiusLevels[1]), retained.Radius);
+                        Assert.True(retained.Radius > retainedRadius);
+                        uint retainedNewRing = Assert.IsType<uint>(retained.Ring);
+                        Assert.NotEqual(retainedStartingRing, retainedNewRing);
+                        Assert.Contains(RingOutputs(self.Minions.OutputQueue, retained, retainedNewRing),
+                            output => HasCreate([output.Packet], retainedNewRing));
+                    }
+                    finally { activationProgressGate.Release(); }
+                    await heldActivation!;
+                    await heldProgression!;
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    ringPackets = Since(ringMark);
+                    Assert.False(HasCreate(ringPackets, retainedStartingRing));
+                    Assert.False(HasPacket(ringPackets, InstanceProtocol.EnterWakeZone(retainedStartingRing)));
+                    uint retainedFinalRing = Assert.IsType<uint>(retained.Ring);
+                    Assert.Equal(1, ringPackets.Count(packet => HasCreate([packet], retainedFinalRing)));
+                    Assert.Equal(1, ringPackets.Count(packet => packet.SequenceEqual(
+                        InstanceProtocol.EnterWakeZone(retainedFinalRing))));
+
+                    // Two further real profile crossings queue intermediate and final rings before the minion drain. The
+                    // exact receipt gate suppresses every intermediate create/wake and emits only the current ring.
+                    Assert.Equal(radiusLevels[1], CurrentGemLevel());
+                    var repeatedGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(repeatedGate.Wait(0));
+                    Task? firstChange = null, finalChange = null;
+                    try
+                    {
+                        firstChange = global::Game.GainGemExperience(
+                            "test", wire.Stream, wire.Ciphers, self, GainToLevel(radiusLevels[2]));
+                        Assert.False(firstChange.IsCompleted);
+                        Assert.Equal(radiusLevels[2], CurrentGemLevel());
+                        uint intermediateRing = Assert.IsType<uint>(retained.Ring);
+                        Assert.Same(retained, self.RighteousFire);
+                        finalChange = global::Game.GainGemExperience(
+                            "test", wire.Stream, wire.Ciphers, self, GainToLevel(radiusLevels[3]));
+                        Assert.False(finalChange.IsCompleted);
+                        Assert.Equal(radiusLevels[3], CurrentGemLevel());
+                        Assert.Same(retained, self.RighteousFire);
+                        uint finalRing = Assert.IsType<uint>(retained.Ring);
+                        Assert.NotEqual(intermediateRing, finalRing);
+                        Assert.Equal(RadiusAt(radiusLevels[3]), retained.Radius);
+                        var pending = self.Minions.OutputQueue.Where(output =>
+                            output.Kind == PlayerMinions.OutputKind.RighteousFireRing).ToList();
+                        Assert.Contains(pending, output => ReferenceEquals(output.RighteousFireRing?.State, retained)
+                            && output.RighteousFireRing?.Ring == intermediateRing
+                            && HasCreate([output.Packet], intermediateRing));
+                        Assert.Contains(pending, output => ReferenceEquals(output.RighteousFireRing?.State, retained)
+                            && output.RighteousFireRing?.Ring == finalRing
+                            && HasCreate([output.Packet], finalRing));
+                    }
+                    finally { repeatedGate.Release(); }
+                    await firstChange!;
+                    await finalChange!;
+                    ringMark = Mark();
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    ringPackets = Since(ringMark);
+                    uint currentFinalRing = Assert.IsType<uint>(retained.Ring);
+                    var allRingCreates = ringPackets.Where(packet =>
+                            packet.Length >= 6 && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId)
+                        .ToList();
+                    Assert.Equal(1, allRingCreates.Count(packet => HasCreate([packet], currentFinalRing)));
+                    Assert.Equal(1, ringPackets.Count(packet => packet.SequenceEqual(
+                        InstanceProtocol.EnterWakeZone(currentFinalRing))));
+                    Assert.DoesNotContain(ringPackets, packet => packet.Length >= 6
+                        && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                        && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) != currentFinalRing);
+
+                    // A real public /gem_xp source mutation first queues the smaller retained ring. With the command
+                    // and actual output drain held at the send gate, an actual unsocket retires that exact source.
+                    // Both pending resize receipts must then be suppressed across the entire captured interval.
+                    int loweredLevel = radiusLevels[0];
+                    Assert.True(CurrentGemLevel() > loweredLevel);
+                    uint oldRingBeforeSourceOff = Assert.IsType<uint>(retained.Ring);
+                    int oldRadiusBeforeSourceOff = retained.Radius;
+                    Assert.Equal(RadiusAt(radiusLevels[3]), oldRadiusBeforeSourceOff);
+                    int sourceOffMark = Mark();
+                    var sourceOffGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(sourceOffGate.Wait(0));
+                    Task? lowerCommand = null, sourceOffPublish = null, resizeUnsocket = null;
+                    uint resizeRing = 0;
+                    try
+                    {
+                        lowerCommand = commands.RunAsync($"/gem_xp {rfGemType.ExperienceFor(loweredLevel)}");
+                        Assert.False(lowerCommand.IsCompleted,
+                            "actual /gem_xp lowering did not suspend after its synchronous radius mutation");
+                        Assert.Equal(rfGemType.ExperienceFor(loweredLevel), CurrentGemExperience());
+                        Assert.Equal(loweredLevel, CurrentGemLevel());
+                        Assert.Same(retained, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(secondSource.Identity));
+                        Assert.True(global::Game.SupportedSkill(self, secondSource.Id).RequirementsMet);
+                        Assert.Equal(RadiusAt(loweredLevel), retained.Radius);
+                        Assert.True(retained.Radius < oldRadiusBeforeSourceOff);
+                        Assert.Equal(positiveLife, self.PlayerLife);
+                        Assert.Equal(positiveMana, self.PlayerMana);
+                        Assert.Equal(shieldBefore, self.EnergyShield.Current);
+                        Assert.Equal(existingDebt, self.PetrifiedBlood.Display(schedule.At));
+
+                        resizeRing = Assert.IsType<uint>(retained.Ring);
+                        Assert.NotEqual(oldRingBeforeSourceOff, resizeRing);
+                        var pendingResize = RingOutputs(self.Minions.OutputQueue, retained, resizeRing);
+                        Assert.Equal(2, pendingResize.Count);
+                        Assert.Contains(pendingResize, output => HasCreate([output.Packet], resizeRing));
+                        Assert.Contains(pendingResize, output => output.Packet.SequenceEqual(
+                            InstanceProtocol.EnterWakeZone(resizeRing)));
+                        Assert.Contains(self.Minions.OutputQueue, output => output.Packet.SequenceEqual(
+                            InstanceProtocol.RemoveObject(oldRingBeforeSourceOff)));
+
+                        sourceOffPublish = global::Game.PublishMinionOutcomes(
+                            "test", wire.Stream, wire.Ciphers, self);
+                        Assert.False(sourceOffPublish.IsCompleted,
+                            "the actual pending resize drain did not hold at the shared send gate");
+                        resizeUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self, Target(0));
+                        Assert.False(resizeUnsocket.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        Assert.False(self.GemSourceLifetimes.IsCurrent(sourceLease));
+                        Assert.Null(self.GemSourceLifetimes.Current(secondSource.Identity));
+                    }
+                    finally { sourceOffGate.Release(); }
+                    await lowerCommand!;
+                    await sourceOffPublish!;
+                    await resizeUnsocket!;
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    var sourceOffPackets = Since(sourceOffMark);
+                    Assert.False(HasCreate(sourceOffPackets, resizeRing));
+                    Assert.False(HasPacket(sourceOffPackets, InstanceProtocol.EnterWakeZone(resizeRing)));
+                    Assert.True(HasPacket(sourceOffPackets, InstanceProtocol.RemoveObject(oldRingBeforeSourceOff)));
+                    Assert.True(HasPacket(sourceOffPackets, InstanceProtocol.RemoveObject(resizeRing)));
+
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target(0));
+                    var freshSource = Source();
+                    int freshSourceOffMark = Mark();
+                    await Activate(freshSource);
+                    var freshState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    Assert.NotSame(retained, freshState);
+                    Assert.NotNull(freshState.SourceLifetime);
+                    Assert.NotSame(sourceLease, freshState.SourceLifetime);
+                    Assert.Same(freshState.SourceLifetime, self.GemSourceLifetimes.Current(freshSource.Identity));
+                    Assert.Equal(loweredLevel, CurrentGemLevel());
+                    uint freshRing = Assert.IsType<uint>(freshState.Ring);
+                    var freshSourceOffPackets = Since(freshSourceOffMark);
+                    Assert.True(HasCreate(freshSourceOffPackets, freshRing));
+                    Assert.True(HasPacket(freshSourceOffPackets,
+                        InstanceProtocol.EnterWakeZone(freshRing)));
+                }
+                finally
+                {
+                    Program.Outgoing = previousOutgoing;
+                    global::Game.AreaUpdateContext.Value = previousContext;
+                    if (owner is not null)
+                    {
+                        owner.Closed = true;
+                        PlayerInventories.Forget(character);
+                        global::Game.InactiveItems.TryRemove(character, out _);
+                    }
+                }
+            }
+
+            async Task RighteousFireRelightPickAndDiagnosticBoundaries()
+            {
+                const string character = "RighteousFireRelightPickDiagnostic";
+                var schedule = new AreaClockSchedule { At = 180 };
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = global::Game.AreaUpdateContext.Value;
+                global::Game.AreaUpdateContext.Value = updates;
+                ClientState? owner = null;
+                var emitted = new List<byte[]>();
+                var previousOutgoing = Program.Outgoing;
+                Program.Outgoing = (seen, bytes) =>
+                {
+                    if (ReferenceEquals(seen, wire.Ciphers)) lock (emitted) emitted.Add(bytes.ToArray());
+                    previousOutgoing?.Invoke(seen, bytes);
+                };
+                try
+                {
+                    var self = owner = new ClientState(
+                        new(1, "righteous-fire-relight-pick-diagnostic", 1000, 1000, 100, 100, null, []), 12, 1)
+                    {
+                        Character = character, Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        PlayerSent = true, Experience = CharacterStats.ExperienceFor(100),
+                        PlayerUpdatesState = updates,
+                        Pools = new(100, 10000, 10000, 2, 0, Strength: 65, Dexterity: 65, Intelligence: 65),
+                        LeagueModule = conn.LeagueModule,
+                    };
+                    self.Walk.Teleport(100, 100, schedule.At);
+                    var rfFound = Program.Items.FindGem("Righteous Fire")!.Value;
+                    var rfGemType = global::Game.ItemsFor(self).Gem(rfFound.Type)!;
+                    int rfEffect = rfGemType.Variant(rfFound.Variant.Index).Effect;
+                    Item Gem(string name)
+                    {
+                        var found = Program.Items.FindGem(name)!.Value;
+                        return ItemCatalog.Create(found.Type) with { GemVariant = found.Variant.Index };
+                    }
+                    var inventory = global::Game.ItemsOf(self);
+                    var wand = ItemCatalog.Create(
+                        Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!) with
+                    {
+                        Sockets = [new ItemSocket(SocketColour.White, Gem("Righteous Fire"))],
+                        Links = [1],
+                    };
+                    var host = inventory.Add(PlayerInventories.Weapon1, 0, 0, wand);
+                    inventory.Add(5, 0, 0, new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    global::Game.EquipmentStatSources(self, inventory.EquipmentSnapshot());
+                    self.Pools = global::Game.PoolsFor(self, self.Pools.Level);
+                    self.PlayerLife = Math.Max(1u, self.Pools.Life / 2);
+                    self.PlayerMana = Math.Max(1u, self.Pools.Mana / 3);
+                    self.PetrifiedBlood.AddDeferred(schedule.At, 40);
+                    uint positiveLife = self.PlayerLife, positiveMana = self.PlayerMana;
+                    var existingDebt = self.PetrifiedBlood.Display(schedule.At);
+                    IReadOnlyList<global::Game.PlayerSkillSource> Sources()
+                    {
+                        var equipment = inventory.EquipmentSnapshot();
+                        return global::Game.PlayerSkillSourcesAt(self.Character, equipment,
+                            global::Game.InactiveItems.GetValueOrDefault(self.Character), self.LeagueModule!,
+                            [], global::Game.WornGrantedSkillsOf(self, equipment));
+                    }
+                    global::Game.PlayerSkillSource Source() => Assert.Single(
+                        Sources(), source => global::Game.SkillsFor(self).EffectId(source.Effect) == "RighteousFire");
+                    InstanceMicrotransactions.SkillSlot CurrentSlot(uint gemHash) =>
+                        Assert.Single(self.SkillSlots.Values, value => value.GemHash == gemHash);
+                    async Task<InstanceMicrotransactions.SkillSlot> RefreshSlot(uint gemHash)
+                    {
+                        int mark = Mark();
+                        await global::Game.SendWornCosmetics("test", wire.Stream, wire.Ciphers, self,
+                            $"current slot for gem 0x{gemHash:x8}");
+                        var packet = Assert.Single(Since(mark), value => value.Length >= 2
+                            && BinaryPrimitives.ReadUInt16BigEndian(value) == InstanceMicrotransactions.PurchasedId);
+                        var current = CurrentSlot(gemHash);
+                        Assert.Contains(InstanceMicrotransactions.ReadPurchased(packet).Skills,
+                            value => value == current);
+                        return current;
+                    }
+                    int CurrentGemLevel() => global::Game.ItemsFor(self).GemLevel(
+                        inventory.Items(PlayerInventories.Weapon1).Single(item => item.Id == host.Id)
+                            .Item.Sockets[0].Gem!);
+                    int CurrentGemExperience() => inventory.Items(PlayerInventories.Weapon1)
+                        .Single(item => item.Id == host.Id).Item.Sockets[0].Gem!.GemExperience;
+                    uint GainToNextLevel() =>
+                        (uint)Math.Max(1, (rfGemType.ExperienceFor(CurrentGemLevel() + 1) - CurrentGemExperience()) * 10);
+                    int RadiusAtSkillLevel(int level)
+                    {
+                        var own = global::Game.SkillsFor(self).EffectStats(rfEffect, level)
+                            .ToDictionary(stat => stat.Item1, stat => stat.Item2);
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                        {
+                            var merged = global::Game.MergeSkillStats(global::Game.AreaPlayerStats(self), own);
+                            int Get(string name, int fallback) =>
+                                Program.Stats.Key(name) is uint key && merged.TryGetValue(key, out int stat)
+                                    ? stat : fallback;
+                            return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18),
+                                name => Get(name, 0), spell: true);
+                        }
+                    }
+                    InstanceItems.SocketGem Target() =>
+                        new(PlayerInventories.InventoryId(PlayerInventories.Weapon1), host.Id, 0);
+                    Task Activate(global::Game.PlayerSkillSource source) =>
+                        global::Game.ActivateRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            source.Id, source.Effect, source.Level, source.Quality, source.Gem);
+                    int Mark()
+                    {
+                        lock (emitted) return emitted.Count;
+                    }
+                    List<byte[]> Since(int mark)
+                    {
+                        lock (emitted) return [.. emitted.Skip(mark)];
+                    }
+                    bool HasPacket(IEnumerable<byte[]> packets, byte[] expected) =>
+                        packets.Any(packet => packet.AsSpan().IndexOf(expected) >= 0);
+                    bool HasBuffAdd(IEnumerable<byte[]> packets, ushort instance, ushort row, ushort skill)
+                    {
+                        byte[] prefix = InstanceEntities.AddBuff(Program.PlayerId, instance, row,
+                            Program.PlayerId, skill).AsSpan(0, 22).ToArray();
+                        return packets.Any(packet => packet.AsSpan().IndexOf(prefix) >= 0);
+                    }
+                    bool HasBuffRemove(IEnumerable<byte[]> packets, ushort instance) =>
+                        HasPacket(packets, InstanceEntities.RemoveBuff(Program.PlayerId, instance));
+                    bool HasCreate(IEnumerable<byte[]> packets, uint id) =>
+                        packets.Any(packet => packet.Length >= 6
+                            && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceEntities.CreateObjectId
+                            && BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)) == id);
+                    List<PlayerMinions.Output> RingOutputs(RighteousFireState state, uint ring) =>
+                        self.Minions.OutputQueue.Where(output => output.Kind == PlayerMinions.OutputKind.RighteousFireRing
+                            && ReferenceEquals(output.RighteousFireRing?.State, state)
+                            && output.RighteousFireRing.Ring == ring).ToList();
+                    (uint Key, uint RecordId) SkillPick(uint key, uint record)
+                    {
+                        var packet = new byte[InstanceMicrotransactions.SkillPickLength];
+                        BinaryPrimitives.WriteUInt16BigEndian(packet, InstanceMicrotransactions.SkillPickId);
+                        BinaryPrimitives.WriteUInt32LittleEndian(packet.AsSpan(2), key);
+                        BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(6), record);
+                        return InstanceMicrotransactions.ReadSkillPick(packet);
+                    }
+                    var replies = new List<string>();
+                    var commands = new ChatCommands
+                    {
+                        Send = (bytes, label) => Program.Send("test", wire.Stream, wire.Ciphers, bytes, label),
+                        Reply = text => { replies.Add(text); return Task.CompletedTask; },
+                    };
+                    self.Commands = CommandsFeature.Register(commands, "test", wire.Stream, wire.Ciphers, self);
+
+                    var source = Source();
+                    await Activate(source);
+                    var live = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    var sourceLease = Assert.IsType<GemSourceLifetimes.SourceLifetime>(live.SourceLifetime);
+                    Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
+                    uint liveLife = self.PlayerLife, liveMana = self.PlayerMana;
+                    uint liveShield = self.EnergyShield.Current;
+                    Assert.Equal(positiveLife, liveLife);
+                    Assert.Equal(positiveMana, liveMana);
+                    Assert.Equal(existingDebt, self.PetrifiedBlood.Display(schedule.At));
+
+                    // Real 0x1f3 publication from the socket creates the transient skill-slot key used by 0x1fa.
+                    int slotMark = Mark();
+                    await global::Game.SendWornCosmetics("test", wire.Stream, wire.Ciphers, self, "relight fixture");
+                    var slotPacket = Assert.Single(Since(slotMark), packet => packet.Length >= 2
+                        && BinaryPrimitives.ReadUInt16BigEndian(packet) == InstanceMicrotransactions.PurchasedId);
+                    var published = InstanceMicrotransactions.ReadPurchased(slotPacket);
+                    var slot = CurrentSlot(source.Gem);
+                    Assert.Contains(published.Skills, value => value == slot);
+                    var gemBase = global::Game.ItemsFor(self).ByHash(source.Gem)!;
+                    var artKey = Program.Stats.Key("skill_art_variation")!.Value;
+                    var compatible = global::Game.Mtx.Owned.Where(record =>
+                        global::Game.MtxEffects.FitsSkill(record.MtxTypeHash, gemBase, slot.SlotType)).ToList();
+                    var artRecord = compatible.FirstOrDefault(record =>
+                        global::Game.MtxEffects.Of(record.MtxTypeHash)?.Stats.Any(pair => pair.Stat == artKey) == true);
+                    int ownedRecords = global::Game.Mtx.Owned.Count;
+                    Assert.True(artRecord is not null,
+                        $"measured blocker: {ownedRecords} owned records, {compatible.Count} fit " +
+                        $"Righteous Fire slot type {slot.SlotType}, but none supports skill_art_variation");
+                    var selectedArt = artRecord!;
+                    int artVariation = global::Game.MtxEffects.Of(selectedArt.MtxTypeHash)!.Stats
+                        .First(pair => pair.Stat == artKey).Value;
+
+                    // /set_aoe writes the real neutral area stat under mutation and the central profile boundary must
+                    // resize the same RF owner before its first output send.
+                    var areaStat = Program.Stats.Key("base_skill_area_of_effect_+%")!.Value;
+                    int RadiusWithAoe(int value)
+                    {
+                        using (new global::Game.PlayerStatScope(self, fresh: true))
+                        {
+                            var supported = global::Game.SupportedSkill(self, source.Id);
+                            var merged = global::Game.MergeSkillStats(global::Game.AreaPlayerStats(self), supported.Stats);
+                            merged[areaStat] = value;
+                            int Get(string name, int fallback) =>
+                                Program.Stats.Key(name) is uint key && merged.TryGetValue(key, out int stat)
+                                    ? stat : fallback;
+                            return SkillArea.Radius(Get("active_skill_base_area_of_effect_radius", 18),
+                                name => Get(name, 0), spell: true);
+                        }
+                    }
+                    int baselineRadius = live.Radius;
+                    int aoe = new[] { 50, 100, 200 }.First(value => RadiusWithAoe(value) > baselineRadius + 2);
+                    int expandedRadius = RadiusWithAoe(aoe);
+                    var variety = global::Game.Monsters.Find("Rhoa");
+                    Assert.NotNull(variety);
+                    int targetX = 100 + expandedRadius + variety!.ObjectSize;
+                    uint targetId = await global::Game.SpawnMonster("test", wire.Stream, wire.Ciphers, self,
+                        variety, 70, MonsterRarity.Normal, targetX, 100, name: "Righteous Fire area boundary Rhoa");
+                    var target = self.Monsters[targetId];
+                    double distance = global::Game.Dist((100, 100), target.Walk.Position(schedule.At));
+                    Assert.True(distance > baselineRadius + target.StopRange);
+                    Assert.True(distance <= expandedRadius + target.StopRange);
+                    int aoeMark = Mark();
+                    var aoeGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(aoeGate.Wait(0));
+                    Task? setArea = null;
+                    uint baselineRing = Assert.IsType<uint>(live.Ring);
+                    try
+                    {
+                        setArea = commands.RunAsync($"/set_aoe {aoe}");
+                        Assert.False(setArea.IsCompleted);
+                        Assert.Equal(aoe, self.PlayerStats[areaStat]);
+                        Assert.Same(live, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
+                        Assert.Equal(expandedRadius, live.Radius);
+                        uint expandedRing = Assert.IsType<uint>(live.Ring);
+                        Assert.NotEqual(baselineRing, expandedRing);
+                        var pending = RingOutputs(live, expandedRing);
+                        Assert.Equal(2, pending.Count);
+                        Assert.Contains(pending, output => HasCreate([output.Packet], expandedRing));
+                        Assert.Contains(pending, output => output.Packet.SequenceEqual(
+                            InstanceProtocol.EnterWakeZone(expandedRing)));
+                        Assert.Contains(self.Minions.OutputQueue, output => output.Packet.SequenceEqual(
+                            InstanceProtocol.RemoveObject(baselineRing)));
+                        Assert.Equal(liveLife, self.PlayerLife);
+                        Assert.Equal(liveMana, self.PlayerMana);
+                        Assert.Equal(liveShield, self.EnergyShield.Current);
+                        Assert.Equal(existingDebt, self.PetrifiedBlood.Display(schedule.At));
+                        Assert.Empty(Since(aoeMark));
+                    }
+                    finally { aoeGate.Release(); }
+                    await setArea!;
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    var aoePackets = Since(aoeMark);
+                    uint expandedRingAfterDrain = Assert.IsType<uint>(live.Ring);
+                    Assert.True(HasCreate(aoePackets, expandedRingAfterDrain));
+                    Assert.True(HasPacket(aoePackets, InstanceProtocol.EnterWakeZone(expandedRingAfterDrain)));
+                    Assert.False(HasBuffAdd(aoePackets, live.Buff, global::Game.RighteousFireBuffRow, live.Skill));
+                    Assert.False(HasBuffAdd(aoePackets, live.SelfAura, global::Game.RighteousFireAuraBuffRow, live.Skill));
+                    await global::Game.BurnAround("test", wire.Stream, wire.Ciphers, self, live, .25);
+                    Assert.Contains(targetId, live.Auras.Keys);
+                    uint areaLife = self.PlayerLife, areaMana = self.PlayerMana;
+                    uint areaShield = self.EnergyShield.Current;
+                    var areaDebt = self.PetrifiedBlood.Display(schedule.At);
+
+                    // off returns to the character's own area profile without ending or recasting the exact RF owner.
+                    int offMark = Mark();
+                    var offGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(offGate.Wait(0));
+                    Task? areaOff = null;
+                    uint beforeOffRing = Assert.IsType<uint>(live.Ring);
+                    try
+                    {
+                        areaOff = commands.RunAsync("/set_aoe off");
+                        Assert.False(areaOff.IsCompleted);
+                        Assert.False(self.PlayerStats.ContainsKey(areaStat));
+                        Assert.Same(live, self.RighteousFire);
+                        Assert.Equal(baselineRadius, live.Radius);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
+                        Assert.Equal(areaLife, self.PlayerLife);
+                        Assert.Equal(areaMana, self.PlayerMana);
+                        Assert.Equal(areaShield, self.EnergyShield.Current);
+                        Assert.Equal(areaDebt, self.PetrifiedBlood.Display(schedule.At));
+                        uint offRing = Assert.IsType<uint>(live.Ring);
+                        Assert.NotEqual(beforeOffRing, offRing);
+                        Assert.Equal(2, RingOutputs(live, offRing).Count);
+                        Assert.Empty(Since(offMark));
+                    }
+                    finally { offGate.Release(); }
+                    await areaOff!;
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    var offPackets = Since(offMark);
+                    Assert.True(HasCreate(offPackets, Assert.IsType<uint>(live.Ring)));
+                    Assert.Equal("Increased area of effect: the character's own", replies[^1]);
+                    Assert.DoesNotContain(replies, reply => reply.Contains("relit", StringComparison.OrdinalIgnoreCase));
+
+                    // /god is a supplemental diagnostic: the central boundary resizes the same owner, while the command's
+                    // deliberate on-heal remains. Source-off followed by /god off must not resurrect RF.
+                    int godMark = Mark();
+                    var godGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(godGate.Wait(0));
+                    Task? godOn = null;
+                    try
+                    {
+                        godOn = commands.RunAsync("/god on");
+                        Assert.False(godOn.IsCompleted);
+                        Assert.True(self.God);
+                        Assert.Same(live, self.RighteousFire);
+                        Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
+                        Assert.Equal(live.Buff, self.RighteousFire!.Buff);
+                        Assert.Equal(live.SelfAura, self.RighteousFire!.SelfAura);
+                        Assert.True(live.Radius > baselineRadius);
+                        Assert.Equal(global::Game.LifeCap(self), self.PlayerLife);
+                        Assert.Equal(2, RingOutputs(live, Assert.IsType<uint>(live.Ring)).Count);
+                        Assert.Empty(Since(godMark));
+                    }
+                    finally { godGate.Release(); }
+                    await godOn!;
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    Assert.Same(live, self.RighteousFire);
+                    Assert.Equal("God mode on.", replies[^1]);
+                    await global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self, Target());
+                    Assert.Null(self.RighteousFire);
+                    await commands.RunAsync("/god off");
+                    Assert.False(self.God);
+                    Assert.Null(self.RighteousFire);
+                    await global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target());
+                    var cosmeticSource = Source();
+                    slot = await RefreshSlot(cosmeticSource.Gem);
+                    Assert.True(global::Game.MtxEffects.FitsSkill(
+                        selectedArt.MtxTypeHash, global::Game.ItemsFor(self).ByHash(slot.GemHash)!, slot.SlotType));
+                    await Activate(cosmeticSource);
+                    var cosmeticState = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    var cosmeticLease = Assert.IsType<GemSourceLifetimes.SourceLifetime>(cosmeticState.SourceLifetime);
+                    Assert.Same(cosmeticLease, self.GemSourceLifetimes.Current(cosmeticSource.Identity));
+
+                    // Actual handler: its save and expected RF owner commit before its first network await. Replacing
+                    // the physical source and casting a same-id RF while held must prevent the old pick from relighting.
+                    int stalePickMark = Mark();
+                    var stalePickGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(stalePickGate.Wait(0));
+                    Assert.True(global::Game.CurrentGameWork);
+                    Assert.True(self.SkillSlots.ContainsKey(slot.Key));
+                    Assert.Contains((slot.Inventory, slot.Socket, slot.GemHash, slot.SlotType),
+                        global::Game.SkillCosmeticPlaces(self));
+                    Task? stalePick = null, pickUnsocket = null, pickReinsert = null, pickActivate = null;
+                    RighteousFireState pickReplacement = null!;
+                    try
+                    {
+                        stalePick = GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.PickSkillCosmetic(
+                            "test", wire.Stream, wire.Ciphers, self, SkillPick(slot.Key, selectedArt.Id));
+                        bool currentWork = global::Game.CurrentGameWork;
+                        bool slotCurrent = self.SkillSlots.ContainsKey(slot.Key);
+                        bool savedCurrent = CharacterSaves.SkillCosmetics(character).ContainsKey(
+                            CharacterSaves.SkillCosmeticKey(slot.GemHash, slot.SlotType));
+                        Assert.False(stalePick.IsCompleted,
+                            $"actual cosmetic pick finished before its held output: status {stalePick.Status}, " +
+                            $"work {currentWork}, slot {slotCurrent}, saved {savedCurrent}");
+                        Assert.True(CharacterSaves.SkillCosmetics(character).TryGetValue(
+                            CharacterSaves.SkillCosmeticKey(slot.GemHash, slot.SlotType), out var saved));
+                        Assert.Equal(selectedArt.Id, saved.Record);
+                        pickUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self, Target());
+                        Assert.False(pickUnsocket.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        Assert.False(self.GemSourceLifetimes.IsCurrent(cosmeticLease));
+                        pickReinsert = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target());
+                        Assert.False(pickReinsert.IsCompleted);
+                        var replacementSource = Source();
+                        pickActivate = Activate(replacementSource);
+                        Assert.False(pickActivate.IsCompleted);
+                        pickReplacement = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        Assert.NotSame(cosmeticState, pickReplacement);
+                        Assert.NotSame(cosmeticLease, pickReplacement.SourceLifetime);
+                    }
+                    finally { stalePickGate.Release(); }
+                    await stalePick!;
+                    await pickUnsocket!;
+                    await pickReinsert!;
+                    await pickActivate!;
+                    Assert.Same(pickReplacement, self.RighteousFire);
+                    Assert.Same(pickReplacement.SourceLifetime, self.GemSourceLifetimes.Current(Source().Identity));
+                    Assert.Equal(artVariation, global::Game.SkillArtVariation(self, slot.GemHash));
+                    Assert.Equal(global::Game.Art.BuffVisual("righteous_fire_aura_visual", artVariation), pickReplacement.AuraVisual);
+                    Assert.Equal(global::Game.Art.Animated("righteous_fire_ring", artVariation) ?? global::Game.RighteousFireRingAo,
+                        pickReplacement.RingArt);
+                    var stalePickPackets = Since(stalePickMark);
+                    Assert.False(HasBuffRemove(stalePickPackets, pickReplacement.Buff));
+                    Assert.False(HasBuffRemove(stalePickPackets, pickReplacement.SelfAura));
+                    slot = await RefreshSlot(Source().Gem);
+                    Assert.True(global::Game.MtxEffects.FitsSkill(
+                        selectedArt.MtxTypeHash, global::Game.ItemsFor(self).ByHash(slot.GemHash)!, slot.SlotType));
+
+                    // A pick made while RF is absent captures null and must not bind a new RF cast during its awaits.
+                    int absentPickMark = Mark();
+                    var absentPickGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(absentPickGate.Wait(0));
+                    Task? absentPick = null, absentEnd = null, absentActivate = null;
+                    RighteousFireState absentReplacement = null!;
+                    try
+                    {
+                        var absentSource = Source();
+                        absentEnd = global::Game.EndRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            "null-owner pick fixture", pickReplacement, absentSource, pickReplacement.Instance);
+                        Assert.False(absentEnd.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        Assert.Same(pickReplacement.SourceLifetime, self.GemSourceLifetimes.Current(absentSource.Identity));
+                        absentPick = GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.PickSkillCosmetic(
+                            "test", wire.Stream, wire.Ciphers, self, SkillPick(slot.Key, selectedArt.Id));
+                        Assert.False(absentPick.IsCompleted);
+                        absentActivate = Activate(absentSource);
+                        Assert.False(absentActivate.IsCompleted);
+                        absentReplacement = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                        Assert.NotSame(pickReplacement, absentReplacement);
+                        Assert.Same(pickReplacement.SourceLifetime, absentReplacement.SourceLifetime);
+                    }
+                    finally { absentPickGate.Release(); }
+                    await absentEnd!;
+                    await absentPick!;
+                    await absentActivate!;
+                    Assert.Same(absentReplacement, self.RighteousFire);
+                    var absentPickPackets = Since(absentPickMark);
+                    Assert.False(HasBuffRemove(absentPickPackets, absentReplacement.Buff));
+                    Assert.False(HasBuffRemove(absentPickPackets, absentReplacement.SelfAura));
+                    slot = CurrentSlot(Source().Gem);
+
+                    // Record 0 is a legal actual unpick control: the same physical source is restyled to variation 0,
+                    // so only the presentation owner is replaced.
+                    int unpickMark = Mark();
+                    await GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.PickSkillCosmetic(
+                        "test", wire.Stream, wire.Ciphers, self, SkillPick(slot.Key, 0));
+                    Assert.False(CharacterSaves.SkillCosmetics(character).ContainsKey(
+                        CharacterSaves.SkillCosmeticKey(slot.GemHash, slot.SlotType)));
+                    var unpicked = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    Assert.NotSame(absentReplacement, unpicked);
+                    Assert.Same(unpicked.SourceLifetime, self.GemSourceLifetimes.Current(Source().Identity));
+                    Assert.Equal(0, global::Game.SkillArtVariation(self, slot.GemHash));
+                    var unpickPackets = Since(unpickMark);
+                    Assert.True(HasBuffAdd(unpickPackets, unpicked.Buff, global::Game.RighteousFireBuffRow, unpicked.Skill));
+                    Assert.True(HasBuffAdd(unpickPackets, unpicked.SelfAura, global::Game.RighteousFireAuraBuffRow, unpicked.Skill));
+
+                    // Same physical lease, newer gem item and level: the held cleanup must admit the current supported
+                    // profile rather than retain its old item snapshot or leave RF absent.
+                    int profileMark = Mark();
+                    var profileGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(profileGate.Wait(0));
+                    int levelBefore = CurrentGemLevel();
+                    Assert.InRange(levelBefore, 1, rfGemType.MaxLevel - 1);
+                    int progressedLevel = levelBefore;
+                    Task? heldProfileRelight = null, normalExperience = null;
+                    try
+                    {
+                        heldProfileRelight = global::Game.RelightRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            "same-lease progression", unpicked, slot.GemHash);
+                        Assert.False(heldProfileRelight.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        normalExperience = global::Game.GainGemExperience(
+                            "test", wire.Stream, wire.Ciphers, self, GainToNextLevel());
+                        Assert.False(normalExperience.IsCompleted);
+                        progressedLevel = CurrentGemLevel();
+                        Assert.Equal(levelBefore + 1, progressedLevel);
+                        Assert.Null(self.RighteousFire);
+                        Assert.Same(unpicked.SourceLifetime, self.GemSourceLifetimes.Current(Source().Identity));
+                        Assert.Equal(progressedLevel, Source().Level);
+                    }
+                    finally { profileGate.Release(); }
+                    await heldProfileRelight!;
+                    await normalExperience!;
+                    await global::Game.PublishMinionOutcomes("test", wire.Stream, wire.Ciphers, self);
+                    var currentProfile = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    Assert.NotSame(unpicked, currentProfile);
+                    Assert.Same(unpicked.SourceLifetime, currentProfile.SourceLifetime);
+                    Assert.Equal(progressedLevel, Source().Level);
+                    Assert.Equal(RadiusAtSkillLevel(progressedLevel), currentProfile.Radius);
+                    var profilePackets = Since(profileMark);
+                    Assert.True(HasBuffAdd(profilePackets, currentProfile.Buff,
+                        global::Game.RighteousFireBuffRow, currentProfile.Skill));
+                    Assert.True(HasBuffAdd(profilePackets, currentProfile.SelfAura,
+                        global::Game.RighteousFireAuraBuffRow, currentProfile.Skill));
+
+                    // Helper-only ABA control: after the expected owner detaches, source-off/reinsert without a cast
+                    // leaves no RF when the old continuation is released. A fresh actual cast is then positive.
+                    int helperMark = Mark();
+                    var helperGate = Program.SendGates.GetValue(wire.Ciphers, _ => new(1, 1));
+                    Assert.True(helperGate.Wait(0));
+                    Task? heldRelight = null, helperUnsocket = null, helperReinsert = null;
+                    try
+                    {
+                        heldRelight = global::Game.RelightRighteousFire("test", wire.Stream, wire.Ciphers, self,
+                            "helper owner ABA", currentProfile, slot.GemHash);
+                        Assert.False(heldRelight.IsCompleted);
+                        Assert.Null(self.RighteousFire);
+                        helperUnsocket = global::Game.UnsocketGem("test", wire.Stream, wire.Ciphers, self, Target());
+                        Assert.False(helperUnsocket.IsCompleted);
+                        helperReinsert = global::Game.SocketGem("test", wire.Stream, wire.Ciphers, self, Target());
+                        Assert.False(helperReinsert.IsCompleted);
+                    }
+                    finally { helperGate.Release(); }
+                    await heldRelight!;
+                    await helperUnsocket!;
+                    await helperReinsert!;
+                    Assert.Null(self.RighteousFire);
+                    var helperPackets = Since(helperMark);
+                    Assert.True(HasBuffRemove(helperPackets, currentProfile.Buff));
+                    Assert.True(HasBuffRemove(helperPackets, currentProfile.SelfAura));
+                    Assert.DoesNotContain(helperPackets, packet => packet.Length >= 2
+                        && BinaryPrimitives.ReadUInt16BigEndian(packet) == 0x1c1);
+                    var positiveSource = Source();
+                    await Activate(positiveSource);
+                    var positive = Assert.IsType<RighteousFireState>(self.RighteousFire);
+                    Assert.Same(positive.SourceLifetime, self.GemSourceLifetimes.Current(positiveSource.Identity));
+                }
+                finally
+                {
+                    Program.Outgoing = previousOutgoing;
+                    global::Game.AreaUpdateContext.Value = previousContext;
+                    if (owner is not null)
+                    {
+                        owner.Closed = true;
+                        PlayerInventories.Forget(character);
+                        global::Game.InactiveItems.TryRemove(character, out _);
+                    }
+                }
+            }
 
             const string resourceCharacter = "IntegerResourceAuthority";
             var resourceSchedule = new AreaClockSchedule();
@@ -5175,5 +12614,57 @@ public sealed class GolemTests
         public double At;
         public double Now(ClientState conn) => At;
         public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+    }
+
+    // Production cast loops use a completed wait to re-check time. This fixture clock advances the simulated
+    // deadline on each wait so they terminate deterministically without sleeps, Task.Delay or a concurrent setter.
+    sealed class AdvancingAreaClockSchedule : IPlayerUpdateSchedule
+    {
+        public double At;
+        public double Now(ClientState conn) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
+    // Holds production release work after the paid output. The first wait is a deterministic task source; the caller
+    // takes the send gate before resuming so the next mutation is the final placement send.
+    sealed class HeldAfterFirstAreaWaitSchedule : IPlayerUpdateSchedule
+    {
+        public double At;
+        public readonly TaskCompletionSource Entered = new();
+        readonly TaskCompletionSource held = new();
+        int waits;
+        public double Now(ClientState conn) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            if (Interlocked.Increment(ref waits) > 1)
+            {
+                At += milliseconds / 1000d;
+                return Task.CompletedTask;
+            }
+            Entered.TrySetResult();
+            return held.Task;
+        }
+        public void Resume() => held.TrySetResult();
+    }
+
+    sealed class OneResourceStepSchedule(double start, Action resourceAt, Action stop) : IPlayerUpdateSchedule
+    {
+        int waits;
+        public double Now(ClientState conn) => start;
+        public double ResourceNow(ClientState conn)
+        {
+            resourceAt();
+            return start + 1;
+        }
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            if (waits++ == 0) return Task.CompletedTask;
+            stop();
+            return Task.CompletedTask;
+        }
     }
 }

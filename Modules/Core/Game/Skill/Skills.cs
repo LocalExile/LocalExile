@@ -1293,70 +1293,112 @@ static partial class Game
     // reserved mana comes back.
     internal static async Task EndSkillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<ushort> gone)
     {
-        List<AuraCatalog.Aura> ended;
-        bool petrifiedEnded;
+        if (!CurrentGameRules || !CurrentGameWork) return;
+        (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) ending;
+        RighteousFireState? expectedRf = null;
+        HashSet<ushort> ended = [];
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea || conn.RageRetired) return;
-            ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
-            foreach (var aura in ended)
+            if (!CurrentGameRules || !CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return;
+            // This notification can outlive the source mutation that produced it. Resolve the canonical rows again so a
+            // current replacement for the same numeric id keeps its owners and saved activation. Actual direct source
+            // retirement calls the shared cleanup eagerly and never uses this stale-notification authority check.
+            using (new PlayerStatScope(conn, fresh: true))
+                foreach (ushort id in gone.Distinct())
+                {
+                    if (CurrentPlayerSkillSourceLocked(conn, id) is not { Active: true } source)
+                    {
+                        ended.Add(id);
+                        continue;
+                    }
+                    var supported = SupportedSkill(conn, id);
+                    if (supported.Effect < 0 || supported.Effect != source.Effect || !supported.RequirementsMet)
+                        ended.Add(id);
+                }
+            if (ended.Count > 0)
             {
-                conn.Auras.Remove(aura.SkillId);
-                EndReservationRuntimeLocked(conn, aura);
-                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+                ending = EndNonRighteousFireSkillEffectsLocked(conn, ended);
+                // Non-Righteous-Fire cleanup can change the stats that qualify RF, so evaluate its exact lease after that
+                // dependency. The check still uses the original gone id, independently of the current-row filter.
+                if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill) && !RighteousFireCurrentLocked(conn, rf))
+                    expectedRf = rf;
             }
-            if (ended.Any(a => StanceCatalog.IsStance(a.EffectId)))
-                ReconcileStanceSelectionLocked(conn, persist: true);
-            petrifiedEnded = conn.PetrifiedBlood.Active && gone.Contains(conn.PetrifiedBlood.SkillId);
-            if (petrifiedEnded)
+            else
             {
-                conn.PetrifiedBlood.Suspend();
-                CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
-            }
-            double now = AreaTime(conn);
-            foreach (var fighter in conn.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
-                RemoveSummonLocked(conn, fighter, now);
-            foreach (var golem in conn.Golems.All.Values.Where(g => gone.Contains(g.Source)).ToArray())
-                RemoveGolemLocked(conn, golem, now);
-            conn.Golems.Waiting.RemoveAll(w => gone.Contains(w.Saved.Skill));
-            var placedPackets = new List<byte>();
-            foreach (var placed in conn.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
-                RemovePlacedLocked(conn, placed, placedPackets);
-            foreach (var ground in conn.Placed.Grounds.Where(g => gone.Contains(g.Source)).ToArray())
-            {
-                placedPackets.AddRange(InstanceProtocol.RemoveObject(ground.Object));
-                conn.Placed.Grounds.Remove(ground);
-            }
-            if (placedPackets.Count > 0)
-                conn.Minions.OutputQueue.Add(new([.. placedPackets], "placed skill source removed"));
-            if (!conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic") && conn.Summons.HolyBuff != 0)
-            {
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed"));
-                conn.Summons.HolyBuff = 0;
-                conn.Summons.HolyRegenerationUntil = 0;
-                conn.Summons.HolyRegenerationPerMinute = 0;
-                conn.Minions.StatRevision++;
-            }
-            if (ended.Count > 0 || petrifiedEnded)
-            {
-                conn.AuraStatsDirty = true;
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
-                conn.ApplyMovementSpeed();
+                // RF-only stale cleanup must not call the shared helper: it also reconciles unrelated owners.
+                if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill) && !RighteousFireCurrentLocked(conn, rf))
+                    expectedRf = rf;
+                if (expectedRf is null) return;
+                ending = (new List<AuraCatalog.Aura>(), false);
             }
         }
         SaveSummons(conn);
         SaveGolems(conn);
         await RefreshGolemBuffs(remote, stream, ciphers, conn);
-        if (ended.Count > 0 || petrifiedEnded)
+        if (ending.EndedAuras.Count > 0 || ending.PetrifiedEnded)
         {
             await SendOwnAuraChanges(remote, stream, ciphers, conn);
-            string why = ended.Count > 0
-                ? $"aura {string.Join(", ", ended.Select(a => a.Name))} off (gem left)"
+            string why = ending.EndedAuras.Count > 0
+                ? $"aura {string.Join(", ", ending.EndedAuras.Select(a => a.Name))} off (gem left)"
                 : "Petrified Blood off (gem left)";
             await SendCharacterStats(remote, stream, ciphers, conn, why);
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana}/{conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         }
-        if (conn.RighteousFire is { } rf && gone.Contains(rf.Skill)) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left");
+        if (expectedRf is not null) await EndRighteousFire(remote, stream, ciphers, conn, "its gem left", expectedRf);
+    }
+
+    // The non-Righteous-Fire owners that end with an actual source can share this synchronous mutation. The caller holds
+    // Monsters; only immutable cleanup packets are queued here and every async presentation remains in a wrapper.
+    private static (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) EndNonRighteousFireSkillEffectsLocked(
+        ClientState conn, IReadOnlyCollection<ushort> gone)
+    {
+        List<AuraCatalog.Aura> ended = [.. conn.Auras.Values.Where(a => gone.Contains(a.SkillId))];
+        foreach (var aura in ended)
+        {
+            conn.Auras.Remove(aura.SkillId);
+            EndReservationRuntimeLocked(conn, aura);
+            CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+        }
+        if (ended.Any(a => StanceCatalog.IsStance(a.EffectId)))
+            ReconcileStanceSelectionLocked(conn, persist: true);
+        bool petrifiedEnded = conn.PetrifiedBlood.Active && gone.Contains(conn.PetrifiedBlood.SkillId);
+        if (petrifiedEnded)
+        {
+            conn.PetrifiedBlood.Suspend();
+            CharacterSaves.SetPetrifiedBlood(CharacterName(conn), false);
+        }
+        double now = AreaTime(conn);
+        foreach (var fighter in conn.Summons.Fighters.Values.Where(g => gone.Contains(g.Source)).ToArray())
+            RemoveSummonLocked(conn, fighter, now);
+        foreach (var golem in conn.Golems.All.Values.Where(g => gone.Contains(g.Source)).ToArray())
+            RemoveGolemLocked(conn, golem, now);
+        conn.Golems.Waiting.RemoveAll(w => gone.Contains(w.Saved.Skill));
+        var placedPackets = new List<byte>();
+        foreach (var placed in conn.Placed.All.Values.Where(p => gone.Contains(p.Skill)).ToArray())
+            RemovePlacedLocked(conn, placed, placedPackets);
+        foreach (var ground in conn.Placed.Grounds.Where(g => gone.Contains(g.Source)).ToArray())
+        {
+            placedPackets.AddRange(InstanceProtocol.RemoveObject(ground.Object));
+            conn.Placed.Grounds.Remove(ground);
+        }
+        if (placedPackets.Count > 0)
+            conn.Minions.OutputQueue.Add(new([.. placedPackets], "placed skill source removed"));
+        if (!conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic") && conn.Summons.HolyBuff != 0)
+        {
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, conn.Summons.HolyBuff), "Holy Relic source removed"));
+            conn.Summons.HolyBuff = 0;
+            conn.Summons.HolyRegenerationUntil = 0;
+            conn.Summons.HolyRegenerationPerMinute = 0;
+            conn.Minions.StatRevision++;
+        }
+        if (ended.Count > 0 || petrifiedEnded)
+        {
+            conn.AuraStatsDirty = true;
+            conn.Minions.StatRevision++;
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.ApplyMovementSpeed();
+        }
+        return (ended, petrifiedEnded);
     }
 }
 

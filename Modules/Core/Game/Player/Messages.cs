@@ -575,22 +575,41 @@ static partial class Game
                 // also ends the client's wait), then what the hands hold, with the new set's stats and skills (13-items.md).
                 var swapItems = ItemsOf(conn);
                 byte wanted = (byte)(bytes[2] == 1 ? 1 : 0);
-                if (wanted != swapItems.WeaponSet)
+                byte finalWeaponSet;
+                List<(byte[] Packet, string Label)> swapOutputs = [];
+                // The current-set decision, mutation, qualification and final-set capture share one boundary. Outputs
+                // and SendEquipment may suspend after it; the 0xde set below is the one committed by this message.
+                using (ProjectileMutation(conn, advance: false, phase: "weapon swap"))
                 {
-                    var before = new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2 }
-                        .ToDictionary(r => r, swapItems.Items);
-                    swapItems.SwapWeaponSets();
-                    swapItems.WeaponSet = wanted;
-                    foreach (var (row, old) in before)
+                    finalWeaponSet = swapItems.WeaponSet;
+                    if (wanted != swapItems.WeaponSet)
                     {
-                        uint inv = PlayerInventories.InventoryId(row);
-                        var now = swapItems.Items(row);
-                        if (old.Count + now.Count == 0) continue;
-                        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inv, swapItems.NextRevision(row), [.. old.Select(i => i.Id)], now),
-                            $"0x00bf inventory {inv}: weapon swap, {old.Count} out, {now.Count} in");
+                        var sourcesBefore = PlayerSkillSourcesLocked(conn);
+                        var before = new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2 }
+                            .ToDictionary(r => r, r => swapItems.Items(r).ToArray());
+                        swapItems.SwapWeaponSets();
+                        swapItems.WeaponSet = wanted;
+                        finalWeaponSet = wanted;
+                        using (new PlayerStatScope(conn, fresh: true))
+                        {
+                            RecomputePoolsAndSpeed(conn);
+                            ReconcileBeastCompanionsLocked(conn);
+                            ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                        }
+                        foreach (var (row, old) in before)
+                        {
+                            uint inv = PlayerInventories.InventoryId(row);
+                            var now = swapItems.Items(row).ToArray();
+                            if (old.Length + now.Length == 0) continue;
+                            swapOutputs.Add((InstanceItems.InventoryChange(inv, swapItems.NextRevision(row),
+                                [.. old.Select(i => i.Id)], now),
+                                $"0x00bf inventory {inv}: weapon swap, {old.Length} out, {now.Length} in"));
+                        }
                     }
                 }
-                await Send(remote, stream, ciphers, InstanceProtocol.WeaponSet(swapItems.WeaponSet == 1), $"0x00de weapon set {swapItems.WeaponSet + 1}");
+                foreach (var (packet, label) in swapOutputs) await Send(remote, stream, ciphers, packet, label);
+                await Send(remote, stream, ciphers, InstanceProtocol.WeaponSet(finalWeaponSet == 1),
+                    $"0x00de weapon set {finalWeaponSet + 1}");
                 await SendEquipment(remote, stream, ciphers, conn, swapItems);
             }
             else if (id == InstanceStash.RenameTabId)

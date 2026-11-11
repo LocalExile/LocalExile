@@ -11,19 +11,19 @@ static partial class Game
 
     internal static void SaveSummons(ClientState conn)
     {
-        if (!conn.Summons.Restored) return;
-        string text;
         lock (conn.Monsters)
         {
+            if (!conn.Summons.Restored) return;
             double now = AreaTime(conn);
-            text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
+            string text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
                     && conn.Summons.Definitions[g.Id].Persistent)
                 .Select(g => new SummonedMinions.Saved(g.Definition.Id, g.Source, g.Monster.Variety!.Id,
                     SavedLifeFraction(g.Monster), g.Equipment.Count > 0 ? g.Equipment : null,
                     CaptureResources(g, now))).ToArray());
+            string guardian = JsonSerializer.Serialize(conn.Summons.GuardianEquipment);
+            CharacterSaves.ChangeModuleData(CharacterName(conn), SummonSaveKey, _ => text);
+            CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => guardian);
         }
-        CharacterSaves.ChangeModuleData(CharacterName(conn), SummonSaveKey, _ => text);
-        CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => JsonSerializer.Serialize(conn.Summons.GuardianEquipment));
     }
 
     internal static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
@@ -96,18 +96,25 @@ static partial class Game
     {
         SupportedGem gem;
         Dictionary<uint, int> player;
+        FreshSummonAdmission? fresh;
         SummonReplacementAdmission? replacement;
+        GemSourceLifetimes.SourceLifetime? gemSource;
         using (ProjectileMutation(conn, advance: false, phase: "summon replacement preparation"))
         using (new PlayerStatScope(conn, fresh: true))
         {
             gem = SupportedSkill(conn, source);
             player = CharacterPlayerStats(conn);
+            gemSource = gem.RequirementsMet
+                ? CaptureGemSourceLifetimeLocked(conn, source, gem.Effect) : null;
+            fresh = replacingOld is null
+                ? PrepareFreshSummonLocked(conn, source, gem, player, gemSource) : null;
             replacement = replacingOld is null ? null
                 : PrepareReplacementLocked(conn, SummonReplacementFamily.Summon, replacingOld, source,
                     gem.Effect, gem, player, AreaTime(conn));
             if (replacingOld is not null && replacement is null) return 0;
         }
-        if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
+        if (!gem.RequirementsMet || gemSource is null || replacingOld is null && fresh is null
+            || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
         int limit = SummonLimit(conn, definition, gem);
         if (limit < 1) return 0;
         if (resources is { Life: 0 } || legacyArrival && (!double.IsFinite(life) || life <= 0)) return 0;
@@ -176,11 +183,13 @@ static partial class Game
             ownedInitialDeath: pools.Fatal,
             ownedLooks: SummonLooks(fighter),
             ownedAdmission: () => (replacement is null || SummonReplacementCurrentLocked(conn, replacement))
+                && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(conn, guardian))
                 && (animated?.Ground is not { } item || conn.Instance.Ground.Take(animated.Id, item) is not null),
             ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
                 && (replacement is { } admission
                     ? SummonReplacementCurrentLocked(conn, admission)
-                    : GemSkillInstanceDisabled(conn, gem.Effect, source) is null),
+                    : fresh is { } captured && FreshSummonCurrentLocked(conn, captured)
+                        && GemSkillInstanceDisabled(conn, gem.Effect, source) is null),
             owned: (id, monster) =>
             {
                 if (consumed is not null) consumed.CorpseConsumed = true;

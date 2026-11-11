@@ -152,8 +152,6 @@ static partial class CommandsRules
         lock (conn.Monsters) conn.Immune = immune;
         if (immune) ImmuneCharacters[CharacterName(conn)] = true; else ImmuneCharacters.TryRemove(CharacterName(conn), out _);
         await SetGod(remote, stream, ciphers, conn, on);
-        // A burning Righteous Fire takes its radius when lit: light it again with the new area.
-        await RelightRighteousFire(remote, stream, ciphers, conn, "/god");
         await conn.Commands!.Reply(on ? immune ? "God mode on, immune to damage." : "God mode on." : "God mode off.");
     }
 

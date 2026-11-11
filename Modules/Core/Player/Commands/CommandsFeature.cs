@@ -732,25 +732,56 @@ static class CommandsFeature
             bool near = args[0].Equals("near", StringComparison.OrdinalIgnoreCase);
             int amount = near ? 0 : int.Parse(args[0]);
             var items = ItemsOf(conn);
+            List<(byte Row, InventoryItem Item)> changed = [];
+            List<(byte[] Packet, string Label)> outputs = [];
+            string? noGem = null;
+            bool levelChanged = false;
             int Set(Item gem, ItemCatalog.GemType type)
             {
                 int level = ItemsFor(conn).GemLevel(gem);
                 int max = Math.Min(SkillsFor(conn).MaxLevelAt(type.Variant(gem.GemVariant).Effect, conn.Pools.Level), type.MaxLevel);
                 return near ? (level < max ? type.ExperienceFor(level + 1) - 1 : gem.GemExperience) : amount;
             }
-            var changed = new List<(byte Row, InventoryItem Item)>();
-            foreach (var held in items.Items(PlayerInventories.MainInventory))
-                if (ItemsFor(conn).ByHash(held.Item.TypeHash) is { } baseType && ItemsFor(conn).Gem(baseType) is { } type)
-                    if (items.Change(PlayerInventories.MainInventory, held.Id, it => it with { GemExperience = Set(it, type) }) is { } after)
-                        changed.Add((PlayerInventories.MainInventory, after));
-            foreach (var (row, item, _) in items.ChangeSocketedGems((_, gem) =>
-                ItemsFor(conn).ByHash(gem.TypeHash) is { } baseType && ItemsFor(conn).Gem(baseType) is { } type ? gem with { GemExperience = Set(gem, type) } : null))
-                changed.Add((row, item));
-            if (changed.Count == 0) { await conn.Commands!.Reply("No gem to change"); return; }
-            foreach (var row in changed.GroupBy(c => c.Row))
-                await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
-                    [.. row.Select(c => c.Item.Id)], [.. row.Select(c => c.Item)]),
-                    $"0x00bf inventory {row.Key}: /gem_xp {(near ? "near" : amount.ToString())} ({string.Join(", ", row.Select(c => $"{c.Item.Id:x} exp {c.Item.Item.GemExperience}"))})");
+            using (Game.ProjectileMutation(conn, advance: false, phase: "gem experience command"))
+            {
+                IReadOnlyList<Game.PlayerSkillSource> sourcesBefore = Game.CaptureGemSourceRowsLocked(conn);
+                foreach (var held in items.Items(PlayerInventories.MainInventory))
+                    if (ItemsFor(conn).ByHash(held.Item.TypeHash) is { } baseType && ItemsFor(conn).Gem(baseType) is { } type)
+                        if (items.Change(PlayerInventories.MainInventory, held.Id, it =>
+                            {
+                                var afterGem = it with { GemExperience = Set(it, type) };
+                                levelChanged |= ItemsFor(conn).GemLevel(afterGem) != ItemsFor(conn).GemLevel(it);
+                                return afterGem;
+                            }) is { } after)
+                            changed.Add((PlayerInventories.MainInventory, after));
+                foreach (var (row, item, gems) in items.ChangeSocketedGems((_, gem) =>
+                    ItemsFor(conn).ByHash(gem.TypeHash) is { } baseType && ItemsFor(conn).Gem(baseType) is { } type
+                        ? gem with { GemExperience = Set(gem, type) } : null))
+                {
+                    levelChanged |= gems.Any(pair => ItemsFor(conn).GemLevel(pair.After) != ItemsFor(conn).GemLevel(pair.Before));
+                    changed.Add((row, item));
+                }
+                if (changed.Count == 0) noGem = "No gem to change";
+                else
+                {
+                    if (levelChanged)
+                    {
+                        using (new Game.PlayerStatScope(conn, fresh: true))
+                        {
+                            Game.RecomputePoolsAndSpeed(conn);
+                            Game.ReconcileBeastCompanionsLocked(conn);
+                            Game.ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                        }
+                    }
+                    foreach (var row in changed.GroupBy(c => c.Row))
+                        outputs.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
+                            [.. row.Select(c => c.Item.Id)], [.. row.Select(c => c.Item)]),
+                            $"0x00bf inventory {row.Key}: /gem_xp {(near ? "near" : amount.ToString())} ({string.Join(", ", row.Select(c => $"{c.Item.Id:x} exp {c.Item.Item.GemExperience}"))})"));
+                }
+            }
+            if (noGem is not null) { await conn.Commands!.Reply(noGem); return; }
+            foreach (var (packet, label) in outputs)
+                await Send(remote, stream, ciphers, packet, label);
         })
         .Add("map_portal", "/map_portal [type 1-4] [created 0|1] [open after ms, -1 never] [model 0-2] (dev: one MultiplexPortal next to you, listed in the map device's 0x8f)", async args =>
         {
@@ -1332,14 +1363,16 @@ static class CommandsFeature
             if (Stats.Key("base_skill_area_of_effect_+%") is not uint stat) throw new ArgumentException("no area of effect stat in the data");
             bool off = args[0].Equals("off", StringComparison.OrdinalIgnoreCase);
             int value = off ? 0 : int.Parse(args[0]);
-            lock (conn.Monsters) { if (off) conn.PlayerStats.Remove(stat); else conn.PlayerStats[stat] = value; }
+            using (ProjectileMutation(conn, advance: false, phase: "/set_aoe"))
+            {
+                lock (conn.Monsters) { if (off) conn.PlayerStats.Remove(stat); else conn.PlayerStats[stat] = value; }
+                RecomputePoolsAndSpeed(conn);
+            }
             await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
                 $"0x01b3 stats: base_skill_area_of_effect_+% = {(off ? "the character's own" : value)}");
             await SendSkills(remote, stream, ciphers, conn);
-            bool relit = await RelightRighteousFire(remote, stream, ciphers, conn, "/set_aoe");
-            await conn.Commands!.Reply((off ? "Increased area of effect: the character's own" : $"Increased area of effect: {value}%")
-                + (relit ? ", Righteous Fire relit" : ""));
+            await conn.Commands!.Reply(off ? "Increased area of effect: the character's own" : $"Increased area of effect: {value}%");
         })
         .Add("heal", "/heal (full life; also revives: 0x1b1 from 0 runs the client's revive)", async _ =>
         {

@@ -61,13 +61,33 @@ static partial class Game
     }
 
     // Ends a burning Righteous Fire and lights it again from its gem (only from the gem of type `gem`, when given), so a
-    // change of art or ring size shows at once. False when none burns.
-    internal static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why, uint? gem = null)
+    // change of art or ring size shows at once. `expectedRelight` is the exact owner seen by the producer before its own
+    // awaits; null means no RF was present and never late-binds to one that appeared later.
+    internal static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
     {
-        if (conn.RighteousFire is not { } rf || GemSkillEffects(conn).FirstOrDefault(g => g.Id == rf.Skill) is not { Name: not null } skill
-            || (gem is uint type && skill.Gem != type)) return false;
-        await EndRighteousFire(remote, stream, ciphers, conn, why);
-        await ActivateRighteousFire(remote, stream, ciphers, conn, skill.Id, skill.Effect, skill.Level, skill.Quality, skill.Gem);
+        PlayerSkillSource source;
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || expectedRelight is null || conn.Closed || conn.LeavingArea
+                || !ReferenceEquals(conn.RighteousFire, expectedRelight)
+                || !RighteousFireOwnerCurrentLocked(conn, expectedRelight)
+                || expectedRelight.SourceLifetime is not { } lifetime)
+                return false;
+            using var scope = new PlayerStatScope(conn, fresh: true);
+            var supported = SupportedSkill(conn, expectedRelight.Skill);
+            source = CurrentPlayerSkillSourceLocked(conn, expectedRelight.Skill)!;
+            if (!supported.RequirementsMet || supported.Effect < 0
+                || SkillsFor(conn).EffectId(supported.Effect) != "RighteousFire"
+                || source is not { Active: true } || source.Effect != supported.Effect
+                || source.Identity != lifetime.Key || (gem is uint type && source.Gem != type))
+                return false;
+        }
+        if (!await EndRighteousFire(remote, stream, ciphers, conn, why, expectedRelight, source,
+                expectedRelight.Instance))
+            return false;
+        await ActivateRighteousFire(remote, stream, ciphers, conn, source.Id, source.Effect, source.Level,
+            source.Quality, source.Gem, expectedRelight, source);
         return true;
     }
 

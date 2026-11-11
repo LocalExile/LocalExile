@@ -192,6 +192,8 @@ static partial class Game
                             [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
                     }
                     if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, remote);
+                    if (output.Kind == PlayerMinions.OutputKind.RighteousFireRing)
+                        return RighteousFireRingCurrentLocked(conn, output.RighteousFireRing!) ? output.Packet : null;
                     if (output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
                     if (output.Kind == PlayerMinions.OutputKind.GolemAction) return GolemActionPresentation(conn, output);
                     if (output.Kind == PlayerMinions.OutputKind.GolemIncoming) return GolemIncomingPresentation(conn, output);

@@ -152,11 +152,18 @@ public sealed class ReservationCurseSummonTests
             Assert.Empty(conn.Summons.Fighters);
 
             ushort animated = Equip("Animate Weapon");
-            Assert.Equal(0u, await Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, animated, catalog.Find("AnimateWeapon")!, (100, 100)));
+            var animatedSource = Assert.Single(Game.GemSkillEffects(conn),
+                gem => Game.SkillsFor(conn).EffectId(gem.Effect) == "AnimateWeapon");
+            Assert.Equal(animated, animatedSource.Id);
+            Assert.Equal(0u, await Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, animated,
+                catalog.Find("AnimateWeapon")!, (100, 100)));
             var dropped = new WorldItemObject(100, 100, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!));
             uint ground = conn.Instance.Ground.Add(dropped);
             uint sword = await Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, animated, catalog.Find("AnimateWeapon")!, (100, 100), ground);
             Assert.NotEqual(0u, sword); Assert.Null(conn.Instance.Ground.Get(ground));
+            var animatedActor = conn.Summons.Fighters[sword];
+            Assert.Equal(animatedActor.Monster, conn.Monsters[sword]);
+            Assert.True(conn.Minions.Owns(sword, animatedActor.Monster));
             Assert.NotNull(conn.Summons.Fighters[sword].Weapon);
             Assert.Single(conn.Summons.Fighters[sword].Equipment);
 
@@ -197,8 +204,34 @@ public sealed class ReservationCurseSummonTests
             Assert.Equal(landedBytes, landing.Count);
             Game.DetonateMinesLocked(conn, 4);
             Assert.Equal(4, mine.DetonateAt);
+
+            // An obsolete gone notification for a still-current physical gem is a positive valid-source control.
             await Game.EndSkillEffects("test", wire.Stream, wire.Ciphers, conn, [animated]);
+            Assert.Contains(Game.GemSkillEffects(conn), gem => gem.Id == animatedSource.Id);
+            Assert.Equal(animatedActor.Monster, conn.Summons.Fighters[sword].Monster);
+            Assert.Equal(animatedActor.Monster, conn.Monsters[sword]);
+            Assert.True(conn.Minions.Owns(sword, animatedActor.Monster));
+
+            var animatedHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            var animatedSocket = new InstanceItems.SocketGem(PlayerInventories.InventoryId(PlayerInventories.Weapon1),
+                animatedHost.Id, 0);
+            await Game.UnsocketGem("test", wire.Stream, wire.Ciphers, conn, animatedSocket);
+            Assert.DoesNotContain(Game.GemSkillEffects(conn),
+                gem => Game.SkillsFor(conn).EffectId(gem.Effect) == "AnimateWeapon");
+            Assert.DoesNotContain(sword, conn.Summons.Fighters.Keys);
+            Assert.DoesNotContain(sword, conn.Monsters.Keys);
+            Assert.False(conn.Minions.Owns(sword));
             Assert.Empty(conn.Summons.Fighters);
+
+            var heldAnimated = Assert.Single(Game.ItemsOf(conn).Items(PlayerInventories.Cursor));
+            Assert.Empty(Game.ItemsOf(conn).Items(PlayerInventories.MainInventory));
+            await Game.PlaceItem("test", wire.Stream, wire.Ciphers, conn,
+                new InstanceItems.PlaceItem(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                    0, 0, 0, 3, 0, 0));
+            Assert.Empty(Game.ItemsOf(conn).Items(PlayerInventories.Cursor));
+            Assert.Equal(heldAnimated.Id,
+                Assert.Single(Game.ItemsOf(conn).Items(PlayerInventories.MainInventory)).Id);
+
             ushort claritySource = Equip("Clarity");
             CharacterSaves.SetAuraActive(conn.Character!, "Clarity", true);
             conn.ClientSkillIds = [claritySource];

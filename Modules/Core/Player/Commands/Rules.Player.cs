@@ -18,6 +18,7 @@ static partial class CommandsRules
             conn.PlayerLife = on ? LifeCap(conn) : LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             conn.PlayerMana = on ? (uint)UnreservedMana(conn) : Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             TrimLeechLocked(conn);
+            RecomputePoolsAndSpeed(conn);
         }
         Console.WriteLine($"[gateway] {remote} god mode {(on ? "on" : "off")}: life {conn.Pools.Life}, mana {conn.Pools.Mana}, {ReservedMana(conn)} reserved");
         await SendCharacterStats(remote, stream, ciphers, conn, on ? "god mode on" : "god mode off");

@@ -111,14 +111,18 @@ static partial class Game
     // equipment changed.
     internal static void RecomputePoolsAndSpeed(ClientState conn)
     {
-        conn.Pools = PoolsFor(conn, conn.Pools.Level);
-        conn.ApplyMovementSpeed();
-        conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
-        var stats = CharacterPlayerStats(conn);
-        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
-        conn.ElementalAilments.Reconcile(Get);
-        conn.ApplyMovementSpeed();
+        RefreshRighteousFireProfileLocked(conn);
+        using (new PlayerStatScope(conn, fresh: true))
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            conn.ApplyMovementSpeed();
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
+            var stats = CharacterPlayerStats(conn);
+            int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+            conn.Phasing = UtilityFlasks.Phasing(UtilityStats(conn, Get));
+            conn.ElementalAilments.Reconcile(Get);
+            conn.ApplyMovementSpeed();
+        }
     }
 
     // The already-owned resource writer advances utility deadlines. During Stop/Start there is no writer;

@@ -839,12 +839,17 @@ static partial class Game
         int? channelGeneration = null;
         VaalUseReservation? vaalUse = null;
         SupportedGem? beastCompanion = null;
+        PlacedCastAdmission? placedAdmission = null;
         lock (conn.Monsters)
+        {
             if (actionToken is not null && (conn.ActionCount != action || conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) == 0 || conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))) return false;
+            if (!TryCapturePlacedCastAdmissionLocked(conn, skillId, out placedAdmission)) return false;
+        }
         if (InTown(conn) || conn.PlayerLife == 0) return false;
         await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return false;
+        if (!PlacedCastFamilyCurrent(conn, skillId, placedAdmission)) return false;
         if (IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
         {
             if (dashReceipt is null)
@@ -889,6 +894,8 @@ static partial class Game
                 return false;
         }
         bool vaalCast = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not null;
+        if (placedAdmission is { } placedPreflight && !PlacedCastAdmissionCurrent(conn, placedPreflight))
+            return false;
         if (vaalCast && (vaalUse = ExecuteVaalUse(conn, skillId, gem.Effect)) is null)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: no executable paid Vaal admission");
@@ -955,7 +962,7 @@ static partial class Game
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
         if (gem.Name is not null && LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
-        if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false }
+        if (placedAdmission is null && gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false }
             && SupportedReservationCost(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
@@ -990,6 +997,17 @@ static partial class Game
             {
                 if (!Current()) return false;
                 if (dash && !TryDashLanding(conn, gem.Effect, to, out dashFrom, out dashTo)) return false;
+                using var paymentScope = new PlayerStatScope(conn, fresh: true);
+                var paymentGem = SupportedSkill(conn, skillId);
+                if (placedAdmission is { } admission)
+                {
+                    if (!PlacedCastAdmissionCurrentLocked(conn, admission, paymentGem)) return false;
+                }
+                else
+                {
+                    var currentKind = PlacedKind(paymentGem);
+                    if (currentKind.Trap || currentKind.Mine) return false;
+                }
                 paid = PayMana(conn, skillId, out cost, out lifeCost);
                 if (paid && dash) conn.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(conn));
                 if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
@@ -1028,7 +1046,9 @@ static partial class Game
         }
         if (!Current() || gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null)
             return false;
-        if (!locationInstant && gem.Name is not null) RecordAcceptedGemUse(conn, gem.Effect);
+        if (!PlacedCastFamilyCurrent(conn, skillId, placedAdmission))
+            return false;
+        if (!locationInstant && gem.Name is not null && placedAdmission is null) RecordAcceptedGemUse(conn, gem.Effect);
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
         {
@@ -1044,8 +1064,8 @@ static partial class Game
         if (locationInstant) return true;
         if (gem.Name is not null && (SkillsFor(conn).EffectId(gem.Effect) is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines"))
         { lock (conn.Monsters) DetonateMinesLocked(conn, AreaTime(conn)); return true; }
-        if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is not (false, false))
-            return await PlaceSkill(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, Current);
+        if (placedAdmission is { } placed)
+            return await PlaceSkill(remote, stream, ciphers, conn, from, to, placed, recoveryGeneration, Current);
         if (gem.Name is not null)
         {
             if (SkillsFor(conn).IsTravel(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);

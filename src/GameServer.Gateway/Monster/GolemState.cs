@@ -6,13 +6,15 @@ sealed class GolemState
     internal sealed record MinionResourceSnapshot(uint Life, double LifeRegeneration, EnergyShield.Snapshot EnergyShield);
     internal sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0,
         double SummonedSecondsRemaining = 0, MinionResourceSnapshot? Resources = null);
-    internal sealed record Awaiting(Saved Saved, double At);
-    internal sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source)
+    internal sealed record Awaiting(Saved Saved, double At, GemSourceLifetimes.SourceLifetime? GemSource = null);
+    internal sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source,
+        GemSourceLifetimes.SourceLifetime? gemSource = null)
     {
         public uint Id = id;
         public SpawnedMonster Monster = monster;
         public GolemCatalog.Definition Definition = definition;
         public ushort Source = source;
+        public readonly GemSourceLifetimes.SourceLifetime? GemSource = gemSource;
         public int GemLevel, Quality, Limit;
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
         public double Regeneration;

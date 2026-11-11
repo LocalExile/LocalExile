@@ -366,11 +366,23 @@ sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? target, i
 }
 
 // A running Righteous Fire: the player's buff instance, the skill, its damage (percent of maximum life per minute, to
-// enemies and to the player), its radius in cells, and the aura buff instance on each monster inside it.
-sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute, int Radius)
+// enemies and to the player), its current radius in cells, and the aura buff instance on each monster inside it.
+sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute)
 {
+    /// <summary>The current ring object, replaced in place when the retained fire's radius changes.</summary>
+    public uint? Ring { get; set; }
+    /// <summary>The retained fire's current radius in cells.</summary>
+    public int Radius { get; set; }
+    /// <summary>The ring art selected on activation; null means this activation has no ring.</summary>
+    public string? RingArt { get; init; }
+    /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
+    public int SpellDamageMore { get; set; }
     public int EnergyShieldBurnPctPerMinute { get; init; }
     public int EnergyShieldDamagePctPerMinute { get; init; }
+    /// <summary>The exact physical gem source that activated this fire, or null for legacy state.</summary>
+    internal GemSourceLifetimes.SourceLifetime? SourceLifetime { get; init; }
+    /// <summary>The instance that owned this activation; current-state checks must still name this exact instance.</summary>
+    internal InstanceState Instance { get; init; } = null!;
     public readonly Dictionary<uint, ushort> Auras = [];
     /// <summary>The worn skill effect's righteous_fire_aura visual (BuffVisuals row; null: the row's own), on the enemies too.</summary>
     public ushort? AuraVisual { get; init; }
