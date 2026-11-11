@@ -492,6 +492,13 @@ public static partial class Game
                         $"{Stats.Name(effect.Key)} {effect.Value}");
                 }
         }
+        if (Stats.Key(StolenMods.RandomSourceStat) is uint stealKey)
+            foreach (var jewel in treeJewels)
+                if (tree.JewelNodeForSlot(jewel.X) is ushort source && tree.ClusterNodeForSlot(jewel.X) is null)
+                {
+                    int count = InspiredLearning.Granted(jewel.Item, catalog.Mods, tree, source, allocated);
+                    if (count > 0) passives[stealKey] = passives.GetValueOrDefault(stealKey) + count;
+                }
         // Might in All Forms: Dexterity and Intelligence from allocated passives in the jewel's radius count toward
         // the Strength melee damage bonus, one percent per five points like Strength itself. The summed view is
         // divided once so the truncation matches CharacterStats' str / 5.
