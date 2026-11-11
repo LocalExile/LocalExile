@@ -83,7 +83,7 @@ static partial class Game
 
     internal static async Task TickEssenceDrains(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
         double leeched = 0;
         using (ProjectileMutation(conn))
         {
@@ -97,23 +97,34 @@ static partial class Game
                     m.EssenceDrain.Clear();
                     continue;
                 }
+                // The kill belongs to the instance whose damage crossed the monster's remaining life.
+                double before = m.Life, sum = 0;
+                MonsterEssenceDrain.Cast? winner = null;
                 var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now),
-                    (cast, life) => CreditSiphonLeechLocked(conn, cast.Caster, m, life));
+                    (cast, dealt, life) =>
+                    {
+                        if (winner is null && (sum += dealt) >= before) winner = cast;
+                        CreditSiphonLeechLocked(conn, cast.Caster, m, life);
+                    });
                 if (damage <= 0) continue;
                 leeched += leech;
-                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+                // Its damage, Rampage, Vaal soul and kill go to that instance's owner, never to this connection for running
+                // the world; with the owner gone, the death without any player's on-kill effects.
+                var owner = DotOwner(conn, winner?.Caster);
+                (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
-                    CollectVaalSoulAtDeathLocked(conn, m);
+                    m.LastHitBy = owner;
+                    if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
                     m.EssenceDrain.Clear();
                 }
-                hits.Add((id, m, m.Life, damage));
+                hits.Add((id, m, m.Life, damage, owner));
                 if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
             }
         }
-        foreach (var (id, m, life, damage) in hits)
+        foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
@@ -122,7 +133,8 @@ static partial class Game
             if (life == 0)
             {
                 Console.WriteLine($"[gateway] essence drain killed 0x{id:x} ({m.Label})");
-                await DotKilled(remote, stream, ciphers, conn, id, m);
+                if (owner is not null) await DotKilled(remote, stream, ciphers, conn, id, m);
+                else await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
             }
         }
         // One log line a second at most: the damage and leech the debuffs dealt since the last line.

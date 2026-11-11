@@ -42,8 +42,9 @@ public sealed class MonsterEssenceDrain
     /// <summary>The whole chaos damage dealt from the last advance to <paramref name="now"/> by the strongest instance at
     /// each moment, multiplied by the monster's chaos mitigation <paramref name="factor"/>; the fraction carries to the next
     /// advance. Ended instances are dropped. Also returns the life leeched from that damage, and hands each dealing
-    /// instance's cast and its leech to <paramref name="leeched"/> (instances may have different casters).</summary>
-    public (int Damage, double Leech) Advance(double now, double factor, Action<Cast, double>? leeched = null)
+    /// instance's cast, the damage it dealt and its leech to <paramref name="dealt"/> in time order (instances may have
+    /// different casters: the leech and a kill belong to the one dealing).</summary>
+    public (int Damage, double Leech) Advance(double now, double factor, Action<Cast, double, double>? dealt = null)
     {
         if (instances.Count == 0 || !(now > last)) return (0, 0);
         double damage = carry, leech = 0, t = last;
@@ -59,11 +60,11 @@ public sealed class MonsterEssenceDrain
             }
             if (Strongest(t) is { } strongest)
             {
-                double dealt = strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factor);
-                double share = dealt * strongest.Cast.LeechPermyriad / 10000.0;
-                damage += dealt;
+                double segment = strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factor);
+                double share = segment * strongest.Cast.LeechPermyriad / 10000.0;
+                damage += segment;
                 leech += share;
-                if (share > 0) leeched?.Invoke(strongest.Cast, share);
+                dealt?.Invoke(strongest.Cast, segment, share);
             }
             t = next;
         }

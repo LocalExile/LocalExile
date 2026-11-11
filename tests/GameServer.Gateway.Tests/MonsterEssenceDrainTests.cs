@@ -33,7 +33,7 @@ public sealed class MonsterEssenceDrainTests
         owners.Apply(0, first);
         owners.Apply(0, second);
         var credited = new List<(MonsterEssenceDrain.Cast Cast, double Life)>();
-        owners.Advance(2, 1, (cast, life) => credited.Add((cast, life)));
+        owners.Advance(2, 1, (cast, _, life) => credited.Add((cast, life)));
         Assert.Equal([(first, 1.0), (second, 0.1)], credited);
 
         // A hit after the old instance expired (no advance between) counts only from when it landed: 100/s for 1 s, then
@@ -44,12 +44,14 @@ public sealed class MonsterEssenceDrainTests
         Assert.Equal(100 + 10, late.Advance(3, 1).Damage);
 
         // Contagion spreads the strongest debuff once, for its remaining time, even after the death tick cleared it.
+        var caster = new ClientState(new(1, "caster", 1000, 1000, 100, 100, null, []), 1, 1);
         drain.Apply(10, new(100, 4, 50));
-        drain.Apply(10, new(250, 4, 50));
+        drain.Apply(10, new(250, 4, 50, Caster: caster));
         drain.Clear();
         var spread = drain.TakeSpread(10.5);
         Assert.Equal(250, spread?.DamagePerSecond);
         Assert.Equal(3.5, spread!.Seconds, 6);
+        Assert.Same(caster, spread.Caster);
         Assert.Null(drain.TakeSpread(10.5));
     }
 
