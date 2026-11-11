@@ -6,6 +6,10 @@ using GameServer.Storage;
 /// <summary>SDK-only access to the server's validation and post-session save transaction.</summary>
 public sealed class CharacterBuildApi(ModuleLifetime lifetime, TimeProvider? time = null) : ICharacterBuilds
 {
+    /// <summary>Character build imports for this mod's load: its plans end when it unloads.</summary>
+    public static ICharacterBuilds For(IModContext mod) =>
+        new CharacterBuildApi(mod.Lifetime as ModuleLifetime ?? throw new ArgumentException("The mod was not loaded by this server."));
+
     public string Capture(IPlayer player) => JsonSerializer.Serialize(Current(Connection(player)));
 
     public ICharacterBuildPlan Prepare(IPlayer player, string json)

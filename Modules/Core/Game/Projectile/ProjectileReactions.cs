@@ -112,7 +112,7 @@ public static partial class Game
         ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
-            session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
+            session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
@@ -171,7 +171,7 @@ public static partial class Game
             || !GameEvents.AllowsLoot(conn)) return;
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;
-        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(monster, position));
+        var modded = GameEvents.RunDrops(conn, ModMonster(monster, position));
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {

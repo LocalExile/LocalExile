@@ -13,29 +13,30 @@ public sealed class GameModule : IModule
     {
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic(module.Lifetime));
-        module.OnTick((player, _) => global::DoedreSewers.Tick(Program.ConnOf(player)));
-        module.Lifetime.Own(GameEvents.ObjectUse.Add("Game", global::DoedreSewers.Use));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::DoedreSewers.PlayerStats));
+        string id = module.Manifest.Id;
+        GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));
+        GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
-        module.OnPlayerLeaving((player, _) => global::DoedreSewers.Leaving(Program.ConnOf(player)));
-        module.OnTick((player, _) => global::BrineKing.Tick(Program.ConnOf(player)));
-        module.OnTick((player, _) => global::VaalOversoul.Tick(Program.ConnOf(player)));
-        module.OnTick((player, _) => global::DepravedTrinity.Tick(Program.ConnOf(player)));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DoedreSewers.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::BrineKing.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
-        module.Lifetime.Own(GameEvents.ObjectUse.Add("Game", global::DepravedTrinity.Use));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("RottingCore", global::DepravedTrinity.PlayerStats));
-        module.OnPlayerLeaving((player, _) => global::DepravedTrinity.Leaving(Program.ConnOf(player)));
+        GameEvents.ObjectUse.Add(module.Manifest.Id, global::DepravedTrinity.Use);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DepravedTrinity.PlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DepravedTrinity.Leaving(conn));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
-        module.OnPlayerLeaving((player, _) => global::VaalOversoul.Leaving(Program.ConnOf(player)));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game",global::BrineKing.PlayerStats));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id,global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
-        module.Lifetime.Own(GameEvents.Kill.Add("Game", Rules.ReservationKill));
-        module.OnTick((player, _) => global::Slayer.Tick(Program.ConnOf(player)));
-        module.Lifetime.Own(GameEvents.Kill.Add("Game", global::Slayer.Kill));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::Slayer.PlayerStats));
-        module.Lifetime.Own(GameEvents.OutgoingDamage.Add("Game", global::Slayer.OutgoingDamage));
-        module.OnPlayerLeaving((player, _) => global::Slayer.Leaving(Program.ConnOf(player)));
-        module.OnPlayerLeaving((player, _) => global::BrineKing.Leaving(Program.ConnOf(player)));
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
+        GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
+        GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Slayer.PlayerStats);
+        GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
     }
 }
 

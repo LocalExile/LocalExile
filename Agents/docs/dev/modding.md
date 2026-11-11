@@ -11,9 +11,9 @@ every league.
 
 What is built and what is planned: [status](../../status/setup-and-tooling.md) ("Mods"),
 [roadmap](../../roadmap/setup-and-tooling.md) ("Mods").
-Code: `src/GameServer.Modding/` (the API), `src/GameServer.Gateway/Modding/ModHost.cs` (loading, hooks),
-`ModLoadContext.cs`, `ModScripts.cs` (scripts), `ServerHooks.cs` (dispatch), `Program.Mods.cs` (what the Gateway shows a mod,
-where it calls the hooks).
+Code: `src/GameServer.Modding/` (the loader contract and host services), `src/GameServer.Gateway/Modding/ModHost.cs`
+(loading), `ModLoadContext.cs`, `ModScripts.cs` (scripts), `GameEvents.cs` (the hooks, and what each owner holds),
+`Program.Mods.cs` (what the Gateway shows a mod).
 
 ## A mod's folder
 
@@ -42,7 +42,7 @@ reloads it under the rules of [Reloading](#reloading) (about 0.4 s, plus a secon
 // Mods/Binaries/ping/ping.cs
 public sealed class Ping : IMod
 {
-    public void Load(IModContext mod) => mod.OnChatCommand("ping", "/ping", c => c.Player.Tell("pong"));
+    public void Load(IModContext mod) => GameEvents.Command(mod.Manifest.Id, "ping", "/ping", (conn, args) => conn.Commands!.Reply("pong"));
 }
 ```
 
@@ -50,8 +50,8 @@ public sealed class Ping : IMod
   work as for any mod, and a `.dll` beside the scripts loads as well.
 - Every file has the usings of `System`, `System.Collections.Generic`, `System.IO`, `System.Linq`, `System.Threading`,
   `System.Threading.Tasks` and `GameServer.Modding`, and nullable checks on. All the folder's `.cs` files are one assembly.
-- They compile against the framework, `GameServer.Modding`, the `.dll` files in the folder and the assemblies of the mods in
-  `depends`. Not the server's: `GameServer.Core` is an unknown namespace to them.
+- They compile against the framework, `GameServer.Modding`, the Gateway (whose types, `GameEvents` among them, are in the
+  global namespace), `GameServer.Core`, the `.dll` files in the folder and the assemblies of the mods in `depends`.
 - A compile error is the mod's reason in `/mod`, in the log and in chat (`file.cs(line,column): CS0000 text`, the first five).
   The mod stays unloaded until the file compiles. A script runs with the Gateway's rights, like any mod's assembly.
 
@@ -71,8 +71,9 @@ public sealed class MyMod : IMod
 {
     public void Load(IModContext mod)
     {
-        mod.OnChatCommand("hello", "/hello (says hello)", c => c.Player.Tell($"Hello, {c.Player.Character}"));
-        mod.ModifyDrops(d => { if (d.Monster.Rarity == MonsterRarity.Unique) d.Items.Add("Exalted Orb"); });
+        string id = mod.Manifest.Id;
+        GameEvents.Command(id, "hello", "/hello (says hello)", (conn, args) => conn.Commands!.Reply($"Hello, {conn.Character}"));
+        GameEvents.Drops.Add(id, d => { if (d.Monster.Rarity == MonsterRarity.Unique) d.Items.Add("Exalted Orb"); });
     }
 }
 ```
@@ -107,7 +108,7 @@ sealed record Choices(double Multiplier);
 public void Load(IModContext mod)
 {
     double multiplier = mod.Settings<Choices>().Multiplier;
-    mod.ModifyDrops(drops => drops.Quantity *= multiplier);
+    GameEvents.Drops.Add(mod.Manifest.Id, drops => drops.Quantity *= multiplier);
 }
 ```
 
@@ -147,30 +148,44 @@ Every setting has `type` and `default` (a group excepted), and may have:
 
 ## Hooks
 
-Each `IModContext` call returns a handle; disposing it removes that hook, and unloading the mod removes them all.
+There is one hook system, `GameEvents`, for modules and mods alike. A subscription names its owner, the mod's or module's
+id (`mod.Manifest.Id`): `GameEvents.Tick.Add(id, (conn, seconds) => …)`. It returns a handle, but nothing has to keep it:
+when the mod unloads the host releases everything its id holds, its subscriptions and its switches. A module's run only
+in the leagues that list it; a mod's run in every league, after the modules'.
 
-| Call | When | Can change |
+| Event | When | Can change |
 |---|---|---|
-| `OnChatCommand(name, usage, run)` | `/name args…` typed in chat; the Gateway's own commands win, then the first mod to take the name; `/commands` lists it | |
-| `OnTick(run)` | the player tick, about 4 a second in an area (not while paused), with the game seconds since the last one | |
-| `OnPacket(opcode, run)` | a C→S message with that opcode, before the Gateway's handler | `true` takes it: the Gateway's handler does not run |
-| `OnAreaGenerated(run)` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
-| `OnObjectUsed(run)` | a click on an object the Gateway's own objects did not take | `true`: it was this mod's |
-| `OnMonsterKilled(run)` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
-| `ModifyDrops(modify)` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
-| `ModifyExperience(modify)` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
-| `ModifyStats(modify)` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
-| `UseChatServer(host, port)` | until it unloads: global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one | |
-| `UseExchangeOptions(options)` | until it unloads: the [Currency Exchange](../protocol/29-currency-exchange.md) trades by these options | |
-| `CharacterBuilds.Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes | `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
-| `PublishExchangeRates(json)` | any time: new rates for the Currency Exchange, which the Gateway saves | |
+| `Command(id, name, usage, run)` | `/name args…` typed in chat; the Gateway's own commands win, then the first owner to take the name; `/commands` lists it | |
+| `Tick` | the player tick, about 4 a second in an area (not while paused), with the game seconds since the last one | |
+| `Packet(opcode)` | a C→S message with that opcode, before the Gateway's handler | `true` takes it: the Gateway's handler does not run |
+| `AreaGenerated` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
+| `ObjectUse` | a click on an object the Gateway's own objects did not take | `true`: it was this owner's |
+| `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
+| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
+| `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
+| `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
+| `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area, the area header, a picked NPC option | |
 
-A player (`IPlayer`) is one connection: character, account, league, its modes and the league it plays by, level, area id and seed, position,
-`Tell` (chat lines) and `Send` (a raw S→C message). An area change is a new connection.
-A hook that throws is logged as `[mods] <id> <hook> failed (skipped)` with its stack trace; a failed command also tells
-the player. It does not stop the connection or the other mods.
-Hooks run on the players' connection tasks, several at once: keep shared state thread-safe, and keep the modifiers
-cheap (`ModifyStats` runs on every stat rebuild).
+The other `GameEvents` entries (kills, damage, skills, items, travel, …) are the game module's hand-overs to the other
+modules; a mod subscribes to them the same way.
+
+Switches are plain Gateway members, held under the owner's id until it unloads:
+
+| Call | Does |
+|---|---|
+| `ChatRoutes.Use(id, host, port)` | global, trade and whisper chat go through this [chat server](../protocol/10-chat-and-commands.md) instead of the local one |
+| `ExchangeRateStore.Use(id, options)` | the [Currency Exchange](../protocol/29-currency-exchange.md) trades by these options |
+| `ExchangeRateStore.Publish(json)` | any time: new rates for the Currency Exchange, which the Gateway saves |
+| `GameEventOwners.Own(id, disposable)` | anything else the owner wants released when it unloads |
+| `CharacterBuildApi.For(mod).Capture(player)` / `Prepare(player, json)` | capture the admitted record or validate a version-1 native build; the disposable plan expires after five minutes; `plan.Confirm()` accepts once, then the server drains the old connection and atomically replaces build-owned data; unload cancels unaccepted plans |
+
+A connection (`ClientState`) is one player in one area; `Program.PlayerOf(conn)` is its `IPlayer` and `Program.WorldOf(conn)`
+its `IPlayerWorld`, both the Gateway's (character, account,
+league, level, area, position, `Tell`, `Send`). An area change is a new connection.
+A subscriber that throws is logged as `[events] <owner> <event> failed (skipped)` with its stack trace; a failed command
+also tells the player. It does not stop the connection or the other owners.
+Subscribers run on the players' connection tasks, several at once: keep shared state thread-safe, and keep the modifiers
+cheap (`Stats` runs on every stat rebuild).
 
 ## Reloading
 
@@ -203,9 +218,8 @@ warning).
 A project mod compiles against the Gateway, Core and the Game module beside `GameServer.Modding` (`Mod.props`, and
 LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` when it uses the game's rules: it then
 reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
-own, and those subscriptions run in every league while it is loaded; it disposes them when it unloads. A mod that uses
-only `GameServer.Modding` keeps working while the server changes; one that uses the server breaks when what it uses
-changes, as a module would, and is fixed in its own repository.
+own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads. A mod
+breaks when what it uses in the server changes, as a module would, and is fixed in its own repository.
 
 When a mod needs the framework to hand it something it does not, its LocalExile pull request adds a **general hook or
 event**, one any mod could use ("before an item is rolled", "when currency lands"), and nothing else. The feature's

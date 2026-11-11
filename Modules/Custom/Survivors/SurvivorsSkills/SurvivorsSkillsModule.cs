@@ -9,8 +9,8 @@ public sealed class SurvivorsSkillsModule : IModule
     public void Load(IModuleContext module)
     {
         SurvivorsSkills.SkillsStopping = module.Lifetime.Stopping;
-        module.Lifetime.Own(GameEvents.GrantedSkills.Add("SurvivorsSkills", SurvivorsSkills.GrantedSkills));
-        module.Lifetime.Own(GameEvents.SkillBarBuilding.Add("SurvivorsSkills", (conn, ids) =>
+        GameEvents.GrantedSkills.Add(module.Manifest.Id, SurvivorsSkills.GrantedSkills);
+        GameEvents.SkillBarBuilding.Add(module.Manifest.Id, (conn, ids) =>
         {
             foreach (var skill in SurvivorsSkills.GrantedSkills(conn))
             {
@@ -18,13 +18,13 @@ public sealed class SurvivorsSkillsModule : IModule
                 if (free < 3) break;
                 ids[free] = skill.Id;
             }
-        }));
-        module.OnPacket(InstanceProtocol.UseSkillAtLocationId, packet =>
-            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(ConnOf(packet.Player),
-                InstanceProtocol.ReadUseSkillAtLocation(packet.Bytes.Span).SkillId)));
-        module.OnPacket(InstanceTransfer.UseSkillOnObjectId, packet =>
-            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(ConnOf(packet.Player),
-                InstanceTransfer.ReadUseSkillOnObject(packet.Bytes.Span).SkillId)));
+        });
+        GameEvents.Packet(InstanceProtocol.UseSkillAtLocationId).Add(module.Manifest.Id, (conn, bytes) =>
+            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(conn,
+                InstanceProtocol.ReadUseSkillAtLocation(bytes.AsSpan()).SkillId)));
+        GameEvents.Packet(InstanceTransfer.UseSkillOnObjectId).Add(module.Manifest.Id, (conn, bytes) =>
+            Task.FromResult(SurvivorsSkills.SurvivorsOwnsSkill(conn,
+                InstanceTransfer.ReadUseSkillOnObject(bytes.AsSpan()).SkillId)));
     }
 }
 

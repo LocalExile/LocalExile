@@ -12,21 +12,16 @@ public sealed class ChatCommands
     /// <summary>Tells the player something (chat lines, one per line of the text).</summary>
     public required Func<string, Task> Reply { get; init; }
 
-    /// <summary>The loaded mods' commands (ModHost), run when none of ours has the name: false when no mod has it either.
-    /// Asked at every use, so a mod's reload changes them on a connection that is already open.</summary>
-    public Func<string, string[], Task<bool>>? ModCommand { get; init; }
-
-    /// <summary>The loaded mods' command names and usages, for /commands.</summary>
-    public Func<IEnumerable<(string Name, string Usage)>>? ModUsages { get; init; }
+    /// <summary>The same replies with no commands: what a connection keeps once a module or mod unloads, so its last table
+    /// holds none of the unloaded code's handlers. The next typed command builds the full table again.</summary>
+    public ChatCommands Emptied() => new() { Send = Send, Reply = Reply };
 
     /// <summary>Commands per /help page.</summary>
     public const int PageSize = 8;
 
     private readonly Dictionary<string, (string Usage, Func<string[], Task> Run, string[] Arguments)> _commands = new(StringComparer.OrdinalIgnoreCase);
 
-    // Ours, then the mods' that ours do not shadow.
-    IEnumerable<(string Name, string Usage)> All() => _commands.Select(c => (c.Key, c.Value.Usage))
-        .Concat((ModUsages?.Invoke() ?? []).Where(m => !_commands.ContainsKey(m.Name)));
+    IEnumerable<(string Name, string Usage)> All() => _commands.Select(c => (c.Key, c.Value.Usage));
 
     /// <param name="arguments">What each leading argument names, for an external tool's suggestions
     /// (<see cref="Program.CompletionValues"/>: area, monster, item, gem, stat, npc, quest_flag); the other arguments
@@ -34,6 +29,13 @@ public sealed class ChatCommands
     public ChatCommands Add(string name, string usage, Func<string[], Task> run, params string[] arguments)
     {
         _commands[name] = (usage, run, arguments);
+        return this;
+    }
+
+    /// <summary><see cref="Add"/>, unless a command of that name is there already.</summary>
+    public ChatCommands TryAdd(string name, string usage, Func<string[], Task> run, params string[] arguments)
+    {
+        _commands.TryAdd(name, (usage, run, arguments));
         return this;
     }
 
@@ -51,7 +53,6 @@ public sealed class ChatCommands
         }
         if (!_commands.TryGetValue(parts[0], out var cmd))
         {
-            if (ModCommand is not null && await ModCommand(parts[0], parts[1..])) return true;
             await Reply($"Unknown command /{parts[0]}. Type /commands (or /com) for the list.");
             return false;
         }
@@ -76,11 +77,10 @@ public sealed class ChatCommands
             .Prepend($"--- Commands page {page}/{pages} ---:").Prepend("\n\n\n").Append("").Append(footer));
     }
 
-    /// <summary>Every command's name, full usage and argument kinds by name, /commands and the mods' included
+    /// <summary>Every command's name, full usage and argument kinds by name, /commands included
     /// (`GameServer.Gateway commands`, for tools such as the desktop launcher).</summary>
     public IEnumerable<(string Name, string Usage, string[] Arguments)> Usages =>
         _commands.Select(c => (c.Key, c.Value.Usage, c.Value.Arguments))
-            .Concat((ModUsages?.Invoke() ?? []).Where(m => !_commands.ContainsKey(m.Name)).Select(m => (m.Name, m.Usage, Array.Empty<string>())))
             .Append(("commands", "/commands [page | name] (/com; the command list, or the commands whose name contains it)", []))
             .OrderBy(c => c.Item1, StringComparer.OrdinalIgnoreCase);
 

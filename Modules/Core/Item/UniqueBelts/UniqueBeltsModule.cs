@@ -9,26 +9,17 @@ using static UniqueBeltsFeature;
 namespace GameServer.Modules.M_uniquebelts;
 
 /// <summary>Headhunter's stolen modifiers, Mageblood's flasks, damage against rarity.</summary>
-public sealed class UniqueBeltsModule : IModule, IDisposable
+public sealed class UniqueBeltsModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("UniqueBelts", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        On(GameEvents.Kill, kill => { if (kill.PlayerKill) StealMonsterMods(kill.Conn, kill.Monster); });
-        On(GameEvents.PlayerStatSources, WithStolenMods);
-        On(GameEvents.OutgoingDamage, (_, player, monster, rolled) => WithDamageVsRarity(player, monster, rolled));
-        module.OnAreaGenerated(player =>
+        GameEvents.Kill.Add(module.Manifest.Id, kill => { if (kill.PlayerKill) StealMonsterMods(kill.Conn, kill.Monster); });
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithStolenMods);
+        GameEvents.OutgoingDamage.Add(module.Manifest.Id, (_, player, monster, rolled) => WithDamageVsRarity(player, monster, rolled));
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            var (remote, stream, ciphers) = conn.Wire;
             _ = RunUniqueBeltEffects(remote, stream, ciphers, conn);
             return Task.CompletedTask;
         });

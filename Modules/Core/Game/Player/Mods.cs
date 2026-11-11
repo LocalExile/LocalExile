@@ -1,13 +1,11 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Accounts;
-using Mod = GameServer.Modding;
 
 public static partial class Game
 {
-
-    public static Mod.MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
+    public static MonsterInfo ModMonster(SpawnedMonster m, (int X, int Y) at) =>
         new(m.Variety?.Id ?? "", m.Variety?.Name ?? m.Label, m.Level,
-            Enum.TryParse<Mod.MonsterRarity>(m.Rarity.ToString(), out var rarity) ? rarity : Mod.MonsterRarity.Normal, at.X, at.Y);
+            m.Rarity, at.X, at.Y);
 
     // A mod's extra drop (DropRoll.Items), named as /item takes it: a unique's name, else a BaseItemTypes id or name.
     public static ItemDrops.Drop? ModDrop(ClientState conn, string query, int itemLevel)

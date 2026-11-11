@@ -1,8 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 
-namespace GameServer.Modding;
 
-/// <summary>What a module can do with a player's world (<see cref="IModuleContext.World"/>): objects, walking, windows, crafting
+/// <summary>What a module can do with a player's world (<see cref="Program.WorldOf(IPlayer)"/>): objects, walking, windows, crafting
 /// and saved data. Messages go through <see cref="IPlayer.Send"/>, built with GameServer.Core's protocol, which modules may use.</summary>
 public interface IPlayerWorld
 {
@@ -62,8 +61,9 @@ public interface IPlayerWorld
     /// <summary>The item rules of the player's data set.</summary>
     IItemCrafting Crafting { get; }
 
-    /// <summary>The NPC dialogue plays this option's text and audio; Continue returns to the options.</summary>
-    Task NpcSay(NpcOption option);
+    /// <summary>The NPC dialogue plays this option's text and audio (its index among the NPC's options, its <c>NPCTalk</c> row and text,
+    /// for the log); Continue returns to the options.</summary>
+    Task NpcSay(string npc, string option, int index, int row);
 
     /// <summary>Ends the dialogue state without closing the window: another screen takes over.</summary>
     void NpcEndTalk();

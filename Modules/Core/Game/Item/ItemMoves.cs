@@ -244,7 +244,7 @@ public static class ItemMoves
 
     /// <summary>The one item in a slot row and every cost commit together.</summary>
     public static SlotCraft? CraftInSlot(PlayerInventories items, AccountStash stash, byte row,
-        Func<Item, GameServer.Modding.CraftResult?> craftIt) => Saves.Atomically<SlotCraft?>(() =>
+        Func<Item, CraftResult?> craftIt) => Saves.Atomically<SlotCraft?>(() =>
     {
         var targets = items.Items(row);
         if (targets.Count != 1 || craftIt(targets[0].Item) is not { } craft) return null;

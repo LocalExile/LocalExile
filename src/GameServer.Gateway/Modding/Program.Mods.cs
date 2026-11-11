@@ -1,44 +1,35 @@
 using System.Runtime.CompilerServices;
 using GameServer.Core.Accounts;
-using Mod = GameServer.Modding;
 
-// The mods in Mods/Binaries/ (ModHost, Agents/docs/dev/modding.md) and what the Gateway shows them: a player (ModPlayer) and the
-// monsters it kills. The hooks are called where the Gateway does the same thing itself (commands, the player tick, the
-// message dispatch, the area's setup, a kill, its drops and experience, the character's stats).
+// The hosts of leagues' code, modules and mods (ModHost, Agents/docs/dev/modding.md), and the player as GameServer.Modding shows it.
+// What they hook into is GameEvents (GameEvents.cs): one hook system, each subscriber running for its league's players.
 public partial class Program
 {
-    // A league (Leagues/<Name>/) is a set of modules (Modules/, Modules/Core/); a mod (Mods/) is a small modification, global and the
-    // user's own. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
+    // A league (Leagues/<Name>/) is a set of modules (Modules/Core/, Legacy/, Custom/); a mod (Mods/) is the user's opt-in custom
+    // content, in every league. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
     // while it runs; the code of a loaded league, module or mod hot-reloads.
     public static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
     public static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
 
     public static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
     {
-        Active = (player, id) => player.LeagueId.Equals(id, StringComparison.OrdinalIgnoreCase),
-        WorldOf = player => Logic.WorldFor(ConnOf(player)),
         GameValues = GameValuesOf,
     };
 
     public static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
     {
         Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup),
-        // A module runs only for the players whose league lists it, so a league without one has nothing of it to break on.
-        Active = (player, id) => ModulesFor(ConnOf(player)).Contains(id),
-        WorldOf = player => Logic.WorldFor(ConnOf(player)),
         GameValues = GameValuesOf,
     };
     // A mod gets what a module gets, in every league: the server's assemblies, the modules it depends on, the player's world.
     public static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine)
     {
         Modules = ServerModules,
-        WorldOf = player => Logic.WorldFor(ConnOf(player)),
         GameValues = GameValuesOf,
     };
 
     // A setting's source (an area, an item, ...): what /goto and the other commands complete; unknown before the game module loads.
     static IEnumerable<string>? GameValuesOf(string kind) => GameLogicOrNull?.CompletionValues(kind)?.Select(v => v.Value);
-    public static readonly ServerHooks ServerHooks = new(ServerLeagueCode, ServerModules, ServerMods);
 
     public static void StartMods()
     {
@@ -120,8 +111,14 @@ public partial class Program
     }
 
     /// <summary>The player as mods see it (one per connection).</summary>
-    public static Mod.IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, Logic.PlayerFor);
+    /// <summary>What a module or mod can do with this player's world: objects, walking, windows, crafting and saved data.</summary>
+    public static IPlayerWorld WorldOf(IPlayer player) => Logic.WorldFor(ConnOf(player));
+
+    /// <summary>What a module or mod can do with this connection's world.</summary>
+    public static IPlayerWorld WorldOf(ClientState conn) => Logic.WorldFor(conn);
+
+    public static IPlayer PlayerOf(ClientState conn) => ModPlayers.GetValue(conn, Logic.PlayerFor);
 
     /// <summary>The connection behind a player, for what the Gateway gives modules.</summary>
-    public static ClientState ConnOf(Mod.IPlayer player) => ((IConnectionPlayer)player).Conn;
+    public static ClientState ConnOf(IPlayer player) => ((IConnectionPlayer)player).Conn;
 }

@@ -1,4 +1,4 @@
-/// <summary>The chat server the mods asked for (<c>IModContext.UseChatServer</c>), for the Chat module to follow. It stays here so
+/// <summary>The chat server a mod asked for (<see cref="Use(string, string, int)"/>), for the Chat module to follow. It stays here so
 /// that a mod and the module can each load and reload without the other. The last one asked wins; none means local chat.</summary>
 public static class ChatRoutes
 {
@@ -15,6 +15,10 @@ public static class ChatRoutes
     {
         get { lock (Asked) return Asked.Count == 0 ? null : Asked[^1]; }
     }
+
+    /// <summary>Global, trade and whisper chat go through this chat server until the handle is disposed or its owner unloads, then back to
+    /// the Gateway's local one. The players in game move at once.</summary>
+    public static IDisposable Use(string owner, string host, int port) => GameEventOwners.Own(owner, Use(host, port));
 
     public static IDisposable Use(string host, int port)
     {

@@ -420,9 +420,9 @@ public static partial class Game
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
-        // The mods' stats (Program.Mods.cs), added like /god's: the pools (life, mana) are not rebuilt from them.
-        if (Program.ServerHooks.ChangesStats)
-            foreach (var (stat, value) in Program.ServerHooks.Stats(PlayerOf(conn)))
+        // The subscribers' stats (GameEvents.Stats), added like /god's: the pools (life, mana) are not rebuilt from them.
+        if (GameEvents.Stats.Any)
+            foreach (var (stat, value) in GameEvents.RunStats(conn))
                 if (Stats.Key(stat) is uint key) extra[key] = ActorScale.Saturate((long)extra.GetValueOrDefault(key) + value);
         foreach (var (k, v) in extra) if (seen.Add(k)) yield return (k, v);
     }

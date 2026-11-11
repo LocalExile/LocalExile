@@ -6,7 +6,7 @@ You need Windows 10/11 x64 and your own copy of the standalone Path of Exile 3.2
 TO PLAY
 Double-click LocalExile.exe, or run it in a terminal, and answer its questions. The first start copies the client if you
 choose that, extracts the game data (several minutes; each step is reported) and has you create a local account.
-Later starts take about a minute. In game, set Options > Game > Network Mode to Predictive once.
+Later starts take about a minute.
 
 ALWAYS START THE GAME WITH LocalExile.exe
 Started any other way (the game's own executable, Steam, the official launcher), the client contacts the official patch
