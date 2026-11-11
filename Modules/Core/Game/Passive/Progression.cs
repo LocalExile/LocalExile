@@ -1334,7 +1334,7 @@ public static partial class Game
     // The second ascendancy layer (Descendancy.dat): Affliction's Wildwood specialisations and the 3.29 Bloodline
     // classes. Its row is 0x33's spare byte, so the client draws that row's tree beside the main ascendancy; the
     // selection saves like the main one. The client's point budget sums both layers against the earned ascendancy points.
-    internal static void SelectDescendancy(ClientState conn, byte row)
+    public static void SelectDescendancy(ClientState conn, byte row)
     {
         if (row != 0 && Descendancies.Rows.All(r => r.Index != row))
             throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
