@@ -67,6 +67,19 @@ public class PantheonBossSkillTests
             // None of them is a boss of its own: the AI drives them, the controllers do not.
             Assert.False(CampaignBosses.IsBoss(variety), raised);
         }
+        // The endgame bosses' kits are generated from their own rows (there is no per-boss list), so this is what keeps
+        // one of them from playing a row its variety was never granted: every bar-boss this controller scripts has a
+        // kit, the swing inside it, and nothing outside its granted rows.
+        int endgame = 0;
+        foreach (var variety in monsters.All.Where(v => v.BossHealthBar && CampaignBosses.IsEndgame(v)))
+        {
+            endgame++;
+            var kit = CampaignBosses.EffectsFor(variety);
+            Assert.NotEmpty(kit);
+            Assert.Contains(CampaignBosses.BasicEffect(variety), kit);
+            foreach (int effect in kit) Assert.Contains(effect, variety.GrantedEffects!);
+        }
+        Assert.True(endgame > 50, $"{endgame} endgame bosses");
         // The acts' bosses: every kit is built out of that variety's own rows (never an effect the client did not
         // grant it), and the whole kit gets a skill id of its own. Kitava's two fights are not here: they are
         // KitavaActFive's and KitavaActTen's own controllers (and this table must not claim them).

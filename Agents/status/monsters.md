@@ -347,6 +347,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  The endgame bosses (Izaro, Atziri, the map, league and pinnacle bosses) still play one plain swing: only the Atlas
-  pinnacles, the Depraved Trinity, Doedre, the Vaal Oversoul, the King in the Mists, the Brine King, Hillock and the
-  campaign bosses above have a controller of their own.
+  Every other boss with a bar is scripted too, without a per-boss list: any `BossHealthBar` variety no other controller
+  claims (131 of them: the map, league, breach, incursion, bestiary, expedition and pinnacle fights) takes its own
+  granted rows as its kit, its Default Attack (or its plain melee) first and at most six, and a row whose skill name
+  reads as a spawn, a stance, a warp, a dodge or a taunt is played as a clip with no hit. The ones with a controller of
+  their own are the Atlas pinnacles, the Depraved Trinity, Doedre, the Vaal Oversoul, the King in the Mists, the Brine
+  King, Hillock, Izaro, Atziri and the campaign bosses above. A bar-boss whose variety grants no skill at all stays a
+  plain mobile boss (there is nothing to play).

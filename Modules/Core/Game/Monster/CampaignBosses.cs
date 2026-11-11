@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using static Game;
@@ -431,10 +432,88 @@ static class CampaignBosses
     // The Apex of Sacrifice's Atziri, both forms.
     internal static bool IsApex(MonsterCatalog.Variety? v) => v?.Id is Atziri or Atziri2;
 
-    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsLabyrinth(v) || IsApex(v)
+    /// <summary>Whether this controller scripts the boss: the acts', Izaro, Atziri, the Pantheon's twelve.</summary>
+    internal static bool IsOwned(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsLabyrinth(v) || IsApex(v)
         || IsTukohama(v)
         || IsAbberath(v) || IsRyslatha(v) || IsGreust(v) || IsGruthkul(v) || IsArakaali(v) || IsYugul(v)
         || IsSolaris(v) || IsLunaris(v) || IsShakari(v) || IsGarukhan(v));
+
+    /// <summary>A bar-boss no other controller claims: the map, league and pinnacle fights the atlas, the Maven, the
+    /// Elder, Sirus, the Brine King, the Depraved Trinity, Doedre and the King in the Mists do not own. Its own granted
+    /// rows are its whole kit (<see cref="EndgameKit"/>).</summary>
+    internal static bool IsEndgame(MonsterCatalog.Variety? v) => v is { BossHealthBar: true, GrantedEffects.Count: > 0 } && !IsOwned(v)
+        && !AtlasBosses.IsBoss(v) && !BrineKing.IsBoss(v) && !DepravedTrinity.IsBoss(v) && !DoedreSewers.IsBoss(v)
+        && !KingInMists.IsBoss(v) && !VaalOversoul.IsBoss(v)
+        // Kitava keeps his own fights (KitavaActFive.cs, KitavaActTen.cs), which own his body, heart, Sin and Innocence:
+        // giving the body a second kit here would rotate rows over the encounter's own actions.
+        && !KitavaActFive.IsActor(v) && !KitavaActTen.IsActor(v);
+
+    internal static bool IsBoss(MonsterCatalog.Variety? v) => IsOwned(v) || IsEndgame(v);
+
+    // ---- The endgame bosses' kits ----
+    //
+    // Nobody picked these rows one by one (there are over a hundred of them), so a boss's own granted rows are its kit:
+    // the swing first and at most six of them, so the rotation stays readable instead of cycling a whole row list. A row
+    // whose skill name reads as a spawn, a stance, a warp, a dodge or a taunt carries no hit of its own even though no
+    // hand-picked list names it (Marker), which is what keeps a summon row from being played as a physical hit.
+
+    const int EndgameKitSize = 6;
+
+    /// <summary>The endgame boss's kit: its own rows, the swing first.</summary>
+    internal static int[] EndgameKit(MonsterCatalog.Variety variety)
+    {
+        if (variety.GrantedEffects is not { Count: > 0 } rows) return [];
+        int swing = rows.FirstOrDefault(IsOwnSwing);
+        List<int> kit = swing == 0 ? [] : [swing];
+        foreach (int effect in rows)
+            if (effect != swing && kit.Count < EndgameKitSize) kit.Add(effect);
+        return [.. kit];
+    }
+
+    /// <summary>The row a boss swings with when nobody named one: its Default Attack, else the plain melee (Izaro's
+    /// row is "melee", Brutus' "cleave").</summary>
+    static bool IsOwnSwing(int effect) => EffectName(effect) is string name
+        && (name.Contains("default_attack", StringComparison.Ordinal) || name is "melee" or "cleave" or "double_strike");
+
+    /// <summary>A row with no hit of its own: the hand-picked ones, and any row whose skill name says it spawns, hides,
+    /// warps, dodges or taunts.</summary>
+    internal static bool Marker(int effect) => Markers.Contains(effect)
+        || (EffectName(effect) is string name && UnhitNameParts.Any(part => name.Contains(part, StringComparison.Ordinal)));
+
+    static readonly string[] UnhitNameParts =
+    [
+        "summon", "spawn", "raise_", "taunt", "teleport", "warp", "blink", "dodge", "hide", "burrow", "emerge",
+        "mirror", "portal", "transform", "change_to_stance", "_shield", "flee",
+    ];
+
+    /// <summary>An effect's skill id (GrantedEffects' ActiveSkill row's Id), read once.</summary>
+    internal static string? EffectName(int effect) => EffectSkillNames.Value.GetValueOrDefault(effect);
+
+    static readonly Lazy<Dictionary<int, string>> EffectSkillNames = new(LoadEffectSkillNames);
+
+    static Dictionary<int, string> LoadEffectSkillNames()
+    {
+        var names = new Dictionary<int, string>();
+        try
+        {
+            using var effects = GameTables.Open("data/tables/GrantedEffects.json");
+            using var skills = GameTables.Open("data/tables/ActiveSkills.json");
+            string[] ids = [.. skills.RootElement.EnumerateArray()
+                .Select(r => r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "")];
+            int row = 0;
+            foreach (var effect in effects.RootElement.EnumerateArray())
+            {
+                if (effect.TryGetProperty("ActiveSkill", out var skill) && skill.ValueKind == JsonValueKind.Number
+                    && ids.ElementAtOrDefault(skill.GetInt32()) is { Length: > 0 } name) names[row] = name;
+                row++;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+        {
+            Console.WriteLine($"[game] the effects' names: {ex.Message}");
+        }
+        return names;
+    }
 
     internal static int[] EffectsFor(MonsterCatalog.Variety variety) => variety.Id switch
     {
@@ -474,7 +553,8 @@ static class CampaignBosses
         Shakari or Shakari2 => variety.Id == Shakari ? ShakariEffects : Shakari2Effects,
         Garukhan => GarukhanEffects,
         Arakaali => ArakaaliEffects,
-        _ => [],
+        // The endgame bosses: nobody picked their rows one by one, so their own granted rows are their kit.
+        _ => EndgameKit(variety),
     };
 
     /// <summary>The kit's own melee: the row's first effect when that is a plain attack (the melee, the claw or the
@@ -525,7 +605,7 @@ static class CampaignBosses
         var (min, max) = Monsters.BaseDamage(variety, (byte)Math.Clamp(level, 1, 100)) ?? (1, 1);
         double scale = DamageScale.GetValueOrDefault(effect, 1.0);
         var damage = catalog.HitDamage(effect, level);
-        bool marker = Markers.Contains(effect);
+        bool marker = Marker(effect);
         bool melee = effect == BasicEffect(variety) && MeleeLike(variety);
         if (marker) damage = DamagePacket.Empty;
         else if (damage.MaxTotal <= 0) damage = DamagePacket.Of(DamageType.Physical,
