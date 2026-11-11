@@ -620,6 +620,8 @@ public static partial class Game
         bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect);
         // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
         bool flicker = moves && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
+        // The monster Flicker Strike goes to, which may not be the clicked one (FlickerStrike.Pick): its strike's target.
+        uint struckId = use.TargetId;
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -633,10 +635,11 @@ public static partial class Game
                 if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
                 else if (flicker)
                 {
-                    landing = stand;
+                    // With no monster in range it strikes in place, at no one (as on the ground).
+                    (landing, struckId) = (stand, 0);
                     if (FlickerDestination(conn, gem.Effect, use.SkillId, stand, aim, use.TargetId, castAt) is { } to)
                     {
-                        (aim, landing, flickers) = (to.At, to.Landing, true);
+                        (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
                         conn.Walk.Teleport(landing.X, landing.Y, castAt);
                     }
                 }
@@ -663,7 +666,7 @@ public static partial class Game
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
-        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, use.TargetId,
+        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, struckId,
             sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
     }
 
