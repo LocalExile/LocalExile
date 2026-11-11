@@ -96,6 +96,10 @@ yet confirmed on screen).
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20
   life and 20 mana gained on block, and +1% spell block per 5% attack block (the last is applied after the shield's
   base block).
+  Fire Mastery's "1 Life regenerated per second per 1% uncapped fire resistance" counts in life regeneration, for
+  positive resistance only. Wand Mastery's wand-only effects (an extra attack projectile, accuracy equal to
+  Intelligence) count only while a wand is held; its 0.5% attack life and mana leech is a generic effect that applies
+  with any weapon. Spellslinger's reservation efficiency has no consumer while Spellslinger is unimplemented.
 - **Stats** (`PassiveBonus`, `BaseStats`): the nodes' stats summed; attributes (`base_*`, `additional_*`, all and
   pairs), flat and increased life and mana, increased evasion, energy shield and melee physical damage go into the
   pools ([11](11-skills.md) §4); the other stats are sent as they are (the character panel shows them; nothing uses
