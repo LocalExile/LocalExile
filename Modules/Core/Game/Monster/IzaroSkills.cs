@@ -18,13 +18,21 @@ static class IzaroSkills
 
     // Effect: GrantedEffects row. Contact: the clip's contact over its length (LabyrinthBoss's rig.amd). Reach: how far the
     // player may be for him to use it, from at least Near. Size: the radius, or the line's or cone's length; Width: the line's
-    // half width, the cone's half angle in degrees. Ticks: further hits while the cast lasts.
+    // half width, the cone's half angle in degrees. Ticks: further hits while the cast lasts. StartArt is shown when the
+    // action starts, Art at the contact.
     sealed record Move(int Effect, string Name, double Contact, double Near, double Reach, Shape Shape, double Size, double Width,
-        double Cooldown, double TickSeconds = 0, double TicksFor = 0, string? Art = null, double HoldSeconds = 0);
+        double Cooldown, double TickSeconds = 0, double TicksFor = 0, Fx? Art = null, double HoldSeconds = 0, Fx? StartArt = null);
+
+    // An effect the server shows for a skill, for its clip's length: riding on him, or standing where he is.
+    sealed record Fx(string Ao, double Seconds, bool OnHim);
 
     const int ChargeCells = 60, StopCells = 5;
-    const string WaveArt ="Metadata/Effects/Spells/monsters_effects/labyrinth/skeleton_king/hyper_reave/izarohyperreave.ao";
-    const double WaveSeconds = 1.541;
+    const string ArtFolder = "Metadata/Effects/Spells/monsters_effects/labyrinth/skeleton_king/";
+    static readonly Fx WaveArt = new(ArtFolder + "hyper_reave/izarohyperreave.ao", 1.541, OnHim: true);
+    // MiscAnimated IzaroVollChargeStart (chargeup 2791 ms, about the skill's 2750 ms cast) and LabyrinthBossShieldCharge
+    // (sheildchargeend, animate 6208 ms). LabyrinthBoss.ao names neither, so the client does not play them for the action.
+    static readonly Fx ChargeUpArt = new(ArtFolder + "charge_chargeup/rig.ao", 2.791, OnHim: true);
+    static readonly Fx ChargeImpactArt = new(ArtFolder + "sheildcharge/sheildcharge.ao", 6.208, OnHim: false);
 
     static readonly Move[] Moves =
     [
@@ -37,8 +45,8 @@ static class IzaroSkills
         // The client plays no wave for this action (live), so the server shows that art on him at the contact.
         new(5922, "Divine Slash", 1499.0 / 2933, 0, 19, Shape.Cone, 19, 30, 3, Art: WaveArt),
         // Sword and shield: VollCharge's dash starts 1.6 s after the order and takes 0.25 s (measured, trace-sync.js), at 270
-        // cells/s; its hit is where it ends.
-        new(4362, "Shield Bash", 1.82 / 2.11, 12, 70, Shape.Charge, 0, 8, 4),
+        // cells/s; its hit is where it ends. The charge-up glows on him through the cast, the impact stays where he lands.
+        new(4362, "Shield Bash", 1.82 / 2.11, 12, 70, Shape.Charge, 0, 8, 4, Art: ChargeImpactArt, StartArt: ChargeUpArt),
         // Every weapon: spellcast_cascade_* contact 1966 of 3000 ms. Upheaval (0x141b28470, 0x141b28d10): its 10 spikes go
         // spikes × radius / 1.15 from him towards the aim, radius (12 + active_skill_base_radius_+) × 82 %: 9, so 78 cells.
         // His 2 s cast is shorter than the clip's 3 s: he stands the clip out, or a chase at 2 s walks him through its end.
@@ -223,6 +231,7 @@ static class IzaroSkills
                 .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, use.SkillId, sequence, conn.MonsterOrderFlags,
                     targetObjectId: move.Shape is Shape.Line or Shape.Charge ? null : PlayerId)];
         }, $"0x01ab Izaro 0x{id:x} uses {move.Name} (0x{use.SkillId:x4}, {use.Seconds:0.00} s)")) return;
+        if (move.StartArt is { } start) await ShowArt(remote, stream, ciphers, conn, id, start);
         double contact = startedAt + use.Seconds * move.Contact;
         if (!await WaitMonsterActionTime(conn, id, boss, action, contact)) return;
         // The leap and the charge carry him to where they aimed (the client's action moves its copy).
@@ -281,8 +290,9 @@ static class IzaroSkills
     static (int X, int Y) ChargeEnd(ClientState conn, SpawnedMonster boss, (int X, int Y) from, (int X, int Y) player) =>
         Along(conn, boss, from, player, ChargeCells);
 
-    // An effect that rides on him turned as he is (attachment kind 0, flags 3, as the Arrow Nova arrow), for its clip.
-    static async Task ShowArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, string art)
+    // An effect for its clip: riding on him turned as he is (attachment kind 0, flags 3, as the Arrow Nova arrow), or on
+    // his cell.
+    static async Task ShowArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, Fx art)
     {
         uint effect;
         (int X, int Y) at;
@@ -292,14 +302,16 @@ static class IzaroSkills
             at = conn.Monsters.TryGetValue(id, out var boss) ? boss.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : default;
         }
         var layout = conn.Layout;
-        await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            new EffectObject(at.X, at.Y, art) { Parent = id, AttachKind = 0, AttachFlags = 3 }.Blob()), .. InstanceProtocol.EnterWakeZone(effect)], null);
-        _ = RemoveArt(remote, stream, ciphers, conn, layout, effect);
+        var blob = art.OnHim ? new EffectObject(at.X, at.Y, art.Ao) { Parent = id, AttachKind = 0, AttachFlags = 3 }.Blob()
+            : new EffectObject(at.X, at.Y, art.Ao).Blob();
+        await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
+            .. InstanceProtocol.EnterWakeZone(effect)], $"Izaro 0x{id:x} shows {art.Ao} at ({at.X}, {at.Y}) for {art.Seconds:0.0} s");
+        _ = RemoveArt(remote, stream, ciphers, conn, layout, effect, art.Seconds);
     }
 
-    static async Task RemoveArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaLayout layout, uint effect)
+    static async Task RemoveArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaLayout layout, uint effect, double seconds)
     {
-        await Task.Delay(TimeSpan.FromSeconds(WaveSeconds));
+        await Task.Delay(TimeSpan.FromSeconds(seconds));
         if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
         try { await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(effect), null); }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
