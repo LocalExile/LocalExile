@@ -26,11 +26,14 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// <summary>How a stat of a mod rolls on one unique, or null for the mod's own range.</summary>
     public delegate (int Min, int Max)? StatRoll(ModCatalog.Mod mod, ModSection section, int stat);
 
+    public sealed record RollGroup(int Count, string[] Options, int? HighLevel = null, int? HighLevelCount = null);
+
     /// <summary>One unique. <paramref name="Implicits"/> replaces the base type's own when the unique differs from it
     /// (null keeps the base's). The first <paramref name="Fractured"/> of <paramref name="Mods"/> are fractured.</summary>
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
-        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
+        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0, bool EncounterOnly = false,
+        RollGroup[]? RollGroups = null, int JewelLimit = 0);
 
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
@@ -145,6 +148,20 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
+        foreach (var pool in definition.RollGroups ?? [])
+        {
+            int count = pool.HighLevel is int level && definition.ItemLevel >= level
+                ? pool.HighLevelCount ?? pool.Count : pool.Count;
+            var options = pool.Options.ToArray();
+            if (count < 0 || options.Length < count) return null;
+            for (int i = 0; i < count; i++)
+            {
+                int choice = random.Next(i, options.Length);
+                (options[i], options[choice]) = (options[choice], options[i]);
+                if (items.Mods.ById(options[i]) is not { } mod) return null;
+                mods.Add(mod.Roll(ModSection.Explicit, random));
+            }
+        }
         item = item with { Mods = mods };
         if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
             && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")
@@ -237,7 +254,7 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         var candidates = new List<(Definition Definition, double Weight)>();
         foreach (var definition in All)
         {
-            if (definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
+            if (definition.EncounterOnly || definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
                 || weight(definition.Name) is not (> 0 and var chance) || items.Find(definition.BaseTypeId) is not { Supported: true } type
                 || type.Class != current.Class || type.Width != current.Width || type.Height != current.Height
                 || !_names.Value.TryGetValue(NameKey(definition.Name), out var name) || item.NameWords.Contains(name.Word)

@@ -433,6 +433,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             var byBase = new Dictionary<string, List<UniqueCatalog.Definition>>(StringComparer.Ordinal);
             foreach (var definition in all)
             {
+                if (definition.EncounterOnly) continue;
                 if (!byBase.TryGetValue(definition.BaseTypeId, out var list)) byBase[definition.BaseTypeId] = list = [];
                 list.Add(definition);
             }
