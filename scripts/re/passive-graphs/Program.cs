@@ -39,10 +39,9 @@ byte[] phreciaBytes = fs.ReadFile(Target);
 string alternateHash = Convert.ToHexString(SHA256.HashData(phreciaBytes));
 if (alternateHash != OriginalPhreciaHash && alternateHash != CombinedHash)
     throw new InvalidDataException("The alternate PSG is neither the pinned original nor the pinned compatible 3.29.3c graph. The client archive was not changed.");
-using var passives = JsonDocument.Parse(File.ReadAllBytes("data/tables/PassiveSkills.json"));
-HashSet<uint> ascendancyIds = passives.RootElement.EnumerateArray()
-    .Where(r => r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number)
-    .Select(r => r.GetProperty("PassiveSkillGraphId").GetUInt32()).ToHashSet();
+HashSet<uint> ascendancyIds = GameServer.Core.ClientTable.Load(GameServer.Core.ClientTables.DefaultPath, "PassiveSkills")
+    .Where(r => !r.IsNull("AscendancyKey"))
+    .Select(r => r.UInt("PassiveSkillGraphId")).ToHashSet();
 var merged = alternateHash == CombinedHash ? PassiveSkillGraph.Read(phreciaBytes)
     : AdditionalAscendancyGraph.Merge(PassiveSkillGraph.Read(normalBytes), PassiveSkillGraph.Read(phreciaBytes), ascendancyIds);
 byte[] mergedBytes = merged.Write();

@@ -114,35 +114,26 @@ public sealed class StashRules
     public static StashRules Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows)
     {
         var rules = new StashRules { Uniques = UniqueStashLayout.Load(folder) };
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
         string[] needed = ["StashTabAffinities", "StashTabAffinityByBaseItemType", "StashtabAffinityByItemClassCategory", "ItemClasses",
             "CurrencyStashTabLayout", "EssenceStashTabLayout", "FragmentStashTabLayout", "DelveStashTabLayout", "BlightStashTabLayout",
             "DeliriumStashTabLayout", "DivinationCardStashTabLayout", "Mods"];
-        if (rows.Count == 0 || needed.Any(n => !ClientTables.Exists(Table(n)))) return rules;
+        if (rows.Count == 0 || needed.Any(n => !ClientTables.Has(n))) return rules;
         var byId = rows.GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First().Hash);
         uint? HashOfRow(int row) => row >= 0 && row < rows.Count ? rows[row].Hash : null;
         void Give(uint hash, int affinity) => (rules._affinities.TryGetValue(hash, out var s) ? s : rules._affinities[hash] = []).Add(affinity);
 
-        if (ClientTables.Exists(Table("CurrencyItems")))
-        {
-            using var d = GameTables.Open(Table("CurrencyItems"));
-            foreach (var r in d.RootElement.EnumerateArray())
-                if (r.GetProperty("BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } b
-                    && HashOfRow(b.GetInt32()) is uint hash
-                    && r.TryGetProperty("CurrencyTab_StackSize", out var stack) && stack.ValueKind == JsonValueKind.Number
-                    && stack.TryGetInt32(out int size) && size is > 0 and <= ushort.MaxValue)
+        if (ClientTables.Has("CurrencyItems"))
+            foreach (var r in ClientTables.Table("CurrencyItems"))
+                if (r.IntOrNull("BaseItemTypesKey") is int b && HashOfRow(b) is uint hash
+                    && r.IntOrNull("CurrencyTab_StackSize") is int size && size is > 0 and <= ushort.MaxValue)
                     rules._currencyTabStack[hash] = (ushort)size;
-        }
 
-        if (ClientTables.Exists(Table("MapKeys")))
+        if (ClientTables.Has("MapKeys"))
         {
-            using var d = GameTables.Open(Table("MapKeys"));
-            foreach (var r in d.RootElement.EnumerateArray())
-                if (r.GetProperty("BaseItemType") is { ValueKind: JsonValueKind.Number } b
-                    && HashOfRow(b.GetInt32()) is uint hash
-                    && r.GetProperty("MapTier") is { ValueKind: JsonValueKind.Number } tier)
+            foreach (var r in ClientTables.Table("MapKeys"))
+                if (r.IntOrNull("BaseItemType") is int b && HashOfRow(b) is uint hash && r.IntOrNull("MapTier") is int tier)
                 {
-                    rules._mapTiers.TryAdd(hash, tier.GetInt32());
+                    rules._mapTiers.TryAdd(hash, tier);
                     // A base the client gives the map tab pages to, in tier order (its page keys use its HASH32).
                     if (!rules._mapBases.Contains(hash)) rules._mapBases.Add(hash);
                 }
@@ -150,75 +141,61 @@ public sealed class StashRules
         }
 
         // The map tab's other group 0 bases: the four special maps of MapStashSpecialSubStashGroup (a "Key" row each).
-        if (ClientTables.Exists(Table("MapStashSpecialSubStashGroup")))
-        {
-            using var d = GameTables.Open(Table("MapStashSpecialSubStashGroup"));
-            foreach (var r in d.RootElement.EnumerateArray())
-                if (r.GetProperty("BaseItemTypes") is { ValueKind: JsonValueKind.Number } b
-                    && HashOfRow(b.GetInt32()) is uint hash && !rules._mapBases.Contains(hash))
+        if (ClientTables.Has("MapStashSpecialSubStashGroup"))
+            foreach (var r in ClientTables.Table("MapStashSpecialSubStashGroup"))
+                if (r.IntOrNull("BaseItemTypes") is int b && HashOfRow(b) is uint hash && !rules._mapBases.Contains(hash))
                     rules._mapBases.Add(hash);
-        }
 
         // A guardian map names its guardian in a modifier, not in its base type: MapConquerorContainsBossN (a conqueror,
         // group 2) and MapElderContainsBossN (an elder guardian, group 3), both numbered 1 to 4 (#382).
+        foreach (var r in ClientTables.Table("Mods"))
         {
-            using var d = GameTables.Open(Table("Mods"));
-            foreach (var r in d.RootElement.EnumerateArray())
-            {
-                if (!r.TryGetProperty("Id", out var idValue) || idValue.ValueKind != JsonValueKind.String) continue;
-                var match = System.Text.RegularExpressions.Regex.Match(idValue.GetString() ?? "",
-                    "^Map(Conqueror|Elder)ContainsBoss([1-9])");
-                if (!match.Success || !int.TryParse(match.Groups[2].Value, out int guardian)
-                    || guardian > AccountStash.SpecialGroups) continue;
-                int group = match.Groups[1].Value == "Conqueror" ? 2 : 3;
-                if (r.TryGetProperty("HASH16", out var hash16) && hash16.ValueKind == JsonValueKind.Number)
-                    rules._guardianMods[(ushort)hash16.GetInt32()] = (group, guardian);
-            }
+            if (r.TextOrNull("Id") is not string modId) continue;
+            var match = System.Text.RegularExpressions.Regex.Match(modId, "^Map(Conqueror|Elder)ContainsBoss([1-9])");
+            if (!match.Success || !int.TryParse(match.Groups[2].Value, out int guardian)
+                || guardian > AccountStash.SpecialGroups) continue;
+            int group = match.Groups[1].Value == "Conqueror" ? 2 : 3;
+            if (r.IntOrNull("HASH16") is int hash16)
+                rules._guardianMods[(ushort)hash16] = (group, guardian);
         }
 
         // The legendary maps: one page each, keyed by MapStashUniqueMapInfo.HASH16. Rows for a drop-disabled unique, and
         // repeats of a unique already listed, are not among the keys the client expects (23 of the 33 rows).
-        if (ClientTables.Exists(Table("MapStashUniqueMapInfo")) && ClientTables.Exists(Table("UniqueMaps")))
+        if (ClientTables.Has("MapStashUniqueMapInfo") && ClientTables.Has("UniqueMaps"))
         {
             var names = new List<string?>();
             var disabled = new HashSet<string?>();
-            using (var u = GameTables.Open(Table("UniqueMaps")))
-                foreach (var r in u.RootElement.EnumerateArray())
-                {
-                    string? name = r.TryGetProperty("Name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-                    names.Add(name);
-                    if (r.TryGetProperty("IsDropDisabled", out var f) && f.ValueKind == JsonValueKind.True) disabled.Add(name);
-                }
-            var seen = new HashSet<string?>();
-            using var mi = GameTables.Open(Table("MapStashUniqueMapInfo"));
-            foreach (var r in mi.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("UniqueMaps"))
             {
-                int row = r.GetProperty("UniqueMap").GetInt32();
+                string? name = r.TextOrNull("Name");
+                names.Add(name);
+                if (r.BoolOrNull("IsDropDisabled") == true) disabled.Add(name);
+            }
+            var seen = new HashSet<string?>();
+            foreach (var r in ClientTables.Table("MapStashUniqueMapInfo"))
+            {
+                int row = r.Int("UniqueMap");
                 string? name = row >= 0 && row < names.Count ? names[row] : null;
                 if (name is not null && disabled.Contains(name)) continue;
                 if (!seen.Add(name)) continue;
-                if (r.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number && h.GetInt32() is int hash16 && hash16 > 0)
+                if (r.IntOrNull("HASH16") is int hash16 && hash16 > 0)
                     rules._legendaryMaps.Add((uint)hash16);
             }
         }
 
-        using (var d = GameTables.Open(Table("StashTabAffinities")))
-            foreach (var r in d.RootElement.EnumerateArray())
-                rules._heldBy[r.GetProperty("Id").GetInt32()] = [.. r.GetProperty("__col2").EnumerateArray().Select(t => (byte)t.GetInt32())];
-        using (var d = GameTables.Open(Table("StashTabAffinityByBaseItemType")))
-            foreach (var r in d.RootElement.EnumerateArray())
-                if (HashOfRow(r.GetProperty("BaseItemType").GetInt32()) is uint hash)
-                    foreach (var a in r.GetProperty("StashTabAffinityId").EnumerateArray()) Give(hash, a.GetInt32());
+        foreach (var r in ClientTables.Table("StashTabAffinities"))
+            rules._heldBy[r.Int("Id")] = [.. r.Ints("__col2").Select(t => (byte)t)];
+        foreach (var r in ClientTables.Table("StashTabAffinityByBaseItemType"))
+            if (HashOfRow(r.Int("BaseItemType")) is uint hash)
+                foreach (int a in r.Ints("StashTabAffinityId")) Give(hash, a);
 
         // By the item's class category. Maps (category Map) are not in the table, only map keys: the map tab holds both.
         var byCategory = new Dictionary<int, int> { [25] = Maps };
-        using (var d = GameTables.Open(Table("StashtabAffinityByItemClassCategory")))
-            foreach (var r in d.RootElement.EnumerateArray())
-                byCategory[r.GetProperty("ItemClassCategory").GetInt32()] = r.GetProperty("StashTabAffinityId").GetInt32();
+        foreach (var r in ClientTables.Table("StashtabAffinityByItemClassCategory"))
+            byCategory[r.Int("ItemClassCategory")] = r.Int("StashTabAffinityId");
         var categoryOfClass = new Dictionary<string, int>();
-        using (var d = GameTables.Open(Table("ItemClasses")))
-            foreach (var r in d.RootElement.EnumerateArray())
-                if (r.GetProperty("ItemClassCategory") is { ValueKind: JsonValueKind.Number } c) categoryOfClass[r.GetProperty("Id").GetString() ?? ""] = c.GetInt32();
+        foreach (var r in ClientTables.Table("ItemClasses"))
+            if (r.IntOrNull("ItemClassCategory") is int c) categoryOfClass[r.Text("Id") ?? ""] = c;
         foreach (var t in rows)
             if (categoryOfClass.TryGetValue(t.Class, out int category) && byCategory.TryGetValue(category, out int affinity)) Give(t.Hash, affinity);
 
@@ -227,29 +204,27 @@ public sealed class StashRules
         {
             var slots = rules._slots[tabType] = [];
             var spare = new List<(int Y, int X, int Slot)>();
-            using var d = GameTables.Open(Table(table));
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table(table))
             {
-                int slot = r.GetProperty("FirstSlotIndex").GetInt32();
-                string id = r.GetProperty("Id").GetString() ?? "";
+                int slot = r.Int("FirstSlotIndex");
+                string id = r.Text("Id") ?? "";
                 if (id == "CraftingSlot" || (tabType == Delve && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
                 {
                     (rules._anySlots.TryGetValue(tabType, out var any) ? any : rules._anySlots[tabType] = []).Add(slot);
                     continue;
                 }
-                if (id.StartsWith("Generic", StringComparison.Ordinal) && r.TryGetProperty("XOffset", out var x) && r.TryGetProperty("YOffset", out var y))
+                if (id.StartsWith("Generic", StringComparison.Ordinal) && r.Has("XOffset") && r.Has("YOffset"))
                 {
-                    spare.Add((y.GetInt32(), x.GetInt32(), slot));
+                    spare.Add((r.Int("YOffset"), r.Int("XOffset"), slot));
                     continue;
                 }
                 var types = new List<uint>();
-                if (byId.TryGetValue(r.GetProperty("Id").GetString() ?? "", out uint own)) types.Add(own);
+                if (byId.TryGetValue(r.Text("Id") ?? "", out uint own)) types.Add(own);
                 // The currency layout names its item in StoredItem: for the Eldritch Embers and Ichors the row's Id is an old
                 // name (CurrencyCleansingFireOrb1 → CurrencyEldritchEmber1), so the Id alone missed them.
-                if (r.TryGetProperty("StoredItem", out var one) && one.ValueKind == JsonValueKind.Number && HashOfRow(one.GetInt32()) is uint item)
+                if (r.IntOrNull("StoredItem") is int one && HashOfRow(one) is uint item)
                     types.Add(item);
-                if (r.TryGetProperty("StoredItems", out var stored))
-                    foreach (var s in stored.EnumerateArray()) if (HashOfRow(s.GetInt32()) is uint h) types.Add(h);
+                foreach (int s in r.Ints("StoredItems")) if (HashOfRow(s) is uint h) types.Add(h);
                 foreach (uint hash in types)
                 {
                     slots.TryAdd(hash, slot);
@@ -268,13 +243,12 @@ public sealed class StashRules
         Layout("DeliriumStashTabLayout", Delirium, DeliriumItems);
         // Divination cards: the table lists the cards in order, without slot numbers; a card's slot is its row (our guess).
         var cards = rules._slots[Divination] = [];
-        using (var d = GameTables.Open(Table("DivinationCardStashTabLayout")))
-            foreach (var (r, i) in d.RootElement.EnumerateArray().Select((r, i) => (r, i)))
-                if (r.GetProperty("StoredItem") is { ValueKind: JsonValueKind.Number } c && HashOfRow(c.GetInt32()) is uint card)
-                {
-                    cards.TryAdd(card, i);
-                    Give(card, DivinationCards);
-                }
+        foreach (var r in ClientTables.Table("DivinationCardStashTabLayout"))
+            if (r.IntOrNull("StoredItem") is int c && HashOfRow(c) is uint card)
+            {
+                cards.TryAdd(card, r.Index);
+                Give(card, DivinationCards);
+            }
 
         rules.Loaded = true;
         return rules;

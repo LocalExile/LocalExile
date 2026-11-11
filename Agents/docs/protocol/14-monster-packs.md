@@ -3,15 +3,15 @@
 State of 2026-10-18, verified live in The Coast (seed 1): on entering, the Gateway fills the area with monster packs
 from the game tables: normal, magic and rare packs scattered over the walk map; cannibal packs at the bonfires; the
 unique boss **Fire Fury** and her guards at the cannibal camp, next to its campfire. Code: `src/GameServer.Gateway/Monster/MonsterPacks.cs`
-(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Program.Monsters.cs`.
+(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Modules/Core/Game/Monster/Monsters.cs`.
 
 ## 1. The data
 
-| Table (`data/tables/`) | What it gives |
+| Client table (client.db) | What it gives |
 |---|---|
-| `MonsterPacks.json` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries.json` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
-| `WorldAreas.json` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+| `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
+| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
+| `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
@@ -164,9 +164,6 @@ So:
    room the layout did not place has no points or objects even if its doodads fit: sibling rooms share their doodads
    (The Broken Bridge's `broken_bridge` and `broken_bridge_left`, The Wetlands' four `bandit_boss_*` rooms) and the
    unplaced sibling's fit on the placed one was a second Kraityn, a third Oak.
-   `CampaignBossPlacementTests` (`$env:Game_BOSS_CHECK='1'`, needs the game files; skipped otherwise) generates every
-   act 1–10 area with Bosses at seeds 1, 2, 3 and 7 (`Game_BOSS_CHECK_SEEDS`) and fails when a boss is missing without
-   a listed reason, a unique stands twice or beyond the area's bosses, or the monster blob cannot write one.
    Doing so for every room would change
    other areas: it adds twelve nest packs around a1q4's Rhoa Nests and moves the start points of The Coast's
    `to_coast` and The Tidal Island's `toislandcliff`, so other rooms keep the fit.
@@ -230,8 +227,7 @@ placement algorithms remain unknown.
 ## 5. Mods
 
 State of 2026-10-25, verified live (The Twilight Strand, The Coast). Code: `MonsterMods.cs` (`MonsterModCatalog`,
-`MonsterModEffects`), `Program.MonsterMods.cs` (the hooks), `MagicProperties.cs` (Core). Tests: `MonsterModsTests`,
-`InstanceEntitiesTests.Monster_mods_and_rare_name_go_in_the_magic_property_lists`.
+`MonsterModEffects`), `Modules/Core/Game/Monster/Mods/MonsterMods.cs` (the hooks), `MagicProperties.cs` (Core).
 
 **Rolling.** An affix is a Mods.dat row with the monster Domain (3) and GenerationType 1 (prefix) or 2 (suffix); 111
 rows have a spawn weight. It can roll when its `Level` is at most the monster's level and the first of its SpawnWeight

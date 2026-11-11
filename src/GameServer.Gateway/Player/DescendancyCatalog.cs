@@ -1,11 +1,11 @@
-using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The Descendancy.dat rows: a second ascendancy layer the client draws beside the main one (0x33's spare byte selects
 /// the row). Affliction's Wildwood specialisations (Warden of the Maji, Warlock of the Mists, Wildwood Primalist) and the
 /// 3.29 Bloodline classes are its rows; each node's <c>DescendancyKey</c> in PassiveSkills.dat names its row.
 /// </summary>
-public sealed class DescendancyCatalog(string folder = "data")
+public sealed class DescendancyCatalog
 {
     /// <summary>One row. <paramref name="Index"/> is the table row, the byte 0x33 carries; 0 is none.</summary>
     public sealed record Row(byte Index, string Id, string Name);
@@ -36,65 +36,57 @@ public sealed class DescendancyCatalog(string folder = "data")
         _ => null,
     };
 
-    readonly Lazy<IReadOnlyList<Row>> _rows = new(() => Load(folder));
+    readonly Lazy<IReadOnlyList<Row>> _rows = new(Load);
 
     public IReadOnlyList<Row> Rows => _rows.Value;
 
     public Row? Find(string name) => Rows.FirstOrDefault(r => r.Index != 0 &&
         (r.Id.Equals(name, StringComparison.OrdinalIgnoreCase) || r.Name.Equals(name, StringComparison.OrdinalIgnoreCase)));
 
-    readonly Lazy<IReadOnlyDictionary<byte, ushort>> _startNodes = new(() => LoadStartNodes(folder));
+    readonly Lazy<IReadOnlyDictionary<byte, ushort>> _startNodes = new(LoadStartNodes);
 
     /// <summary>The row's implicit start node (PassiveSkills <c>IsAscendancyStartingNode</c>), if the data has one.</summary>
     public ushort? StartNode(byte row) => _startNodes.Value.TryGetValue(row, out ushort node) ? node : null;
 
-    static IReadOnlyDictionary<byte, ushort> LoadStartNodes(string folder)
+    static IReadOnlyDictionary<byte, ushort> LoadStartNodes()
     {
-        string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        using var json = GameTables.Open(path);
         var starts = new Dictionary<byte, ushort>();
-        foreach (var r in json.RootElement.EnumerateArray())
+        if (!ClientTables.Has("PassiveSkills")) return starts;
+        foreach (var r in ClientTables.Table("PassiveSkills"))
         {
-            if (!r.TryGetProperty("DescendancyKey", out var key) || key.ValueKind != JsonValueKind.Number) continue;
-            if (!r.GetProperty("IsAscendancyStartingNode").GetBoolean()) continue;
-            int id = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            if (r.IntOrNull("DescendancyKey") is not int key || key is <= 0 or > byte.MaxValue) continue;
+            if (r.BoolOrNull("IsAscendancyStartingNode") != true) continue;
+            int id = r.Int("PassiveSkillGraphId");
             if (id is <= 0 or > ushort.MaxValue) continue;
-            starts[checked((byte)key.GetInt32())] = checked((ushort)id);
+            starts[checked((byte)key)] = checked((ushort)id);
         }
         return starts;
     }
 
-    readonly Lazy<IReadOnlyDictionary<byte, Definition>> _definitions = new(() => LoadDefinitions(folder));
+    readonly Lazy<IReadOnlyDictionary<byte, Definition>> _definitions = new(LoadDefinitions);
 
     /// <summary>The row's full tree: nodes, their links in the Default graph and the implicit start.</summary>
     public Definition? Tree(byte row) => _definitions.Value.GetValueOrDefault(row);
 
-    static IReadOnlyDictionary<byte, Definition> LoadDefinitions(string folder)
+    static IReadOnlyDictionary<byte, Definition> LoadDefinitions()
     {
-        string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        string graphPath = Path.Combine(folder, AscendancyCatalog.GraphFile);
         var definitions = new Dictionary<byte, Definition>();
-        if (!File.Exists(passivePath) || !File.Exists(graphPath)) return definitions;
-        var links = new Dictionary<ushort, ushort[]>();
-        using (var graph = GameTables.Open(graphPath))
-            foreach (var n in graph.RootElement.GetProperty("normal").GetProperty("nodes").EnumerateArray())
-                links[checked((ushort)n.GetProperty("id").GetInt32())] =
-                    n.GetProperty("adjacent").EnumerateArray().Select(a => checked((ushort)a.GetInt32())).ToArray();
+        if (!ClientTables.Has("PassiveSkills")) return definitions;
+        var links = PassiveGraphs.Available ? PassiveGraphs.Links(AscendancyFamily.Normal) : [];
         var perRow = new Dictionary<byte, Dictionary<ushort, Node>>();
-        using var passives = GameTables.Open(passivePath);
-        foreach (var r in passives.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("PassiveSkills"))
         {
-            if (!r.TryGetProperty("DescendancyKey", out var key) || key.ValueKind != JsonValueKind.Number) continue;
-            int id = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            if (r.IntOrNull("DescendancyKey") is not int key || key is <= 0 or > byte.MaxValue) continue;
+            int id = r.Int("PassiveSkillGraphId");
             if (id is <= 0 or > ushort.MaxValue) continue;
-            byte row = checked((byte)key.GetInt32());
-            if (row == 0) continue;
-            var node = new Node((ushort)id, links.GetValueOrDefault((ushort)id, []),
-                r.GetProperty("IsAscendancyStartingNode").GetBoolean(),
-                r.GetProperty("IsMultipleChoice").GetBoolean(),
-                r.GetProperty("IsMultipleChoiceOption").GetBoolean());
+            byte row = checked((byte)key);
+            ushort nodeId = checked((ushort)id);
+            var node = new Node(nodeId, links.TryGetValue(nodeId, out var adjacent) ? [.. adjacent] : [],
+                r.BoolOrNull("IsAscendancyStartingNode") == true,
+                r.BoolOrNull("IsMultipleChoice") == true,
+                r.BoolOrNull("IsMultipleChoiceOption") == true);
             if (!perRow.TryGetValue(row, out var nodes)) perRow[row] = nodes = [];
-            nodes[(ushort)id] = node;
+            nodes[nodeId] = node;
         }
         foreach (var (row, nodes) in perRow)
             definitions[row] = new Definition(row, nodes.Values.FirstOrDefault(n => n.IsStart)?.Id ?? 0, nodes);
@@ -144,17 +136,15 @@ public sealed class DescendancyCatalog(string folder = "data")
                 $"Ascendancy points exceeded: {spentElsewhere + spent} spent, {mainPoints + layerPoints} available");
     }
 
-    static IReadOnlyList<Row> Load(string folder)
+    static IReadOnlyList<Row> Load()
     {
-        string path = Path.Combine(folder, "tables", "Descendancy.json");
-        using var json = GameTables.Open(path);
         var rows = new List<Row>();
+        if (!ClientTables.Has("Descendancy")) return rows;
         int index = 0;
-        foreach (var r in json.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("Descendancy"))
         {
-            if (index > byte.MaxValue) throw new InvalidDataException($"{path}: more than 255 rows");
-            rows.Add(new(checked((byte)index++), r.GetProperty("Id").GetString() ?? "",
-                r.GetProperty("Name").GetString() ?? ""));
+            if (index > byte.MaxValue) throw new InvalidDataException("Descendancy: more than 255 rows");
+            rows.Add(new(checked((byte)index++), r.Text("Id") ?? "", r.Text("Name") ?? ""));
         }
         return rows;
     }

@@ -89,7 +89,7 @@ def one(job):
             return result if not write_json else result
         elif ext in DAT:
             tree = binfmt.dat_table(os.path.splitext(os.path.basename(rel))[0].lower(), b)
-            write = False  # a summary per language adds nothing; the rows are in data/tables
+            write = False  # a summary per language adds nothing; the rows are in data/client.db
         elif ext in textfmt.PARSERS:
             tree = textfmt.PARSERS[ext](decode_text(b))
         elif ext in binfmt.PARSERS or rel.endswith(".header"):

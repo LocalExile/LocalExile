@@ -576,12 +576,10 @@ public static class RadiusJewelCatalogue
     static Dictionary<string, uint> LoadNameWords(string folder)
     {
         var result = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
-        string path = Path.Combine(folder, "tables", "Words.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var row in d.RootElement.EnumerateArray())
-            if (row.GetProperty("Wordlist").GetInt32() == 6)
-                result[row.GetProperty("Text").GetString() ?? ""] = row.GetProperty("HASH32").GetUInt32();
+        if (!ClientTables.Has("Words")) return result;
+        foreach (var row in ClientTables.Table("Words"))
+            if (row.Int("Wordlist") == 6)
+                result[row.Text("Text") ?? ""] = row.UInt("HASH32");
         return result;
     }
 }

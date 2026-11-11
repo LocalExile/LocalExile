@@ -23,41 +23,27 @@ public sealed class AreaVisitFlags
     /// <summary>The area's visit flags; empty for an unknown area.</summary>
     public IReadOnlyList<int> For(string areaId) => _byArea.GetValueOrDefault(areaId) ?? [];
 
-    /// <summary>Loads both tables; missing or unreadable files leave the flags empty.</summary>
-    public static AreaVisitFlags Load(string worldAreasJson, string mapPinsJson)
+    /// <summary>Loads both tables (WorldAreas, MapPins); without them, or with a column missing, the flags are empty.</summary>
+    public static AreaVisitFlags Load(ClientTable? worldAreas, ClientTable? mapPins)
     {
         var byArea = new Dictionary<string, HashSet<int>>();
         var pinned = new List<string>();
         try
         {
-            if (!ClientTables.Exists(worldAreasJson)) return new([], []);
-            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
-            var ids = areas.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "").ToList();
-            int row = 0;
-            foreach (var r in areas.RootElement.EnumerateArray())
-            {
-                if (r.TryGetProperty("StartQuestFlags", out var start) && start.ValueKind == JsonValueKind.Array)
-                    foreach (var f in start.EnumerateArray()) Add(ids[row], f.GetInt32());
-                row++;
-            }
-            if (ClientTables.Exists(mapPinsJson))
-            {
-                using var pins = JsonDocument.Parse(ClientTables.ReadAllBytes(mapPinsJson));
-                foreach (var p in pins.RootElement.EnumerateArray())
-                {
-                    if (!p.TryGetProperty("WorldAreasKeys", out var keys) || keys.ValueKind != JsonValueKind.Array) continue;
-                    foreach (var k in keys.EnumerateArray())
+            if (worldAreas is null) return new([], []);
+            var ids = worldAreas.Select(r => r.Text("Id") ?? "").ToList();
+            foreach (var r in worldAreas)
+                foreach (int f in r.Ints("StartQuestFlags")) Add(ids[r.Index], f);
+            if (mapPins is not null)
+                foreach (var p in mapPins)
+                    foreach (int i in p.Ints("WorldAreasKeys"))
                     {
-                        int i = k.GetInt32();
                         if (i < 0 || i >= ids.Count) continue;
                         if (!pinned.Contains(ids[i])) pinned.Add(ids[i]);
-                        if (p.TryGetProperty("QuestFlagVisit", out var visit) && visit.ValueKind == JsonValueKind.Array)
-                            foreach (var f in visit.EnumerateArray()) Add(ids[i], f.GetInt32());
+                        foreach (int f in p.Ints("QuestFlagVisit")) Add(ids[i], f);
                     }
-                }
-            }
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or InvalidCastException)
         {
             return new([], []);
         }

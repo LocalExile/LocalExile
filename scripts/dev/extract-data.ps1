@@ -2,8 +2,9 @@
 # every entry of the manifest below whose output is missing or whose stamp in data/extract-stamps.json differs from the
 # manifest's version, and skips the rest. Read-only on the GGPK (it works while the client runs); never touches the
 # client or the patch servers.
-# The servers read the client tables and the generated files from client.db, built from sql/ (databases.md): of this
-# manifest they need only the entries marked Servers, which live.ps1 and a release extract (-Servers). The full
+# The servers read the client tables and the generated ones (these generators' output as tables) from client.db, built
+# from sql/ (databases.md): of this manifest they need only the entries marked Servers, which live.ps1 and a release
+# extract (-Servers). The full
 # manifest is the maintainer's input to scripts/dev/client-sql.ps1 diff after a client patch or a generator change.
 #   -Servers       only the entries the servers read (Servers = $true) and those they need
 #   -Force         run every entry
@@ -72,7 +73,7 @@ $manifest = @(
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'constants'); Version = 2; Needs = @()
        UsedBy = 'the Patch server''s root hash of the local GGPK (live.ps1 refreshes it before each client start; the HNC mask is in client.db)' }
     @{ Name = 'game-pack'; Outputs = @('data\game-files.zip'); Runner = 'dotnet'; Servers = $true
-       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 3; Needs = @()
+       Args = @('run', '--project', 'scripts/re/game-pack', '--', 'pack'); Version = 4; Needs = @()
        UsedBy = 'the files of server-side level generation (ServerLevels) and the Phrecia classes'' graph check (GamePack)' }
     @{ Name = 'stat-descriptions'; Outputs = @('data\stat-descriptions.txt'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/game-pack', '--', 'stat-descriptions'); Version = 2; Needs = @()

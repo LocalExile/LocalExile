@@ -88,12 +88,11 @@ public sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards
 
     static IReadOnlySet<int> HardModeGemRows(string folder)
     {
-        using var index = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
-        using var gems = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
-        return index.RootElement.EnumerateArray().Where(r => r.GetProperty("IndexRuthless").ValueKind == System.Text.Json.JsonValueKind.Number)
-            .SelectMany(r => r.GetProperty("SkillGem2").EnumerateArray().Select(x => x.GetInt32()))
-            .Where(row => row >= 0 && row < gems.RootElement.GetArrayLength())
-            .Select(row => gems.RootElement[row].GetProperty("BaseItemTypesKey").GetInt32()).ToHashSet();
+        var gems = ClientTables.Table("SkillGems");
+        return ClientTables.Table("IndexableSkillGems").Where(r => !r.IsNull("IndexRuthless"))
+            .SelectMany(r => r.Ints("SkillGem2"))
+            .Where(row => row >= 0 && row < gems.Count)
+            .Select(row => gems[row].Int("BaseItemTypesKey")).ToHashSet();
     }
 
     /// <summary>A vendor's price for one unlevelled gem: the currency by the gem's level-1 character level requirement

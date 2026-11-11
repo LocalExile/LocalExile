@@ -547,27 +547,22 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     static Dictionary<(int Class, int Influence), string> LoadInfluenceTags(string folder)
     {
         var result = new Dictionary<(int, int), string>();
-        string path = Path.Combine(folder, "tables", "InfluenceTags.json"), tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (!ClientTables.Exists(path) || !ClientTables.Exists(tagsPath)) return result;
-        using var tags = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath));
-        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in rows.RootElement.EnumerateArray())
-            result[(r.GetProperty("ItemClass").GetInt32(), r.GetProperty("Influence").GetInt32())] =
-                tags.RootElement[r.GetProperty("Tag").GetInt32()].GetProperty("Id").GetString() ?? "";
+        if (!ClientTables.Has("InfluenceTags") || !ClientTables.Has("Tags")) return result;
+        var tags = ClientTables.Table("Tags");
+        foreach (var r in ClientTables.Table("InfluenceTags"))
+            result[(r.Int("ItemClass"), r.Int("Influence"))] =
+                tags[r.Int("Tag")].Text("Id") ?? "";
         return result;
     }
 
     static List<Word> LoadWords(string folder)
     {
-        string path = Path.Combine(folder, "tables", "Words.json"), tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (!ClientTables.Exists(path) || !ClientTables.Exists(tagsPath)) return [];
+        if (!ClientTables.Has("Words") || !ClientTables.Has("Tags")) return [];
         List<string> tags;
-        using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath)))
-            tags = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray().Select(r => new Word(r.GetProperty("HASH32").GetUInt32(), r.GetProperty("Text").GetString() ?? "",
-            r.GetProperty("Wordlist").GetInt32(),
-            [.. r.GetProperty("SpawnWeight_Tags").EnumerateArray().Zip(r.GetProperty("SpawnWeight_Values").EnumerateArray(),
-                (k, v) => (k.GetInt32() < tags.Count ? tags[k.GetInt32()] : "", v.GetInt32()))]))];
+        tags = [.. ClientTables.Table("Tags").Select(r => r.Text("Id") ?? "")];
+        return [.. ClientTables.Table("Words").Select(r => new Word(r.UInt("HASH32"), r.Text("Text") ?? "",
+            r.Int("Wordlist"),
+            [.. r.Ints("SpawnWeight_Tags").Zip(r.Ints("SpawnWeight_Values"),
+                (k, v) => (k < tags.Count ? tags[k] : "", v))]))];
     }
 }

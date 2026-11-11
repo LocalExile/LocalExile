@@ -591,10 +591,10 @@ model and must not claim it is measured from the official client.
   [Crux of Nothingness](https://www.poewiki.net/wiki/Crux_of_Nothingness).
 - poedb: [The King in the Mists](https://poedb.tw/us/The_King_in_the_Mists) (MonsterVarieties, life tooltip, skill
   lists and per-level stats, and its embedded Path of Building `Spectres.lua` / `spectre.lua` rows).
-- Extracted 3.29.3b tables: `MonsterVarieties.json` rows 10150 and the `VoodooKingBoss3` row, `MonsterTypes.json`,
-  `MonsterMapBossDifficulty.json`, `MonsterMapDifficulty.json`, `DefaultMonsterStats.json`, `GrantedEffects.json`,
-  `GrantedEffectStatSets.json`, `GrantedEffectStatSetsPerLevel.json`, `Projectiles.json`, `MonsterProjectileSpell.json`,
-  `BuffDefinitions.json`.
+- Extracted 3.29.3b tables: `MonsterVarieties` rows 10150 and the `VoodooKingBoss3` row, `MonsterTypes`,
+  `MonsterMapBossDifficulty`, `MonsterMapDifficulty`, `DefaultMonsterStats`, `GrantedEffects`,
+  `GrantedEffectStatSets`, `GrantedEffectStatSetsPerLevel`, `Projectiles`, `MonsterProjectileSpell`,
+  `BuffDefinitions`.
 - The client's `VoodooKingBoss2.act` / `VoodooKingBoss3.act` and `.ot` files (animation keys: `vine_nova_01`,
   `vine_cascade_01`, `teleport_01`, `spellcast_01/02`, `call_start/loop/end`, `morph_01`, `locust_ball_01`).
 - Official 3.29.3b client capture (2026-10-31): `logs/frida-official-king.jsonl` (local, gitignored) with Frida

@@ -20,6 +20,8 @@
     <None Include="..\..\sql\base\characters\*.sql" Link="sql\base\characters\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\sql\updates\auth\*.sql" Link="sql\updates\auth\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\sql\updates\characters\*.sql" Link="sql\updates\characters\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\sql\updates\pending_auth\*.sql" Link="sql\updates\pending_auth\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\sql\updates\pending_characters\*.sql" Link="sql\updates\pending_characters\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Core\GameServer.Core.csproj" />

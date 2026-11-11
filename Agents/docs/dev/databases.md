@@ -10,14 +10,37 @@ Every database is a SQLite file under `data/` (git-ignored), created and brought
 | File | Holds | Opened by | Override |
 |---|---|---|---|
 | `auth.db` | accounts | Auth, Host, Gateway (attached to `characters.db`) | `Game_AUTH_DB` |
-| `characters.db` | character saves, stashes, the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
-| `client.db` | the client's 943 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
+| `characters.db` | character saves, stashes and their items as tables ([saves](../saves.md)), the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
+| `client.db` | the client's 941 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
 | `world.db` | the game content: settings, unique weights, catalogues, drop tables, roll range and limit overrides | Gateway | `Game_WORLD_DB` |
 
 A connection to the player databases opens `characters.db` and attaches `auth.db` as `auth`, so a query names a table of
 either without its database. Rows that must be written together live in one file: a transaction across both files is
 atomic in each file only. A characters database somewhere else (`Game_CHARACTERS_DB`, a test's scratch file) keeps its
 accounts beside it as `<name>-auth.db`, unless `Game_AUTH_DB` says otherwise.
+
+## Reading game data
+
+The client's own data (items, mods, stats, areas, quests, monsters: what the GGPK's `.datc64` files hold) is client.db;
+what we add or override is world.db; players and their characters are auth.db and characters.db. None of it is JSON on
+disk: no server or tool reads a `data/tables/` folder (only `client-sql.ps1 diff` reads the one a full extraction
+writes). Where old code, a doc or a commit names `data/tables/X.json` or `X.json`, it means the client table `X` in
+client.db. New server-owned data goes in world.db, as an update in
+`sql/updates/pending_world/`, never in a new JSON file.
+
+- C#: `ClientTables.Table("WorldAreas")` (below); a tool outside the servers: `ClientTable.Load("data/client.db", name)`.
+- Python: `scripts/dev/clientdb.py` (`clientdb.table("WorldAreas")`: the rows as dicts, list columns parsed), or plain
+  `sqlite3`:
+
+```python
+import json, sqlite3
+db = sqlite3.connect("file:data/client.db?mode=ro", uri=True)
+areas = db.execute('SELECT Id, AreaLevel, TopologiesKeys FROM "WorldAreas" ORDER BY _row').fetchall()
+topologies = json.loads(areas[1][2])   # JSON columns (lists) are text
+```
+
+What our generators make from the client (`object-types.json`, `room-points.json`, ...) is client.db tables too, named in
+lower case (`object_types`, `room_points`, ...: "Generated tables" below), read the same way.
 
 ## SQL in git
 
@@ -80,31 +103,40 @@ A table has `_row INTEGER PRIMARY KEY` (the row's index: tables refer to each ot
 extracted column, typed `INTEGER`, `REAL`, `TEXT`, `BOOLEAN` (1/0) or `JSON` (lists, and columns that are always null,
 as JSON text). A carriage return inside a string is written as `char(13)`, since the SQL files keep LF line ends.
 
-The servers read a table through `ClientTables` (GameServer.Core), still by the path of its extracted file
-(`data/tables/<Table>.json`): it returns that file's JSON, rebuilt from the rows and the column types, so the catalogues
-parse what they parsed before. Any other path is read from disk. A rebuilt table is kept compressed in client.db's
-`client_json_cache` table for the current set of applied updates (a rebuild of `Mods` takes about a second, a cached
-read 0.4 s), and in memory for a few seconds for the catalogues that read the same table in a burst. The Gateway and Auth
-update client.db before their first read; the first build takes about 16 s, a start with nothing new about 1.5 s.
-`extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`; `live.ps1` and a
-release run only its `-Servers` entries (`game-files.zip` and the local root hash).
+The servers read a table by its name, `ClientTables.Table("Mods")` (GameServer.Core): a `ClientTable` of typed,
+columnar rows (`row.Int("Level")`, `row.Text("Id")`, `row.Ints("Stats")`; a row's `Index` is its `_row`), kept in memory
+for the current version of client.db and dropped a few seconds after its last use. A tool that finds the database
+itself reads one with `ClientTable.Load(path, name)`; a test builds one with `ClientTable.FromRows` or swaps tables in with
+`ClientTables.Use`. A `data/tables/...` path given to the file reads throws: there is no such folder for the servers.
+The Gateway and Auth update client.db before their first read; the first build takes about 16 s, a start with nothing
+new about 1.5 s. `extract-data.ps1`'s `tables` entry still writes `data/tables/*.json`, only as the input of
+`client-sql.ps1 diff`; its generators read the tables from client.db. After a client patch: `extract-data.ps1 -Only
+tables`, `client-sql.ps1 diff`, start the servers once so client.db takes the new updates, then `extract-data.ps1` for the
+generators and `diff` again for their files. `live.ps1` and a release run only its `-Servers` entries (`game-files.zip`
+and the local root hash).
 
-The files those generators write that the servers read are in client.db too, in `client_files` (`file`, `part`, `ord`,
-`value`): `area-transitions`, `room-points`, `object-types`, `item-types`, `monster-contacts`, `monster-takehit`,
-`animation-contacts`, `projectile-clips`, `hideouts`, `vendor-stock`, `passive-skill-graphs`, `delve-paths`, the HNC mask
-of `client-constants.json` and `stat-descriptions.txt` (`FILES` in `scripts/dev/client_sql.py`). A JSON file is one
-row per top-level entry, and one per entry of a top-level list or object of more than 64 (`part`: the keys leading to
-it, as a JSON array; `value`: its JSON); `stat-descriptions.txt` is one row per description block. `ClientTables`
-serves `data/<file>` from them (same data and key order as the generator wrote, without the indentation), so a server
-reads none of these from disk. `client-sql.ps1 diff` writes their changed rows (`<stamp>_file_<name>.sql`) alongside
-the tables'; after a generator change, run `extract-data.ps1`, then `diff`, and commit both. The GGPK root hash stays
+### Generated tables
+
+The files those generators write that the servers read are client.db tables, flattened by
+`scripts/dev/generated_tables.py` (`FILES` there): `area-transitions`, `room-points`, `object-types`, `item-types`,
+`monster-contacts`, `monster-takehit`, `animation-contacts`, `projectile-clips`, `hideouts` (`hideout_layouts`, ...),
+`vendor-stock`, `passive-skill-graphs`, `delve-paths`, the HNC mask of `client-constants.json` (`client_constants`) and
+`stat-descriptions.txt` (`stat_descriptions`, one block per row). Their names are snake_case, so they never meet a client
+table's PascalCase name (SQLite ignores case in table names; `client_sql.py` stops on a clash). A map's key is a column;
+a list of records is a child table whose link column holds the parent's `_row`, with `ord` for the order
+(`ClientTable.By("room")` groups one); a nested record is `<field>_<key>` columns; a list of plain values is a JSON
+column; what is left at a file's top level is a one-row `<name>_info` table. `client-sql.ps1 diff` writes a changed table's
+rows alongside the client tables', and drops a lower-case table no generator makes any more; after a generator change,
+run `extract-data.ps1`, then `diff`, and commit both. The `client_files` and `client_json_cache` tables of older builds are
+gone (`client_json_cache` may linger in an existing client.db, unused). The GGPK root hash stays
 in the local `data/client-constants.json` (the Patch server's, refreshed by `live.ps1`): it describes the local
 `Content.ggpk`. `data/game-files.zip`, the client's own level and object files, still comes only from the client.
 
 ## world.db
 
 The game content that is ours rather than the client's: `system_settings`, `unique_weights` (+ `_overrides`),
-`catalog_entries` (the unique, jewel, tattoo and jewel-art catalogues as one JSON payload per row), the `drop_*` tables,
+the item and jewel catalogues (`unique_items`, `radius_jewels`, `unique_jewels`, `timeless_jewels`, `tattoo_effects`,
+`jewel_visuals`; a list is a child table such as `unique_item_mods`, keyed by its entry and `ord`), the `drop_*` tables,
 `mod_stat_overrides`, `limit_overrides` and `item_templates` ([editable game data](editable-game-data.md),
 [drop data](drop-data-schema.md)). The first updates hold what used to be seed arrays in code. The Gateway reads it at
 startup and on `/reload`, which publishes new in-memory snapshots without a restart; a bad row (a payload that does not
