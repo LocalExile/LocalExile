@@ -169,6 +169,9 @@ public static class GameEvents
     /// <summary>A killed monster's drops, before they are rolled: scale them, add items, or cancel them.</summary>
     public static readonly GameEvent<Action<DropRoll>> Drops = new();
 
+    /// <summary>Policy for rolling affixes on newly dropped equipment.</summary>
+    public static readonly GameEvent<Action<DropGeneration>> DropGeneration = new();
+
     /// <summary>The experience of a kill, after the level penalty, before the character and its gems gain it.</summary>
     public static readonly GameEvent<Action<ExperienceGain>> Experience = new();
 
@@ -270,6 +273,26 @@ public static class GameEvents
             GameEventOwners.Guard(owner, nameof(Drops), () => run(roll));
         }
         return roll;
+    }
+
+    /// <summary>Gets the drop policy for a connection and loot source, with defaults when no owner subscribes.</summary>
+    public static DropGeneration RunDropGeneration(ClientState conn, ItemDropSource source)
+    {
+        var policy = new DropGeneration(conn, source);
+        foreach (var (owner, run) in DropGeneration.Subscribers(conn))
+        {
+            var previous = policy.SelectEquipmentAffix;
+            if (!GameEventOwners.Guard(owner, nameof(DropGeneration), () => run(policy)))
+                policy.SelectEquipmentAffix = previous;
+            else if (policy.SelectEquipmentAffix is { } select && !ReferenceEquals(select, previous))
+                policy.SelectEquipmentAffix = (selected, eligible, rng) =>
+                {
+                    ushort? replacement = null;
+                    return GameEventOwners.Guard(owner, nameof(DropGeneration), () => { replacement = select(selected, eligible, rng); })
+                        ? replacement : null;
+                };
+        }
+        return policy;
     }
 
     public static uint RunExperience(ClientState conn, MonsterInfo monster, uint experience)

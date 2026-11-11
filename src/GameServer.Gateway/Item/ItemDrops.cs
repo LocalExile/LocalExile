@@ -209,14 +209,14 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     }
 
     /// <summary>A reward container's explicit number of rolls, without a monster's quantity or personal/mod multipliers.</summary>
-    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng)
+    public IReadOnlyList<Drop> Container(int level, int count, int increasedRarity, Random rng, DropAffixSelector? selectEquipmentAffix = null)
     {
         if (count < 0 || count > 2000) throw new ArgumentOutOfRangeException(nameof(count));
         var chances = WithIncreasedRarity(RarityChances(MonsterRarity.Rare), increasedRarity,
             SystemSettings.Default.DropMultiplier("unique_rarity"));
         var result = new List<Drop>();
         for (int attempt = 0; result.Count < count && attempt < count * 8; attempt++)
-            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng) is { } drop) result.Add(drop);
+            if (RollOne(Math.Clamp(level, 1, 100), Math.Clamp(level, 1, 100), chances, rng, selectEquipmentAffix) is { } drop) result.Add(drop);
         return result;
     }
 
@@ -226,7 +226,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     /// In a map (<paramref name="mapTier"/> &gt; 0) the kill also rolls the base card and scarab chances from
     /// <c>drop_card_chance_pct</c>/<c>drop_scarab_chance_pct</c>, scaled by the quantity multiplier.</summary>
     public IReadOnlyList<Drop> Roll(int monsterLevel, MonsterRarity rarity, Random rng, int increasedRarity = 0,
-        double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0)
+        double quantityMultiplier = 1, double rarityMultiplier = 1, int mapTier = 0, DropAffixSelector? selectEquipmentAffix = null)
     {
         double quantity = double.IsFinite(quantityMultiplier) ? Math.Max(0, quantityMultiplier) : 1;
         int whole = (int)Math.Min(Math.Floor(quantity), int.MaxValue);
@@ -246,7 +246,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             // No draw for a whole multiplier, so the ordinary 1 rolls exactly as before.
             int times = whole + ((quantity < 1 || part > 0) && rng.NextDouble() < part ? 1 : 0);
             for (int r = 0; r < times; r++)
-                if (RollOne(monsterLevel, monsterLevel + ItemLevelBonus(rarity), chances, rng) is { } d) drops.Add(d);
+                if (RollOne(monsterLevel, monsterLevel + ItemLevelBonus(rarity), chances, rng, selectEquipmentAffix) is { } d) drops.Add(d);
         }
         if (mapTier > 0)
         {
@@ -391,7 +391,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     }
 
     // One item: its kind, for equipment its slot and base, then its rarity (the class summary's stages 2 to 4).
-    Drop? RollOne(int level, int itemLevel, Chances chances, Random rng)
+    Drop? RollOne(int level, int itemLevel, Chances chances, Random rng, DropAffixSelector? selectEquipmentAffix = null)
     {
         var pools = _pools.Value;
         double currencyWeight = 0.35 * SystemSettings.Default.DropMultiplier("currency");
@@ -432,8 +432,8 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
                 item = unique with { Identified = false };
                 type = catalog.ByHash(item.TypeHash) ?? type;
             }
-            else if (rolledUnique || rng.NextDouble() < chances.Rare) item = rolls.Roll(item, ItemRarity.Rare, rng) with { Identified = false };
-            else if (rng.NextDouble() < chances.Magic) item = rolls.Roll(item, ItemRarity.Magic, rng) with { Identified = false };
+            else if (rolledUnique || rng.NextDouble() < chances.Rare) item = rolls.RollEquipmentDrop(item, ItemRarity.Rare, rng, selectEquipmentAffix) with { Identified = false };
+            else if (rng.NextDouble() < chances.Magic) item = rolls.RollEquipmentDrop(item, ItemRarity.Magic, rng, selectEquipmentAffix) with { Identified = false };
         }
         return new Drop(item, type);
     }
