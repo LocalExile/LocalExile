@@ -172,6 +172,7 @@ public static partial class Game
         StatConditions.UsedTopazFlask, StatConditions.UsedAmethystFlask,
         StatConditions.NonCrit, StatConditions.Crit8Seconds,
         StatConditions.ChangedStance,
+        StatConditions.DetonatedMine,
     };
     sealed class ConditionalItemPoolState
     {

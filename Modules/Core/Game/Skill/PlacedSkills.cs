@@ -346,6 +346,19 @@ public static partial class Game
             var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesMitigated(m, mitigated, spell, now);
+            if (placed.Mine)
+            {
+                // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
+                var owner = CharacterPlayerStats(conn);
+                int coefficient = Math.Max(0, GolemStat(owner, "mine_damage_leeched_as_life_to_you_permyriad"));
+                if (coefficient > 0)
+                {
+                    var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
+                        (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
+                    LeechOnHitLocked(conn, m, MonsterTakenComponents(m, mitigated, spell, now), damage,
+                        new(life, DamagePacket.Empty, DamagePacket.Empty));
+                }
+            }
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
             var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
@@ -425,6 +438,10 @@ public static partial class Game
                     bool nearby = !placed.Mine && conn.Monsters.Values.Any(m => m is { Hostile: true, Dead: false, Life: > 0 }
                         && Dist(m.Walk.Position(now), placed.At) <= 10);
                     if (!skitter && !nearby && now < placed.DetonateAt) continue;
+                    // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
+                    // player detonation. Record only this accepted player-chain trigger, even without a hit target.
+                    if (placed.Mine && !skitter)
+                        conn.RecentEvents.Record(StatConditions.DetonatedMine, conn.Clock.Elapsed.TotalSeconds);
                     PlacedDamageLocked(remote, stream, ciphers, conn, placed, now, bytes);
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine"}");
                     if (skitter && placed.Mine && SkillsFor(conn).EffectId(placed.Effect) != "SmokeMine")

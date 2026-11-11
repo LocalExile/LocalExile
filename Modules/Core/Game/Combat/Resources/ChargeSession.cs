@@ -92,7 +92,11 @@ public sealed class ChargeSession(Charges.State? state = null)
     /// charge is lost and the events are dropped; in towns no periodic charge is gained.
     /// </summary>
     public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
-        bool inTown, Random rng)
+        bool inTown, Random rng) =>
+        Step(now, stats, weapon, alive, moving, inTown, rng, mineDetonatedRecently: false);
+
+    public StepResult Step(double now, Func<string, int>? stats, Func<WeaponProfile> weapon, bool alive, bool moving,
+        bool inTown, Random rng, bool mineDetonatedRecently)
     {
         var log = new List<string>();
         double elapsed = double.IsNaN(lastStep) ? 0 : Math.Max(0, now - lastStep);
@@ -105,7 +109,8 @@ public sealed class ChargeSession(Charges.State? state = null)
         {
             while (stats is not null && events.TryDequeue(out var e)) ApplyEvent(e, now, stats, weapon, rng, log);
             if (!inTown)
-                foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng))
+                foreach (var gain in timers.Advance(elapsed, Observed, now - LastHitAt <= RecentlySeconds, moving, rng,
+                             mineDetonatedRecently))
                     Apply(gain, now, rng, log);
         }
         return Finish(now, log);

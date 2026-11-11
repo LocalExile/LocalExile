@@ -1,4 +1,4 @@
-﻿using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
@@ -4965,6 +4965,22 @@ public class ConditionalItemStatsTests
             PanelStats.LifeRegenerationMultiplier(recoveryStats.GetValueOrDefault), 10);
         Assert.Equal(1000 * 20 * (1 + recoveryStats.GetValueOrDefault("energy_shield_recovery_rate_+%") / 100.0),
             EnergyShield.RechargePerMinute(1000, recoveryStats.GetValueOrDefault), 10);
+        var machinaRaw = ItemModStats.Sum([machina], Program.Items.Mods);
+        Assert.Equal(1, machinaRaw.GetValueOrDefault("lose_power_charge_each_second_if_not_detonated_mines_recently"));
+        var machinaCharges = new ChargeSession();
+        machinaCharges.Observe(machinaRaw.GetValueOrDefault);
+        machinaCharges.Admit(0, [new ChargeEvent.Grant(ChargeType.Power, 3, "fixture")],
+            machinaRaw.GetValueOrDefault, () => default, alive: true, new Random(1));
+        void StepMachina(double at, bool detonated = false) => machinaCharges.Step(at, null, () => default,
+            alive: true, moving: false, inTown: false, new Random(1), mineDetonatedRecently: detonated);
+        StepMachina(0); StepMachina(1);
+        Assert.Equal(2, machinaCharges.Effective(ChargeType.Power));
+        StepMachina(2, true); StepMachina(3.9, true);
+        Assert.Equal(2, machinaCharges.Effective(ChargeType.Power));
+        StepMachina(4.1); Assert.Equal(2, machinaCharges.Effective(ChargeType.Power));
+        StepMachina(5.1); Assert.Equal(1, machinaCharges.Effective(ChargeType.Power));
+        machinaCharges.Observe(_ => 0); StepMachina(7.1);
+        Assert.Equal(1, machinaCharges.Effective(ChargeType.Power));
     }
 
     void Per_rage_item_coefficients_reach_existing_final_consumers()

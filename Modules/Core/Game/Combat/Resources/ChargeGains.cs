@@ -157,7 +157,7 @@ public static class ChargeGains
     /// charges.</summary>
     public sealed record Periodic(string Stat, ChargeType? Type, PeriodicCondition Condition, Func<int, (double Period, int Count)> Rate);
 
-    public enum PeriodicCondition { Always, HitRecently, Stationary, Moving }
+    public enum PeriodicCondition { Always, HitRecently, Stationary, Moving, NoMineDetonatedRecently }
 
     /// <summary>
     /// The "gain a … Charge every …" stats the server can time (game clock, alive, outside towns): each second, every
@@ -179,6 +179,8 @@ public static class ChargeGains
         new("gain_a_endurance_charge_every_X_seconds_while_stationary", ChargeType.Endurance, PeriodicCondition.Stationary, v => (v, 1)),
         new("gain_random_charge_per_second_while_stationary", null, PeriodicCondition.Stationary, v => (1, v)),
         new("gain_a_frenzy_charge_every_X_seconds_while_moving", ChargeType.Frenzy, PeriodicCondition.Moving, v => (v, 1)),
+        new("lose_power_charge_each_second_if_not_detonated_mines_recently", ChargeType.Power,
+            PeriodicCondition.NoMineDetonatedRecently, _ => (1, -1)),
     ];
 
     /// <summary>
@@ -196,7 +198,11 @@ public static class ChargeGains
 
         /// <summary>Advances every timer by <paramref name="seconds"/> of game time and returns the charges that came due.
         /// A timer whose stat is absent or whose condition does not hold is reset.</summary>
-        public List<Gain> Advance(double seconds, Func<string, int> get, bool hitRecently, bool moving, Random rng)
+        public List<Gain> Advance(double seconds, Func<string, int> get, bool hitRecently, bool moving, Random rng) =>
+            Advance(seconds, get, hitRecently, moving, rng, mineDetonatedRecently: false);
+
+        public List<Gain> Advance(double seconds, Func<string, int> get, bool hitRecently, bool moving, Random rng,
+            bool mineDetonatedRecently)
         {
             var gains = new List<Gain>();
             for (int i = 0; i < Periodics.Count; i++)
@@ -209,6 +215,7 @@ public static class ChargeGains
                     PeriodicCondition.HitRecently => hitRecently,
                     PeriodicCondition.Stationary => !moving,
                     PeriodicCondition.Moving => moving,
+                    PeriodicCondition.NoMineDetonatedRecently => !mineDetonatedRecently,
                     _ => true,
                 };
                 var (period, count) = value != 0 ? p.Rate(value) : (0, 0);

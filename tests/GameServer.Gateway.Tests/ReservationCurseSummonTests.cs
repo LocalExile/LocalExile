@@ -5662,6 +5662,11 @@ public sealed partial class ReservationCurseSummonTests
                     var placedTick = typeof(Game).GetMethod("PlacedSkillsTick",
                         System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
                     Assert.NotNull(placedTick);
+                    var mineLeechItem = new UniqueCatalog(Program.Items).Create("Machina Mitts", new Random(504))!;
+                    var mineLeechPlacement = inventory.Add(PlayerInventories.Gloves, 0, 0, mineLeechItem);
+                    Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                    Assert.Equal(100, Game.CharacterPlayerStats(tempestConn)
+                        .GetValueOrDefault(Program.Stats.Key("mine_damage_leeched_as_life_to_you_permyriad")!.Value));
                     foreach (var (name, mineKind, firstId) in new[]
                         { ("Fire Trap", false, 0xC47900u), ("Stormblast Mine", true, 0xC47A00u) })
                     {
@@ -5686,6 +5691,9 @@ public sealed partial class ReservationCurseSummonTests
                         async Task<(int Normal, int Blind, SpawnedMonster Plain, SpawnedMonster Blinded, double At)> PlacedContact(uint id)
                         {
                             tempestConn.Monsters.Clear();tempestConn.Placed.Grounds.Clear();
+                            tempestConn.RecentEvents.Clear();
+                            Game.LeechOf(tempestConn).Clear(Game.ResourceEffectsTime(tempestConn));
+                            tempestConn.PlayerLife = (uint)Math.Max(1, tempestConn.Pools.Life / 2);
                             Assert.Empty(tempestConn.Placed.All);
                             var plain = Target(id, name + "-plain");
                             var blinded = Target(id + 1, name + "-blinded");
@@ -5709,10 +5717,18 @@ public sealed partial class ReservationCurseSummonTests
                             schedule.At = at;
                             fixedRuntime.Advance(at - Game.ResourceEffectsTime(tempestConn));
                             if (mineKind) Game.DetonateMinesLocked(tempestConn, at);
+                            Assert.False(tempestConn.RecentEvents.Happened(StatConditions.DetonatedMine,
+                                tempestConn.Clock.Elapsed.TotalSeconds)); // Scheduling is not a detonation.
                             await (Task)placedTick.Invoke(null,
                                 ["placed-bite-real-trigger", tempestWire.Stream, tempestWire.Ciphers, tempestConn, at])!;
                             Assert.Empty(tempestConn.Placed.All);
                             Assert.True(placed.Landed);
+                            Assert.Equal(mineKind, tempestConn.RecentEvents.Happened(StatConditions.DetonatedMine,
+                                tempestConn.Clock.Elapsed.TotalSeconds));
+                            bool mineLeech = mineKind && (plain.Life < 1_000_000 || blinded.Life < 1_000_000)
+                                && Game.CharacterPlayerStats(tempestConn).GetValueOrDefault(
+                                    Program.Stats.Key("mine_damage_leeched_as_life_to_you_permyriad")!.Value) > 0;
+                            Assert.Equal(mineLeech, Game.LeechOf(tempestConn).Active(at).Life);
                             return (checked((int)(1_000_000 - plain.Life)), checked((int)(1_000_000 - blinded.Life)), plain, blinded, at);
                         }
                         var contact = await PlacedContact(firstId);
@@ -5768,6 +5784,13 @@ public sealed partial class ReservationCurseSummonTests
                         Assert.False(forbidden.Blinded.Ignites.Burning);
                         if (!mineKind) Assert.Equal(0, Assert.Single(tempestConn.Placed.Grounds).DamagePerSecond);
                         SetStat("base_deal_no_damage", 0);
+                        if (mineKind)
+                        {
+                            Assert.NotNull(inventory.Remove(PlayerInventories.Gloves, mineLeechPlacement.Id));
+                            Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                            await PlacedContact(firstId + 16); // A real mine hit after the owner's leech item is removed.
+                            Assert.False(Game.LeechOf(tempestConn).Active(Game.ResourceEffectsTime(tempestConn)).Life);
+                        }
                         tempestConn.Placed.Grounds.Clear();
                     }
 

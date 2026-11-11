@@ -448,7 +448,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Avian sharing now has immutable peer snapshots and strongest-family/player/minion lifecycle coverage.
   Weave target-relative hit/ailment profiles have automated snapshots and native webbed-hit checks.
   Twister has source-owned gains, native tornado combat and unequip checks in predictive and lockstep modes.
-  Spider/Avian retail ranges, Twister official repeat timing and native multiparty/visual checks remain open.
+  Spider/Avian retail ranges, Twister official repeat timing and wider minion combat/visual checks remain open.
   Ordinary generic/typed added BASE now follows intrinsic-base replacement and precedes increased chance, including
   native weapon-local flat-before-increase ordering and linked Increased Critical Strikes once.
   Mode-specific passive/item, source-removal, zero, prohibition and hitless controls have automated cases;

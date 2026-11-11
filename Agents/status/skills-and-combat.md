@@ -1311,7 +1311,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Spider applies timed webs, damage taken, Hinder, Shroud effects and webbed-hit recovery/charge rewards.
   Native checks cover four webs, recipient stats/buffs, reservation and earned expiry after source removal.
   Avian shares sender-scaled phases with nearby players/minions using immutable peer snapshots.
-  Sharing stacking and cleanup have automated checks; retail ranges and multiparty visuals remain unverified.
+  Shared player phases and owner/direct minion Flight have native checks; retail range/visual parity remains open.
   Weave selects target-relative raw hit/ailment profiles, with native webbed-Fireball damage verification.
   Twister has native triggered tornado combat and source cleanup in predictive and lockstep modes.
   Spider range is a local fallback; Twister repeat timing awaits an official contact trace.
@@ -1328,6 +1328,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   full trap/mine skill-specific payloads, banner/Vaal executors and Agony's retail Virulence decay remain partial.
   ([11](../docs/protocol/11-skills.md) 13).
 - Summon/mine/trap input and cleanup work; placed spell snapshots select pre-hit Blind for hit, Ignite and Poison.
+  Accepted player mine triggers supply recency; explicit mine-to-owner Life leech and conditional Power loss are consumed.
   Fire Trap's non-ailment ground stays separate; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Animated equipment admission respects melee/ranged variants, identification, item level and six-socket weapon exclusion.
   Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).

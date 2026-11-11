@@ -82,6 +82,7 @@ public static class StatConditions
         "bleed_dot_multiplier_+_per_rage_if_equipped_axe",
         "you_count_as_low_life_while_affected_by_vulnerability",
         "you_count_as_full_life_while_affected_by_vulnerability",
+        "lose_power_charge_each_second_if_not_detonated_mines_recently",
     };
 
     static readonly string[] StateSuffixes =
@@ -294,7 +295,8 @@ public static class StatConditions
         ("used_ruby_flask", UsedRubyFlask, false), ("used_sapphire_flask", UsedSapphireFlask, false),
         ("used_topaz_flask", UsedTopazFlask, false), ("used_amethyst_flask", UsedAmethystFlask, false),
         ("dealt_non_crit", NonCrit, false), ("dealt_non_critical_strike", NonCrit, false),
-        ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mine", DetonatedMine, false),
+        ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mines", DetonatedMine, false),
+        ("detonated_mine", DetonatedMine, false),
         ("frozen_enemy", FrozeEnemy, false), ("shocked", ShockedEnemy, false), ("ignited_an_enemy", IgnitedEnemy, false),
         ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false),
         ("crit", Crit, false), ("hit", BeenHit, false),
