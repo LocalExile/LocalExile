@@ -56,6 +56,8 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(20, twister.Level);
             Assert.Equal("Metadata/Projectiles/SandTornadoSpark", Program.Skills.ProjectileFor(twister.Effect)!.Value.Id);
             Assert.Equal(100, Program.Skills.CooldownMs(twister.Effect, twister.Level));
+            Assert.Contains(Game.PlayerSkills(conn).Single(s => s.Id == twister.Id).Stats!,
+                s => s.Key == Program.Stats.Key("skill_behaviour_variation") && s.Value == 4);
             Assert.True(Game.TryBeginSkillCooldownUse(conn, avian.Id, avian.Effect, null, true, () => { }, out _));
             int action = conn.ActionCount;
             uint mana = conn.PlayerMana;

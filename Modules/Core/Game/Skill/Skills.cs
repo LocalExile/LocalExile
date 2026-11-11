@@ -575,6 +575,10 @@ static partial class Game
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
                 stats[recoveryKey] = cooldown.RecoveryPercent;
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
+            // Spark's slot 0x310 selects its tornado art and repeat policy from this final stat. The Twister stat
+            // set does not contain it; without the projection the native triggered action creates ordinary Spark.
+            if (SkillsFor(conn).EffectId(effect) == TwisterEffect && Stats.Key("skill_behaviour_variation") is uint tornadoMode)
+                stats[tornadoMode] = 4;
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b35b7a) and without it died on their first tick, so none was drawn.
             if (Stats.Key("base_skill_effect_duration") is uint baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0

@@ -58,8 +58,8 @@ static class GatewayProjectileSkillProfiles
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
         else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
-        // Twister uses the Spark action's tornado branch, with a per-projectile repeat interval.
-        // The 100 ms repeat policy still needs an official contact trace; do not inherit Spark's emission-wide lock.
+        // Spark behaviour variation 4 selects tornado art and forgets contacts every 100 ms (native action).
+        // An official server contact trace remains separate from this client-side repeat policy.
         else if (effect == "Twister")
             p = p with { HitRule = new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(.1)) };
 

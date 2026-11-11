@@ -163,7 +163,7 @@ static partial class Game
             {
                 Legs = i => new SparkLegs(sequence, i, PlayerId, life, randomDuration, speed, repeatsLeft),
                 // 0x141b36170: a spark ends 150 cells from where it started.
-                LegLeash = 150
+                LegLeash = SkillsFor(conn).EffectId(gem.Effect) == TwisterEffect ? 0 : 150
             }
         };
     }
