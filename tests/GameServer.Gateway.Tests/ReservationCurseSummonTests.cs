@@ -5625,6 +5625,130 @@ public sealed class ReservationCurseSummonTests
                     SetStat("global_chance_to_blind_on_hit_%", 0);
                     await CheckHerald("HeraldOfIce", 0xC47700, true);
                     await CheckHerald("HeraldOfThunder", 0xC47800, true);
+
+                    // The real cast pays mana and creates/arms the placed object on a controlled update clock.
+                    // No placed packet or damage profile is fabricated by this fixture.
+                    targetAt = (100, 100);
+                    tempestConn.Walk.Teleport(targetAt.X, targetAt.Y, schedule.At);
+                    inventory.Add(PlayerInventories.Helmet, 0, 0, bite);
+                    SetStat("spell_minimum_added_fire_damage", 1_000);
+                    SetStat("spell_maximum_added_fire_damage", 1_000);
+                    SetStat("spell_minimum_added_chaos_damage", 10_000);
+                    SetStat("spell_maximum_added_chaos_damage", 10_000);
+                    SetStat("base_chance_to_ignite_%", 100);
+                    SetStat("base_chance_to_poison_on_hit_%", 100);
+                    var placedTick = typeof(Game).GetMethod("PlacedSkillsTick",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+                    Assert.NotNull(placedTick);
+                    foreach (var (name, mineKind, firstId) in new[]
+                        { ("Fire Trap", false, 0xC47900u), ("Stormblast Mine", true, 0xC47A00u) })
+                    {
+                        var placedGem = Gem(name, 1);
+                        Assert.NotNull(inventory.Change(PlayerInventories.Weapon1, swordPlacement.Id,
+                            item => item with { Sockets = [new(SocketColour.White, placedGem)], Links = [] }));
+                        Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                        var placedSource = Assert.Single(Game.GemSkillEffects(tempestConn), g => g.Name == name);
+                        var placedSupported = Game.SupportedSkill(tempestConn, placedSource.Id);
+                        Assert.True(placedSupported.RequirementsMet);
+                        Assert.Equal((!mineKind, mineKind), Game.PlacedKind(placedSupported));
+                        double placedEffectiveness = Game.AddedEffectiveness(tempestConn, placedSource.Effect, placedSupported.Level);
+                        var basePacket = Game.SkillsFor(tempestConn).HitDamage(placedSource.Effect, placedSupported.Level);
+                        var placedRaw = basePacket
+                            .Add(DamageType.Fire, new(1_000 * placedEffectiveness, 1_000 * placedEffectiveness))
+                            .Add(DamageType.Chaos, new(10_000 * placedEffectiveness, 10_000 * placedEffectiveness));
+                        (int Min, int Max) PlacedBounds(double factor) =>
+                            (placedRaw.Components.Sum(c => (int)Math.Floor(c.Range.Min * factor)),
+                                placedRaw.Components.Sum(c => (int)Math.Floor(c.Range.Max * factor)));
+                        var placedNormalBounds = PlacedBounds(2); var placedBlindBounds = PlacedBounds(2.4);
+                        Assert.True(placedBlindBounds.Min > placedNormalBounds.Max);
+                        async Task<(int Normal, int Blind, SpawnedMonster Plain, SpawnedMonster Blinded, double At)> PlacedContact(uint id)
+                        {
+                            tempestConn.Monsters.Clear();tempestConn.Placed.Grounds.Clear();
+                            Assert.Empty(tempestConn.Placed.All);
+                            var plain = Target(id, name + "-plain");
+                            var blinded = Target(id + 1, name + "-blinded");
+                            Assert.True(Game.InflictMonsterBlind(tempestConn, id + 1, blinded,
+                                Game.ResourceEffectsTime(tempestConn), (100, 0, 20), new Random(1)));
+                            Assert.True(Game.Blinded(tempestConn, id + 1));
+                            tempestConn.PlayerMana = tempestConn.Pools.Mana;
+                            uint manaBefore = tempestConn.PlayerMana;
+                            schedule.AdvanceOnWait = true;
+                            try
+                            {
+                                Assert.True(await Game.CastGemSkill("placed-bite-real-cast", tempestWire.Stream,
+                                    tempestWire.Ciphers, tempestConn, placedSource.Id, targetAt, targetAt));
+                            }
+                            finally { schedule.AdvanceOnWait = false; }
+                            Assert.True(tempestConn.PlayerMana < manaBefore);
+                            var placed = Assert.Single(tempestConn.Placed.All.Values);
+                            Assert.Equal(mineKind, placed.Mine);
+                            Assert.False(placed.Landed);
+                            double at = placed.Armed + .1;
+                            schedule.At = at;
+                            fixedRuntime.Advance(at - Game.ResourceEffectsTime(tempestConn));
+                            if (mineKind) Game.DetonateMinesLocked(tempestConn, at);
+                            await (Task)placedTick.Invoke(null,
+                                ["placed-bite-real-trigger", tempestWire.Stream, tempestWire.Ciphers, tempestConn, at])!;
+                            Assert.Empty(tempestConn.Placed.All);
+                            Assert.True(placed.Landed);
+                            return (checked((int)(1_000_000 - plain.Life)), checked((int)(1_000_000 - blinded.Life)), plain, blinded, at);
+                        }
+                        var contact = await PlacedContact(firstId);
+                        Assert.InRange(contact.Normal, placedNormalBounds.Min, placedNormalBounds.Max);
+                        Console.WriteLine($"#504 actual placed cast {name} paid/armed/triggered normal={contact.Normal} "
+                            + $"blind={contact.Blind} expectedNormal={placedNormalBounds} expectedAdditive={placedBlindBounds}");
+                        Assert.InRange(contact.Blind, placedBlindBounds.Min, placedBlindBounds.Max);
+                        double expectedNormalPoison = Math.Round(.3 * placedRaw[DamageType.Chaos].Min * 2 * 60) / 60;
+                        double expectedBlindPoison = Math.Round(.3 * placedRaw[DamageType.Chaos].Min * 2.4 * 60) / 60;
+                        Assert.Equal(expectedNormalPoison, contact.Plain.Poisons.TotalDps(contact.At), 6);
+                        Assert.Equal(expectedBlindPoison, contact.Blinded.Poisons.TotalDps(contact.At), 6);
+                        Assert.InRange(contact.Plain.Ignites.PerSecond(contact.At),
+                            .9 * placedRaw[DamageType.Fire].Min * 2 - .02, .9 * placedRaw[DamageType.Fire].Max * 2 + .02);
+                        Assert.InRange(contact.Blinded.Ignites.PerSecond(contact.At),
+                            .9 * placedRaw[DamageType.Fire].Min * 2.4 - .02, .9 * placedRaw[DamageType.Fire].Max * 2.4 + .02);
+                        Assert.False(contact.Plain.Bleeds.Burning);
+                        Assert.False(contact.Blinded.Bleeds.Burning);
+                        double savedPoison = contact.Blinded.Poisons.TotalDps(contact.At);
+                        double savedPoisonUntil = contact.Blinded.Poisons.Until;
+                        double savedIgnite = contact.Blinded.Ignites.PerSecond(contact.At);
+                        double savedIgniteUntil = contact.Blinded.Ignites.Until;
+                        double? groundDps = mineKind ? null : Assert.Single(tempestConn.Placed.Grounds).DamagePerSecond;
+                        SetStat("global_chance_to_blind_on_hit_%", 100);
+                        var firstBlindContact = await PlacedContact(firstId + 4);
+                        Assert.InRange(firstBlindContact.Normal, placedNormalBounds.Min, placedNormalBounds.Max);
+                        Assert.True(Game.Blinded(tempestConn, firstId + 4));
+                        Assert.Equal(expectedNormalPoison, firstBlindContact.Plain.Poisons.TotalDps(firstBlindContact.At), 6);
+                        Assert.InRange(firstBlindContact.Blind, placedBlindBounds.Min, placedBlindBounds.Max);
+                        SetStat("global_chance_to_blind_on_hit_%", 0);
+                        if (!mineKind) Assert.Equal(groundDps!.Value, Assert.Single(tempestConn.Placed.Grounds).DamagePerSecond, 9);
+                        var helmet = Assert.Single(inventory.Items(PlayerInventories.Helmet));
+                        Assert.NotNull(inventory.Remove(PlayerInventories.Helmet, helmet.Id));
+                        Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                        Assert.True(Game.SupportedSkill(tempestConn, placedSource.Id).RequirementsMet);
+                        var sourceOff = await PlacedContact(firstId + 8);
+                        Assert.InRange(sourceOff.Normal, placedNormalBounds.Min, placedNormalBounds.Max);
+                        Assert.InRange(sourceOff.Blind, placedNormalBounds.Min, placedNormalBounds.Max);
+                        Assert.Equal(expectedNormalPoison, sourceOff.Blinded.Poisons.TotalDps(sourceOff.At), 6);
+                        if (!mineKind) Assert.Equal(groundDps!.Value, Assert.Single(tempestConn.Placed.Grounds).DamagePerSecond, 9);
+                        Assert.Equal(savedPoison, contact.Blinded.Poisons.TotalDps(contact.At), 9);
+                        Assert.Equal(savedPoisonUntil, contact.Blinded.Poisons.Until, 9);
+                        Assert.Equal(savedIgnite, contact.Blinded.Ignites.PerSecond(contact.At), 9);
+                        Assert.Equal(savedIgniteUntil, contact.Blinded.Ignites.Until, 9);
+                        inventory.Add(PlayerInventories.Helmet, 0, 0, bite);
+                        Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                        SetStat("base_deal_no_damage", 1);
+                        var forbidden = await PlacedContact(firstId + 12);
+                        Assert.Equal(0, forbidden.Normal);
+                        Assert.Equal(0, forbidden.Blind);
+                        Assert.False(forbidden.Plain.Poisons.Poisoned);
+                        Assert.False(forbidden.Blinded.Poisons.Poisoned);
+                        Assert.False(forbidden.Plain.Ignites.Burning);
+                        Assert.False(forbidden.Blinded.Ignites.Burning);
+                        if (!mineKind) Assert.Equal(0, Assert.Single(tempestConn.Placed.Grounds).DamagePerSecond);
+                        SetStat("base_deal_no_damage", 0);
+                        tempestConn.Placed.Grounds.Clear();
+                    }
+
                     _ = prohibitionKey;
                 }
                 finally
@@ -6391,8 +6515,13 @@ public sealed class ReservationCurseSummonTests
     sealed class CatClockSchedule : IPlayerUpdateSchedule
     {
         public double At;
+        public bool AdvanceOnWait;
         public double Now(ClientState conn) => At;
-        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            if (AdvanceOnWait) At += milliseconds / 1000.0;
+            return Task.CompletedTask;
+        }
     }
 
     sealed class CountingRandom : Random

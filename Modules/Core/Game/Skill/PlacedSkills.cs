@@ -104,6 +104,22 @@ static partial class Game
         return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(player, additional), 1, 200);
     }
 
+    // Preserve the existing placement-time offensive snapshot. A recipient's Blind is selected only at contact.
+    static PlacedSkills.DamageSnapshot? CapturePlacedDamage(ClientState conn, ushort skill, SupportedGem gem)
+    {
+        if (SupportedHitInputsFor(conn, skill, capturedGem: gem) is not { } inputs) return null;
+        bool spell = !inputs.Attack;
+        long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
+        PlacedSkills.DamageProfile Profile(long increased) => new(
+            SupportedHitFrom(inputs, suppress: true, additionalIncreased: increased),
+            SupportedIgnite(conn, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs),
+            SupportedBleed(conn, skill, spell, inputs.Caster, melee: inputs.Melee,
+                additionalIncreased: increased, capturedInputs: inputs),
+            SupportedPoison(conn, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs));
+        var normal = Profile(0);
+        return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell);
+    }
+
     static async Task<bool> PlaceSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         (int X, int Y) from, (int X, int Y) aim, PlacedCastAdmission admission, int recovery, Func<bool> current)
     {
@@ -138,7 +154,8 @@ static partial class Game
                 if (count <= 0 || limit <= 0) return null;
                 var context = ReservationContext(conn, admission.Skill);
                 var reserve = admission.Mine ? SupportedReservation(conn, admission.Skill) : null;
-                var damage = SupportedHitFor(conn, admission.Skill, suppress: false);
+                var offense = CapturePlacedDamage(conn, admission.Skill, gem);
+                var damage = offense?.Normal.Hit ?? SupportedHitFor(conn, admission.Skill, suppress: false);
                 var payload = new Dictionary<uint, int>(gem.Stats);
                 foreach (string flag in new[] { "is_trap", "is_remote_mine", "base_skill_is_trapped", "base_skill_is_mined" })
                     if (Stats.Key(flag) is uint key) payload[key] = 0;
@@ -169,7 +186,7 @@ static partial class Game
                         land + Math.Max(0, Get(admission.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : admission.Mine ? 5 : 4)
                             * Math.Max(.01, 1 + Get(admission.Mine ? "mine_duration_+%" : "trap_duration_+%") / 100d),
                         damage, new Dictionary<uint, int>(gem.Stats), reserve?.Flat ?? 0, reserve?.Percent ?? 0,
-                        context.Life, context.Efficiency) { LandAt = land, Landed = false };
+                        context.Life, context.Efficiency) { LandAt = land, Landed = false, Offense = offense };
                     conn.Placed.All.Add(id, placement);
                     if (!ReservationBudgetFits(conn))
                     {
@@ -275,19 +292,41 @@ static partial class Game
         }
         double more = ReservationAura(conn, "SummonSkitterbots") is { } skitter
             ? Math.Max(0, 1 + ReservationStat(conn, skitter, "skitterbots_trap_mine_damage_+%_final") / 100d) : 1;
-        var player = CharacterPlayerStats(conn);
-        foreach (var (id, m) in conn.Monsters)
+        var player = placed.Offense?.Caster ?? CharacterPlayerStats(conn);
+        bool spell = placed.Offense?.Spell ?? true;
+        foreach (var (id, m) in conn.Monsters.ToArray())
         {
-            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false } || Dist(m.Walk.Position(now), placed.At) > radius) continue;
-            var rolled = placed.Damage.Scale(more).Roll(Random.Shared);
+            if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+                || conn.AsleepMonsters.Contains(id) || Dist(m.Walk.Position(now), placed.At) > radius
+                || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
+            var profile = placed.Offense is { } captured
+                ? Blinded(conn, id) ? captured.Blinded : captured.Normal
+                : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
+                    MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
+            var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
-            int damage = MonsterTakesMitigated(m, mitigated, true, now);
+            int damage = MonsterTakesMitigated(m, mitigated, spell, now);
             if (ApplyMonsterHitLocked(conn, m, damage, allyAt: placed.At) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
+            var poison = profile.Poison with { Min = profile.Poison.Min * more, Max = profile.Poison.Max * more,
+                CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
+            AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical: false, 100, player, placed.Own, now,
+                Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own));
+            if (!m.Dead && rolled[DamageType.Fire].Max > 0)
+            {
+                var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
+                    CriticalMin = profile.Ignite.CriticalMin * more, CriticalMax = profile.Ignite.CriticalMax * more };
+                foreach (var packet in IgniteOnHitLocked(conn, id, m, ignite, critical: false, now) ?? [])
+                    conn.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
+            }
+            if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)
+            {
+                var bleed = profile.Bleed with { Min = profile.Bleed.Min * more, Max = profile.Bleed.Max * more,
+                    CriticalMin = profile.Bleed.CriticalMin * more, CriticalMax = profile.Bleed.CriticalMax * more };
+                foreach (var packet in BleedOnHitLocked(conn, id, m, bleed, critical: false, now) ?? [])
+                    conn.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
+            }
             CommitAcceptedHitLocked(conn, id, m, hit, damage, now, "trap/mine", playerKill: false);
-            if (!m.Dead)
-                m.Ailments.Inflict(mitigated, false, m.MaxLife, now,
-                    n => GolemStat(placed.Own, n) + GolemStat(player, n), n => m.Effects[n], Random.Shared);
         }
     }
 
