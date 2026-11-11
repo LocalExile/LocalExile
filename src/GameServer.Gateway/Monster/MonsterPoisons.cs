@@ -19,7 +19,7 @@ sealed class MonsterPoisons
     /// <param name="ProjectileChance">The qualified Yriel projectile-attack poison chance frozen at release. It is
     /// additive to the contact's live generic attack chance and is not read again at contact.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds, int WeaponChance = 0, int ProjectileChance = 0)
+        double Seconds, int WeaponChance = 0, int ProjectileChance = 0, bool Secondary = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
@@ -41,7 +41,7 @@ sealed class MonsterPoisons
                 * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance);
+                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance, Secondary: hand == "secondary");
         }
     }
 

@@ -71,6 +71,7 @@ static partial class Game
         long chance = (long)Get("base_chance_to_poison_on_hit_%")
             + (spell
                 ? Get("spells_chance_to_poison_on_hit_%")
+                : settings.Secondary ? 0
                 : Get("chance_to_poison_on_hit_with_attacks_%") + settings.WeaponChance + settings.ProjectileChance);
         if (chaos > 0) chance += Get("chaos_damage_chance_to_poison_%");
 

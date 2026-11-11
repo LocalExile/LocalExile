@@ -5253,6 +5253,8 @@ public sealed class ReservationCurseSummonTests
                     lock (tempestConn.Monsters) tempestConn.Monsters.Remove(blindId);
 
                     var heraldBounds = new Dictionary<string, (int Min, int Max)>();
+                    var heraldHistory = new List<(SpawnedMonster Victim, double At, double Poison, double PoisonUntil,
+                        double Ignite, double IgniteUntil)>();
                     async Task CheckHerald(string effectId, uint firstId, bool sourceRemoved)
                     {
                         var grant = Assert.Single(Game.GemSkillEffects(tempestConn), g =>
@@ -5274,8 +5276,14 @@ public sealed class ReservationCurseSummonTests
                         // A secondary hit must ignore this deliberately much larger spell-only flat source.
                         SetStat("spell_minimum_added_chaos_damage", 1_000_000);
                         SetStat("spell_maximum_added_chaos_damage", 1_000_000);
+                        SetStat("global_minimum_added_fire_damage", 1_000);
+                        SetStat("global_maximum_added_fire_damage", 1_000);
+                        SetStat("base_chance_to_ignite_%", 100);
+                        SetStat("base_chance_to_poison_on_hit_%", 100);
                         double at = Game.ResourceEffectsTime(tempestConn);
                         var raw = Game.SkillsFor(tempestConn).SecondaryHitDamage(grant.Effect, admitted.Level, admitted.Quality)
+                            .Add(DamageType.Fire, new(1_000 * Game.AddedEffectiveness(tempestConn, grant.Effect, admitted.Level),
+                                1_000 * Game.AddedEffectiveness(tempestConn, grant.Effect, admitted.Level)))
                             .Add(DamageType.Chaos, new(10_000 * Game.AddedEffectiveness(tempestConn, grant.Effect, admitted.Level),
                                 10_000 * Game.AddedEffectiveness(tempestConn, grant.Effect, admitted.Level)));
                         (int Min, int Max) Bounds(double factor) =>
@@ -5286,6 +5294,19 @@ public sealed class ReservationCurseSummonTests
                         Assert.True(blinded.Min > baseline.Max);
                         if (!sourceRemoved) heraldBounds[effectId] = baseline;
                         else Assert.Equal(heraldBounds[effectId], baseline);
+                        double Poison(double factor) => Math.Round(raw[DamageType.Chaos].Min * .3 * factor * 60) / 60;
+                        double Ignite(double factor) => Math.Round(raw[DamageType.Fire].Min * .9 * factor * 60) / 60;
+                        void CheckAilments(SpawnedMonster victim, double factor, double poisonBefore = 0)
+                        {
+                            Console.WriteLine($"#504 {effectId} real secondary ailment state factor={factor} "
+                                + $"poison={victim.Poisons.TotalDps(at)-poisonBefore}/{Poison(factor)} "
+                                + $"ignite={victim.Ignites.PerSecond(at)}/{Ignite(factor)} sourceRemoved={sourceRemoved}");
+                            Assert.Equal(Poison(factor), victim.Poisons.TotalDps(at) - poisonBefore, 6);
+                            Assert.Equal(Ignite(factor), victim.Ignites.PerSecond(at), 6);
+                            Assert.Equal(at + 2, victim.Poisons.Until, 9);
+                            Assert.Equal(at + 4, victim.Ignites.Until, 9);
+                            Assert.False(victim.Bleeds.Burning);
+                        }
                         async Task<int> Proc(uint id, SpawnedMonster victim, string phase)
                         {
                             uint before = victim.Life;
@@ -5302,20 +5323,34 @@ public sealed class ReservationCurseSummonTests
                             Assert.False(Game.Blinded(tempestConn, firstId));
                             int control = await Proc(firstId, positive, "unblinded-control");
                             Assert.InRange(control, baseline.Min, baseline.Max);
+                            CheckAilments(positive, 2);
                         }
                         Assert.True(Game.InflictMonsterBlind(tempestConn, firstId, positive, at,
                             (100, 0, 4), new Random(1)));
                         Assert.True(Game.Blinded(tempestConn, firstId));
                         var neighbor = Target(firstId + 1, effectId + "-unblinded-neighbor");
                         uint neighborBefore = neighbor.Life;
+                        double previousPoison = positive.Poisons.TotalDps(at);
                         int damage = await Proc(firstId, positive, sourceRemoved ? "source-off" : "blinded-positive");
                         var expected = sourceRemoved ? baseline : blinded;
                         Assert.True(damage >= expected.Min && damage <= expected.Max,
                             $"{effectId} controlled secondary consumer, Bite removed={sourceRemoved}: actual {damage}, "
                             + $"normal {baseline}, additive {blinded}, wrong more {Bounds(2.8)}; spell-only sources must not apply");
+                        CheckAilments(positive, sourceRemoved ? 2 : 2.4, previousPoison);
                         if (effectId == "HeraldOfIce")
+                        {
                             Assert.InRange(checked((int)(neighborBefore - neighbor.Life)), baseline.Min, baseline.Max);
-                        else Assert.Equal(neighborBefore, neighbor.Life);
+                            CheckAilments(neighbor, 2);
+                        }
+                        else
+                        {
+                            Assert.Equal(neighborBefore, neighbor.Life);
+                            Assert.False(neighbor.Poisons.Poisoned);
+                            Assert.False(neighbor.Ignites.Burning);
+                        }
+                        if (!sourceRemoved)
+                            heraldHistory.Add((positive, at, positive.Poisons.TotalDps(at), positive.Poisons.Until,
+                                positive.Ignites.PerSecond(at), positive.Ignites.Until));
                         lock (tempestConn.Monsters)
                         {
                             tempestConn.Monsters.Remove(firstId);
@@ -5327,8 +5362,10 @@ public sealed class ReservationCurseSummonTests
                             var firstBlind = Target(firstId + 2, effectId + "-first-new-blind");
                             Assert.False(Game.Blinded(tempestConn, firstId + 2));
                             Assert.InRange(await Proc(firstId + 2, firstBlind, "first-new-blind"), baseline.Min, baseline.Max);
+                            CheckAilments(firstBlind, 2);
                             Assert.True(Game.Blinded(tempestConn, firstId + 2));
                             Assert.InRange(await Proc(firstId + 2, firstBlind, "already-blinded"), blinded.Min, blinded.Max);
+                            CheckAilments(firstBlind, 2.4, Poison(2));
                             SetStat("global_chance_to_blind_on_hit_%", 0);
                             lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 2);
                             var immune = Target(firstId + 3, effectId + "-blind-immune");
@@ -5337,15 +5374,40 @@ public sealed class ReservationCurseSummonTests
                             Assert.False(Game.InflictMonsterBlind(tempestConn, firstId + 3, immune, at,
                                 (100, 0, 4), new Random(1)));
                             Assert.InRange(await Proc(firstId + 3, immune, "blind-immune"), baseline.Min, baseline.Max);
+                            CheckAilments(immune, 2);
                             lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 3);
                             SetStat("base_deal_no_damage", 1);
                             var prohibited = Target(firstId + 4, effectId + "-prohibited");
                             Assert.Equal(0, await Proc(firstId + 4, prohibited, "prohibited"));
+                            Assert.False(prohibited.Poisons.Poisoned);
+                            Assert.False(prohibited.Ignites.Burning);
                             SetStat("base_deal_no_damage", 0);
                             lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 4);
+                            SetStat("base_chance_to_poison_on_hit_%", 0);
+                            SetStat("chance_to_poison_on_hit_with_attacks_%", 100);
+                            SetStat("spells_chance_to_poison_on_hit_%", 100);
+                            var familyOnly = Target(firstId + 5, effectId + "-attack-spell-only-poison");
+                            Assert.InRange(await Proc(firstId + 5, familyOnly, "attack-spell-only-poison"), baseline.Min, baseline.Max);
+                            Assert.False(familyOnly.Poisons.Poisoned);
+                            Assert.Equal(Ignite(2), familyOnly.Ignites.PerSecond(at), 6);
+                            SetStat("chance_to_poison_on_hit_with_attacks_%", 0);
+                            SetStat("spells_chance_to_poison_on_hit_%", 0);
+                            SetStat("base_chance_to_poison_on_hit_%", 100);
+                            lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 5);
+                            SetStat("never_damaging_ailments", 1);
+                            var noAilments = Target(firstId + 6, effectId + "-ailments-prohibited");
+                            Assert.InRange(await Proc(firstId + 6, noAilments, "ailments-prohibited"), baseline.Min, baseline.Max);
+                            Assert.False(noAilments.Poisons.Poisoned);
+                            Assert.False(noAilments.Ignites.Burning);
+                            SetStat("never_damaging_ailments", 0);
+                            lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 6);
                         }
                         Console.WriteLine($"#504 {effectId} secondary consumer sourceRemoved={sourceRemoved} "
                             + $"actual={damage} normal={baseline} additive={blinded}; active aura {grant.Id}, controlled queue only");
+                        SetStat("global_minimum_added_fire_damage", 0);
+                        SetStat("global_maximum_added_fire_damage", 0);
+                        SetStat("base_chance_to_ignite_%", 0);
+                        SetStat("base_chance_to_poison_on_hit_%", 0);
                         SetStat("global_minimum_added_chaos_damage", 0);
                         SetStat("global_maximum_added_chaos_damage", 0);
                         SetStat("spell_damage_+%", 0);
@@ -5533,6 +5595,13 @@ public sealed class ReservationCurseSummonTests
                         var inputs = Assert.IsType<Game.SupportedHitInputs>(
                             Game.SupportedHitInputsFor(tempestConn, source.Id, capturedGem: stillSupported));
                         Assert.Equal(0, inputs.Get(biteDamageStat));
+                    }
+                    foreach (var earned in heraldHistory)
+                    {
+                        Assert.Equal(earned.Poison, earned.Victim.Poisons.TotalDps(earned.At), 9);
+                        Assert.Equal(earned.PoisonUntil, earned.Victim.Poisons.Until, 9);
+                        Assert.Equal(earned.Ignite, earned.Victim.Ignites.PerSecond(earned.At), 9);
+                        Assert.Equal(earned.IgniteUntil, earned.Victim.Ignites.Until, 9);
                     }
                     Assert.Equal(oldPoisonDps, ownBlind.Poisons.TotalDps(secondStart), 9);
                     Assert.Equal(oldPoisonUntil, ownBlind.Poisons.Until, 9);

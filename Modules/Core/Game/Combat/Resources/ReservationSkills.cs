@@ -92,11 +92,11 @@ static partial class Game
     {
         if (aura.EffectId == "TempestShield") return SupportedHitFor(conn, aura.SkillId, suppress: false);
         var skill = SupportedSkill(conn, aura.SkillId);
-        return ReservationSecondaryHits(conn, aura, skill, CharacterPlayerStats(conn))(0);
+        return ReservationSecondaryProfiles(conn, aura, skill, CharacterPlayerStats(conn))(0).Hit;
     }
 
     // One proc captures the raw secondary packet and its source modifiers before selecting any target.
-    static Func<long, DamagePacket> ReservationSecondaryHits(ClientState conn, AuraCatalog.Aura aura,
+    static Func<long, ReservationDamageProfile> ReservationSecondaryProfiles(ClientState conn, AuraCatalog.Aura aura,
         SupportedGem skill, IReadOnlyDictionary<uint, int> player)
     {
         var stats = MergeSkillStats(player, skill.Stats);
@@ -113,9 +113,15 @@ static partial class Game
         var modifiers = skill.Supports.SelectMany(s => s.Stats)
             .Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToArray();
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
-        return increased => PlayerHitDamage.Resolve(raw, Get, conversion,
-            spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
-            supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased);
+        return increased =>
+        {
+            var hit = PlayerHitDamage.Resolve(raw, Get, conversion,
+                spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
+                supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased);
+            var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), raw, conversion, Get, increased);
+            return new(hit, MonsterIgnites.Settings.From(rows, "secondary", Get), MonsterIgnites.Settings.None,
+                MonsterPoisons.Settings.From(rows, "secondary", Get));
+        };
     }
 
     /// <summary>The immutable hit and damaging-ailment outputs selected for one reservation contact.</summary>
@@ -139,11 +145,9 @@ static partial class Game
         if (!skill.RequirementsMet || skill.Effect != aura.Effect
             || SkillsFor(conn).EffectId(skill.Effect) != aura.EffectId) return;
         var player = CharacterPlayerStats(conn);
-        var packet = DamagePacket.Empty;
-        DamagePacket? blindedPacket = null;
         long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint key
             ? (long)player.GetValueOrDefault(key) + skill.Stats.GetValueOrDefault(key) : 0;
-        ReservationDamageProfile? normalProfile = null, blindedProfile = null;
+        ReservationDamageProfile normalProfile, blindedProfile;
         if (aura.EffectId == "TempestShield")
         {
             if (SupportedHitInputsFor(conn, aura.SkillId, capturedGem: skill) is not { } inputs) return;
@@ -157,13 +161,12 @@ static partial class Game
                     capturedInputs: inputs));
             normalProfile = Profile(0);
             blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
-            packet = normalProfile.Hit;
         }
         else
         {
-            var secondary = ReservationSecondaryHits(conn, aura, skill, player);
-            packet = secondary(0);
-            blindedPacket = additionalIncreased == 0 ? packet : secondary(additionalIncreased);
+            var secondary = ReservationSecondaryProfiles(conn, aura, skill, player);
+            normalProfile = secondary(0);
+            blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased);
         }
         double radius = ReservationRadius(conn, aura, aura.EffectId == "TempestShield" ? 60 : 32);
         var candidates = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
@@ -182,7 +185,7 @@ static partial class Game
                 // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
                 bool targetWasBlinded = Blinded(conn, id);
                 var profile = targetWasBlinded ? blindedProfile : normalProfile;
-                var targetPacket = profile?.Hit ?? (targetWasBlinded ? blindedPacket ?? packet : packet);
+                var targetPacket = profile.Hit;
                 bool spell = aura.EffectId == "TempestShield";
                 int Player(string n) => GolemStat(player, n);
                 int Own(string n) => GolemStat(skill.Stats, n);
@@ -205,9 +208,9 @@ static partial class Game
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (aura.EffectId == "HeraldOfThunder" && Stats.Key("never_shock") is uint noShock) own[noShock] = 1;
                     AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now,
-                        Random.Shared, poison: profile?.Poison ?? default,
+                        Random.Shared, poison: profile.Poison,
                         blind: BlindHitInput.Capture(player, own));
-                    if (profile is not null && m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                    if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
                         && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, now) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
