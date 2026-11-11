@@ -282,6 +282,9 @@ static partial class Game
                     Enqueue(() => SendRampageStun(remote, stream, ciphers, Conn, stun));
                 return ProjectileHitResult.Hit;
             }
+            // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
+            // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
+            shot = shot.Against(Blinded(Conn, contact.Target.Id));
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
             int hitChance = 100;
             if (!shot.Spell)
@@ -333,8 +336,9 @@ static partial class Game
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
             if (hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
             if (!immune)
-                AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
-                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
+                AilmentsOnHitLocked(Conn, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
+                    shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
+                    sourceSkill: shot.SourceSkill, blind: shot.Blind);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
@@ -344,7 +348,6 @@ static partial class Game
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
-            InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));

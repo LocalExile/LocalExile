@@ -415,11 +415,24 @@ static partial class Game
                     Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled by a later action");
                     return false;
                 }
+                // A message-level scope can predate the swing; contact reads a fresh caller snapshot.
+                using var contactStats = new PlayerStatScope(conn, fresh: true);
                 // Settle Rage at accepted contact before this hit's gain. It is a final multiplier on the attack packet,
                 // never on an existing impale bonus or on generic damage/DoT.
                 var player = CharacterPlayerStats(conn);
                 var accuracy = AttackAccuracyProfile.From(conn.Pools, player, Stats, ownPenetration, weapon.LocalSources)
                     with { Rating = PlayerAccuracy(conn, player) };
+                IEnumerable<(uint, int)> conversionStats = ownPenetration is null ? [] :
+                    ownPenetration.Select(pair => (pair.Key, pair.Value));
+                var conversion = DamageStats.Conversion(player, conversionStats, Stats, attack: true);
+                var prehit = DefaultMeleePrehitProfileLocked(conn, targetId, m, player, weapon, conversion,
+                    ownPenetration, ProjectileWorldTime(conn));
+                if (prehit is null)
+                {
+                    Console.WriteLine($"[gateway] {remote} attack on 0x{targetId:x} cancelled: the target is no longer " +
+                        "the registered living hostile monster");
+                    return true;
+                }
                 double contactAt = conn.Clock.Elapsed.TotalSeconds;
                 int hitChance = AttackHitChanceAt(conn, targetId, m, contactAt, accuracy, player);
                 if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, contactAt, conn.AttackAccuracyRandom))
@@ -434,9 +447,8 @@ static partial class Game
                 }
                 var pen = Penetration.Of(player, Stats, attack: true, ownPenetration, weapon.LocalSources);
                 var resistanceMods = HitResistMods(player, ownPenetration);
-                var hit = AttackHitConverted(weapon, player, WeaponProfileFor(conn, activeSet: true).Melee,
-                    ConversionFor(conn, attackEffect, 1, attack: true));
-                if (WeaponProfileFor(conn, activeSet: true).Melee)
+                var hit = prehit.Hit;
+                if (weapon.Melee)
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
                 var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
@@ -455,10 +467,10 @@ static partial class Game
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
-                stun = OwnerStun(conn, m, damage, mitigated, WeaponProfileFor(conn, activeSet: true).Melee, spell: false, critical, player, ownPenetration);
+                stun = OwnerStun(conn, m, damage, mitigated, weapon.Melee, spell: false, critical, player, ownPenetration);
                 if (!fortified) fortified = FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
-                    WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
-                var rampageSource = RampageOnMeleeHitLocked(conn, m, WeaponProfileFor(conn, activeSet: true).Melee, player);
+                    weapon.Melee, player, ownPenetration);
+                var rampageSource = RampageOnMeleeHitLocked(conn, m, weapon.Melee, player);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
                     rampageSource, player);
                 CaptureUnhingedHitKillLocked(conn, m, playerHit: true);
@@ -472,19 +484,19 @@ static partial class Game
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
-                AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
-                    at, Random.Shared, poison: DefaultAttackPoison(conn, player));
+                AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
+                    ownPenetration, at, Random.Shared, poison: prehit.Poison,
+                    blind: BlindHitInput.Capture(player));
                 if (life > 0 && ownRolled[DamageType.Fire].Max > 0
-                    && IgniteOnHitLocked(conn, targetId, m, DefaultAttackIgnite(conn, player),
+                    && IgniteOnHitLocked(conn, targetId, m, prehit.Ignite,
                         critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
                 if (life > 0 && ownRolled[DamageType.Physical].Max > 0
-                    && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at,
+                    && BleedOnHitLocked(conn, targetId, m, prehit.Bleed, critical, at,
                         BleedReflected(player)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
-                if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
-                InflictMonsterBlind(conn, targetId, m, ResourceEffectsTime(conn), BlindInputs(player));
+                if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: weapon.Melee, critical);
             }
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
@@ -498,10 +510,11 @@ static partial class Game
             await SendFlinch(remote, stream, ciphers, conn, targetId, m, stun, log: true);
             // The hit result for the client's damage/effect pipeline (0x1af): the client applies the hit locally (the target's
             // blood, the weapon impact sound "bonk") and 0x1b1 stays authoritative on life. flags 0x4201 is the real server's
-            // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
-            // the directional blood.
+            // player-melee hit (bit 0 hit, 0x20 critical, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data,
+            // the angle drives the directional blood.
             await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: 0x4201, kind: 0x03,
+                InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId,
+                    flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)), kind: 0x03,
                     angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
             await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(targetId, life),
@@ -517,6 +530,32 @@ static partial class Game
             if (m.ThresholdReached) await QuestThreshold(remote, stream, ciphers, conn, targetId, m);
             return true;
         }
+    }
+
+    /// <summary>The immutable default-melee hit and damaging-ailment outputs chosen for one contact.</summary>
+    internal sealed record DefaultMeleePrehitProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+        MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+
+    /// <summary>The immutable hit and damaging-ailment outputs chosen for one AreaSkillHit victim.</summary>
+    internal sealed record AreaSkillDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+        MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+
+    // Build the default melee contact's damage and ailment inputs from one saved weapon and caster snapshot. The caller
+    // holds Monsters and uses the result through the contact without reading the player or weapon again.
+    internal static DefaultMeleePrehitProfile? DefaultMeleePrehitProfileLocked(ClientState conn, uint targetId,
+        SpawnedMonster target, IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed weapon,
+        GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at)
+    {
+        if (!target.Hostile || target.Dead || target.Life == 0
+            || !conn.Monsters.TryGetValue(targetId, out var registered) || !ReferenceEquals(registered, target))
+            return null;
+        long additionalIncreased = 0;
+        if (Blinded(conn, targetId, at) && Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint key)
+            additionalIncreased = (long)player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
+        return new(AttackHitConverted(weapon, player, weapon.Melee, conversion, additionalIncreased),
+            DefaultAttackIgnite(conn, player, weapon, additionalIncreased, conversion),
+            DefaultAttackBleed(conn, player, weapon, additionalIncreased, conversion),
+            DefaultAttackPoison(conn, player, weapon, additionalIncreased, conversion));
     }
 
     // A gem skill used on a monster (C→S 0x24 with a skill id other than the default attack's). A spell stops and casts from
@@ -1096,9 +1135,26 @@ static partial class Game
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
-            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
-                actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                swingAt: swingAt);
+        {
+            if (!TryCaptureSacrificePaidUse(conn, skillId, gem, Current, out var sacrificePaid))
+                return false;
+            if (sacrificePaid.SacrificedLife > 0)
+            {
+                string log = $"0x01b1 player sacrifice paid {sacrificePaid.SacrificedLife} life for "
+                    + $"{sacrificePaid.RawExtra} raw added chaos";
+                Console.WriteLine($"[gateway] {remote} {gem.Name}: {log}");
+                if (UsesProjectileRuntime(gem.Effect))
+                    ProjectilesFor(remote, stream, ciphers, conn).Packet(
+                        () => CurrentSacrificeLifeUpdate(conn, sacrificePaid.Epoch), log);
+                else
+                    await Send(remote, stream, ciphers, [],
+                        $"0x01b1 player sacrifice life {sacrificePaid.SacrificedLife} for {gem.Name}",
+                        atGate: () => CurrentSacrificeLifeUpdate(conn, sacrificePaid.Epoch));
+            }
+            await LaunchProjectile(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, targetId,
+                sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
+                channelGeneration: channelGeneration, swingAt: swingAt, prepaidRawExtra: sacrificePaid.RawExtra);
+        }
         return true;
     }
 
@@ -1355,11 +1411,63 @@ static partial class Game
         await SendPlayerMana(remote, stream, ciphers, conn);
     }
 
+    private readonly record struct SacrificePaidUse(long RawExtra, uint SacrificedLife, int Epoch);
+
+    // Sacrifice is paid once by the accepted generic use, after its ordinary mana admission and before its
+    // projectiles/areas can be scheduled. False rejects an invalid stale/current source; true with a zero receipt is a
+    // valid unsupported/no-Sacrifice or Life-floor use that continues normally. The receipt freezes every release's gain.
+    private static bool TryCaptureSacrificePaidUse(ClientState conn, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, Func<bool> current,
+        out SacrificePaidUse receipt)
+    {
+        lock (conn.Monsters)
+        {
+            int epoch = conn.ProjectileEpoch;
+            receipt = new(0, 0, epoch);
+            if (!current() || !conn.ProjectileActive(epoch) || conn.PlayerLife == 0 || conn.Paused || InTown(conn))
+                return false;
+            var currentGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+            if (currentGem != gem) return false;
+
+            using var snapshot = new PlayerStatScope(conn, fresh: true);
+            var admittedGem = SupportedSkill(conn, skillId);
+            // Gem Level/Quality in the source tuple are intrinsic. Support and local bonuses may make the
+            // admitted effective values higher, and that admitted gem owns the canonical sacrifice stats.
+            if (admittedGem.Effect != gem.Effect || !admittedGem.RequirementsMet
+                || GemSkillInstanceDisabled(conn, admittedGem.Effect, skillId) is not null)
+                return false;
+
+            int Sacrifice(string name) => Stats.Key(name) is uint key
+                ? admittedGem.Stats.GetValueOrDefault(key) : 0;
+            int percent = Math.Max(0, Sacrifice(
+                "support_sacrifice_sacrifice_%_of_current_life"));
+            if (percent == 0 || conn.PlayerLife <= 1) return true;
+
+            long life = conn.PlayerLife;
+            long sacrificed = Math.Min(life - 1, life * percent / 100);
+            if (sacrificed <= 0) return true;
+            long gain = Math.Max(0, Sacrifice(
+                "support_sacrifice_gain_%_of_sacrificed_life_as_added_chaos_damage"));
+            long rawExtra = sacrificed * gain / 100;
+            conn.PlayerLife = (uint)(life - sacrificed);
+            receipt = new(rawExtra, (uint)sacrificed, epoch);
+            return true;
+        }
+    }
+
+    // The Life publication follows the normal paid-use outbox, but samples authoritative Life only while this
+    // use's connection epoch is still live.
+    private static byte[]? CurrentSacrificeLifeUpdate(ClientState conn, int epoch)
+    {
+        lock (conn.Monsters)
+            return conn.ProjectileActive(epoch) ? PlayerLifeUpdate(conn) : null;
+    }
+
     // Every projectile uses the same scheduler and simulator. Definitions change rules, never execution paths.
     internal static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null, double? swingAt = null)
+        int? channelGeneration = null, double? swingAt = null, long prepaidRawExtra = 0)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -1369,7 +1477,7 @@ static partial class Game
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt);
+                sequence, swingAt, prepaidRawExtra);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
@@ -1400,19 +1508,6 @@ static partial class Game
                     fistMore = 1 + Fist("support_ancestral_slam_big_hit_damage_with_hits_and_ailments_+%_final") / 100.0;
                     fistRadius = 1 + Fist("support_ancestral_slam_big_hit_area_+%") / 100.0;
                 }
-            }
-        }
-        // Sacrifice: the use pays its share of current life and gains the listed share of it as added chaos damage.
-        int addedChaos = 0;
-        {
-            var sacStats = SupportedSkill(conn, skillId).Stats;
-            int Sac(string name) => Stats.Key(name) is uint key ? sacStats.GetValueOrDefault(key) : 0;
-            int percent = Sac("support_sacrifice_sacrifice_%_of_current_life");
-            if (percent > 0 && conn.PlayerLife > 1)
-            {
-                int sacrificed = (int)Math.Min((long)conn.PlayerLife - 1, (long)conn.PlayerLife * percent / 100);
-                conn.PlayerLife -= (uint)sacrificed;
-                addedChaos = (int)((long)sacrificed * Sac("support_sacrifice_gain_%_of_sacrificed_life_as_added_chaos_damage") / 100);
             }
         }
         // Spell Cascade: the spell also lands in the areas beside the target, one per side along the aim and, with
@@ -1450,7 +1545,7 @@ static partial class Game
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
-                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos,
+                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: prepaidRawExtra,
                 damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
@@ -1566,7 +1661,7 @@ static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0, double? swingAt = null)
+        double radiusMore = 1, long addedChaos = 0, double? swingAt = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1584,7 +1679,8 @@ static partial class Game
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
-        var skillStats = SupportedSkill(conn, skillId).Stats;
+        var admittedGem = SupportedSkill(conn, skillId);
+        var skillStats = admittedGem.Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
@@ -1736,175 +1832,209 @@ static partial class Game
         Dictionary<uint, int>? player = null;
         Penetration.PerType pen = default;
         HitResistances.Mods mods = default;
-        DamagePacket sweepHit = default!;
+        AreaSkillDamageProfile sweepProfile = default!;
+        AreaSkillDamageProfile? blindedProfile = null;
         int sweepMultiplier = 0;
         AttackAccuracyProfile accuracy = default;
         LeechSources? leech = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
-        MonsterIgnites.Settings ignite = default, bleed = default;
-        MonsterPoisons.Settings poison = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
         var deaths = new List<(uint Id, SpawnedMonster M)>();
         var reflected = new List<MonsterElementalAilments.Effect>();
-        for (int victim = 0; victim < targets.Count; victim++)
+        PlayerStatScope? sweepStats = null;
+        try
         {
-            var (id, m) = targets[victim];
-            // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
-            // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
-            if ((ring || wave) && victim < reach.Length && reach[victim] > 0
-                && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch))
+            for (int victim = 0; victim < targets.Count; victim++)
             {
-                if (wave) Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the wave was retired "
-                    + $"{conn.Clock.Elapsed.TotalSeconds - sweepStart:0.###} s in, {targets.Count - victim} monster(s) left unhit");
-                break;
-            }
-            if (wave && victim < reach.Length)
-                Console.WriteLine($"[gateway] {remote} {gem.Name} wave reaches 0x{id:x} at {reach[victim] * GroundSlamWave.CellsPerSecond:0.#} cells {reach[victim]:0.###} s after the slam");
-            MonsterHit? applied;
-            int damage;
-            bool critical;
-            string? resistance;
-            List<byte[]>? ignited = null, bled = null;
-            string igniteLog = "", bleedLog = "";
-            StunHit stun;
-            using (ProjectileMutation(conn))
-            {
-                // Catch up earlier projectile contacts before reading Rage or any other live offensive input. Stopping
-                // the sweep keeps the kills it already queued. A released nova or slam wave keeps travelling when the
-                // player moves on: its action was checked at the release.
-                if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                    || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
-                if (m.Dead || m.Life == 0 || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
-                bool freshPlayer = player is null;
-                if (player is null)
+                var (id, m) = targets[victim];
+                // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
+                // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
+                if ((ring || wave) && victim < reach.Length && reach[victim] > 0
+                    && !await WaitProjectileTime(conn, sweepStart + reach[victim], epoch))
                 {
-                    player = CharacterPlayerStats(conn);
-                    // A shield skill swings the shield (ShieldWeapon), which carries no local modifiers of the main hand.
-                    var shield = spell ? null : ShieldWeapon(conn, skillId);
-                    var local = spell || shield is not null ? null : MainHandLocalSources(conn);
-                    pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
-                    mods = HitResistMods(player, skillStats);
-                    sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
-                    if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
-                    if (addedChaos > 0) sweepHit = sweepHit.Add(DamageType.Chaos, new(addedChaos, addedChaos));
-                    sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
-                    if (!spell) accuracy = SupportedAccuracy(conn, skillId);
-                    leech = HitLeechSources(player, !spell, skillStats, local);
-                    impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
-                    criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
-                    ignite = SupportedIgnite(conn, skillId, spell, player, shield);
-                    bleed = SupportedBleed(conn, skillId, spell, player, shield, melee: SkillsFor(conn).IsMelee(gem.Effect));
-                    poison = SupportedPoison(conn, skillId, spell, player, shield);
+                    if (wave) Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: the wave was retired "
+                        + $"{conn.Clock.Elapsed.TotalSeconds - sweepStart:0.###} s in, {targets.Count - victim} monster(s) left unhit");
+                    break;
                 }
-                var contactHit = sweepHit;
-                if (VaalExecutor(conn, gem.Effect))
+                if (wave && victim < reach.Length)
+                    Console.WriteLine($"[gateway] {remote} {gem.Name} wave reaches 0x{id:x} at {reach[victim] * GroundSlamWave.CellsPerSecond:0.#} cells {reach[victim]:0.###} s after the slam");
+                MonsterHit? applied;
+                int damage;
+                bool critical;
+                string? resistance;
+                List<byte[]>? ignited = null, bled = null;
+                string igniteLog = "", bleedLog = "";
+                StunHit stun;
+                using (ProjectileMutation(conn))
                 {
-                    double distance = Dist(conn.Walk.Position(ProjectileWorldTime(conn)), m.Walk.Position(ProjectileWorldTime(conn)));
-                    contactHit = contactHit.Scale(1 + Stat("groundslam_damage_to_close_targets_+%_final")
-                        / 100.0 * Math.Max(0, 1 - distance / Math.Max(1, radius)));
-                }
-                if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
-                    contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, contactHit, ProjectileWorldTime(conn));
-                int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy, player);
-                if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
-                if (MonsterBlocks(m, Random.Shared, spell, ProjectileWorldTime(conn), skillStats))
-                {
-                    Console.WriteLine($"[gateway] {remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
-                    continue;
-                }
-                var gambler = GamblerFor(player);
-                var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
-                    GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
-                        .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
-                        .RollOutgoingHit(contactHit, Random.Shared)),
-                    ProjectileWorldTime(conn));
-                // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
-                // extra fire, and removes the flame.
-                if (!spell && m.HallowingFlameUntil > ProjectileWorldTime(conn) && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
-                {
-                    double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
-                    rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
-                    m.HallowingFlameUntil = 0;
-                }
-                // The shared roll meets each target's current chance: a source can change between targets.
-                int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
-                    SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
-                    SupportedCriticalChanceVsProfane(conn, skillId, release: false));
-                critical = RollCriticalStrike(conn, criticalChance, skillStats,
-                        attack: !spell, skillRoll: criticalRoll, player: player)
-                    && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
-                int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
-                double at = ProjectileWorldTime(conn);
-                (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
-                    gambler.InvertsResistance(Random.Shared));
-                var taken = MonsterTakenComponents(m, mitigated, spell, at);
-                if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-                double more = damageMore * bloodMore;
-                if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
-                if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
-                LeechOnHitLocked(conn, m, taken, damage, leech!);
-                damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,
-                    critical ? criticalImpale : impale, more).Damage;
-                stun = OwnerStun(conn, m, damage, mitigated, !spell && SkillsFor(conn).IsMelee(gem.Effect), spell, critical, player, skillStats);
-                // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
-                // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
-                var rampagePlayer = freshPlayer ? player : null;
-                var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
-                applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
-                    cull: Cull.Of(player, skillStats, critical, spell));
-                if (applied is not null)
-                {
-                    conn.RecentEvents.RecordCriticalOutcome(at, critical);
-                    landed++;
-                    // Item Quantity Support: the kill's loot rolls read the supported skill's share.
-                    if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
-                        m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
-                    // Devour: a killing blow recovers the support's life/mana.
-                    if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
-                    AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
-                        reflected, poison, sourceSkill: skillId);
-                    // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
-                    // physical damage bleed it.
-                    if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
-                        && IgniteOnHitLocked(conn, id, m, ignite, critical, at) is { } packets)
-                        (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
-                    if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
-                        && BleedOnHitLocked(conn, id, m, bleed, critical, at,
-                            BleedReflected(player)) is { } cut)
-                        (bled, bleedLog) = (cut, BleedingLog(id, m, critical, at));
-                }
-                if (applied is { StageStarts: true } staged)
-                {
-                    CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
-                    applied = staged with { StageStarts = false };
-                }
-                if (applied is not null)
-                {
-                    if (!fortificationGranted)
-                        fortificationGranted = FortificationOnHitLocked(conn, m,
-                            RawFortificationDamage(rolled, critical, multiplier),
-                            !spell && SkillsFor(conn).IsMelee(gem.Effect), player, skillStats);
-                    if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
-                        melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats, player: player);
-                    InflictMonsterBlind(conn, id, m, ResourceEffectsTime(conn), BlindInputs(player, skillStats));
-                    if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
+                    // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
+                    // target opens one fresh character scope, which every victim reuses until this sweep's loop exits.
+                    if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
+                        || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                    if (m.Dead || m.Life == 0 || !m.Hostile
+                        || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
+                    bool freshPlayer = player is null;
+                    if (player is null)
                     {
-                        CombatRushOnHit(conn, skillStats, at);
-                        HallowOnMeleeHit(conn, m, skillStats, at);
-                        ExcommunicateOnMeleeHit(conn, m, skillStats, at);
+                        sweepStats = new PlayerStatScope(conn, fresh: true);
+                        player = CharacterPlayerStats(conn);
+                        // Capture the admitted gem and actual source weapon once. The ordinary main hand keeps its local
+                        // sources; a shield skill's off hand intentionally carries none of the main hand's local values.
+                        var shield = spell ? null : ShieldWeapon(conn, skillId);
+                        var sourceWeapon = shield ?? WeaponFor(conn);
+                        var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
+                        if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, capturedGem: admittedGem)
+                            is not { } capturedInputs) break;
+                        // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
+                        // before the shared hit and ailment ancestry, so increases, more multipliers and prohibition
+                        // rules see it exactly as they see any other spell-added damage.
+                        if (addedChaos > 0)
+                        {
+                            double added = addedChaos * AddedEffectiveness(conn, admittedGem.Effect, admittedGem.Level);
+                            capturedInputs = capturedInputs with
+                            {
+                                Raw = capturedInputs.Raw.Add(DamageType.Chaos, new(added, added)),
+                            };
+                        }
+                        long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint key
+                            ? (long)player.GetValueOrDefault(key) + admittedGem.Stats.GetValueOrDefault(key) : 0;
+                        AreaSkillDamageProfile Profile(long increased)
+                        {
+                            var hit = SupportedHitFrom(capturedInputs, suppress: true, additionalIncreased: increased);
+                            if (ruthless != 1) hit = hit.Scale(ruthless);
+                            return new(hit,
+                                SupportedIgnite(conn, skillId, spell, player, shield, increased, capturedInputs),
+                                SupportedBleed(conn, skillId, spell, player, shield,
+                                    melee: SkillsFor(conn).IsMelee(gem.Effect), increased, capturedInputs),
+                                SupportedPoison(conn, skillId, spell, player, shield, increased, capturedInputs));
+                        }
+                        sweepProfile = Profile(0);
+                        if (additionalIncreased != 0) blindedProfile = Profile(additionalIncreased);
+                        pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
+                        mods = HitResistMods(player, skillStats);
+                        sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
+                        if (!spell) accuracy = SupportedAccuracy(conn, skillId);
+                        leech = HitLeechSources(player, !spell, skillStats, local);
+                        impale = ImpaleStats.From(player, Stats, !spell, skillStats, local);
+                        criticalImpale = ImpaleStats.From(player, Stats, !spell, skillStats, local, critical: true);
+                    }
+                    // The target's condition is chosen before accuracy, crit RNG, on-hit hooks and the hit's own Blind.
+                    var profile = Blinded(conn, id) && blindedProfile is not null
+                        ? blindedProfile : sweepProfile;
+                    var contactHit = profile.Hit;
+                    if (VaalExecutor(conn, gem.Effect))
+                    {
+                        double distance = Dist(conn.Walk.Position(ProjectileWorldTime(conn)), m.Walk.Position(ProjectileWorldTime(conn)));
+                        contactHit = contactHit.Scale(1 + Stat("groundslam_damage_to_close_targets_+%_final")
+                            / 100.0 * Math.Max(0, 1 - distance / Math.Max(1, radius)));
+                    }
+                    if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
+                        contactHit = WithMeleeProximityLocked(conn, player, skillStats, m, contactHit, ProjectileWorldTime(conn));
+                    int hitChance = spell ? 100 : AttackHitChanceAt(conn, id, m, ProjectileWorldTime(conn), accuracy, player);
+                    if (!spell && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, ProjectileWorldTime(conn), conn.AttackAccuracyRandom)) continue;
+                    if (MonsterBlocks(m, Random.Shared, spell, ProjectileWorldTime(conn), skillStats))
+                    {
+                        Console.WriteLine($"[gateway] {remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
+                        continue;
+                    }
+                    var gambler = GamblerFor(player);
+                    var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
+                        GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
+                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
+                            .RollOutgoingHit(contactHit, Random.Shared)),
+                        ProjectileWorldTime(conn));
+                    // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
+                    // extra fire, and removes the flame.
+                    if (!spell && m.HallowingFlameUntil > ProjectileWorldTime(conn) && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
+                    {
+                        double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
+                        rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
+                        m.HallowingFlameUntil = 0;
+                    }
+                    // The shared roll meets each target's current chance: a source can change between targets.
+                    int criticalChance = CriticalChanceOn(conn, id, SupportedCriticalChance(conn, skillId),
+                        SupportedCriticalChanceVsBlinded(conn, skillId, release: false),
+                        SupportedCriticalChanceVsProfane(conn, skillId, release: false));
+                    critical = RollCriticalStrike(conn, criticalChance, skillStats,
+                            attack: !spell, skillRoll: criticalRoll, player: player)
+                        && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
+                    int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
+                    double at = ProjectileWorldTime(conn);
+                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
+                        gambler.InvertsResistance(Random.Shared));
+                    var taken = MonsterTakenComponents(m, mitigated, spell, at);
+                    if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
+                    double more = damageMore * bloodMore;
+                    if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
+                    if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
+                    LeechOnHitLocked(conn, m, taken, damage, leech!);
+                    damage = WithImpaleHitLocked(conn, m, damage, rolled, critical, sweepMultiplier,
+                        critical ? criticalImpale : impale, more).Damage;
+                    stun = OwnerStun(conn, m, damage, mitigated, !spell && SkillsFor(conn).IsMelee(gem.Effect), spell, critical, player, skillStats);
+                    // Only the first victim has a freshly built player snapshot. After notification awaits, resolve the
+                    // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
+                    var rampagePlayer = freshPlayer ? player : null;
+                    var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
+                    applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
+                        cull: Cull.Of(player, skillStats, critical, spell));
+                    if (applied is not null)
+                    {
+                        conn.RecentEvents.RecordCriticalOutcome(at, critical);
+                        landed++;
+                        // Item Quantity Support: the kill's loot rolls read the supported skill's share.
+                        if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
+                            m.KilledWithItemQuantityPct = skillStats.GetValueOrDefault(quantityKey);
+                        // Devour: a killing blow recovers the support's life/mana.
+                        if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
+                        AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
+                            Random.Shared, reflected, profile.Poison, sourceSkill: skillId,
+                            blind: BlindHitInput.Capture(player, skillStats));
+                        // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
+                        // physical damage bleed it.
+                        if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                            && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, at) is { } packets)
+                            (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
+                        if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
+                            && BleedOnHitLocked(conn, id, m, profile.Bleed, critical, at,
+                                BleedReflected(player)) is { } cut)
+                            (bled, bleedLog) = (cut, BleedingLog(id, m, critical, at));
+                    }
+                    if (applied is { StageStarts: true } staged)
+                    {
+                        CommitBossStage(remote, stream, ciphers, conn, id, m, ProjectileWorldTime(conn));
+                        applied = staged with { StageStarts = false };
+                    }
+                    if (applied is not null)
+                    {
+                        if (!fortificationGranted)
+                            fortificationGranted = FortificationOnHitLocked(conn, m,
+                                RawFortificationDamage(rolled, critical, multiplier),
+                                !spell && SkillsFor(conn).IsMelee(gem.Effect), player, skillStats);
+                        if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
+                            melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats, player: player);
+                        if (!spell && SkillsFor(conn).IsMelee(gem.Effect))
+                        {
+                            CombatRushOnHit(conn, skillStats, at);
+                            HallowOnMeleeHit(conn, m, skillStats, at);
+                            ExcommunicateOnMeleeHit(conn, m, skillStats, at);
+                        }
                     }
                 }
+                if (applied is not { } hit) continue;
+                if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
+                if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
+                await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
+                    $"{gem.Name}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
+                    melee: melee ?? !spell, sequence: sequence, deaths: deaths, stun: stun, critical: critical);
+                await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
+                await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
+                ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
             }
-            if (applied is not { } hit) continue;
-            if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);
-            if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, m.Walk.Position(ProjectileWorldTime(conn)));
-            await NotifyMonsterHit(remote, stream, ciphers, conn, id, m, hit, damage,
-                $"{gem.Name}{(critical ? " (critical)" : "")}{(resistance is null ? "" : $", {resistance}")}",
-                melee: melee ?? !spell, sequence: sequence, deaths: deaths, stun: stun);
-            await SendDotBuff(remote, stream, ciphers, ignited, igniteLog);
-            await SendDotBuff(remote, stream, ciphers, bled, bleedLog);
-            ChargesOnHit(conn, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: id == targets[0].Id);
+        }
+        finally
+        {
+            if (sweepStats is { } stats) stats.Dispose();
         }
         if (reflected.Count > 0 && player is not null)
             using (ProjectileMutation(conn)) ReflectAilmentsLocked(conn, reflected, ProjectileWorldTime(conn), player, Random.Shared);
@@ -2041,7 +2171,7 @@ static partial class Game
 
     internal static async Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
-        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null)
+        List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -2062,7 +2192,8 @@ static partial class Game
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
             await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
+                InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: (ushort)(0x4201 | (critical ? 0x0020 : 0)),
+                    kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.

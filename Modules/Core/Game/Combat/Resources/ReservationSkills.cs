@@ -154,7 +154,8 @@ static partial class Game
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (aura.EffectId == "HeraldOfThunder" && Stats.Key("never_shock") is uint noShock) own[noShock] = 1;
-                    AilmentsOnHitLocked(conn, m, mitigated, spell, critical, 100, player, own, now, Random.Shared);
+                    AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now, Random.Shared,
+                        blind: BlindHitInput.Capture(player, own));
                 }
                 CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(PlayerId, 0xffff, id,

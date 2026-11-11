@@ -425,8 +425,9 @@ static partial class Game
         conn.CombatRushAttackSpeed = Math.Max(conn.CombatRushAttackSpeed, speed);
     }
 
-    internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
-        => SupportedHitFor(conn, skillId, suppress: false, area);
+    internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area,
+        long additionalIncreased = 0)
+        => SupportedHitFor(conn, skillId, suppress: false, area, additionalIncreased: additionalIncreased);
 
     // The same supported attack swung with the off-hand weapon of a dual-wielded attack (the Offence tab's Off Hand rows).
     internal static GameServer.Core.World.DamagePacket SupportedOffHandHit(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand)
@@ -440,9 +441,9 @@ static partial class Game
         bool WieldingWand = false);
 
     internal static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null)
+        SkillCatalog.Unarmed? weapon = null, SupportedGem? capturedGem = null)
     {
-        var gem = SupportedSkill(conn, skillId);
+        var gem = capturedGem ?? SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
@@ -478,16 +479,19 @@ static partial class Game
     }
 
     internal static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null)
-        => SupportedHitInputsFor(conn, skillId, area, weapon) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0)
+        => SupportedHitInputsFor(conn, skillId, area, weapon) is { } inputs
+            ? SupportedHitFrom(inputs, suppress, additionalIncreased) : GameServer.Core.World.DamagePacket.Empty;
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
-    internal static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)
+    internal static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
+        long additionalIncreased = 0)
     {
         var hit = PlayerHitDamage.Resolve(inputs.Raw, inputs.Get, inputs.Conversion, spell: !inputs.Attack,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
-            wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120));
+            wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),
+            additionalIncreased: additionalIncreased);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
@@ -495,13 +499,15 @@ static partial class Game
     // The damaging-ailment rows of a supported skill's hit in one context (AilmentPanelStats): the main or off hand of
     // an attack with that hand's weapon, or a spell's / secondary-damage skill's hit.
     internal static List<(string Stat, int Value)> SupportedAilmentRows(ClientState conn, ushort skillId, string hand,
-        SkillCatalog.Unarmed? weapon = null)
-        => SupportedHitInputsFor(conn, skillId, weapon: weapon) is { } inputs ? SupportedAilmentRowsFrom(inputs, hand) : [];
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0)
+        => SupportedHitInputsFor(conn, skillId, weapon: weapon) is { } inputs
+            ? SupportedAilmentRowsFrom(inputs, hand, additionalIncreased) : [];
 
-    internal static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand)
+    internal static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
+        long additionalIncreased = 0)
     {
         var context = new AilmentPanelStats.Context(hand, Spell: !inputs.Attack, inputs.Melee);
-        return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get);
+        return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
     }
 
     internal static AttackAccuracyProfile SupportedAccuracy(ClientState conn, ushort skillId)

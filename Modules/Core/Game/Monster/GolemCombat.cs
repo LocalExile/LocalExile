@@ -394,9 +394,12 @@ static partial class Game
         CommitMinionHitLocked(conn, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}");
         if (!target.Dead)
         {
-            target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, n => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n),
+            int Golem(string name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
+            target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
                 n => target.Mods.Effects[n], Random.Shared);
-            HitDebuffsOnHitLocked(target, n => g.Monster.Mods.Effects[n] + GolemStat(a.Stats, n), a.Attack.Spell, critical, now);
+            HitDebuffsOnHitLocked(target, Golem, a.Attack.Spell, critical, now);
+            InflictMonsterBlind(conn, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
+                Random.Shared);
             MinionAilmentsLocked(conn, g, a, id, target, critical, now);
         }
         return true;

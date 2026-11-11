@@ -4101,7 +4101,7 @@ public class ConditionalItemStatsTests
         var goldenPlayer = Game.CharacterPlayerStats(golden);
         goldenPlayer[Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100;
         lock (golden.Monsters)
-            Game.AilmentsOnHitLocked(golden, outgoingTarget, DamagePacket.Of(DamageType.Physical, 10, 10),
+            Game.AilmentsOnHitLocked(golden, 0x504001u, outgoingTarget, DamagePacket.Of(DamageType.Physical, 10, 10),
                 false, false, 100, goldenPlayer, null, now + 3, new Random(1),
                 poison: new MonsterPoisons.Settings(100, 1, 1, 1, 1, 5));
         Assert.Equal(1, golden.IncomingAilments.PoisonStacks(now + 3));
@@ -4139,7 +4139,7 @@ public class ConditionalItemStatsTests
             Assert.True(reflectedAilments.IncomingAilments.ApplyPoison(reflectionStart, 1, 5, reflected: true));
         lock (reflectedAilments.Monsters)
         {
-            Game.AilmentsOnHitLocked(reflectedAilments, reflectedTarget,
+            Game.AilmentsOnHitLocked(reflectedAilments, 0x504002u, reflectedTarget,
                 DamagePacket.Of(DamageType.Physical, 10, 10), false, false, 100,
                 reflectingPlayer, null, reflectionStart, new Random(1),
                 poison: new MonsterPoisons.Settings(100, 1, 1, 1, 1, 5));
@@ -4150,7 +4150,7 @@ public class ConditionalItemStatsTests
         Assert.Equal(100, reflectedAilments.IncomingAilments.PoisonStacks(reflectionStart));
         Assert.True(reflectedAilments.IncomingAilments.Bleeding(reflectionStart));
         lock (reflectedAilments.Monsters)
-            Game.AilmentsOnHitLocked(reflectedAilments, reflectedTarget,
+            Game.AilmentsOnHitLocked(reflectedAilments, 0x504002u, reflectedTarget,
                 DamagePacket.Of(DamageType.Physical, 10, 10), false, false, 100,
                 reflectingPlayer, null, reflectionStart + .01, new Random(3),
                 poison: new MonsterPoisons.Settings(100, 1, 1, 1, 1, 5));
@@ -4173,7 +4173,7 @@ public class ConditionalItemStatsTests
         laterPlayer[Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100;
         lock (reflectedAilments.Monsters)
         {
-            Game.AilmentsOnHitLocked(reflectedAilments, reflectedTarget,
+            Game.AilmentsOnHitLocked(reflectedAilments, 0x504002u, reflectedTarget,
                 DamagePacket.Of(DamageType.Physical, 10, 10), false, false, 100,
                 laterPlayer, null, reflectionStart + .1, new Random(2),
                 poison: new MonsterPoisons.Settings(100, 1, 1, 1, 1, 5));

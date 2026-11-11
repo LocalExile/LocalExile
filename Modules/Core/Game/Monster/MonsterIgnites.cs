@@ -67,19 +67,27 @@ static partial class Game
     /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
     /// chance from <paramref name="player"/> and the skill's stats.</summary>
     internal static MonsterIgnites.Settings SupportedIgnite(ClientState conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
+        SupportedHitInputs? capturedInputs = null)
     {
-        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        Func<string, int> get;
+        if (capturedInputs is null)
+        {
+            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+        }
+        else
+            get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
-        var settings = MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0);
+        var rows = capturedInputs is null
+            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
+            : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
+        var settings = MonsterIgnites.Settings.From(rows, hand, get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
-        int per = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final") is uint perKey
-            ? merged.GetValueOrDefault(perKey) : 0;
+        int per = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final");
         if (per > 0)
         {
-            int cap = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum") is uint capKey
-                ? merged.GetValueOrDefault(capKey) : 0;
+            int cap = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum");
             int recent = RecentlyIgnitedCount(conn, ProjectileWorldTime(conn));
             long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
             double more = Math.Max(0, 1 + added / 100.0);
@@ -98,11 +106,14 @@ static partial class Game
 
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
     /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
-    internal static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    internal static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var sourceWeapon = weapon ?? WeaponFor(conn);
         return MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            Get, additionalIncreased),
             "main_hand", Get);
     }
 

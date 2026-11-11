@@ -47,6 +47,8 @@ static partial class Game
     internal static ProjectileUse CaptureOrdinaryRangedProjectile(ClientState conn, ProjectileSession session,
         (int X, int Y) aim, string projectileId, ushort sequence, SkillCriticalRoll criticalRoll, ContactPoint? release)
     {
+        // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
+        using var snapshot = new PlayerStatScope(conn, fresh: true);
         // The client draws the shot when the record it has carries this projectile's count, as it stands at the
         // release: a record of the other weapon (a swap whose skills have not gone yet) fires nothing there, so
         // the server sends the object.
@@ -56,14 +58,24 @@ static partial class Game
         int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
         int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
         var weapon = WeaponProfileFor(conn, activeSet: true);
+        var sourceWeapon = WeaponFor(conn);
         int criticalChance = CriticalProhibited(conn, attack: true)
             ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct, RawCritical)
             : conn.Pools.AttackCriticalStrikeChance;
-        var captured = OrdinaryRangedShot.Capture(WeaponFor(conn), character, SkillsFor(conn).EffectStats(effect, 1), Stats,
+        var captured = OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
             PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
         bool wand = projectileId == OrdinaryRangedAttack.Wand;
-        var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false),
-            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get);
+        long additionalBlindedIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint blindedDamageKey
+            ? character.GetValueOrDefault(blindedDamageKey) : 0;
+        var blindedCapture = additionalBlindedIncreased == 0 ? null
+            : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(conn).EffectStats(effect, 1), Stats,
+                PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier,
+                additionalBlindedIncreased);
+        var raw = SupportedAttackDamage.Raw(sourceWeapon, Get);
+        var conversion = DamageStats.Conversion(character, Stats, attack: true);
+        var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
+        var blindedRows = blindedCapture is null ? null
+            : AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get, additionalBlindedIncreased);
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
@@ -73,16 +85,22 @@ static partial class Game
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
             Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources,
+            Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources,
                 projectileAttack: true),
-            Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand,
+            Bleed = BleedSettings(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                 projectileAttack: true),
+            VsBlinded = blindedCapture is null || blindedRows is null ? null : new(blindedCapture.Hit, null,
+                MonsterIgnites.Settings.From(blindedRows, "main_hand", Get),
+                BleedSettings(blindedRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
+                    projectileAttack: true),
+                MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
+                    projectileAttack: true)),
             MaimChance = Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
             CriticalRoll = criticalRoll, Leech = captured.Leech,
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
             PointBlank = Get("keystone_point_blank") != 0,
-            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(character),
+            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindHitInput.Capture(character),
             // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
             Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
             // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).

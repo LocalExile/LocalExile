@@ -10,23 +10,35 @@ static partial class Game
 
     /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
     internal static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
+        SupportedHitInputs? capturedInputs = null)
     {
-        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        Func<string, int> get;
+        if (capturedInputs is null)
+        {
+            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+        }
+        else
+            get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
-        return MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+        var rows = capturedInputs is null
+            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
+            : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
+        return MonsterPoisons.Settings.From(rows, hand, get,
             spell || weapon is not null ? null : MainHandLocalSources(conn));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    internal static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    internal static MonsterPoisons.Settings DefaultAttackPoison(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        var weapon = WeaponFor(conn);
+        var sourceWeapon = weapon ?? WeaponFor(conn);
         return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
-            "main_hand", Get, weapon.LocalSources);
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            Get, additionalIncreased),
+            "main_hand", Get, sourceWeapon.LocalSources);
     }
 
     // A landed hit's poison: the chance the panel shows (virtual_total_{hand}_chance_to_poison_on_hit_%: the caster's and

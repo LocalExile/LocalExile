@@ -14,6 +14,73 @@ public sealed class HitDebuffTests
     [Fact]
     public void Hits_intimidate_unnerve_blind_and_wither_by_their_chances()
     {
+        // Bite's conditional stat is an additive increased-damage bucket, never an automatic neutral-resolver bonus and
+        // never a final-packet more multiplier. These are explicit arithmetic controls independent of the resolver.
+        {
+            const string conditional = "hit_and_ailment_damage_+%_vs_blinded_enemies";
+            var raw = DamagePacket.Of(DamageType.Physical, 100, 100);
+            var conditionalStats = Get(("damage_+%", 100), (conditional, 50));
+            var neutralAttack = PlayerHitDamage.Resolve(raw, conditionalStats, new DamageConversion(),
+                spell: false);
+            var explicitAttack = PlayerHitDamage.Resolve(raw, conditionalStats, new DamageConversion(),
+                spell: false, additionalIncreased: 50);
+            var neutralSpell = PlayerHitDamage.Resolve(raw, conditionalStats, new DamageConversion(),
+                spell: true);
+            var explicitSpell = PlayerHitDamage.Resolve(raw, conditionalStats, new DamageConversion(),
+                spell: true, additionalIncreased: 50);
+            Assert.Equal(200, neutralAttack[DamageType.Physical].Min);
+            Assert.Equal(200, neutralAttack[DamageType.Physical].Max);
+            Assert.Equal(250, explicitAttack[DamageType.Physical].Min);
+            Assert.Equal(250, explicitAttack[DamageType.Physical].Max);
+            Assert.Equal(200, neutralSpell[DamageType.Physical].Min);
+            Assert.Equal(200, neutralSpell[DamageType.Physical].Max);
+            Assert.Equal(250, explicitSpell[DamageType.Physical].Min);
+            Assert.Equal(250, explicitSpell[DamageType.Physical].Max);
+
+            // Physical ancestry reaches only the converted physical portion. Raw fire receives generic damage but not
+            // the physical increase, while explicit Bite increases both portions once: 500 baseline and 600, not 750.
+            var mixedRaw = DamagePacket.Of(DamageType.Physical, 100, 100)
+                .Add(DamagePacket.Of(DamageType.Fire, 100, 100));
+            var conversion = new DamageConversion().Add(DamageType.Physical, DamageType.Fire, 100);
+            var mixedStats = Get(("damage_+%", 100), ("physical_damage_+%", 100), (conditional, 50));
+            var mixedPaths = conversion.Trace(mixedRaw);
+            Assert.Collection(mixedPaths,
+                path =>
+                {
+                    Assert.Equal(DamageType.Fire, path.Type);
+                    Assert.Equal(DamageTypeHistory.Fire, path.History);
+                    Assert.Equal(100, path.Range.Min);
+                    Assert.Equal(100, path.Range.Max);
+                },
+                path =>
+                {
+                    Assert.Equal(DamageType.Fire, path.Type);
+                    Assert.Equal(DamageTypeHistory.Physical | DamageTypeHistory.Fire, path.History);
+                    Assert.Equal(100, path.Range.Min);
+                    Assert.Equal(100, path.Range.Max);
+                });
+            var mixedHit = PlayerHitDamage.Resolve(mixedRaw, mixedStats, conversion, spell: false);
+            var mixedExtraHit = PlayerHitDamage.Resolve(mixedRaw, mixedStats, conversion, spell: false,
+                additionalIncreased: 50);
+            Assert.Equal(500, mixedHit.MinTotal);
+            Assert.Equal(500, mixedHit.MaxTotal);
+            Assert.Equal(600, mixedExtraHit.MinTotal);
+            Assert.Equal(600, mixedExtraHit.MaxTotal);
+
+            // Hit-only attack, spell, area, and projectile increases do not leak into Ignite. The 500 fire baseline
+            // burns at 450 DPS; the explicit additive 50 gives 540 DPS (27,000 and 32,400 per minute).
+            var ailmentStats = Get(("damage_+%", 100), ("physical_damage_+%", 100),
+                ("attack_damage_+%", 1_000), ("spell_damage_+%", 1_000),
+                ("area_damage_+%", 1_000), ("projectile_damage_+%", 1_000), (conditional, 50));
+            const string igniteRow =
+                "minimum_ignite_damage_to_deal_per_minute_from_non_critical_spell_damage";
+            var ignite = AilmentPanelStats.Compute(new("spell", Spell: true), mixedRaw, conversion, ailmentStats);
+            var effectiveIgnite = AilmentPanelStats.Compute(new("spell", Spell: true), mixedRaw, conversion,
+                ailmentStats, additionalIncreased: 50);
+            Assert.Equal(27_000, ignite.Single(row => row.Stat == igniteRow).Value);
+            Assert.Equal(32_400, effectiveIgnite.Single(row => row.Stat == igniteRow).Value);
+        }
+
         // Intimidate and Unnerve: the attack-only and spell-only chances, Grattus Signet's crits, 4 s from the latest hit,
         // and 10% increased damage taken from attacks (Intimidate) or spells (Unnerve).
         {
@@ -36,23 +103,35 @@ public sealed class HitDebuffTests
             Assert.Equal(0, Game.HitDebuffTaken(m, spell: false, 16));
         }
 
-        // Blind: the general chance, the attack-only one and the critical one sum into one roll; a Blind lasts 4 s with
-        // blind_duration_+%, from the latest hit, and counts as the player's Blind for that long.
+        // Blind: the general chance, the attack-only one and the critical one sum only after the accepted hit selects
+        // attack/spell and critical. The owned timed state keeps each source and lets the strongest effect win.
         {
-            var random = new Random(1);
-            Assert.True(Game.BlindRoll(Get(("global_chance_to_blind_on_hit_%", 100)), spell: true, critical: false, random));
-            Assert.True(Game.BlindRoll(Get(("attacks_chance_to_blind_on_hit_%", 100)), spell: false, critical: false, random));
-            Assert.False(Game.BlindRoll(Get(("attacks_chance_to_blind_on_hit_%", 100)), spell: true, critical: false, random));
-            Assert.True(Game.BlindRoll(Get(("%_chance_to_blind_on_critical_strike", 100)), spell: true, critical: true, random));
-            Assert.False(Game.BlindRoll(Get(("%_chance_to_blind_on_critical_strike", 100)), spell: true, critical: false, random));
+            var input = BlindHitInput.Capture(Get(("global_chance_to_blind_on_hit_%", 40),
+                ("attacks_chance_to_blind_on_hit_%", 30), ("%_chance_to_blind_on_critical_strike", 30),
+                ("blind_duration_+%", 50)));
+            Assert.Equal(70, input.Chance(spell: false, critical: false));
+            Assert.Equal(40, input.Chance(spell: true, critical: false));
+            Assert.Equal(70, input.Chance(spell: true, critical: true));
+            Assert.Equal(100, input.Chance(spell: false, critical: true));
+            Assert.Equal(6, input.Seconds, 9);
+            Assert.Equal(0, input.Effect);
+            var wide = BlindHitInput.Capture(name => name switch
+            {
+                "global_chance_to_blind_on_hit_%" => 2_000_000_000L,
+                "attacks_chance_to_blind_on_hit_%" => 2_000_000_000L,
+                "%_chance_to_blind_on_critical_strike" => 2_000_000_000L,
+                _ => 0L,
+            });
+            Assert.Equal(100, wide.Chance(spell: false, critical: true));
 
-            var blind = Get(("global_chance_to_blind_on_hit_%", 100), ("blind_duration_+%", 50));
-            Assert.Equal(6, Game.BlindSeconds(blind), 9);
-            var m = new SpawnedMonster("blinded", new(105, 100, 0), 0, 0, 100);
-            Game.HitDebuffsOnHitLocked(m, blind, spell: false, critical: false, now: 10);
-            Game.HitDebuffsOnHitLocked(m, Get(("global_chance_to_blind_on_hit_%", 100)), spell: false, critical: false, now: 11);
-            Assert.Equal(16, m.BlindedUntil, 9);
-            Assert.Equal(double.NegativeInfinity, m.IntimidatedUntil);
+            var blind = new TimedBlind();
+            Assert.True(blind.Inflict(10, input.Seconds, input.Effect, immune: false));
+            Assert.Equal((20, 16d), blind.Read(11));
+            Assert.True(blind.Inflict(11, 1, effectPercent: 50, immune: false));
+            Assert.Equal((30, 12d), blind.Read(11.5));
+            Assert.Equal((20, 16d), blind.Read(12));
+            Assert.False(blind.Inflict(12, 4, effectPercent: 0, immune: true));
+            Assert.Equal((0, 0d), blind.Read(16));
         }
 
         // Withered: 2 s or Withering Touch's duration, expiring slower by wither_expire_speed_+%; 6% increased chaos damage

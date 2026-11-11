@@ -404,11 +404,12 @@ static partial class Game
 
     // Resolve conversion history and modifiers from raw local/added damage, then apply Rage once.
     internal static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
-        bool melee, GameServer.Core.World.DamageConversion? conversion)
+        bool melee, GameServer.Core.World.DamageConversion? conversion, long additionalIncreased = 0)
     {
         int Get(string name) => RageStat(stats, name);
         var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
-            conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingWand: weapon.WieldingWand);
+            conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingWand: weapon.WieldingWand,
+            additionalIncreased: additionalIncreased);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
 

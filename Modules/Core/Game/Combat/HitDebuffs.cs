@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 // Intimidate and Unnerve from the player's hits (poedb Intimidate: "Intimidate Enemies for 4 seconds on Hit",
 // "Intimidated enemies take 10% increased Attack Damage"; Grattus Signet: "Unnerved enemies take 10% increased Spell
-// Damage"), Blind (poedb: 4 s base), Exposure and Withered. Each lasts from the hit that inflicts it, a later one restarting it;
+// Damage"), Exposure and Withered. Each lasts from the hit that inflicts it, a later one restarting it;
 // EnemyDebuffsTick shows the buff.
 static partial class Game
 {
@@ -33,12 +33,6 @@ static partial class Game
         return (intimidate, unnerve);
     }
 
-    /// <summary>Whether a hit blinds: global_chance_to_blind_on_hit_% (the Blind support's 10%), attacks_chance_to_blind_on_hit_%
-    /// for an attack and %_chance_to_blind_on_critical_strike on a critical strike, one roll for their sum.</summary>
-    internal static bool BlindRoll(Func<string, int> get, bool spell, bool critical, Random random) =>
-        RandomRolls.Chance(get("global_chance_to_blind_on_hit_%") + (spell ? 0 : get("attacks_chance_to_blind_on_hit_%"))
-            + (critical ? get("%_chance_to_blind_on_critical_strike") : 0), 100, random);
-
     /// <summary>A Blind's duration: 4 s base (poedb Blind), with blind_duration_+%.</summary>
     internal static double BlindSeconds(Func<string, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get("blind_duration_+%") / 100.0);
@@ -57,8 +51,6 @@ static partial class Game
             m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
         TryMaimOnHitLocked(m, get("maim_on_hit_%"),
             Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%")), now, random);
-        if (BlindRoll(get, spell, critical, random))
-            m.BlindedUntil = Math.Max(m.BlindedUntil, now + BlindSeconds(get));
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing

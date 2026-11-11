@@ -762,6 +762,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Typed hits preserve Ward/ES ordering; accepted skill/Vaal spending, continuous flask Life copying and Recoup
   share the existing resource writer, with synchronous lethal-Ignite cleanup before Mana recovery.
   Timed/smoke/passive-aura/Rampage Blind use one strongest value across ordinary and owned contacts and presentation.
+  Accepted player and Golem hits commit Blind once through that owned state, and projectile inputs freeze at release.
   Two deterministic Gateway Facts cover resource, paid-refund, send-gate, transfer and retirement composition,
   including distinct-Game utility expiry/End payment and recovery-flask admission before blocked output.
   Historical `57053948` passed native 36 controls on `cc0f9c34`; the combined newer main needs fresh exact-head acceptance.

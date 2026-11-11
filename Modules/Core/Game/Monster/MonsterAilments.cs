@@ -119,14 +119,14 @@ static partial class Game
     /// whose hits land together (<see cref="ReflectAilmentsLocked"/>). <paramref name="poison"/>: the hit's poison rows
     /// (<see cref="PoisonOnHitLocked"/>); a hit without them does not poison.
     /// </summary>
-    internal static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    internal static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
-            HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
+            HolyRelicsOnHitLocked(conn, targetId, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
@@ -153,6 +153,7 @@ static partial class Game
             return;
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
+        InflictMonsterBlind(conn, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, Random.Shared);
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, Random.Shared);
         int poisonStacksBefore = m.Poisons.Stacks(now);

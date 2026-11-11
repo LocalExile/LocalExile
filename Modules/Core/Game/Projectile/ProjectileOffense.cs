@@ -1,6 +1,12 @@
 using GameServer.Core.World;
 
 
+/// <summary>Damage outputs captured for a target condition at release. A null
+/// <see cref="ProjectileOffense.VsBlinded"/> means the shot has no frozen alternate and must stay on its normal
+/// damage if the target later becomes Blinded.</summary>
+sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? AreaHit, MonsterIgnites.Settings Ignite,
+    MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+
 /// <summary>Frozen offensive inputs. Targets, including evasion and resistance, are resolved at contact.</summary>
 sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
@@ -38,7 +44,10 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public bool FarShot { get; init; }
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
-    public (int Chance, int Effect, double Seconds) Blind { get; init; }
+    public BlindHitInput Blind { get; init; }
+    /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
+    /// Blinded target, or null when the shot has none.</summary>
+    public ProjectileOffenseAlternate? VsBlinded { get; init; }
     public int? SecondFormCriticalChance { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
@@ -56,4 +65,17 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+
+    /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
+    /// release inputs or drawing random numbers.</summary>
+    internal ProjectileOffense Against(bool targetWasBlinded) => targetWasBlinded && VsBlinded is { } alternate
+        ? this with
+        {
+            Hit = alternate.Hit,
+            AreaHit = alternate.AreaHit,
+            Ignite = alternate.Ignite,
+            Bleed = alternate.Bleed,
+            Poison = alternate.Poison,
+        }
+        : this;
 }

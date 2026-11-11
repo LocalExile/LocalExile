@@ -73,23 +73,35 @@ static partial class Game
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
     /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
     internal static MonsterIgnites.Settings SupportedBleed(ClientState conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false)
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false,
+        long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
     {
         if (spell) return MonsterIgnites.Settings.None;
-        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
-        return BleedSettings(SupportedAilmentRows(conn, skillId, "main_hand", weapon), "main_hand",
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+        Func<string, int> get;
+        if (capturedInputs is null)
+        {
+            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+        }
+        else
+            get = capturedInputs.Get;
+        var rows = capturedInputs is null
+            ? SupportedAilmentRows(conn, skillId, "main_hand", weapon, additionalIncreased)
+            : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
+        return BleedSettings(rows, "main_hand", get,
             weapon is null ? MainHandLocalSources(conn) : null, melee, bow: false);
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    internal static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    internal static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
-        var weapon = WeaponFor(conn);
+        var sourceWeapon = weapon ?? WeaponFor(conn);
         return BleedSettings(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(weapon, Get), DamageStats.Conversion(player, Stats, attack: true), Get),
-            "main_hand", Get, weapon.LocalSources, melee: true, bow: false);
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            Get, additionalIncreased),
+            "main_hand", Get, sourceWeapon.LocalSources, melee: true, bow: false);
     }
 
     // Called under the combat lock at an accepted attack hit that dealt physical damage and left the monster alive: the

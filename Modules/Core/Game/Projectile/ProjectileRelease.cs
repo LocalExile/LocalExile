@@ -78,7 +78,7 @@ static partial class Game
     internal static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0, double? swingAt = null)
+        ushort sequence = 0, double? swingAt = null, long prepaidRawExtra = 0)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -115,7 +115,8 @@ static partial class Game
             int left = repeats - repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay),
+                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
+                        prepaidRawExtra),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -220,14 +221,16 @@ static partial class Game
 
     internal static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
+        long prepaidRawExtra = 0)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
         // equipment/requirements/support walk for every field while holding the combat lock.
         using var snapshot = new PlayerStatScope(conn, fresh: true);
         var player = CharacterPlayerStats(conn);
-        var own = SupportedSkill(conn, skillId).Stats;
+        var admittedGem = SupportedSkill(conn, skillId);
+        var own = admittedGem.Stats;
         var merged = MergeSkillStats(player, own);
         int Get(string key) => Stats.Key(key) is uint k ? merged.GetValueOrDefault(k) : 0;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
@@ -273,12 +276,32 @@ static partial class Game
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
-        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand");
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn, player),
+        string hand = spell ? "spell" : "main_hand";
+        var hitInputs = SupportedHitInputsFor(conn, skillId, area: false, capturedGem: admittedGem);
+        var areaHitInputs = SupportedHitInputsFor(conn, skillId, area: true, capturedGem: admittedGem);
+        if (prepaidRawExtra > 0)
+        {
+            double added = prepaidRawExtra * AddedEffectiveness(conn, admittedGem.Effect, admittedGem.Level);
+            if (hitInputs is not null)
+                hitInputs = hitInputs with { Raw = hitInputs.Raw.Add(DamageType.Chaos, new(added, added)) };
+            if (areaHitInputs is not null)
+                areaHitInputs = areaHitInputs with
+                {
+                    Raw = areaHitInputs.Raw.Add(DamageType.Chaos, new(added, added)),
+                };
+        }
+        var ailmentRows = hitInputs is null ? [] : SupportedAilmentRowsFrom(hitInputs, hand);
+        long additionalBlindedIncreased = (long)Player(PlayerHitDamage.VsBlindedDamageStat)
+            + Own(PlayerHitDamage.VsBlindedDamageStat);
+        var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
+            : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
+        var shot = new ProjectileOffense(
+            hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
+            spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
-            AreaHit = SupportedProjectileHit(conn, skillId, area: true),
+            AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
             Effect = gem.Effect, Level = gem.Level, Quality = gem.Quality, SourceSkill = skillId,
@@ -290,17 +313,27 @@ static partial class Game
             Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
-            Ignite = MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local,
+            Ignite = MonsterIgnites.Settings.From(ailmentRows, hand, Get),
+            Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
                 projectileAttack: !spell),
             Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true),
+            VsBlinded = blindedRows is null || hitInputs is null ? null : new(
+                SupportedHitFrom(hitInputs, suppress: false, additionalIncreased: additionalBlindedIncreased),
+                areaHitInputs is null ? DamagePacket.Empty
+                    : SupportedHitFrom(areaHitInputs, suppress: false,
+                        additionalIncreased: additionalBlindedIncreased),
+                MonsterIgnites.Settings.From(blindedRows, hand, Get),
+                spell ? MonsterIgnites.Settings.None
+                    : BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
+                        bow: WeaponProfileFor(conn, activeSet: true).Bow, projectileAttack: true),
+                MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: !spell)),
             MaimChance = spell ? 0 : Get("projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion"),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,
             AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
             AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
             PointBlank = Get("keystone_point_blank") != 0,
-            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(player, own),
+            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindHitInput.Capture(player, own),
             // A spell's action spawns its projectiles itself, every one of a volley, from where it stands (Frida
             // 2026-10-29, 0x141ebdf30 from the action at 0x141e938c0): a server object for them was a second fireball.
             // The older packet-driven Burning Arrow control missed local input prediction: real mouse input creates

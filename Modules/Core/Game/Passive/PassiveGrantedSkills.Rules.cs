@@ -270,8 +270,8 @@ static partial class Game
                     applied = staged with { StageStarts = false };
                 }
                 if (applied is not null)
-                    AilmentsOnHitLocked(conn, m, mitigated, spell: true, critical, multiplier, player, own, hitAt, Random.Shared, reflected);
-                if (applied is not null) InflictMonsterBlind(conn, id, m, hitAt, BlindInputs(player, own));
+                    AilmentsOnHitLocked(conn, id, m, mitigated, spell: true, critical, multiplier, player, own, hitAt,
+                        Random.Shared, reflected, blind: BlindHitInput.Capture(player, own));
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(conn, attack: false, melee: false, critical, own);
                 // shortcut: the ignite's flat fire is rolled apart from the hit (the game takes the hit's own roll; the
                 // spread is the same, and lucky or triple damage never reaches it either way), until a rolled hit
