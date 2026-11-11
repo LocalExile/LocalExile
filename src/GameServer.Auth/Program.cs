@@ -278,12 +278,13 @@ static ILoginMessage Redact(ILoginMessage m) => m switch
     _ => m,
 };
 
-// A deleted character's save in the database went to deleted_characters with the deletion itself (SqliteAccountStore). A
+// A deleted character's save in the database is set aside with the deletion itself (character_saves.deleted_utc,
+// SqliteAccountStore). A
 // save from before the database (data/saves/<name>.json, the Gateway hasn't imported it yet) moves to data/saves/deleted/,
 // so a new character with that name starts with its class's kit and the old one can still be recovered by hand.
 static void SetSaveAside(string character)
 {
-    Console.WriteLine($"[auth] {character} deleted; its save, if it had one, is in deleted_characters ({SaveDatabase.DefaultPath})");
+    Console.WriteLine($"[auth] {character} deleted; its save, if it had one, is set aside in {SaveDatabase.DefaultPath} (character_saves.deleted_utc)");
     string folder = Path.Combine("data", "saves");
     string safe = string.Concat(character.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
     string path = Path.Combine(folder, safe + ".json");

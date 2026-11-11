@@ -157,17 +157,15 @@ What changed:
   returning thread's slot and per-core stacks and trims only during a later full collection, at least 30-60 s after the
   buffer's last use; a lightly loaded server rarely runs one. The startup loads left ~240 MB in the main thread
   (Mods.json's alone is 128 MB), a player's first loads another ~250 MB in connection threads. `GameTables.Isolated`
-  runs a load on a thread of its own, whose pool slots go with it; the Gateway's startup (`GameData.Open`), the
-  2 MB-and-larger tables (57 sites, through `GameTables.Open`), area-transitions.json, the area mods and Auth's
+  runs a load on a thread of its own, whose pool slots go with it; the Gateway's startup (`GameData.Open`) and Auth's
   WorldAreas loads use it. A periodic background collection to let the pool trim was tried first: it freed the buffers,
   but the memory stayed committed as free space between the catalogues' large objects.
 - **Debug temporaries.** A Debug build keeps a temporary alive until its method returns, and `Main` runs for the
   Gateway's life: the 76 MB client executable read for the HNC mask stayed. It is now read on its own thread.
 - **The GGPK index** is searched in its records sorted by hash instead of a 39 MB dictionary beside them.
-- **Level generation's caches.** The compressed bundles are released after each generation (the decompressed chunks
-  serve the repeated reads; ~80 MB less after a first area); the Node worker and the decompressed chunks go a minute
-  after the last generation (`ServerLevels.DecoderIdle`). Everything stays per stack: no decoder, cache or game data is
-  shared between stacks, whose code and tables may differ.
+- **Level generation's files** come from `data/game-files.zip` (`GamePack`), extracted once, not from the GGPK: no
+  bundle decoder or decompressed chunks stay in memory. Nothing is shared between stacks, whose code and tables may
+  differ.
 - **`live.ps1 -Release`** runs the Release builds without `dotnet watch`; the monster AI is 1.6-2.3x faster there, the
   memory the same (the `single` scenario within 1 MB).
 
