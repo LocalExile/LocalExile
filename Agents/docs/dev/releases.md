@@ -68,8 +68,8 @@ A new `dotnet` tool in the extraction manifest must be published there too; the 
 
 ## The launcher
 
-`LocalExile.exe` always works from its own folder. In order: it checks the client (`Client\`, or asks for a folder, then
-to copy it or link to it), runs the extraction with the same manifest and stamps as `extract-data.ps1`, makes the keys and
+`LocalExile.exe` always works from its own folder. In order: it checks the client (`Client\`, or asks for a folder and
+copies it), runs the extraction with the same manifest and stamps as `extract-data.ps1`, makes the keys and
 `Game.patched.exe`, creates an account if there is none, points the client's login list at the local server, starts the
 servers, and starts the client. It stays running until the client closes, and the servers end with it (a job object:
 also on a crash or a closed window).
@@ -78,8 +78,10 @@ also on a crash or a closed window).
 Any other start can update it. The version check needs both the login key blobs (`ClientImage`) and the HNC mask's hash.
 
 The login list is the one client archive write, the same as `live.ps1`'s: only when it does not already name the local
-server, with the original kept in `data/gateway_list.original.txt`. That is why copying is the default: with
-`--client-mode link` it writes to the player's only copy of 3.29.3c.
+server, with the original kept in `data/gateway_list.original.txt`. That is why the launcher always copies: a linked
+`Client\` writes to the player's only copy of 3.29.3c, and shares its game data, so an update of the player's game can
+break the install. `--client-mode link` stays for developers and is never offered; when the link leads to anything but
+another LocalExile's `Client\`, every start warns (`ClientInstall.WarnIfLinked`).
 
 `LocalExile.exe --help` lists the commands. `setup` does everything before the servers, `stop` ends this install's
 processes, `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
