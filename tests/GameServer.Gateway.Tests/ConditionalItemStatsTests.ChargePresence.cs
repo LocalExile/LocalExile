@@ -67,8 +67,16 @@ public partial class ConditionalItemStatsTests
             var passion = Wear("Daresso's Passion");
             int damage = Bonus(passion, "IncreasedDamageAtNoFrenzyChargesUnique__1");
             Assert.Equal(damage, Stat("damage_+%"));
-            Gain(ChargeType.Frenzy, 100);
-            Assert.Equal(0, Stat("damage_+%"));
+            using (Game.PlayerStatsScope(conn))
+            {
+                Assert.Equal(damage, Stat("damage_+%"));
+                Assert.Equal(damage, Stat("damage_+%"));
+                Gain(ChargeType.Frenzy, 100);
+                Assert.Equal(0, Stat("damage_+%"));
+                Assert.Equal(1, Stat("current_frenzy_charges"));
+                Gain(ChargeType.Frenzy, 100);
+                Assert.Equal(2, Stat("current_frenzy_charges"));
+            }
             Game.ChargesOf(conn).Refresh(111);
             Assert.Equal(damage, Stat("damage_+%"));
             var minimum = inventory.Add(PlayerInventories.Belt, 0, 0,
@@ -78,9 +86,14 @@ public partial class ConditionalItemStatsTests
             inventory.Remove(PlayerInventories.Belt, minimum.Id);
             Assert.Equal(damage, Stat("damage_+%"));
             Gain(ChargeType.Frenzy, 112);
-            inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Olesya's Delight", new Random(504))!);
-            Assert.Equal(damage, Stat("damage_+%")); // Affliction is not a standard Frenzy Charge.
-            Assert.Equal(0, Stat("current_frenzy_charges"));
+            using (Game.PlayerStatsScope(conn))
+            {
+                Assert.Equal(0, Stat("damage_+%"));
+                Assert.Equal(0, Stat("damage_+%"));
+                inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Olesya's Delight", new Random(504))!);
+                Assert.Equal(damage, Stat("damage_+%")); // Affliction is not a standard Frenzy Charge.
+                Assert.Equal(0, Stat("current_frenzy_charges"));
+            }
             foreach (var belt in inventory.Items(PlayerInventories.Belt)) inventory.Remove(PlayerInventories.Belt, belt.Id);
             Game.ChargesOf(conn).Die();
             Wear("Ahn's Might");

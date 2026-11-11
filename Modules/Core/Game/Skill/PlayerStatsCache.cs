@@ -18,6 +18,7 @@ public static partial class Game
         public long AspectRevision;
         public long MadnessRevision;
         public long SiphoningRevision;
+        public (int Endurance, int Frenzy, int Power) HeldCharges;
         public int IntimidatingCryMovement;
         public long Slayer, Hierophant;
         public bool ArcaneSurge;
@@ -45,10 +46,16 @@ public static partial class Game
     {
         int overrides;
         StatSourcesResult? statSources;
+        long siphoningRevision;
+        (int Endurance, int Frenzy, int Power) heldCharges;
         lock (conn.Monsters)
         {
             overrides = conn.PlayerStats.Count;
+            // Reconcile source-owned charges before capturing the source identity or held standard charges.
+            siphoningRevision = Game.SiphoningRevision(conn);
             statSources = conn.StatSourcesCache;
+            var charges = ChargesOf(conn).State;
+            heldCharges = (charges.Held(ChargeType.Endurance), charges.Held(ChargeType.Frenzy), charges.Held(ChargeType.Power));
         }
         return new()
         {
@@ -57,7 +64,8 @@ public static partial class Game
             GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
             AspectRevision = conn.Reservations.AspectRevision,
             MadnessRevision = conn.Madness.Revision,
-            SiphoningRevision = Game.SiphoningRevision(conn),
+            SiphoningRevision = siphoningRevision,
+            HeldCharges = heldCharges,
             IntimidatingCryMovement = Game.IntimidatingCryMovement(conn),
             Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
@@ -72,6 +80,7 @@ public static partial class Game
         && a.AspectRevision == b.AspectRevision
         && a.MadnessRevision == b.MadnessRevision
         && a.SiphoningRevision == b.SiphoningRevision
+        && a.HeldCharges == b.HeldCharges
         && a.IntimidatingCryMovement == b.IntimidatingCryMovement
         && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty
