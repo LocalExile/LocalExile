@@ -51,7 +51,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   catalogue is 10%. The per-jewel table is in [unique-jewels](../docs/game/unique-jewels.md).
   Code: `PassiveTree.JewelNodeForSlot`, Gateway (`PlaceItem`, `HeldOntoItem`, `PickUpItem`, `CharacterStatSources`).
   Docs: [15](../docs/protocol/15-progression.md) §2a, [unique-jewels](../docs/game/unique-jewels.md).
-- Cluster jewels (server and live client check 2026-10-27): `/cluster_jewel <small|medium|large> [passives] [sockets]
+- The seven single-keystone small cluster jewels grant their native keystone stat on allocation. Their individual
+  combat mechanics remain partial. For ordinary clusters, `/cluster_jewel <small|medium|large> [passives] [sockets]
   [theme] [notables…]` and `/voices [1|3|5|7]` make real items, and nesting follows the size rule (a tree socket takes any
   size, a large jewel's sockets medium/small, a medium one's socket small). Their passives are the client's own
   expansion ids (block base fixed per pane cell, e.g. 195..206 for cell 20); the server keeps them in the third list of

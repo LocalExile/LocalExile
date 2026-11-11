@@ -453,6 +453,7 @@ public static partial class Game
         var local = ItemModStats.Local(item, Items.Mods);
         int empty = local.GetValueOrDefault("local_unique_jewel_grants_x_empty_passives");
         if (empty > 0) return empty + ClusterSocketCount(item);
+        if (ClusterSize(item) == 0 && ClusterJewelStats.Keystone(item) is not null) return 1;
         return Math.Max(0, local.GetValueOrDefault("local_jewel_expansion_passive_node_count"));
     }
 

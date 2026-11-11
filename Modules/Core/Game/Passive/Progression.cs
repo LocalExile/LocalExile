@@ -460,7 +460,9 @@ public static partial class Game
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         // Socketed cluster jewels' own passives: each node gives its theme, notables or nothing (ClusterJewelStats).
         var clusterJewels = items.Items(PlayerInventories.PassiveJewels)
-            .Where(i => ClusterSize(i.Item) is not null).OrderBy(i => i.X).ToList();
+            .Where(i => ClusterSize(i.Item) is not null
+                && (tree.JewelNodeForSlot(i.X) is { } ordinary && allocated.Contains(ordinary) || ClusterSlotOpen(conn, i.X)))
+            .OrderBy(i => i.X).ToList();
         foreach (var (key, value) in ClusterJewelStats.For(conn, clusterJewels, catalog.Mods, Stats))
             passives[key] = passives.GetValueOrDefault(key) + value;
         // Threshold jewels: Path of Building's Threshold pass sums the attributes of every ordinary passive in
