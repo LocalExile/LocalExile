@@ -1188,12 +1188,7 @@ public static partial class Game
             if (Passives.JewelNodeForSlot(item.X) is not ushort socket || !allocated.Contains(socket)) continue;
             if (ImpossibleEscapeCatalogue.Read(item.Item, mods) is { } escape)
             {
-                // New items store the PassiveSkillGraphId; the GraphIdForRow path keeps old row-valued items working.
-                ushort? keystoneId = Passives.GraphIdForRow(escape.Value);
-                if (keystoneId is null && escape.Value is > 0 and <= ushort.MaxValue
-                    && Passives.Find((ushort)escape.Value) is { IsKeystone: true } direct)
-                    keystoneId = direct.GraphId;
-                if (keystoneId is ushort keystone && allocated.Contains(keystone))
+                if (ImpossibleEscapeCatalogue.ForStoredValue(escape.Value) is { GraphId: var keystone })
                     foreach (ushort node in Passives.NodesInRadius(keystone, escape.Radius))
                         if (node != keystone && Passives.Find(node) is { IsAscendancy: false, IsStart: false,
                             IsMastery: false, IsProxy: false, IsExpansion: false })
