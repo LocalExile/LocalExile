@@ -33,7 +33,7 @@ change.
   "on kill", per-charge and threshold mods would be wrong.
 - No passive-tree radius model, so "in Radius" jewels, threshold jewels and node-modifying jewels are not modelled.
 - No timeless-jewel (Legion) seed, alternate tree or keystone substitution.
-- Abyss jewels belong in abyss sockets on items and are out of scope here.
+- Abyss jewels belong in abyss sockets on items and are a separate feature (see the items status).
 - Cluster jewels (expansion sockets, proxy passives and notables) are a separate PR.
 
 ## Plan
@@ -87,11 +87,11 @@ Full classification, mechanics, radius/ring model and reuse notes:
 - **Reuse from timeless:** the `nodeStats` override pattern in `EquipmentStatSources`, the TinyMT32-independent
   per-node stat replacement, the `PassiveTree` geometry (`NodesInRadius`/`NodesInRing`), the passive-jewel
   socket/refusal path and the item-art table.
-- **Missing layers:** skill-scoped threshold consumers; Lioneye's Fall's server flag model; the remaining two item
-  sources (Inspired Learning, Warrior's Tale); special mechanics (rare-mod steal, tattoos, corpse destruction).
-- **Wiki gap check (2026-10-29):** the poewiki list (189 distinct names) against this catalogue (181) leaves Bound By
-  Destiny, Forbidden Flame, Forbidden Flesh, Megalomaniac, Sublime Vision, The Balance of Terror and Watcher's Eye
-  without item sources; they are recorded in `unique-jewels.md` and are not implemented here.
+- **Missing layers:** skill-scoped threshold consumers; Lioneye's Fall's conditional modifiers without a mapped bow
+  stat; special mechanics (corpse destruction).
+- **Wiki gap check (2026-10-29):** of the poewiki names this catalogue lacked, Bound By Destiny, Megalomaniac,
+  Sublime Vision, The Balance of Terror and Watcher's Eye now have item generation (their encounter drop rates and
+  conditional-stat consumers are partial); Forbidden Flame and Forbidden Flesh still have no item source.
 - **Generated specials:** Impossible Escape (`/impossible_escape`, 48 keystone variants) is implemented with the
   keystone-radius allocation bypass; Rational Doctrine's `/unique_jewel` source and its stationary consecrated /
   critical-strike profane ground mechanics are implemented (see [status](../status/progression.md)).
@@ -124,9 +124,10 @@ Full classification, mechanics, radius/ring model and reuse notes:
   36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
   `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in a spare socket
   changed mana 2355 -> 2476 from its 10% maximum mana global. Skill-specific consumers remain partial. Unnatural
-  Instinct changed life 5520 -> 5685, mana 2355 -> 2326 and ES 277 -> 285). Lioneye's Fall's item source and client
-  conversion are present (`/radius_jewel Lioneye's Fall`); its server flag model is still missing.
-- **Order:** skill-specific threshold consumers -> Lioneye's Fall's flag layer -> the remaining special mechanics.
+  Instinct changed life 5520 -> 5685, mana 2355 -> 2326 and ES 277 -> 285). Lioneye's Fall converts melee and
+  melee-weapon stats in its radius to their bow equivalents; conditional modifiers without a mapped bow stat remain.
+- **Order:** skill-specific threshold consumers -> Lioneye's Fall's unmapped conditional modifiers -> the remaining
+  special mechanics.
 - Done when each group has tests on a small synthetic tree, a dev-created jewel changes only the intended nodes, the
   global mods still apply, and removing the jewel restores the baseline.
 
@@ -148,8 +149,8 @@ Reference, measurements and live evidence: [timeless-jewels](../docs/game/timele
 
 The catalogue also has 1 Special row, 8 cluster rows and 9 abyss rows, for 185 entries in total.
 
-- **Abyss jewels (9):** separate feature for abyss sockets on items; not a passive-tree socket. Keep the catalogue rows
-  marked out of scope.
+- **Abyss jewels (9):** they fit allocated passive sockets and equipment Abyss sockets (items status); only the
+  Stygian Vise rolls its Abyss socket so far, and the Gaze and Historic effects need their own consumers.
 - **Cluster jewels (8):** the separate cluster-jewel change (in progress, see
   [status/progression.md](../status/progression.md)): the item, nesting by size, allocation of the client's own node ids
   and the theme/notable stats are in; the id-to-node mapping (partly allocated clusters), the keystones, the radius rules

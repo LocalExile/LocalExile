@@ -4,7 +4,7 @@
 /// area modifier as <see cref="SkillArea.Radius"/> does. The player's base_aura_area_of_effect_+% joins the gem's own
 /// area (quality) as the base form of increased area.
 /// </summary>
-static class AuraRadius
+public static class AuraRadius
 {
     public static int Of(AuraCatalog.Aura aura, int auraAreaPct, SkillCatalog skills, StatCatalog stats)
     {

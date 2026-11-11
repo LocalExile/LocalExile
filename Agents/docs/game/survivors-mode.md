@@ -8,7 +8,7 @@ Ordinary exits and waypoint travel are refused during a run, so they cannot bypa
 Carry is bound to Auth's destination ticket, not the character name; a failed transfer retains the current run.
 Run progress is not saved across server restarts.
 
-The three modules under `Modules/Survivors/` separate automatic skills, rewards and the run's lifecycle.
+The three modules under `Modules/Custom/Survivors/` separate automatic skills, rewards and the run's lifecycle.
 The existing `/survivors` diagnostics and restart controls are available only to characters in this league.
 A run keeps the uniques it has collected: the equipment and bag carry over from run to run, and only the life flask is
 replaced with a fresh full one. Starting a run removes nothing else; stopping a run removes its transient skills.

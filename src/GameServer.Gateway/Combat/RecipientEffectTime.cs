@@ -1,5 +1,5 @@
 /// <summary>Recipient elapsed time. Resource rates, periodic triggers, projectile flight and cooldowns are separate.</summary>
-static class RecipientEffectTime
+public static class RecipientEffectTime
 {
     public static double Rate(int category, Func<string, int> get, bool temporalChains = false)
     {

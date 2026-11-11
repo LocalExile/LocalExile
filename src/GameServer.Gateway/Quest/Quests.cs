@@ -30,7 +30,7 @@ using GameServer.Core;
 /// with its oracle step in <see cref="QuestSimulator.ObjectHandlers"/>). Then the act's event sequence goes through the
 /// oracle (<see cref="QuestSimulator"/>): the flags after the act must contain CharacterStartQuestState's preset for it.</para>
 /// </summary>
-static partial class Quests
+public static partial class Quests
 {
     /// <summary>A rule of a quest's table. Area and object/variety Ids are WorldAreas, MonsterVarieties, NPCs, Chests or
     /// .ot type Ids, as the data names them.</summary>
@@ -333,7 +333,7 @@ static partial class Quests
         readonly HashSet<string> sources = new(StringComparer.Ordinal);
         readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlySet<string>> watched = new(StringComparer.Ordinal);
 
-        internal RuleSet(IReadOnlyList<Quest> quests, IReadOnlyDictionary<Rule, string> sourceOf)
+        public RuleSet(IReadOnlyList<Quest> quests, IReadOnlyDictionary<Rule, string> sourceOf)
         {
             Quests = quests;
             this.sourceOf = sourceOf;

@@ -15,7 +15,7 @@ using GameServer.Core.Protocol.Instance;
 /// arrow and the quiver are the server's default bow visuals: no base item uses them, and the quiver appears even when
 /// no quiver item is worn.
 /// </summary>
-static class BowSetup
+public static class BowSetup
 {
     /// <summary>The client's weapon type for a hand that holds no weapon (13-items.md "What the model wears").</summary>
     public const byte NoWeaponType = 0x68;

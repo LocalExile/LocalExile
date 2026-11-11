@@ -7,7 +7,7 @@
 /// A seed the client cannot generate makes it show the exception and hang: the stop goes to tour-failures.txt with the
 /// client's message (Client/logs/Client.txt) and the tour waits. What is left is kept in data/tour-left.txt, so after
 /// the client (and the servers) are restarted with live.ps1 the tour resumes when the character arrives anywhere.</summary>
-static class CaptureTour
+public static class CaptureTour
 {
     sealed class Tour
     {
@@ -33,7 +33,7 @@ static class CaptureTour
     public static bool Active(string character) => Tours.ContainsKey(character);
 
     /// <summary>Drops the tour from memory, as a Gateway restart does (the saved one stays; tests).</summary>
-    internal static void Unload(string character) => Tours.TryRemove(character, out _);
+    public static void Unload(string character) => Tours.TryRemove(character, out _);
 
     static (Queue<(string, ushort, uint)> Left, List<string> Unknown) Read(IEnumerable<string> lines)
     {

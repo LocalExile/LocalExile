@@ -6,7 +6,7 @@
 /// (<c>0x141a60380</c>, <c>0x141a60180</c>). The client's action never moves the player itself (traced live
 /// 2026-11-09), so the server teleports it.
 /// </summary>
-static class FlickerStrike
+public static class FlickerStrike
 {
     public const ushort Action = 0x6352;
 

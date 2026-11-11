@@ -12,22 +12,22 @@ using GameServer.Core;
 // ClientHasQuestFlag and changed through SetQuestFlags (under the Monsters lock); flag changes and the item syncs hold
 // conn.QuestGate, inventory removals happen only on the message path (area entry, after a read that moved items) so their
 // 0xbf revisions keep their order.
-static partial class Game
+public static partial class Game
 {
     // Ids of the server's walk blockers that mirror the client's own quest blockers (Quests.BlockerRule): blockers only,
     // never created on the client (it spawns those objects itself from the room).
-    internal const uint QuestBlockerFirstId = 0xfe000000;
+    public const uint QuestBlockerFirstId = 0xfe000000;
 
     // ---- quest items (QuestItems: the .it Quest component) ----
 
-    internal static QuestItemFlags? QuestFlagsOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.Quest;
+    public static QuestItemFlags? QuestFlagsOf(ClientState conn, Item item) => ItemsFor(conn).ByHash(item.TypeHash)?.Quest;
 
-    internal static IEnumerable<QuestItemFlags> QuestItemTypes(ClientState conn) => ItemsFor(conn).QuestItemTypes.Select(t => t.Quest!);
+    public static IEnumerable<QuestItemFlags> QuestItemTypes(ClientState conn) => ItemsFor(conn).QuestItemTypes.Select(t => t.Quest!);
 
     // The grant flags follow the quest items carried and the extra flags come with them (QuestItems.Sync), whatever moved
     // them (a pickup, a drop, a sale, the stash). With removeItems (the message path only), carried items whose
     // remove_flag is set go: the glyphs once placed, a Medicine Chest after Nessa has one, a used book's copies.
-    internal static async Task SyncQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool removeItems)
+    public static async Task SyncQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool removeItems)
     {
         await conn.QuestGate.WaitAsync();
         try
@@ -58,7 +58,7 @@ static partial class Game
 
     // Quest items on this instance's ground whose remove_flag the character has are not needed any more: they go (a glyph
     // left behind before the glyphs were placed).
-    internal static async Task RemoveDoneQuestItemsFromGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RemoveDoneQuestItemsFromGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var done = conn.Instance.Ground.All().Where(e => QuestFlagsOf(conn, e.Item.Item) is { } q && QuestItems.Removed(q, f => ClientHasQuestFlag(conn, f)))
             .Select(e => e.Id).ToList();
@@ -69,7 +69,7 @@ static partial class Game
 
     // A quest item dropped by a monster or a chest where it stands (on the nearest walkable cell), unless the character no
     // longer needs it (QuestItems.Drops: remove_flag set, one carried or on this instance's ground).
-    internal static async Task DropQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
+    public static async Task DropQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
     {
         foreach (var (packet, log) in CommitQuestItem(conn, itemId, at, source))
             await Send(remote, stream, ciphers, packet, log);
@@ -100,7 +100,7 @@ static partial class Game
     }
 
     // A party kill's quest items for another player in the instance (SharedKills.cs): their own copy, on their own client.
-    internal static async Task DropQuestItemsForKill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task DropQuestItemsForKill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         string varietyId, (int X, int Y) at, string source)
     {
         foreach (string item in QuestsOf(conn).DropsOnKill(conn.Layout.Id, varietyId))
@@ -108,7 +108,7 @@ static partial class Game
                 await Send(remote, stream, ciphers, packet, log);
     }
 
-    internal static void CommitAcceptedQuestKill(KillContext kill)
+    public static void CommitAcceptedQuestKill(KillContext kill)
     {
         foreach (string item in QuestsOf(kill.Conn).DropsOnKill(kill.Conn.Layout.Id, kill.VarietyId))
             kill.CommittedOutput!.AddRange(CommitQuestItem(kill.Conn, item, kill.At, kill.Monster.Label));
@@ -116,7 +116,7 @@ static partial class Game
             Kind: PlayerMinions.OutputKind.QuestKill, At: kill.At));
     }
 
-    internal static async Task DropGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
+    public static async Task DropGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string itemId, (int X, int Y) at, string source)
     {
         if (ItemsFor(conn).Find(itemId) is not { Supported: true } type || type.Id != itemId)
         {
@@ -134,7 +134,7 @@ static partial class Game
     // C→S 0x82 on a dialogue row that sets a quest item's remove_flag (QuestItems.HandedIn: Nessa's "The Medicine Chest",
     // Fairgraves' "Thank You"): the item is handed in with the flag, in one save. Without one carried the talk does not
     // happen: the option list comes back. True when the talk may go on.
-    internal static async Task<bool> HandInQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Talk talk,
+    public static async Task<bool> HandInQuestItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, NpcCatalog.Talk talk,
         string npcId)
     {
         // A row whose script sets carried quest items' remove_flag (Eramir's "Bandit Amulets", NPCTalk 95:
@@ -175,7 +175,7 @@ static partial class Game
 
     // C→S 0x58 on a quest item with a use_flag (the quest books): it is used up and its flag set, in one save; the
     // QuestStaticRewards of the flag (passive or refund points) follow from it (SetQuestFlags sends the tree).
-    internal static async Task UseQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
+    public static async Task UseQuestItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         var flags = type.Quest!;
@@ -201,12 +201,12 @@ static partial class Game
     // ---- static rewards (QuestStaticRewards) ----
 
     // The passive skill points the character's quest flags give (a1q6/a1q7/a1q9 books …): part of 0x33's extra_skill_points.
-    internal static int QuestPassivePoints(ClientState conn) => QuestStaticRewards.Default.Value.PassivePoints(conn.QuestFlagsSnapshot());
+    public static int QuestPassivePoints(ClientState conn) => QuestStaticRewards.Default.Value.PassivePoints(conn.QuestFlagsSnapshot());
 
     // QuestStaticRewards' permanent stats as stat sources, as a passive's would be: the bandit lords' help rewards (a2q1: 8%
     // movement speed, a2q2: +15% to all elemental resistances, a2q3: +40 life). Kitava's two penalties are
     // ResistancePenalty's (Player/Player.cs), so their flags are left out here.
-    internal static Dictionary<uint, int> WithQuestStats(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithQuestStats(ClientState conn, Dictionary<uint, int> sources)
     {
         IReadOnlyDictionary<string, int> rewards;
         lock (conn.Monsters)
@@ -234,11 +234,11 @@ static partial class Game
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, QuestStatCache> QuestStatCaches = new();
 
     // Whether a flag change moves QuestStaticRewards' permanent stats (the pools and the panel follow).
-    internal static bool ChangesQuestStats(IEnumerable<string> changed) =>
+    public static bool ChangesQuestStats(IEnumerable<string> changed) =>
         changed.Any(f => !ResistancePenaltyAct5.Contains(f) && !ResistancePenaltyAct10.Contains(f) && QuestStaticRewards.Default.Value.Find(f) is { Stats.Count: > 0 });
 
     // Whether a flag change moves what QuestStaticRewards gives (the tree must be sent again).
-    internal static bool ChangesStaticRewards(IEnumerable<string> changed) =>
+    public static bool ChangesStaticRewards(IEnumerable<string> changed) =>
         changed.Any(f => QuestStaticRewards.Default.Value.Find(f) is { PassivePoints: > 0 } or { RefundPoints: > 0 } or { AscendancyPoints: > 0 });
 
     // ---- kills ----
@@ -246,7 +246,7 @@ static partial class Game
     // After a monster's kill flags (both kill paths commit those first; the QuestObjects module runs this from the kill's
     // GameEvents.Kill, after the commit): its quest drops, a fight of several bosses, a boss that forms, NPCs that appear or
     // are freed, its second form, and whether the area is now cleared.
-    internal static async Task QuestKillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m,
+    public static async Task QuestKillEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m,
         MonsterCatalog.Variety variety, (int X, int Y) at, bool dropsCommitted = false)
     {
         string area = conn.Layout.Id;
@@ -335,7 +335,7 @@ static partial class Game
     // Entering an area: quest items synced (and done ones removed), the entered flags, and the quest objects of the area's
     // rooms and tiles: chests, NPCs, the engine's own quest objects (seals, levers, altars), the mirrored blockers and the
     // objects the sight rules watch.
-    internal static async Task StartQuestArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task StartQuestArea(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
         await RemoveDoneQuestItemsFromGround(remote, stream, ciphers, conn);
@@ -383,9 +383,9 @@ static partial class Game
     // ---- the engine's quest objects (Quests.ObjectRule) ----
 
     // Where a quest object is transitioned: its rule's flag (the seal opened, the tree poisoned).
-    internal static bool QuestObjectTransitioned(ClientState conn, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag);
+    public static bool QuestObjectTransitioned(ClientState conn, Quests.ObjectRule rule) => rule.TransitionedBy is { } flag && ClientHasQuestFlag(conn, flag);
 
-    internal static byte[] QuestObjectBlob(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
+    public static byte[] QuestObjectBlob(ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info)
     {
         bool done = QuestObjectTransitioned(conn, rule);
         // A tile record's virtual model; a room line's object keeps its type's own, or takes the line's without one.
@@ -393,7 +393,7 @@ static partial class Game
         return new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, model, (byte)(done ? info.States : 1), Blocked: !done).Blob();
     }
 
-    internal static async Task CreateQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at)
+    public static async Task CreateQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ObjectRule rule, GlyphQuest.Placement at)
     {
         if (QuestObjectTypes.Find(rule.ObjectType) is not { } info || !QuestObject.CanSerialize(info.Components))
         {
@@ -413,7 +413,7 @@ static partial class Game
 
     // C→S 0x24 on a quest object: walk up; with the needs of its use rule the flags are set and the carried quest items
     // they finish are taken (QuestItems.Consume), in one save; then what the use brings (Quests.SpawnRule).
-    internal static async Task UseQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
+    public static async Task UseQuestObject(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
         Quests.ObjectRule rule, GlyphQuest.Placement at, QuestObjectTypes.Info info, double requestedAt, Func<Task>? reached = null)
     {
         if (!TryBeginObjectWalk(conn, requestedAt, at.X, at.Y, info.Size, out var objectWalk)) return;
@@ -473,7 +473,7 @@ static partial class Game
 
     // Sets the flags and takes the carried quest items whose remove_flag is among them (and clears their grant flags), in
     // one save (QuestItems.Consume): the emblem into its seal, the spike and the gem into the tree, the Apex on the altar.
-    internal static async Task ConsumeQuestItemsAndSet(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyList<string> flags, string what)
+    public static async Task ConsumeQuestItemsAndSet(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyList<string> flags, string what)
     {
         var items = ItemsOf(conn);
         await conn.QuestGate.WaitAsync();
@@ -498,7 +498,7 @@ static partial class Game
     // The quest objects and chests whose state follows a flag the client now has differently: their Transitionable steps
     // (0x2bc); an object with a TriggerableBlockage (no update reader) is created again, unblocked. (The quest NPCs follow
     // their flags in UpdateQuestNpcs, QuestNpcs.cs.)
-    internal static async Task UpdateQuestObjectStates(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<string> effective)
+    public static async Task UpdateQuestObjectStates(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IReadOnlyCollection<string> effective)
     {
         List<(uint Id, Quests.ObjectRule Rule, GlyphQuest.Placement At, QuestObjectTypes.Info Info)> objects;
         lock (conn.QuestObjects)
@@ -544,7 +544,7 @@ static partial class Game
 
     // The mirrored blockers (Quests.BlockerRule) as the client has their flags: on the server's walk map until then.
     // Under the Monsters lock.
-    internal static void UpdateQuestBlockers(ClientState conn)
+    public static void UpdateQuestBlockers(ClientState conn)
     {
         for (int i = 0; i < conn.QuestBlockers.Count; i++)
         {
@@ -557,7 +557,7 @@ static partial class Game
     // ---- quest chests (Quests.ChestRule) ----
 
     // Chests.dat AOFiles: a chest's model by its Id.
-    internal static readonly Lazy<Dictionary<string, string>> ChestModels = new(() =>
+    public static readonly Lazy<Dictionary<string, string>> ChestModels = new(() =>
     {
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
         string path = Path.Combine("data", "tables", "Chests.json");
@@ -569,19 +569,19 @@ static partial class Game
         return models;
     });
 
-    internal static string? QuestChestModel(string type) => ChestModels.Value.GetValueOrDefault(type);
+    public static string? QuestChestModel(string type) => ChestModels.Value.GetValueOrDefault(type);
 
     // A quest chest's Positioned size (Chest.ot object_size 2, blocking).
-    internal const int QuestChestSize = 1;
+    public const int QuestChestSize = 1;
 
     // Ordinary chests start untransitioned: FireflyChestBase disables targeting in create_transitioned.
     // Only a gated chest uses state 2 to signal that its prerequisite has unlocked it.
-    internal static byte QuestChestState(ClientState conn, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
+    public static byte QuestChestState(ClientState conn, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
         (byte)(opened ? info.States : rule.OpensWith is { } flag && ClientHasQuestFlag(conn, flag) ? Math.Min(2, info.States) : 1);
 
     // A quest chest's 0x2bb blob: its type's components (QuestObjectTypes; a Chests.dat row without an .ot as its
     // InheritsFrom), else the Rhoa Nest's.
-    internal static byte[] QuestChestBlob(ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened, bool hideMinimapIcon = false) =>
+    public static byte[] QuestChestBlob(ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at, bool opened, bool hideMinimapIcon = false) =>
         QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.CanSerialize(info.Components)
             ? new QuestObject(at.X, at.Y, info.Components, at.Rotation, at.Z, at.Model, QuestChestState(conn, rule, info, opened), opened)
                 { HideMinimapIcon = hideMinimapIcon }.Blob()
@@ -589,13 +589,13 @@ static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, HashSet<uint>> HiddenQuestMarkers = new();
 
-    internal static bool QuestMarkerCollected(ClientState conn, string itemId, IReadOnlySet<uint> carried) =>
+    public static bool QuestMarkerCollected(ClientState conn, string itemId, IReadOnlySet<uint> carried) =>
         ItemsFor(conn).Find(itemId) is { } type && (carried.Contains(type.Hash)
             || type.Quest is { } quest && QuestItems.Removed(quest, f => ClientHasQuestFlag(conn, f)));
 
     // MinimapIcon has no component-update reader. Recreate only the source object with its explicit hidden bit;
     // keep the opened model, blockers and per-player quest state. Other party members keep their own markers.
-    internal static async Task HideCollectedQuestMarkers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task HideCollectedQuestMarkers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
         lock (conn.QuestChests) chests = [.. conn.QuestChests.Select(c => (c.Key, c.Value.Rule, c.Value.At))];
@@ -637,7 +637,7 @@ static partial class Game
         }
     }
 
-    internal static async Task CreateQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at)
+    public static async Task CreateQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at)
     {
         bool opened = conn.Instance.ChestOpened(at.X, at.Y);
         uint id = conn.NextObjectId++;
@@ -650,7 +650,7 @@ static partial class Game
 
     // C→S 0x24 on a quest chest: walk up, open it (once per instance; the opened chest replaces it under a new id, as
     // Chest has no update reader), its used flags, and its item while the character needs it.
-    internal static async Task OpenQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
+    public static async Task OpenQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
         Quests.ChestRule rule, GlyphQuest.Placement at, double requestedAt)
     {
         if (conn.Instance.ChestOpened(at.X, at.Y)) return;
@@ -690,7 +690,7 @@ static partial class Game
 
     // A dialogue row chosen (after its availability and hand-in checks): its scripts' flags, and an NPC whose script
     // transitions a monster variety turns into it (Quests.TurnsIntoRule: Fairgraves).
-    internal static async Task OnQuestTalk(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
+    public static async Task OnQuestTalk(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint npcId, SpawnedNpc npc, NpcCatalog.Talk talk)
     {
         if (talk.ScriptSets is { Count: > 0 } sets) await SetQuestFlags(remote, stream, ciphers, conn, sets);
         if (talk.ScriptClears is { Count: > 0 } clears) await SetQuestFlags(remote, stream, ciphers, conn, clears, on: false);
@@ -714,7 +714,7 @@ static partial class Game
     // ---- the player tick ----
 
     // Every player tick: the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
-    internal static async Task CheckQuestSights(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
+    public static async Task CheckQuestSights(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
     {
         foreach (var (rule, x, y) in conn.QuestNear)
         {
@@ -734,9 +734,9 @@ static partial class Game
     // The proximity spawns (Quests.NearSpawnRule): the monster appears at its object once per instance as the player comes
     // near (NearSpawnRange: a little beyond sight, as the event starts around the scene: Plaguewing's spawner is 61 cells
     // from Bannon), unless its Until flag is set.
-    internal const double NearSpawnRange = Quests.SightRange * 1.5;
+    public const double NearSpawnRange = Quests.SightRange * 1.5;
 
-    internal static async Task CheckQuestNearSpawns(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
+    public static async Task CheckQuestNearSpawns(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
     {
         for (int i = 0; i < conn.QuestNearSpawns.Count; i++)
         {
@@ -758,7 +758,7 @@ static partial class Game
     // Places for the area's scattered quest chests (Quests.ChestRule.Scattered: no room or tile has them): walkable cells of
     // a coarse grid, away from the arrival, each as far from the others as can be (farthest-point picking from a first cell
     // the seed chooses), so the same seed gives the same cells.
-    internal static Dictionary<Quests.ChestRule, GlyphQuest.Placement> ScatterQuestChests(ClientState conn, IReadOnlyList<Quests.ChestRule> rules)
+    public static Dictionary<Quests.ChestRule, GlyphQuest.Placement> ScatterQuestChests(ClientState conn, IReadOnlyList<Quests.ChestRule> rules)
     {
         var result = new Dictionary<Quests.ChestRule, GlyphQuest.Placement>();
         var layout = conn.Layout;
@@ -769,7 +769,7 @@ static partial class Game
         return result;
     }
 
-    internal static List<(int X, int Y)> ScatterCells(Func<int, int, bool> walkable, int width, int height, (int X, int Y) arrival, int count, int seed)
+    public static List<(int X, int Y)> ScatterCells(Func<int, int, bool> walkable, int width, int height, (int X, int Y) arrival, int count, int seed)
     {
         const int Step = 12, Margin = 40;
         var cells = new List<(int X, int Y)>();
@@ -790,7 +790,7 @@ static partial class Game
     // Every player tick in an area with a quest threshold: a monster any hit took to its threshold (a projectile, Rampage, a
     // monster mod's damage: every path that takes life marks it, TakeDamageLocked) leaves the fight here, wherever the hit
     // came from; melee and spell hits also call QuestThreshold at once.
-    internal static async Task CheckQuestThresholds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task CheckQuestThresholds(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!QuestsOf(conn).HasThresholds(conn.Layout.Id)) return;
         List<(uint Id, SpawnedMonster Monster)> reached;
@@ -800,7 +800,7 @@ static partial class Game
 
     // A monster that never dies reached its quest threshold (Kitava destroys the Sign of Purity): its flags, once, and it
     // leaves the fight (removed from the instance, no death, no drops, no experience).
-    internal static async Task QuestThreshold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    public static async Task QuestThreshold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         Quests.ThresholdRule? rule;
         lock (conn.Monsters)

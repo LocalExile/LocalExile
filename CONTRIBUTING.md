@@ -42,8 +42,10 @@ and may update itself.
 | `GameServer.Core` | protocol, crypto, accounts, instance registry | |
 | `GameServer.Data` | GGPK / bundle / `.dat` readers | |
 | `GameServer.Storage` | account and save storage | |
-| `GameServer.Modding` | the API that mods and modules build on | |
+| `GameServer.Modding` | the loader contract mods and modules build on: `IMod`, `IModule`, `League`, the context | |
 | `LocalExile` | the player launcher (command line) shipped in releases | |
-| `Modules/` | game systems (NPC dialogue, Delve, Heist, Pantheon, ...), loaded by the Gateway | |
+| `Modules/` | game systems, loaded for the leagues that list them: `Core/` (the current game), `Legacy/` (GGG's past leagues), `Custom/` (custom leagues) | |
 | `Leagues/` | leagues, each a set of modules | |
-| `Mods/` | small user tweaks, reloaded while the Gateway runs | |
+| `Mods/` | the user's opt-in mods ([LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)), reloaded while the Gateway runs | |
+
+Which of these a change belongs in: [AGENTS.md](AGENTS.md) ("What goes where").

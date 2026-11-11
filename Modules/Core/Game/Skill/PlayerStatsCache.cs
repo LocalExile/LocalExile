@@ -7,14 +7,15 @@ using GameServer.Core.Protocol.Instance;
 // message's scope (PlayerStatsScope) a snapshot is reused while its inputs are the same: the pools, the buffs added, life,
 // mana, the auras, moving and the /set_stat overrides, for at most Lifetime (a task the message started outlives it).
 // Everything else (equipment, item and passive messages, ticks) builds its own.
-static partial class Game
+public static partial class Game
 {
     sealed class PlayerStatsEntry
     {
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
-        public long Golems, Slayer;
+        public long Golems, Slayer, Hierophant;
+        public bool ArcaneSurge;
         public int Overrides, Auras;
         public bool Moving;
         public Dictionary<uint, int>? Stats;
@@ -32,7 +33,7 @@ static partial class Game
     static readonly AsyncLocal<PlayerStatsCacheScope?> CurrentPlayerStatsScope = new();
 
     /// <summary>Reuse the player's stat snapshot within this message (see above).</summary>
-    internal static IDisposable PlayerStatsScope(ClientState conn) => CurrentPlayerStatsScope.Value = new(conn);
+    public static IDisposable PlayerStatsScope(ClientState conn) => CurrentPlayerStatsScope.Value = new(conn);
 
     static PlayerStatsEntry PlayerStatsKey(ClientState conn, double now)
     {
@@ -42,16 +43,17 @@ static partial class Game
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
-            Slayer = global::Slayer.Revision(conn),
+            Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
+            ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
         };
     }
 
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
-        && a.Slayer == b.Slayer;
+        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge;
 
-    internal static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
+    public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
         if (CurrentPlayerStatsScope.Value is not { } scope || !ReferenceEquals(scope.Conn, conn))
             return ThrottledPlayerStats(conn, out baselineLifePerSecond);
@@ -105,7 +107,7 @@ static partial class Game
     sealed class SentSkillList { public byte[]? Bytes; }
     static readonly ConditionalWeakTable<ClientState, SentSkillList> SentSkillLists = new();
 
-    internal static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
+    public static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
         var bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));
         var sent = SentSkillLists.GetOrCreateValue(conn);
@@ -118,7 +120,7 @@ static partial class Game
     }
 
     // What the full refresh sent: the base the next partial refresh compares with.
-    internal static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
+    public static void RecordPlayerSkills(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {
         var sent = SentSkillLists.GetOrCreateValue(conn);
         lock (sent) sent.Bytes = InstanceEntities.PlayerSkillsChange(PlayerId, skills, [], canDetonateMines: CanDetonateMines(conn));

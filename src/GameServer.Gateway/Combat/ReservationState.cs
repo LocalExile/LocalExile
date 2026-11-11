@@ -1,10 +1,10 @@
 // Mutable values only: reservation combat survives replacement of the Game assembly.
 // All access is under the owning connection's Monsters lock and uses area game time.
-sealed class ReservationState
+public sealed class ReservationState
 {
-    internal sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
-    internal sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
-    internal sealed record Ice((int X, int Y) At, double Until, uint? Object = null);
+    public sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
+    public sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
+    public sealed record Ice((int X, int Y) At, double Until, uint? Object = null);
     public readonly Queue<Echo> Echoes = new();
     public readonly Queue<Proc> Procs = new();
     public readonly List<Ice> Trail = [];
@@ -17,7 +17,7 @@ sealed class ReservationState
     public bool Secondary;
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     public readonly ReservationState Reservations = new();
 }

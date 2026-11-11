@@ -6,7 +6,7 @@ using GameServer.Core;
 /// names only its tier; the layout is selected on the Atlas. Until the native Atlas panel is implemented, the first
 /// starting node is the default layout.
 /// </summary>
-sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
+public sealed class AtlasCatalog(ItemCatalog catalog, string folder = "data")
 {
     public sealed record Layout(string Id, ushort Hash16, string Name, int Tier, bool Starting);
 

@@ -7,7 +7,7 @@ using GameServer.Core;
 /// engineered by Vilsol/timeless-jewels and used to build Path of Building's LUTs; the data comes from the target
 /// client's AlternateTreeVersions, AlternatePassiveSkills and AlternatePassiveAdditions tables.
 /// </summary>
-sealed class TimelessJewelEngine(string folder = "data")
+public sealed class TimelessJewelEngine(string folder = "data")
 {
     public sealed record AlternateNode(bool Replaces, IReadOnlyList<(uint Key, int Value)> Stats, string Name);
 
@@ -246,7 +246,7 @@ sealed class TimelessJewelEngine(string folder = "data")
 
 /// <summary>The client's TinyMT32 generator, ported from Vilsol/timeless-jewels' random/main.go. Legion jewels use the
 /// plain modulo draw (not the Abyss MSVC rejection draw).</summary>
-sealed class TinyMt32
+public sealed class TinyMt32
 {
     const uint InitialStateConstant0 = 0x40336050, InitialStateConstant1 = 0xCFA3723C,
         InitialStateConstant2 = 0x3CAC5F6F, InitialStateConstant3 = 0x3793FDFF;

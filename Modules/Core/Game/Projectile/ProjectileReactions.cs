@@ -2,9 +2,9 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
+    public static void CommitBossStage(string remote, System.Net.Sockets.NetworkStream stream,
         GameServer.Core.Protocol.Login.ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster monster, double at)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
@@ -12,7 +12,7 @@ static partial class Game
     }
 
     // Called synchronously under XP -> combat lock. The outbox contains notifications of committed results.
-    internal static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
+    public static void CommitProjectileHit(ProjectileSession session, ProjectileDamage contact, SpawnedMonster target,
         MonsterHit hit, int damage, ProjectileOffense shot, bool critical, StunHit stun)
     {
         var conn = session.Conn;
@@ -72,7 +72,7 @@ static partial class Game
         }
     }
 
-    internal static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
+    public static void CommitProjectileBossStage(ProjectileSession session, uint id, SpawnedMonster monster, long at)
     {
         if (monster.StageActionStarted) return;
         var stage = monster.Stage!;
@@ -97,7 +97,7 @@ static partial class Game
         }
     }
 
-    internal static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
+    public static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
         bool playerKill = true)
     {
         var conn = session.Conn;
@@ -112,7 +112,7 @@ static partial class Game
         ShareKill(conn, id, monster, variety, position, partyShares);
         if (playerKill)
         {
-            session.Enqueue(() => Program.ServerHooks.MonsterKilled(new(killer, modMonster)));
+            session.Enqueue(() => GameEvents.RunMonsterKilled(new(ConnOf(killer), modMonster)));
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
@@ -171,7 +171,7 @@ static partial class Game
             || !GameEvents.AllowsLoot(conn)) return;
         var random = Random.Shared;
         var balance = LeagueFor(conn).Rules;
-        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(monster, position));
+        var modded = GameEvents.RunDrops(conn, ModMonster(monster, position));
         List<ItemDrops.Drop> drops = [];
         if (modded is not { Cancel: true })
         {
@@ -194,16 +194,16 @@ static partial class Game
         }
     }
 
-    internal static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
+    public static void AddProjectileGroundItem(ProjectileSession session, WorldItemObject ground) =>
         PublishProjectileGroundItem(session, session.Conn.Instance.Ground.Add(ground, session.Conn), ground);
 
-    internal static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
+    public static void PublishProjectileGroundItem(ProjectileSession session, uint id, WorldItemObject ground)
     {
         session.Packet(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)));
         session.Packet(InstanceProtocol.EnterWakeZone(id));
     }
 
-    internal static void CommitProjectileFlaskGain(ProjectileSession session,
+    public static void CommitProjectileFlaskGain(ProjectileSession session,
         Func<InventoryItem, IReadOnlyDictionary<string, int>, double> gain)
     {
         var conn = session.Conn;
@@ -227,7 +227,7 @@ static partial class Game
                 items.NextRevision(PlayerInventories.Flask), [.. changed.Select(i => i.Id)], changed));
     }
 
-    internal static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
+    public static void CommitProjectileCritFlasks(ProjectileSession session, double at, Random random)
     {
         var conn = session.Conn;
         if (!conn.FlaskChargeCarry.CritReady(at)) return;

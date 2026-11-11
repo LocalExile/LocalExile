@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>The existing main-hand attack-gem hit before critical strikes and target mitigation.</summary>
-static class AttackSkillHit
+public static class AttackSkillHit
 {
     public static DamagePacket Resolve(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> character,
         IEnumerable<(uint, int)> levelConversionInputs, StatCatalog catalog, int effectiveness, bool melee = false,
@@ -17,6 +17,6 @@ static class AttackSkillHit
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, Get,
             DamageStats.Conversion(conversionInputs, catalog, attack: true), spell: false,
-            melee: melee, projectile: projectile, wieldingWand: weapon.WieldingWand), Get), Get);
+            melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand), Get), Get);
     }
 }

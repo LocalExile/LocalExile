@@ -4,7 +4,7 @@ using GameServer.Core;
 
 
 /// <summary>Compatibility uses skill types, not the display tags printed on a gem.</summary>
-sealed class GemSupports(string folder = "data")
+public sealed class GemSupports(string folder = "data")
 {
     public sealed record Effect(int Row, string Id, bool Support, int[] Allowed, int[] Excluded, int[] Added,
         int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions);
@@ -112,7 +112,7 @@ sealed class GemSupports(string folder = "data")
 
     /// <summary>The game's support eligibility: the skill types (or its minions') must satisfy the support's allowed
     /// expression, must not match its excluded one, and the weapon restriction must fit.</summary>
-    internal static bool Compatible(Effect support, IReadOnlySet<int> types, int[] minionTypes, int? weapon) =>
+    public static bool Compatible(Effect support, IReadOnlySet<int> types, int[] minionTypes, int? weapon) =>
         (Matches(support.Allowed, types, true) || !support.IgnoreMinions && minionTypes.Length > 0
             && Matches(support.Allowed, minionTypes.ToHashSet(), false))
         && !Matches(support.Excluded, types, false)

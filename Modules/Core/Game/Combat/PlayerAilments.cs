@@ -3,9 +3,9 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
+    public static void ApplyPlayerAilmentsLocked(ClientState conn, DamagePacket baseHit, DamagePacket taken,
         bool critical, bool blocked, double now, IReadOnlyDictionary<uint, int> stats, uint? source = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -30,7 +30,7 @@ static partial class Game
 
     // A new freeze, or one that outlasts the last, cancels the player's action and channel and holds its walk (ShowFreeze
     // stops the client's too); any change of action speed re-times the walk.
-    internal static void PlayerAilmentsChangedLocked(ClientState conn, double previousAction, double now)
+    public static void PlayerAilmentsChangedLocked(ClientState conn, double previousAction, double now)
     {
         double frozenUntil = conn.ElementalAilments.FreezeUntil(now);
         if (conn.ElementalAilments.ActionFactor(now) == 0 && (previousAction != 0 || frozenUntil > conn.FreezeHeldUntil))
@@ -44,7 +44,7 @@ static partial class Game
         if (previousAction != conn.ElementalAilments.ActionFactor(now)) conn.ApplyMovementSpeed();
     }
 
-    internal static int AdvancePlayerAilmentsLocked(ClientState conn, double from, double until,
+    public static int AdvancePlayerAilmentsLocked(ClientState conn, double from, double until,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) { conn.ElementalAilments.Clear(); return 0; }
@@ -77,7 +77,7 @@ static partial class Game
         foreach (var (packet, log) in PlayerAilmentBuffs(before, after)) await Send(remote, stream, ciphers, packet, log);
     }
 
-    internal static List<(byte[] Packet, string Log)> PlayerAilmentBuffs((bool Ignite, int Chill, bool Freeze, int Shock) before,
+    public static List<(byte[] Packet, string Log)> PlayerAilmentBuffs((bool Ignite, int Chill, bool Freeze, int Shock) before,
         (bool Ignite, int Chill, bool Freeze, int Shock) after)
     {
         var packets = new List<(byte[], string)>();
@@ -93,27 +93,27 @@ static partial class Game
         return packets;
     }
 
-    internal static bool PlayerActionBlocked(ClientState conn, double requestedAt, double now) =>
+    public static bool PlayerActionBlocked(ClientState conn, double requestedAt, double now) =>
         conn.HitRecovery.BlocksInput(requestedAt, now) || conn.ElementalAilments.ActionFactor(now) == 0;
 
     /// <summary>The signed <c>action_speed_-%</c> from the character's raw sources and dev overrides: positive is slower.
     /// The client's own action-speed bucket, and the planned ActionSpeed/EffectClock contract (#246), keep it separate
     /// from attack/cast/movement increases so it is applied once.</summary>
-    internal static int ActionSpeedReduction(ClientState conn)
+    public static int ActionSpeedReduction(ClientState conn)
     {
         if (Stats.Key("action_speed_-%") is not uint key) return 0;
         lock (conn.Monsters) if (conn.PlayerStats.TryGetValue(key, out int dev)) return dev;
         return CharacterStatSources(conn).Stats.GetValueOrDefault(key);
     }
 
-    internal static double PlayerActionFactor(ClientState conn)
+    public static double PlayerActionFactor(ClientState conn)
     {
         var sources = CharacterStatSources(conn).Stats;
         return Math.Max(.01, PlayerActionFactorFrom(conn, name => Stats.Key(name) is uint k
             ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0));
     }
 
-    internal static double PlayerActionFactorFrom(ClientState conn, Func<string, int> get)
+    public static double PlayerActionFactorFrom(ClientState conn, Func<string, int> get)
     {
         double extra = get("has_tailwind") == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get("tailwind_effect_on_self_+%") / 100d)) - 8;
         double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get("action_speed_-%") - extra)

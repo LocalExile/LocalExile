@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// character's and is added to the passives' stats (<see cref="Global"/>), so it reaches the pools and the stats the
 /// client shows the same way.
 /// </summary>
-static class ItemModStats
+public static class ItemModStats
 {
     /// <summary>The equipment rows whose items count: body armour, the first weapon set, helmet, amulet, rings, gloves,
     /// boots and belt (Inventories.dat rows 1-10), and the third ring slot (row 102, Ring3, shown by The Unseen Hand's
@@ -50,9 +50,15 @@ static class ItemModStats
     static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
-        foreach (var item in items)
+        var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
+        foreach (var item in equipment)
             foreach (var value in Values(item, mods, local, subject, statExists))
-                yield return value;
+            {
+                if (local || !InfluencedItemConditions.Read(value.Id, out string target, out var influence, out int required))
+                    yield return value;
+                else if (equipment.Count(equipped => (equipped.Influences & influence) != 0) >= required)
+                    foreach (string stat in InfluencedItemConditions.Targets(target)) yield return (stat, value.Value);
+            }
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the

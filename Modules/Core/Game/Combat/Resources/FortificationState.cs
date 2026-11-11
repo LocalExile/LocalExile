@@ -5,7 +5,7 @@
 /// remain stored and can become effective after an earlier grant expires. Those lifetime/overflow choices are an
 /// explicit LocalExile policy, not a claim that the unavailable official server algorithm has been reproduced.
 /// </summary>
-sealed class FortificationState
+public sealed class FortificationState
 {
     public const int BaseMaximum = 20;
     public const double BaseDurationSeconds = 6;

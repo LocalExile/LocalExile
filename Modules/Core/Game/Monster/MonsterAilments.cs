@@ -4,13 +4,13 @@ using Kind = MonsterElementalAilments.Kind;
 
 // The player's chill, freeze and shock on monsters (MonsterElementalAilments, Agents/docs/protocol/20-damage.md §3):
 // inflicted by every outgoing hit, shock as increased damage taken, chill and freeze in the monster AI, and their buffs.
-static partial class Game
+public static partial class Game
 {
     /// <summary>The factor on damage a monster takes: its mods' increased damage taken, its shock, Glacial Wave's chill and
     /// the player's debuffs on it (his taunt's on every type, his enemy auras' on <paramref name="elemental"/> damage, his
     /// Withered on <paramref name="chaos"/> damage), added together (PoB DamageTaken, ElementalDamageTaken and
     /// ChaosDamageTaken INC), then a spell's less damage taken.</summary>
-    internal static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
+    public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
         bool chaos = false) =>
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
@@ -23,7 +23,7 @@ static partial class Game
     /// Berek's Respite). Within the Tempest (enemy_shock_on_kill): it is shocked through the player's modifiers, and its
     /// corpse spreads that shock by the player's own area of effect. <paramref name="player"/> is the caller's
     /// CharacterPlayerStats, so a kill computes no stats of its own. Under the Monsters lock.</summary>
-    internal static void ShockOnKillLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
+    public static void ShockOnKillLocked(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int> player, double now)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         // Before Within the Tempest's, which comes after the death.
@@ -44,7 +44,7 @@ static partial class Game
     /// seconds on Block" on a blocked one, each on its own roll of Random.Shared so the incoming hit's draws stay in order.
     /// Each spreads by the player's area modifier, as Within the Tempest's shock.
     /// </summary>
-    internal static void AilmentsWhenHitLocked(SpawnedMonster m, Func<string, int> player, bool blocked, double now)
+    public static void AilmentsWhenHitLocked(SpawnedMonster m, Func<string, int> player, bool blocked, double now)
     {
         int Target(string name) => m.Effects[name];
         double area = AilmentArea(player, _ => 0, spell: false);
@@ -126,7 +126,7 @@ static partial class Game
 
     /// <summary>Its action speed: 0 frozen, else less by its chill. Unstoppable (action_speed_cannot_be_reduced_below_base)
     /// keeps it at 1.</summary>
-    internal static double MonsterActionFactor(SpawnedMonster m, double now) =>
+    public static double MonsterActionFactor(SpawnedMonster m, double now) =>
         m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
             : m.Ailments.ActionFactor(now) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
 
@@ -143,12 +143,17 @@ static partial class Game
     /// whose hits land together (<see cref="ReflectAilmentsLocked"/>). <paramref name="poison"/>: the hit's poison rows
     /// (<see cref="PoisonOnHitLocked"/>); a hit without them does not poison.
     /// </summary>
-    internal static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
+        KnockbackOnHitLocked(conn, m, player, now, random);
+        // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
+        // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
+        OnslaughtOnHitLocked(conn, now);
+        if (spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
@@ -198,7 +203,7 @@ static partial class Game
     /// <summary>Mirrored: the ailments a hit added act on the player as well (wiki Reflect), as they landed, then through
     /// the player's own modifiers; the exact reflected magnitude is not verified. A new freeze cancels the player's action.
     /// Under the Monsters lock.</summary>
-    internal static void ReflectAilmentsLocked(ClientState conn, IEnumerable<MonsterElementalAilments.Effect> added, double now,
+    public static void ReflectAilmentsLocked(ClientState conn, IEnumerable<MonsterElementalAilments.Effect> added, double now,
         IReadOnlyDictionary<uint, int> player, Random random)
     {
         if (conn.PlayerLife == 0) return;
@@ -218,13 +223,20 @@ static partial class Game
     /// clip by zero); on a predictive client the AI stops the monster instead, and on a lockstep client nothing stops it,
     /// the estimate's walk included (07 §6). Under the Monsters lock.
     /// </summary>
-    internal static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
+    public static List<(byte[] Packet, string Log)> MonsterAilmentChangesLocked(ClientState conn, double now)
     {
         ProliferateLocked(conn, now);
         var packets = new List<(byte[], string)>();
         ProliferateIgnitesLocked(conn, now, packets);
         foreach (var (id, m) in conn.Monsters)
         {
+            // A knockback is presented before the ailment-idle skip: an idle monster still moves.
+            if (m.KnockbackPending is (int kx, int ky))
+            {
+                m.KnockbackPending = null;
+                packets.Add((InstanceProtocol.Teleport(id, kx, ky),
+                    $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
+            }
             var a = m.Ailments;
             if (a.Idle && now >= m.ReceivedActionUntil) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
@@ -261,7 +273,7 @@ static partial class Game
     /// </summary>
     // Freeze carries no value, so it is the one sent with its duration (u68): without one the client draws no icon under
     // the monster's life bar (live 2026-10-30). Chill and shock still end only by 0x1c2.
-    internal static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
+    public static byte[] AilmentBuff(uint id, ushort instance, Kind kind, int magnitude, double seconds = 0) =>
         InstanceEntities.AddBuff(id, instance, (ushort)(kind + 1), PlayerId, u82: 0,
             values: kind == Kind.Freeze ? null : [(uint)magnitude],
             u68: kind == Kind.Freeze && seconds > 0 ? BitConverter.SingleToUInt32Bits((float)seconds) : null);

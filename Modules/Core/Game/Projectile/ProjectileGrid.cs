@@ -8,7 +8,7 @@ using System.Text.Json;
 /// (walls, doodads); 1..5 let projectiles through, including water and other cells the walk map blocks
 /// (Agents/docs/protocol/11-skills.md §10).
 /// </summary>
-static class ProjectileGrid
+public static class ProjectileGrid
 {
     const string Folder = "data/walkability";
 

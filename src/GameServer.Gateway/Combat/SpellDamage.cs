@@ -8,7 +8,7 @@ using GameServer.Core.World;
 /// items, auras), so item mods count. Added spell damage uses damage effectiveness; Wrath and Zealotry supply
 /// their more multipliers. Packet resolves conversion with visited-type history; Hit is its unconverted scalar view.
 /// </summary>
-static class SpellDamage
+public static class SpellDamage
 {
     /// <summary>The summed minimum and maximum hit, unrounded (the tooltip averages these; a real hit rolls between them
     /// and drops the fraction, <see cref="Roll"/>); (0, 0) for a skill with no base spell damage.</summary>

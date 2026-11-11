@@ -14,7 +14,7 @@ using HitResistances = GameServer.Core.World.HitResistances;
 /// (Inevitable Judgement's ignore and non-critical penetration) resolve their per-type final resistance through
 /// <see cref="HitResistances"/> before the same pass applies it.
 /// </summary>
-static class HitMitigation
+public static class HitMitigation
 {
     /// <summary>The resistance one type of a hit on this monster faces: the variety's base resistance at the level,
     /// or 0 without the tables or a malformed row (which leaves the type unmitigated).</summary>

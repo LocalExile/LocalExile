@@ -13,7 +13,7 @@ using GameServer.Core.World;
 /// movement and attack speed, crit) are not here: <see cref="CharacterStats"/> computes those, and
 /// <see cref="FromPools"/> adds the rows that combine them with a stat.
 /// </summary>
-static class PanelStats
+public static class PanelStats
 {
     /// <summary>A source stat, scaled: × <paramref name="Mul"/> ÷ <paramref name="Div"/> (a "-%" stat counts negative;
     /// a 1/100 000 leech counts ÷ 10 as permyriad). Player-level sources multiply before integer division.</summary>
@@ -46,7 +46,8 @@ static class PanelStats
     public static readonly Sum[] Sums =
     [
         // Offence
-        new("cast_speed_+%", ["base_cast_speed_+%", "attack_and_cast_speed_+%"]),
+        // arcane_surge_cast_speed_+%: the Arcane Surge buff's increased cast speed, present only while it runs.
+        new("cast_speed_+%", ["base_cast_speed_+%", "attack_and_cast_speed_+%", "arcane_surge_cast_speed_+%"]),
         new("global_chance_to_knockback_%", ["base_global_chance_to_knockback_%"]),
         new("virtual_knockback_distance_+%", ["knockback_distance_+%"]),
         new("stun_duration_+%", ["base_stun_duration_+%"]),

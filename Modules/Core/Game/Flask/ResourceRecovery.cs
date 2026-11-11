@@ -1,10 +1,10 @@
-static partial class Game
+public static partial class Game
 {
-    internal static bool ManaFlaskCopiesLife(FlaskRecovery.Use recovery, IReadOnlyDictionary<uint, int> player) =>
+    public static bool ManaFlaskCopiesLife(FlaskRecovery.Use recovery, IReadOnlyDictionary<uint, int> player) =>
         recovery.Mana > 0 && (recovery.ManaSeconds ?? recovery.Seconds) > 0
         && Stats.Key("non_instant_mana_recovery_from_flasks_also_recovers_life") is uint key && player.GetValueOrDefault(key) != 0;
 
-    internal static void StartRecoveryEffectsLocked(ClientState conn, IEnumerable<Flasks.Effect> effects, bool copy)
+    public static void StartRecoveryEffectsLocked(ClientState conn, IEnumerable<Flasks.Effect> effects, bool copy)
     {
         foreach (var effect in effects)
         {
@@ -12,7 +12,7 @@ static partial class Game
             conn.FlaskEffects.Start(effect);
         }
     }
-    internal static (double Life, double Mana, List<Flasks.Effect> Ended) AdvanceFlaskRecovery(ClientState conn, double from, double to)
+    public static (double Life, double Mana, List<Flasks.Effect> Ended) AdvanceFlaskRecovery(ClientState conn, double from, double to)
     {
         var owner = ResourceEffectsOf(conn);
         double copy = 0;

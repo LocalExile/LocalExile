@@ -7,7 +7,7 @@
 /// action starts (<c>0x141c9eb00</c> → <c>0x141c9d7c0</c>) and draws them; the server mirrors the choice, so the damage
 /// lands on the monsters the client strikes.
 /// </summary>
-static class StrikeTargets
+public static class StrikeTargets
 {
     /// <summary>The client caps the candidates at 20 (<c>0x141c9d7c0</c>'s list, filled by <c>0x141ca69c0</c>).</summary>
     public const int MaxCandidates = 20;

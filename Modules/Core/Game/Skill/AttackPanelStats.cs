@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Selected attack-gem main-hand hit rows and critical-weighted averages using the actual action rate.</summary>
-static class AttackPanelStats
+public static class AttackPanelStats
 {
     static readonly string[] Types = ["total", "physical", "fire", "cold", "lightning", "chaos"];
 

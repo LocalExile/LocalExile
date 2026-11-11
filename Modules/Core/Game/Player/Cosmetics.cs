@@ -12,7 +12,7 @@ using GameServer.Core;
 /// </para>
 /// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
 /// </summary>
-sealed class CosmeticCatalog(string folder = "data")
+public sealed class CosmeticCatalog(string folder = "data")
 {
     /// <summary>One playable cosmetic: <paramref name="Index"/> is the table's own number.</summary>
     public sealed record Cosmetic(string Name, string Id, string Ao, int Index)

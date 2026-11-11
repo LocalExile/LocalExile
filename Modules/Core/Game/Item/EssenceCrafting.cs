@@ -4,7 +4,7 @@ using GameServer.Core;
 
 
 /// <summary>Essences.dat's exact class-specific affix keys, resolved against this client's Mods.dat.</summary>
-sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
 {
     public sealed record Essence(uint Hash, string Id, int Tier, int ModLevelCap, IReadOnlyDictionary<string, int> ModRows)
     {

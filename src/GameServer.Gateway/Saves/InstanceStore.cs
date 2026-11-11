@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Instance;
 /// logouts and disconnects; it is wiped, like Auth's instance, once no connection has been in it for the lifetime
 /// (<c>InstanceRegistry.Lifetime</c>). Agents/docs/protocol/13-items.md §5.
 /// </summary>
-sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
+public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 {
     readonly Dictionary<(ulong Id, long Created, string? SoloOwner), InstanceState> _instances = [];
 
@@ -42,7 +42,7 @@ sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
     }
 }
 
-sealed partial class InstanceState
+public sealed partial class InstanceState
 {
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
@@ -50,8 +50,8 @@ sealed partial class InstanceState
     /// <summary>The living monsters as the last connection left them (issue #12), or null before the first connection
     /// placed the area's packs.</summary>
     public volatile List<SavedMonster>? Monsters;
-    internal int Connections;
-    internal DateTimeOffset? EmptySince;
+    public int Connections;
+    public DateTimeOffset? EmptySince;
     readonly Dictionary<string, (uint Id, Item Weapon)> _startWeapons = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Puts a character's start weapon (<see cref="PlayerInventories.StartWeapon"/>) on this instance's ground
@@ -142,7 +142,7 @@ sealed partial class InstanceState
 
 /// <summary>An instance's items on the ground. Their object ids come from their own range, so they stay the same for every
 /// connection and never meet the ids a connection gives its monsters and effects (0x3000 up).</summary>
-sealed class InstanceGround
+public sealed class InstanceGround
 {
     public const uint FirstItemId = 0x100000;
     readonly Dictionary<uint, WorldItemObject> _items = [];
@@ -231,7 +231,7 @@ sealed class InstanceGround
 /// the next entry, idle until the player comes in range. Dead monsters are not kept, so they stay dead.</summary>
 // shortcut: a /spawn_mob name is not kept (packs have none), add it when named monsters matter.
 // Unrisen: a monster that rises from the ground (MonsterEmerge.cs) and had not risen yet: re-created waiting.
-sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity, bool Hostile, int X, int Y, uint Life, bool Unrisen = false)
+public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity, bool Hostile, int X, int Y, uint Life, bool Unrisen = false)
 {
     /// <summary>Its mods as rolled (MonsterMods.cs): the same affixes, values and rare name on the next entry.</summary>
     public MonsterModSet Mods { get; init; } = MonsterModSet.None;

@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 /// they sell: the stock is the server's. Ours is a fixed Act 1 assortment per NPC. A shop tab is an inventory in the
 /// client's second inventory manager (S→C 0xc0 manager 1, instance +0xca10), opened with S→C 0x8c.
 /// </summary>
-static class NpcShops
+public static class NpcShops
 {
     /// <summary>A shop tab: 12 × 11 cells, what the vendor window holds below its title and tab bar; a twelfth row pushes the
     /// tab bar up over the title. Inventories.dat row 83 (CraftPredictionScratch, kind 0x0f) only gives the client a generic

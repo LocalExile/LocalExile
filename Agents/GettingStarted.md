@@ -348,7 +348,7 @@ preferred. To switch, change the option, log out to the character screen and cli
 **League modes:** the existing creation screen's Hardcore, SSF and Ruthless choices select server rules.
 Selected modes change server rules; Hardcore Ruthless death is permanent.
 Ruthless balance is the Ruthless module's settings, changed without rebuilding or restarting the server: write the numbers
-you change in `data/modules/Ruthless.json` (the defaults are in `Modules/Ruthless/settings.json`). From the repository root:
+you change in `data/modules/Ruthless.json` (the defaults are in `Modules/Core/Ruthless/settings.json`). From the repository root:
 
 ```powershell
 New-Item -ItemType Directory -Force data\modules | Out-Null

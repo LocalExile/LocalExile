@@ -6,7 +6,7 @@
 /// Sirius (4) and Abyssal (5) hammers above it. Each hit's 0x1af makes the client draw the hammer, and at 0 it crashed
 /// ("failed trying to access data from index 3 of skill art data (sweep:0, )": art slot 3 at variation 0).
 /// </summary>
-static class SkillArtBase
+public static class SkillArtBase
 {
     // GrantedEffects Ids of the player gems: Holy Sweep, Holy Sweep of Hammerfalls and the unused SweepAltY.
     static readonly Dictionary<string, int> Bases = new(StringComparer.Ordinal)

@@ -48,14 +48,16 @@ The client's own calculators show what they read, by key (Stats row + 1):
 ## Model
 
 - "Nearby" is 60 cells, the radius of Overwhelm's own aura; the client does not name it.
-- The tick (250 ms) counts living hostile monsters within it and kills of the last 4 s, only when a stat reads them.
+- The tick (250 ms) counts the awake hostile monsters within it that the client has been shown, and kills of the
+  last 4 s, only when a stat reads them. Each count stops where its capped product does (10 at the base values).
   They join the stat sources with `have_killed_recently`; a change rebuilds the pools and sends the stats.
 - Headsman's buffs are BuffDefinitions 1341 and 1342 (`bane_of_legends_*`, invisible, no values): 20 s from the last
   kill, refreshed by each, ended by death.
 - Impact's area joins `base_skill_area_of_effect_+%`, as Rampage's does.
 - Bane of Legends scales the rolled hit of the three executors that run `GameEvents.OutgoingDamage` (default attack,
   area skills, projectiles), so their ailments read it too.
-- Overkill is the hit's direct damage beyond the target's Life before it; Impale's reflected part is not counted.
+- Overkill is the hit's direct damage beyond the target's Life before it (hostile monsters have no energy shield
+  on the server); Impale's reflected part is not counted.
 - Overwhelm's aura acts on monster critical strikes on the player, by the radius at contact.
 
 ## Not applied
