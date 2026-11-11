@@ -124,7 +124,7 @@ static class KitavaActFive
         foreach (uint id in RetireDockCreatures(c))
         {
             c.MonsterViews.Remove(id); c.AsleepMonsters.Remove(id); c.BossBarsSeen.Remove(id);
-            var w = c.Wire; await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.RemoveObject(id), "[Kitava A5] dock creature retired without rewards");
+            var w = c.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, c, id, "[Kitava A5] dock creature retired without rewards");
         }
     }
     public static Task Leaving(ClientState c)
@@ -200,18 +200,25 @@ static class KitavaActFive
             if (bound.Add(c) && Awake(c) && SkillsFor(c, body.Variety!, body.Level) is { } skills)
             {
                 var w = c.Wire;
-                await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Kitava A5] native actor skills");
+                await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, id, InstanceEntities.PlayerSkillsChange(id, skills, []), "[Kitava A5] native actor skills");
             }
         }
-        async Task All(byte[] bytes, bool actor = false)
+        Task All(uint target, byte[] bytes, bool actor = false) => All(target, new[] { bytes }, actor);
+        async Task All(uint target, byte[][] records, bool actor = false)
         {
             foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
-            { var w = p.Wire; await Send(w.Remote, w.Stream, w.Ciphers, [.. bytes], null, still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
+            { var w = p.Wire; await SendWorldRecords(w.Remote, w.Stream, w.Ciphers, p, target, () => records.Select(r => r.ToArray()).ToArray(), null,
+                still: () => !stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
+        }
+        async Task AllRemoval(uint target)
+        {
+            foreach (var p in Present.ToArray())
+            { var w = p.Wire; await SendWorldRemoval(w.Remote, w.Stream, w.Ciphers, p, target); }
         }
         async Task Basic(ClientState c, ushort skill, double now, double seconds, uint? target = null)
         {
             lock (c.Monsters) { body.ActionGeneration++; body.SwingGeneration = null; body.BusyUntil = now + seconds; }
-            await All([.. InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, signAt.X, signAt.Y, skill, c.NextActionSequence(), 0x0408, targetObjectId: target), .. InstanceProtocol.ActionEnded(id)], true);
+            await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, signAt.X, signAt.Y, skill, c.NextActionSequence(), 0x0408, targetObjectId: target), InstanceProtocol.ActionEnded(id)], true);
         }
         async Task Bar(bool shown)
         {
@@ -224,7 +231,7 @@ static class KitavaActFive
                     p.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = body.States } };
                 if (!Awake(p)) continue;
                 int component = body.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
-                if (component >= 0) { var w = p.Wire; await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
+                if (component >= 0) { var w = p.Wire; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, body.States), null); }
                 if (shown) p.BossBarsSeen.Add(id); else p.BossBarsSeen.Remove(id);
             }
         }
@@ -235,7 +242,7 @@ static class KitavaActFive
             {
                 body.Dead = true; body.ActionGeneration++; c.Monsters.Remove(previous); c.Instance.World.MonsterOrigins.TryRemove(previous, out _);
             }
-            await All(InstanceProtocol.RemoveObject(previous));
+            await AllRemoval(previous);
             foreach (var p in Present) { p.MonsterViews.Remove(previous); p.AsleepMonsters.Remove(previous); p.BossBarsSeen.Remove(previous); }
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing campaign Kitava form");
             id = await SpawnMonster(c.Wire.Remote, c.Wire.Stream, c.Wire.Ciphers, c, v, body.Level, MonsterRarity.Unique,
@@ -248,7 +255,7 @@ static class KitavaActFive
         public async Task Step(ClientState c, double now)
         {
             if (stopped || !CurrentGameWork || c.Paused) return;
-            foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await All(InstanceProtocol.RemoveObject(fx.Id)); }
+            foreach (var fx in visuals.Where(v => v.Until <= now).ToArray()) { visuals.Remove(fx); await AllRemoval(fx.Id); }
             patches.RemoveAll(p => p.Until <= now);
             await Ground(c, now);
             if (stage == 10)
@@ -266,10 +273,10 @@ static class KitavaActFive
                 if (stage == 0)
                 {
                     body.EntranceGrace = true;
-                    await All(InstanceProtocol.Teleport(id, anchor.X, anchor.Y), true);
+                    await All(id, InstanceProtocol.Teleport(id, anchor.X, anchor.Y), true);
                     lock (c.Monsters) body.Walk.Teleport(anchor.X, anchor.Y, now);
                     if (body.Variety!.ComponentsOrBase.Contains("Transitionable"))
-                        await All(InstanceEntities.TransitionableUpdate(id, (byte)body.Variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), 2), true);
+                        await All(id, InstanceEntities.TransitionableUpdate(id, (byte)body.Variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), 2), true);
                     await Basic(c, 16641, now, 7.333); deadline = now + 7.333;
                 }
                 else if (stage == 4) { await Expose(c, now); }
@@ -302,12 +309,12 @@ static class KitavaActFive
                     {
                         heart.Life = heart.MaxLife / 2;
                         heart.LifePhases!.Begin(heart.Life, heart.MaxLife); heart.LifePhases.Finish();
-                        await All(InstanceProtocol.LifeUpdate(heartId, heart.Life, 0));
+                        await All(heartId, InstanceProtocol.LifeUpdate(heartId, heart.Life, 0));
                     }
                 }
                 heart.EntranceGrace = false; heart.LifePhases ??= Phases(heart.Variety!);
                 stage = 5; nextAdds = now;
-                await All([.. InstanceProtocol.ActionStarted(heartId, heartAt.X, heartAt.Y, heartAt.X, heartAt.Y, 16641, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(heartId)]);
+                await All(heartId, [InstanceProtocol.ActionStarted(heartId, heartAt.X, heartAt.Y, heartAt.X, heartAt.Y, 16641, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(heartId)]);
                 await SpawnWave(c, now);
                 Console.WriteLine($"[Kitava A5] heart exposed, interval {body.LifePhases!.Completed + 1}"); return;
             }
@@ -316,7 +323,7 @@ static class KitavaActFive
                 if (heart!.LifePhases!.Begin(heart.Life, heart.MaxLife))
                 {
                     heart.EntranceGrace = true; hits.Clear(); await RetireAdds(c);
-                    await All([.. InstanceProtocol.ActionStarted(heartId, heartAt.X, heartAt.Y, heartAt.X, heartAt.Y, 9115, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(heartId)]);
+                    await All(heartId, [InstanceProtocol.ActionStarted(heartId, heartAt.X, heartAt.Y, heartAt.X, heartAt.Y, 9115, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(heartId)]);
                     stage = 6; deadline = now + 6; await Basic(c, 5831, now, 6); return;
                 }
                 if (now >= nextAdds) await SpawnWave(c, now);
@@ -324,7 +331,7 @@ static class KitavaActFive
             }
             if (stage == 6 && now >= deadline)
             {
-                await All(InstanceProtocol.RemoveObject(heartId));
+                await AllRemoval(heartId);
                 lock (c.Monsters) { c.Monsters.Remove(heartId); c.Instance.World.MonsterOrigins.TryRemove(heartId, out _); }
                 foreach (var p in Present) { p.MonsterViews.Remove(heartId); p.AsleepMonsters.Remove(heartId); }
                 heart = null;
@@ -345,7 +352,7 @@ static class KitavaActFive
             }
             if (stage == 8 && now >= deadline)
             {
-                await All(InstanceProtocol.AnimationUpdate(signId, 0, 2, 1));
+                await All(signId, InstanceProtocol.AnimationUpdate(signId, 0, 2, 1));
                 await Fx(c, target.Walk.Position(now), Root + "InnocenceSin/SinFlyAway.ao", 0, now + 2);
                 stage = 9; deadline = now + 1; return;
             }
@@ -375,7 +382,7 @@ static class KitavaActFive
         async Task Expose(ClientState c, double now)
         {
             stage = 4; body.EntranceGrace = true; championSpawned = false; hits.Clear(); patches.Clear(); await Bar(false);
-            await All(InstanceProtocol.AnimationUpdate(signId, 0, 1, 1));
+            await All(signId, InstanceProtocol.AnimationUpdate(signId, 0, 1, 1));
             await Basic(c, 5828, now, 5); deadline = now + 5;
         }
         async Task SpawnWave(ClientState c, double now)
@@ -405,7 +412,7 @@ static class KitavaActFive
             {
                 lock (c.Monsters)
                     if (c.Monsters.TryGetValue(add, out var m)) { m.ActionGeneration++; m.Dead = true; m.Life = 0; c.Monsters.Remove(add); c.Instance.World.MonsterOrigins.TryRemove(add, out _); }
-                await All(InstanceProtocol.RemoveObject(add));
+                await AllRemoval(add);
             }
             adds.Clear();
         }
@@ -418,14 +425,14 @@ static class KitavaActFive
             if (point is null) return;
             var to = p.Layout.Near((point.X, point.Y));
             lock (p.Monsters) { Interlocked.Increment(ref p.ActionCount); p.Walk.Teleport(to.X, to.Y, now); }
-            await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Kitava A5] rescued {CharacterName(p)} to Sin and Lilly at {to}");
+            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceProtocol.Teleport(PlayerId, to.X, to.Y), $"[Kitava A5] rescued {CharacterName(p)} to Sin and Lilly at {to}");
         }
         async Task Cast(ClientState c, int effect, double now)
         {
             var aim = c.Walk.Position(now); var attack = Attack(c, body.Variety!, body.Level, effect); int generation;
             struckPlayers.Clear(); struckMinions.Clear();
             lock (c.Monsters) { generation = ++body.ActionGeneration; body.SwingGeneration = null; body.BusyUntil = ready = now + attack.Seconds + .3; }
-            await All([.. InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)], true);
+            await All(id, [InstanceProtocol.ActionStarted(id, anchor.X, anchor.Y, aim.X, aim.Y, attack.SkillId, c.NextActionSequence(), 0x0408), InstanceProtocol.ActionEnded(id)], true);
             double contact = now + attack.Seconds * (effect is 6590 or 6594 ? .5 : effect is 6636 or 6638 ? .62 : .41);
             if (effect is 6619 or 6622)
             {
@@ -478,7 +485,7 @@ static class KitavaActFive
             bool Inside((int X, int Y) at) => hit.Effect == 6586 ? Distance(at, hit.Aim) <= hit.Radius
                 && Math.Min(Math.Abs(at.X - hit.Aim.X - at.Y + hit.Aim.Y), Math.Abs(at.X - hit.Aim.X + at.Y - hit.Aim.Y)) <= 6
                 : hit.End is { } end ? LineDistance(at, hit.Aim, end) <= hit.Radius : Distance(at, hit.Aim) <= hit.Radius;
-            await Send(w.Remote, w.Stream, w.Ciphers, [], null, atGate: () =>
+            await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, id, [], null, atGate: () =>
             {
                 lock (p.Monsters)
                 {
@@ -535,9 +542,10 @@ static class KitavaActFive
         }
         static async Task CreateFx(ClientState p, Visual fx)
         {
-            var w = p.Wire;
-            await Send(w.Remote, w.Stream, w.Ciphers, [.. InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(fx.At.X, fx.At.Y, fx.Model).Blob()),
-                .. InstanceProtocol.EnterWakeZone(fx.Id), .. InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Clip, 1)], null);
+            var obj = new EffectObject(fx.At.X, fx.At.Y, fx.Model);
+            await SendWorldCreate(p, fx.Id, () => InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()));
+            await SendWorldRecord(p, fx.Id, () => InstanceProtocol.EnterWakeZone(fx.Id));
+            await SendWorldRecord(p, fx.Id, () => InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Clip, 1));
         }
         public void Stop()
         {
@@ -545,7 +553,7 @@ static class KitavaActFive
             foreach (var p in Present.ToArray())
             {
                 _ = Leaving(p);
-                foreach (var fx in visuals) _ = Send(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, InstanceProtocol.RemoveObject(fx.Id), null);
+                foreach (var fx in visuals) _ = SendWorldRemoval(p.Wire.Remote, p.Wire.Stream, p.Wire.Ciphers, p, fx.Id);
             }
         }
         static double Distance((int X, int Y) a, (int X, int Y) b) => Math.Sqrt(Math.Pow(a.X - b.X, 2) + Math.Pow(a.Y - b.Y, 2));
