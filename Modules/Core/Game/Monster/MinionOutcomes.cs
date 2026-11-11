@@ -36,6 +36,7 @@ static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
+            QueueMadnessExplosionLocked(conn, victimId, monster);
             conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,

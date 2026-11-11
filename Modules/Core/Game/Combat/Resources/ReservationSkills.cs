@@ -212,7 +212,7 @@ static partial class Game
                     AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now,
                         Random.Shared, poison: profile.Poison,
                         blind: BlindHitInput.Capture(player, own));
-                    if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                    if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                         && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, now) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
@@ -263,6 +263,7 @@ static partial class Game
             catChanged = CatAspectReconcileLocked(conn, now);
             catChanged |= AvianReconcileLocked(conn, now);
             catChanged |= CrabReconcileLocked(conn, now);
+            catChanged |= MadnessReconcileLocked(conn, now);
             if (catChanged)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
@@ -290,6 +291,7 @@ static partial class Game
             }
             else if (ReservationAura(conn, "TemporalRift") is null) state.Echoes.Clear();
             ReservationArcticTrailLocked(conn, now);
+            MadnessExplosionsLocked(conn, now);
         }
         if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
         foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");

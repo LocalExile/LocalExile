@@ -341,7 +341,8 @@ static partial class Game
                     sourceSkill: shot.SourceSkill, blind: shot.Blind);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
-            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
+            if (!immune && hit.Value.Life > 0 && (critical ? shot.Ignite.CriticalMax : shot.Ignite.Max) > 0)
+                IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
                     BleedReflected(CharacterPlayerStats(Conn)));

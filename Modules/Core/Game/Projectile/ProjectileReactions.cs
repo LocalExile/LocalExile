@@ -99,7 +99,11 @@ static partial class Game
         var conn = session.Conn;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
         bool destroyCorpse;
-        lock (conn.Monsters) destroyCorpse = playerKill && TakeUnhingedHitKillLocked(conn, monster);
+        lock (conn.Monsters)
+        {
+            destroyCorpse = playerKill && TakeUnhingedHitKillLocked(conn, monster);
+            if (playerKill) QueueMadnessExplosionLocked(conn, id, monster);
+        }
         StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.

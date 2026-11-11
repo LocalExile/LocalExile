@@ -40,7 +40,7 @@ static partial class Game
         equipment ??= ItemsOf(conn).EquipmentSnapshot();
         return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support && g.ManuallyCast
             && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
-            && (g.EffectId == UnhingeEffect || IsDashEffect(g.EffectId)
+            && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || IsSummonBeastialCompanionEffect(g.EffectId)
                 || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];

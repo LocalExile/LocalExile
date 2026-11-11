@@ -312,7 +312,7 @@ static partial class Game
                 CriticalMin = profile.Poison.CriticalMin * more, CriticalMax = profile.Poison.CriticalMax * more };
             AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical: false, 100, player, placed.Own, now,
                 Random.Shared, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(player, placed.Own));
-            if (!m.Dead && rolled[DamageType.Fire].Max > 0)
+            if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
                     CriticalMin = profile.Ignite.CriticalMin * more, CriticalMax = profile.Ignite.CriticalMax * more };

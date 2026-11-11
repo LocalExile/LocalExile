@@ -136,6 +136,8 @@ static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
+        foreach (var (key, value) in MadnessRawStatsLocked(conn, sources))
+            sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);
@@ -146,6 +148,7 @@ static partial class Game
             FortificationOf(conn).SetExpiryRate(now, RecipientEffectTime.Rate(1, Get));
             conn.UtilityFlaskEffects.SetExpiryRate(now, RecipientEffectTime.Rate(16, Get));
             conn.ElementalAilments.SetExpiryRate(now, RecipientEffectTime.Rate(2, Get));
+            MadnessExpiryRateLocked(conn, AreaTime(conn), RecipientEffectTime.Rate(2, Get));
         }
         return (sources, attributes);
     }

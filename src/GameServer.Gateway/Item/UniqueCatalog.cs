@@ -60,6 +60,22 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     static readonly HashSet<string> YrielProfileMods =
         YrielProfiles.SelectMany(profile => profile.Mods).ToHashSet(StringComparer.Ordinal);
 
+    const string BeaconName = "Beacon of Madness";
+    static readonly (string Name, string Base, string[] Mods)[] BeaconProfiles =
+    [
+        ("Chaos", "Metadata/Items/Armours/Boots/BootsAtlas3",
+            ["IncreasedChaosDamageUnique__5", "AllDamageCanPoisonGloriousMadnessUnique___1",
+                "EnemiesExplodeOnDeathChaosGloriousMadnessUnique1"]),
+        ("Physical", "Metadata/Items/Armours/Boots/BootsAtlas1",
+            ["LocalIncreasedArmourAndEvasionUnique__13", "DoubleDamageChanceGloriousMadnessUnique_1",
+                "FortifyEffectSelfGloriousMadnessUnique1"]),
+        ("Elemental", "Metadata/Items/Armours/Boots/BootsAtlas2",
+            ["IncreasedAilmentEffectOnEnemiesUnique_2", "ElementalConfluxesGloriousMadnessUnique1",
+                "ElementalAilmentImmunityGloriousMadnessUnique1"]),
+    ];
+    static readonly HashSet<string> BeaconProfileMods =
+        BeaconProfiles.SelectMany(profile => profile.Mods).ToHashSet(StringComparer.Ordinal);
+
     /// <summary>The curated entries whose 3.29 data differs from the PoB export used for the full catalogue.</summary>
     static readonly Definition[] Curated =
     [
@@ -143,6 +159,14 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
 
     public Definition? Find(string name)
     {
+        string beaconPrefix = BeaconName + " (";
+        if (NameKey(name).StartsWith(beaconPrefix, StringComparison.OrdinalIgnoreCase) && name.EndsWith(')'))
+        {
+            string wanted = name[beaconPrefix.Length..^1];
+            var profile = BeaconProfiles.FirstOrDefault(p => p.Name.Equals(wanted, StringComparison.OrdinalIgnoreCase));
+            return profile.Name is not null && All.FirstOrDefault(d => d.Name == BeaconName) is { } beacon
+                ? beacon with { CreationVariant = profile.Name } : null;
+        }
         if (TryYrielProfileName(name, out string? variant))
         {
             if (variant is null) return null;
@@ -168,6 +192,15 @@ sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// <summary>The item of one definition, which tells apart the bases of a unique with several.</summary>
     public Item? Create(Definition definition, Random random)
     {
+        if (NameKey(definition.Name).Equals(BeaconName, StringComparison.OrdinalIgnoreCase))
+        {
+            var profile = definition.CreationVariant is { } variant
+                ? BeaconProfiles.FirstOrDefault(p => p.Name.Equals(variant, StringComparison.OrdinalIgnoreCase))
+                : BeaconProfiles[random.Next(BeaconProfiles.Length)];
+            if (profile.Name is null) throw new InvalidOperationException("Unknown Beacon of Madness variant");
+            definition = definition with { BaseTypeId = profile.Base,
+                Mods = [.. definition.Mods.Where(id => !BeaconProfileMods.Contains(id)), .. profile.Mods] };
+        }
         if (items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
         if (!_names.Value.TryGetValue(NameKey(definition.Name), out var unique)) return null;
         var item = ItemCatalog.Create(type) with

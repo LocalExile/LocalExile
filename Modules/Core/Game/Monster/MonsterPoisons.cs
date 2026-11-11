@@ -60,11 +60,11 @@ static partial class Game
         if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return false;
         double phys = mitigated[DamageType.Physical].Min;
         double chaos = mitigated[DamageType.Chaos].Min;
-        if (phys + chaos <= 0) return false;
 
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int Get(string name) => Player(name) + Skill(name);
+        if ((Get("all_damage_can_poison") != 0 ? mitigated.MinTotal : phys + chaos) <= 0) return false;
 
         if (MonsterPoisons.Prohibited(Get)) return false;
 

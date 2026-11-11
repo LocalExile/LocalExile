@@ -4,11 +4,18 @@ using GameServer.Core.Protocol.Login;
 
 static partial class Game
 {
-    internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality) =>
-        SkillsFor(conn).CooldownMs(effect, level) <= 0
-        || !IsDashEffect(SkillsFor(conn).EffectId(effect)) && GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
-            WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
-                SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2)));
+    internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality)
+    {
+        if (SkillsFor(conn).CooldownMs(effect, level) <= 0
+            || !IsDashEffect(SkillsFor(conn).EffectId(effect)) && GemSkillEffects(conn).Count(g => g.Effect == effect) != 1)
+            return null;
+        var plan = SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
+            SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
+        if (plan is { } madness && SkillsFor(conn).EffectId(effect) == MadnessEffect && MadnessActiveLocked(conn))
+            plan = madness with { BaseMilliseconds = madness.BaseMilliseconds
+                + MadnessSkillValue(conn, "embrace_madness_amount_of_cooldown_to_gain_ms") };
+        return WithMapCooldown(conn, plan);
+    }
 
     // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
     internal static int CooldownKey(ClientState conn, int effect, int level) =>

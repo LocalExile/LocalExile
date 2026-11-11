@@ -487,7 +487,7 @@ static partial class Game
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
                     blind: BlindHitInput.Capture(player));
-                if (life > 0 && ownRolled[DamageType.Fire].Max > 0
+                if (life > 0 && (critical ? prehit.Ignite.CriticalMax : prehit.Ignite.Max) > 0
                     && IgniteOnHitLocked(conn, targetId, m, prehit.Ignite,
                         critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
@@ -976,6 +976,12 @@ static partial class Game
         }
         if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == UnhingeEffect)
             return await ToggleUnhinged(remote, stream, ciphers, conn, skillId, gem.Effect, Current);
+        if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == MadnessEffect)
+        {
+            bool accepted = await ToggleMadness(remote, stream, ciphers, conn, skillId, gem.Effect, Current, cooldownUse);
+            if (accepted) RecordAcceptedGemUse(conn, gem.Effect);
+            return accepted;
+        }
         // An attack gem swings with the weapon's attack time, like the default attack (see Attack): while the button is held
         // the client keeps aiming it, and every use used to pay its cost and start a swing (live 2026-10-25: Holy Strike on
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
@@ -1994,7 +2000,7 @@ static partial class Game
                             blind: BlindHitInput.Capture(player, skillStats));
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                         // physical damage bleed it.
-                        if (m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                        if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                             && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, at) is { } packets)
                             (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                         if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
@@ -2386,7 +2392,11 @@ static partial class Game
     {
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;
-        lock (conn.Monsters) destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
+        lock (conn.Monsters)
+        {
+            destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
+            if (playerKill) QueueMadnessExplosionLocked(conn, id, m);
+        }
         StopCorpseBlocking(remote, stream, ciphers, conn, id, m);
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;

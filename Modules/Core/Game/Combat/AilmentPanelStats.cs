@@ -86,8 +86,10 @@ static class AilmentPanelStats
             }
         }
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
-        Add("ignite", DamageType.Fire, [DamageType.Fire], IgnitePercent);
-        Add("poison", DamageType.Chaos, [DamageType.Physical, DamageType.Chaos], PoisonPercent);
+        Add("ignite", DamageType.Fire, get("all_damage_can_ignite") != 0
+            ? DamageTypes.ConversionOrder : [DamageType.Fire], IgnitePercent);
+        Add("poison", DamageType.Chaos, get("all_damage_can_poison") != 0
+            ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
         if (get("chaos_damage_chance_to_poison_%") != 0)
             Add("poison", DamageType.Chaos, [DamageType.Chaos], PoisonPercent, chaosOnly: true);
         return rows;

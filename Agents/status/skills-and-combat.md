@@ -1254,7 +1254,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Crab equipment thresholds and loss protection have automated coverage.
   Native checks verify phases, pools, timed barriers, physical-hit loss and unequip cleanup; visuals remain unverified.
   Equipment self-Vulnerability supplies curse effects and Coward's Life predicates, with limited native verification.
-  Avian ally sharing and Twister, Spider and Madness remain unimplemented.
+  Madness has qualified toggles, Touch penalties, three Beacon profiles and earned chaos explosions.
+  Native checks cover Beacon stats, Touches, cooldown and cleanup; explosion geometry/art remain unverified.
+  Avian ally sharing and Twister, and Spider remain unimplemented.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation, with pre-hit Blind damage profiles.
