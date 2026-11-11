@@ -111,9 +111,8 @@ public static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})", WorldId: id, CreatesObject: true));
-            state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+            state.OutputQueue.Add(new([], $"world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})",
+                TargetId: id, Kind: PlayerMinions.OutputKind.GroundItem));
         }
     }
 
@@ -179,6 +178,21 @@ public static partial class Game
                     notification = GameEvents.RunMonsterKilled(new(conn, output.Kill!));
                 }
                 await notification;
+                continue;
+            }
+            if (output.Kind == PlayerMinions.OutputKind.GroundItem)
+            {
+                uint groundId = output.TargetId!.Value;
+                await SendWorldCreate(conn, groundId, () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
+                            || !ReferenceEquals(state.OutputQueue[0], output)) return null;
+                        state.OutputQueue.RemoveAt(0);
+                        return GroundItemPresentation(conn, groundId, conn.Instance.Ground.IsNewFor(conn, groundId), includeWake: false);
+                    }
+                }, output.Log, wake: true, transport: (remote, stream, ciphers));
                 continue;
             }
             byte[][]? actionRecords = null;

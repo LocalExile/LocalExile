@@ -44,6 +44,17 @@ public static partial class Game
         if (InTown(conn) && (SkillsFor(conn).IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)) return;
         if (SkillsFor(conn).IsGemSkill(use.SkillId) || use.SkillId == SkillCatalog.FirstSkillId)
             await EndGracePeriod(remote, stream, ciphers, conn, action: true);
+        // An encounter actor can acquire an NPC component's dialogue without changing its monster identity.
+        if (use.SkillId == 0x266)
+        {
+            SpawnedNpc? speaker;
+            lock (conn.Npcs) speaker = conn.Npcs.GetValueOrDefault(use.TargetId);
+            if (speaker is not null)
+            {
+                await TalkToNpc(remote, stream, ciphers, conn, use, speaker, requestedAt);
+                return;
+            }
+        }
         SpawnedMonster? target;
         lock (conn.Monsters) target = conn.Monsters.GetValueOrDefault(use.TargetId);
         if (target is not null)
@@ -83,6 +94,12 @@ public static partial class Game
             await PickUpGroundItem(remote, stream, ciphers, conn, use.TargetId, ground, use, requestedAt);
             return;
         }
+        if (use.SkillId == 0x266 && conn.Instance.Ground.WasTaken(use.TargetId))
+        {
+            await Send(remote, stream, ciphers, [], $"remove stale ground label 0x{use.TargetId:x}", atGate: () =>
+                conn.Instance.Ground.WasTaken(use.TargetId) ? InstanceProtocol.RemoveObject(use.TargetId) : null);
+            return;
+        }
         // Objects of a module or mod.
         if (await GameEvents.AnyObjectUse(conn, use, requestedAt)) return;
         if (use.TargetId == WaypointCatalog.ObjectId && conn.Layout.Waypoint is { } waypoint)
@@ -113,6 +130,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0024 use object {use} (not an area transition)");
             return;
         }
+        transition = KitavaActTen.PortalFor(conn, transition);
         ushort dest = transition.DestinationHash16;
         // A quest can close an exit: The Twilight Strand's way into Lioneye's Watch needs Hillock dead (a1q1).
         if (!TransitionShown(conn, transitionId, transition))
