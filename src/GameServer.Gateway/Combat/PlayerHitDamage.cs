@@ -10,7 +10,7 @@ public static class PlayerHitDamage
     public static DamagePacket Resolve(DamagePacket raw, Func<string, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,
         IEnumerable<(string Name, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
-        bool secondary = false, bool wieldingWand = false, bool retaliation = false)
+        bool secondary = false, bool wieldingWand = false, bool retaliation = false, bool wieldingBow = false)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
         // area and projectile buckets apply, and no attack/spell support classification.
@@ -40,6 +40,8 @@ public static class PlayerHitDamage
             + (manaLeech ? get("damage_+%_while_mana_leeching") : 0)
             + (shieldLeech ? get("damage_+%_while_es_leeching") : 0)
             + (fullShield ? get("damage_+%_on_full_energy_shield") : 0);
+        bool bowAttack = wieldingBow && !spell && !secondary;
+        if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_hit_and_ailment_damage_+%");
         var typed = DamageTypes.ConversionOrder.Select(type =>
             (History: DamageTypes.HistoryOf(type), Increased: get($"{type.ToString().ToLowerInvariant()}_damage_+%"))).ToArray();
         int elemental = get("elemental_damage_+%")
@@ -52,6 +54,8 @@ public static class PlayerHitDamage
             if (DamageStats.Prohibited(path.Type, get, attack: !spell && !secondary)
                 || GemSupportDamage.Prohibited(path.Type, modifiers)) continue;
             double increased = common;
+            if (bowAttack && (path.History & DamageTypeHistory.Physical) != 0) increased += get("physical_bow_damage_+%");
+            if (bowAttack && (path.History & DamageTypeHistory.Elemental) != 0) increased += get("bow_elemental_damage_+%");
             foreach (var source in typed)
                 if ((path.History & source.History) != 0) increased += source.Increased;
             if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental;

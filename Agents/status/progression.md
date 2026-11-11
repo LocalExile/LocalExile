@@ -143,7 +143,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
-  item source and client conversion are present (`/radius_jewel Lioneye's Fall`), but its server flag model is missing.
+  radius now converts melee and melee-weapon stats with native bow equivalents, including physical damage, attack
+  speed and critical modifiers. Conditional modifiers without a mapped bow stat still need individual consumers.
   Inspired Learning and Warrior's Tale remain inactive; the missing layers are the melee/weapon flag model, the
   rare-mod steal, tattoos and the skill-specific threshold consumers. The socket/save path,
   `PassiveTree.NodesInRadius`/`NodesInRing`, the timeless per-node pattern and the art table are reused. The radius
