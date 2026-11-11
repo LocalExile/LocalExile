@@ -38,7 +38,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md) "Client weapon-type stats".
 - Antiquarian's real selected nodes now drive Ward absorption/restoration and Runic Tablet's pausable Adrenaline.
   Goliath's zero Intelligence reaches requirements and pools; Whaletooth extends actual Enduring Cry recovery.
-  Turtle Shell integrates 8% Life over one second after accepted melee stun, with native Life correction at expiry.
+  Turtle Shell integrates 8% Life over one second after accepted melee stun; Bloodnotch restores a share of hit damage
+  immediately on that stun. Melding of the Flesh shares the highest elemental resistance cap in pools and mitigation.
   Lioneye's Hair bypasses supported attack accuracy, Bow scales actual travelled projectiles, and Shield replaces
   usable-shield base block and reduces physical ranged hits after armour.
   Three native builds cover all nodes, combat controls, paid refunds and effect/save lifecycles.

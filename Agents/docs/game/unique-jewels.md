@@ -119,7 +119,7 @@ conditional work, and no unique jewel has a normal drop or vendor source yet.
 | **Emperor's Cunning** | 3 | 2 | 67% | 1 panel only (character size) |
 | **Emperor's Might** | 3 | 2 | 67% | 1 panel only (character size) |
 | **Emperor's Wit** | 3 | 2 | 67% | 1 panel only (character size) |
-| **Melding of the Flesh** | 3 | 2 | 67% | 1 unread (the resistance cap rule) |
+| **Melding of the Flesh** | 3 | 3 | 100% | Highest elemental maximum also applies to the other two elements. |
 | **Reckless Defence** | 3 | 2 | 67% | 1 unread (enemy critical chance against self) |
 | **Replica Conqueror's Efficiency** | 3 | 2 | 67% | 1 unread (non-channelling mana cost) |
 | **Replica Reckless Defence** | 3 | 2 | 67% | 1 unread (freeze/shock/ignite chance) |
@@ -140,7 +140,7 @@ conditional work, and no unique jewel has a normal drop or vendor source yet.
 | **Rain of Splinters** | 2 | 0 | 0% | 2 unread (no totems) |
 | **Replica Cheap Construction** | 2 | 0 | 0% | 2 unread (no traps) |
 | **Ancient Waystones** | 1 | 0 | 0% | 1 unread (no totemified auras) |
-| **Bloodnotch** | 1 | 0 | 0% | 1 unread (recovery from stuns) |
+| **Bloodnotch** | 1 | partial | — | Recovery applies on supported stunning hits |
 | **Immutable Force** | 1 | 0 | 0% | 1 panel only (stun recovery) |
 | **Mutated Growth** | 1 | 0 | 0% | 1 unread (corrupted gem experience) |
 | **Unstable Payload** | 1 | 0 | 0% | 1 unread (no traps) |
@@ -199,7 +199,7 @@ the server does not consume can still appear in the item tooltip without changin
 | **Conqueror's Potency** | Flask effect and non-curse aura effect. | Curse effect is a panel stat; curses are not modelled. |
 | **Firesong** | Fire resistance. | Ignite duration on self applying to all elemental ailments. |
 | **Izaro's Turmoil** | Fire and cold damage. | Freeze/ignite chance is a panel stat; ailments are not applied. |
-| **Melding of the Flesh** | Elemental resistances and maximum resistances. | Resistances being capped by the highest maximum elemental resistance. |
+| **Melding of the Flesh** | Elemental resistances, maximum resistances and the highest elemental cap. | — |
 | **Poacher's Aim** | Projectile damage. | Additional pierce is not consumed on `main`; it works only on the projectile-mechanics branch. |
 | **Reckless Defence** | Additional attack and spell block (live: uncapped attack 152% -> 158%, spell 11% -> 17%). | The enemy critical chance against self is not consumed; Versatile Combatant caps the effective chance, so only the uncapped numbers show the jewel. |
 | **Replica Conqueror's Efficiency** | Skill effect duration and maximum rage. | Non-channelling skill mana cost is not consumed. |
@@ -214,7 +214,7 @@ the server does not consume can still appear in the item tooltip without changin
 |---|---|
 | **Ancient Waystones** | Mana cost of totemified aura skills; no totemified auras. |
 | **Apparitions** | Minion movement speed and minion spell suppression; no minion entity model. |
-| **Bloodnotch** | Recovery from stunning hits; the stun/recovery consumer is not modelled. |
+| **Bloodnotch** | Recovers life after a surviving hit that triggers the server's stun reaction. Other stun paths remain partial. |
 | **Cheap Construction** | Trap duration and extra placed traps; traps are not modelled. |
 | **Combustibles** | Item quantity and burning damage; neither the drop quantity nor this DoT stat is consumed. |
 | **From Dust** | Skeleton count and cooldown; no skeleton skill/minion model. |
@@ -290,7 +290,7 @@ Each line is one mod of the 42 Global jewels; the effect text is the same as the
 | **Assassin's Haste** | `ManaRegenerationUniqueJewel43` | 10% increased Mana Regeneration Rate | works |
 | **Assassin's Haste** | `MovementVelocityUniqueJewel43` | 4% increased Movement Speed | works |
 | **Assassin's Haste** | `AttackAndCastSpeedJewelUniqueJewel43` | 4% increased Attack and Cast Speed | works |
-| **Bloodnotch** | `StunningHitsRecoverLifeUnique__1` | (40-60)% of Damage taken from Stunning Hits is Recovered as Life | not read |
+| **Bloodnotch** | `StunningHitsRecoverLifeUnique__1` | (40-60)% of Damage taken from Stunning Hits is Recovered as Life | supported player stuns only |
 | **Brawn** | `PercentageStrengthUniqueJewel29` | (4-6)% increased Strength | works |
 | **Brawn** | `PercentageDexterityUniqueJewel29` | (4-6)% increased Dexterity | works |
 | **Brawn** | `PercentageIntelligenceUniqueJewel29` | (10-15)% reduced Intelligence | works |
@@ -334,7 +334,7 @@ Each line is one mod of the 42 Global jewels; the effect text is the same as the
 | **Izaro's Turmoil** | `IncreasedChanceToIgniteUnique__1` | 2% chance to Freeze | works |
 | **Melding of the Flesh** | `AllResistancesUnique__24_` | -(80-70)% to all Elemental Resistances | works |
 | **Melding of the Flesh** | `MaximumElementalResistanceUnique__2` | -(6-4)% to all maximum Elemental Resistances | works |
-| **Melding of the Flesh** | `ElementalResistanceHighestMaxResistanceUnique__1_` | Elemental Resistances are capped by your highest Maximum Elemental Resistance instead | not read |
+| **Melding of the Flesh** | `ElementalResistanceHighestMaxResistanceUnique__1_` | Elemental Resistances are capped by your highest Maximum Elemental Resistance instead | works |
 | **Mutated Growth** | `IncreasedCorruptedGemExperienceUniqueCorruptedJewel9` | 10% increased Experience Gain for Corrupted Gems | not read |
 | **Pacifism** | `ReducedMaximumFrenzyChargesUniqueCorruptedJewel16` | -1 to Maximum Frenzy Charges | works |
 | **Poacher's Aim** | `ProjectileDamageJewelUniqueJewel41` | Projectiles Pierce an additional Target | works |
