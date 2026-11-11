@@ -2,13 +2,11 @@ using System.Text.Json;
 using GameServer.Core;
 
 /// <summary>
-/// Shared parses of the big game tables (data/tables/*.json) that several catalogues read: Stats.json (the stat and mod
-/// catalogues), MonsterVarieties.json (the monster and monster-mod catalogues), GrantedEffects.json (the skill
-/// catalogue's tables, for the standard and the Ruthless catalogue). They load in bursts (the first player, the first
-/// area with monsters), so a table opened again within <see cref="Keep"/> of its last use is not parsed again. A lease
-/// is a document's user: dispose it like the document (<c>using var d = GameTables.Open(path)</c>); the document is
-/// disposed when nobody has used it for <see cref="Keep"/>, or by <see cref="Release"/>. A file written since is parsed
-/// again (the key holds its size and write time).
+/// Shared parses of the big generated JSON files (data/*.json, from client.db's client_files or from disk) that several
+/// catalogues read. Client tables are not read here: <see cref="ClientTables.Table"/> shares those. A file opened again
+/// within <see cref="Keep"/> of its last use is not parsed again. A lease is a document's user: dispose it like the
+/// document (<c>using var d = GameTables.Open(path)</c>); the document is disposed when nobody has used it for
+/// <see cref="Keep"/>, or by <see cref="Release"/>. A file written since is parsed again.
 /// </summary>
 public static class GameTables
 {
@@ -51,9 +49,9 @@ public static class GameTables
     /// <summary>The table at <paramref name="path"/>, parsed now or shared with another user of the same file.</summary>
     public static Lease Open(string path)
     {
-        // A client table or generated file (ClientTables) is keyed by client.db's write time; another file by its own size and time.
+        // A generated file in client.db (ClientTables) is keyed by client.db's write time; another file by its own size and time.
         var file = new FileInfo(path);
-        var key = ClientTables.TryTable(path, out _) || ClientTables.TryFile(path, out _)
+        var key = ClientTables.TryFile(path, out _)
             ? (file.FullName, -1L, ClientTables.Written) : (file.FullName, file.Length, file.LastWriteTimeUtc);
         lock (Gate)
             if (Entries.TryGetValue(key, out var shared))

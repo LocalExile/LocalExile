@@ -24,6 +24,7 @@ import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ot_components import REPO, amd_of, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
+import clientdb  # noqa: E402  (on the path through ot_components)
 
 
 def contacts(animations):
@@ -199,7 +200,7 @@ def default_attack_pools(text, animations, views):
 
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "animation-contacts.json")
-    chars = json.load(open(os.path.join(REPO, "data", "tables", "Characters.json"), encoding="utf-8"))
+    chars = clientdb.table("Characters")
     result = {}
     for c in chars:
         ao = c.get("AOFile")

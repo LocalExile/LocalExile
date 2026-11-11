@@ -7,11 +7,11 @@ unique boss **Fire Fury** and her guards at the cannibal camp, next to its campf
 
 ## 1. The data
 
-| Table (`data/tables/`) | What it gives |
+| Client table (client.db) | What it gives |
 |---|---|
-| `MonsterPacks.json` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries.json` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
-| `WorldAreas.json` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+| `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
+| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
+| `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
 

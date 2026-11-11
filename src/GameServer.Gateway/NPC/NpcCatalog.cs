@@ -258,8 +258,7 @@ public sealed class NpcCatalog
 
     static NpcCatalog Read(string folder)
     {
-        string table = Path.Combine(folder, "tables", "NPCs.json");
-        if (!ClientTables.Exists(table)) return new([], $"{table} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Has("NPCs")) return new([], $"the NPCs client table is missing from {ClientTables.DefaultPath}");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
@@ -281,82 +280,71 @@ public sealed class NpcCatalog
         }
         var shopOfSet = new List<int>();
         var hardModeShopOfSet = new List<int>();
-        string sets = Path.Combine(folder, "tables", "NPCShopSets.json");
-        if (ClientTables.Exists(sets))
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(sets)))
-            {
-                shopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Shop").ValueKind == JsonValueKind.Number ? s.GetProperty("Shop").GetInt32() : -1)];
-                hardModeShopOfSet = [.. doc.RootElement.EnumerateArray().Select(s => s.TryGetProperty("ShopRuthless", out var shop)
-                    && shop.ValueKind == JsonValueKind.Number ? shop.GetInt32() : -1)];
-            }
+        if (ClientTables.TableOrNull("NPCShopSets") is { } shopSets)
+        {
+            shopOfSet = [.. shopSets.Select(s => s.IntOrNull("Shop") ?? -1)];
+            hardModeShopOfSet = [.. shopSets.Select(s => s.IntOrNull("ShopRuthless") ?? -1)];
+        }
         var rows = new List<Npc>();
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(table)))
-            foreach (var r in doc.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("NPCs"))
+        {
+            string id = r.Text("Id") ?? "";
+            // The client files every NPCs.dat row under its Id on the row's Metadata .ot (the register's 0xac-byte
+            // table, base at row +0x10; 04-player-entity.md §1): an Id without an .ot of its own (Act 6's Tarkleigh on
+            // Act 1's) has its Metadata's components.
+            string meta = r.TextOrNull("Metadata") ?? "";
+            string type = components.ContainsKey(id) || !components.ContainsKey(meta) ? id : meta;
+            // Without object-types.json, assume the base NPC list.
+            IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
+            int set = r.IntOrNull("ShopSet") ?? -1;
+            rows.Add(new Npc(rows.Count, id, r.Text("Name") ?? "", list,
+                stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
+                set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
             {
-                string id = r.GetProperty("Id").GetString() ?? "";
-                // The client files every NPCs.dat row under its Id on the row's Metadata .ot (the register's 0xac-byte
-                // table, base at row +0x10; 04-player-entity.md §1): an Id without an .ot of its own (Act 6's Tarkleigh on
-                // Act 1's) has its Metadata's components.
-                string meta = r.TryGetProperty("Metadata", out var m) ? m.GetString() ?? "" : "";
-                string type = components.ContainsKey(id) || !components.ContainsKey(meta) ? id : meta;
-                // Without object-types.json, assume the base NPC list.
-                IReadOnlyList<string>? list = components.Count == 0 ? NpcObject.BaseComponents : components.GetValueOrDefault(type);
-                int set = r.GetProperty("ShopSet").ValueKind == JsonValueKind.Number ? r.GetProperty("ShopSet").GetInt32() : -1;
-                rows.Add(new Npc(rows.Count, id, r.GetProperty("Name").GetString() ?? "", list,
-                    stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
-                    set >= 0 && set < shopOfSet.Count ? shopOfSet[set] : -1)
-                {
-                    Model = TownNpcs.ModelOf(id),
-                    TransitionStates = transitionStates.GetValueOrDefault(type, (byte)1),
-                    HardModeShopRow = set >= 0 && set < hardModeShopOfSet.Count ? hardModeShopOfSet[set] : -1,
-                });
-            }
+                Model = TownNpcs.ModelOf(id),
+                TransitionStates = transitionStates.GetValueOrDefault(type, (byte)1),
+                HardModeShopRow = set >= 0 && set < hardModeShopOfSet.Count ? hardModeShopOfSet[set] : -1,
+            });
+        }
         return new(rows, null, ReadTalk(folder));
     }
 
     static List<Talk> ReadTalk(string folder)
     {
-        string table = Path.Combine(folder, "tables", "NPCTalk.json"), categories = Path.Combine(folder, "tables", "NPCTalkCategory.json");
-        if (!ClientTables.Exists(table) || !ClientTables.Exists(categories)) return [];
-        List<string> names;
-        using (var doc = GameTables.Open(categories))
-            names = [.. doc.RootElement.EnumerateArray().Select(c => c.GetProperty("Id").GetString() ?? "")];
-        string flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
+        if (!ClientTables.Has("NPCTalk") || !ClientTables.Has("NPCTalkCategory")) return [];
+        List<string> names = [.. ClientTables.Table("NPCTalkCategory").Select(c => c.Text("Id") ?? "")];
         List<string> flags = [];
-        if (ClientTables.Exists(flagsFile))
-            using (var doc = GameTables.Open(flagsFile))
-                flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
+        if (ClientTables.Has("QuestFlags"))
+            flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
         string? Flag(int row) => row >= 0 && row < flags.Count && flags[row] != "NEVER_SET" ? flags[row] : null;
         var talk = new List<Talk>();
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(table)))
-            foreach (var r in doc.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("NPCTalk"))
+        {
+            int Int(string name) => !r.IsNull(name) ? r.Int(name) : -1;
+            int category = Int("Category");
+            int OptionalInt(string name) => (r.IntOrNull(name) ?? -1);
+            string[] FlagList(string name) => [.. r.Ints(name).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])];
+            talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.Text("DialogueOption") ?? "",
+                category >= 0 && category < names.Count ? names[category] : "", r.Text("Script") ?? "",
+                [.. r.Ints("NPCTextAudioKeys")])
             {
-                int Int(string name) => r.GetProperty(name).ValueKind == JsonValueKind.Number ? r.GetProperty(name).GetInt32() : -1;
-                int category = Int("Category");
-                int OptionalInt(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
-                string[] FlagList(string name) => r.TryGetProperty(name, out var v)
-                    ? [.. v.EnumerateArray().Select(e => e.GetInt32()).Where(i => i >= 0 && i < flags.Count).Select(i => flags[i])] : [];
-                talk.Add(new Talk(talk.Count, Int("NPCKey"), Int("__col1"), r.GetProperty("DialogueOption").GetString() ?? "",
-                    category >= 0 && category < names.Count ? names[category] : "", r.GetProperty("Script").GetString() ?? "",
-                    [.. r.GetProperty("NPCTextAudioKeys").EnumerateArray().Select(e => e.GetInt32())])
-                {
-                    Introduction = r.TryGetProperty("__col13", out var introduction) && introduction.GetBoolean(),
-                    Automatic = r.TryGetProperty("__col33", out var automatic) && automatic.GetBoolean(),
-                    Priority = OptionalInt("__col34"),
-                    AutomaticContextSupported = new[] { "__col15", "__col16", "__col18", "__col28" }
-                        .All(k => r.TryGetProperty(k, out var list) && list.GetArrayLength() == 0)
-                        && OptionalInt("__col17") == 0x777 && OptionalInt("__col19") == 0x777
-                        && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
-                        && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
-                        && r.TryGetProperty("BaseItemTypes", out var item) && item.ValueKind == JsonValueKind.Null
-                        && r.TryGetProperty("__col14", out var special) && !special.GetBoolean()
-                        && r.TryGetProperty("__col20", out var condition) && !condition.GetBoolean(),
-                    RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
-                    StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
-                    RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
-                    Script2 = r.TryGetProperty("Script2", out var script2) ? script2.GetString() ?? "" : "",
-                });
-            }
+                Introduction = r.BoolOrNull("__col13") == true,
+                Automatic = r.BoolOrNull("__col33") == true,
+                Priority = OptionalInt("__col34"),
+                AutomaticContextSupported = new[] { "__col15", "__col16", "__col18", "__col28" }
+                    .All(k => !r.IsNull(k) && r.Ints(k).Length == 0)
+                    && OptionalInt("__col17") == 0x777 && OptionalInt("__col19") == 0x777
+                    && OptionalInt("__col27") == 60 && OptionalInt("__col29") == 60
+                    && OptionalInt("__col31") == 0 && OptionalInt("__col32") < 0
+                    && r.Has("BaseItemTypes") && r.IsNull("BaseItemTypes")
+                    && r.BoolOrNull("__col14") == false
+                    && r.BoolOrNull("__col20") == false,
+                RequiredFlags = FlagList("QuestFlag1"), ExcludedFlags = FlagList("QuestFlag2"), HeardFlags = FlagList("QuestFlag3"),
+                StartFlag = Flag(OptionalInt("QuestFlag4")), FinishFlag = Flag(OptionalInt("QuestFlag5")),
+                RewardOffer = OptionalInt("QuestRewardOffersKey") is int offer and >= 0 ? offer : null,
+                Script2 = r.TextOrNull("Script2") ?? "",
+            });
+        }
         return talk;
     }
 }

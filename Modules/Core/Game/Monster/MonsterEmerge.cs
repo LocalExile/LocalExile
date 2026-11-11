@@ -242,15 +242,13 @@ public sealed class MonsterEmerge(string folder = "data")
         return clips;
     }
 
-    // ActionTypes.json: the Emerge row's HASH16.
+    // ActionTypes: the Emerge row's HASH16.
     static ushort? LoadAction(string folder)
     {
-        string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!ClientTables.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (r.TryGetProperty("Id", out var id) && id.GetString() == "Emerge" && r.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number)
-                return (ushort)h.GetInt32();
+        if (!ClientTables.Has("ActionTypes")) return null;
+        foreach (var r in ClientTables.Table("ActionTypes"))
+            if (r.TextOrNull("Id") == "Emerge" && r.IntOrNull("HASH16") is int h)
+                return (ushort)h;
         return null;
     }
 }

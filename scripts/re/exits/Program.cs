@@ -57,7 +57,7 @@ for (int i = 0; i < args.Length; i++)
         default: filter = args[i]; break;
     }
 
-if (!File.Exists("AGENTS.md") || !Directory.Exists("data/tables")) { Console.Error.WriteLine("run from the repository root (needs data/)"); return 2; }
+if (!File.Exists("AGENTS.md") || !GameServer.Core.ClientTables.Has("WorldAreas")) { Console.Error.WriteLine("run from the repository root (needs data/client.db)"); return 2; }
 AreaTransitionCatalog.UseCaptures = false;
 // The act tables (Modules/Core/World/QuestObjects/Acts/, compiled into this tool: Exits.csproj), found as the module finds
 // them, in act order: a quest's gate makes the catalog create an exit the layout disables (AreaTransitionCatalog.Gated: The
@@ -70,19 +70,18 @@ using var questTables = quests
 
 // WorldAreas: id, name, act, hash, topologies; connections (by index) from the atlas (the JSON column is broken).
 var areas = new List<(string Id, string Name, int Act, ushort Hash)>();
-using (var doc = JsonDocument.Parse(File.ReadAllBytes("data/tables/WorldAreas.json")))
-    foreach (var r in doc.RootElement.EnumerateArray())
-    {
-        string id = r.GetProperty("Id").GetString() ?? "";
-        int act = r.GetProperty("Act").GetInt32();
-        bool campaign = Regex.IsMatch(id, @"^[12]_\d+_") && act is >= 1 and <= 10;
-        if (!(all || campaign) || r.GetProperty("TopologiesKeys").GetArrayLength() == 0) continue;
-        if (!Regex.IsMatch(id, filter)) continue;
-        areas.Add((id, r.GetProperty("Name").GetString() ?? "", act, (ushort)r.GetProperty("HASH16").GetInt32()));
-    }
+foreach (var r in GameServer.Core.ClientTables.Table("WorldAreas"))
+{
+    string id = r.Text("Id") ?? "";
+    int act = r.Int("Act");
+    bool campaign = Regex.IsMatch(id, @"^[12]_\d+_") && act is >= 1 and <= 10;
+    if (!(all || campaign) || r.Ints("TopologiesKeys").Length == 0) continue;
+    if (!Regex.IsMatch(id, filter)) continue;
+    areas.Add((id, r.Text("Name") ?? "", act, (ushort)r.Int("HASH16")));
+}
 var connections = new Dictionary<string, List<(int Index, string Id, ushort Hash)>>(StringComparer.Ordinal);
 var names = new Dictionary<ushort, string>();
-using (var doc = JsonDocument.Parse(File.ReadAllBytes("data/area-transitions.json")))
+using (var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes("data/area-transitions.json")))
     foreach (var a in doc.RootElement.GetProperty("areas").EnumerateArray())
     {
         string id = a.GetProperty("id").GetString()!;

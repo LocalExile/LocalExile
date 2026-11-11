@@ -14,7 +14,7 @@ Arakaali (`a7q4`) dies and the exit to Act 8 (The Sarn Ramparts `2_8_1`) opens. 
 Gruthkul, 1 passive). Pantheon souls of this act: Ralakesh (`a7q1-KilledBoss`), Arakaali (major, `a7q4-KilledBoss`),
 Gruthkul (`a7q9-KilledBoss`); Maligaro gives no Pantheon soul.
 
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects` / `generate`, seed 1; 2_7_2 at
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects` / `generate`, seed 1; 2_7_2 at
 seed 1585866662), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30). The sections after the status are the
 research done before the act was built: their "Risks" are what was expected then, the status says how it went.
 

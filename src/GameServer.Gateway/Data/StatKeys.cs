@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>
 /// Client stat keys (the int passed to the Stats getter 0x1424d6510), read from client code. They are NOT the rows of
-/// our extracted data/tables/Stats.json: the order drifts (key 245 is row 244 there, other keys are further off).
+/// the Stats client table: the order drifts (key 245 is row 244 there, other keys are further off).
 /// </summary>
 public static class StatKeys
 {

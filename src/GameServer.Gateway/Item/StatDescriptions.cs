@@ -1,3 +1,4 @@
+using GameServer.Core;
 /// <summary>
 /// The English stat descriptions (data/stat-descriptions.txt: Metadata/StatDescriptions/stat_descriptions.txt without its
 /// translations, `game-pack stat-descriptions`): how the client words a mod's stats ("{0:+d} to maximum Life"). A

@@ -33,8 +33,8 @@ public static class ServerLevelAreas
         var inPlaceOfOne = new Dictionary<string, uint>(StringComparer.Ordinal);
         try
         {
-            if (!ClientTables.Exists(file)) return (supported, inPlaceOfOne);
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllText(file));
+            if (!File.Exists(file)) return (supported, inPlaceOfOne);
+            using var doc = JsonDocument.Parse(File.ReadAllText(file));
             var failed = new HashSet<string>(StringComparer.Ordinal);
             var builtSeeds = new Dictionary<string, uint>(StringComparer.Ordinal);
             var checkedSeeds = new Dictionary<string, uint>(StringComparer.Ordinal);
@@ -102,21 +102,18 @@ public static class ServerLevelAreas
         return draws && grids && doodads && Int("Heights", -1) <= 0 && Int("Objects", -1) <= 0;
     }
 
-    /// <summary>The WorldAreas <c>HASH16</c>s of these area ids (data/tables/WorldAreas.json); empty when the file is
-    /// missing.</summary>
-    public static HashSet<ushort> Hashes(string worldAreasJson, IReadOnlySet<string> ids) =>
-        ByHash(worldAreasJson, ids.ToDictionary(id => id, _ => 0u)).Keys.ToHashSet();
+    /// <summary>The WorldAreas <c>HASH16</c>s of these area ids; empty without the table.</summary>
+    public static HashSet<ushort> Hashes(ClientTable? worldAreas, IReadOnlySet<string> ids) =>
+        ByHash(worldAreas, ids.ToDictionary(id => id, _ => 0u)).Keys.ToHashSet();
 
-    /// <summary>These per-area values keyed by the areas' WorldAreas <c>HASH16</c>s (data/tables/WorldAreas.json); empty
-    /// when the file is missing.</summary>
-    public static Dictionary<ushort, T> ByHash<T>(string worldAreasJson, IReadOnlyDictionary<string, T> byId)
+    /// <summary>These per-area values keyed by the areas' WorldAreas <c>HASH16</c>s; empty without the table.</summary>
+    public static Dictionary<ushort, T> ByHash<T>(ClientTable? worldAreas, IReadOnlyDictionary<string, T> byId)
     {
         var result = new Dictionary<ushort, T>();
-        if (!ClientTables.Exists(worldAreasJson)) return result;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (byId.TryGetValue(r.GetProperty("Id").GetString() ?? "", out var value))
-                result[(ushort)r.GetProperty("HASH16").GetInt32()] = value;
+        if (worldAreas is null) return result;
+        foreach (var r in worldAreas)
+            if (byId.TryGetValue(r.Text("Id") ?? "", out var value))
+                result[(ushort)r.Int("HASH16")] = value;
         return result;
     }
 }

@@ -35,10 +35,15 @@ names a unique's own row, the base has none, or the implicit is Eldritch.
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import re
 import sqlite3
+import sys
 from collections import Counter, defaultdict
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 ROOT = pathlib.Path(".")
 POB = ROOT / "Tools/PathOfBuilding"
@@ -280,10 +285,10 @@ def main():
     export = args.pob / "src/Export/Uniques"
     texts = text_map(export / "ModTextMap.lua")
 
-    base = json.load(open(ROOT / "data/tables/BaseItemTypes.json", encoding="utf-8"))
-    mods = json.load(open(ROOT / "data/tables/Mods.json", encoding="utf-8"))
+    base = clientdb.table("BaseItemTypes")
+    mods = clientdb.table("Mods")
     mod_rows = {row["Id"]: row for row in mods}
-    words = json.load(open(ROOT / "data/tables/Words.json", encoding="utf-8"))
+    words = clientdb.table("Words")
     client_names = {name_key(row["Text"]) for row in words if row["Wordlist"] == 6 and row["Text"]}
     by_name = defaultdict(list)
     for row in base:

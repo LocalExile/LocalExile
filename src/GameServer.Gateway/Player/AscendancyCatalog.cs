@@ -90,24 +90,21 @@ public sealed class AscendancyCatalog(string folder = "data")
     static IReadOnlyList<Definition> Load(string folder)
     {
         string graphPath = Path.Combine(folder, GraphFile);
-        string characterPath = Path.Combine(folder, "tables", "Characters.json");
-        string ascendancyPath = Path.Combine(folder, "tables", "Ascendancy.json");
-        string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!new[] { graphPath, characterPath, ascendancyPath, passivePath }.All(ClientTables.Exists)) return [];
+        if (!ClientTables.Exists(graphPath) || !new[] { "Characters", "Ascendancy", "PassiveSkills" }.All(ClientTables.Has)) return [];
 
         using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != Revision)
             throw new InvalidDataException($"{graphPath}: expected ascendancy data revision {Revision}");
-        using var characters = GameTables.Open(characterPath);
-        byte[] baseClasses = characters.RootElement.EnumerateArray().Select(r => checked((byte)r.GetProperty("IntegerId").GetInt32())).ToArray();
-        using var ascendancies = GameTables.Open(ascendancyPath);
-        using var passives = GameTables.Open(passivePath);
-        var rows = new Dictionary<ushort, JsonElement>();
-        foreach (var r in passives.RootElement.EnumerateArray())
+        var characters = ClientTables.Table("Characters");
+        byte[] baseClasses = characters.Select(r => checked((byte)r.Int("IntegerId"))).ToArray();
+        var ascendancies = ClientTables.Table("Ascendancy");
+        var passives = ClientTables.Table("PassiveSkills");
+        var rows = new Dictionary<ushort, ClientRow>();
+        foreach (var r in passives)
         {
-            int id = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            int id = r.Int("PassiveSkillGraphId");
             if (id is <= 0 or > ushort.MaxValue) continue;
-            if (!rows.TryAdd((ushort)id, r)) throw new InvalidDataException($"{passivePath}: duplicate graph id {id}");
+            if (!rows.TryAdd((ushort)id, r)) throw new InvalidDataException($"PassiveSkills: duplicate graph id {id}");
         }
 
         var definitions = new List<Definition>();
@@ -116,28 +113,27 @@ public sealed class AscendancyCatalog(string folder = "data")
             var graph = ReadGraph(graphs.RootElement.GetProperty(family == AscendancyFamily.Normal ? "normal" : "phrecia"));
             var names = new HashSet<(byte BaseClass, string Name)>();
             int tableRow = -1;
-            foreach (var r in ascendancies.RootElement.EnumerateArray())
+            foreach (var r in ascendancies)
             {
                 tableRow++;
-                int characterRow = r.GetProperty("Character").GetInt32();
+                int characterRow = r.Int("Character");
                 if (characterRow < 0 || characterRow >= baseClasses.Length)
-                    throw new InvalidDataException($"{ascendancyPath}: row {tableRow} has invalid character row {characterRow}");
+                    throw new InvalidDataException($"Ascendancy: row {tableRow} has invalid character row {characterRow}");
                 byte baseClass = baseClasses[characterRow];
-                string name = r.GetProperty(family == AscendancyFamily.Normal ? "Name" : "LeagueName").GetString() ?? "";
+                string name = r.Text(family == AscendancyFamily.Normal ? "Name" : "LeagueName") ?? "";
                 if (string.IsNullOrWhiteSpace(name)) continue;
                 var members = new Dictionary<ushort, Node>();
                 foreach (var (id, passive) in rows)
                 {
-                    if (!graph.TryGetValue(id, out var links) || !passive.TryGetProperty("AscendancyKey", out var owner) ||
-                        owner.ValueKind != JsonValueKind.Number || owner.GetInt32() != tableRow) continue;
-                    var keys = passive.GetProperty("Stats").EnumerateArray().Select(k => k.GetInt32()).ToArray();
+                    if (!graph.TryGetValue(id, out var links) || passive.IntOrNull("AscendancyKey") != tableRow) continue;
+                    var keys = passive.Ints("Stats");
                     var stats = new List<(uint Key, int Value)>();
                     for (int i = 0; i < keys.Length && i < 5; i++)
-                        stats.Add((checked((uint)keys[i] + 1), passive.GetProperty($"Stat{i + 1}Value").GetInt32()));
-                    members.Add(id, new Node(id, passive.GetProperty("Id").GetString() ?? "", passive.GetProperty("Name").GetString() ?? "",
-                        links.Order().ToArray(), passive.GetProperty("IsAscendancyStartingNode").GetBoolean(),
-                        passive.GetProperty("SkillPointsGranted").GetInt32(), passive.GetProperty("IsMultipleChoice").GetBoolean(),
-                        passive.GetProperty("IsMultipleChoiceOption").GetBoolean(), stats));
+                        stats.Add((checked((uint)keys[i] + 1), passive.Int($"Stat{i + 1}Value")));
+                    members.Add(id, new Node(id, passive.Text("Id") ?? "", passive.Text("Name") ?? "",
+                        links.Order().ToArray(), passive.Bool("IsAscendancyStartingNode"),
+                        passive.Int("SkillPointsGranted"), passive.Bool("IsMultipleChoice"),
+                        passive.Bool("IsMultipleChoiceOption"), stats));
                 }
                 if (members.Count == 0) continue; // e.g. the two ordinary-only Scion rows in the Phrecia graph.
                 var starts = members.Values.Where(n => n.IsStart).ToArray();
@@ -148,8 +144,8 @@ public sealed class AscendancyCatalog(string folder = "data")
                 // Links to the ordinary tree/start decorations never authorise another ascendancy's nodes.
                 foreach (var node in members.Values.ToArray())
                     members[node.Id] = node with { Adjacent = node.Adjacent.Where(members.ContainsKey).ToArray() };
-                definitions.Add(new Definition(new(family, r.GetProperty("Id").GetString() ?? "", Revision), name,
-                    baseClass, tableRow, checked((byte)r.GetProperty("ClassNo").GetInt32()), starts[0].Id, members));
+                definitions.Add(new Definition(new(family, r.Text("Id") ?? "", Revision), name,
+                    baseClass, tableRow, checked((byte)r.Int("ClassNo")), starts[0].Id, members));
             }
         }
         return definitions;

@@ -244,21 +244,19 @@ public static class AreaTransitionCatalog
     public static bool SameAct(string a, string b) =>
         !AreaActs.Value.TryGetValue(a, out int x) || !AreaActs.Value.TryGetValue(b, out int y) || x == y;
 
-    // WorldAreas Id → Act (data/tables/WorldAreas.json).
+    // WorldAreas Id → Act.
     static readonly Lazy<Dictionary<string, int>> AreaActs = new(() =>
     {
-        const string file = "data/tables/WorldAreas.json";
         var acts = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            if (!ClientTables.Exists(file)) return acts;
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
-            foreach (var r in doc.RootElement.EnumerateArray())
-                if (r.GetProperty("Id").GetString() is { } id) acts.TryAdd(id, r.GetProperty("Act").GetInt32());
+            if (!ClientTables.Has("WorldAreas")) return acts;
+            foreach (var r in ClientTables.Table("WorldAreas"))
+                if (r.Text("Id") is { } id) acts.TryAdd(id, r.Int("Act"));
         }
-        catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException)
+        catch (Exception ex) when (ex is InvalidCastException or InvalidOperationException or KeyNotFoundException)
         {
-            Console.WriteLine($"[gateway] {file}: {ex.Message}");
+            Console.WriteLine($"[gateway] WorldAreas: {ex.Message}");
         }
         return acts;
     });
@@ -379,20 +377,19 @@ public static class AreaTransitionCatalog
         return placed;
     }
 
-    /// <summary>The ClientStrings HASH32 of a gate's label key (data/tables/ClientStrings.json), null for "%areaname%",
+    /// <summary>The ClientStrings HASH32 of a gate's label key (the ClientStrings client table), null for "%areaname%",
     /// an unknown key or without the table.</summary>
     static uint? LabelHash(string? key) => key is null or "%areaname%" ? null : ClientStrings.Value?.GetValueOrDefault(key);
 
     static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
     {
-        const string file = "data/tables/ClientStrings.json";
-        if (!ClientTables.Exists(file)) return null;
+        if (!ClientTables.Has("ClientStrings")) return null;
         try
         {
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
+            var doc = ClientTables.Table("ClientStrings");
             var map = new Dictionary<string, uint>(StringComparer.Ordinal);
-            foreach (var r in doc.RootElement.EnumerateArray())
-                if (r.GetProperty("Id").GetString() is { } id && r.TryGetProperty("HASH32", out var h) && h.TryGetUInt32(out uint hash))
+            foreach (var r in doc)
+                if (r.Text("Id") is { } id && r.LongOrNull("HASH32") is long h && h is >= 0 and <= uint.MaxValue && (uint)h is var hash)
                     map.TryAdd(id, hash);
             return map;
         }

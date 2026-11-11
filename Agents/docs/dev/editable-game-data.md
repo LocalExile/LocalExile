@@ -98,7 +98,7 @@ To change a mod's roll range, a row in `mod_stat_overrides` names the Mods.dat I
 client's own ranges are client.db's `Mods` (`Stat1Min`..). An override applies to new rolls only: an existing item stores
 its values, not the range.
 
-Mod affix weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are **not** in the database
+Mod affix weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods`) are **not** in the database
 as content; they are client.db's `Mods` columns.
 
 ### Candidate lists currently in code
@@ -119,17 +119,16 @@ The catalogue rows marked done are `catalog_entries` kinds in world.db; the rest
 | NPC/town/stash/hideout placement | `NpcCatalog.Towns`, `Hideout`; `TownNpcs.All`; `StashCatalog.Towns`; `HideoutCatalog.Moved`; `AreaLayouts.OneWayArrivals`, `TownFallback`, `Ids` | **Yes, captured data** | Positions and captured objects; keep the captured seed as the reference and allow DB overrides. Do not change client-owned models/art. |
 | Drop tables and rates | `drop_*` tables; `EquipmentClasses`, `NotDropped`, `EquipmentRarity` in `ItemDrops` | **Partly** | Server-only loot policy; high value for balance. The drop table can be typed rows with weights, level caps and enabled flags. |
 | Quest flags and World panel pins | `Quests.WorldPanelPins`, `EveryCharacter`, `Quests.All` scripts | **Yes, with care** | Flags and pins are data, but a wrong flag can reveal locked content. Keep the known-good list as the seed. |
-| Vendor recipe edge cases | `VendorRecipes` oil/rune upgrade arrays, `VendorEquipmentRecipes` | **Some** | The main recipe/pricing tables already come from JSON. The small hardcoded oil/rune chains can move; the recipe algorithm stays code. |
+| Vendor recipe edge cases | `VendorRecipes` oil/rune upgrade arrays, `VendorEquipmentRecipes` | **Some** | The main recipe/pricing tables already come from the client tables. The small hardcoded oil/rune chains can move; the recipe algorithm stays code. |
 | Gem/utility/monster mapping lists | `GemSources.DropOnlySupports`, `GemSupportDamage.Unconditional`, `UtilityFlasks.Modelled`/`PanelOnly`/`DuringEffect`, `MonsterMods.Modelled`/`Vacuous`/`SelfAuraMods`, `HarvestCrafting.Metamods`, `EssenceCrafting.Columns`, `SkillCatalog.ProjectileFallbacks` | **Yes, later** | These are server mapping tables. Move one typed family at a time with tests; the consumers are code. |
 | Ruthless/league policy lists | `RuthlessLeague.Of` (`UnavailableGemBases`, `UnavailableGemEffects`, in `Modules/ruthless/`); `SingleUseCooldown.Unsupported`; `GemVendorStock` | **Yes, later** | Policy/config, not client data. |
 | Charge/damage/panel rule lists | `ChargeEffects`, `ChargeGains`, `DamageImmunities`, `PanelStats.Sums`, `StatKeys` | **No as raw tables, low priority** | They encode calculation order and stat semantics. A data-driven rule engine would be a separate, tested project. |
 | Protocol and component lists | message ids, `InstanceItems.ComponentOrder`, `BaseComponents`, `PlayerDefaults`, packet layouts | **No** | The client and the server must agree exactly; these are code/protocol, not user settings. |
 | Terrain/RNG tables | `EdgeShaping`, `TileKey`, pathfinder tables, level-generator constants | **No** | Reverse-engineered algorithms; changing them needs a generator gate and baseline, not a settings table. |
-| Client-owned hashes, names, geometry, art, stat keys | `BaseItemTypes`, `Mods`, `Stats`, `Words`, `ItemVisualIdentity`, item components | **No** | A server-only edit desynchronises the client. Keep the extracted JSON as the reference. |
+| Client-owned hashes, names, geometry, art, stat keys | `BaseItemTypes`, `Mods`, `Stats`, `Words`, `ItemVisualIdentity`, item components | **No** | A server-only edit desynchronises the client. Keep the client tables (client.db) as the reference. |
 
 The practical split is:
 
-x
 - **Server policy** (rates, limits, counts, costs): typed settings with defaults in code and database overrides.
 - **Client protocol** (hash ids, component order, stat keys, packet layouts): never in the settings database.
 - **Algorithms** (damage, charges, level generation): only through a tested data-driven rewrite, not as a list edit.

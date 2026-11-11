@@ -11,11 +11,11 @@ using GameServer.Core;
 /// (0x1408e1550 → 0x142228b00), and a hash that is not there leaves a null the row build faults on (live 2026-10-23:
 /// all 8411 MtxTypes rows crashed the client; 690 of them have no MtxTypeGameSpecific row), so only rows with one are
 /// sent. Names stay empty: the client names a record from its catalogue.
-/// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
+/// Game data, loaded on first use; without the client tables the list is empty.
 /// </summary>
-public sealed class MtxCatalog(string folder = "data")
+public sealed class MtxCatalog
 {
-    private readonly Lazy<List<InstanceMicrotransactions.Record>> _owned = new(() => Load(folder));
+    private readonly Lazy<List<InstanceMicrotransactions.Record>> _owned = new(Load);
     private Dictionary<uint, InstanceMicrotransactions.Record>? _byId;
 
     public IReadOnlyList<InstanceMicrotransactions.Record> Owned => _owned.Value;
@@ -45,11 +45,10 @@ public sealed class MtxCatalog(string folder = "data")
             .OrderBy(w => w.Key)
             .Select(w => new InstanceMicrotransactions.Equipped(w.Key, w.Record!.Id, w.Record.MtxTypeHash, w.Record.Qword, w.Value.Option))];
 
-    static List<InstanceMicrotransactions.Record> Load(string folder)
+    static List<InstanceMicrotransactions.Record> Load()
     {
-        string dir = Path.Combine(folder, "tables");
-        var resolvable = Hashes(Path.Combine(dir, "MtxTypeGameSpecific.json"));
-        var types = Hashes(Path.Combine(dir, "MtxTypes.json"));
+        var resolvable = Hashes("MtxTypeGameSpecific");
+        var types = Hashes("MtxTypes");
         if (resolvable is null || types is null) return [];
         var list = new List<InstanceMicrotransactions.Record>();
         for (int row = 0; row < types.Count; row++)
@@ -58,14 +57,9 @@ public sealed class MtxCatalog(string folder = "data")
         return list;
     }
 
-    /// <summary>Each row's HASH32 in table order (null for a row without one), or null without the file.</summary>
-    public static List<uint?>? Hashes(string path)
-    {
-        if (!ClientTables.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. doc.RootElement.EnumerateArray().Select(r =>
-            r.TryGetProperty("HASH32", out var hash) && hash.TryGetUInt32(out uint h) ? h : (uint?)null)];
-    }
+    /// <summary>Each row's HASH32 in table order (null for a row without one), or null without the table.</summary>
+    public static List<uint?>? Hashes(string table) =>
+        ClientTables.TableOrNull(table) is { } rows ? [.. rows.Select(r => r.LongOrNull("HASH32") is long h ? (uint)h : (uint?)null)] : null;
 }
 
 /// <summary>
@@ -77,7 +71,7 @@ public sealed class MtxCatalog(string folder = "data")
 /// Cosmetics tab slot dresses: the Inventories component's slot numbers (Weapon1 0 … Amulet1 11) and the slots only
 /// cosmetics use (armour attachment 3, character effect 12, footprints 13, helmet attachments 14 and 15, hip 16);
 /// 17 is none.
-/// Game data, loaded on first use; without <c>data/tables</c> nothing applies.
+/// Game data, loaded on first use; without the client tables nothing applies.
 /// </summary>
 public sealed class CosmeticEffects(string folder = "data")
 {
@@ -131,31 +125,27 @@ public sealed class CosmeticEffects(string folder = "data")
 
     static (Dictionary<uint, Effect>, Dictionary<byte, Slot>) Load(string folder)
     {
-        string dir = Path.Combine(folder, "tables");
         var effects = new Dictionary<uint, Effect>();
         var slots = new Dictionary<byte, Slot>();
-        var gameSpecific = MtxCatalog.Hashes(Path.Combine(dir, "MtxTypeGameSpecific.json"));
-        var identities = Hash16s(Path.Combine(dir, "ItemVisualIdentity.json"));
-        var weaponEffects = Hash16s(Path.Combine(dir, "ItemVisualEffect.json"));
+        var gameSpecific = MtxCatalog.Hashes("MtxTypeGameSpecific");
+        var identities = Hash16s("ItemVisualIdentity");
+        var weaponEffects = Hash16s("ItemVisualEffect");
         if (gameSpecific is null || identities is null || weaponEffects is null) return (effects, slots);
-        var skillEffects = Rows(Path.Combine(dir, "MtxTypeGameSpecific.json"))
-            .Where(r => Ints(r, "__col4").Contains(27)).Select(r => r.GetProperty("HASH32").GetUInt32()).ToHashSet();
+        var skillEffects = Rows("MtxTypeGameSpecific")
+            .Where(r => r.Ints("__col4").Contains(27)).Select(r => r.UInt("HASH32")).ToHashSet();
 
-        foreach (var row in Rows(Path.Combine(dir, "ItemisedVisualEffect.json")))
+        foreach (var row in Rows("ItemisedVisualEffect"))
         {
             if (Int(row, "Mtx") is not int mtx || mtx < 0 || mtx >= gameSpecific.Count || gameSpecific[mtx] is not uint hash) continue;
             ushort visual = Int(row, "VisualIdentity") is int vi && vi >= 0 && vi < identities.Count ? identities[vi] : (ushort)0;
             ushort effect = Int(row, "VisualEffect") is int ve && ve >= 0 && ve < weaponEffects.Count ? weaponEffects[ve] : (ushort)0;
             var stats = new List<(uint, int)>();
-            if (row.TryGetProperty("Stats", out var keys) && keys.ValueKind == JsonValueKind.Array
-                && row.TryGetProperty("__col7", out var values) && values.ValueKind == JsonValueKind.Array)
-                foreach (var (key, value) in keys.EnumerateArray().Zip(values.EnumerateArray()))
-                    if (key.TryGetInt32(out int stat) && value.TryGetInt32(out int v)) stats.Add(((uint)stat + 1, v));
+            foreach (var (stat, v) in row.Ints("Stats").Zip(row.Ints("__col7"))) stats.Add(((uint)stat + 1, v));
             effects.TryAdd(hash, new Effect(visual, effect, stats)
             {
-                Skill = skillEffects.Contains(hash) && Ints(row, "__col8").Contains(27)
+                Skill = skillEffects.Contains(hash) && row.Ints("__col8").Contains(27)
                     && Int(row, "EffectSlotType") is int slotType
-                    ? new(slotType, Ints(row, "BaseItemTypes"), Ints(row, "ItemClasses")) : null,
+                    ? new(slotType, row.Ints("BaseItemTypes"), row.Ints("ItemClasses")) : null,
             });
         }
         // Pets have no ItemisedVisualEffect row; each Pet row names its MtxTypeGameSpecific row. The server spawns the
@@ -163,12 +153,12 @@ public sealed class CosmeticEffects(string folder = "data")
         // talking-pet audio reads (0x1401096e0 → 0x14010f890).
         var petTypes = PetTypes(folder);
         int petRow = 0;
-        foreach (var row in Rows(Path.Combine(dir, "Pet.json")))
+        foreach (var row in Rows("Pet"))
         {
             petRow++;
             if (Int(row, "MtxTypeGameSpecificKey") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash)
             {
-                string? type = row.TryGetProperty("Id", out var id) ? id.GetString() : null;
+                string? type = row.TextOrNull("Id");
                 var (components, states) = type is not null && petTypes.TryGetValue(type, out var t) ? t : (null, null);
                 effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with
                 {
@@ -176,17 +166,17 @@ public sealed class CosmeticEffects(string folder = "data")
                 };
             }
         }
-        foreach (var row in Rows(Path.Combine(dir, "MicrotransactionCharacterPortraitVariations.json")))
+        foreach (var row in Rows("MicrotransactionCharacterPortraitVariations"))
             if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
                 && Int(row, "__col1") is int variation and > 0 and <= ushort.MaxValue)
                 effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Portrait = (ushort)variation };
-        foreach (var row in Rows(Path.Combine(dir, "MicrotransactionSocialFrameVariations.json")))
+        foreach (var row in Rows("MicrotransactionSocialFrameVariations"))
             if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
                 && Int(row, "Index") is int frame and > 0 and <= ushort.MaxValue)
                 effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Frame = (ushort)frame };
-        foreach (var row in Rows(Path.Combine(dir, "MicrotransactionSlot.json")))
+        foreach (var row in Rows("MicrotransactionSlot"))
             if (Int(row, "Id") is int id and > 0 and < InstanceMicrotransactions.SlotCount)
-                slots[(byte)id] = new Slot(row.TryGetProperty("Name", out var n) ? n.GetString() ?? "" : "",
+                slots[(byte)id] = new Slot(row.TextOrNull("Name") ?? "",
                     Int(row, "__col7") is int model and >= 0 and < 17 ? (byte)model : null);
         return (effects, slots);
     }
@@ -211,23 +201,13 @@ public sealed class CosmeticEffects(string folder = "data")
         return types;
     }
 
-    static int? Int(JsonElement row, string name) =>
-        row.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out int v) ? v : null;
+    static int? Int(ClientRow row, string name) => row.LongOrNull(name) is long v and >= int.MinValue and <= int.MaxValue ? (int)v : null;
 
-    static List<int> Ints(JsonElement row, string name) =>
-        row.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Array
-            ? [.. p.EnumerateArray().Select(v => v.GetInt32())] : [];
-
-    static List<ushort>? Hash16s(string path) => ClientTables.Exists(path)
-        ? [.. Rows(path).Select(r => Int(r, "HASH16") is int h ? (ushort)h : (ushort)0)]
+    static List<ushort>? Hash16s(string table) => ClientTables.TableOrNull(table) is { } rows
+        ? [.. rows.Select(r => Int(r, "HASH16") is int h ? (ushort)h : (ushort)0)]
         : null;
 
-    static List<JsonElement> Rows(string path)
-    {
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())];
-    }
+    static IReadOnlyList<ClientRow> Rows(string table) => ClientTables.TableOrNull(table) ?? (IReadOnlyList<ClientRow>)[];
 }
 
 /// <summary>
@@ -237,13 +217,13 @@ public sealed class CosmeticEffects(string folder = "data")
 /// Variant (Righteous Fire: <c>righteous_fire_ring</c>, <c>righteous_fire_buff_visual</c>, <c>righteous_fire_aura_visual</c>),
 /// and the projectile (ProjectilesArtVariations: Fireball's <c>fireball</c> → Metadata/Projectiles/StygianFireball …).
 /// </summary>
-public sealed class SkillArt(string folder = "data")
+public sealed class SkillArt
 {
     readonly Lazy<(Dictionary<(string, int), string> Animated, Dictionary<(string, int), ushort> BuffVisuals,
-        Dictionary<(string, int), string> Projectiles)> _data = new(() => Load(folder));
-    readonly Lazy<Dictionary<string, int>> _radii = new(() => Radii(folder));
-    readonly Lazy<Dictionary<string, int>> _miscRows = new(() => Rows(Path.Combine(folder, "tables", "MiscAnimated.json"))
-        .Select((row, i) => (Id: row.TryGetProperty("Id", out var id) ? id.GetString() : null, Row: i))
+        Dictionary<(string, int), string> Projectiles)> _data = new(Load);
+    readonly Lazy<Dictionary<string, int>> _radii = new(Radii);
+    readonly Lazy<Dictionary<string, int>> _miscRows = new(() => Rows("MiscAnimated")
+        .Select(row => (Id: row.TextOrNull("Id"), Row: row.Index))
         .Where(r => r.Id is { Length: > 0 }).GroupBy(r => r.Id!).ToDictionary(g => g.Key, g => g.First().Row));
 
     /// <summary>The MiscAnimated row of this Id, or null: what an Animated component sends in place of an .ao path.</summary>
@@ -257,11 +237,11 @@ public sealed class SkillArt(string folder = "data")
     /// </summary>
     public int? ArtRadius(string ao) => _radii.Value.TryGetValue(ao, out int r) ? r : null;
 
-    static Dictionary<string, int> Radii(string folder)
+    static Dictionary<string, int> Radii()
     {
         var radii = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (var row in Rows(Path.Combine(folder, "tables", "MiscAnimated.json")))
-            if (Int(row, "__col4") is int r and > 0 && row.GetProperty("AOFile").GetString() is { Length: > 0 } ao)
+        foreach (var row in Rows("MiscAnimated"))
+            if (Int(row, "__col4") is int r and > 0 && row.Text("AOFile") is { Length: > 0 } ao)
                 radii[ao] = Math.Max(r, radii.GetValueOrDefault(ao));
         return radii;
     }
@@ -297,35 +277,28 @@ public sealed class SkillArt(string folder = "data")
         return ao;
     }
 
-    static (Dictionary<(string, int), string>, Dictionary<(string, int), ushort>, Dictionary<(string, int), string>) Load(string folder)
+    static (Dictionary<(string, int), string>, Dictionary<(string, int), ushort>, Dictionary<(string, int), string>) Load()
     {
         var animated = new Dictionary<(string, int), string>();
         var buffs = new Dictionary<(string, int), ushort>();
         var projectiles = new Dictionary<(string, int), string>();
-        var projectileRows = Rows(Path.Combine(folder, "tables", "Projectiles.json"));
-        foreach (var row in Rows(Path.Combine(folder, "tables", "ProjectilesArtVariations.json")))
-            if (Int(row, "Variant") is int v && row.GetProperty("Projectiles") is { ValueKind: JsonValueKind.Array } pa && pa.GetArrayLength() > 0
-                && pa[0].GetInt32() is int pr && pr < projectileRows.Count && projectileRows[pr].GetProperty("Id").GetString() is { Length: > 0 } pid)
-                projectiles.TryAdd((row.GetProperty("Id").GetString() ?? "", v), pid);
-        string dir = Path.Combine(folder, "tables"), miscPath = Path.Combine(dir, "MiscAnimated.json");
-        var misc = ClientTables.Exists(miscPath) ? Rows(miscPath) : [];
-        foreach (var row in Rows(Path.Combine(dir, "MiscAnimatedArtVariations.json")))
-            if (Int(row, "Variant") is int v && row.GetProperty("Animation") is { ValueKind: JsonValueKind.Array } a && a.GetArrayLength() > 0
-                && a[0].GetInt32() is int m && m < misc.Count && misc[m].GetProperty("AOFile").GetString() is { Length: > 0 } ao)
-                animated.TryAdd((row.GetProperty("Id").GetString() ?? "", v), ao);
-        foreach (var row in Rows(Path.Combine(dir, "BuffVisualsArtVariations.json")))
-            if (Int(row, "__col2") is int v && row.GetProperty("BuffVisual") is { ValueKind: JsonValueKind.Array } b && b.GetArrayLength() > 0)
-                buffs.TryAdd((row.GetProperty("Buff").GetString() ?? "", v), (ushort)b[0].GetInt32());
+        var projectileRows = Rows("Projectiles");
+        foreach (var row in Rows("ProjectilesArtVariations"))
+            if (Int(row, "Variant") is int v && row.Ints("Projectiles") is [int pr, ..] && pr >= 0 && pr < projectileRows.Count
+                && projectileRows[pr].Text("Id") is { Length: > 0 } pid)
+                projectiles.TryAdd((row.Text("Id") ?? "", v), pid);
+        var misc = Rows("MiscAnimated");
+        foreach (var row in Rows("MiscAnimatedArtVariations"))
+            if (Int(row, "Variant") is int v && row.Ints("Animation") is [int m, ..] && m >= 0 && m < misc.Count
+                && misc[m].Text("AOFile") is { Length: > 0 } ao)
+                animated.TryAdd((row.Text("Id") ?? "", v), ao);
+        foreach (var row in Rows("BuffVisualsArtVariations"))
+            if (Int(row, "__col2") is int v && row.Ints("BuffVisual") is [int b, ..])
+                buffs.TryAdd((row.Text("Buff") ?? "", v), (ushort)b);
         return (animated, buffs, projectiles);
     }
 
-    static int? Int(JsonElement row, string name) =>
-        row.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out int v) ? v : null;
+    static int? Int(ClientRow row, string name) => row.LongOrNull(name) is long v and >= int.MinValue and <= int.MaxValue ? (int)v : null;
 
-    static List<JsonElement> Rows(string path)
-    {
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())];
-    }
+    static IReadOnlyList<ClientRow> Rows(string table) => ClientTables.TableOrNull(table) ?? (IReadOnlyList<ClientRow>)[];
 }

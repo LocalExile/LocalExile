@@ -317,7 +317,7 @@ the flat stat model has no condition flag). Cluster passives are never in a radi
 ### Impossible Escape (generated special, implemented)
 
 A generated Viridian Jewel (Small, limit 1, corrupted) whose variant is one of the client's 48 keystones
-(`MavenJewelRadiusKeystones.json`). The item mod `JewelUniqueAllocateDisconnectedPassivesAroundKeystone` stores the
+(`MavenJewelRadiusKeystones`). The item mod `JewelUniqueAllocateDisconnectedPassivesAroundKeystone` stores the
 keystone's `PassiveSkillGraphId` in `local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash`
 and the display base radius 800; the effect uses Path of Building 3_16's Small radius **960** (the client's
 `PassiveJewelRadii` row is the 800 display/base value). The Maven table row is used only to choose/name the keystone.
@@ -622,8 +622,8 @@ are ordinary global stats and the radius label is unused.
 - Path of Building: `src/Data/Uniques/jewel.lua` (the 78 rows), `src/Modules/ModParser.lua` (`jewelOtherFuncs`,
   `jewelSelfFuncs`, `jewelSelfUnallocFuncs`, `jewelThresholdFuncs`), `src/Classes/PassiveSpec.lua`
   (`NodesInIntuitiveLeapLikeRadius`, the radius-jewel rebuild).
-- Client data: `data/tables/PassiveJewelRadii.json`, `PassiveJewelSlots.json`, `UniqueJewelLimits.json`,
-  `BaseItemTypes.json`, `Mods.json`, `Stats.json`.
+- Client tables: `PassiveJewelRadii`, `PassiveJewelSlots`, `UniqueJewelLimits`,
+  `BaseItemTypes`, `Mods`, `Stats`.
 - Server: `PassiveTree.cs` (`NodesInRadius`), `TimelessJewels`/`Modules/Core/Game/Passive/Progression.cs` (per-node override and pools),
   `Modules/Core/Game/Item/Items.cs` (passive-jewel socket/refusal), `UniqueJewelVisuals.cs`, `UniqueJewelCatalogue.cs`.
 - Wiki list: [List of unique jewels](https://www.poewiki.net/wiki/List_of_unique_jewels) (the current wiki is

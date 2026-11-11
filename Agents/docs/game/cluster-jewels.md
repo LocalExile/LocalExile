@@ -4,8 +4,8 @@ Cluster jewels extend the passive tree: socketed into the outer jewel sockets, t
 nodes and, for the larger sizes, more jewel sockets of their own. This page records the game's rules, the mods they
 carry, and exactly what the server does with them.
 
-Game data: `PassiveTreeExpansionJewels.json` (indices per size), `PassiveJewelSlots.json` (the pane's expansion cells),
-`PassiveSkills.json` (`IsExpansion` rows), `Mods.json` (domain 21, `ClusterJewel`). The full generated list of the
+Game data: `PassiveTreeExpansionJewels` (indices per size), `PassiveJewelSlots` (the pane's expansion cells),
+`PassiveSkills` (`IsExpansion` rows), `Mods` (domain 21, `ClusterJewel`). The full generated list of the
 301 notables and 42 small-passive themes, with a works/partial/inert note for each, is
 [cluster-jewel-list.md](cluster-jewel-list.md).
 
@@ -68,11 +68,11 @@ Voices, the unique large cluster jewel, is the exception the server uses as its 
 
 ## Mods
 
-`Mods.json` holds 532 cluster-jewel mods (domain 21). They are the whole vocabulary of a cluster jewel:
+`Mods` holds 532 cluster-jewel mods (domain 21). They are the whole vocabulary of a cluster jewel:
 
 | Kind | Mods | Stat | What it does |
 |---|---:|---|---|
-| Notables | 301 | `local_affliction_notable_<name>` | "1 Added Passive Skill is <notable>". Every mod has a matching `affliction_notable_<name>` row in `PassiveSkills.json` (300 distinct names; one duplicate row) that carries the notable's stats. |
+| Notables | 301 | `local_affliction_notable_<name>` | "1 Added Passive Skill is <notable>". Every mod has a matching `affliction_notable_<name>` row in `PassiveSkills` (300 distinct names; one duplicate row) that carries the notable's stats. |
 | Small-passive grants (the theme) | 211 | `local_affliction_jewel_small_nodes_grant_<stat>` | "Added Small Passive Skills grant: ...", 42 distinct stats, three tiers each (`+2-3`, `+4-7`, `+8-10` life and so on). |
 | Keystones | 7 | `local_jewel_expansion_keystone_<name>` | Lone Messenger, Disciple of Kitava, Nature's Patience, Secrets of Suffering, Kineticism, Veteran's Awareness, Hollow Palm Technique. |
 | Small-passive effect | 2 | `local_affliction_jewel_small_nodes_have_effect_+%` | 25% or 35% increased effect of the small passives. |

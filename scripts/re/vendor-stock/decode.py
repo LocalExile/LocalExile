@@ -6,9 +6,14 @@ No runtime stock rules or game archives are changed.
 import argparse
 import hashlib
 import json
+import os
 import struct
+import sys
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 
 class Reader:
@@ -29,7 +34,7 @@ class Reader:
         return value - (1 << bits) if value & (1 << (bits-1)) else value
 
 
-def load(name): return json.loads((Path('data/tables') / (name+'.json')).read_text(encoding='utf-8-sig'))
+def load(name): return clientdb.table(name)
 
 
 def main():

@@ -43,7 +43,7 @@ public static class HideoutCatalog
 
     static readonly Lazy<IReadOnlyList<Hideout>> All = new(() =>
     {
-        var list = Load("data/hideouts.json", "data/tables");
+        var list = Load("data/hideouts.json");
         Console.WriteLine(list.Count == 0
             ? "[gateway] hideouts: no data/hideouts.json (run scripts/dev/extract-data.ps1), hideouts are off"
             : $"[gateway] hideouts: {list.Count}, default {DefaultOf(list)?.Name ?? "none"}");
@@ -103,10 +103,10 @@ public static class HideoutCatalog
         return result;
     });
 
-    public static List<Hideout> Load(string hideoutsJson, string tables)
+    public static List<Hideout> Load(string hideoutsJson)
     {
         if (!ClientTables.Exists(hideoutsJson)) return [];
-        var doodadTypes = DoodadTypes(tables);
+        var doodadTypes = DoodadTypes();
         using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(hideoutsJson));
         var result = new List<Hideout>();
         foreach (var h in doc.RootElement.GetProperty("hideouts").EnumerateArray())
@@ -135,19 +135,15 @@ public static class HideoutCatalog
     }
 
     // MtxTypeGameSpecific HASH32 → (HideoutDoodads InheritsFrom, Variation_AOFiles).
-    static Dictionary<uint, (string? Type, string[]? Models)> DoodadTypes(string tables)
+    static Dictionary<uint, (string? Type, string[]? Models)> DoodadTypes()
     {
         var result = new Dictionary<uint, (string?, string[]?)>();
-        string mtxFile = Path.Combine(tables, "MtxTypeGameSpecific.json"), doodadFile = Path.Combine(tables, "HideoutDoodads.json");
-        if (!ClientTables.Exists(mtxFile) || !ClientTables.Exists(doodadFile)) return result;
-        using var mtx = JsonDocument.Parse(ClientTables.ReadAllBytes(mtxFile));
-        var hashOfRow = mtx.RootElement.EnumerateArray().Select(r => r.GetProperty("HASH32").GetUInt32()).ToList();
-        using var doodads = JsonDocument.Parse(ClientTables.ReadAllBytes(doodadFile));
-        foreach (var r in doodads.RootElement.EnumerateArray())
+        if (!ClientTables.Has("MtxTypeGameSpecific") || !ClientTables.Has("HideoutDoodads")) return result;
+        var hashOfRow = ClientTables.Table("MtxTypeGameSpecific").Select(r => r.UInt("HASH32")).ToList();
+        foreach (var r in ClientTables.Table("HideoutDoodads"))
         {
-            if (r.GetProperty("MtxTypeGameSpecific") is not { ValueKind: JsonValueKind.Number } key || key.GetInt32() is not (>= 0 and var row) || row >= hashOfRow.Count) continue;
-            result.TryAdd(hashOfRow[row], (r.GetProperty("InheritsFrom").GetString(),
-                [.. r.GetProperty("Variation_AOFiles").EnumerateArray().Select(a => a.GetString() ?? "")]));
+            if (r.IntOrNull("MtxTypeGameSpecific") is not (>= 0 and int row) || row >= hashOfRow.Count) continue;
+            result.TryAdd(hashOfRow[row], (r.Text("InheritsFrom"), r.Texts("Variation_AOFiles")));
         }
         return result;
     }

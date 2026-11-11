@@ -13,7 +13,7 @@ Antiquarian's separately opted-in read-only archive check and native acceptance 
 
 Run commands from the repository root with the standalone 3.29.3c client and the dependencies in
 [GettingStarted](../../GettingStarted.md#what-you-need).
-The exporter uses the existing Node/ooz-wasm worker and `data/tables/PassiveSkills.json` from table extraction.
+The exporter uses the existing Node/ooz-wasm worker and the `PassiveSkills` table from `data/client.db`.
 Production paths remain relative to the repository root.
 
 ```powershell

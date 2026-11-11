@@ -127,54 +127,47 @@ public sealed class OrdinaryPassiveRules(string folder = "data")
     static Data? Load(string folder)
     {
         string graphPath = Path.Combine(folder, AscendancyCatalog.GraphFile);
-        string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        string characterPath = Path.Combine(folder, "tables", "Characters.json");
-        string statsPath = Path.Combine(folder, "tables", "Stats.json");
-        if (!new[] { graphPath, passivePath, characterPath, statsPath }.All(ClientTables.Exists)) return null;
+        const string passivePath = "PassiveSkills";
+        if (!ClientTables.Exists(graphPath) || !new[] { passivePath, "Characters", "Stats" }.All(ClientTables.Has)) return null;
 
         using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != AscendancyCatalog.Revision)
             throw new InvalidDataException($"{graphPath}: expected passive data revision {AscendancyCatalog.Revision}");
         var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, f =>
             ReadGraph(graphs.RootElement.GetProperty(f == AscendancyFamily.Normal ? "normal" : "phrecia")));
-        using var characters = JsonDocument.Parse(ClientTables.ReadAllBytes(characterPath));
-        byte[] classes = characters.RootElement.EnumerateArray()
-            .Select(r => checked((byte)r.GetProperty("IntegerId").GetInt32())).ToArray();
-        using var stats = GameTables.Open(statsPath);
-        int grantStat = Array.FindIndex(stats.RootElement.EnumerateArray().ToArray(),
-            r => r.GetProperty("Id").GetString() == "display_can_take_character_start_point");
-        using var passives = JsonDocument.Parse(ClientTables.ReadAllBytes(passivePath));
+        byte[] classes = ClientTables.Table("Characters")
+            .Select(r => checked((byte)r.Int("IntegerId"))).ToArray();
+        int grantStat = Array.FindIndex(ClientTables.Table("Stats").ToArray(),
+            r => r.Text("Id") == "display_can_take_character_start_point");
+        var passives = ClientTables.Table(passivePath);
         var nodes = new Dictionary<ushort, Node>();
         var starts = new Dictionary<byte, ushort>();
-        foreach (var row in passives.RootElement.EnumerateArray())
+        foreach (var row in passives)
         {
-            int id = row.GetProperty("PassiveSkillGraphId").GetInt32();
+            int id = row.Int("PassiveSkillGraphId");
             if (id is <= 0 or > ushort.MaxValue) continue;
-            byte[] startClasses = row.GetProperty("Characters").EnumerateArray().Select(c =>
+            byte[] startClasses = row.Ints("Characters").Select(index =>
             {
-                int index = c.GetInt32();
                 if (index < 0 || index >= classes.Length)
                     throw new InvalidDataException($"{passivePath}: passive {id} has unknown character row {index}");
                 return classes[index];
             }).ToArray();
             byte? grantedStart = null;
             int statIndex = 0;
-            foreach (var stat in row.GetProperty("Stats").EnumerateArray())
+            foreach (int stat in row.Ints("Stats"))
             {
-                if (grantStat >= 0 && stat.GetInt32() == grantStat)
+                if (grantStat >= 0 && stat == grantStat)
                 {
-                    int targetClass = row.GetProperty($"Stat{statIndex + 1}Value").GetInt32();
+                    int targetClass = row.Int($"Stat{statIndex + 1}Value");
                     if (targetClass < 0 || targetClass > byte.MaxValue || !classes.Contains((byte)targetClass))
                         throw new InvalidDataException($"{passivePath}: passive {id} grants unknown class start {targetClass}");
                     grantedStart = (byte)targetClass;
                 }
                 statIndex++;
             }
-            if (!nodes.TryAdd((ushort)id, new(row.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number,
-                    row.TryGetProperty("MasteryGroup", out var mastery) && mastery.ValueKind == JsonValueKind.Number &&
-                        mastery.GetInt32() >= 0,
-                    row.TryGetProperty("IsExpansion", out var expansion) && expansion.ValueKind == JsonValueKind.True ||
-                        row.TryGetProperty("IsProxyPassive", out var proxy) && proxy.ValueKind == JsonValueKind.True,
+            if (!nodes.TryAdd((ushort)id, new(!row.IsNull("AscendancyKey"),
+                    row.IntOrNull("MasteryGroup") >= 0,
+                    row.BoolOrNull("IsExpansion") == true || row.BoolOrNull("IsProxyPassive") == true,
                     startClasses, grantedStart)))
                 throw new InvalidDataException($"{passivePath}: duplicate passive graph id {id}");
             foreach (byte startClass in startClasses)

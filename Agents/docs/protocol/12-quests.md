@@ -9,14 +9,14 @@ Without a1q4's flag an invisible wall in front of the cave stops the player (§2
 
 ## 1. The data model
 
-| Table (`data/tables/`) | What it holds | a1q4 |
+| Client table (client.db) | What it holds | a1q4 |
 |---|---|---|
-| `Quest.json` | one row per quest: `Id`, `Act`, `Name`, `QuestId`, icon | row 2: `a1q4`, act 1, "Breaking Some Eggs", `QuestId` 4, `Art/2DArt/QuestIcons/mudflats.dds` |
-| `QuestFlags.json` | named boolean flags, `Id` + `HASH32` | rows 23–25, 29, 34–37, 50–52 below |
-| `QuestStates.json` | the quest log text per state: `Quest` (Quest row), `Order`, `FlagsPresent` / `FlagsMissing` (QuestFlags rows), `Text`, `Message`, `MapPinsKeys1`, `MapPinsTexts` | rows 20–28 |
-| `QuestItems.json` | league quest items (`TriggeredQuestFlag`, `Script` …) | 53 rows, none of the campaign's: the campaign's quest items name their flags in their `.it` Quest component (§5) |
-| `BaseItemTypes.json` | the items | rows 1531–1533: the glyphs |
-| `Chests.json` | chest types: `Id`, `Name`, `AOFiles`, `BaseItemTypesKey` | rows 183–185: the Rhoa Nests |
+| `Quest` | one row per quest: `Id`, `Act`, `Name`, `QuestId`, icon | row 2: `a1q4`, act 1, "Breaking Some Eggs", `QuestId` 4, `Art/2DArt/QuestIcons/mudflats.dds` |
+| `QuestFlags` | named boolean flags, `Id` + `HASH32` | rows 23–25, 29, 34–37, 50–52 below |
+| `QuestStates` | the quest log text per state: `Quest` (Quest row), `Order`, `FlagsPresent` / `FlagsMissing` (QuestFlags rows), `Text`, `Message`, `MapPinsKeys1`, `MapPinsTexts` | rows 20–28 |
+| `QuestItems` | league quest items (`TriggeredQuestFlag`, `Script` …) | 53 rows, none of the campaign's: the campaign's quest items name their flags in their `.it` Quest component (§5) |
+| `BaseItemTypes` | the items | rows 1531–1533: the glyphs |
+| `Chests` | chest types: `Id`, `Name`, `AOFiles`, `BaseItemTypesKey` | rows 183–185: the Rhoa Nests |
 
 A quest's progress is the set of its flags; the quest log shows the first `QuestStates` row (by `Order`) whose
 `FlagsPresent` are all set and whose `FlagsMissing` are all clear.

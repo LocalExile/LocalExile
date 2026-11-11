@@ -36,7 +36,7 @@ insert `0x1424fe270`).
 | `Metadata/Characters/Int/Int` (Witch) | `0x9c41993e` |
 | `Metadata/Characters/Str/Str` (Marauder) | `0xd7aa9065` |
 
-Characters.dat rows (`data/tables/Characters.json`): 0 Marauder `Str/Str`, **1 Witch `Int/Int`**, 2 Scion
+Characters.dat rows (the `Characters` table): 0 Marauder `Str/Str`, **1 Witch `Int/Int`**, 2 Scion
 `StrDexInt/StrDexInt`, 3 Ranger `Dex/Dex`, 4 Duelist `StrDex/StrDex`, 5 Shadow `DexInt/DexInt`, 6 Templar
 `StrInt/StrInt`. Note that the login 0x15 class byte uses a different enum (3 showed "Witch").
 

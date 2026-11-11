@@ -11,7 +11,7 @@ Ruler of Highgate (Kira and Garukhan in The Quarry, the Sekhema Feather, book), 
 chest in The Vastiri Desert, rare weapon), `a9q4` Fastis Fortuna (Boulderback, Book of Regrets), `a9q5` Queen of the
 Sands (Bottled Storm, Shakari in The Oasis, book). Act 9's Pantheon flags: `a9q2-KilledBoss` (Garukhan) and
 `a9q5-KilledBoss` (Shakari).
-Sources: client tables (`data/tables`, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
+Sources: client tables (client.db, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
 grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30), poedb.
 
 ## Status

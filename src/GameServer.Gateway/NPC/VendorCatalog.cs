@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 public sealed class VendorCatalog
 {

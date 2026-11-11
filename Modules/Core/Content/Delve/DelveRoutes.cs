@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Delve;
 
@@ -21,9 +22,9 @@ public sealed partial class DelveModule
     readonly ConcurrentDictionary<Guid, Attempt> _attempts = new();
     static readonly Lazy<int[]> TripPrices = new(() =>
     {
-        using var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes("data/tables/DelveLevelScaling.json"));
-        return doc.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Depth").GetInt32())
-            .Select(r => r.GetProperty("SulphiteCost").GetInt32()).ToArray();
+        var doc = ClientTables.Table("DelveLevelScaling");
+        return doc.OrderBy(r => r.Int("Depth"))
+            .Select(r => r.Int("SulphiteCost")).ToArray();
     });
     static int Price(int depth) => TripPrices.Value[Math.Clamp(depth - 1, 0, TripPrices.Value.Length - 1)];
 

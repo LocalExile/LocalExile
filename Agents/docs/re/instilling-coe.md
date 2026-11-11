@@ -62,7 +62,7 @@ Domain 1, GenerationType 22 and a positive `WeightFor(flask tags)`.
 The wiki's [Instilling Orb](https://www.poewiki.net/wiki/Instilling_Orb) page gives the same trigger list and says the
 orb is used on a utility flask. The item description is `Adds an enchantment to a utility flask ... Replaces any
 existing enchantment`. The 3.15.2 patch notes added crafting-bench recipes for all possible Instilling enchantments;
-`CraftingBenchOptions.json` has fifteen `AddEnchantment` rows for item class 33 (utility flask), exactly the fifteen
+`CraftingBenchOptions` has fifteen `AddEnchantment` rows for item class 33 (utility flask), exactly the fifteen
 positive-weight rows.
 
 Path of Building's `Data/EnchantmentFlask.lua` lists sixteen Instilling lines, including the zero-weight

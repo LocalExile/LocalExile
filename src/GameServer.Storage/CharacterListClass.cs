@@ -10,12 +10,10 @@ public sealed class CharacterListClass(SaveDatabase db)
 {
     readonly Lazy<Dictionary<string, (byte BaseClass, byte Number)>> _classes = new(() =>
     {
-        using var characters = JsonDocument.Parse(ClientTables.ReadAllText("data/tables/Characters.json"));
-        using var ascendancies = JsonDocument.Parse(ClientTables.ReadAllText("data/tables/Ascendancy.json"));
-        return ascendancies.RootElement.EnumerateArray().ToDictionary(
-            row => row.GetProperty("Id").GetString()!,
-            row => ((byte)characters.RootElement[row.GetProperty("Character").GetInt32()].GetProperty("IntegerId").GetInt32(),
-                (byte)row.GetProperty("ClassNo").GetInt32()));
+        var characters = ClientTables.Table("Characters");
+        return ClientTables.Table("Ascendancy").ToDictionary(
+            row => row.Text("Id")!,
+            row => ((byte)characters[row.Int("Character")].Int("IntegerId"), (byte)row.Int("ClassNo")));
     });
 
     public byte For(Character character)

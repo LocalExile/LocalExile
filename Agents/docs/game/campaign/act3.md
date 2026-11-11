@@ -11,7 +11,7 @@ Dominus atop The Upper Sceptre of God (a3q10). Lady Dialla then appears on the t
 The Aqueduct (`1_4_1`). Side quests: Sever the Right Hand (a3q8, General Gravicius), Victario's Secrets (a3q11, three
 busts, passive point + 2 respec points), A Fixture of Fate (a3q12, Siosa's Golden Pages), A Swig of Hope (a3q13,
 Fairgraves, only if he was killed in Act 1). Two Books of Skill: a3q11 and a3q9.
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects`, seed 1), room files
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects`, seed 1), room files
 (`lg.ps1 cat`), unpacked `.ot`/`.it` text, the wiki (Fandom mirror, 2026-10-30), poedb not needed.
 
 ## Status (implemented, played live 2026-10-30)

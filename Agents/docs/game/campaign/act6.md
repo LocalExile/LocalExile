@@ -16,7 +16,7 @@ in the Wetlands), a6q7 "The Cloven One" (Bestel: Abberath at Prisoner's Gate). T
 dies a Sin NPC appears next to the corpse and opens the Pantheon screen (Tukohama is the first, it unlocks "Open
 Pantheon" at Sin in town). Four Books of Skill (+1 passive each: a6q3, a6q6, a6q7; a6q4's is a Book of Regrets, +2
 respec only).
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects`, `lg.ps1 grep` of the room files),
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects`, `lg.ps1 grep` of the room files),
 the unpacked `.ot`/`.it` text (references, not copied), the wiki (Fandom mirror, 2026-10-30), poedb not needed.
 
 ## Status (implemented, played live 2026-10-30)

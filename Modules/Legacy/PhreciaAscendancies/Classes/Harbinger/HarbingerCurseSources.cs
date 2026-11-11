@@ -16,20 +16,15 @@ sealed class HarbingerCurseSources(ModCatalog mods, string folder = "data")
     static Dictionary<int, Dictionary<string, int>> Load(ModCatalog mods, string folder)
     {
         var result = new Dictionary<int, Dictionary<string, int>>();
-        string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        int row = 0;
-        foreach (var variety in doc.RootElement.EnumerateArray())
+        if (!ClientTables.Has("MonsterVarieties")) return result;
+        foreach (var variety in ClientTables.Table("MonsterVarieties"))
         {
             var stats = new Dictionary<string, int>();
-            if (variety.TryGetProperty("ModsKeys", out var keys))
-                foreach (var key in keys.EnumerateArray())
-                    if (mods.Row(key.GetInt32()) is { } mod)
-                        foreach (var stat in mod.Stats.Where(s => Flags.Contains(s.Id) && s.Min == s.Max))
-                            stats[stat.Id] = stats.GetValueOrDefault(stat.Id) + stat.Min;
-            if (stats.Count > 0) result[row] = stats;
-            row++;
+            foreach (int key in variety.Ints("ModsKeys"))
+                if (mods.Row(key) is { } mod)
+                    foreach (var stat in mod.Stats.Where(s => Flags.Contains(s.Id) && s.Min == s.Max))
+                        stats[stat.Id] = stats.GetValueOrDefault(stat.Id) + stat.Min;
+            if (stats.Count > 0) result[variety.Index] = stats;
         }
         return result;
     }

@@ -71,7 +71,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
   migrated and played on. Not yet: the generated files
   served from `client.db` in a real-client session.
-  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Config/ServerConfig.cs`.
+  Every reader takes the client tables by name as typed rows (`ClientTable`), the servers, the tools and the Python
+  scripts (`scripts/dev/clientdb.py`) alike; no `data/tables/` path is read. Not yet checked in a real-client session.
+  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Tables/ClientTable.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64

@@ -10,7 +10,7 @@ The Solaris Temple Level 2, and both orbs summon Solaris and Lunaris on The Harb
 (2_9_1). Side quests: `a8q4` Reflection of Terror (Yugul, book), `a8q5` The Wings of Vastiri (Hector Titucius'
 tomb), `a8q6` Love is Dead (Ankh of Eternity, Clarissa at the Quay, book), `a8q7` The Gemling Legion (book).
 Act 8's Pantheon flags: `a8q23-KilledBosses` (major gods Solaris and Lunaris) and `a8q4-KilledBoss` (minor god Yugul).
-Sources: client tables (`data/tables`, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
+Sources: client tables (client.db, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
 grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30), poedb.
 
 ## Status

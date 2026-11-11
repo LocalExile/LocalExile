@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>An animation event's position in the model's space (the rig .amd's "x y z" or an .ao event's "position",
 /// world units): +X the model's left, −Y its front, −Z up (the Ranger's attack1_bow contact: 59.8 in front, 127.5 up;

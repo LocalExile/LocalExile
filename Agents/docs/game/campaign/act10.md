@@ -11,7 +11,7 @@ Oriath" sets `A10LillySailedAway` and moves the player to Karui Shores (2_11_end
 Epilogue (act 11) copy of a10q3's last steps (Lani's book in Karui Shores). Side quests: `a10q4` No Love for Old
 Ghosts (Elixir of Allure, Ossuary, Book of Regrets), `a10q5` Map to Tsoatha (The Teardrop, Reliquary, rare belt),
 `a10q6` Vilenta's Vengeance (Control Blocks, book). No Pantheon flag comes from act 10 quests.
-Sources: client tables (`data/tables`, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
+Sources: client tables (client.db, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1, and `lg.ps1
 grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30), poedb. The
 sections after the status are the research done before the act was built.
 

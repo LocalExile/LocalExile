@@ -4,7 +4,7 @@ namespace GameServer.Core.World;
 
 /// <summary>
 /// The waypoint areas in the order of the client's waypoint bitset (S→C 0x4c, Agents/docs/protocol/16-waypoints.md):
-/// the WorldAreas rows with <c>HasWaypoint</c> whose column at row +0x1e4 (<c>__col51</c> in data/tables/WorldAreas.json:
+/// the WorldAreas rows with <c>HasWaypoint</c> whose column at row +0x1e4 (<c>__col51</c> in the WorldAreas table:
 /// 1 town, 2 area, 11 the Labyrinth's Aspirants' Plaza) is 1, 2, 5 or 11, in table order (0x141fe37b0 counts them the
 /// same way, up to 150). 3.29.3b and 3.29.3c have 90, from Lioneye's Watch (bit 0) to Aspirants' Plaza (bit 89).
 /// <para>AccessFlags: the QuestFlags rows of the row's list at +0x54 (<c>EndQuestFlags</c> in the extracted table, a name
@@ -35,27 +35,23 @@ public sealed class WorldAreaWaypoints
 
     public Entry? FindById(string id) => Entries.FirstOrDefault(e => e.Id == id);
 
-    /// <summary>Loads the order from a WorldAreas.json; empty when the file is missing or unreadable.</summary>
-    public static WorldAreaWaypoints Load(string worldAreasJson)
+    /// <summary>Loads the order from the WorldAreas table; empty without it or when a column is missing.</summary>
+    public static WorldAreaWaypoints Load(ClientTable? worldAreas)
     {
-        if (!ClientTables.Exists(worldAreasJson)) return new([]);
+        if (worldAreas is null) return new([]);
         try
         {
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
             var entries = new List<Entry>();
-            foreach (var r in doc.RootElement.EnumerateArray())
+            foreach (var r in worldAreas)
             {
-                if (!r.GetProperty("HasWaypoint").GetBoolean()) continue;
-                if (!r.TryGetProperty("__col51", out var kind) || kind.ValueKind != JsonValueKind.Number || !Kinds.Contains(kind.GetInt32())) continue;
-                entries.Add(new(r.GetProperty("Id").GetString()!, r.GetProperty("Name").GetString() ?? "",
-                    (ushort)r.GetProperty("HASH16").GetInt32(), r.GetProperty("IsTown").GetBoolean(),
-                    r.TryGetProperty("EndQuestFlags", out var flags) && flags.ValueKind == JsonValueKind.Array
-                        ? [.. flags.EnumerateArray().Select(f => f.GetInt32())] : []));
+                if (!r.Bool("HasWaypoint")) continue;
+                if (r.IntOrNull("__col51") is not { } kind || !Kinds.Contains(kind)) continue;
+                entries.Add(new(r.Text("Id")!, r.Text("Name") ?? "", (ushort)r.Int("HASH16"), r.Bool("IsTown"), r.Ints("EndQuestFlags")));
                 if (entries.Count == MaxWaypoints) break;
             }
             return new(entries);
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or InvalidCastException)
         {
             return new([]);
         }

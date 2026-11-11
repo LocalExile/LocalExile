@@ -217,13 +217,8 @@ public sealed class CurrencyExchangeModule : IModule
     static readonly Lazy<(ushort Npc, ushort Line)?> FaustusLine = new(() =>
     {
         if (Npcs.Value.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
-        using var lines = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/NPCTextAudio.json"));
-        int row = 0;
-        foreach (var line in lines.RootElement.EnumerateArray())
-        {
-            if (line.GetProperty("Id").GetString() == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)row);
-            row++;
-        }
+        foreach (var line in ClientTables.Table("NPCTextAudio"))
+            if (line.TextOrNull("Id") == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)line.Index);
         return null;
     });
 

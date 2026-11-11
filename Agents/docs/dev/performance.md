@@ -188,9 +188,9 @@ allocation, not JIT code quality).
 
 ## Where the remaining cost is
 
-- **Table parsing.** Most catalogues still parse whole JSON tables with `JsonDocument` (~190 sites); WorldAreas.json is
-  read by nine loaders (Auth alone four times at startup, ~0.1 s). Reading the biggest ones with `Utf8JsonReader` into
-  compact rows would lower the peak memory of the first loads. Several `JsonDocument`s open at once keep their pooled
+- **Generated files.** The client tables are read as columnar rows (`ClientTable`, straight from client.db, cached per
+  version of the database); the generated files in `client_files` are still rebuilt as JSON and parsed with
+  `JsonDocument` (object-types.json, room-points.json, ...). Several `JsonDocument`s open at once keep their pooled
   buffers: parse one at a time.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
   free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.

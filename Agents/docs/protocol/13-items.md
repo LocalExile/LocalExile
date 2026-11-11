@@ -198,7 +198,7 @@ an existing mod's roll and keeps the item's other mods), `/item_mod clear [list]
 
 ### Essence crafting (2026-10-25)
 
-`EssenceCrafting.cs` reads the existing `tables/Essences.json`: BaseItemTypesKey identifies
+`EssenceCrafting.cs` reads the existing the `Essences` table: BaseItemTypesKey identifies
 the consumed currency, and each equipment-class ModsKey resolves the exact guaranteed
 Mods.dat row. Quivers use Display_Quiver_ModsKey (there is no separate Quiver_ModsKey in
 this schema); Rune Daggers use Dagger, Warstaves use Staff, and thrusting swords use
@@ -225,7 +225,7 @@ of the corresponding stats; this change supplies their exact item modifiers.
 UseItemOn dispatches essences through the existing 0x71 / Shift 0x72 currency path,
 including currency in the Essence stash tab, item targets in stash/inventory, atomic saves,
 one-unit consumption and 0xbf item replacement. Failures never consume a stack unit.
-The extraction manifest explicitly checks Essences.json, and GameDataFiles warns if absent.
+`GameDataFiles.Tables` lists the Essences table and warns when client.db lacks it.
 
 Tests exercise every essence across supported equipment classes at item levels 1 and 100,
 raw-table class mappings, value ranges, random-mod caps, rarity/protection restrictions,
@@ -1178,8 +1178,8 @@ it there again; so does a new character with a deleted one's name in the same in
 
 The kit is built once, when the character has no save, and saved at once: admission sets the class
 (`PlayerInventories.SetClass`) and passes its read-only progress preflight first, because a kit built without the class
-would be the Witch's. Without `data/tables` (`Characters.json`,
-`SkillGems.json`) and `data/item-types.json` it is empty, the Gateway logs `start kit is empty`, and the character keeps
+would be the Witch's. Without the client tables (`Characters`,
+`SkillGems`) and `data/item-types.json` it is empty, the Gateway logs `start kit is empty`, and the character keeps
 the empty kit: remove its row from the `characters` table of `data/characters.db` (with the Gateway stopped) to give it the kit
 again.
 

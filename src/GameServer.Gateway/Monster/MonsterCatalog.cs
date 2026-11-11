@@ -4,7 +4,7 @@ using GameServer.Core;
 
 /// <summary>
 /// The monsters /spawn_mob can create: MonsterVarieties rows from the extracted tables
-/// (data/tables/MonsterVarieties.json, Agents/GettingStarted.md "Extracting the game's data tables"), with each type's
+/// (the MonsterVarieties client table), with each type's
 /// deserialized components from data/object-types.json (`python -I scripts/re/ot_components.py --all --json
 /// data/object-types.json`). Without that file every variety is assumed to have the base Monster list, which is wrong
 /// for about half of them (StateMachine, DiesAfterTime …) and then the client shows "Buffer Underflow".
@@ -220,17 +220,15 @@ public sealed class MonsterCatalog(string folder = "data")
     {
         public static MapBossScalingTable? Load(string folder)
         {
-            string boss = Path.Combine(folder, "tables", "MonsterMapBossDifficulty.json"),
-                map = Path.Combine(folder, "tables", "MonsterMapDifficulty.json");
-            if (!ClientTables.Exists(boss) || !ClientTables.Exists(map)) return null;
-            using var b = JsonDocument.Parse(ClientTables.ReadAllBytes(boss));
-            using var m = JsonDocument.Parse(ClientTables.ReadAllBytes(map));
-            var bossRows = b.RootElement.EnumerateArray()
-                .Select(r => (Level: r.GetProperty("MapLevel").GetInt32(), Life: r.GetProperty("BossLifePercentIncrease").GetDouble(),
-                    Damage: r.GetProperty("BossDamagePercentIncrease").GetDouble())).ToArray();
-            var mapRows = m.RootElement.EnumerateArray()
-                .Select(r => (Level: r.GetProperty("MapLevel").GetInt32(), Life: r.GetProperty("LifePercentIncrease").GetDouble(),
-                    Damage: r.GetProperty("DamagePercentIncrease").GetDouble())).ToArray();
+            if (!ClientTables.Has("MonsterMapBossDifficulty") || !ClientTables.Has("MonsterMapDifficulty")) return null;
+            var b = ClientTables.Table("MonsterMapBossDifficulty");
+            var m = ClientTables.Table("MonsterMapDifficulty");
+            var bossRows = b
+                .Select(r => (Level: r.Int("MapLevel"), Life: r.Real("BossLifePercentIncrease"),
+                    Damage: r.Real("BossDamagePercentIncrease"))).ToArray();
+            var mapRows = m
+                .Select(r => (Level: r.Int("MapLevel"), Life: r.Real("LifePercentIncrease"),
+                    Damage: r.Real("DamagePercentIncrease"))).ToArray();
             int size = Math.Max(bossRows.Max(r => r.Level), mapRows.Max(r => r.Level)) + 1;
             var result = new MapBossScalingTable(new double[size], new double[size], new double[size], new double[size]);
             foreach (var r in bossRows) if (r.Level >= 0 && r.Level < size) { result.BossLife[r.Level] = r.Life; result.BossDamage[r.Level] = r.Damage; }
@@ -245,19 +243,18 @@ public sealed class MonsterCatalog(string folder = "data")
     {
         public static LifeTables? Load(string folder)
         {
-            string stats = Path.Combine(folder, "tables", "DefaultMonsterStats.json"), types = Path.Combine(folder, "tables", "MonsterTypes.json");
-            if (!ClientTables.Exists(stats) || !ClientTables.Exists(types)) return null;
-            using var s = JsonDocument.Parse(ClientTables.ReadAllBytes(stats));
-            using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(types));
+            if (!ClientTables.Has("DefaultMonsterStats") || !ClientTables.Has("MonsterTypes")) return null;
+            var s = ClientTables.Table("DefaultMonsterStats");
+            var t = ClientTables.Table("MonsterTypes");
             return new LifeTables(
-                [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("MonsterLife").GetInt32(), r.GetProperty("MinionLife").GetInt32(),
-                    r.GetProperty("AltLife1").GetInt32(), r.GetProperty("AltLife2").GetInt32(), r.GetProperty("Damage").GetDouble(),
-                    r.GetProperty("Experience").GetInt32(), r.GetProperty("Accuracy").GetInt32(), r.GetProperty("Evasion").GetInt32(),
-                    r.GetProperty("EvasiveEvasion").GetInt32(), r.GetProperty("MinionDamage").GetDouble()))],
-                [.. t.RootElement.EnumerateArray().Select(r => (r.GetProperty("IsPlayerMinion").GetBoolean(), r.GetProperty("AltLife1").GetBoolean(),
-                    r.GetProperty("AltLife2").GetBoolean(),
-                    r.TryGetProperty("DamageSpread", out var spread) && spread.ValueKind == JsonValueKind.Number ? spread.GetInt32() : 0,
-                    r.TryGetProperty("BaseDamageIgnoresAttackSpeed", out var ignores) && ignores.ValueKind == JsonValueKind.True))]);
+                [.. s.Select(r => (r.Int("MonsterLife"), r.Int("MinionLife"),
+                    r.Int("AltLife1"), r.Int("AltLife2"), r.Real("Damage"),
+                    r.Int("Experience"), r.Int("Accuracy"), r.Int("Evasion"),
+                    r.Int("EvasiveEvasion"), r.Real("MinionDamage")))],
+                [.. t.Select(r => (r.Bool("IsPlayerMinion"), r.Bool("AltLife1"),
+                    r.Bool("AltLife2"),
+                    (r.IntOrNull("DamageSpread") ?? 0),
+                    r.BoolOrNull("BaseDamageIgnoresAttackSpeed") == true))]);
         }
     }
 
@@ -286,8 +283,7 @@ public sealed class MonsterCatalog(string folder = "data")
 
     private static (List<Variety>, string?) Load(string folder)
     {
-        string varieties = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!ClientTables.Exists(varieties)) return ([], $"{varieties} is missing: extract the game tables (Tools/PoEDataExtractor)");
+        if (!ClientTables.Has("MonsterVarieties")) return ([], $"the MonsterVarieties client table is missing from {ClientTables.DefaultPath}");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
         var transitionStates = new Dictionary<string, byte>();
@@ -327,38 +323,37 @@ public sealed class MonsterCatalog(string folder = "data")
             }
         }
         var rangedVisuals = RangedWeaponVisuals(folder);
-        bool RangedWeapon(JsonElement row) => new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }
-            .Any(name => row.TryGetProperty(name, out var values) && values.ValueKind == JsonValueKind.Array
-                && values.EnumerateArray().Any(value => value.ValueKind == JsonValueKind.Number && rangedVisuals.Contains(value.GetInt32())));
-        static int Column(JsonElement row, string name) =>
-            row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
+        bool RangedWeapon(ClientRow row) => new[] { "Weapon1_ItemVisualIdentityKeys", "Weapon2_ItemVisualIdentityKeys" }
+            .Any(name => row.Ints(name).Any(rangedVisuals.Contains));
+        static int Column(ClientRow row, string name) =>
+            (row.IntOrNull(name) ?? 0);
         var rows = new List<Variety>();
-        using (var doc = GameTables.Open(varieties))
+        var varieties = ClientTables.Table("MonsterVarieties");
         {
-            foreach (var r in doc.RootElement.EnumerateArray())
+            foreach (var r in varieties)
             {
-                string id = r.GetProperty("Id").GetString() ?? "";
-                string baseType = r.GetProperty("BaseMonsterTypeIndex").GetString() ?? "";
+                string id = r.Text("Id") ?? "";
+                string baseType = r.Text("BaseMonsterTypeIndex") ?? "";
                 // The .ot the client builds the object from: a type file under the variety's own Id when there is one
                 // (Metadata/Monsters/KitavaBoss/KitavaFinal.ot, whose base column names Kitava1), else the base type. With
                 // Kitava1's list, KitavaFinal got a Transitionable byte its own type does not read, which the client took
                 // for the task count: "Buffer Underflow" (live 2026-10-30). 17 varieties serialise differently that way.
                 string type = components.ContainsKey(id) ? id : baseType;
-                string? ao = r.GetProperty("AOFiles").EnumerateArray().Select(a => a.GetString()).FirstOrDefault();
-                rows.Add(new Variety(rows.Count, id, r.GetProperty("Name").GetString() ?? "", baseType, ao,
+                string? ao = r.Texts("AOFiles").FirstOrDefault();
+                rows.Add(new Variety(rows.Count, id, r.Text("Name") ?? "", baseType, ao,
                     components.Count == 0 ? null : components.GetValueOrDefault(type),
-                    r.GetProperty("LifeMultiplier").GetInt32(),
-                    r.GetProperty("MonsterTypesKey").ValueKind == JsonValueKind.Number ? r.GetProperty("MonsterTypesKey").GetInt32() : -1,
+                    r.Int("LifeMultiplier"),
+                    !r.IsNull("MonsterTypesKey") ? r.Int("MonsterTypesKey") : -1,
                     stateMachines.GetValueOrDefault(type), transitionStates.GetValueOrDefault(type, (byte)1),
-                    r.GetProperty("MovementSpeed").GetInt32(), r.GetProperty("ObjectSize").GetInt32(), r.GetProperty("MaxAgroRange").GetInt32(),
-                    [.. r.GetProperty("GrantedEffectsKeys").EnumerateArray().Select(e => e.GetInt32())],
-                    r.GetProperty("AttackSpeed").GetInt32(), r.GetProperty("MaximumAttackDistance").GetInt32(),
-                    r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
-                    r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
+                    r.Int("MovementSpeed"), r.Int("ObjectSize"), r.Int("MaxAgroRange"),
+                    [.. r.Ints("GrantedEffectsKeys")],
+                    r.Int("AttackSpeed"), r.Int("MaximumAttackDistance"),
+                    r.Int("DamageMultiplier"), r.Int("ExperienceMultiplier"),
+                    r.BoolOrNull("BossHealthBar") == true)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
-                        Hash16 = (ushort)r.GetProperty("HASH16").GetInt32(),
+                        Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
                     });
@@ -372,17 +367,14 @@ public sealed class MonsterCatalog(string folder = "data")
 
     static HashSet<int> RangedWeaponVisuals(string folder)
     {
-        string classes = Path.Combine(folder, "tables", "ItemClasses.json");
-        string bases = Path.Combine(folder, "tables", "BaseItemTypes.json");
-        if (!ClientTables.Exists(classes) || !ClientTables.Exists(bases)) return [];
-        using var c = GameTables.Open(classes);
-        using var b = GameTables.Open(bases);
-        var rangedClasses = c.RootElement.EnumerateArray().Select((row, index) => (row, index))
-            .Where(p => p.row.GetProperty("Id").GetString() is "Bow" or "Wand").Select(p => p.index).ToHashSet();
-        return b.RootElement.EnumerateArray()
-            .Where(row => row.TryGetProperty("ItemClassesKey", out var k) && k.ValueKind == JsonValueKind.Number
-                && rangedClasses.Contains(k.GetInt32()) && row.TryGetProperty("ItemVisualIdentity", out var v)
-                && v.ValueKind == JsonValueKind.Number)
-            .Select(row => row.GetProperty("ItemVisualIdentity").GetInt32()).ToHashSet();
+        if (!ClientTables.Has("ItemClasses") || !ClientTables.Has("BaseItemTypes")) return [];
+        var c = ClientTables.Table("ItemClasses");
+        var b = ClientTables.Table("BaseItemTypes");
+        var rangedClasses = c.Select((row, index) => (row, index))
+            .Where(p => p.row.Text("Id") is "Bow" or "Wand").Select(p => p.index).ToHashSet();
+        return b
+            .Where(row => row.IntOrNull("ItemClassesKey") is int k && rangedClasses.Contains(k)
+                && !row.IsNull("ItemVisualIdentity"))
+            .Select(row => row.Int("ItemVisualIdentity")).ToHashSet();
     }
 }

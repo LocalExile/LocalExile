@@ -124,7 +124,7 @@ The runner itself, from the repository root:
 
 ## Quest order and resume
 
-`order.py` `ORDER` lists the Quest.json Ids in the usual levelling route, side quests where their area is passed
+`order.py` `ORDER` lists the Quest table Ids in the usual levelling route, side quests where their area is passed
 (Labyrinth trials and league tutorials are left out). `implemented()` lists those with a step file. For each quest:
 
 - **skipped (already)** when its `DONE` flag is in `/state` `flags`; a second run of the same selection does nothing.

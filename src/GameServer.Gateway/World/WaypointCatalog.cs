@@ -17,9 +17,9 @@ public static class WaypointCatalog
 
     static readonly Lazy<WorldAreaWaypoints> Order = new(() =>
     {
-        var w = WorldAreaWaypoints.Load("data/tables/WorldAreas.json");
+        var w = WorldAreaWaypoints.Load(ClientTables.TableOrNull("WorldAreas"));
         Console.WriteLine(w.Entries.Count == 0
-            ? "[gateway] waypoints: no data/tables/WorldAreas.json (run scripts/dev/extract-data.ps1), waypoints are off"
+            ? $"[gateway] waypoints: no WorldAreas table in {ClientTables.DefaultPath}, waypoints are off"
             : $"[gateway] waypoints: {w.Entries.Count} waypoint areas");
         return w;
     });
@@ -47,7 +47,7 @@ public static class WaypointCatalog
     /// <summary>The Aspirants' Plaza (WorldAreas Labyrinth_Airlock), the World panel's Labyrinth pin.</summary>
     public const string LabyrinthPlaza = "Labyrinth_Airlock";
 
-    static readonly Lazy<AreaVisitFlags> VisitFlags = new(() => AreaVisitFlags.Load("data/tables/WorldAreas.json", "data/tables/MapPins.json"));
+    static readonly Lazy<AreaVisitFlags> VisitFlags = new(() => AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins")));
 
     /// <summary>The quest flags entering an area sets (AreaVisitFlags), and the areas with a World panel pin.</summary>
     public static AreaVisitFlags Visits => VisitFlags.Value;

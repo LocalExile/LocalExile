@@ -115,7 +115,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
   fought ([status](../status/world.md), "A Labyrinth run";
   [labyrinth-trials](../docs/game/labyrinth-trials.md), "Izaro's arenas").
-  The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
+  The tables are extracted (the `Labyrinth*` client tables): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
   `AreaTransitionCatalog` does not know the Labyrinth areas yet.

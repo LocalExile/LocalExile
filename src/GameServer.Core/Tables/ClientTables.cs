@@ -7,12 +7,11 @@ namespace GameServer.Core;
 
 /// <summary>
 /// The client's tables, read from <c>data/client.db</c> (Agents/docs/dev/databases.md): the database the servers build from
-/// <c>sql/base/client/</c> and <c>sql/updates/client/</c> (+ <c>client_fixes/</c>). A table is still named by the path of
-/// its extracted file, <c>data/tables/&lt;Table&gt;.json</c>, and comes back as that file's JSON (an array of row objects,
-/// the columns in order), rebuilt from the table's rows and declared column types. The files the extract-data.ps1
-/// generators write that the servers read (data/area-transitions.json, data/stat-descriptions.txt, ...: client_sql.py
-/// FILES) are in its <c>client_files</c> table, one row per entry, and come back as the file. Any other path is read from
-/// disk, so a reader can take a folder of its own (a test's) and still go through here.
+/// <c>sql/base/client/</c> and <c>sql/updates/client/</c> (+ <c>client_fixes/</c>). A table is read by its name with
+/// <see cref="Table"/>, as rows (<see cref="ClientTable"/>). The files the extract-data.ps1 generators write that the
+/// servers read (data/area-transitions.json, data/stat-descriptions.txt, ...: client_sql.py FILES) are in its
+/// <c>client_files</c> table, one row per entry, and come back as the file through the path reads below; any other path
+/// is read from disk.
 /// </summary>
 public static class ClientTables
 {
@@ -21,8 +20,8 @@ public static class ClientTables
 
     static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping, SkipValidation = true };
 
-    /// <summary>The table a path names: <c>data/tables/&lt;Table&gt;.json</c> under the working directory.</summary>
-    public static bool TryTable(string path, out string table)
+    // A path in data/tables/: the tables are read by name, so a path there is a reader that was not moved.
+    static bool TryTable(string path, out string table)
     {
         table = "";
         if (!path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) return false;
@@ -42,21 +41,23 @@ public static class ClientTables
             && Files().Contains(file);
     }
 
-    /// <summary>File.Exists for a table or generated file path: whether client.db has it.</summary>
-    public static bool Exists(string path) =>
-        TryTable(path, out string table) ? Has(table) : TryFile(path, out _) || File.Exists(path);
+    static string NoTablePath(string path) => TryTable(path, out string table)
+        ? throw new ArgumentException($"{path}: read the client table by name, ClientTables.Table(\"{table}\")", nameof(path)) : path;
+
+    /// <summary>File.Exists for a generated file path (whether client.db has it) or another file.</summary>
+    public static bool Exists(string path) => TryFile(NoTablePath(path), out _) || File.Exists(path);
 
     public static byte[] ReadAllBytes(string path) =>
-        TryTable(path, out string table) ? Json(table, path) : TryFile(path, out string file) ? FileBytes(file)! : File.ReadAllBytes(path);
+        TryFile(NoTablePath(path), out string file) ? FileBytes(file)! : File.ReadAllBytes(path);
 
     public static string ReadAllText(string path) =>
-        TryTable(path, out _) || TryFile(path, out _) ? Encoding.UTF8.GetString(ReadAllBytes(path)) : File.ReadAllText(path);
+        TryFile(NoTablePath(path), out _) ? Encoding.UTF8.GetString(ReadAllBytes(path)) : File.ReadAllText(path);
 
     public static IEnumerable<string> ReadLines(string path) =>
-        TryTable(path, out _) || TryFile(path, out _) ? Lines(ReadAllText(path)) : File.ReadLines(path);
+        TryFile(NoTablePath(path), out _) ? Lines(ReadAllText(path)) : File.ReadLines(path);
 
     public static Stream OpenRead(string path) =>
-        TryTable(path, out _) || TryFile(path, out _) ? new MemoryStream(ReadAllBytes(path), writable: false) : File.OpenRead(path);
+        TryFile(NoTablePath(path), out _) ? new MemoryStream(ReadAllBytes(path), writable: false) : File.OpenRead(path);
 
     static IEnumerable<string> Lines(string text)
     {
@@ -96,9 +97,10 @@ public static class ClientTables
     /// <summary>When client.db was last written (a cache key for a parse of one of its tables).</summary>
     public static DateTime Written => File.Exists(DefaultPath) ? File.GetLastWriteTimeUtc(DefaultPath) : default;
 
-    /// <summary>Whether client.db has the table.</summary>
+    /// <summary>Whether client.db (or the tables a test gave <see cref="Use"/>) has the table.</summary>
     public static bool Has(string table)
     {
+        if (Override.Value is { } tables) return tables.ContainsKey(table);
         if (!File.Exists(DefaultPath)) return false;
         using var db = Open();
         using var c = db.CreateCommand();
@@ -107,22 +109,50 @@ public static class ClientTables
         return c.ExecuteScalar() is not null;
     }
 
-    /// <summary>The table's rows as the JSON of its extracted file. Built once per version of client.db and kept,
-    /// compressed, in its <c>client_json_cache</c> table (a rebuild of Mods takes a second; a cached read a fraction), and
-    /// for a few seconds in memory, as several catalogues read the same tables in a burst.</summary>
-    public static byte[] Json(string table, string? path = null)
+    /// <summary>The table's rows. Read from client.db once per version of the file and shared: a table read again within
+    /// a few seconds of its last use (the catalogues load in bursts) is not read again.</summary>
+    public static ClientTable Table(string table)
     {
-        lock (Recent)
-            if (Recent.TryGetValue(table, out var recent))
+        if (Override.Value is { } tables)
+            return tables.TryGetValue(table, out var given) ? given
+                : throw new FileNotFoundException($"the test gave no client table {table}", table);
+        DateTime written = Written;
+        lock (Tables)
+            if (Tables.TryGetValue(table, out var recent) && recent.Written == written)
             {
-                Recent[table] = (recent.Bytes, DateTime.UtcNow);
-                return recent.Bytes;
+                Tables[table] = recent with { Used = DateTime.UtcNow };
+                return recent.Table;
             }
         if (!Has(table))
-            throw new FileNotFoundException($"the client table {table} is not in {DefaultPath} (the servers build it from sql/ at startup)",
-                path ?? table);
-        return Cache(table, db => Build(db, table));
+            throw new FileNotFoundException($"the client table {table} is not in {DefaultPath} (the servers build it from sql/ at startup)", table);
+        ClientTable read;
+        using (var db = Open()) read = ClientTable.Read(db, table);
+        lock (Tables)
+        {
+            Tables[table] = (read, written, DateTime.UtcNow);
+            Sweeper ??= new Timer(_ => Sweep(), null, Keep, Keep);
+        }
+        return read;
     }
+
+    /// <summary>The table, or null when client.db does not have it.</summary>
+    public static ClientTable? TableOrNull(string table) => Has(table) ? Table(table) : null;
+
+    /// <summary>Until disposed, this async flow (a test) reads these tables instead of client.db's.</summary>
+    public static IDisposable Use(params ClientTable[] tables)
+    {
+        var previous = Override.Value;
+        Override.Value = tables.ToDictionary(t => t.Name, StringComparer.Ordinal);
+        return new Restore(() => Override.Value = previous);
+    }
+
+    sealed class Restore(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
+
+    static readonly AsyncLocal<Dictionary<string, ClientTable>?> Override = new();
+    static readonly Dictionary<string, (ClientTable Table, DateTime Written, DateTime Used)> Tables = new(StringComparer.Ordinal);
 
     // A rebuilt table or file under its cache name: from memory, the compressed cache, or built and stored.
     static byte[] Cache(string name, Func<SqliteConnection, byte[]> build)
@@ -142,7 +172,7 @@ public static class ClientTables
         lock (Recent)
         {
             Recent[name] = (bytes, DateTime.UtcNow);
-            Sweeper ??= new Timer(_ => Sweep(), null, Keep, Keep);
+            lock (Tables) Sweeper ??= new Timer(_ => Sweep(), null, Keep, Keep);
         }
         return bytes;
     }
@@ -198,16 +228,22 @@ public static class ClientTables
         return buffer.ToArray();
     }
 
-    static readonly TimeSpan Keep = TimeSpan.FromSeconds(3);
+    static readonly TimeSpan Keep = TimeSpan.FromSeconds(5);
     static readonly Dictionary<string, (byte[] Bytes, DateTime Used)> Recent = new(StringComparer.Ordinal);
     static Timer? Sweeper;
 
     static void Sweep()
     {
+        bool empty;
         lock (Recent)
         {
-            foreach (string table in Recent.Where(e => DateTime.UtcNow - e.Value.Used > Keep).Select(e => e.Key).ToList()) Recent.Remove(table);
-            if (Recent.Count == 0) { Sweeper?.Dispose(); Sweeper = null; }
+            foreach (string name in Recent.Where(e => DateTime.UtcNow - e.Value.Used > Keep).Select(e => e.Key).ToList()) Recent.Remove(name);
+            empty = Recent.Count == 0;
+        }
+        lock (Tables)
+        {
+            foreach (string name in Tables.Where(e => DateTime.UtcNow - e.Value.Used > Keep).Select(e => e.Key).ToList()) Tables.Remove(name);
+            if (empty && Tables.Count == 0) { Sweeper?.Dispose(); Sweeper = null; }
         }
     }
 
@@ -258,55 +294,6 @@ public static class ClientTables
         catch (SqliteException) { }   // busy (the updater holds the file): the next read builds it again
         return json;
     }
-
-    static byte[] Build(SqliteConnection db, string table)
-    {
-        using var c = db.CreateCommand();
-        c.CommandText = $"SELECT * FROM \"{table.Replace("\"", "\"\"")}\" ORDER BY \"_row\"";
-        using var r = c.ExecuteReader();
-        int count = r.FieldCount;
-        var names = new JsonEncodedText[count];
-        var kinds = new Kind[count];
-        for (int i = 1; i < count; i++)
-        {
-            names[i] = JsonEncodedText.Encode(r.GetName(i), JavaScriptEncoder.UnsafeRelaxedJsonEscaping);
-            kinds[i] = r.GetDataTypeName(i).ToUpperInvariant() switch
-            {
-                "INTEGER" => Kind.Integer,
-                "REAL" => Kind.Real,
-                "TEXT" => Kind.Text,
-                "BOOLEAN" => Kind.Boolean,
-                _ => Kind.Json,
-            };
-        }
-        var buffer = new MemoryStream();
-        using (var w = new Utf8JsonWriter(buffer, WriterOptions))
-        {
-            w.WriteStartArray();
-            while (r.Read())
-            {
-                w.WriteStartObject();
-                for (int i = 1; i < count; i++)
-                {
-                    w.WritePropertyName(names[i]);
-                    if (r.IsDBNull(i)) { w.WriteNullValue(); continue; }
-                    switch (kinds[i])
-                    {
-                        case Kind.Integer: w.WriteNumberValue(r.GetInt64(i)); break;
-                        case Kind.Real: w.WriteNumberValue(r.GetDouble(i)); break;
-                        case Kind.Text: w.WriteStringValue(r.GetString(i)); break;
-                        case Kind.Boolean: w.WriteBooleanValue(r.GetInt64(i) != 0); break;
-                        default: w.WriteRawValue(r.GetString(i), skipInputValidation: true); break;
-                    }
-                }
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
-        }
-        return buffer.ToArray();
-    }
-
-    enum Kind { Integer, Real, Text, Boolean, Json }
 
     static SqliteConnection Open()
     {

@@ -84,60 +84,52 @@ public sealed class PackCatalog(string folder = "data")
     // MonsterVarieties rows by Id, for the Labyrinth's packs.
     readonly Lazy<Dictionary<string, int>> VarietyRows = new(() =>
     {
-        string file = Path.Combine(folder, "tables", "MonsterVarieties.json");
         var rows = new Dictionary<string, int>(StringComparer.Ordinal);
-        if (!ClientTables.Exists(file)) return rows;
-        using var doc = GameTables.Open(file);
+        if (!ClientTables.Has("MonsterVarieties")) return rows;
+        var doc = ClientTables.Table("MonsterVarieties");
         int row = 0;
-        foreach (var v in doc.RootElement.EnumerateArray()) { if (v.GetProperty("Id").GetString() is { } id) rows.TryAdd(id, row); row++; }
+        foreach (var v in doc) { if (v.Text("Id") is { } id) rows.TryAdd(id, row); row++; }
         return rows;
     });
 
     private static (List<Pack>, List<(string, int, int[])>, Dictionary<int, List<int>>)? Load(string folder)
     {
-        string packs = Path.Combine(folder, "tables", "MonsterPacks.json"), entries = Path.Combine(folder, "tables", "MonsterPackEntries.json"),
-            areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!ClientTables.Exists(packs) || !ClientTables.Exists(entries) || !ClientTables.Exists(areas)) return null;
+        if (!ClientTables.Has("MonsterPacks") || !ClientTables.Has("MonsterPackEntries") || !ClientTables.Has("WorldAreas")) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
-        using (var doc = GameTables.Open(entries))
-            foreach (var e in doc.RootElement.EnumerateArray())
-            {
-                if (e.GetProperty("MonsterPacksKey").ValueKind != JsonValueKind.Number || e.GetProperty("MonsterVarietiesKey").ValueKind != JsonValueKind.Number) continue;
-                int pack = e.GetProperty("MonsterPacksKey").GetInt32();
-                if (!byPack.TryGetValue(pack, out var list)) byPack[pack] = list = [];
-                list.Add((e.GetProperty("MonsterVarietiesKey").GetInt32(), e.GetProperty("Weight").GetInt32()));
-            }
+        foreach (var e in ClientTables.Table("MonsterPackEntries"))
+        {
+            if (e.IsNull("MonsterPacksKey") || e.IsNull("MonsterVarietiesKey")) continue;
+            int pack = e.Int("MonsterPacksKey");
+            if (!byPack.TryGetValue(pack, out var list)) byPack[pack] = list = [];
+            list.Add((e.Int("MonsterVarietiesKey"), e.Int("Weight")));
+        }
         var result = new List<Pack>();
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(packs)))
-            foreach (var p in doc.RootElement.EnumerateArray())
-            {
-                int row = result.Count;
-                // WorldAreasKeys with one weight each in __col9, or one weight for all of them (Act1-CoastCrabs: [6, 7], [100]).
-                int[] areaKeys = [.. p.GetProperty("WorldAreasKeys").EnumerateArray().Select(a => a.GetInt32())];
-                int[] weights = [.. p.GetProperty("__col9").EnumerateArray().Select(a => a.GetInt32())];
-                var areaWeights = new Dictionary<int, int>();
-                for (int i = 0; i < areaKeys.Length && weights.Length > 0; i++) areaWeights[areaKeys[i]] = weights[Math.Min(i, weights.Length - 1)];
-                result.Add(new Pack(row, p.GetProperty("Id").GetString() ?? "", p.GetProperty("MinCount").GetInt32(), p.GetProperty("MaxCount").GetInt32(),
-                    p.GetProperty("BossMonsterSpawnChance").GetInt32(), p.GetProperty("BossMonsterCount").GetInt32(),
-                    [.. p.GetProperty("BossMonster_MonsterVarietiesKeys").EnumerateArray().Select(b => b.GetInt32())],
-                    byPack.GetValueOrDefault(row) ?? [], areaWeights));
-            }
+        foreach (var p in ClientTables.Table("MonsterPacks"))
+        {
+            int row = result.Count;
+            // WorldAreasKeys with one weight each in __col9, or one weight for all of them (Act1-CoastCrabs: [6, 7], [100]).
+            int[] areaKeys = [.. p.Ints("WorldAreasKeys")];
+            int[] weights = [.. p.Ints("__col9")];
+            var areaWeights = new Dictionary<int, int>();
+            for (int i = 0; i < areaKeys.Length && weights.Length > 0; i++) areaWeights[areaKeys[i]] = weights[Math.Min(i, weights.Length - 1)];
+            result.Add(new Pack(row, p.Text("Id") ?? "", p.Int("MinCount"), p.Int("MaxCount"),
+                p.Int("BossMonsterSpawnChance"), p.Int("BossMonsterCount"),
+                [.. p.Ints("BossMonster_MonsterVarietiesKeys")],
+                byPack.GetValueOrDefault(row) ?? [], areaWeights));
+        }
         var areaRows = new List<(string, int, int[])>();
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(areas)))
-            foreach (var a in doc.RootElement.EnumerateArray())
-                areaRows.Add((a.GetProperty("Id").GetString() ?? "", a.GetProperty("AreaLevel").GetInt32(),
-                    [.. a.GetProperty("Bosses_MonsterVarietiesKeys").EnumerateArray().Select(b => b.GetInt32())]));
+        foreach (var a in ClientTables.Table("WorldAreas"))
+            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"),
+                [.. a.Ints("Bosses_MonsterVarietiesKeys")]));
         // Maps.dat: a map's area → its packs (optional table: without it maps have no packs of their own).
         var mapPacks = new Dictionary<int, List<int>>();
-        string maps = Path.Combine(folder, "tables", "Maps.json");
-        if (ClientTables.Exists(maps))
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(maps)))
-                foreach (var m in doc.RootElement.EnumerateArray())
-                    if (m.GetProperty("Regular_WorldAreasKey") is { ValueKind: JsonValueKind.Number } area)
-                    {
-                        if (!mapPacks.TryGetValue(area.GetInt32(), out var list)) mapPacks[area.GetInt32()] = list = [];
-                        list.AddRange([.. m.GetProperty("MonsterPacksKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => !list.Contains(k)).Distinct()]);
-                    }
+        if (ClientTables.Has("Maps"))
+            foreach (var m in ClientTables.Table("Maps"))
+                if (m.IntOrNull("Regular_WorldAreasKey") is int area)
+                {
+                    if (!mapPacks.TryGetValue(area, out var list)) mapPacks[area] = list = [];
+                    list.AddRange([.. m.Ints("MonsterPacksKeys").Where(k => !list.Contains(k)).Distinct()]);
+                }
         return (result, areaRows, mapPacks);
     }
 }

@@ -17,7 +17,7 @@ The side quests are `a5q3` (Vilenta's Miasmeter, 1 passive point), `a5q5` (kill 
 Type 0 but not needed for act 6) and `a5q7` (Kitava's Torments, 1 passive point and 2 respec points).
 
 Sources:
-- client tables (`data/tables`, 3.29.3b);
+- client tables (client.db, 3.29.3b);
 - the generated layouts (`lg.ps1 questobjects`, seed 1) and `lg.ps1 grep` over `Act5/**/*.arm` (short-form room lines
   that `questobjects` misses);
 - game text `.ot`/`.it` (`references/ggpk-text`);

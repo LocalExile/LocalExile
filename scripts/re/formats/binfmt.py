@@ -69,17 +69,25 @@ class Reader:
 _gm_tables = None
 
 
+def _clientdb():
+    """scripts/dev/clientdb.py (the client tables in data/client.db), imported on first use."""
+    dev = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev")
+    if dev not in sys.path:
+        sys.path.insert(0, dev)
+    import clientdb
+    return clientdb
+
+
 def gm_tables():
-    """Names for the hashes in a .gm, from the generated data/tables; a hash without a name stays a number."""
+    """Names for the hashes in a .gm, from the client tables (data/client.db); a hash without a name stays a number."""
     global _gm_tables
     if _gm_tables is None:
-        import json
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        clientdb = _clientdb()
         _gm_tables = []
         for name in ("Stats", "GrantedEffects"):
             try:
-                rows = json.load(open(os.path.join(root, "data", "tables", name + ".json"), encoding="utf-8"))
-            except OSError:
+                rows = clientdb.table(name)
+            except (OSError, KeyError):
                 rows = []
             _gm_tables.append({x["HASH32"]: x["Id"] for x in rows})
     return _gm_tables
@@ -757,8 +765,8 @@ def item_tables():
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         try:
             types = json.load(open(os.path.join(root, "data", "item-types.json"), encoding="utf-8"))["types"]
-            mods = json.load(open(os.path.join(root, "data", "tables", "Mods.json"), encoding="utf-8"))
-        except OSError:
+            mods = _clientdb().table("Mods")
+        except (OSError, KeyError):
             _item_tables = ({}, {})
         else:
             _item_tables = ({murmur2(x["type"]): x for x in types}, {m["HASH16"]: m for m in mods})
@@ -1211,7 +1219,7 @@ def compiled_shader(b):
 
 def dat_table(name, b):
     """.datc64, .datcl64 (src/GameServer.Data/Dat/DatFile.cs): checks a table against data/schema: the row size, and that
-    every string and array in every row lands inside the variable data. The rows themselves are in data/tables."""
+    every string and array in every row lands inside the variable data. The rows themselves are in data/client.db."""
     rows = struct.unpack_from("<I", b)[0]
     marker = b.find(b"\xbb" * 8, 4)
     if marker < 0:

@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace GameServer.Core.World;
 
 /// <summary>
-/// The towns of the game: the WorldAreas rows with <c>IsTown</c> set (data/tables/WorldAreas.json, from
-/// Tools/PoEDataExtractor), as WorldAreas <c>Id</c> and <c>HASH16</c>. 3.29.3c has 12 act towns, Lioneye's Watch
+/// The towns of the game: the WorldAreas rows with <c>IsTown</c> set (the WorldAreas client table),
+/// as WorldAreas <c>Id</c> and <c>HASH16</c>. 3.29.3c has 12 act towns, Lioneye's Watch
 /// (1_1_town) to Karui Shores (2_11_endgame_town). Without the table only Lioneye's Watch is known.
 /// </summary>
 public static class WorldAreaTowns
@@ -26,13 +26,12 @@ public static class WorldAreaTowns
     public static ushort LoginArea(string? lastTown, IReadOnlyList<(string Id, ushort Hash16)> towns) =>
         lastTown is not null && towns.FirstOrDefault(t => t.Id == lastTown) is { Id: not null } town ? town.Hash16 : StartingAreaHash;
 
-    /// <summary>The town rows of a WorldAreas.json, in table order; <see cref="Default"/> when the file is missing.</summary>
-    public static IReadOnlyList<(string Id, ushort Hash16)> Load(string worldAreasJson)
+    /// <summary>The town rows of the WorldAreas table, in table order; <see cref="Default"/> without the table.</summary>
+    public static IReadOnlyList<(string Id, ushort Hash16)> Load(ClientTable? worldAreas)
     {
-        if (!ClientTables.Exists(worldAreasJson)) return Default;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
-        return [.. doc.RootElement.EnumerateArray()
-            .Where(r => r.GetProperty("IsTown").GetBoolean() && !Excluded.Contains(r.GetProperty("Id").GetString() ?? ""))
-            .Select(r => (r.GetProperty("Id").GetString()!, (ushort)r.GetProperty("HASH16").GetInt32()))];
+        if (worldAreas is null) return Default;
+        return [.. worldAreas
+            .Where(r => r.Bool("IsTown") && !Excluded.Contains(r.Text("Id") ?? ""))
+            .Select(r => (r.Text("Id")!, (ushort)r.Int("HASH16")))];
     }
 }

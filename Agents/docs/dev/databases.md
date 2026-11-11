@@ -19,6 +19,31 @@ either without its database. Rows that must be written together live in one file
 atomic in each file only. A characters database somewhere else (`Game_CHARACTERS_DB`, a test's scratch file) keeps its
 accounts beside it as `<name>-auth.db`, unless `Game_AUTH_DB` says otherwise.
 
+## Reading game data
+
+The client's own data (items, mods, stats, areas, quests, monsters: what the GGPK's `.datc64` files hold) is client.db;
+what we add or override is world.db; players and their characters are auth.db and characters.db. None of it is JSON on
+disk: no server or tool reads a `data/tables/` folder (only `client-sql.ps1 diff` reads the one a full extraction
+writes). Where old code, a doc or a commit names `data/tables/X.json` or `X.json`, it means the client table `X` in
+client.db. New server-owned data goes in world.db, as an update in
+`sql/updates/pending_world/`, never in a new JSON file.
+
+- C#: `ClientTables.Table("WorldAreas")` (below); a tool outside the servers: `ClientTable.Load("data/client.db", name)`.
+- Python: `scripts/dev/clientdb.py` (`clientdb.table("WorldAreas")`: the rows as dicts, list columns parsed), or plain
+  `sqlite3`:
+
+```python
+import json, sqlite3
+db = sqlite3.connect("file:data/client.db?mode=ro", uri=True)
+areas = db.execute('SELECT Id, AreaLevel, TopologiesKeys FROM "WorldAreas" ORDER BY _row').fetchall()
+topologies = json.loads(areas[1][2])   # JSON columns (lists) are text
+```
+
+The generated files (`object-types.json`, `room-points.json`, ...) are rows of client.db's `client_files`: in C#,
+`ClientTables.ReadAllText("data/object-types.json")`; elsewhere, `SELECT part, value FROM client_files WHERE file = ?
+ORDER BY ord`, where `part` is the JSON key path of each top-level entry (or of an entry one level down) and `value` its
+JSON; a `.txt` file is its `value` strings in order.
+
 ## SQL in git
 
 ```
@@ -80,14 +105,17 @@ A table has `_row INTEGER PRIMARY KEY` (the row's index: tables refer to each ot
 extracted column, typed `INTEGER`, `REAL`, `TEXT`, `BOOLEAN` (1/0) or `JSON` (lists, and columns that are always null,
 as JSON text). A carriage return inside a string is written as `char(13)`, since the SQL files keep LF line ends.
 
-The servers read a table through `ClientTables` (GameServer.Core), still by the path of its extracted file
-(`data/tables/<Table>.json`): it returns that file's JSON, rebuilt from the rows and the column types, so the catalogues
-parse what they parsed before. Any other path is read from disk. A rebuilt table is kept compressed in client.db's
-`client_json_cache` table for the current set of applied updates (a rebuild of `Mods` takes about a second, a cached
-read 0.4 s), and in memory for a few seconds for the catalogues that read the same table in a burst. The Gateway and Auth
-update client.db before their first read; the first build takes about 16 s, a start with nothing new about 1.5 s.
-`extract-data.ps1` still writes `data/tables/` for its other generators and for `client-sql.ps1 diff`; `live.ps1` and a
-release run only its `-Servers` entries (`game-files.zip` and the local root hash).
+The servers read a table by its name, `ClientTables.Table("Mods")` (GameServer.Core): a `ClientTable` of typed,
+columnar rows (`row.Int("Level")`, `row.Text("Id")`, `row.Ints("Stats")`; a row's `Index` is its `_row`), kept in memory
+for the current version of client.db and dropped a few seconds after its last use. A tool that finds the database
+itself reads one with `ClientTable.Load(path, name)`; a test builds one with `ClientTable.FromRows` or swaps tables in with
+`ClientTables.Use`. A `data/tables/...` path given to the file reads throws: there is no such folder for the servers.
+The Gateway and Auth update client.db before their first read; the first build takes about 16 s, a start with nothing
+new about 1.5 s. `extract-data.ps1`'s `tables` entry still writes `data/tables/*.json`, only as the input of
+`client-sql.ps1 diff`; its generators read the tables from client.db. After a client patch: `extract-data.ps1 -Only
+tables`, `client-sql.ps1 diff`, start the servers once so client.db takes the new updates, then `extract-data.ps1` for the
+generators and `diff` again for their files. `live.ps1` and a release run only its `-Servers` entries (`game-files.zip`
+and the local root hash).
 
 The files those generators write that the servers read are in client.db too, in `client_files` (`file`, `part`, `ord`,
 `value`): `area-transitions`, `room-points`, `object-types`, `item-types`, `monster-contacts`, `monster-takehit`,
@@ -97,7 +125,7 @@ row per top-level entry, and one per entry of a top-level list or object of more
 it, as a JSON array; `value`: its JSON); `stat-descriptions.txt` is one row per description block. `ClientTables`
 serves `data/<file>` from them (same data and key order as the generator wrote, without the indentation), so a server
 reads none of these from disk. `client-sql.ps1 diff` writes their changed rows (`<stamp>_file_<name>.sql`) alongside
-the tables'; after a generator change, run `extract-data.ps1`, then `diff`, and commit both. The GGPK root hash stays
+the tables'; a rebuilt file is kept compressed in client.db's `client_json_cache` for the current set of updates; after a generator change, run `extract-data.ps1`, then `diff`, and commit both. The GGPK root hash stays
 in the local `data/client-constants.json` (the Patch server's, refreshed by `live.ps1`): it describes the local
 `Content.ggpk`. `data/game-files.zip`, the client's own level and object files, still comes only from the client.
 

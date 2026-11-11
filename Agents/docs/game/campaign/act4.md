@@ -18,7 +18,7 @@ The side quest is a4q6 "An Indomitable Spirit": free Deshret's spirit in The Min
 The act ends with row 62 `a5q1a` "Return to Oriath". Climb The Ascent, pull the Resonator lever (`a5q1-UsedResonator`)
 and click the Oriath Portal (an area transition object) into `1_5_1` The Slave Pens. There is no boat and no Lilly
 Roth in this transition.
-Sources: client tables (`data/tables`: Quest, QuestStates, QuestFlags, NPCTalk, QuestRewardOffers, QuestStaticRewards,
+Sources: client tables (client.db: Quest, QuestStates, QuestFlags, NPCTalk, QuestRewardOffers, QuestStaticRewards,
 WorldAreas, MonsterVarieties, CharacterStartQuestState), the generated layouts (`lg.ps1 questobjects`, seed 1),
 `.arm` rooms read with `lg.ps1 cat`, unpacked `.ot`/`.it` game text, the wiki (Fandom mirror, 2026-10-30), poedb.
 

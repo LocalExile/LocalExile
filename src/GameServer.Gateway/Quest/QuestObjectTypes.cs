@@ -65,16 +65,14 @@ public static class QuestObjectTypes
                 };
             }
         // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
-        string chests = Path.Combine(folder, "tables", "Chests.json");
-        if (ClientTables.Exists(chests))
+        if (ClientTables.Has("Chests"))
         {
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(chests));
-            foreach (var r in doc.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("Chests"))
             {
-                if (r.GetProperty("Id").GetString() is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;
-                string? model = r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString();
+                if (r.Text("Id") is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;
+                string? model = r.Texts("AOFiles").FirstOrDefault();
                 if (types.TryGetValue(id, out var own)) { types[id] = own with { Model = model }; continue; }
-                if (r.GetProperty("InheritsFrom").GetString() is { } parent && types.TryGetValue(parent, out var basis))
+                if (r.Text("InheritsFrom") is { } parent && types.TryGetValue(parent, out var basis))
                     types[id] = basis with { Type = id, Model = model };
             }
         }
