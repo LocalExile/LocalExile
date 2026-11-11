@@ -599,6 +599,17 @@ That tick raises the fill-change event and moves the numeric label to the fill e
 overwrites current too and suppresses this invalidation (0x1404304d0, 0x1418cb100). Verified with 300 -> 301 -> 300.
 Area entry, chart opening and `/sulphite` synchronize this way; travelling resource changes can use single deltas.
 
+Map deposits use `DelveMineralVein` / `DelveMineralChest`, not the ordinary Chest component. Their read order is
+Positioned, InteractionAction, BaseEvents, Animated, MinimapIcon, StateMachine, Preload; the last component and
+BaseEvents consume no bytes. StateMachine index 5 has `activated`, `depleted`, `attach_ring`; activated=1 hides the
+native marker and disables targeting. Depleted art is a **create** callback, so later observers need that state in
+the creation blob. Wild Niko's mining/rummaging clips use 0x1b2 **kind 0**, indices 2/7. Putting the clip in kind
+instead leaves the speed float unread and desynchronizes the stream. `sulphite_enrage` (BuffDefinitions 2420) is
+not IsRecovery: 0x1c1 carries no stat-value array despite its five GrantedStats entries.
+
+Deposit placement, the Fumes radius (60 cells) and eight mine guards per deposit are server encounter parameters;
+the exported SulphiteEnrage rows do not disclose the official daemon's radius or monster AI tuning.
+
 - **S→C 0x228** (class `0x1435e77c0`, read `0x1421b3fe0`, dispatcher case 0xa9 at `0x1421598e8`): u8, 20 raw bytes, 14
   raw bytes. The handler builds a 34-byte record at instance `+0xd874`: the 14 bytes first, then the 20. It sets
   `+0xd896` = 0x101 and raises the event at `+0x2878`.
@@ -613,6 +624,10 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
     the gauge's own flag `+0x2f1` is set. Only the Subterranean Chart's windows (`0x140450310`, `0x140458c80`) set it.
 
   Delve_Hub is type 15, so in the encampment the sulphite shows in the chart (live: 300 after `/sulphite 300`).
+  Outside mines a differing-value 0x226 can show the transient HUD bar. Periodic loss-side UI hints
+  (previous=balance+1, target=the real balance) retain visibility without gain popups or a server debit.
+  This was verified in a Niko map across waiting and mining; ordinary equipment capacity is below u16 max.
+  Wild Niko must use Positioned terrain-following height, like town NPCs; fixed world Z floats above uneven floors.
 - **The Crawler**, `Metadata/Terrain/Leagues/Delve/Objects/DelveRobot`, deserializes 11 components (`read` 11; Render and
   Wheels are client-only). `DelveRobotObject` writes them:
   - Positioned, Animated (`DelveRobot.ao`) and Transitionable (state 1);
@@ -628,6 +643,21 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   Its native Targetable component uses league quest flag 68, already sent for Niko's chart access.
   Hover outlines the model and shows the localized chart label; a real mouse click sends C→S 0x24 and opens the chart
   with S→C 0x7b kind 0x1c, followed by 0x23f/0x240.
+  Its MinimapIcon override is flags 1, u16 154 (`MinimapIcons.DelveRobot`); the viewer's default circle belongs to a
+  stationary checkpoint, never a moving cart. Mines now use `DelveRobot` itself, whose native Wheels component
+  creates and rotates the wheel meshes. Separate `DelveMapViewer` objects keep their native floor model and circle
+  at the start/end; Transitionable states 2/1 distinguish completed/pending pads, and completion updates component 3 to 2.
+  On successful arrival the same cart id is recreated as the stationary interactive type, with static wheel attachments:
+  the real robot has no Targetable, so leaving it unchanged prevents opening the chart by clicking the parked cart.
+  The account save precedes the fresh 0x240 bitmap; opening any cart/pad also resends the saved chart, then resources.
+  Completion tracks the endpoint room's spawn markers inside the Crawler's 60-cell arrival light, separately from
+  tunnel packs. All endpoint packs finish spawning before the alive check; a final surviving defender blocks saving,
+  while tunnel stragglers do not. An already won encounter may commit while a menu pauses combat.
+  A per-character instance flag retains the parked endpoint presentation across module reload or resurrection.
+  C→S 0x241 includes corridor cells: native (3,2)→(4,2)→(5,2) has no checkpoint icon at (4,2).
+  Treat the entire selected path as one journey to its final node; clipping it to two cells saves an invisible
+  corridor checkpoint. The physical mine window runs once for that chosen destination, not once per path cell.
+  Arrival parks there; a new journey needs another explicit selection.
   It is created once on each Delve_Hub entry at (408, 310), facing 90°; repeated `/delve_crawler` does not duplicate it.
   Three invisible `Metadata/NPC/Blocker` objects provide matching client/server collision along its length.
   Moving the Crawler removes the old blockers, creates the new ones and pushes the player out of collision.
@@ -661,59 +691,32 @@ Area entry, chart opening and `/sulphite` synchronize this way; travelling resou
   Equipment, consumables and Azurite persist in the account/league stash header, with atomic debit/update and rollback.
   Equipment stats are projected while in Delve areas; sulphite still uses the existing character save.
   Resource use, darkness damage and the machine's upgraded cable visual tiers remain future work.
-- **Route selection.** Native chart click C→S 0x241 carries u8 count then count × four BE i32 coordinates
-  (block X/Y and cell X/Y).
-  The first observed selection was (0,0,2,0) → (0,0,2,1).
-  Framing handles every TCP split. The first quest route is admitted explicitly; other selections remain unavailable.
-  No sulphite is debited and no movement starts on an unsupported route.
-  [GGG's FAQ](https://www.pathofexile.com/forum/view-thread/2197540) and
-  [Delve announcement](https://www.pathofexile.com/delve) describe route travel, speed scaling/catch-up,
-  darkness and equipment upgrades.
-  Their 2018 ownership/progression details are historical; this protocol implementation targets client 3.29.3b.
-  The initial route resolves authored room objects (`DelvePathNode`, `DelvePathEndpoint`, `DelveNode`) and their
-  `next` links from `data/delve-paths.json` (read-only `atlas delve-paths`, registered in extract-data.ps1).
-  Captured room placements transform the graph; offset cell sleeves are joined only over captured walkable ground.
-  The first destination is depth 2, monster level 35, base cost 24. Native `0x141ea9bb0` excludes the origin from the
-  cost sum and applies a length discount only beyond a two-point path; arbitrary routes are not priced here.
-  Admission checks the complete balance without an upfront debit. Progress debits the difference between cumulative
-  floor(cost * distance / totalDistance) values; the endpoint commits the exact residual. A failed save does not move
-  progress. Pause, death, disconnect and area retirement stop further travel; duplicate requests cannot rearm it.
-  This gradual debit is the local server policy; it does not claim the original service's payment timing.
-  Travel follows that path at a fixed 24 cells/s. Escort stop/resume thresholds use hysteresis (90/65 cells);
-  the Crawler keeps its forward course while waiting. Positioned updates run at 50 ms with a 120 ms interpolation
-  buffer, the current rail tangent and orientation lock (Positioned atan2(dx,-dy), zero faces -Y). Attached parts follow their body instead of receiving
-  competing movement updates. Pack creation runs in a single separate worker so it cannot block the motion clock.
-  The Crawler's light determines darkness exposure; leaving a guessed player-centred circle is not a route request.
-  S→C 0x1ba moves the body and attached lamp/wheels with terrain height marker 0x7fffffff; 0x1b9 carries its
-  float-radian orientation and lock byte (writer 0x141fe5b90, Positioned handler 0x141e33fd0).
-  The first quest's authored spawn points activate within the base Crawler light radius. Its Weta/Spider packs supply
-  the initial quest's unnamed route spawns too; ordinary WorldAreas pack weights are absent for Delve_Mines.
-  General biome population, exact encounter wave scripting, darkness and the persistent mine graph remain unfinished.
-  Native checks confirmed escort waiting, rail travel and a terminal debit of exactly 24 (300 -> 276).
-  Debug server teleports were used to escort along the route; a continuous walking run remains unverified.
-  A real Leap Slam killed 18 spawned Hatchlings and produced normal drops. No completed mine graph is persisted.
-  The chart inside the mine currently shows a local terrain preview; start the first quest route from the hub chart.
-  The destination is marked with the original `DelveWaypointObject.ao` (default `idle_on`) on a nonblocking scenery
-  object. Arrival waits for all journey-spawned monster IDs to die; unrelated monsters do not hold the reward.
-  A connection-local completion latch prevents repeated chart requests/ticks from paying twice. Highest completed
-  physical depth is saved as the character's module data `delve.depth`; this does not yet unlock or persist a complete chart graph.
-  A new paid visit may reward the same depth again. Rewards follow the normal world-item pickup/save path; ground
-  items and the claim latch remain instance-local and are not a durable crash-recovery ledger.
-  Server reward policy: `delve_reward_min_items=15`, `delve_reward_max_items=20`,
-  `delve_reward_quantity_per_depth_pct=10`, `delve_reward_rarity_per_depth_pct=5`, `delve_reward_item_cap=250`.
-  Quantity and rarity increments multiply max(1, physicalDepth-1), so tutorial depth 2 gets +10%/+5%, depth 3
-  +20%/+10%. Fractional item counts use stochastic rounding: the first reward is 16–22 items. Rarity increases
-  equipment rarity chances, not the number of currency stacks. Container rolls use existing level-appropriate
-  equipment/currency/gem pools, independent of monster quantity multipliers; `Game_DROPS=0` suppresses them.
-  No client assets or executable are modified.
-  Native verification: the current client completed a paid route (199 -> 175), displayed the destination pad,
-  and received one 22-item reward after the final enemy died. A reward item was picked up into the saved inventory;
-  completed depth 2 persisted. Server teleports assisted the escort; a continuous walking run remains unverified.
-  Powered native `DelveLight` lamps remain every 30 cells of travelled arc length (radius 25). Each new lamp carries
-  the previous lamp's object id in its DelveLight link list. Client 0x1415d9a70 resolves that list; 0x1415d9e20 creates
-  the connector beam and 0x1415da5d0 powers its original lightRope glow. Native checks confirmed lamps, cables and
-  continuing illumination behind the moving Crawler. The trail is scoped to the current visit; reload persistence
-  remains separate work.
+- **Chart and route selection (3.29.3c).** C→S 0x241 carries u8 count followed by four BE i32 coordinates
+  per point (block X/Y, cell X/Y). S→C 0x240 carries BE u32 seed, u16, u16 block count, then each block:
+  BE u16 X/Y, **eight raw little-endian bitmap bytes**, u8, BE u32. The bitmap marks completed cells,
+  bit `cellY*8+cellX`; marking cell (2,1) changes the first Azurite node and its connection to gold.
+  Do not mark entrance (2,0): it is implicitly open, and setting its completed bit hides the native block.
+  The mixed byte order is confirmed by the native writer/reader (0x1421b3c70/0x1421b3d00).
+  `DelveOwner` (QuestFlags HASH32 0x52ac2d0a) is essential inside a mine: HUD handler 0x140ddc0f0
+  chooses the full chart for its owner, otherwise the local terrain preview. The normal 19-byte 0x7b
+  kind 0x1c opens it; 0x23f/0x240 then supplies the account's completed blocks.
+  Only the initial entrance uses seed 1. Subsequent edges use two Azurite checkpoint cells, completed origin and
+  uncompleted destination, in directional terrain windows (north/east/south/west seeds 12/13/14/15).
+  Cell byte 2 holds four 2-bit portal slots (N/E/S/W), not room rotation. Opposite slots must sum to 3:
+  N/E slot 1 joins S/W slot 2. Zero on both sides creates disconnected rooms despite reciprocal connection bits
+  (native 0x141f2ff30). A mine without connected captured rails returns to the real hub; its copied hub subarea
+  must never become a fallback Crawler spawn. This remains a captured-terrain implementation, not a Delve generator port.
+  Rails come from authored DelvePathNode/DelvePathEndpoint/DelveNode links in `data/delve-paths.json`,
+  transformed by captured room placements; sleeves join only over captured walkable ground.
+  S→C 0x1ba moves the body using terrain height marker 0x7fffffff, with interpolation matched to the server step.
+  Positioned component 0's 0x2bc update (mask 8, f32) sets the departing rail segment's facing without rounded-cell jitter.
+  DelveTractor/rig.ast's inverse-bind front/rear axle Y values are -50.029/+8.061: the model's nose faces +Y,
+  so its angle is atan2(dx,-dy) + pi, unlike the character. Native Wheels follow actual displacement; the lamp is bone-attached.
+  Powered DelveLight lamps every 30 cells carry the preceding lamp id; the native client joins and lights
+  their cable. Trails belong to the current visit, not the durable checkpoint graph.
+  Gradual distance-proportional sulphite payment, the custom 34→86 level curve, increasing pack/reward
+  policy and whole-attempt rollback are LocalExile rules; they do not claim original-service parity.
+  Biome-specific populations, encounter types, darkness and consumables remain unfinished.
 - **First mine entrance.** Delve_Hub's upper `DelveEntrance01_area_transition.ao` leads to `Delve_Main` (HASH16 64840).
   The unused lower elevator must not be paired with it as a generic local gate.
   Delve_Main receives `InstanceDelve.FirstMineTerrain()` in the area packet's extra terrain data.
