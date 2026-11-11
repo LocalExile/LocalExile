@@ -8,6 +8,8 @@ namespace GameServer.Core.World;
 /// gate, and those whose seed 1 the client cannot generate either whose trace at another seed does; every logged load
 /// of the area must match too. Auth gives their new instances random seeds; every other area keeps seed 1, whose
 /// captures the Gateway has, or the seed it built in place of a seed 1 it cannot build (<see cref="SeedsInPlaceOfOne"/>).
+/// The servers read these lists from world.db's server_level_areas (a world update writes the rows these rules give);
+/// the baseline file itself is for the development tools.
 /// </summary>
 public static class ServerLevelAreas
 {

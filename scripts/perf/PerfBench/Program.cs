@@ -332,7 +332,7 @@ static class PerfBench
         // them, for what the caches grow to.
         int more = int.TryParse(Environment.GetEnvironmentVariable("Game_PERF_MORE_AREAS"), out int n) ? n : 0;
         if (more > 0)
-            areas = [.. areas, .. ServerLevels.LoadSupported(ServerLevels.BaselineFile).Except(areas).Order(StringComparer.Ordinal)
+            areas = [.. areas, .. ServerLevels.Supported.Except(areas).Order(StringComparer.Ordinal)
                 .Where(a => AreaTransitionCatalog.HashOf(a) is not null).Take(more)];
         bool first = true;
         AreaLayout? held = null;   // as a connection holds its layout while the others are generated

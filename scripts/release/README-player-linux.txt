@@ -1,7 +1,7 @@
 LocalExile: a local server for the Path of Exile 3.29.3c client. You play on your own PC against servers on 127.0.0.1.
 Not affiliated with or endorsed by Grinding Gear Games. This package holds no game files.
 
-You need a 64-bit Linux, umu-launcher (it runs the client under Proton), Python 3 and your own copy of the
+You need a 64-bit Linux, umu-launcher (it runs the client under Proton) and your own copy of the
 Path of Exile 3.29.3c client: the standalone one, or a Steam install of Steam's 3.29.3c (it runs without Steam).
 
 TO PLAY
@@ -23,4 +23,4 @@ IF SOMETHING GOES WRONG
 Logs are in logs/. ./LocalExile --help lists every option.
 
 LICENSE
-GPL-2.0. See licenses/: the source of this exact build is named in licenses/SOURCE.txt.
+GPL-2.0. See app/licenses/: the source of this exact build is named in app/licenses/SOURCE.txt.
