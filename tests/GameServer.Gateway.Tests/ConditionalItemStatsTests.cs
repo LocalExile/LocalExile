@@ -83,19 +83,22 @@ public class ConditionalItemStatsTests
             ("minimum_added_fire_damage_if_blocked_recently", "global_minimum_added_fire_damage"),
             ("maximum_added_fire_damage_if_blocked_recently", "global_maximum_added_fire_damage"),
             ("number_of_additional_chains_for_projectiles_while_phasing", "number_of_chains"),
+            ("gain_iron_reflexes_while_stationary", "keystone_iron_reflexes"),
+            ("you_have_zealots_oath_if_you_havent_been_hit_recently", "keystone_zealots_oath"),
         };
         var output = new Dictionary<string, Dictionary<string, int>>();
         foreach (var (source, target) in cases)
         {
             var row = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == source && !s.Local));
             var item = WithMod(row.Id, 11);
-            bool negative = source.Contains("havent_killed", StringComparison.Ordinal);
+            bool notHit = source.Contains("havent_been_hit", StringComparison.Ordinal);
+            bool negative = notHit || source.Contains("havent_killed", StringComparison.Ordinal);
             var on = new StatConditions.Subject(
                 Recent: negative ? new HashSet<string>() : new HashSet<string> { StatConditions.Blocked, StatConditions.KilledEnemy, StatConditions.IgnitedEnemy },
                 Auras: new HashSet<string> { "determination", "discipline", "hatred", "anger", "wrath", "malevolence", "clarity", "herald_of_purity" },
                 Flags: flags.ToDictionary(s => s, _ => true), Value: _ => 10000);
             var off = new StatConditions.Subject(
-                Recent: negative ? new HashSet<string> { StatConditions.KilledEnemy } : new HashSet<string>(),
+                Recent: negative ? new HashSet<string> { notHit ? StatConditions.BeenHit : StatConditions.KilledEnemy } : new HashSet<string>(),
                 Auras: new HashSet<string>(), Flags: flags.ToDictionary(s => s, _ => false), Value: _ => 0);
             Assert.Equal(StatConditions.State.Holds, StatConditions.Of(source, on));
             Assert.Equal(StatConditions.State.Fails, StatConditions.Of(source, off));
@@ -109,6 +112,26 @@ public class ConditionalItemStatsTests
             output[source] = held;
         }
         int Read(string source, string name) => output[source].GetValueOrDefault(name);
+        var iron = output["gain_iron_reflexes_while_stationary"].Where(p => Program.Stats.Key(p.Key) is not null)
+            .ToDictionary(p => Program.Stats.Key(p.Key)!.Value, p => p.Value);
+        Assert.True(Game.PassiveBonus(iron, default, default).IronReflexes);
+        Assert.False(Game.PassiveBonus([], default, default).IronReflexes);
+        Assert.True(PanelStats.ZealotsOath(name => Read("you_have_zealots_oath_if_you_havent_been_hit_recently", name)));
+        Assert.False(PanelStats.ZealotsOath(_ => 0));
+        const string martyr = "immune_to_freeze_and_chill_while_ignited";
+        var martyrMod = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == martyr));
+        var martyrItem = WithMod(martyrMod.Id, 1);
+        foreach (bool ignited in new[] { false, true })
+        {
+            var raw = ItemModStats.Sum([martyrItem], Program.Items.Mods,
+                subject: new(Flags: new Dictionary<string, bool> { ["_while_ignited"] = ignited }), statExists: Program.Stats.Has);
+            var panel = PanelStats.Compute(raw.GetValueOrDefault).ToDictionary(p => p.Stat, p => p.Value);
+            var ailments = new PlayerElementalAilments();
+            foreach (var kind in new[] { PlayerElementalAilments.Kind.Freeze, PlayerElementalAilments.Kind.Chill })
+                ailments.Inflict(kind, 10, 2, 100, panel.GetValueOrDefault, new Random(504));
+            Assert.Equal(!ignited, ailments.Snapshot(100).Freeze);
+            Assert.Equal(ignited ? 0 : 10, ailments.Snapshot(100).Chill);
+        }
         Assert.Equal(555, SpellCriticalStrike.Chance(500,
             name => Read("critical_strike_chance_+%_for_spells_if_you_have_killed_recently", name)));
         Assert.Equal(511, SpellCriticalStrike.Chance(500,

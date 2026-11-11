@@ -244,6 +244,8 @@ public static class StatConditions
             "burning_damage_+%" => "burn_damage_+%",
             "attacks_bleed_on_hit" => "global_bleed_on_hit",
             "gain_crimson_dance" => "keystone_crimson_dance",
+            "gain_iron_reflexes" => "keystone_iron_reflexes",
+            "you_have_zealots_oath" => "keystone_zealots_oath",
             "life_leech_from_fire_damage_permyriad" => "base_life_leech_from_fire_damage_permyriad",
             "energy_shield_leech_from_lightning_damage_permyriad" => "base_energy_shield_leech_from_lightning_damage_permyriad",
             "unaffected_by_bleeding" => "base_unaffected_by_bleeding",
@@ -286,6 +288,8 @@ public static class StatConditions
             return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
         if (PlainOf(statId) == "life_and_energy_shield_recovery_rate_+%")
             return [.. new[] { "life_recovery_rate_+%", "energy_shield_recovery_rate_+%" }.Where(exists)];
+        if (PlainOf(statId) == "immune_to_freeze_and_chill")
+            return [.. new[] { "base_immune_to_freeze", "base_immune_to_chill" }.Where(exists)];
         return Fold(statId, exists) is { } plain ? [plain] : [];
     }
 
