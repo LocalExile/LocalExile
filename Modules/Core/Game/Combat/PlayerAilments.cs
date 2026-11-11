@@ -47,17 +47,38 @@ static partial class Game
     internal static int AdvancePlayerAilmentsLocked(ClientState conn, double from, double until,
         IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) { conn.ElementalAilments.Clear(); return 0; }
-        if (!conn.ElementalAilments.HasEffects) return 0;
+        if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0)
+        {
+            conn.ElementalAilments.Clear();
+            conn.IncomingAilments.Clear();
+            return 0;
+        }
         double previousAction = conn.ElementalAilments.ActionFactor(from);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
-            MaxResistance(conn, DamageType.Fire), PlayerImmunities(conn).Contains(DamageType.Fire),
-            source => DamageTakenFromBlindedPct(conn, source, stats));
-        damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
-            IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
-        int lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
-            damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
+        var immunities = InGracePeriod(conn)
+            ? [.. Enum.GetValues<DamageType>()]
+            : DamageImmunities.From(Get);
+        int damage = 0, lifeDamage = 0;
+        if (conn.ElementalAilments.HasEffects)
+        {
+            damage = conn.ElementalAilments.Advance(from, until, Get, Resistance(conn, DamageType.Fire),
+                MaxResistance(conn, DamageType.Fire), immunities.Contains(DamageType.Fire),
+                source => DamageTakenFromBlindedPct(conn, source, stats));
+            damage = IncomingResourceDefences.TakenOverTime(damage, Get, ref conn.NonChaosDotTakenCarry,
+                IncomingResourceDefences.LessTakenPct(conn.Pools, Get));
+            lifeDamage = conn.Immune ? 0 : IncomingResourceDefences.DamageOverTime(conn.EnergyShield,
+                damage, Get(IncomingResourceDefences.BypassStat), until, ref conn.NonChaosDotBypassCarry);
+        }
+        if (conn.PlayerLife > 0 && !conn.IncomingAilments.Idle)
+        {
+            var physical = DamageType.Physical;
+            var chaos = DamageType.Chaos;
+            lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + conn.IncomingAilments.Advance(from, until,
+                conn.Pools, conn.EnergyShield, Get, Resistance(conn, physical), MaxResistance(conn, physical),
+                Resistance(conn, chaos), MaxResistance(conn, chaos), conn.Immune,
+                immunities.Contains(physical), immunities.Contains(chaos), conn.Walk.MovingSeconds,
+                ref conn.NonChaosDotBypassCarry, ref conn.ChaosDotBypassCarry));
+        }
         conn.PlayerLife = (uint)Math.Max(0, (long)conn.PlayerLife - lifeDamage);
         if (conn.PlayerLife == 0)
         {
@@ -67,6 +88,55 @@ static partial class Game
         }
         if (previousAction != conn.ElementalAilments.ActionFactor(until)) conn.ApplyMovementSpeed();
         return damage;
+    }
+
+    /// <summary>
+    /// A hostile object's accepted, unblocked contact may inflict bleeding and poison. The chances,
+    /// damage and duration come from that monster's own effects and damage packet. Immunity is handled
+    /// by the shared incoming owner; an evaded, blocked or damage-immune contact never reaches here.
+    /// </summary>
+    internal static void ApplyMonsterDamagingAilmentsLocked(ClientState conn, uint source, SpawnedMonster m,
+        DamagePacket hit, bool blocked, double now, bool attack = true)
+    {
+        if (blocked || conn.PlayerLife == 0 || conn.Closed || conn.LeavingArea || InGracePeriod(conn)) return;
+        var effects = m.Mods.Effects;
+        double physical = hit[DamageType.Physical].Min;
+        double chaos = hit[DamageType.Chaos].Min;
+        var playerStats = CharacterPlayerStats(conn);
+        int Player(string name) => Stats.Key(name) is uint key ? playerStats.GetValueOrDefault(key) : 0;
+        int bleedChance = Math.Max(effects["global_bleed_on_hit"] != 0 ? 100 : 0,
+            attack ? effects["bleed_on_hit_with_attacks_%"] : 0);
+        int poisonChance = Math.Max(effects["global_poison_on_hit"] != 0 ? 100 : 0,
+            effects["base_chance_to_poison_on_hit_%"]);
+        if (attack) poisonChance = Math.Max(poisonChance,
+            effects["base_attacks_poison"] != 0 ? 100 : effects["chance_to_poison_on_hit_with_attacks_%"]);
+        bool poisonable = effects["all_damage_can_poison"] != 0
+            ? hit.Components.Any(c => c.Range.Min > 0)
+            : physical + chaos > 0;
+        double poisonBase = effects["all_damage_can_poison"] != 0 ? hit.MinTotal : physical + chaos;
+        if (bleedChance > 0 && physical > 0 && Player("cannot_gain_bleeding") == 0
+            && Player("base_cannot_gain_bleeding") == 0
+            && Player("virtual_immune_to_bleeding") == 0 && Player("immune_to_bleeding") == 0
+            && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, conn.IncomingHitRandom))
+        {
+            double more = Math.Max(0, 1 + effects["bleeding_damage_+%"] / 100.0);
+            double seconds = Ailments.BleedDurationSeconds
+                * Math.Max(0, 1 + effects["base_bleed_duration_+%"] / 100.0);
+            conn.IncomingAilments.ApplyBleed(now, physical * 0.10 * more
+                * Math.Max(0, 1 + effects["monster_bleeding_damage_+%_final"] / 100.0), seconds, source,
+                victim: Player);
+        }
+        if (poisonChance > 0 && poisonable && Player("cannot_be_poisoned") == 0
+            && Player("immune_to_poison") == 0
+            && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, conn.IncomingHitRandom))
+        {
+            double more = Math.Max(0, 1 + effects["base_poison_damage_+%"] / 100.0);
+            double seconds = Ailments.PoisonDurationSeconds
+                * Math.Max(0, 1 + effects["base_poison_duration_+%"] / 100.0);
+            conn.IncomingAilments.ApplyPoison(now, poisonBase * 0.30 * more
+                * Math.Max(0, 1 + effects["monster_poison_damage_+%_final"] / 100.0), seconds, source,
+                victim: Player);
+        }
     }
 
     // The chilled, frozen and shocked buffs on the player, as on monsters (AilmentBuff, on the fixed top instances that
@@ -89,6 +159,33 @@ static partial class Game
             ushort instance = MonsterElementalAilments.Instance(kind);
             if (old > 0) packets.Add((InstanceEntities.RemoveBuff(PlayerId, instance), $"0x01c2 player {kind} ends"));
             if (now > 0) packets.Add((AilmentBuff(PlayerId, instance, kind, now), $"0x01c1 player {kind} {now}%"));
+        }
+        return packets;
+    }
+
+    internal static List<(byte[] Packet, string Log)> IncomingAilmentBuffs(
+        IncomingDamagingAilments.State before, IncomingDamagingAilments.State after, double now)
+    {
+        var packets = new List<(byte[], string)>();
+        const ushort bleedingInstance = ushort.MaxValue - 4, poisonInstance = ushort.MaxValue - 3;
+        if (before.Bleeding != after.Bleeding || before.BleedRevision != after.BleedRevision
+            || before.BleedUntil != after.BleedUntil)
+        {
+            if (before.Bleeding) packets.Add((InstanceEntities.RemoveBuff(PlayerId, bleedingInstance), "0x01c2 player bleeding ends"));
+            if (after.Bleeding && LabyrinthTrials.BleedingBuffRow is ushort row)
+                packets.Add((InstanceEntities.AddBuff(PlayerId, bleedingInstance, row,
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, after.BleedUntil - now))),
+                    "0x01c1 player bleeding"));
+        }
+        if (before.Poisons != after.Poisons || before.PoisonRevision != after.PoisonRevision
+            || before.PoisonUntil != after.PoisonUntil)
+        {
+            if (before.Poisons > 0) packets.Add((InstanceEntities.RemoveBuff(PlayerId, poisonInstance), "0x01c2 player poison ends"));
+            if (after.Poisons > 0)
+                packets.Add((InstanceEntities.AddBuff(PlayerId, poisonInstance, PoisonBuffRow, PlayerId,
+                    stacks: (ushort)Math.Clamp(after.Poisons, 1, ushort.MaxValue),
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, after.PoisonUntil - now))),
+                    $"0x01c1 player poisoned ({after.Poisons})"));
         }
         return packets;
     }

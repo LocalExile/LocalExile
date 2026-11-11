@@ -24,7 +24,26 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused ({why})");
             return;
         }
-        if (items.PickUp(row, pick.ItemId) is not { } held)
+        InventoryItem? picked;
+        if (PlayerInventories.ShowsOnModel(row))
+        {
+            // Retire the source under the same mutation lock as an owned spawn commit. The deferred send below may wait
+            // for that spawn, so source reconciliation cannot be left until SendEquipment.
+            using (ProjectileMutation(conn, advance: false, phase: "equipment pickup"))
+            {
+                picked = items.PickUp(row, pick.ItemId);
+                if (picked is not null)
+                {
+                    RecomputePoolsAndSpeed(conn);
+                    ReconcileBeastCompanionsLocked(conn);
+                }
+            }
+        }
+        else
+        {
+            picked = items.PickUp(row, pick.ItemId);
+        }
+        if (picked is not { } held)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused");
             return;
@@ -428,7 +447,7 @@ static partial class Game
         lock (conn.Monsters)
         {
             RecomputePoolsAndSpeed(conn);
-            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
         await SendCharacterStats(remote, stream, ciphers, conn, "passive jewels");
@@ -440,7 +459,7 @@ static partial class Game
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
@@ -580,8 +599,9 @@ static partial class Game
             r = FlaskRecovery.For(use, flask.Item, local,
                 name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
-            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerUnreservedLife, conn.PlayerMana, (uint)UnreservedMana(conn))
-                || copyLife && conn.PlayerLife < conn.PlayerUnreservedLife;
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, LifeCap(conn), conn.PlayerMana, (uint)UnreservedMana(conn))
+                || copyLife && conn.PlayerLife < LifeCap(conn)
+                || ConditionalFlaskAilmentProtectionTriggered(conn, local, AreaTime(conn));
         }
         bool CurrentRecovery()
         {
@@ -600,7 +620,7 @@ static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+                await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)
@@ -609,7 +629,7 @@ static partial class Game
         }
         if (!CurrentRecovery()) return;
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife));
+            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -1277,6 +1297,19 @@ static partial class Game
             && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
         else if (row == PlayerInventories.PassiveJewels
             && PassiveJewelRefusal(conn, (int)place.X, (int)place.Y, placement) is { } refusal) why = refusal;
+        else if (PlayerInventories.ShowsOnModel(row))
+        {
+            // This may replace a source before the inventory output can leave. Reconcile it with the spawn commit.
+            using (ProjectileMutation(conn, advance: false, phase: "equipment placement"))
+            {
+                done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+                if (done is not null)
+                {
+                    RecomputePoolsAndSpeed(conn);
+                    ReconcileBeastCompanionsLocked(conn);
+                }
+            }
+        }
         else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
         if (done is null)

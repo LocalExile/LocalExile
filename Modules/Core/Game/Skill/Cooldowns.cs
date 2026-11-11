@@ -5,19 +5,31 @@ using GameServer.Core.Protocol.Login;
 static partial class Game
 {
     internal static SingleUseCooldown? CooldownFor(ClientState conn, int effect, int level, int quality) =>
-        SkillsFor(conn).CooldownMs(effect, level) <= 0 || GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
+        SkillsFor(conn).CooldownMs(effect, level) <= 0
+        || !IsDashEffect(SkillsFor(conn).EffectId(effect)) && GemSkillEffects(conn).Count(g => g.Effect == effect) != 1 ? null :
             WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, CharacterPlayerStats(conn),
                 SkillsFor(conn).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2)));
 
-    internal static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
+    // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
+    internal static int CooldownKey(ClientState conn, int effect, int level) =>
+        (IsDashEffect(SkillsFor(conn).EffectId(effect)) || IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(effect)))
+            && SkillsFor(conn).CooldownGroup(effect, level) is >= 0 and var group ? -1 - group : effect;
+
+    internal static int CooldownKey(ClientState conn, int effect, ushort skillId)
     {
-        if (!conn.SingleUseCooldowns.TryGetValue(effect, out var state))
+        var gem = SupportedSkill(conn, skillId);
+        return gem.Effect == effect ? CooldownKey(conn, effect, gem.Level) : effect;
+    }
+
+    internal static SingleUseCooldownState CooldownStateLocked(ClientState conn, int key, SingleUseCooldown plan, double now)
+    {
+        if (!conn.SingleUseCooldowns.TryGetValue(key, out var state))
         {
-            double legacyRemaining = Math.Max(0, conn.SkillReadyAt.GetValueOrDefault(effect) - now);
+            double legacyRemaining = Math.Max(0, conn.SkillReadyAt.GetValueOrDefault(key) - now);
             state = new(now, plan.RecoveryRate, double.IsFinite(legacyRemaining)
                 ? legacyRemaining * 1000 * (plan.RecoveryRate > 0 ? plan.RecoveryRate : 1) : plan.BaseMilliseconds,
                 plan.BaseMilliseconds);
-            conn.SingleUseCooldowns[effect] = state;
+            conn.SingleUseCooldowns[key] = state;
         }
         state.Refresh(now, plan.RecoveryRate);
         return state;
@@ -45,12 +57,22 @@ static partial class Game
             using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             ticket = null;
             SingleUseCooldownState? state = null;
+            StanceAdmissionPlan? stancePlan = null;
+            int key = skillId is ushort requestedKey ? CooldownKey(conn, effect, requestedKey) : effect;
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
                 || requestedAt is double asked && PlayerActionBlocked(conn, asked, conn.Clock.Elapsed.TotalSeconds)
                 || actionToken is int original && conn.ActionCount != original) return false;
             // Covers object/self and instant routes before creating or spending cooldown state or a new action.
             if ((skillId is ushort id ? ActorSkillInstanceDisabled(conn, effect, id)
+                    ?? TravelSkillsExceptDashDisabled(conn, effect, id)
                 : ActorSkillDisabled(conn, effect)) is not null) return false;
+            if (skillId is ushort requestedSkill && StanceCatalog.IsSource(SkillsFor(conn).EffectId(effect)))
+            {
+                if (CurrentStanceSourceLocked(conn, requestedSkill, effect) is not { } stanceSource) return false;
+                plan = CooldownFor(conn, effect, stanceSource.Supported.Level, stanceSource.Supported.Quality);
+                double acceptedAt = conn.Clock.Elapsed.TotalSeconds;
+                if (reserve && !TryPlanStanceLocked(conn, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
+            }
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(conn)
@@ -68,17 +90,21 @@ static partial class Game
                     vaal.WorkGeneration = generation;
                 }
             }
+            double now = conn.Clock.Elapsed.TotalSeconds;
             if (plan is { } cooldown)
             {
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                state = CooldownStateLocked(conn, effect, cooldown, now);
-                if (reserve ? !state.TryUse(now, cooldown) : !state.Ready) return false;
-                conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
+                state = CooldownStateLocked(conn, key, cooldown, now);
+                if (!state.Ready) return false;
+                if (reserve) _ = state.TryUse(now, cooldown);
+                conn.SkillReadyAt[key] = now + state.RemainingSeconds;
             }
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
-            if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
-                state, state!.UseVersion);
+            StanceUseReceipt? stance = stancePlan is { } committedPlan && skillId is ushort receiptSkill
+                ? ApplyStancePlanLocked(conn, receiptSkill, committedPlan, conn.ActionCount, conn.ProjectileEpoch)
+                : null;
+            if (plan is not null || stance is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch,
+                instant, reserve, state, state?.UseVersion ?? 0, stance);
             return true;
         }
     }
@@ -86,19 +112,18 @@ static partial class Game
     internal static void RefreshSingleUseCooldowns(ClientState conn)
     {
         lock (conn.Monsters) if (conn.SingleUseCooldowns.Count == 0) return;
-        var player = CharacterPlayerStats(conn);
-        var plans = GemSkillEffects(conn).GroupBy(g => g.Effect).ToDictionary(g => g.Key, g =>
-            g.Count() != 1 ? null : WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, g.Key, g.First().Level, player,
-                SkillsFor(conn).EffectStats(g.Key, g.First().Level, g.First().Quality).ToDictionary(s => s.Item1, s => s.Item2))));
+        var plans = GemSkillEffects(conn).GroupBy(g => CooldownKey(conn, g.Effect, g.Id)).ToDictionary(g => g.Key, g =>
+            g.Select(skill => CooldownFor(conn, skill.Effect, skill.Level, skill.Quality))
+                .FirstOrDefault(plan => plan is not null));
         lock (conn.Monsters)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
-            foreach (var (effect, state) in conn.SingleUseCooldowns.ToArray())
+            foreach (var (key, state) in conn.SingleUseCooldowns.ToArray())
             {
-                if (!plans.TryGetValue(effect, out var plan)) continue; // Removal does not reset a spent use.
+                if (!plans.TryGetValue(key, out var plan)) continue; // Removal does not reset a spent use.
                 state.Refresh(now, plan?.RecoveryRate ?? state.Rate);
-                conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
-                if (plan is null) conn.SingleUseCooldowns.Remove(effect); // Unsupported mechanics retain the legacy path.
+                conn.SkillReadyAt[key] = now + state.RemainingSeconds;
+                if (plan is null) conn.SingleUseCooldowns.Remove(key); // Unsupported mechanics retain the legacy path.
             }
         }
     }
@@ -114,7 +139,8 @@ static partial class Game
             var synchronized = new List<SingleUseCooldownState>();
             foreach (var (id, effect) in currentSkills())
             {
-                if (!conn.ClientSkillIds.Contains(id) || !conn.SingleUseCooldowns.TryGetValue(effect, out var state)
+                if (!conn.ClientSkillIds.Contains(id) || !conn.SingleUseCooldowns.TryGetValue(
+                        CooldownKey(conn, effect, id), out var state)
                     || state.NativeSkillId != id) continue;
                 state.Refresh(now, state.Rate);
                 if (!state.NeedsNativeRefresh) continue;

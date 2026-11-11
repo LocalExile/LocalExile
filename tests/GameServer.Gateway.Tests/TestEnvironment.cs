@@ -15,6 +15,7 @@ static class TestEnvironment
                     && File.Exists(Path.Combine(dir.FullName, "src", "GameServer.Gateway", "GameServer.Gateway.csproj")))
                 {
                     Directory.SetCurrentDirectory(dir.FullName);
+                    Saves.Open(ScratchSaves);
                     return;
                 }
         throw new DirectoryNotFoundException("Gateway tests need a LocalExile checkout.");

@@ -347,6 +347,11 @@ static class UtilityFlasks
         {
             get { lock (_lock) return _active.Count > 0; }
         }
+
+        public bool ActiveAt(double now)
+        {
+            lock (_lock) return _active.Any(a => a.Started <= now && now < a.Ends);
+        }
     }
 
     /// <summary>poewiki, Flask, "Effects of flasks": "When creating multiple of the same (non-recovery) flask effect, each

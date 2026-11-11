@@ -30,6 +30,8 @@ sealed class PlayerMinions
         public ushort OwnerBuff;
         /// <summary>It attacks the player's enemies near it (Game.MinionAttacks).</summary>
         public bool Fights { get; init; }
+        /// <summary>It belongs to SpiritChieftains, whose cleanup must not retire unrelated fighting minions.</summary>
+        public bool SpiritChieftain { get; init; }
     }
 
     /// <summary>An aura a minion casts on its owner: the skill, its BuffDefinitions row, its radius (cells) and its stats.
@@ -64,6 +66,8 @@ sealed class PlayerMinions
 
     public IReadOnlyCollection<Minion> All => minions.Values;
     public bool Owns(uint id) => minions.ContainsKey(id);
+    public bool Owns(uint id, SpawnedMonster monster) =>
+        minions.TryGetValue(id, out var owned) && ReferenceEquals(owned.Monster, monster);
     public bool Fights(uint id) => minions.TryGetValue(id, out var m) && m.Fights;
     public void Add(Minion minion) => minions[minion.Id] = minion;
     public void Remove(uint id) { minions.Remove(id); Attacks.Remove(id); }

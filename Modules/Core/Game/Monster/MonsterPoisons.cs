@@ -36,36 +36,49 @@ static partial class Game
     // the hit's own increases and the monster's resistance, already in <paramref name="mitigated"/>, must not reach it.
     internal static void PoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
         bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
-        MonsterPoisons.Settings settings, double now, Random random)
+        MonsterPoisons.Settings settings, double now, Random random) =>
+        TryPoisonOnHitLocked(conn, target, mitigated, spell, critical, player, skill, settings, now, random,
+            out _, out _);
+
+    internal static bool TryPoisonOnHitLocked(ClientState conn, SpawnedMonster target, DamagePacket mitigated,
+        bool spell, bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
+        MonsterPoisons.Settings settings, double now, Random random, out double perSecond, out double seconds)
     {
-        if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return;
+        perSecond = seconds = 0;
+        if (target.Dead || target.Life == 0 || settings.Seconds <= 0) return false;
         double phys = mitigated[DamageType.Physical].Min;
         double chaos = mitigated[DamageType.Chaos].Min;
-        if (phys + chaos <= 0) return;
+        if (phys + chaos <= 0) return false;
 
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int Get(string name) => Player(name) + Skill(name);
 
-        if (MonsterPoisons.Prohibited(Get)) return;
+        if (MonsterPoisons.Prohibited(Get)) return false;
 
         long chance = (long)Get("base_chance_to_poison_on_hit_%")
-            + (spell ? Get("spells_chance_to_poison_on_hit_%") : Get("chance_to_poison_on_hit_with_attacks_%") + settings.WeaponChance);
+            + (spell
+                ? Get("spells_chance_to_poison_on_hit_%")
+                : Get("chance_to_poison_on_hit_with_attacks_%") + settings.WeaponChance + settings.ProjectileChance);
         if (chaos > 0) chance += Get("chaos_damage_chance_to_poison_%");
 
-        if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return;
-        if (target.Mods.Effects["cannot_be_poisoned"] != 0) return;
+        if (chance <= 0 || !RandomRolls.Chance((int)Math.Clamp(chance, 0, 100), 100, random)) return false;
+        if (target.Mods.Effects["cannot_be_poisoned"] != 0) return false;
         int avoid = target.Mods.Effects["avoid_poison_%"];
-        if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return;
+        if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         // Lethal Dose: a hit that finds the enemy unpoisoned applies additional poisons on top of its own.
         int stacks = 1 + (target.Poisons.Stacks(now) == 0
             ? Math.Max(0, Get("additional_poisons_+_to_apply_vs_non_poisoned_enemies")) : 0);
-        double perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
-        double seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
-        for (int i = 0; i < stacks; i++) target.Poisons.Add(now, perSecond, seconds);
+        perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
+        seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
+        int accepted = 0;
+        for (int i = 0; i < stacks; i++)
+            if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
+        if (accepted == 0) return false;
         ReservationPoisonLocked(conn, now);
+        return true;
     }
 
     internal static async Task TickPoisons(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)

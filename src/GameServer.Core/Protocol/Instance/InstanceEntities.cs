@@ -1068,8 +1068,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, bool Shown = true, string? AnimatedObject = null,
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
-    uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
+    uint ManaReserved = 0, uint LifeReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0,
+    IReadOnlyCollection<int>? LeagueQuestFlags = null,
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }

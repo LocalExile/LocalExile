@@ -75,10 +75,14 @@ static class ItemModStats
                         if (!StatConditions.Counts(state)) continue;
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).
+                        int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent);
+                        if (state is StatConditions.State.Holds) value = StatConditions.ApplyRecentAmount(row.Stats[s].Id, value, subject);
                         if (state is StatConditions.State.Holds && statExists is not null
-                            && StatConditions.Fold(id, statExists) is { } plain)
-                            id = plain;
-                        yield return (id, IsEffectStat(row.Stats[s].Id) ? mod.Values[s] : Scale(mod.Values[s], percent));
+                            && StatConditions.FoldAll(id, statExists) is { Count: > 0 } targets)
+                        {
+                            foreach (string target in targets) yield return (target, value);
+                        }
+                        else yield return (id, value);
                     }
             }
     }
@@ -115,10 +119,11 @@ static class ItemModStats
         : (int)Math.Clamp(Math.Floor((decimal)value * (100 + (long)percent) / 100), int.MinValue, int.MaxValue);
 
     /// <summary>Wide per-key attribute totals: retain them until complete raw-key replacement and bucket scaling.</summary>
-    public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods)
+    public static Dictionary<string, long> RawAttributes(IEnumerable<Item> items, ModCatalog mods,
+        StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
         var raw = new Dictionary<string, long>();
-        foreach (var (id, value) in Values(items, mods))
+        foreach (var (id, value) in Values(items, mods, subject: subject, statExists: statExists))
             if (AttributeModifiers.IsInput(id)) raw[id] = raw.GetValueOrDefault(id) + value;
         return raw;
     }

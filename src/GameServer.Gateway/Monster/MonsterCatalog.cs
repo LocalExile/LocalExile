@@ -14,7 +14,8 @@ sealed class MonsterCatalog(string folder = "data")
     public sealed record Variety(int Row, string Id, string Name, string BaseType, string? AnimatedObject, IReadOnlyList<string>? Components,
         int LifeMultiplier = 100, int MonsterType = -1, StateMachineData? StateMachine = null, byte TransitionStates = 1,
         int MovementSpeed = 30, int ObjectSize = 3, int AggroRange = 60, IReadOnlyList<int>? GrantedEffects = null,
-        int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100, bool BossHealthBar = false)
+        int AttackMs = 1500, int AttackRange = 8, int DamageMultiplier = 100, int ExperienceMultiplier = 100,
+        bool BossHealthBar = false, IReadOnlyList<int>? SpeciesMods = null)
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
@@ -34,6 +35,8 @@ sealed class MonsterCatalog(string folder = "data")
         /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
         public double ModelScale { get; init; } = 1;
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>Mods.dat rows owned by this MonsterVarieties row (ModsKeys, ModsKeys2 and Special_ModsKeys).</summary>
+        public IReadOnlyList<int> SpeciesModsOrEmpty => SpeciesMods ?? [];
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
@@ -311,6 +314,11 @@ sealed class MonsterCatalog(string folder = "data")
                 // for the task count: "Buffer Underflow" (live 2026-10-30). 17 varieties serialise differently that way.
                 string type = components.ContainsKey(id) ? id : baseType;
                 string? ao = r.GetProperty("AOFiles").EnumerateArray().Select(a => a.GetString()).FirstOrDefault();
+                int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
+                    .SelectMany(name => r.TryGetProperty(name, out var values) && values.ValueKind == JsonValueKind.Array
+                        ? values.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32())
+                        : [])
+                    .Distinct().ToArray();
                 rows.Add(new Variety(rows.Count, id, r.GetProperty("Name").GetString() ?? "", baseType, ao,
                     components.Count == 0 ? null : components.GetValueOrDefault(type),
                     r.GetProperty("LifeMultiplier").GetInt32(),
@@ -320,7 +328,8 @@ sealed class MonsterCatalog(string folder = "data")
                     [.. r.GetProperty("GrantedEffectsKeys").EnumerateArray().Select(e => e.GetInt32())],
                     r.GetProperty("AttackSpeed").GetInt32(), r.GetProperty("MaximumAttackDistance").GetInt32(),
                     r.GetProperty("DamageMultiplier").GetInt32(), r.GetProperty("ExperienceMultiplier").GetInt32(),
-                    r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True)
+                    r.TryGetProperty("BossHealthBar", out var bar) && bar.ValueKind == JsonValueKind.True,
+                    speciesMods)
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true),

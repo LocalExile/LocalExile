@@ -240,6 +240,8 @@ static partial class Game
             if (!Active) return ProjectileHitResult.Miss;
             // A monster's shot: the player is the target and the monster's damage pipeline commits the hit.
             if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
+            // A player minion's shot: a hostile monster is the target and the existing minion outcome pipeline owns it.
+            if (contact.Projectile.Use.Payload is MinionProjectileOffense minion) return MinionProjectileHit(this, contact, minion);
             // A server object's shot (a trial's dart trap): its own rule commits the hit.
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
@@ -260,6 +262,8 @@ static partial class Game
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
                 var ownedHit = ApplyMonsterHitLocked(Conn, target, ownedDamage, rampageSource: true);
                 if (ownedHit is null) return ProjectileHitResult.Miss;
+                Conn.RecentEvents.RecordCriticalOutcome(
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond, crit);
                 if (ownedHit.Value.StageStarts) CommitProjectileBossStage(this, contact.Target.Id, target, contact.At);
                 var stun = RampageStatusLocked(Conn, contact.Target.Id, target, shot.RampageSkill,
                     contact.At / (double)ProjectileRuntime.QuantaPerSecond);
@@ -323,6 +327,7 @@ static partial class Game
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell));
             if (hit is null) return ProjectileHitResult.Miss;
+            Conn.RecentEvents.RecordCriticalOutcome(at, critical);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -331,7 +336,9 @@ static partial class Game
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Fire].Max > 0) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
-            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
+            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
+                BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
+                    BleedReflected(CharacterPlayerStats(Conn)));
             RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
@@ -602,6 +609,7 @@ static partial class Game
         {
             ProjectileOffense offense => offense.Label,
             HostileProjectileOffense hostile => hostile.Label,
+            MinionProjectileOffense minion => minion.Label,
             ObjectProjectileOffense thrown => thrown.Label,
             _ => null,
         };

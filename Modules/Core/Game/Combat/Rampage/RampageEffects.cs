@@ -200,6 +200,7 @@ static partial class Game
             if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150));
             hit = ApplyMonsterHitLocked(conn, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
+            conn.RecentEvents.RecordCriticalOutcome(ProjectileWorldTime(conn), critical);
             if (hit.Value.StageStarts) CommitBossStage(remote, stream, ciphers, conn, id, target, ProjectileWorldTime(conn));
             stun = RampageStatusLocked(conn, id, target, own, ProjectileWorldTime(conn));
         }

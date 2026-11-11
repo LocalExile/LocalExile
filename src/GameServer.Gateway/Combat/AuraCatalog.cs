@@ -8,9 +8,13 @@ static class AuraCatalog
     /// <summary>One active reservation skill: the skill id, its GrantedEffects row and id, its buff instance, and its gem's
     /// level and quality.</summary>
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
-        int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
+        int ManaFlat, int ManaPercent, int LifeFlat = 0, int LifePercent = 0, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
+        WornGrantedSkills.Grant? WornGrant = null, IReadOnlyList<(uint Key, int Value)>? SkillStats = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
-        bool ReservesLife = false, int ReservationEfficiencyPct = 0);
+        bool ReservesLife = false, int ReservationEfficiencyPct = 0)
+    {
+        public object? StanceOwner { get; init; }
+    }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -62,6 +66,8 @@ static class AuraCatalog
         ["Zealotry"] = 1272,
         ["Malevolence"] = 1274,
         ["Envy"] = 828,
+        ["BloodStance"] = 1308,
+        ["SandStance"] = 1309,
         // Pride's buff is on nearby enemies; the same row also draws the player's aura icon (BuffVisuals 1098).
         ["Pride"] = PrideBuffRow,
         ["TemporalChains"] = 69,
@@ -113,9 +119,27 @@ static class AuraCatalog
         "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination", _ => effectId,
     };
 
+    static string StatFamily(Aura aura) =>
+        StanceCatalog.IsStance(aura.EffectId) ? StanceCatalog.BloodAndSand : Family(aura.EffectId);
+
     public static bool Supported(string effectId) => BuffRows.ContainsKey(Family(effectId));
 
     public static ushort BuffRow(string effectId) => BuffRows[Family(effectId)];
+
+    /// <summary>The character stat that exempts a supported aura family from Mana reservation. The shipped rows use the
+    /// lower snake-case effect family (for example EnvyNoReservationUnique__1 carries envy_reserves_no_mana).</summary>
+    public static string NoManaReservationStat(string effectId)
+    {
+        string family = Family(effectId);
+        var stat = new System.Text.StringBuilder(family.Length + 16);
+        for (int i = 0; i < family.Length; i++)
+        {
+            char c = family[i];
+            if (i > 0 && char.IsUpper(c)) stat.Append('_');
+            stat.Append(char.ToLowerInvariant(c));
+        }
+        return stat.Append("_reserves_no_mana").ToString();
+    }
 
     /// <summary>Pride's "more Physical Damage taken" at its minimum and maximum, scaled by aura effect.</summary>
     public static (int Min, int Max) PridePhysicalDamageTaken(Aura aura, int auraEffectPct, SkillCatalog skills,
@@ -141,14 +165,19 @@ static class AuraCatalog
     public static IReadOnlyList<Aura> Restore(IEnumerable<string> saved, IEnumerable<Aura> available, CharacterStats.Pools pools, bool inTown = false)
     {
         if (inTown) return [];
-        var gems = available.Where(a => Supported(a.EffectId)).GroupBy(a => Family(a.EffectId)).ToDictionary(g => g.Key, g => g.First());
+        var gems = available.Where(a => Supported(a.EffectId)).GroupBy(RestoreFamily)
+            .ToDictionary(g => g.Key, g => g.First());
         var restored = new List<Aura>();
-        foreach (string effect in saved.Select(Family).Distinct())
+        foreach (string effect in saved.Select(RestoreFamily).Distinct())
             if (gems.TryGetValue(effect, out var aura))
                 if (RequiredMana(pools, restored.Append(aura)) <= pools.Mana
                     && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
         return restored;
     }
+
+    static string RestoreFamily(Aura aura) => RestoreFamily(aura.EffectId);
+    static string RestoreFamily(string effectId) =>
+        StanceCatalog.IsStance(effectId) ? StanceCatalog.SourceFamily(effectId) : Family(effectId);
 
     /// <summary>
     /// The mana reserved by the active auras: flat reservations plus the percent reservations (permyriad) of the
@@ -159,24 +188,33 @@ static class AuraCatalog
         => Math.Min((int)pools.Mana, RequiredMana(pools, auras));
 
     public static int RequiredMana(CharacterStats.Pools pools, IEnumerable<Aura> auras)
-        => Required(pools.Mana, pools.ManaReservationEfficiencyPct, auras.Where(a => !a.ReservesLife));
+        => Required(pools.Mana, pools.ManaReservationEfficiencyPct, auras.Where(a => !a.ReservesLife), false);
 
     public static int RequiredLife(CharacterStats.Pools pools, IEnumerable<Aura> auras)
-        => Required(pools.Life, pools.LifeReservationEfficiencyPct, auras.Where(a => a.ReservesLife));
+        => Required(pools.Life, pools.LifeReservationEfficiencyPct, auras.Where(UsesLife), true);
 
     internal static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
+        => Required(maximum, efficiencyPct, auras, false);
+
+    internal static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras, bool life)
     {
         double flat = 0, percent = 0;
         foreach (var aura in auras)
         {
             double efficiency = Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
-            flat += Math.Round(aura.ManaFlat / efficiency, MidpointRounding.AwayFromZero);
+            var (flatCost, percentCost) = life
+                ? ExplicitLife(aura) ? (aura.LifeFlat, aura.LifePercent) : (aura.ManaFlat, aura.ManaPercent)
+                : (aura.ManaFlat, aura.ManaPercent);
+            flat += Math.Round(flatCost / efficiency, MidpointRounding.AwayFromZero);
             // PoB rounds each skill's reserved percent to two decimals before summing it.
-            percent += Math.Round(aura.ManaPercent / 100.0 / efficiency, 2, MidpointRounding.AwayFromZero);
+            percent += Math.Round(percentCost / 100.0 / efficiency, 2, MidpointRounding.AwayFromZero);
         }
         double reserved = flat + maximum * percent / 100.0;
         return (int)Math.Clamp(Math.Ceiling(reserved), 0, int.MaxValue);
     }
+
+    static bool ExplicitLife(Aura aura) => aura.LifeFlat != 0 || aura.LifePercent != 0;
+    static bool UsesLife(Aura aura) => ExplicitLife(aura) || aura.ReservesLife;
 
     public static int UnreservedMana(CharacterStats.Pools pools, IEnumerable<Aura> auras) =>
         Math.Max(0, (int)pools.Mana - ReservedMana(pools, auras));
@@ -189,7 +227,7 @@ static class AuraCatalog
         int fireMax = 0, coldMax = 0, lightningMax = 0, chaosMax = 0;
         int accuracy = 0, criticalChance = 0, attackSpeed = 0, movementSpeed = 0;
         int armour = 0, evasion = 0, energyShield = 0, armourMore = 0, evasionMore = 0, spellCrit = 0;
-        foreach (var group in auras.GroupBy(a => Family(a.EffectId)))
+        foreach (var group in auras.GroupBy(StatFamily))
         {
             var aura = group.First();
             int Strongest(string name) => group.Max(a => Value(skills, stats, a, name, auraEffectPct + a.SupportEffectPct));
@@ -252,7 +290,7 @@ static class AuraCatalog
     public static IEnumerable<(uint Key, int Value)> ResistanceStats(IEnumerable<Aura> auras, int auraEffectPct,
         SkillCatalog skills, StatCatalog stats)
     {
-        foreach (var group in auras.GroupBy(a => Family(a.EffectId)))
+        foreach (var group in auras.GroupBy(StatFamily))
         {
             var aura = group.First();
             string? element = aura.EffectId switch
@@ -286,7 +324,7 @@ static class AuraCatalog
         SkillCatalog skills, StatCatalog stats)
     {
         var result = new Dictionary<uint, int>();
-        foreach (var group in auras.GroupBy(a => Family(a.EffectId)))
+        foreach (var group in auras.GroupBy(StatFamily))
         {
             var family = new Dictionary<uint, int>();
             foreach (var aura in group)
@@ -369,26 +407,22 @@ static class AuraCatalog
                     case "Haste":
                         Add("cast_speed_+%", "cast_speed_+%_granted_from_skill");
                         break;
-                    case "BloodAndSand":
-                        Add("blood_sand_stance_melee_skills_area_damage_+%_final_in_blood_stance");
-                        Add("blood_sand_stance_melee_skills_area_damage_+%_final_in_sand_stance");
-                        Add("blood_sand_stance_melee_skills_area_of_effect_+%_final_in_blood_stance");
-                        Add("blood_sand_stance_melee_skills_area_of_effect_+%_final_in_sand_stance");
+                    case "BloodAndSand" or "BloodStance" or "SandStance" or "FleshAndStone":
                         if (stats.Key(aura.Stance == "Sand" ? "in_sand_stance" : "in_blood_stance") is uint stanceKey)
-                            family[stanceKey] = 1;
+                            result[stanceKey] = 1;
                         break;
                 }
 
-                // Only size inputs compose here; this does not activate or add any aura.
-                var effectStats = skills.EffectStats(aura.Effect, aura.Level, aura.Quality);
-                foreach (string name in ActorScale.Inputs)
-                {
-                    if (stats.Key(name) is not uint key) continue;
-                    var source = effectStats.FirstOrDefault(s => s.Item1 == key);
-                    if (source.Item1 != key) continue; // Preserve present zero limits as well as nonzero size sources.
-                    int value = Value(skills, stats, aura, name, auraEffectPct + aura.SupportEffectPct);
-                    family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
-                }
+            // Only size inputs compose here; this does not activate or add any aura.
+            var effectStats = EffectStats(aura, skills);
+            foreach (string name in ActorScale.Inputs)
+            {
+                if (stats.Key(name) is not uint key) continue;
+                var source = effectStats.FirstOrDefault(s => s.Item1 == key);
+                if (source.Item1 != key) continue; // Preserve present zero limits as well as nonzero size sources.
+                int value = Value(skills, stats, aura, name, auraEffectPct + aura.SupportEffectPct);
+                result[key] = ActorScale.Add(key, result.GetValueOrDefault(key), value);
+            }
 
                 void Add(string name, string? source = null)
                 {
@@ -407,11 +441,14 @@ static class AuraCatalog
         if (stats.Key(name) is not uint key) return 0;
         auraEffectPct = aura.ExternalEffectPct ?? auraEffectPct;
         if (!skills.IsAura(aura.Effect)) auraEffectPct = 0;
-        int value = skills.EffectStats(aura.Effect, aura.Level, aura.Quality).FirstOrDefault(kv => kv.Item1 == key).Item2;
+        int value = EffectStats(aura, skills).FirstOrDefault(kv => kv.Item1 == key).Item2;
         // PoB ModStore.ScaleAddList truncates these integer defence-aura stats before character-wide scaling.
         // Decimal preserves the exact hundredths from the integer aura-effect percentage.
         if (Family(aura.EffectId) is "Discipline" or "Determination" or "Grace")
             return (int)Math.Clamp(decimal.Truncate(value * Math.Max(0m, 100m + auraEffectPct) / 100m), int.MinValue, int.MaxValue);
         return (int)Math.Round(value * Math.Max(0, 100 + auraEffectPct) / 100.0, MidpointRounding.AwayFromZero);
     }
+
+    static IReadOnlyList<(uint Key, int Value)> EffectStats(Aura aura, SkillCatalog skills) =>
+        aura.SkillStats ?? skills.EffectStats(aura.Effect, aura.Level, aura.Quality);
 }

@@ -109,11 +109,17 @@ sealed class MonsterIgnites
     /// target's avoidance. The damage per second is an independent roll in the context's range, as the incoming
     /// ailments roll theirs (<c>ApplyPlayerAilmentsLocked</c>). True when an ignite was added.</summary>
     public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random)
+        => TryApply(settings, critical, now, avoid, immune, random, out _);
+
+    public bool TryApply(Settings settings, bool critical, double now, int avoid, bool immune, Random random,
+        out double perSecond)
     {
+        perSecond = 0;
         if (immune || settings.Seconds <= 0 || !critical && !RandomRolls.Chance(settings.Chance, 100, random)
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        return Add(now, min + (Math.Max(min, max) - min) * random.NextDouble(), settings.Seconds, settings.Aggravated);
+        perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
+        return Add(now, perSecond, settings.Seconds, settings.Aggravated);
     }
 
     /// <summary>An ignite already worked out (its chance rolled, its damage and duration final). True when added.</summary>

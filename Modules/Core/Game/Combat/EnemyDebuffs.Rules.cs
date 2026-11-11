@@ -210,6 +210,25 @@ static partial class Game
                     bytes.AddRange(blinded ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId) : InstanceEntities.RemoveBuff(id, buff));
                     if (blinded) added++; else removed++;
                 }
+                // Physical Aegis blinds nearby enemies only while any capacity remains. It has its own instances, so
+                // depleting the Aegis removes only this source and leaves a timed hit Blind untouched.
+                var aegis = PhysicalAegisStatus(conn, now);
+                int aegisRadius = alive && aegis.Active && PhysicalAegisHasBlind(conn, aegis)
+                    ? PhysicalAegisRadius(conn, aegis) : 0;
+                HashSet<uint> aegisInside = aegisRadius > 0
+                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 }
+                            && kv.Value.Mods.Effects["cannot_be_blinded"] == 0
+                            && Dist(kv.Value.Walk.Position(now), here) <= aegisRadius)
+                        .Select(kv => kv.Key).ToHashSet()
+                    : [];
+                foreach (var (id, buff, blinded) in aegis.Blind.Reconcile(
+                    aegisInside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
+                {
+                    bytes.AddRange(blinded
+                        ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId)
+                        : InstanceEntities.RemoveBuff(id, buff));
+                    if (blinded) added++; else removed++;
+                }
                 if (bytes.Count == 0) return null;
                 Console.WriteLine($"[gateway] {remote} enemy debuffs: {added} added, {removed} removed (t={now:0.000})");
                 return [.. bytes];

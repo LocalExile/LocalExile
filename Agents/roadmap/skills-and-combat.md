@@ -305,6 +305,11 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Fifteen native controls verify installed pairs, actual bonuses/Mana, refusal, restoration, relog and death.
   Native grey-icon prediction and persistent restricting equipment remain separate verification.
   Duplicate-instance support context and queued ordinary acknowledgements have separate regression controls.
+  Complete Lone Messenger, party auras and unsupported curse/enemy/banner/Vaal executors remain separate.
+  Blood and Sand's Blood/Sand stance, reservation, source lifecycle and automated consumers are implemented.
+  Representative same-head native acceptance covers activation, switching, 95% Mana reservation, Scorpion's Call
+  consumers, expiry, relog, area transition and source removal; normal gameplay and Flesh and Stone's
+  enemy-distance executor remain separate.
   Ordinary player and controlled-fighter aura sharing, Life reservation and Blasphemy hex execution are implemented;
   remaining enemy/banner/Vaal executors are separate.
   Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
@@ -313,6 +318,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Fire's); banners and unsupported conditional effects. Verify the complete herald combat matrix,
   retail Virulence decay and the skill-specific trap/mine payloads beyond the shared Skitterbot trigger/rearm lifecycle.
   The skill-bar indicator's buff association is implemented (0x1c1 bit3; live check pending, see Status).
+  Support gems come with the gem system ("Gems" below); life reservation has automated owner and consumer coverage
+  and awaits native acceptance; party and minion auras need their own systems.
   Support gems come with the gem system ("Gems" below); Life reservation has its own budget and recovery lifecycle.
 - **Done when:** the standard auras reserve correctly, their effects match PoB, and the character panel and HUD show
   the same reserved and unreserved values.
@@ -373,6 +380,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Deterministic production-state controls cover the combined resource/transfer/retirement boundaries and reload-safe
   utility End automation and atomic paid recovery; exact-head native/reload acceptance remains in the validation boundary.
   **Next:** complete exact-head full suites and native resource/Blind acceptance; see [Whisperer](../docs/game/whisperer.md).
+  Physical Aegis has deterministic coverage for capacity, recharge, Ward/ES order and its three conditions; native buff,
+  count, depletion recovery and nearby-Blind checks remain pending ([physical Aegis](../docs/game/physical-aegis.md)).
   Iron Will/Strength provenance and missing upstream conditional spell producers require separate work.
   Unsupported skill/variant execution and unrelated Crown leech remain separate; see
   [Arcane Might boundaries](../docs/game/arcane-might.md) and [20](../docs/protocol/20-damage.md) §2c.
@@ -445,6 +454,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   consumer, and exact official rounding is unproved.
   Four unconditional MORE/LESS critical sources are now implemented with final cap/rounding and actual support/
   item lifecycle/contact tests. Recheck Controlled Destruction and the unique -40% source in the native client.
+  Doppelgänger Guise's Unhinge-gated final is wired through the same stage; its native acceptance remains pending.
   Other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and execution,
   and the attack critical confirmation remain separate work. The off-hand range/timing publication currently
   has no corresponding critical fields; do not infer completion from its other weapon fields.
@@ -472,7 +482,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 
 - Generic Rage generation, limits, installed buff/count, actual damage, decay, pause and lifecycle are native-verified.
   Remaining native composition includes supported projectiles, area sweeps, linked/active equipment sources,
-  notification delays beyond the shared interval and slow destination loading.
+  the per-Rage Kaom's Primacy, Rigwald's Command and The Grey Wind coefficients, notification delays beyond the
+  shared interval and slow destination loading.
   Recheck charge, equipment and command refreshes queued across expiry and separate decay-speed modifiers.
   The 140-damage/11-Fortification composition has automated accepted-contact coverage; verify it natively.
   Measure official capped-attempt refresh behavior and area-loading timer parity before replacing policy v1.

@@ -8,4 +8,5 @@ sealed partial class ClientState
     internal ChannelPaymentReceipt? PaidChannel;
     internal double NonChaosDotBypassCarry;
     internal double NonChaosDotTakenCarry;
+    internal double ChaosDotBypassCarry;
 }

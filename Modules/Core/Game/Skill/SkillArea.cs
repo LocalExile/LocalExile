@@ -24,6 +24,7 @@ static class SkillArea
     [
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
         "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
+        "blood_sand_stance_melee_skills_area_of_effect_+%_final",
     ];
 
     /// <summary>The base form of increased area: the player's goes into the panel total <c>skill_area_of_effect_+%</c>

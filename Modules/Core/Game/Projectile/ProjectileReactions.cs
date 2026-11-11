@@ -19,8 +19,7 @@ static partial class Game
         double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
         conn.LastEnemyHitAt = now;
         // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-        conn.RecentEvents.Record(StatConditions.HitEnemy, now);
-        if (critical) conn.RecentEvents.Record(StatConditions.Crit, now);
+        conn.RecentEvents.RecordHit(now, critical);
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
         if (hit.Life == 0)
@@ -98,6 +97,9 @@ static partial class Game
         bool playerKill = true)
     {
         var conn = session.Conn;
+        // The projectile's lethal hit froze this decision before the output queue can publish it.
+        bool destroyCorpse;
+        lock (conn.Monsters) destroyCorpse = playerKill && TakeUnhingedHitKillLocked(conn, monster);
         StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
         var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
@@ -136,11 +138,11 @@ static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true);
                 TrimLeechLocked(conn);
                 session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
-                session.Packet(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
+                session.Packet(PlayerLifeUpdate(conn));
                 session.Enqueue(() => SendPlayerMana(session.remote, session.stream, session.ciphers, conn, "projectile kill level"));
                 session.Packet(PassivesMessage(conn).Bytes);
                 // Account-level persistence is a projection of the committed XP ledger.
@@ -157,6 +159,8 @@ static partial class Game
             CommitProjectileLoot(session, monster, position);
             return Task.CompletedTask;
         });
+        session.Enqueue(() => PublishUnhingedCorpseDestruction(session.remote, session.stream, session.ciphers,
+            conn, id, monster, destroyCorpse));
     }
 
     static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position)

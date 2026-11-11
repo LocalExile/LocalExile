@@ -70,7 +70,8 @@ static partial class Game
             if (!TargetCurrent() || Dist(attacker.Walk.Position(now), weapon.Walk.Position(now)) > attack.Range + 2)
                 return null;
             int accuracy = attacker.Mods.Effects.Accuracy(Monsters.BaseAccuracy(attacker.Level) ?? 0);
-            var sources = conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || conn.FlaskGrounds.Blinded(targetId) || conn.BlindAura.Blinded(targetId)
+            var sources = conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || PhysicalAegisBlinds(conn, id)
+                || conn.FlaskGrounds.Blinded(targetId) || conn.BlindAura.Blinded(targetId) || PhysicalAegisBlinds(conn, targetId)
                 ? CharacterStatSources(conn).Stats : null;
             accuracy = MonsterBlindRating(conn, id, attacker, accuracy, now, sources);
             if (!RampageAttackHits(conn, targetId, weapon, accuracy, now, Random.Shared, sources)) return null;

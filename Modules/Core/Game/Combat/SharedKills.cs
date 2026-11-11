@@ -46,10 +46,10 @@ static partial class Game
     {
         if (m.LastHitBy is { } by && !ReferenceEquals(by, conn) && !by.Closed && !by.LeavingArea && ReferenceEquals(by.Instance, conn.Instance))
         {
-            by.KillShares.Enqueue((r, s, c) => MonsterKilled(r, s, c, by, id, m));
+            by.KillShares.Enqueue((r, s, c) => MonsterKilled(r, s, c, by, id, m, byHit: false));
             return;
         }
-        await MonsterKilled(remote, stream, ciphers, conn, id, m);
+        await MonsterKilled(remote, stream, ciphers, conn, id, m, byHit: false);
     }
 
     // To every other client in the instance that has the object (and has it awake), through its own send gate. A

@@ -119,6 +119,11 @@ static partial class Game
                 Mark("grace");
                 bool cast = SkillsFor(conn).IsGemSkill(use.SkillId);
                 var gem = cast ? GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId) : default;
+                if (cast && gem.Name is null)
+                {
+                    Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4}: unknown dynamic skill id (action not started)");
+                    continue;
+                }
                 Mark("gem");
                 if (cast && gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) continue;
                 Mark("path");
@@ -188,6 +193,17 @@ static partial class Game
                         continue;
                     }
                 }
+                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
+                {
+                    bool valid;
+                    lock (conn.Monsters) valid = TryDashLanding(conn, gem.Effect, (use.X, use.Y), out _, out _);
+                    if (!valid)
+                    {
+                        Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: invalid Dash location " +
+                            $"({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                        continue;
+                    }
+                }
                 Mark("attackmove");
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
@@ -195,6 +211,28 @@ static partial class Game
                 if (attack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                    continue;
+                }
+                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
+                {
+                    if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at))
+                    {
+                        Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: Dash refused before action admission " +
+                            $"at ({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                        continue;
+                    }
+                    if (!await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, dashUse!.From, (use.X, use.Y),
+                            sequence: use.Slot, dashReceipt: dashUse)) continue;
+                    bool dashAcknowledged = false;
+                    await Send(remote, stream, ciphers,
+                        [.. InstanceProtocol.ActionStarted(PlayerId, dashUse.From.X, dashUse.From.Y, use.X, use.Y,
+                            use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(PlayerId)],
+                        $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name}: accepted Dash from ({dashUse.From.X}, {dashUse.From.Y}) " +
+                        $"to ({dashUse.To.X}, {dashUse.To.Y}) (t={dashUse.AcceptedAt:0.000})",
+                        still: () => dashAcknowledged = dashUse.ConfirmNativeUse(conn));
+                    if (!dashAcknowledged) continue;
+                    await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
                     continue;
                 }
                 Mark("ready");
@@ -214,7 +252,8 @@ static partial class Game
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
-                    else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
+                    else if (gem.Name is not null && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect))
+                        && LandsAtAim(conn, gem.Effect))
                     {
                         var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
                         conn.Walk.Teleport(landing.X, landing.Y, at);

@@ -273,9 +273,14 @@ static partial class Game
     internal static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
     {
         RefreshVaalSouls(conn);
-        // Under the Monsters lock, as every pools writer (a utility flask that ends recomputes under it too). First, so the
-        // model below knows which of the new items are inactive.
-        lock (conn.Monsters) { RecomputePoolsAndSpeed(conn); conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn)); }
+        // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
+        // worn item's requirements. Keep the same mutation lock as owned spawn commits.
+        using (ProjectileMutation(conn, advance: false, phase: "equipment output"))
+        {
+            RecomputePoolsAndSpeed(conn);
+            ReconcileBeastCompanionsLocked(conn);
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+        }
         await SendModel(remote, stream, ciphers, conn, Looks(conn, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
         await SendWornCosmetics(remote, stream, ciphers, conn, "equipment changed");
@@ -283,6 +288,10 @@ static partial class Game
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
             "0x01b3 player stats (equipment)");
+        await Send(remote, stream, ciphers, [], "0x01b1 player life (equipment)", atGate: () =>
+        {
+            lock (conn.Monsters) return PlayerLifeUpdate(conn);
+        });
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
     }
 

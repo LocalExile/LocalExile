@@ -112,8 +112,9 @@ sealed class PlayerElementalAilments
         uint? source = null)
     {
         seconds *= Math.Max(0, 1 - get($"self_{Name(kind)}_duration_-%") / 100.0);
+        string avoid = $"avoid_{Name(kind)}_%";
         if (magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, get)
-            || RandomRolls.Chance(get($"avoid_{Name(kind)}_%"), 100, random)) return;
+            || RandomRolls.Chance(get(avoid) + get("base_" + avoid), 100, random)) return;
         effects.Add(new(kind, now, now + seconds / expiryRate, magnitude, source));
     }
 

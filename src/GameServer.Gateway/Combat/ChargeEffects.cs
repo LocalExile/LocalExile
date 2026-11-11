@@ -54,8 +54,7 @@ static class ChargeEffects
     /// The per-charge stats the server applies, and the stats they add to. "Adds X to Y damage per charge" without "to
     /// attacks/spells" is global added damage: it adds to both (Path of Building maps it without a skill flag).
     /// Added damage has a minimum and a maximum stat, each its own rule. Targets the server does not calculate with
-    /// (ailments, leech, damage taken, wand-only or attack-only damage, mana cost, buff duration) are left out and
-    /// listed in 11-skills.md §15.
+    /// (wand-only or attack-only damage, mana cost, buff duration) are left out and listed in 11-skills.md §15.
     /// </summary>
     public static readonly IReadOnlyList<Rule> PerCharge =
     [
@@ -71,6 +70,7 @@ static class ChargeEffects
         E("damage_+%_per_endurance_charge", "damage_+%"),
         E("additional_block_%_per_endurance_charge", "additional_block_%"),
         E("additional_attack_block_%_per_endurance_charge", "additional_block_%"),
+        E("base_max_fortification_per_endurance_charge", "base_max_fortification"),
         E("physical_damage_reduction_rating_+%_per_endurance_charge", "physical_damage_reduction_rating_+%"),
         E("physical_damage_reduction_rating_per_endurance_charge", "base_physical_damage_reduction_rating"),
         E("spell_suppression_chance_%_per_endurance_charge", "base_spell_suppression_chance_%"),
@@ -103,6 +103,11 @@ static class ChargeEffects
         F("accuracy_rating_+%_per_frenzy_charge", "accuracy_rating_+%"),
         F("accuracy_rating_+_per_frenzy_charge", "accuracy_rating"),
         F("critical_strike_chance_+%_per_frenzy_charge", "critical_strike_chance_+%"),
+        F("bleeding_dot_multiplier_per_frenzy_charge_+", "bleeding_dot_multiplier_+"),
+        F("faster_bleed_per_frenzy_charge_%", "faster_bleed_%"),
+        F("poison_damage_+%_per_frenzy_charge", "base_poison_damage_+%"),
+        F("poison_dot_multiplier_+_per_frenzy_charge", "poison_dot_multiplier_+"),
+        F("life_leech_from_attack_damage_permyriad_per_frenzy_charge", "base_life_leech_from_attack_damage_permyriad"),
         F("additional_attack_block_%_per_frenzy_charge", "additional_block_%"),
         F("physical_damage_reduction_percent_per_frenzy_charge", PhysicalReduction),
         F("life_gained_on_enemy_death_per_frenzy_charge", "base_life_gained_on_enemy_death"),
@@ -111,6 +116,7 @@ static class ChargeEffects
         F("cold_damage_%_to_add_as_chaos_per_frenzy_charge", "cold_damage_%_to_add_as_chaos"),
         // Power
         P("critical_strike_chance_+%_per_power_charge", "critical_strike_chance_+%"),
+        P("additional_critical_strike_chance_per_power_charge_permyriad", "additional_base_critical_strike_chance"),
         P("critical_strike_multiplier_+_per_power_charge", "base_critical_strike_multiplier_+"),
         P("cast_speed_+%_per_power_charge", "base_cast_speed_+%"),
         P("attack_and_cast_speed_+%_per_power_charge", "attack_and_cast_speed_+%"),
@@ -127,6 +133,13 @@ static class ChargeEffects
         P("additional_spell_block_%_per_power_charge", "base_spell_block_%"),
         P("additional_attack_block_%_per_power_charge", "additional_block_%"),
         P("spell_suppression_chance_%_per_power_charge", "base_spell_suppression_chance_%"),
+        P("chance_to_poison_on_hit_%_per_power_charge", "base_chance_to_poison_on_hit_%"),
+        P("poison_damage_+%_per_power_charge", "base_poison_damage_+%"),
+        P("poison_duration_+%_per_power_charge", "poison_duration_+%"),
+        P("mana_leech_from_attack_damage_permyriad_per_power_charge", "base_mana_leech_from_attack_damage_permyriad"),
+        P("life_and_energy_shield_recovery_rate_+%_per_power_charge",
+            "life_recovery_rate_+%", "energy_shield_recovery_rate_+%"),
+        P("damage_taken_goes_to_mana_%_per_power_charge", "base_damage_removed_from_mana_before_life_%"),
         P("energy_shield_+%_per_power_charge", "maximum_energy_shield_+%"),
         P("movement_speed_+%_per_power_charge", "base_movement_velocity_+%"),
         P("physical_damage_reduction_percent_per_power_charge", PhysicalReduction),

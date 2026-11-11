@@ -660,7 +660,8 @@ static partial class Game
                         }
                         m.BusyUntil = begins + ma.Seconds;
                         m.LastTarget = null;
-                        var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At, begins + ma.Seconds / 2);
+                        var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At,
+                            begins + ma.Seconds * (ma.Release?.Fraction ?? .5));
                         conn.Minions.Attacks[id] = attack;
                         plan.MinionSwings.Add(attack);
                     }
@@ -1004,7 +1005,7 @@ static partial class Game
     {
         lock (conn.Monsters)
             return MonsterPresent(conn, id, m) && conn.PlayerLife > 0
-                && (m.Hostile || KingInMists.IsFetish(m.Variety)) && !m.StageRunning
+                && (m.Hostile || KingInMists.IsFetish(m.Variety) || conn.Minions.Owns(id, m)) && !m.StageRunning
                 && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
     }
 
@@ -1358,16 +1359,17 @@ static partial class Game
     }
 
     // "Gain X% of Missing Unreserved Life before being Hit by an Enemy" (PoB CalcDefence: only while alive, capped at the
-    // recoverable Life). Life reservation is not modelled, so unreserved Life is maximum Life. A blocked hit still counts:
+    // recoverable unreserved Life). A blocked hit still counts:
     // blocking does not prevent the defender's when-hit effects (wiki Blocking). Call under the Monsters lock.
     internal static void GainLifeBeforeEnemyHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.PlayerLife == 0 || conn.PlayerLife >= conn.PlayerMaxLife
+        uint lifeCap = LifeCap(conn);
+        if (conn.PlayerLife == 0 || conn.PlayerLife >= lifeCap
             || Stats.Key("missing_unreserved_life_%_gained_as_life_before_hit") is not uint key
             || stats.GetValueOrDefault(key) is not (> 0 and var pct)) return;
         var leech = LeechOf(conn);
         conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife,
-            (conn.PlayerMaxLife - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
+            (lifeCap - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
     // A swing order written in its send gate at `now` (under conn.Monsters): when it starts (LockstepOrderStart), its
@@ -1738,8 +1740,10 @@ static partial class Game
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, source: id);
+        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now);
         conn.RecentEnemyHits.Record(now);
         conn.RecentEvents.Record(StatConditions.BeenHit, now);
+        UnhingedHitRecoveryLocked(conn, now, stats);
         if (blocked)
         {
             conn.RecentEvents.Record(StatConditions.Blocked, now);
@@ -1795,7 +1799,7 @@ static partial class Game
         if (hit.Life == 0)
             await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, hit.Life, conn.PlayerReservedLife),
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
             $"0x01b1 player hit by monster 0x{id:x} for {hit.Damage}{(hit.Critical ? " (critical)" : "")}" +
             $"{(hit.RawDamage != hit.Damage ? $" ({hit.RawDamage} physical before {DamageModel.ArmourReduction(hit.Armour.EffectiveArmour, hit.RawDamage)}% armour, effective rating {hit.Armour.EffectiveArmour})" : "")}" +
             $"{(hit.Blocked ? " (blocked)" : "")}, life {hit.Life}/{conn.PlayerMaxLife}{(hit.Life == 0 ? " (dies)" : "")}");

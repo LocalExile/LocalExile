@@ -16,14 +16,16 @@ sealed class MonsterPoisons
     }
     /// <param name="WeaponChance">The attacking weapon's own local_poison_on_hit_% ("X% chance to Poison on Hit" on
     /// it), which the panel's chance counts for that hand's attacks.</param>
+    /// <param name="ProjectileChance">The qualified Yriel projectile-attack poison chance frozen at release. It is
+    /// additive to the contact's live generic attack chance and is not read again at contact.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
-        double Seconds, int WeaponChance = 0)
+        double Seconds, int WeaponChance = 0, int ProjectileChance = 0)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
         /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).</summary>
         public static Settings From(IEnumerable<(string Stat, int Value)> rows, string hand, Func<string, int> get,
-            IReadOnlyDictionary<string, int>? local = null)
+            IReadOnlyDictionary<string, int>? local = null, bool projectileAttack = false)
         {
             if (Prohibited(get)) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
@@ -32,12 +34,14 @@ sealed class MonsterPoisons
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault($"{bound}_poison_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
             long chance = (long)get("base_chance_to_poison_on_hit_%") + get("chaos_damage_chance_to_poison_%");
+            int projectileChance = projectileAttack
+                ? Math.Clamp(get("projectile_attacks_chance_to_poison_on_hit_%_if_you_have_beast_minion"), 0, 100) : 0;
             double seconds = Ailments.PoisonDurationSeconds
                 * Math.Max(0, 1 + ((double)get("poison_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
                 * MonsterIgnites.DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0);
+                local?.GetValueOrDefault("local_poison_on_hit_%") ?? 0, projectileChance);
         }
     }
 

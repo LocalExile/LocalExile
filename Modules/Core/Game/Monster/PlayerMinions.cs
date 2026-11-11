@@ -61,11 +61,18 @@ static partial class Game
         {
             if (!Current()) return;
             await tick(remote, stream, ciphers, conn, now);
+            if (!Current()) return;
         }
+        await TickBeastCompanions(remote, stream, ciphers, conn, now, rules);
+        if (!Current()) return;
         await GolemsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         await SummonsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         await ReservationSkillsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         await PlacedSkillsTick(remote, stream, ciphers, conn, now);
+        if (!Current()) return;
         var ended = new List<PlayerMinions.Minion>();
         var bytes = new List<byte>();
         int summons;

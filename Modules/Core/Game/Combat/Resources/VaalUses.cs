@@ -117,6 +117,7 @@ static partial class Game
                 || paid.Effect != effect || paid.Action != conn.ActionCount || paid.Epoch != conn.ProjectileEpoch
                 || !VaalAdmissionCurrent(conn, paid) || !PlayerActionCurrent(conn, paid.Action)) return null;
             paid.Executed = true;
+            conn.RecentEvents.Record(StatConditions.UsedVaalSkill, VaalResourceTime(conn));
             return paid;
         }
     }

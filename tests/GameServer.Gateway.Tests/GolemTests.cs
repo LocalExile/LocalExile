@@ -188,10 +188,19 @@ public sealed class GolemTests
                 var wornWeapon = weapon with { Sockets = [new(SocketColour.White, reservationGem)] };
                 Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, wornWeapon);
                 var active = Game.GemSkillEffects(conn).Single(g => Program.Skills.EffectId(g.Effect) == effectId);
-                var reservation = Game.SupportedReservation(conn, active.Id);
+                var reservation = Game.SupportedReservationCost(conn, active.Id);
                 Assert.NotNull(reservation);
-                Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, active.Id, active.Effect,
-                    active.Name, reservation!.Value, active.Level, active.Quality), effectId);
+                if (StanceCatalog.IsSource(effectId))
+                {
+                    Assert.True(Game.TryBeginSkillCooldownUse(conn, active.Id, active.Effect,
+                        Game.CooldownFor(conn, active.Effect, active.Level, active.Quality), instant: true,
+                        () => { }, out var stanceUse));
+                    Assert.True(await Game.CastGemSkill("test", wire.Stream, wire.Ciphers, conn, active.Id,
+                        (0, 0), (0, 0), cooldownUse: stanceUse), effectId);
+                }
+                else
+                    Assert.True(await Game.ToggleAura("test", wire.Stream, wire.Ciphers, conn, active.Id, active.Effect,
+                        active.Name, reservation!.Value, active.Level, active.Quality), effectId);
                 Assert.Single(conn.Auras); Assert.True(Game.ReservedMana(conn) > 0, effectId);
                 var aura = conn.Auras[active.Id];
                 if (effectId == "TempestShield")

@@ -11,7 +11,8 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
     internal readonly TimedBlind PlayerBlind = new();
     internal readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
-    internal sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind);
+    internal sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
+        PhysicalAegisState.Carried? Aegis);
     internal Snapshot? TransferCheckpoint;
     internal bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
@@ -22,7 +23,8 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
         if (old.Blind is { Buff: > 0 } blind) retired.Add((id, blind.Buff));
         var value = new TimedBlind(); Targets[id] = (target, value); return value;
     }
-    internal Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at));
+    internal Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at),
+        connection?.PhysicalAegis.Capture(at));
     internal void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
@@ -40,9 +42,18 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
     internal void Restore(Snapshot value, double at)
-    { Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at); }
+    {
+        Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at);
+        if (connection is not null && value.Aegis is { } aegis) connection.PhysicalAegis.Restore(aegis, this, at);
+    }
     public void Clear()
     {
+        if (connection is not null)
+        {
+            connection.RetiredPhysicalAegisBuffs.UnionWith(connection.PhysicalAegis.Retire());
+            if (connection.Unhinged.Retire() is ushort unhingedBuff and not 0)
+                connection.RetiredUnhingedBuffs.Add(unhingedBuff);
+        }
         if (PlayerBlind.Buff != 0) retired.Add((Program.PlayerId, PlayerBlind.Buff));
         foreach (var (id, value) in Targets)
             if (value.Blind.Buff != 0) retired.Add((id, value.Blind.Buff));
@@ -90,6 +101,7 @@ static partial class Game
     internal static void ManaSpentLocked(ClientState conn, uint amount, IReadOnlyDictionary<uint, int> player)
     {
         if (amount == 0 || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameRules) return;
+        conn.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(conn), amount);
         var state = ResourceEffectsOf(conn);
         if (!ResourceEffectsCurrent(conn, state)) return;
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;

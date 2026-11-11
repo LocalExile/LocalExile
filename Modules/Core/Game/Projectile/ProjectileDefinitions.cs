@@ -123,6 +123,7 @@ static partial class Game
     static ProjectilePresentation PresentationFor(ProjectileEntity p) =>
         (p.Use.Payload as ProjectileOffense)?.Presentation
         ?? (p.Use.Payload as HostileProjectileOffense)?.Presentation
+        ?? (p.Use.Payload as MinionProjectileOffense)?.Presentation
         ?? (p.Use.Payload as ObjectProjectileOffense)?.Presentation
         ?? (p.Use.Payload is ProjectileOffense shot && Skills.EffectId(shot.Effect) is { } effect
             ? ProjectileDefinition(effect)?.Presentation?.Invoke(p) : null)

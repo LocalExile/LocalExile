@@ -836,7 +836,7 @@ static partial class SurvivorsSkills
             life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
             conn.PlayerLife = life;
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life), "survivors death zone drain",
+        await Send(remote, stream, ciphers, PlayerLifeUpdate(conn), "survivors death zone drain",
             still: () => StateOf(conn).Survivors is not null);
     }
 

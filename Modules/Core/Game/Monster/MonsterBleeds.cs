@@ -4,6 +4,12 @@ using GameServer.Core.World;
 
 static partial class Game
 {
+    static bool Has(IReadOnlyDictionary<uint, int> player, string stat) =>
+        Stats.Key(stat) is uint key && player.GetValueOrDefault(key) != 0;
+    internal static bool BleedReflected(IReadOnlyDictionary<uint, int> player) => Has(player, "bleeding_reflected_to_self")
+        && !Has(player, "cannot_gain_bleeding") && !Has(player, "virtual_immune_to_bleeding")
+        && !Has(player, "immune_to_bleeding");
+
     /// <summary>The wiki's Bleeding: a moving enemy takes 200% more damage from it (the trial spike traps' bleed too).</summary>
     internal const double BleedMovingMore = 3;
 
@@ -28,7 +34,8 @@ static partial class Game
     /// it; a physical prohibition already leaves its rows empty.
     /// </summary>
     internal static MonsterIgnites.Settings BleedSettings(IEnumerable<(string Stat, int Value)> rows, string hand,
-        Func<string, int> get, IReadOnlyDictionary<string, int>? local, bool melee, bool bow)
+        Func<string, int> get, IReadOnlyDictionary<string, int>? local, bool melee, bool bow,
+        bool projectileAttack = false)
     {
         if (get("cannot_cause_bleeding") != 0 || get("never_damaging_ailments") != 0) return MonsterIgnites.Settings.None;
         double faster = Math.Max(0, 1 + ((double)get("faster_bleed_%") + get("damaging_ailments_deal_damage_+%_faster")) / 100.0);
@@ -38,10 +45,13 @@ static partial class Game
             r.GetValueOrDefault($"{bound}_bleeding_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
         int Local(string name) => local?.GetValueOrDefault(name) ?? 0;
         // The fixed chances are 1 on their mods: "25% chance to cause Bleeding on Hit" is local_chance_to_bleed_on_hit_25%.
+        long projectile = projectileAttack
+            ? get("projectile_attacks_chance_to_bleed_on_hit_%_if_you_have_beast_minion") : 0;
         long chance = get("global_bleed_on_hit") != 0 || Local("local_bleed_on_hit") != 0 ? 100
             : (long)get("bleed_on_hit_with_attacks_%") + Local("local_chance_to_bleed_on_hit_%")
                 + 25L * Local("local_chance_to_bleed_on_hit_25%") + 50L * Local("local_chance_to_bleed_on_hit_50%")
-                + (melee ? get("bleed_on_melee_attack_chance_%") : 0) + (bow ? get("bleed_on_bow_attack_chance_%") : 0);
+                + (melee ? get("bleed_on_melee_attack_chance_%") : 0) + (bow ? get("bleed_on_bow_attack_chance_%") : 0)
+                + projectile;
         long critical = chance + get("bleed_on_crit_%_with_attacks") + Local("local_bleed_on_critical_strike_chance_%")
             + 50L * Local("local_chance_to_bleed_on_crit_50%")
             + (melee ? get("bleed_on_melee_critical_strike") != 0 ? 100 : get("bleed_on_melee_crit_chance_%") : 0);
@@ -90,7 +100,7 @@ static partial class Game
     // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
     // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
     internal static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now)
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
         target.Bleeds.Stacks = settings.Stacks;
@@ -101,9 +111,15 @@ static partial class Game
         var e = target.Mods.Effects;
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e["avoid_bleed_%"] + e["base_avoid_bleed_%"],
                 e["immune_to_bleeding"] != 0 || e["cannot_gain_bleeding"] != 0 || e["base_cannot_gain_bleeding"] != 0,
-                conn.IgniteRandom)) return null;
+                conn.IgniteRandom, out double perSecond)) return null;
         // Rupture Support: the critical strike that inflicted this bleeding also ruptures the target.
         if (critical && settings.RupturePercent > 0) target.Ruptures.Add(now, settings.RupturePercent);
+        if (reflect)
+        {
+            var player = CharacterPlayerStats(conn);
+            conn.IncomingAilments.ApplyBleed(now, perSecond, settings.Seconds, reflected: true,
+                victim: name => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0);
+        }
         return ShowDotBuffLocked(conn, id, target.Bleeds, row, now);
     }
 
@@ -111,8 +127,8 @@ static partial class Game
         $"monster 0x{id:x} ({target.Label}) bleeding{(critical ? " from a critical hit" : "")} for {target.Bleeds.Until - now:0.##} s";
 
     internal static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now) =>
-        QueueDotBuff(session, BleedOnHitLocked(session.Conn, id, target, settings, critical, now),
+        MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
+        QueueDotBuff(session, BleedOnHitLocked(session.Conn, id, target, settings, critical, now, reflect),
             BleedingLog(id, target, critical, now));
 
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;

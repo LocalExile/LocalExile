@@ -153,7 +153,13 @@ static partial class Game
     internal static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
         List<ItemModStats.Worn> Worn) EquipmentStatSources(
         ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
-        IEnumerable<ushort>? nodes = null, int? level = null)
+        IEnumerable<ushort>? nodes = null, int? level = null) =>
+        EquipmentStatSources(conn, equipment, nodes, level, null);
+
+    internal static (Dictionary<uint, int> Sources, AttributeModifiers Attributes, HashSet<uint> Inactive,
+        List<ItemModStats.Worn> Worn) EquipmentStatSources(
+        ClientState conn, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
+        IEnumerable<ushort>? nodes, int? level, Action? afterConditionCapture)
     {
         // A level change can trim the list while /set_stat builds pools outside the combat lock.
         // Mastery dictionaries are replaced as a whole, so retaining their current reference is safe.
@@ -200,8 +206,10 @@ static partial class Game
         double conditionNow;
         IReadOnlySet<string> recentEvents;
         double? recentExpiry;
-        int strength, dexterity, intelligence, life, mana, energyShield;
+        int strength, dexterity, intelligence, life, mana, energyShield, poisonStacks;
         IReadOnlyDictionary<string, bool> conditionFlags;
+        LifeReservationConditionSnapshot lifeReservationConditions;
+        IReadOnlyDictionary<string, long> recentAmounts;
         lock (conn.Monsters)
         {
             auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
@@ -214,16 +222,26 @@ static partial class Game
             life = (int)conn.Pools.Life;
             mana = (int)conn.Pools.Mana;
             energyShield = (int)Math.Min(int.MaxValue, conn.Pools.EnergyShield);
-            conditionFlags = ItemConditionFlags(conn, conditionNow);
+            poisonStacks = conn.IncomingAilments.PoisonStacks(conditionNow);
+            conditionFlags = ItemConditionFlags(conn, conditionNow, null, out lifeReservationConditions);
+            var measured = conn.RecentEvents.Amounts(conditionNow);
+            measured.TryAdd(StatConditions.KilledEnemy, 0);
+            measured.TryAdd(StatConditions.SpentMana, 0);
+            recentAmounts = measured;
         }
+        // A deterministic test can interleave another owner update here, after this call has captured its condition view.
+        afterConditionCapture?.Invoke();
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
             before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()],
-            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield, conditionFlags,
-            ItemsFor(conn));
+            auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield,
+            conditionFlags, recentAmounts, poisonStacks, ItemsFor(conn));
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
+        {
+            PublishQualifiedItemLifeReservationPercent(conn, cached.Key.QualifiedItemLifeReservationPercent);
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
+        }
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
         // normal jewel in an ordinary tree socket; its local alternate-tree stats are read by TimelessJewelCatalog.
         var tree = PassivesFor(conn);
@@ -517,10 +535,55 @@ static partial class Game
         foreach (var (key, value) in copiedSmallStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
+        var equipmentValues = new Dictionary<string, int>();
+        foreach (var influence in Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None))
+            equipmentValues["equipped_" + influence.ToString().ToLowerInvariant()] = equipment.Count(e => e.Item.Item.Influences.HasFlag(influence));
+        foreach (var rarity in new[] { ItemRarity.Normal, ItemRarity.Magic, ItemRarity.Rare, ItemRarity.Unique })
+            equipmentValues["equipped_" + rarity.ToString().ToLowerInvariant()] = equipment.Count(e => e.Item.Item.Rarity == rarity);
+        equipmentValues["magic_ring_equipped"] = equipment.Count(e => e.Row is 6 or 7 && e.Item.Item.Rarity == ItemRarity.Magic);
+        equipmentValues["equipped_corrupted"] = equipment.Count(e => e.Item.Item.Corrupted);
+        equipmentValues["equipped_uncorrupted"] = equipment.Count - equipmentValues["equipped_corrupted"];
+        equipmentValues["equipped_one_handed_sword"] = equipment.Count(e => ItemsFor(conn).ByHash(e.Item.Item.TypeHash)?.Class
+            is "One Hand Sword" or "Thrusting One Hand Sword");
+        equipmentValues["equipped_unique_influence_amoung_equipped_non_amulet"] = Enum.GetValues<ItemInfluence>()
+            .Count(i => i != ItemInfluence.None && equipment.Any(e => ItemsFor(conn).ByHash(e.Item.Item.TypeHash)?.Class != "Amulet"
+                && e.Item.Item.Influences.HasFlag(i)));
+
+        StatConditions.Subject ConditionSubject(IReadOnlyDictionary<string, long> raw, IReadOnlyList<Item>? activeItems = null)
+        {
+            var attributes = AttributeInputs(raw, dev).Apply(c.Strength + (conn.God ? 1000 : 0),
+                c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+            var weapons = WeaponProfileFor(conn);
+            bool offHandEmpty = equipment.All(e => e.Row != PlayerInventories.Offhand1);
+            bool axe = activeItems is null ? weapons.Axe : equipment.Any(e =>
+                e.Row is PlayerInventories.Weapon1 or PlayerInventories.Offhand1
+                && activeItems.Any(item => ReferenceEquals(item, e.Item.Item))
+                && ItemsFor(conn).ByHash(e.Item.Item.TypeHash)?.Class is "One Hand Axe" or "Two Hand Axe");
+            return new(DualWield: weapons.DualWield, Shield: weapons.Shield, TwoHanded: weapons.TwoHand,
+                OneHanded: weapons.OneHand, OffHandEmpty: offHandEmpty, Axe: axe, Auras: auraEffects, Recent: recentEvents,
+                Value: name => name switch
+                {
+                    "strength" => attributes.Strength, "dexterity" => attributes.Dexterity, "intelligence" => attributes.Intelligence,
+                    "life" => life, "mana" => mana, "energy_shield" => energyShield,
+                    _ => equipmentValues.TryGetValue(name, out int count) ? count : null,
+                }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags, Amounts: recentAmounts);
+        }
+
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
         {
-            var raw = ItemModStats.RawAttributes(active, ItemsFor(conn).Mods);
+            var items = active.ToArray();
+            var raw = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods);
             foreach (var (name, value) in passiveAttributes) raw[name] = raw.GetValueOrDefault(name) + value;
+            // Independent equipment-count modifiers settle before comparisons that read those final attributes.
+            // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
+            for (int pass = 0; pass < 4; pass++)
+            {
+                var next = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods, ConditionSubject(raw), Stats.Has);
+                foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
+                bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
+                raw = next;
+                if (same) break;
+            }
             return raw;
         }
         int god = conn.God ? 1000 : 0;
@@ -565,29 +628,23 @@ static partial class Game
             inactive.ExceptWith(exemptions);
         }
         var rawAttributes = RawAttributes(active);
-        var conditionAttributes = AttributeInputs(rawAttributes, dev)
-            .Apply(c.Strength + (conn.God ? 1000 : 0), c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+        // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
+        // so an item's first action after a requirement change cannot use the previous inactive cache.
+        conditionFlags = RequalifyLifeReservation(conditionFlags, conn, active, lifeReservationConditions);
+        int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
+            ? dev.TryGetValue(itemReservationKey, out int replacement) ? replacement
+                : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
+            : 0;
+        sourcesKey = sourcesKey with
+        {
+            Flags = conditionFlags,
+            QualifiedItemLifeReservationPercent = qualifiedItemReservationPercent,
+        };
         // A stat whose id carries a condition only counts while that condition holds (issue #504). The subject answers
         // from state the server already keeps: the weapon profile, the auras running right now, the events of the last
         // four seconds (RecentEvents), and the attributes an "if you have at least N X" id compares. A condition it
         // cannot answer stays unmodelled and keeps its previous behaviour rather than counting wrongly.
-        var conditionWeapons = WeaponProfileFor(conn);
-        var conditionSubject = new StatConditions.Subject(
-            DualWield: conditionWeapons.DualWield, Shield: conditionWeapons.Shield,
-            TwoHanded: conditionWeapons.TwoHand, OneHanded: conditionWeapons.OneHand,
-            Auras: auraEffects,
-            Recent: recentEvents,
-            Value: attribute => attribute switch
-            {
-                "strength" => conditionAttributes.Strength,
-                "dexterity" => conditionAttributes.Dexterity,
-                "intelligence" => conditionAttributes.Intelligence,
-                "life" => life,
-                "mana" => mana,
-                "energy_shield" => energyShield,
-                "rage" => null,
-                _ => (int?)null,
-            }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags);
+        var conditionSubject = ConditionSubject(rawAttributes, active);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
@@ -597,7 +654,13 @@ static partial class Game
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);
         var attributes = AttributeInputs(rawAttributes, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
+        PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);
+    }
+
+    static void PublishQualifiedItemLifeReservationPercent(ClientState conn, int percent)
+    {
+        lock (conn.Monsters) conn.QualifiedItemLifeReservationPercent = percent;
     }
 
     // "Items and Gems have X% increased/reduced Attribute Requirements", rounded down (PoB CalcPerform m_floor).
@@ -637,7 +700,8 @@ static partial class Game
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
         int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
-        IReadOnlyDictionary<string, bool>? Flags = null, ItemCatalog? Catalog = null)
+        IReadOnlyDictionary<string, bool>? Flags = null, IReadOnlyDictionary<string, long>? Amounts = null,
+        int PoisonStacks = 0, ItemCatalog? Catalog = null, int QualifiedItemLifeReservationPercent = 0)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -655,8 +719,11 @@ static partial class Game
             && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent)
             && Strength == o.Strength && Dexterity == o.Dexterity && Intelligence == o.Intelligence
             && Life == o.Life && Mana == o.Mana && EnergyShield == o.EnergyShield
+            && PoisonStacks == o.PoisonStacks
             && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)
-            && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active));
+            && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active))
+            && (Amounts?.Count ?? 0) == (o.Amounts?.Count ?? 0)
+            && (Amounts is null || Amounts.All(p => o.Amounts is not null && o.Amounts.TryGetValue(p.Key, out long total) && p.Value == total));
     }
 
     internal sealed record StatSourcesResult(StatSourcesKey Key, Dictionary<uint, int> Sources, AttributeModifiers Attributes,
@@ -856,6 +923,20 @@ static partial class Game
             (long)classInfo.Intelligence + bonus.Intelligence);
         bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
         var pools = CharacterStats.For(classInfo, level, bonus);
+        // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
+        // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
+        int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
+        var reservedLife = LifeReservation.FromInputs((int)pools.Life, itemReservationPercent,
+            pools.LifeReservationEfficiencyPct, auras, AdditionalLifeReservation(conn));
+        int perHundred = Stats.Key(LifeReservation.EnergyShieldPerReservedStat) is uint reservedEsKey
+            ? devStats.GetValueOrDefault(reservedEsKey, sources.GetValueOrDefault(reservedEsKey)) : 0;
+        int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
+        if (reservationEnergyShield != 0)
+            pools = CharacterStats.For(classInfo, level, bonus with
+            {
+                EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
+            });
+        conn.PlayerLifeCap = reservedLife.Unreserved;
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
@@ -1448,7 +1529,7 @@ static partial class Game
                 // Also reconciles the ailments on the player with the new stats: a gained or refunded action-speed floor,
                 // Changing Seasons reversing a running chill.
                 RecomputePoolsAndSpeed(conn);
-                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerMaxLife);
+                conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
             now = [.. conn.Passives];
@@ -1469,7 +1550,7 @@ static partial class Game
             await SendCharacterStats(remote, stream, ciphers, conn, "passives");
             await Send(remote, stream, ciphers, [], "0x01c1/0x01c2 passive buffs (passives)", atGate: () => PassiveBuffAuras.Presentation(conn));
             // A refund can lower the maximum life: the current life needs its own 0x1b1 (0x1b3 only carries the maximum).
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+            await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
                 $"0x01b1 player life {conn.PlayerLife} (passives)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passives)");
         }

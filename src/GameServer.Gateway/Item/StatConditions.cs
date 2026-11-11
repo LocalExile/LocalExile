@@ -74,17 +74,42 @@ public static class StatConditions
         "block_chance_%_while_holding_shield",
         "block_spells_chance_%_while_holding_shield",
         "endurance_charge_on_kill_percent_chance_while_holding_shield",
+        // Doppelgänger Guise consumes these exact conditional finals in its own Unhinge owner.
+        "critical_strike_chance_+%_final_while_unhinged",
+        "physical_and_chaos_damage_taken_+%_final_while_not_unhinged",
+        "enemies_explode_on_kill_while_unhinged",
+        // Per-Rage item coefficients are multiplied by the authoritative effective Rage in RageStats, not folded.
+        "bleed_dot_multiplier_+_per_rage_if_equipped_axe",
     };
 
     static readonly string[] StateSuffixes =
     [
-        "_while_on_full_energy_shield", "_while_no_energy_shield", "_while_on_full_life", "_while_on_low_life",
-        "_while_on_full_mana", "_while_on_low_mana", "_while_moving", "_while_stationary", "_while_phasing",
+        "_while_on_full_energy_shield", "_while_es_full", "_on_full_energy_shield", "_while_no_energy_shield",
+        "_while_on_full_life", "_while_on_low_life",
+        "_while_not_low_life", "_while_not_on_low_life",
+        "_while_on_full_mana", "_while_on_low_mana", "_while_not_on_low_mana",
+        "_while_no_life_is_reserved", "_while_no_mana_reserved",
+        "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing",
         "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
-        "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_leeching",
+        "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
+        "_while_using_flask", "_if_affected_by_no_flasks",
+        "_while_bleeding", "_while_poisoned", "_while_on_consecrated_ground",
+        "_while_onslaught_is_active", "_while_have_onslaught", "_while_channelling", "_while_not_channelling",
+        "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
+        "_while_unhinged", "_while_not_unhinged",
+        "_if_you_have_beast_minion",
+        "_while_in_blood_stance", "_in_blood_stance", "_while_in_sand_stance", "_in_sand_stance",
+        "_if_changed_stance_recently", "_while_changed_stance_recently",
     ];
+
+    const string MagicRingCondition = "_if_magic_ring_equipped";
+    const string MagicItemCondition = "_if_wearing_a_magic_item";
+    const string NormalItemCondition = "_if_wearing_a_normal_item";
+    const string EquippedAxeCondition = "_if_equipped_axe";
+    static readonly string[] SlotConditionSuffixes =
+        ["_while_off_hand_is_empty", "_while_off_hand_empty", MagicRingCondition, MagicItemCondition, NormalItemCondition];
 
     static string? StateSuffix(string statId) => StateSuffixes.FirstOrDefault(s =>
         statId.EndsWith(s, StringComparison.Ordinal) || statId.EndsWith(s + "_+%", StringComparison.Ordinal)
@@ -101,7 +126,24 @@ public static class StatConditions
 
     static string? ParsePlainName(string statId)
     {
+        var equipment = EquipmentThresholdId.Match(statId);
+        if (equipment.Success)
+        {
+            string prefix = statId[..equipment.Index];
+            return PlainOf(prefix) ?? prefix;
+        }
+        foreach (var expression in new[] { AttributeComparisonId, EquipmentAmountId })
+        {
+            var match = expression.Match(statId);
+            if (match.Success) return statId[..match.Index];
+        }
         foreach (string suffix in WeaponSuffixes)
+        {
+            int at = statId.IndexOf(suffix, StringComparison.Ordinal);
+            if (at < 0) continue;
+            return Trim(statId, at, at + suffix.Length);
+        }
+        foreach (string suffix in SlotConditionSuffixes)
         {
             int at = statId.IndexOf(suffix, StringComparison.Ordinal);
             if (at < 0) continue;
@@ -110,6 +152,13 @@ public static class StatConditions
         // "…_recently": the whole condition sits at the end, so everything before it is the plain stat.
         var recent = RecentId.Match(statId);
         if (recent.Success) return Trim(statId, recent.Index, recent.Index + recent.Length);
+        var eightSecond = RecentEightSecondsId.Match(statId);
+        if (eightSecond.Success) return Trim(statId, eightSecond.Index, eightSecond.Index + eightSecond.Length);
+        foreach (var expression in new[] { RecentCountThreshold, RecentAmountId })
+        {
+            var match = expression.Match(statId);
+            if (match.Success) return Trim(statId, match.Index, match.Index + match.Length);
+        }
         // "…_if_you_have_at_least_N_<attribute>".
         var threshold = ThresholdId.Match(statId);
         if (threshold.Success) return Trim(statId, threshold.Index, threshold.Index + threshold.Length);
@@ -143,21 +192,46 @@ public static class StatConditions
     /// </summary>
     public static string? Fold(string statId, Func<string, bool> exists)
     {
-        if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)) return null;
+        if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)
+            || IncomingAilmentEffects.Expands(statId)) return null;
         if (PlainOf(statId) is not { } plain) return null;
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
             "evasion_+%" => "evasion_rating_+%",
+            "evasion_rating_plus" => "base_evasion_rating",
             "armour_+%" => "physical_damage_reduction_rating_+%",
-            "movement_speed_+%" => "movement_velocity_+%",
+            "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
             "life_regeneration_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_rate_per_minute" => "base_life_regeneration_rate_per_minute",
+            "life_gain_per_target" => "base_life_gain_per_target",
+            "damage_taken_+%" => "base_damage_taken_+%",
+            "critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
             "physical_damage_%_to_gain_as_chaos" => "physical_damage_%_to_add_as_chaos",
+            "area_of_effect_+%" => "base_skill_area_of_effect_+%",
+            "chaos_resistance_+" => "base_chaos_damage_resistance_%",
             "spell_block_%" or "chance_to_block_spells_%" => "base_spell_block_%",
+            "enemy_extra_damage_rolls" => "base_enemy_extra_damage_rolls",
+            "spell_suppression_chance_%" => "base_spell_suppression_chance_%",
+            "minimum_added_spell_fire_damage" => "spell_minimum_added_fire_damage",
+            "maximum_added_spell_fire_damage" => "spell_maximum_added_fire_damage",
+            "minimum_added_spell_cold_damage" => "spell_minimum_added_cold_damage",
+            "maximum_added_spell_cold_damage" => "spell_maximum_added_cold_damage",
+            "minimum_added_spell_lightning_damage" => "spell_minimum_added_lightning_damage",
+            "maximum_added_spell_lightning_damage" => "spell_maximum_added_lightning_damage",
             _ => plain,
         };
         return exists(plain) ? plain : null;
+    }
+
+    /// <summary>The real consumer names for a conditional stat that expands to more than one pool input.</summary>
+    public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists)
+    {
+        if (statId == "attack_and_movement_speed_+%_if_you_have_beast_minion")
+            return [.. new[] { "attack_speed_+%", "base_movement_velocity_+%" }.Where(exists)];
+        if (statId == "avoid_freeze_and_chill_%_if_you_have_used_a_fire_skill_recently")
+            return [.. new[] { "base_avoid_freeze_%", "base_avoid_chill_%" }.Where(exists)];
+        return Fold(statId, exists) is { } plain ? [plain] : [];
     }
 
     // Suffixes that name a weapon/shield subject. Checked longest first so the specific one wins.
@@ -200,6 +274,11 @@ public static class StatConditions
         ("used_a_fire_skill", UsedFireSkill, false), ("used_a_cold_skill", UsedColdSkill, false),
         ("used_a_warcry", UsedWarcry, false), ("warcried", UsedWarcry, false),
         ("used_movement_skill", UsedMovementSkill, false), ("used_retaliation", UsedRetaliation, false),
+        ("used_a_vaal_skill", UsedVaalSkill, false),
+        ("cast_dash", UsedDash, false), ("used_dash", UsedDash, false),
+        ("used_ruby_flask", UsedRubyFlask, false), ("used_sapphire_flask", UsedSapphireFlask, false),
+        ("used_topaz_flask", UsedTopazFlask, false), ("used_amethyst_flask", UsedAmethystFlask, false),
+        ("dealt_non_crit", NonCrit, false), ("dealt_non_critical_strike", NonCrit, false),
         ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mine", DetonatedMine, false),
         ("frozen_enemy", FrozeEnemy, false), ("shocked", ShockedEnemy, false), ("ignited_an_enemy", IgnitedEnemy, false),
         ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false),
@@ -213,7 +292,11 @@ public static class StatConditions
         BeenFrozen = "been_frozen", SuppressedSpell = "suppressed_spell", ConsumedCorpse = "consumed_corpse",
         UsedFireSkill = "used_fire_skill", UsedColdSkill = "used_cold_skill", UsedWarcry = "used_warcry",
         UsedMovementSkill = "used_movement_skill", UsedRetaliation = "used_retaliation", TauntedEnemy = "taunted_enemy",
+        UsedVaalSkill = "used_vaal_skill", UsedDash = "used_dash", UsedRubyFlask = "used_ruby_flask",
+        UsedSapphireFlask = "used_sapphire_flask", UsedTopazFlask = "used_topaz_flask", UsedAmethystFlask = "used_amethyst_flask",
+        NonCrit = "non_crit", Crit8Seconds = "crit_8_seconds",
         DetonatedMine = "detonated_mine", UsedSkill = "used_skill", SpentMana = "spent_mana",
+        ChangedStance = "changed_stance",
         BlockedAttack = "blocked_attack", BlockedSpell = "blocked_spell", ShockedEnemy = "shocked_enemy", IgnitedEnemy = "ignited_enemy";
 
     /// <summary>
@@ -241,6 +324,68 @@ public static class StatConditions
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
     {
+        var equipment = EquipmentThresholdId.Match(statId);
+        if (equipment.Success)
+        {
+            string prefixId = statId[..equipment.Index];
+            string countKey = "equipped_" + equipment.Groups["kind"].Value;
+            bool hasMinimum = int.TryParse(equipment.Groups["n"].Value, out int minimumItems);
+            return subject =>
+            {
+                State count = hasMinimum && subject.Value?.Invoke(countKey) is int actual
+                    ? actual >= minimumItems ? State.Holds : State.Fails : State.NotModelled;
+                State prefix = Of(prefixId, subject);
+                return And(prefix, count);
+            };
+        }
+        var comparison = AttributeComparisonId.Match(statId);
+        if (comparison.Success)
+        {
+            string leftKey = comparison.Groups["left"].Value;
+            string rightKey = comparison.Groups["right"].Value;
+            string comparisonOperator = comparison.Groups["op"].Value;
+            return subject =>
+            {
+                int? left = subject.Value?.Invoke(leftKey);
+                int? right = subject.Value?.Invoke(rightKey);
+                if (left is null || right is null) return State.NotModelled;
+                bool holds = comparisonOperator switch
+                {
+                    "higher" => left > right, "lower" => left < right, _ => left == right,
+                };
+                return holds ? State.Holds : State.Fails;
+            };
+        }
+        var equippedAmount = EquipmentAmountId.Match(statId);
+        if (equippedAmount.Success)
+        {
+            string countKey = "equipped_" + equippedAmount.Groups["kind"].Value;
+            return subject => subject.Value?.Invoke(countKey) is not null ? State.Holds : State.NotModelled;
+        }
+        if (TryRecentAmount(statId, out string amountKey, out _, out _))
+            return subject => subject.Amounts is { } amounts && amounts.ContainsKey(amountKey) ? State.Holds : State.NotModelled;
+        if (SlotConditionSuffixes.Take(2).Any(s => statId.EndsWith(s, StringComparison.Ordinal)))
+            return static subject => subject.OffHandEmpty is bool empty
+                ? empty ? State.Holds : State.Fails : State.NotModelled;
+        if (statId.EndsWith(MagicRingCondition, StringComparison.Ordinal))
+            return static subject => subject.Value?.Invoke("magic_ring_equipped") is int rings
+                ? rings > 0 ? State.Holds : State.Fails : State.NotModelled;
+        if (statId.EndsWith(MagicItemCondition, StringComparison.Ordinal))
+            return static subject => subject.Value?.Invoke("equipped_magic") is int magic
+                ? magic > 0 ? State.Holds : State.Fails : State.NotModelled;
+        if (statId.EndsWith(NormalItemCondition, StringComparison.Ordinal))
+            return static subject => subject.Value?.Invoke("equipped_normal") is int normal
+                ? normal > 0 ? State.Holds : State.Fails : State.NotModelled;
+        if (statId.EndsWith(EquippedAxeCondition, StringComparison.Ordinal))
+            return static subject => subject.Axe is bool axe
+                ? axe ? State.Holds : State.Fails : State.NotModelled;
+        var counted = RecentCountThreshold.Match(statId);
+        if (counted.Success)
+        {
+            bool hasMinimum = long.TryParse(counted.Groups["n"].Value, out long minimum);
+            return subject => hasMinimum && subject.Amounts is { } counts && counts.TryGetValue(KilledEnemy, out long kills)
+                ? kills >= minimum ? State.Holds : State.Fails : State.NotModelled;
+        }
         if (statId.Contains(DualWield, StringComparison.Ordinal))
             return static subject => subject.DualWield is bool d ? (d ? State.Holds : State.Fails) : State.NotModelled;
         if (statId.Contains(WieldingShield, StringComparison.Ordinal) ||
@@ -255,6 +400,10 @@ public static class StatConditions
             statId.Contains(UsingOneHanded, StringComparison.Ordinal))
             return static subject => subject.OneHanded is bool o ? (o ? State.Holds : State.Fails) : State.NotModelled;
 
+        if (StateSuffix(statId) is { } stateSuffix)
+            return subject => subject.Flags is { } stateFlags && stateFlags.TryGetValue(stateSuffix, out bool stateActive)
+                ? stateActive ? State.Holds : State.Fails : State.NotModelled;
+
         // "while affected by X": X is a buff the character may carry. Only an ordinary aura the server already runs can
         // be answered; a shrine, elusive or a league buff is a subject it does not model yet, so those stats keep their
         // previous behaviour rather than being treated as "the condition is false".
@@ -266,6 +415,16 @@ public static class StatConditions
         }
 
         // "recently": the event happened within the last four seconds. The subject carries the events that did.
+        var eightSecond = RecentEightSecondsId.Match(statId);
+        if (eightSecond.Success)
+        {
+            return subject =>
+            {
+                if (subject.Recent is not { } recentEight
+                    || subject.KnownRecent is { } knownEight && !knownEight.Contains(Crit8Seconds)) return State.NotModelled;
+                return recentEight.Contains(Crit8Seconds) ? State.Holds : State.Fails;
+            };
+        }
         if (TryRecentEvent(statId, out string key, out bool negated))
         {
             return subject =>
@@ -282,10 +441,6 @@ public static class StatConditions
             return subject => subject.Value is { } value && value(attribute) is int actual
                 ? actual >= needed ? State.Holds : State.Fails : State.NotModelled;
         }
-
-        if (StateSuffix(statId) is { } suffix)
-            return subject => subject.Flags is { } flags && flags.TryGetValue(suffix, out bool active)
-                ? active ? State.Holds : State.Fails : State.NotModelled;
 
         // Per-charge coefficients and on-kill grants are ChargeEffects' and ChargeGains' already: an id naming a charge
         // type is left to them, not folded here, so the same value is not counted twice.
@@ -315,6 +470,53 @@ public static class StatConditions
 
     static readonly System.Text.RegularExpressions.Regex RecentId =
         new(@"_if_(?:you_)?(?:have_)?(?<negation>havent_|not_)?(?<phrase>[a-z_]+?)_recently(?=$|_final$|_\+%$|_%$)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static readonly System.Text.RegularExpressions.Regex RecentEightSecondsId =
+        new(@"_if_(?:you_)?(?:have_)?crit_in_past_8_seconds$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static readonly System.Text.RegularExpressions.Regex RecentCountThreshold =
+        new(@"_if_(?:you_have_)?killed_at_least_(?<n>\d+)_enemies_recently$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static readonly System.Text.RegularExpressions.Regex EquipmentThresholdId =
+        new(@"_if_(?<n>\d+)_(?<kind>[a-z_]+)_items$", System.Text.RegularExpressions.RegexOptions.Compiled);
+    static readonly System.Text.RegularExpressions.Regex EquipmentAmountId =
+        new(@"_per_equipped_(?<kind>[a-z_]+?)(?:_item)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+    static readonly System.Text.RegularExpressions.Regex AttributeComparisonId =
+        new(@"_if_(?<left>strength|dexterity|intelligence)_(?<op>higher|lower|equal)_than_(?<right>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static State And(State left, State right) => left is State.Fails || right is State.Fails ? State.Fails
+        : left is State.NotModelled || right is State.NotModelled ? State.NotModelled
+        : left is State.Holds || right is State.Holds ? State.Holds : State.None;
+
+    static readonly System.Text.RegularExpressions.Regex RecentAmountId =
+        new(@"_per_(?:(?<unit>\d+)_)?(?<event>enemy_killed|mana_spent)_recently(?:_up_to_(?<cap>\d+)%)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public static bool TryRecentAmount(string id, out string key, out long unit, out int? cap)
+    {
+        key = ""; unit = 1; cap = null;
+        var match = RecentAmountId.Match(id);
+        if (!match.Success) return false;
+        if (match.Groups["unit"].Success && (!long.TryParse(match.Groups["unit"].Value, out unit) || unit <= 0)) return false;
+        if (match.Groups["cap"].Success)
+        {
+            if (!int.TryParse(match.Groups["cap"].Value, out int maximum)) return false;
+            cap = maximum;
+        }
+        key = match.Groups["event"].Value == "enemy_killed" ? KilledEnemy : SpentMana;
+        return true;
+    }
+
+    public static int ApplyRecentAmount(string id, int value, in Subject subject)
+    {
+        var equipment = EquipmentAmountId.Match(id);
+        if (equipment.Success && subject.Value?.Invoke("equipped_" + equipment.Groups["kind"].Value) is int count)
+            return (int)Math.Clamp((long)value * Math.Max(0, count), int.MinValue, int.MaxValue);
+        if (!TryRecentAmount(id, out string key, out long unit, out int? cap)
+            || subject.Amounts is not { } amounts || !amounts.TryGetValue(key, out long total)) return value;
+        Int128 scaled = (Int128)value * (Math.Max(0, total) / unit);
+        if (cap is int maximum && scaled > maximum) scaled = maximum;
+        return (int)Int128.Clamp(scaled, int.MinValue, int.MaxValue);
+    }
 
     /// <summary>The event a <c>recently</c> id names, and whether the id asks for the event's absence.</summary>
     public static bool TryRecentEvent(string statId, out string key, out bool negated)
@@ -431,11 +633,13 @@ public static class StatConditions
     /// <summary>What a caller can answer about the character a stat is being summed for. Null fields are unknown.</summary>
     public readonly record struct Subject(
         bool? DualWield = null, bool? Shield = null, bool? TwoHanded = null, bool? OneHanded = null,
+        bool? OffHandEmpty = null, bool? Axe = null,
         IReadOnlySet<string>? Auras = null,
         IReadOnlySet<string>? Recent = null,
         Func<string, int?>? Value = null,
         IReadOnlySet<string>? KnownRecent = null,
-        IReadOnlyDictionary<string, bool>? Flags = null)
+        IReadOnlyDictionary<string, bool>? Flags = null,
+        IReadOnlyDictionary<string, long>? Amounts = null)
     {
         /// <summary>Nothing known: every condition is NotModelled and no stat changes.</summary>
         public static Subject Unknown => new();

@@ -282,9 +282,9 @@ static partial class Game
                         conn.Minions.OutputQueue.Add(new(packet, $"0x01c1/0x01c2 monster 0x{id:x} ignited by {skill.EffectId}", id, m));
 
                 if (applied is not { } landed) continue;
+                conn.RecentEvents.RecordCriticalOutcome(hitAt, critical);
                 if (critical)
                 {
-                    conn.RecentEvents.Record(StatConditions.Crit, hitAt);
                     CommitAcceptedCritFlasksLocked(conn, player, conn.Clock.Elapsed.TotalSeconds);
                     MaybeCreateProfaneGroundLocked(conn, m.Walk.Position(hitAt), player);
                 }

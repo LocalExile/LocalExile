@@ -48,11 +48,15 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     {
         int ms = (int)Math.Round(Seconds * 1000);
         var physical = Damage[DamageType.Physical];
+        var chaos = Damage[DamageType.Chaos];
         int min = (int)Math.Floor(physical.Min), max = (int)Math.Floor(physical.Max);
+        int chaosMin = (int)Math.Floor(chaos.Min), chaosMax = (int)Math.Floor(chaos.Max);
         return
         [
             (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
-            (StatKeys.MainHandMinTotal, min), (StatKeys.MainHandMaxTotal, max),
+            (StatKeys.MainHandMinChaos, chaosMin), (StatKeys.MainHandMaxChaos, chaosMax),
+            (StatKeys.MainHandMinTotal, (int)Math.Floor(Damage.MinTotal)),
+            (StatKeys.MainHandMaxTotal, (int)Math.Floor(Damage.MaxTotal)),
             (StatKeys.MainHandAttackDurationMs, ms), (StatKeys.MainHandTotalAttackDurationMs, ms),
             (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 / Seconds)),
             (StatKeys.MainHandBaseMaxAttackDistance, (int)Range), (StatKeys.MainHandMaxAttackDistance, (int)Range),
@@ -129,7 +133,7 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
-    public MonsterAttack? Attack { get; init; }
+    public MonsterAttack? Attack { get; set; }
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
@@ -278,6 +282,10 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
     public ClientState? LastHitBy;
     // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
+    // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
+    // Kept on this exact monster instance until the kill publication consumes it.
+    public UnhingedHitKillReceipt? UnhingedHitKill;
+    public sealed record UnhingedHitKillReceipt(ClientState Owner, bool DestroyCorpse);
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
@@ -421,6 +429,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The other "recently" events (issue #504): what happened in the last four seconds, for the stats that ask.
     public readonly RecentEvents RecentEvents = new();
     public readonly PlayerElementalAilments ElementalAilments = new();
+    // Incoming bleeding and poison from monster contacts, reflected outgoing ailments and traps. This
+    // is the sole state/damage owner and is advanced by the player recovery writer.
+    public readonly IncomingDamagingAilments IncomingAilments = new();
     // The King in the Mists' Portent Vapors: stacks taken from his Mystic Fetishes and when they expire. The server
     // applies the increased damage taken to his hits; the buff icon and count are presentation.
     public int KingPortentStacks;
@@ -432,6 +443,9 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     // The player's ignite and bleed rolls on monsters (MonsterIgnites), apart from the hit's own streams.
     public Random IgniteRandom = Random.Shared;
     public int IncomingHitEpoch;
+    /// <summary>The last incoming bleed/poison state actually presented through the player send gate.</summary>
+    public IncomingDamagingAilments.State? PresentedIncomingAilments;
+    public int PresentedIncomingAilmentEpoch = -1;
     public int DeathNotificationEpoch = -1;
     public int FreezeGeneration, FreezeShown;
     public double FreezeHeldUntil;
@@ -447,7 +461,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public void InvalidateIncomingHits(bool clear = true)
     {
         if (PlayerLife == 0 || Closed)
-        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = 0; }
+        { PaidChannel = null; NonChaosDotBypassCarry = NonChaosDotTakenCarry = ChaosDotBypassCarry = 0; }
         lock (Monsters)
         {
             IncomingHitEpoch++;
@@ -458,7 +472,15 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
                 monster.ActionGeneration++;
                 monster.SwingGeneration = null;
             }
-            if (clear) { RecentEnemyHits.Clear(); RecentEvents.Clear(); ElementalAilments.Clear(); }
+            if (clear)
+            {
+                RecentEnemyHits.Clear();
+                RecentEvents.Clear();
+                ElementalAilments.Clear();
+                IncomingAilments.Clear();
+                PresentedIncomingAilments = null;
+                PresentedIncomingAilmentEpoch = IncomingHitEpoch;
+            }
         }
     }
     public int ProjectileEpoch;
@@ -817,16 +839,39 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     }
     ushort nextBuff = 1;
     public uint PlayerMaxLife => Pools.Life;
+    /// <summary>The shared Life reservation owner's latest usable cap. Full maximum Life is unchanged.</summary>
+    public int PlayerLifeCap { get; set; } = int.MaxValue;
+    /// <summary>The last qualified item percentage. The qualification stage supplies this neutral value.</summary>
+    public int QualifiedItemLifeReservationPercent { get; set; }
     public uint PlayerReservedLife
     {
         get
         {
-            lock (Monsters) return (uint)Math.Min(Pools.Life,
-                (long)AuraCatalog.RequiredLife(Pools, Auras.Values) + global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
-                + PlacedSkills.Reserved(Pools, Placed.All.Values, true));
+            lock (Monsters) return (uint)PlayerLifeReservation.Reserved;
         }
     }
-    public uint PlayerUnreservedLife => Pools.Life - PlayerReservedLife;
+    public uint PlayerUnreservedLife
+    {
+        get
+        {
+            lock (Monsters) return (uint)PlayerLifeReservation.Unreserved;
+        }
+    }
+    LifeReservation.Value PlayerLifeReservation
+    {
+        get
+        {
+            int itemPercent = QualifiedItemLifeReservationPercent;
+            if (Program.Stats.Key(LifeReservation.ItemPercentStat) is uint itemPercentKey
+                && PlayerStats.TryGetValue(itemPercentKey, out int actualItemPercent))
+                itemPercent = actualItemPercent;
+            int additionalSkillReserved = (int)Math.Clamp(
+                (long)global::PetrifiedBlood.RequiredLife(Pools, PetrifiedBlood)
+                + PlacedSkills.Reserved(Pools, Placed.All.Values, true),
+                0, int.MaxValue);
+            return LifeReservation.Of(Pools, itemPercent, Auras.Values, additionalSkillReserved);
+        }
+    }
     // The player's life as the server keeps it (PlayerObject's Life, full on creation); 0 = dead.
     public bool AuraDeathHandled;
     uint playerLife;

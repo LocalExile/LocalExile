@@ -50,6 +50,7 @@ static partial class Game
             || spells && CastingSpell(conn, a.Effect)).ToArray();
         if (gone.Length == 0) return false;
         foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
+        if (gone.Any(a => StanceCatalog.IsStance(a.EffectId))) ReconcileStanceSelectionLocked(conn, persist: false);
         conn.AuraStatsDirty = true;
         return true;
     }
@@ -57,12 +58,99 @@ static partial class Game
     internal static void EnsureOwnAuraPools(ClientState conn)
     {
         lock (conn.Monsters)
-            if (SuspendRestrictedOwnAuras(conn))
+        {
+            bool changed = SuspendRestrictedOwnAuras(conn);
+            changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
+            if (changed)
             {
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                if (!poolsRebuilt) conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
+            var life = LifeReservationOf(conn);
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, life);
+        }
+    }
+
+    // Reservation exemptions and support cost multipliers can change while an aura stays on, including before any
+    // equipment/stat notification. Reprice the active owner from current sources here; unchanged auras are left alone.
+    static bool RepriceOwnAuras(ClientState conn, out bool poolsRebuilt)
+    {
+        poolsRebuilt = false;
+        bool changed = false;
+        bool stanceTouched = false;
+        var changedAuras = new List<AuraCatalog.Aura>();
+        foreach (var aura in conn.Auras.Values.ToArray())
+        {
+            var reservation = SupportedReservationCost(conn, aura.SkillId);
+            if (reservation is null)
+            {
+                // A support/source that no longer supplies the reservation cannot remain active.
+                conn.Auras.Remove(aura.SkillId);
+                EndReservationRuntimeLocked(conn, aura);
+                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+                stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
+                changed = true;
+                continue;
+            }
+            var gem = SupportedSkill(conn, aura.SkillId);
+            var support = AuraSupport(conn, aura.SkillId);
+            var context = ReservationContext(conn, aura.SkillId);
+            string? stance = StanceCatalog.IsStance(aura.EffectId)
+                ? StanceCatalog.SelectionOf(aura, conn.Stance) : null;
+            var repriced = aura with
+            {
+                ManaFlat = reservation.Value.ManaFlat, ManaPercent = reservation.Value.ManaPercent,
+                LifeFlat = reservation.Value.LifeFlat, LifePercent = reservation.Value.LifePercent,
+                Level = gem.Level, Quality = gem.Quality,
+                EffectId = stance is null ? aura.EffectId : StanceCatalog.RuntimeEffectId(aura.EffectId, stance),
+                BuffRow = AuraCatalog.BuffRow(stance is null ? aura.EffectId
+                    : StanceCatalog.RuntimeEffectId(aura.EffectId, stance), stance),
+                SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
+                ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
+            };
+            if (repriced == aura) continue;
+            conn.Auras[aura.SkillId] = repriced;
+            changedAuras.Add(repriced);
+            changed = true;
+        }
+        // An exemption can come from an item that also changes the current maximum Mana. Rebuild before deciding
+        // affordability so the checked pool and the source snapshot that supplied the new reservation agree.
+        if (changedAuras.Count > 0)
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            poolsRebuilt = true;
+        }
+        while (!ReservationBudgetFits(conn) && conn.Auras.Count > 0)
+        {
+            // Existing unchanged auras keep their admission. Of the reservations whose price just rose, the latest
+            // source loses admission first; its intent is cleared so the next reconcile cannot resurrect it. If the
+            // percentage did not change, a pool/efficiency input made the whole active set unaffordable, so trim the
+            // active set from its latest source in the same deterministic order.
+            var overCapacity = changedAuras.Count > 0
+                ? changedAuras.Where(a => conn.Auras.ContainsKey(a.SkillId)).OrderByDescending(a => a.SkillId)
+                : conn.Auras.Values.OrderByDescending(a => a.SkillId);
+            if (!overCapacity.Any())
+                overCapacity = conn.Auras.Values.OrderByDescending(a => a.SkillId);
+            if (overCapacity.FirstOrDefault() is not { } aura) break;
+            if (!conn.Auras.Remove(aura.SkillId)) break;
+            EndReservationRuntimeLocked(conn, aura);
+            CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+            stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
+            changed = true;
+            // A trimmed aura may have supplied pool stats. Rebuild before the next capacity decision and make sure
+            // EnsureOwnAuraPools does not publish the pre-removal pool.
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            poolsRebuilt = true;
+        }
+        if (!poolsRebuilt && changed)
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            poolsRebuilt = true;
+        }
+        if (stanceTouched) ReconcileStanceSelectionLocked(conn, persist: true);
+        if (changed) conn.AuraStatsDirty = true;
+        return changed;
     }
 
     internal static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
@@ -76,33 +164,25 @@ static partial class Game
             var gone = conn.Auras.Values.Where(a => InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect
                 || GemSkillInstanceDisabled(conn, a.Effect, a.SkillId) is not null).ToArray();
+            // Worn grants are equipment sources, not resumable gem intent. A removed/inactive host must not restore its
+            // aura from stale family intent when another item or area publication follows. A still-valid gem or worn
+            // host of the same family keeps the intent and takes ownership at the restore step below.
+            var availableFamilies = available.Values
+                .Select(effect => AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? ""))
+                .Where(family => family.Length > 0).ToHashSet(StringComparer.Ordinal);
+            if (!InTown(conn))
+                foreach (var aura in gone.Where(a => a.WornGrant is not null
+                             && !availableFamilies.Contains(AuraCatalog.Family(a.EffectId)))
+                         .GroupBy(a => AuraCatalog.Family(a.EffectId)))
+                    CharacterSaves.SetAuraActive(CharacterName(conn), aura.First().EffectId, false);
             foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
-            foreach (var aura in conn.Auras.Values.ToArray())
-            {
-                var reservation = SupportedReservation(conn, aura.SkillId);
-                if (reservation is null)
-                {
-                    conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura);
-                    conn.AuraStatsDirty = true; continue;
-                }
-                var gem = SupportedSkill(conn, aura.SkillId);
-                var support = AuraSupport(conn, aura.SkillId);
-                var context = ReservationContext(conn, aura.SkillId);
-                var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent,
-                    Level = gem.Level, Quality = gem.Quality, SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf,
-                    ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency };
-                conn.Auras[aura.SkillId] = repriced;
-                if (!ReservationBudgetFits(conn))
-                { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); conn.AuraStatsDirty = true; }
-                else if (repriced != aura) conn.AuraStatsDirty = true;
-            }
             if (gone.Length > 0 || conn.AuraStatsDirty)
             {
                 conn.AuraStatsDirty = true;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+                conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             }
         }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
@@ -146,6 +226,7 @@ static partial class Game
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));
+            packets.Add(PlayerLifeUpdate(conn));
         }
         var petrified = conn.PetrifiedBlood;
         if (petrified.PresentedBuff != 0 && (!petrified.Active || petrified.Buff != petrified.PresentedBuff))

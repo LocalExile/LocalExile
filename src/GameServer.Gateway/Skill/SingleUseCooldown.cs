@@ -18,7 +18,8 @@ readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPerce
         int ms = skills.CooldownMs(effect, level);
         if (ms <= 0 || skills.CooldownUses(effect, level) != 1
             || skills.CooldownPausesWhileActive(effect)
-            || !skills.IsSpell(effect) && !skills.IsAttack(effect) && !skills.IsWarcry(effect)) return null;
+            || !skills.IsSpell(effect) && !skills.IsAttack(effect) && !skills.IsWarcry(effect)
+                && skills.EffectId(effect) != "Unhinge") return null;
         int Get(IReadOnlyDictionary<uint, int> values, string name) => catalog.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
         if (Unsupported.Any(name => Get(player, name) != 0 || Get(own, name) != 0)
             || Get(player, "virtual_total_cooldown_count") > 1 || Get(player, "base_cooldown_count") > 1

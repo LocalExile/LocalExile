@@ -3,13 +3,15 @@
 /// <summary>One accepted use, reserved before ordinary action side effects. Async continuations keep this original
 /// witness; a later action may cancel it, but cancellation never refunds an accepted use.</summary>
 sealed record CooldownUseTicket(int Effect, int ActionToken, int ProjectileEpoch, bool Instant, bool Reserved = true,
-    SingleUseCooldownState? State = null, int UseVersion = 0)
+    SingleUseCooldownState? State = null, int UseVersion = 0, Game.StanceUseReceipt? Stance = null)
 {
     bool consumed;
     public bool Current(ClientState conn)
     {
         lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0
-            && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)) && (State is null || !Reserved || State.UseVersion == UseVersion);
+            && (Instant || conn.ActionCount == ActionToken && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))
+            && (State is null || !Reserved || State.UseVersion == UseVersion)
+            && (Stance is null || Stance.CurrentLocked(conn));
     }
     public bool CommitNativeUse(ClientState conn, ushort skillId)
     {

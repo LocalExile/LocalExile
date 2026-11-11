@@ -86,7 +86,7 @@ static partial class Game
     /// (live 2026-11-01; no stat carries it); 0 for one that goes to the aimed cell.</summary>
     static int TravelCells(string? effect) =>
         effect is null ? 0 : effect.StartsWith("WhirlingBlades", StringComparison.Ordinal) ? 40
-            : effect is "Dash" or "DashHardMode" ? 33 : 0;
+            : IsDashEffect(effect) ? 33 : 0;
 
     // ActiveSkillType Movement also covers these, which leave the player where it stands when used: the estimate must stay
     // too, or a resync would teleport the client to the aimed cell.
@@ -118,6 +118,33 @@ static partial class Game
         foreach (var cell in ClientPathfinder.Line(aim, from))
             if (walkable(cell.X, cell.Y)) return cell;
         return from;
+    }
+
+    // Dash uses its ordinary 33-cell landing and resync path. Resolve it before payment and commit it in the same
+    // admission transaction: a blocked endpoint or a stale action cannot displace the player without a paid use.
+    internal static bool TryDashLanding(ClientState conn, int effect, (int X, int Y) aim,
+        out (int X, int Y) from, out (int X, int Y) to, double? acceptedAt = null)
+    {
+        to = from = default;
+        if (!IsDashEffect(SkillsFor(conn).EffectId(effect)) || !SkillsFor(conn).IsTravel(effect)
+            || !SkillsFor(conn).IsMovement(effect) || !conn.ProjectileActive(conn.ProjectileEpoch)
+            || !conn.PlayerSent || conn.PlayerLife == 0 || conn.Paused || conn.Closed || conn.LeavingArea
+            || conn.RageRetired || conn.PendingTransfer is not null || InTown(conn)
+            || conn.Layout.Walkable is not { } walkable || conn.Layout.GridW <= 0 || conn.Layout.GridH <= 0)
+            return false;
+        double now = acceptedAt ?? ProjectileWorldTime(conn);
+        from = conn.Walk.Position(now);
+        // Bound the raw client aim before MovementLanding subtracts coordinates or projects the 33-cell vector.
+        if (aim == from || aim.X < 0 || aim.Y < 0 || aim.X >= conn.Layout.GridW || aim.Y >= conn.Layout.GridH
+            || from.X < 0 || from.Y < 0 || from.X >= conn.Layout.GridW || from.Y >= conn.Layout.GridH
+            || !walkable(from.X, from.Y) || conn.Barrier.Contains(from)) return false;
+        var landing = MovementLanding(conn, effect, from, aim);
+        to = landing;
+        if (landing == from || landing.X < 0 || landing.Y < 0 || landing.X >= conn.Layout.GridW
+            || landing.Y >= conn.Layout.GridH || !walkable(landing.X, landing.Y) || conn.Barrier.Contains(landing))
+            return false;
+        return !conn.Blockers.Any(b => Math.Max(Math.Abs((long)landing.X - b.X), Math.Abs((long)landing.Y - b.Y))
+            - b.Size < 2);
     }
 
     /// <summary>The least time after a movement spell before the resync goes out.</summary>

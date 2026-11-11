@@ -3082,6 +3082,28 @@ Only self auras with an `AuraCatalog` effect are listed for now: a granted minio
 and listing it would offer the player a skill that does nothing. The Paladin's Paladin Aura options use it
 ([Paladin](../game/paladin.md)).
 
+**Worn-item active grants.** An item mod's `GrantedEffectsPerLevelKeys` reference exact GrantedEffectsPerLevel rows.
+`WornGrantedSkills` resolves those rows through GrantedEffects and preserves their effect id, level and
+ActiveSkills `IsManuallyCasted` value. Doryani's Delusion references GEPL 28267, level-30 Purity of Lightning;
+Severed in Sleep and United in Dream reference GEPL 47391, level-25 Envy; Aul's Uprising references GEPL 47390,
+level-15 Envy. These Mods rows have no nonempty `GrantedEffectRuthless` override, and GemEffects has no HardMode
+alternative for these effects, so the referenced rows remain authoritative in both data modes.
+For a Mods row whose `GrantedEffectRuthless` list is nonempty, HardMode uses those GEPL rows instead and otherwise
+keeps the normal list. The corrupted Determination and Grace controls select GEPL 17798/17486 and effects
+`DeterminationHardMode`/`GraceHardMode`; Standard keeps 17758/17446 and the normal effects.
+Socketed gems, worn grants and passive grants share one ordered source list for `GemSkillIds`, `GemSkillEffects`,
+`SupportedSkill` and admission. A worn grant's stable key is its host item and synthetic host-local source slot, so it
+does not collide with an active gem, a passive node or the same effect on another item. Ordinary support gems in the
+granting host support its active skill independently of link groups; their own level and quality apply, while active
+gem-level/quality bonuses do not raise the grant. SupportsGemsOnly supports such as Empower, Enhance, Enlighten,
+Spellslinger, Automation, Autoexertion and Eclipse are excluded from non-gem grants.
+Only manually cast worn effects with an existing executor are published. Trigger-only rows stay available through
+`AllWornGrantedSkillsOf` for their future trigger owners, and unsupported beast/aspect/Madness/Unhinged/Aegis grants
+remain out of the Actor list. A supported aura keeps its host identity in `AuraCatalog.Aura`; removing or inactivating
+the source ends it without refilling mana, while a still-valid same-family gem or worn host keeps the saved intent and
+takes ownership. A source with no alternative clears that spent intent so equipping another same-effect item does not
+resurrect it. Area entry and relog restoration still enumerate current sources and reject stale ids.
+
 **Triggered passive skills.** A granted triggered skill has no bar use and is never listed, since it runs from its trigger.
 The one with an executor is Summon Elemental Relic, from Paladin's Elemental Valiance and the ordinary Guardian's
 Unwavering Crusade (19641), which have the same buff and grant.
@@ -3214,10 +3236,20 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
   - **Masteries:** Mana6, Reservation3 (life efficiency), Reservation4 (area) and Reservation5 (self aura effect) are mapped;
     Reservation1 (damage per aura), Reservation2 (max resistances with reserved life and mana) and Reservation6 (aura
     duration) are not. Skill-specific reservation efficiency/effect stats are not modelled.
-  - **Systems:** supports, party/minion auras and life reservation.
-- **Dev check.** `/auras` prints the active auras, flat/percent reservation, reserved and unreserved mana,
-  reservation efficiency and aura effect. Area changes recreate the player object, so `SendPlayer` puts the
-  running auras' buffs back on it.
+  - **Systems:** party/minion auras and reservation-declining or special supports.
+- **Life reservation.** GEPL `LifeReservationFlat` / `LifeReservationPercent` share the active aura's source identity
+  with Mana reservation. `base_skill_reserve_life_instead_of_mana` moves the whole skill cost to Life; Mana-only aura
+  exemptions leave Life untouched. Worn `life_reserved_by_stat_%` is permanent while its item qualifies (Midnight
+  Bargain rolls 30), while Life reservation efficiency reprices skills per skill before summation. Full maximum Life
+  remains `Pools.Life`; the owner exposes a separate unreserved cap used by payment, leech, flask/recovery, level,
+  resurrection and wire publication. Proposed aura sets use a pure budget check; invalid or over-capacity sets are
+  refused or retired before clamping current Life, retaining a living minimum. Removing a reservation releases the cap
+  without adding current Life. Malachai's Awakening no-Life and Clear Mind no-Mana rows feed supported spell hits;
+  Ivory Tower adds Energy Shield from the final reserved total.
+- **Dev check.** `/auras` prints each aura's Mana and Life flat/percent reservation, reserved and unreserved pools,
+  item versus skill Life reservation, both efficiencies and aura effect. Every player 0x1b1 Life update and the initial
+  PlayerObject carry the same reserved Life. Area changes recreate the player object, so `SendPlayer` puts the running
+  auras' buffs back on it.
 
 ## 14. Character panel sums
 
@@ -3773,9 +3805,9 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   need a stun (other than Unyielding's), freeze, bleed, poison, curses, traps, mines, totems, Vaal souls, other warcries, allies, flask use (the
   utility flask PR #233) or support gems (Power Charge On Critical, Endurance Charge on Melee Stun); Power Siphon's "or
   soon after the hit"; Blood Rage (no self-buff skills); conditional maxima and minima (while affected by an aura, on
-  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target the
-  server does not calculate (ailments, leech, damage taken, damage over time increases, wand-only or attack-only damage,
-  mana cost, buff duration, Frenzy's and Flicker Strike's own per-charge attack speed and damage).
+  low life, devotion, "count as having maximum", other maximum-equality operators); per-charge stats whose target or
+  context still has no consumer (weapon-family damage, mana cost, Elusive/cooldown/buff contexts, minion or golem rows,
+  Frenzy's and Flicker Strike's own per-charge attack speed and damage).
 
 ## 16. Rage
 

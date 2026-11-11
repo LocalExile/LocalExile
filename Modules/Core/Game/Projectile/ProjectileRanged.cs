@@ -40,57 +40,65 @@ static partial class Game
         session.Schedule(ProjectileRuntime.Time(lockstep ? LockstepShotAt(acceptedAt, delay) : acceptedAt + AttackReleaseDelay(delay)),
             () => OrdinaryRangedReleaseCurrent(conn, action, epoch)
                 && OrdinaryRangedAttack.ProjectileId(WeaponProfileFor(conn, activeSet: true)) == projectileId,
-            () =>
-            {
-                // The client draws the shot when the record it has carries this projectile's count, as it stands at the
-                // release: a record of the other weapon (a swap whose skills have not gone yet) fires nothing there, so
-                // the server sends the object.
-                bool clientDrawn = conn.ClientDrawnShot == projectileId;
-                var character = CharacterPlayerStats(conn);
-                int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
-                int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
-                int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
-                var weapon = WeaponProfileFor(conn, activeSet: true);
-                int criticalChance = CriticalProhibited(conn, attack: true)
-                    ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct, RawCritical)
-                    : conn.Pools.AttackCriticalStrikeChance;
-                var captured = OrdinaryRangedShot.Capture(WeaponFor(conn), character, SkillsFor(conn).EffectStats(effect, 1), Stats,
-                    PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
-                bool wand = projectileId == OrdinaryRangedAttack.Wand;
-                var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false),
-                    SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get);
-                var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
-                    captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
-                { SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
-                    VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
-                    VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),
-                    Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
-                    ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
-                    Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
-                    Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources),
-                    Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand),
-                    CriticalRoll = criticalRoll, Leech = captured.Leech,
-                    AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
-                    AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
-                    PointBlank = Get("keystone_point_blank") != 0,
-                    ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(character),
-                    // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
-                    Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
-                    // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
-                    HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn };
-                var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
-                var target = ProjectileSession.Vector(aim);
-                // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
-                // 5.5 cells, a wand's tip 7.5), else 1.5 cells ahead; never past half way to the aim, so a close target
-                // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
-                double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
-                origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
-                var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get);
-                profile = clientDrawn ? ClientDrawnProfile(conn, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
-                return new(profile, new(PlayerId, epoch), new(PlayerId, epoch), 1, origin, target)
-                    { Payload = shot, ReturnAnchor = new(PlayerId, epoch) };
-            });
+            () => CaptureOrdinaryRangedProjectile(conn, session, aim, projectileId, sequence, criticalRoll, release));
         return Task.CompletedTask;
+    }
+
+    internal static ProjectileUse CaptureOrdinaryRangedProjectile(ClientState conn, ProjectileSession session,
+        (int X, int Y) aim, string projectileId, ushort sequence, SkillCriticalRoll criticalRoll, ContactPoint? release)
+    {
+        // The client draws the shot when the record it has carries this projectile's count, as it stands at the
+        // release: a record of the other weapon (a swap whose skills have not gone yet) fires nothing there, so
+        // the server sends the object.
+        bool clientDrawn = conn.ClientDrawnShot == projectileId;
+        var character = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        int RawCritical(string name) => IsCriticalProhibition(name) ? 0 : Get(name);
+        int effect = SkillEffectId(conn, SkillCatalog.FirstSkillId) is { } id ? SkillsFor(conn).EffectRow(id) : -1;
+        var weapon = WeaponProfileFor(conn, activeSet: true);
+        int criticalChance = CriticalProhibited(conn, attack: true)
+            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, weapon.Critical, conn.Pools.CriticalStrikeChancePct, RawCritical)
+            : conn.Pools.AttackCriticalStrikeChance;
+        var captured = OrdinaryRangedShot.Capture(WeaponFor(conn), character, SkillsFor(conn).EffectStats(effect, 1), Stats,
+            PlayerAccuracy(conn, character), criticalChance, conn.Pools.CriticalStrikeMultiplier);
+        bool wand = projectileId == OrdinaryRangedAttack.Wand;
+        var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false),
+            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(character, Stats, attack: true), Get);
+        var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
+            captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
+        {
+            SkillStats = SkillsFor(conn).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
+            VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(conn, character, release: true),
+            VsProfaneCriticalChance = AttackCriticalChanceVsProfane(conn, character, release: true),
+            Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
+            ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
+            Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
+            Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources,
+                projectileAttack: true),
+            Bleed = BleedSettings(ailmentRows, "main_hand", Get, WeaponFor(conn).LocalSources, melee: false, bow: !wand,
+                projectileAttack: true),
+            CriticalRoll = criticalRoll, Leech = captured.Leech,
+            AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = conn.Pools.AccuracyMoreInCloseRangePct,
+            AlwaysHits = Get("global_always_hit") != 0, FarShot = Get("player_far_shot") != 0,
+            PointBlank = Get("keystone_point_blank") != 0,
+            ReturnMultiplier = ProjectileReturn.DamageMore(Get), Blind = BlindInputs(character),
+            // The object flies at the height the clip releases it (the bow's nock, the wand's tip).
+            Presentation = (wand ? OrdinaryWandPresentation : OrdinaryArrowPresentation) with { LaunchHeight = release?.HeightSteps },
+            // The target's blood and particles on contact, matched to this shot's action (0x1af, kind 3).
+            HitPacket = true, ActionSequence = sequence, ClientPredicted = clientDrawn
+        };
+        var origin = ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond));
+        var target = ProjectileSession.Vector(aim);
+        // The shot leaves from the clip's contact keyframe, in front of the body along the aim (the Ranger's bow
+        // 5.5 cells, a wand's tip 7.5), else 1.5 cells ahead; never past half way to the aim, so a close target
+        // is not behind the release. The lateral part of the keyframe is not applied (ContactPoint).
+        double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : OrdinaryRangedAttack.ReleaseAheadCells;
+        origin += (target - origin).Unit * Math.Min(ahead, (target - origin).Length / 2);
+        var profile = OrdinaryRangedProfile(conn, projectileId, weapon.Bow, Get);
+        profile = clientDrawn ? ClientDrawnProfile(conn, profile, Get, sequence, target - origin) : NativeVolley(profile, Get);
+        return new(profile, new(PlayerId, session.Conn.ProjectileEpoch), new(PlayerId, session.Conn.ProjectileEpoch), 1,
+            origin, target)
+            { Payload = shot, ReturnAnchor = new(PlayerId, session.Conn.ProjectileEpoch) };
     }
 
     // The ordinary shot's flight as the server simulates it, and with it the count the client's record carries.

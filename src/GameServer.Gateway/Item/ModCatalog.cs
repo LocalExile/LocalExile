@@ -36,6 +36,8 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         public string MonsterOnDeath { get; init; } = "";
         public int GrantedEffects { get; init; }
         public IReadOnlyList<int> GrantedEffectLevels { get; init; } = [];
+        /// <summary>GrantedEffectsPerLevel overrides used by HardMode when this list is nonempty.</summary>
+        public IReadOnlyList<int> RuthlessGrantedEffectLevels { get; init; } = [];
 
         /// <summary>The weight for an item with these tags: the first spawn tag it has, times the first generation tag
         /// it has / 100; 0 when no spawn tag matches.</summary>
@@ -165,6 +167,8 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 GrantedEffects = r.TryGetProperty("GrantedEffectsPerLevelKeys", out var granted) ? granted.GetArrayLength() : 0,
                 GrantedEffectLevels = r.TryGetProperty("GrantedEffectsPerLevelKeys", out var effects)
                     ? [.. effects.EnumerateArray().Select(e => e.GetInt32())] : [],
+                RuthlessGrantedEffectLevels = r.TryGetProperty("GrantedEffectRuthless", out var ruthless)
+                    ? [.. ruthless.EnumerateArray().Select(e => e.GetInt32())] : [],
                 Tags = new[] { "TagsKeys", "ImplicitTagsKeys" }
                     .Where(key => r.TryGetProperty(key, out _))
                     .SelectMany(key => r.GetProperty(key).EnumerateArray().Select(k => k.GetInt32()))

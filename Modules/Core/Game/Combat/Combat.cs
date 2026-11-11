@@ -461,6 +461,7 @@ static partial class Game
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, WeaponProfileFor(conn, activeSet: true).Melee, player);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
                     rampageSource, player);
+                CaptureUnhingedHitKillLocked(conn, m, playerHit: true);
                 if (stageStarts)
                 {
                     CommitBossStage(remote, stream, ciphers, conn, targetId, m, ProjectileWorldTime(conn));
@@ -469,8 +470,7 @@ static partial class Game
                 life = m.Life;
                 conn.LastEnemyHitAt = m.PlayerHitAt = conn.Clock.Elapsed.TotalSeconds;
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
-                conn.RecentEvents.Record(StatConditions.HitEnemy, conn.Clock.Elapsed.TotalSeconds);
-                if (critical) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
+                conn.RecentEvents.RecordHit(conn.Clock.Elapsed.TotalSeconds, critical);
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, m, mitigated, spell: false, critical, criticalMultiplier, player, ownPenetration,
                     at, Random.Shared, poison: DefaultAttackPoison(conn, player));
@@ -479,7 +479,8 @@ static partial class Game
                         critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
                 if (life > 0 && ownRolled[DamageType.Physical].Max > 0
-                    && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at) is { } cut)
+                    && BleedOnHitLocked(conn, targetId, m, DefaultAttackBleed(conn, player), critical, at,
+                        BleedReflected(player)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(conn, m, hit: damage > 0, killed: life == 0);
                 if (!raged) raged = RageOnHitLocked(conn, attack: true, melee: WeaponProfileFor(conn, activeSet: true).Melee, critical);
@@ -529,6 +530,11 @@ static partial class Game
     {
         if (m.OwnerId is not null) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
+        if (gem.Name is null)
+        {
+            Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4}: unknown dynamic skill id (action not started)");
+            return;
+        }
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
@@ -618,6 +624,29 @@ static partial class Game
         (int X, int Y) aim = default, stand = default;
         int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(conn, use.SkillId, gem.Effect), chargeToken = 0;
         bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect);
+        if (gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            (int X, int Y) dashAim;
+            lock (conn.Monsters) dashAim = m.Walk.Position(ProjectileWorldTime(conn));
+            if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, dashAim, out var dashUse, requestedAt))
+            {
+                Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: Dash refused before object admission");
+                return;
+            }
+            if (!await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, dashUse!.From, dashAim,
+                    use.TargetId, use.Sequence, dashReceipt: dashUse)) return;
+            bool dashAcknowledged = false;
+            await Send(remote, stream, ciphers,
+                [.. InstanceProtocol.ActionStarted(PlayerId, dashUse.From.X, dashUse.From.Y, dashAim.X, dashAim.Y,
+                    use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), .. InstanceProtocol.ActionEnded(PlayerId)],
+                $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: accepted Dash from " +
+                $"({dashUse.From.X}, {dashUse.From.Y}) to ({dashUse.To.X}, {dashUse.To.Y}) (t={dashUse.AcceptedAt:0.000})",
+                still: () => dashAcknowledged = dashUse.ConfirmNativeUse(conn));
+            if (!dashAcknowledged) return;
+            await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+            ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
+            return;
+        }
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -629,7 +658,7 @@ static partial class Game
                 conn.Walk.Order(stand.X, stand.Y, castAt);
                 // A movement skill aimed at a monster travels as one aimed at the ground does.
                 if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
-                else if (moves)
+                else if (moves && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
                 {
                     var landing = MovementLanding(conn, gem.Effect, stand, aim);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
@@ -652,29 +681,193 @@ static partial class Game
             actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
     }
 
+    /// <summary>One Dash whose source, resources, cooldown, displacement and recent events committed together. The past
+    /// event is immutable; delayed publication and acknowledgement still require the original owner and source to be
+    /// current. They never move, pay or record again.</summary>
+    internal sealed record DashUseReceipt(ClientState Connection, GameServer.Modding.IModuleLifetime Lifetime,
+        ushort SkillId, int Effect, GemSkillIds.Gem Source, int ActionToken, int ProjectileEpoch, double AcceptedAt,
+        (int X, int Y) From, (int X, int Y) To,
+        SingleUseCooldownState Cooldown, int UseVersion, uint ManaCost, uint LifeCost)
+    {
+        bool paymentPublished, completed, nativeCommitted;
+
+        public bool Matches(ushort skillId, int effect) => SkillId == skillId && Effect == effect;
+
+        public bool PublishPayment()
+        {
+            lock (Connection.Monsters)
+            {
+                if (paymentPublished) return false;
+                paymentPublished = true;
+                return true;
+            }
+        }
+
+        public bool Complete()
+        {
+            lock (Connection.Monsters)
+            {
+                if (completed) return false;
+                completed = true;
+                return true;
+            }
+        }
+
+        public bool ConfirmNativeUse(ClientState conn)
+        {
+            if (!ReferenceEquals(Connection, conn)) return false;
+            lock (conn.Monsters)
+            {
+                if (nativeCommitted || !CurrentLocked(conn)) return false;
+                Cooldown.ConfirmNativeUse(UseVersion, SkillId, synchronizeProgress: false);
+                nativeCommitted = true;
+                return true;
+            }
+        }
+
+        public bool Current(ClientState conn)
+        {
+            if (!ReferenceEquals(Connection, conn)) return false;
+            lock (conn.Monsters) return CurrentLocked(conn);
+        }
+
+        internal bool CurrentLocked(ClientState conn) =>
+            ReferenceEquals(Connection, conn) && CurrentGameRules && ReferenceEquals(Lifetime, CombatLifetime)
+            && conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0 && !conn.Paused
+            && conn.PendingTransfer is null && conn.ActionCount == ActionToken
+            && CurrentDashSourceLocked(conn, SkillId, Effect, out _)?.Identity == Source;
+    }
+
+    // Requirements and their equipment/inactive snapshot are refreshed before the source list's Active filter. A stale
+    // panel cache may retain the grant id, but neither an unmet host nor a removed source can admit or revive Dash work.
+    static PlayerSkillSource? CurrentDashSourceLocked(ClientState conn, ushort skillId, int effect, out SupportedGem supported)
+    {
+        supported = new(-1, 1, 0, [], []);
+        var equipment = ItemsOf(conn).EquipmentSnapshot();
+        var requirements = CurrentGemRequirements(conn, equipment);
+        var source = PlayerSkillSourcesAt(CharacterName(conn), equipment, requirements.Inactive, LeagueFor(conn),
+                GrantedSkillsOf(conn), WornGrantedSkillsOf(conn, equipment))
+            .FirstOrDefault(s => s.Id == skillId && s.Effect == effect && s.Active);
+        if (source is null || !IsDashEffect(SkillsFor(conn).EffectId(effect))) return null;
+        supported = SupportedSkillAt(conn, skillId, requirements);
+        if (supported.Effect != effect || !supported.RequirementsMet
+            || ActorSkillInstanceDisabled(conn, effect, skillId) is not null
+            || WeaponRestricted(conn, effect) is not null
+            || SkillsFor(conn).EffectId(effect) is { } effectId
+                && ProjectileDefinition(effectId)?.Unavailable?.Invoke(conn) is not null)
+            return null;
+        return source;
+    }
+
+    // Dash admission is its own transaction because unlike the ordinary cooldown ticket its movement is part of the
+    // accepted use. Resolve the exact current source, landing, readiness and cost first; only then spend cooldown and
+    // resources and commit displacement plus its original-time recents in the same Monsters critical section.
+    internal static bool TryCommitDashUse(ClientState conn, ushort skillId, int effect, (int X, int Y) aim,
+        out DashUseReceipt? receipt, double? requestedAt = null, bool beginAction = true)
+    {
+        receipt = null;
+        using (ProjectileMutation(conn))
+        {
+            using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
+            if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
+                || conn.Paused || InTown(conn) || requestedAt is double asked
+                    && PlayerActionBlocked(conn, asked, conn.Clock.Elapsed.TotalSeconds))
+                return false;
+            var source = CurrentDashSourceLocked(conn, skillId, effect, out var supported);
+            if (source is null) return false;
+            var cooldown = CooldownFor(conn, effect, supported.Level, supported.Quality);
+            int key = CooldownKey(conn, effect, skillId);
+            double acceptedAt = ProjectileWorldTime(conn);
+            if (!TryDashLanding(conn, effect, aim, out var from, out var to, acceptedAt)) return false;
+
+            conn.SingleUseCooldowns.TryGetValue(key, out var state);
+            state?.Refresh(acceptedAt, cooldown?.RecoveryRate ?? state.Rate);
+            if (cooldown is not { } plan || state is not null && !state.Ready
+                || acceptedAt < conn.SkillReadyAt.GetValueOrDefault(key))
+                return false;
+            if (!PayMana(conn, skillId, out uint manaCost, out uint lifeCost)) return false;
+
+            // Nothing below can refuse: payment, cooldown use, action, displacement and recents are one commit.
+            state = CooldownStateLocked(conn, key, plan, acceptedAt);
+            _ = state.TryUse(acceptedAt, plan);
+            conn.SkillReadyAt[key] = acceptedAt + state.RemainingSeconds;
+            int action = beginAction ? Interlocked.Increment(ref conn.ActionCount) : conn.ActionCount;
+            if (beginAction) conn.Walk.Order(from.X, from.Y, acceptedAt);
+            conn.Walk.Teleport(to.X, to.Y, acceptedAt);
+            RecordAcceptedGemUseAt(conn, effect, acceptedAt);
+            receipt = new(conn, CombatLifetime!, skillId, effect, source.Identity, action, conn.ProjectileEpoch,
+                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost);
+            return true;
+        }
+    }
+
+    internal static async Task<bool> PublishDashUse(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, DashUseReceipt receipt)
+    {
+        if (!receipt.Current(conn)) return false;
+        if (receipt.PublishPayment() && (receipt.ManaCost > 0 || receipt.LifeCost > 0))
+            await SendSkillCost(remote, stream, ciphers, conn, receipt.LifeCost,
+                $"0x01b1 player cost {conn.PlayerMana} mana, {conn.PlayerLife} life " +
+                $"(-{receipt.ManaCost} mana, -{receipt.LifeCost} life for Dash) (t={receipt.AcceptedAt:0.000})");
+        if (!receipt.Current(conn) || !receipt.Complete()) return false;
+        if (SkillsFor(conn).IsTravel(receipt.Effect))
+            lock (conn.Monsters)
+            {
+                if (!receipt.CurrentLocked(conn)) return false;
+                QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);
+            }
+        if (!receipt.Current(conn)) return false;
+        foreach (var handler in GameEvents.SkillCastAt.For(conn))
+            if (handler(conn, SkillsFor(conn).EffectId(receipt.Effect), receipt.SkillId, receipt.To,
+                    () => receipt.Current(conn)) is not null)
+                break;
+        _ = GameEvents.RunSkillCast(conn, SkillsFor(conn).EffectId(receipt.Effect), receipt.SkillId,
+            receipt.From, () => receipt.Current(conn));
+        return receipt.Current(conn);
+    }
+
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when
     // it was refused (cooldown, mana), so its use is not confirmed to the client. An attack's timer, hit and release
     // count from swingAt when its swing began before now (a lockstep walk-up's goal frame, CastOn), else from now.
     internal static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
-        int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false, double? swingAt = null)
+        int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
+        DashUseReceipt? dashReceipt = null, double? swingAt = null)
     {
         int action = actionToken ?? conn.ActionCount;
         int recoveryGeneration = 0;
         int? channelGeneration = null;
         VaalUseReservation? vaalUse = null;
+        SupportedGem? beastCompanion = null;
         lock (conn.Monsters)
             if (actionToken is not null && (conn.ActionCount != action || conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) == 0 || conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))) return false;
         if (InTown(conn) || conn.PlayerLife == 0) return false;
         await EndGracePeriod(remote, stream, ciphers, conn, action: true);
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || PlayerActionCurrent(conn, action)))
-            && (vaalUse is null || VaalAdmissionCurrent(conn, vaalUse))
-            && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, action, generation));
+        if (gem.Name is null) return false;
+        if (IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            if (dashReceipt is null)
+            {
+                if (cooldownUse is not null || !TryCommitDashUse(conn, skillId, gem.Effect, to, out dashReceipt,
+                        beginAction: false))
+                    return false;
+            }
+            if (dashReceipt is null || !dashReceipt.Matches(skillId, gem.Effect)) return false;
+            return await PublishDashUse(remote, stream, ciphers, conn, dashReceipt);
+        }
+        bool Current()
+        {
+            lock (conn.Monsters)
+                return !conn.Closed && !conn.LeavingArea && !conn.RageRetired
+                    && (cooldownUse?.Current(conn) ?? (actionToken is null || PlayerActionCurrent(conn, action)))
+                    && (vaalUse is null || VaalAdmissionCurrent(conn, vaalUse))
+                    && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, action, generation));
+        }
         if (!Current()) return false;
-        if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, skillId, gem.Effect)) return false;
-        if (locationInstant && (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))) return false;
-        if (gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
+        if (!ProjectilePathAvailable(remote, conn, skillId, gem.Effect)) return false;
+        if (locationInstant && !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect)) return false;
+        if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
             && CastMs(conn, gem.Effect) is null)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: invalid cast duration (no effect or mana cost)");
@@ -682,13 +875,20 @@ static partial class Game
             return false;
         }
         // Shared backstop for actor restrictions and gem requirements, before cooldown/payment/effect admission.
-        if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is { } disabled)
+        if (GemSkillInstanceDisabled(conn, gem.Effect, skillId) is { } disabled)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {disabled} (disabled)");
             await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (disabled skill, cost back)");
             return false;
         }
-        bool vaalCast = gem.Name is not null && SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not null;
+        if (IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            beastCompanion = SupportedSkill(conn, skillId);
+            if (beastCompanion.Effect != gem.Effect
+                || !BeastCompanionAdmissionCurrent(conn, beastCompanion, skillId))
+                return false;
+        }
+        bool vaalCast = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is not null;
         if (vaalCast && (vaalUse = ExecuteVaalUse(conn, skillId, gem.Effect)) is null)
         {
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: no executable paid Vaal admission");
@@ -712,13 +912,14 @@ static partial class Game
         else if (gem.Name is not null && SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) is int cooldown and > 0)
         {
             double now = conn.Clock.Elapsed.TotalSeconds, readyAt;
+            int key = CooldownKey(conn, gem.Effect, skillId);
             lock (conn.Monsters)
             {
-                readyAt = conn.SkillReadyAt.GetValueOrDefault(gem.Effect);
+                readyAt = conn.SkillReadyAt.GetValueOrDefault(key);
                 if (now >= readyAt)
                 {
-                    conn.SkillReadyAt[gem.Effect] = now + cooldown / 1000.0;
-                    conn.SingleUseCooldowns.Remove(gem.Effect);
+                    conn.SkillReadyAt[key] = now + cooldown / 1000.0;
+                    conn.SingleUseCooldowns.Remove(key);
                 }
             }
             if (now < readyAt)
@@ -727,6 +928,8 @@ static partial class Game
                 return false;
             }
         }
+        if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == UnhingeEffect)
+            return await ToggleUnhinged(remote, stream, ciphers, conn, skillId, gem.Effect, Current);
         // An attack gem swings with the weapon's attack time, like the default attack (see Attack): while the button is held
         // the client keeps aiming it, and every use used to pay its cost and start a swing (live 2026-10-25: Holy Strike on
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
@@ -753,14 +956,30 @@ static partial class Game
         if (gem.Name is not null && LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
             return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
         if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false }
-            && SupportedReservation(conn, skillId) is { } reservation)
+            && SupportedReservationCost(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
-            if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
-                return await TogglePetrifiedBlood(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
+            bool accepted;
+            if (StanceCatalog.IsSource(SkillsFor(conn).EffectId(gem.Effect)))
+            {
+                if (cooldownUse?.Stance is not { } stanceUse) return false;
+                accepted = await PublishStanceUse(remote, stream, ciphers, conn, stanceUse, gem.Name);
+            }
+            else if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
+                accepted = await TogglePetrifiedBlood(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(conn, skillId).Level, SupportedSkill(conn, skillId).Quality);
-            return await ToggleAura(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
-                SupportedSkill(conn, skillId).Level, SupportedSkill(conn, skillId).Quality);
+            else
+                accepted = await ToggleAura(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Name, reservation,
+                    SupportedSkill(conn, skillId).Level, SupportedSkill(conn, skillId).Quality);
+            if (accepted) RecordAcceptedGemUse(conn, gem.Effect);
+            return accepted;
+        }
+        (int X, int Y) dashFrom = default, dashTo = default;
+        bool dash = gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect));
+        if (dash)
+        {
+            lock (conn.Monsters)
+                if (!TryDashLanding(conn, gem.Effect, to, out dashFrom, out dashTo)) return false;
         }
         SkillCriticalRoll? criticalRoll = vaalUse?.CriticalRoll;
         if (gem.Name is not null && !vaalCast)
@@ -770,8 +989,12 @@ static partial class Game
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
+                if (dash && !TryDashLanding(conn, gem.Effect, to, out dashFrom, out dashTo)) return false;
                 paid = PayMana(conn, skillId, out cost, out lifeCost);
+                if (paid && dash) conn.Walk.Teleport(dashTo.X, dashTo.Y, ProjectileWorldTime(conn));
                 if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
+                if (paid && beastCompanion is { } beast)
+                    QueueBeastCompanionLocked(conn, beast, skillId, actionToken);
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
                     channelGeneration = ++conn.ChannelGeneration;
@@ -803,7 +1026,10 @@ static partial class Game
             recoveryGeneration = vaalUse!.RecoveryGeneration;
             await PublishVaalUse(remote, stream, ciphers, conn, vaalUse);
         }
-        if (!Current()) return false;
+        if (!Current() || gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null)
+            return false;
+        if (!locationInstant && gem.Name is not null) RecordAcceptedGemUse(conn, gem.Effect);
+        if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
         {
             lock (conn.Monsters)
@@ -854,6 +1080,24 @@ static partial class Game
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: swingAt);
         return true;
+    }
+
+    // Record only after payment/cooldown/effect admission. The instant-location path calls this after its own
+    // final 0x1ce at-gate commit, so a stale or cancelled Frostblink cannot activate a recent event.
+    static void RecordAcceptedGemUse(ClientState conn, int effect) =>
+        RecordAcceptedGemUseAt(conn, effect, conn.Clock.Elapsed.TotalSeconds);
+
+    static void RecordAcceptedGemUseAt(ClientState conn, int effect, double acceptedAt)
+    {
+        lock (conn.Monsters)
+        {
+            bool movement = SkillsFor(conn).IsMovement(effect);
+            if (movement) conn.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
+            if (movement && IsDashEffect(SkillsFor(conn).EffectId(effect)))
+                conn.RecentEvents.Record(StatConditions.UsedDash, acceptedAt);
+            if (SkillsFor(conn).HasType(effect, "Fire"))
+                conn.RecentEvents.Record(StatConditions.UsedFireSkill, acceptedAt);
+        }
     }
 
     // An instant skill (C→S 0x191): its effect, then S→C 0x1ce, which has the client run the skill's action without animation
@@ -959,6 +1203,7 @@ static partial class Game
             });
         if (accepted)
         {
+            RecordAcceptedGemUse(conn, gem.Effect);
             if (SkillsFor(conn).IsTravel(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
@@ -967,7 +1212,7 @@ static partial class Game
     // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them
     // off. The reserved mana is sent in the Life pool and in every later 0x1b1 mana update; the client does not derive it.
     internal static async Task<bool> ToggleAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, string name, (int Flat, int Percent) reservation, int level, int quality)
+        ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         string? effectId = SkillsFor(conn).EffectId(effect);
         if (effectId is null || !AuraCatalog.Supported(effectId))
@@ -975,6 +1220,8 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: reservation is known but this aura's effect is not implemented yet");
             return false;
         }
+        // Both stance gems have one atomic source/cooldown/action admission. A direct generic toggle would bypass it.
+        if (StanceCatalog.IsSource(effectId)) return false;
         AuraCatalog.Aura? ended = null;
         AuraCatalog.Aura? started = null;
         lock (conn.Monsters)
@@ -988,16 +1235,6 @@ static partial class Game
                 if (packets.Length > 0) conn.Minions.OutputQueue.Add(new(packets, "Temporal Rift recalls resources and position"));
                 started = conn.Auras[skillId];
             }
-            else if (AuraCatalog.IsStance(effectId) && conn.Auras.ContainsKey(skillId))
-            {
-                conn.Stance = AuraCatalog.OtherStance(conn.Stance);
-                foreach (var active in conn.Auras.Values.Where(a => AuraCatalog.IsStance(a.EffectId)).ToArray())
-                    conn.Auras[active.SkillId] = active with { Stance = conn.Stance,
-                        BuffRow = AuraCatalog.BuffRow(active.EffectId, conn.Stance), Buff = conn.NextBuff++,
-                        SourceBuff = active.SourceBuff is not null ? conn.NextBuff++ : null };
-                CharacterSaves.SetStance(CharacterName(conn), conn.Stance);
-                started = conn.Auras[skillId];
-            }
             else if (conn.Auras.Remove(skillId, out var old))
             { ended = old; EndReservationRuntimeLocked(conn, old); }
             else if (conn.Auras.Values.FirstOrDefault(a => a.EffectId == effectId) is { } same)
@@ -1008,22 +1245,30 @@ static partial class Game
             }
             else
             {
-                // Generosity: the supported aura's own increased effect, and "Supported Auras do not affect you".
+                var supported = SupportedSkill(conn, skillId);
                 var (supportEffect, affectsSelf) = AuraSupport(conn, skillId);
                 var context = ReservationContext(conn, skillId);
                 string? stance = AuraCatalog.IsStance(effectId) ? conn.Stance : null;
                 var aura = new AuraCatalog.Aura(skillId, effect, effectId, name, conn.NextBuff++,
-                    AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
-                    SourceBuff: OwnAuraRestriction.IsAura(SupportedSkill(conn, skillId).Stats) ? conn.NextBuff++ : null,
+                    AuraCatalog.BuffRow(effectId, stance), reservation.ManaFlat, reservation.ManaPercent,
+                    Level: level, Quality: quality, LifeFlat: reservation.LifeFlat, LifePercent: reservation.LifePercent,
+                    SourceBuff: conn.NextBuff++, WornGrant: supported.WornGrant,
+                    SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency);
-                conn.Auras[skillId] = aura;
-                if (!ReservationBudgetFits(conn))
+                var proposedAuras = conn.Auras.Values.Append(aura).ToArray();
+                long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, proposedAuras)
+                    + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
+                    + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
+                var lifeReservation = LifeReservationFor(conn, proposedAuras);
+                int requiredLife = lifeReservation.Required;
+                if (reserved > conn.Pools.Mana || requiredLife >= conn.Pools.Life)
                 {
-                    conn.Auras.Remove(skillId);
-                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: insufficient unreserved {(context.Life ? "life" : "mana")}");
+                    Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: needs {reserved} mana and " +
+                        $"{requiredLife} life reserved, maximum is {conn.Pools.Mana} mana and {conn.Pools.Life} life");
                     return false;
                 }
+                conn.Auras[skillId] = aura;
                 started = aura;
                 ClampReservedResources(conn);
             }
@@ -1049,10 +1294,20 @@ static partial class Game
         lock (conn.Monsters)
         {
             bool all = name.Equals("all", StringComparison.OrdinalIgnoreCase);
+            string compactName = string.Concat(name.Where(c => !char.IsWhiteSpace(c)));
+            string stanceFamily = compactName.Equals(StanceCatalog.BloodAndSand, StringComparison.OrdinalIgnoreCase)
+                ? StanceCatalog.BloodAndSand
+                : compactName.Equals(StanceCatalog.FleshAndStone, StringComparison.OrdinalIgnoreCase)
+                    ? StanceCatalog.FleshAndStone : "";
+            bool MatchesSource(string effectId) =>
+                stanceFamily.Length > 0 && StanceCatalog.SourceFamily(effectId) == stanceFamily;
             var matches = conn.Auras.Values.Where(a => all
-                || a.EffectId.Equals(name, StringComparison.OrdinalIgnoreCase) || a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+                || a.EffectId.Equals(name, StringComparison.OrdinalIgnoreCase)
+                || MatchesSource(a.EffectId)
+                || a.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
             var saved = CharacterSaves.Load(CharacterName(conn));
             var remembered = (saved?.ActiveAuras ?? []).Where(id => all || id.Equals(name, StringComparison.OrdinalIgnoreCase)
+                || MatchesSource(id)
                 || GemSkillEffects(conn).Any(g => SkillsFor(conn).EffectId(g.Effect) == id
                     && g.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToArray();
             bool petrified = (all || name.Equals("Petrified Blood", StringComparison.OrdinalIgnoreCase)
@@ -1069,6 +1324,8 @@ static partial class Game
                 CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
                 EndReservationRuntimeLocked(conn, aura);
             }
+            if (matches.Any(a => StanceCatalog.IsStance(a.EffectId)))
+                ReconcileStanceSelectionLocked(conn, persist: true);
             conn.AuraStatsDirty = true;
             conn.Pools = BuildPoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
@@ -1578,7 +1835,7 @@ static partial class Game
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
-                    if (critical) conn.RecentEvents.Record(StatConditions.Crit, at);
+                    conn.RecentEvents.RecordCriticalOutcome(at, critical);
                     landed++;
                     // Item Quantity Support: the kill's loot rolls read the supported skill's share.
                     if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
@@ -1593,7 +1850,8 @@ static partial class Game
                         && IgniteOnHitLocked(conn, id, m, ignite, critical, at) is { } packets)
                         (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                     if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
-                        && BleedOnHitLocked(conn, id, m, bleed, critical, at) is { } cut)
+                        && BleedOnHitLocked(conn, id, m, bleed, critical, at,
+                            BleedReflected(player)) is { } cut)
                         (bled, bleedLog) = (cut, BleedingLog(id, m, critical, at));
                 }
                 if (applied is { StageStarts: true } staged)
@@ -1748,6 +2006,7 @@ static partial class Game
         if (m.Dead || m.Life == 0) return null;
         uint before = m.Life;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
+        CaptureUnhingedHitKillLocked(conn, m, playerHit: allyAt is null);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
         if (allyAt is null)
         {
@@ -1968,12 +2227,15 @@ static partial class Game
     // player is in the area (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking); leaving does not save it.
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
     internal static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
-        bool byMinion = false)
-        => await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion);
+        bool byMinion = false, bool byHit = true)
+        => await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion, byHit);
 
     static async Task MonsterKilledBy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        uint id, SpawnedMonster m, bool playerKill)
+        uint id, SpawnedMonster m, bool playerKill, bool byHit = true)
     {
+        // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
+        bool destroyCorpse;
+        lock (conn.Monsters) destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(conn, m);
         StopCorpseBlocking(remote, stream, ciphers, conn, id, m);
         double now = conn.Clock.Elapsed.TotalSeconds;
         (int X, int Y) at, player;
@@ -1998,11 +2260,7 @@ static partial class Game
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
-            // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
-            // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
-            // ids stay NotModelled rather than being answered wrongly.
-            lock (conn.Monsters)
-                conn.RecentEvents.Record(StatConditions.KilledEnemy, conn.Clock.Elapsed.TotalSeconds);
+            // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
             await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
@@ -2028,6 +2286,7 @@ static partial class Game
         }
         await GainKillCharges(remote, stream, ciphers, conn, m.Rarity, $"{m.Rarity} {m.Label} 0x{id:x} killed");
         if (!m.NoRewards) await DropLoot(remote, stream, ciphers, conn, m, at);
+        await PublishUnhingedCorpseDestruction(remote, stream, ciphers, conn, id, m, destroyCorpse);
     }
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the

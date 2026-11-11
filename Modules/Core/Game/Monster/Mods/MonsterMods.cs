@@ -23,11 +23,22 @@ static partial class Game
     internal static MonsterModSet MonsterModsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         MonsterModSet? kept, bool alone)
     {
-        if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) return kept;
         var rolls = MonsterModRolls.Value;
-        if (rarity != MonsterRarity.Magic || alone) return rolls.Roll(variety, level, rarity, Random.Shared, alone);
-        var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
-        lock (shared) return rolls.SharedMagic(shared, variety, level, Random.Shared);
+        MonsterModSet result;
+        if (kept is { Mods.Count: > 0 } || kept is not null && rarity == MonsterRarity.Normal) result = kept;
+        else if (rarity != MonsterRarity.Magic || alone) result = rolls.Roll(variety, level, rarity, Random.Shared, alone);
+        else
+        {
+            var shared = MagicModsOf.GetValue(conn.Instance, _ => []);
+            lock (shared) result = rolls.SharedMagic(shared, variety, level, Random.Shared);
+        }
+        if (variety.SpeciesModsOrEmpty.Count == 0) return result;
+        var species = rolls.Create(rolls.Species(variety.SpeciesModsOrEmpty, Random.Shared), [], MonsterRarity.Normal, level);
+        return result with
+        {
+            Mods = [.. result.Mods, .. species.Mods],
+            Effects = result.Effects.Plus(species.Effects),
+        };
     }
 
     /// <summary>The stats the client needs for the mods (it applies no modifier of its own to a monster, 14 §2): the

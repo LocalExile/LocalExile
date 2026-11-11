@@ -36,6 +36,7 @@ static partial class Game
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
         if (playerKill)
         {
+            conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
                 Frozen: monster.Ailments.FrozenAtDeath(now));
@@ -77,7 +78,7 @@ static partial class Game
             if (level != conn.Pools.Level)
             {
                 CommitExperienceLevel(conn, level);
-                conn.PlayerLife = conn.PlayerUnreservedLife; conn.PlayerMana = (uint)UnreservedMana(conn);
+                conn.PlayerLife = LifeCap(conn); conn.PlayerMana = (uint)UnreservedMana(conn);
                 conn.EnergyShield.SetMaximum(conn.Pools.EnergyShield, true); TrimLeechLocked(conn);
                 state.StatRevision++; state.AccountRevision++;
                 state.OutputQueue.Add(new([], "0x0033 current passive skill tree (accepted level)", Kind: PlayerMinions.OutputKind.Passives));
@@ -251,7 +252,7 @@ static partial class Game
             if (!Current()) return;
             await SendPlayerMana(remote, stream, ciphers, conn); await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             await Send(remote, stream, ciphers, [], "player life after minion outcomes", atGate: () =>
-            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife) : null; });
+            { lock (conn.Monsters) return Current() && !conn.Closed && !conn.LeavingArea ? PlayerLifeUpdate(conn) : null; });
             lock (conn.Monsters) if (Current() && !conn.Closed && !conn.LeavingArea) state.PresentedStatRevision = Math.Max(state.PresentedStatRevision, revision);
         }
         if (!Current() || account == state.PresentedAccountRevision) return;

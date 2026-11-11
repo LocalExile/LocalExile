@@ -6,7 +6,8 @@ using GameServer.Core.Protocol.Instance;
 sealed class GemSupports(string folder = "data")
 {
     public sealed record Effect(int Row, string Id, bool Support, int[] Allowed, int[] Excluded, int[] Added,
-        int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions);
+        int[] Types, int[] MinionTypes, int[] Weapons, int? Regular, bool CannotBeSupported, bool IgnoreMinions,
+        bool SupportsGemsOnly);
     public sealed record Candidate(int Effect, int Level, int Quality, int Socket);
     public sealed record Applied(Candidate Gem, Effect Effect, uint PerLevel, int CostMultiplier,
         IReadOnlyList<(uint Key, int Value)> Stats);
@@ -73,11 +74,12 @@ sealed class GemSupports(string folder = "data")
     }
 
     public IReadOnlyList<Applied> Resolve(int active, IEnumerable<Candidate> candidates, SkillCatalog skills,
-        int? weaponClass = null)
+        int? weaponClass = null, bool sourceIsGem = true)
     {
         if (Of(active) is not { Support: false, CannotBeSupported: false } target) return [];
         var types = target.Types.ToHashSet();
-        var all = candidates.Where(c => Of(c.Effect) is { Support: true })
+        var all = candidates.Where(c => Of(c.Effect) is { Support: true } support
+                && (sourceIsGem || !support.SupportsGemsOnly))
             .Select(c => (Gem: c, Effect: Of(c.Effect)!))
             .GroupBy(c => Family(c.Effect))
             .Select(g => g.OrderByDescending(c => c.Effect.Regular is not null).ThenByDescending(c => c.Gem.Level)
@@ -148,7 +150,8 @@ sealed class GemSupports(string folder = "data")
                 Ints(r, "AllowedActiveSkillTypes"), Ints(r, "ExcludedActiveSkillTypes"), Ints(r, "AddedActiveSkillTypes"),
                 Ints(skill, "ActiveSkillTypes"), Ints(skill, "MinionActiveSkillTypes"), Ints(r, "SupportWeaponRestrictions"),
                 r.GetProperty("RegularVariant") is { ValueKind: JsonValueKind.Number } regular ? regular.GetInt32() : null,
-                r.GetProperty("CannotBeSupported").GetBoolean(), r.GetProperty("IgnoreMinionTypes").GetBoolean());
+                r.GetProperty("CannotBeSupported").GetBoolean(), r.GetProperty("IgnoreMinionTypes").GetBoolean(),
+                r.GetProperty("SupportsGemsOnly").GetBoolean());
         }).ToArray();
     }
 

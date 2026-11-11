@@ -58,6 +58,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   The checks use an unascended Witch; Behemoth selection and Vaal consumers remain separate.
   Supported contacts, area-sweep deduplication, queued refreshes and the 140-damage/11-Fortification composition
   have automated coverage; further native composition checks remain in [26-rage.md](../docs/protocol/26-rage.md).
+  Kaom's Primacy, Rigwald's Command and The Grey Wind per-Rage coefficients reach conversion, bleed and fire DoT
+  from authoritative effective Rage; active-set, inactive, removal, zero, effect and decay controls are automated.
+  Their native item/panel and actual-ailment acceptance remains pending.
   Capped attempted gains and frozen destination-loading time use explicit LocalExile policy v1.
 
 - Mana per final Strength (#287): `X_mana_per_4_strength` joins the ordinary flat mana bucket before increases.
@@ -422,6 +425,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   time left.
   Character.ot's per-charge bonuses and every "per charge" mod the server calculates with apply to the pools, hits,
   damage taken, walk speed and the sent stats; the Charges tab gets `current_*_charges` and the per-charge rows.
+  Thirteen previously missing ordinary leaves now feed the existing crit, ailment, leech, Fortification,
+  life/Energy Shield recovery and mana-before-Life consumers; automated lifecycle/source controls pass, while
+  native unique admission remains pending.
   The HUD shows one icon per type with the count (0x1c1 flags bit2) and time left (bit1), and the orbs.
   Live 2026-10-25: gains when hit, on non-critical hit and on kill, refresh, expiry, death, area change, minimum
   charges, 3 Power Charges taking attack crit 8.3% → 20.75%, a Frenzy Charge shortening the attack, 3 Endurance
@@ -521,8 +527,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   All 14 new pure/Gateway cases pass in the combined 53/53 focused batch; full Gateway passes 3710/3710 with no
   skips. Unchanged prior Core 648/Data 37 results remain applicable (4395 total, not all newly rerun).
   Five actual unobserved disposed-stream faults remain recorded (four MonsterKilled, one projectile-hit path),
-  with no captured reference to the new operators. No new native evidence is claimed. Ring-slot selection,
-  other ailment families, conditional ES delay and actual ailment execution remain separate.
+  with no captured reference to the new operators. No new native evidence is claimed. Ordinary off-hand-empty and
+  active ring-rarity predicates now feed cold/suppression, signed incoming rolls and drop quantity/rarity consumers
+  under automated lifecycle checks; native unique admission remains pending. Other ailment families, conditional ES
+  delay and actual ailment execution remain separate.
   Block Recovery now adds base and raw direct Stun Recovery once from the same snapshot, including already expanded
   per-charge recovery. Life/Mana/ES on-kill amounts and the flask-duration coefficient include their real per-player-level
   inputs, using the actual character level and wide arithmetic. Thirty new panel/source cases cover both modes.
@@ -678,6 +686,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Yriel's Fostering Ursa/Rhoa source, follow, attack and lifecycle are native accepted; Snake source and real projectile
+  execution pass automated checks with native acceptance pending; remaining beast consumers and catalogue selection remain open.
+- Doppelgänger Guise owns the real Unhinge grant as a five-second, one-use Actor toggle.
+  While unhinged it applies the final critical chance factor and destroys accepted player-kill corpses.
+  While sane it applies the physical/chaos final taken modifier and one-second 10%-maximum-Life hit regeneration.
+  Automated source, hit, DoT, recovery, kill and lifetime checks pass; native buff/corpse acceptance is pending.
+- Physical Aegis (The Ghastly Theatre): the real item grant owns 1000 physical-hit capacity before Ward/ES,
+  recharges after ten seconds without physical hit damage, and drives depleted speed/crit plus conditional nearby Blind.
+  Automated coverage includes lifecycle and final consumers; native buff/count and recovery appearance are pending.
+  See [Physical Aegis](../docs/game/physical-aegis.md).
 - Combat load: message/frame and fresh projectile-release snapshots; input-checked skill/equipment caches ignore
   within-level gem XP and extended active recent windows; immutable item-local stats, condition parsers and projectile
   recipes are reused. F1 NETWORK retains real input-queue latency; large load spikes remain under investigation.
@@ -997,7 +1015,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Ancestral Commander defences: `damage_reduction_rating_from_body_armour_doubled` doubles the body armour's armour
   (and, with Iron Reflexes, its converted evasion) before the increases.
   `missing_unreserved_life_%_gained_as_life_before_hit` gains that share of missing Life before every non-evaded
-  monster swing and dev hit, blocked ones included (Life reservation is not modelled).
+  monster swing and dev hit, blocked ones included, and stops at the shared unreserved-Life cap.
   `movement_speed_cannot_be_reduced_below_base` bounds the movement speed total below by 0, as the client does from
   the same flag.
   Gateway coverage; not yet checked with the real client (move into the armour and movement speed entries under
@@ -1010,12 +1028,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Regression covers fresh-connection Precision/Clarity equipment and all 17 supported self auras.
   Live retest pending.
 - Aura lifecycle: towns suppress all aura effects/reservation while retaining per-character enabled intent.
-  Exit/relogin/character return restores available remembered auras without rechecking cast affordability;
-  manual activation still validates mana.
+  Exit/relogin/character return restores valid remembered auras, trims over-capacity saved sets and never refills Life;
+  manual activation validates both unreserved Mana and unreserved Life.
   Death clears saved/runtime auras; skill refresh resumes temporarily unavailable effects.
   The shared own-aura restriction has separate native controls above.
   Discipline's town, death and gem-host lifecycle also passed historical native checks in LocalExile.
-  Fresh merged-branch and other aura-family round trips remain partial.
+  Life reservation from GrantedEffectsPerLevel, Blood Magic/Arrogance-style supports and Midnight Bargain now shares
+  the aura source lifecycle; full-maximum Life predicates stay distinct from the usable cap. Automated coverage only.
   See protocol/11-skills.md.
 - Aura presentation (2026-10-25): self auras select their distinct EPKFiles2 art.
   A live check found that source-only buffs hid the top-left icons;
@@ -1041,6 +1060,24 @@ This is a research baseline, not new live skill acceptance or complete native/se
   on hits against rares and uniques, behind its cooldown, in Ruthless too.
   Used by the Paladin Aura options (Determination, Grace, Discipline); automated coverage only, not checked with the
   real client. See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
+- Worn-item active grants: real GEPL rows join the shared gem/worn/passive source list, so Doryani's Delusion grants
+  level-30 Purity of Lightning and Envy sources grant their exact level-25 or level-15 aura through the existing
+  reservation and buff owners; host-socketed ordinary supports apply, including their own quality and cost multiplier.
+  Nonempty `GrantedEffectRuthless` mod rows select their native HardMode GEPL/effect rows.
+  Worn-source identity survives admission and same-host GEPL repricing, and source removal, inactivity, weapon swap,
+  death and relog restore are automated; other specialized grants remain unsupported.
+  See [11](../docs/protocol/11-skills.md) section 12.
+- Owned minions: the player's minions are friendly monsters marked by `is_player_minion` and `is_semantic_minion`.
+  They follow him (teleporting back from beyond their aggro range when they have a teleport), end by their duration,
+  can cast an aura on him and explode when they end; his increased minion life and duration raise their life and
+  duration, and the flasks that Field Medicine puts on a linked minion change its walk speed.
+  Their kills give experience and items. They go with death, the granting passive, an area change and logout, and
+  are never saved.
+  Only Summon Elemental Relic's relics exist (Elemental Valiance and Unwavering Crusade); no gem makes minions yet.
+  Not modelled: monsters attacking minions, minion attacks and damaging skills, the player's other minion modifiers
+  (damage, resistances, energy shield), and party allies.
+  Automated coverage only, not checked with the real client.
+  See [11](../docs/protocol/11-skills.md) section 13 and [Paladin](../docs/game/paladin.md).
 - Owned minions: relics and chieftains remain timed; all 17 playable golem gems summon, fight and take generic hostile
   hits/projectiles. Golems follow, scale with gem level/quality and supports, grant their distinct owner buffs and save
   activation across areas. Local rule: each activated golem returns two game seconds after death while its source is
@@ -1180,9 +1217,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   The skill bar keeps its slots when skills are re-sent or a gem is socketed again (the saved bar goes out as 0x53)
   ([11](../docs/protocol/11-skills.md) §9, §11).
   A slot's "Always Attack Without Moving" (C→S 0x4f) is saved and goes back in 0x53, so it stays ticked.
-- **Auras (the simple set is verified live).** Reservation is read from GrantedEffectsPerLevel (`ManaReservationFlat`
-  / `ManaReservationPercent`), reduced by the passive/mastery reservation efficiency and sent as the Life pool's
-  reserved mana (and in every 0x1b1 mana update).
+- **Auras (the simple set is verified live).** Mana reservation is read from GrantedEffectsPerLevel
+  (`ManaReservationFlat` / `ManaReservationPercent`) and sent in the Life component's Mana pool and every 0x1b1
+  Mana update. The same GEPL row's Life fields, real Life-instead-of-Mana supports and worn
+  `life_reserved_by_stat_%` now share one Life owner; it publishes Life reservation, caps payments/recovery at
+  unreserved Life, and keeps full maximum Life as the low/full-Life denominator.
+  Actual spell hits consume Malachai's Awakening's no-Life reservation rows and Clear Mind's no-Mana reservation row;
+  Ivory Tower adds ES from reserved Life. Automated coverage only.
   Aura skills toggle on cast; Purity of Elements/Fire/Ice/Lightning, Clarity, Vitality, Precision, Haste,
   Determination, Grace, Discipline, Anger, Hatred, Wrath, Zealotry, Malevolence and Envy apply their gem's level and
   quality effects and buff icons; their 3D effects (`affected_player.epk`, `faster_attack.epk` …) do not render yet.
@@ -1193,6 +1234,14 @@ This is a research baseline, not new live skill acceptance or complete native/se
   death cleared both.
   The skill-bar active frame and rotating circle now receive the buff's skill id/action hash association (0x1c1 bit3),
   including area-entry restoration; automated checks pass, live icon verification pending.
+  Blood and Sand has one shared character stance owner: Blood is implicit without the gem, the first activation
+  reserves once without counting as a change, and later uses alternate Blood/Sand without toggling off. Both buff rows,
+  reservation, source removal, saved selection, the four-second changed-stance event and melee-only gem effects have
+  automated coverage. Representative same-head native acceptance covers activation, switching, 95% Mana reservation,
+  Scorpion's Call consumers, expiry, relog, area transition and source removal; normal gameplay and Flesh and Stone
+  remain separate, with the latter not advertised until its enemy-distance executor exists.
+  Not modelled: Heralds, banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
+  masteries 1/2/6, party/minion auras and reservation-declining/special supports
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation. Herald kill/poison procs use
@@ -1570,6 +1619,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Encrypted-wire held-gate tests cover a queued clamp, cleared prediction, death and unchanged-state suppression;
   native checks of this queued-send case remain pending.
   Live checks covered absorption, regeneration, interrupted recharge and chaos bypass.
+  Esh's Visage's non-low-life chaos non-bypass reaches the shared source (Gateway coverage; native check pending).
   Zealot's Oath is implemented; other special ES keystones, recoup and conditional substitutions remain
   unimplemented; ordinary ES leech uses the shared recovery writer (§5b).
   See [ES scope](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
@@ -1611,6 +1661,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   (Crimson Dance: the 8 strongest), three times while the monster moves or aggravated, with one timed `bleeding` buff
   and kills (`MonsterBleeds.cs`; not checked with the real client).
   A hit's poisons deal the panel's poison rows (`MonsterPoisons.cs`), not checked with the real client.
+  Incoming monster, trap and reflected bleed/poison share `IncomingDamagingAilments`; automated checks cover all accepted
+  bleed instances (the strongest active one deals damage), exact interval partitions, individual poison expiry, typed
+  mitigation, unaffected/prevention, locked native snapshots and lifecycle clearing.
+  Self-poison stack coefficients feed chaos resistance, damage, movement speed and ES regeneration through final sources.
+  Reflected instances survive source removal through normal expiry, and paid flasks consume the extracted conditional
+  bleed/poison removal-and-protection suffixes only when used while affected, including at full recovery pools.
+  Ordinary hostile poison uses the shared 30% physical-plus-chaos base; Golden Rule reflection stops at 100 self stacks.
   Incoming ordinary monster basic-contact ailments now have runtime and Gateway coverage:
   critical fire ignite, cold chill/freeze and critical lightning shock, with avoidance, expiry, immunity, lethal ignite/ES and freeze action cancellation.
   `action_speed_cannot_be_reduced_below_base` keeps the action factor at 1 under chill and freeze (Gateway coverage,

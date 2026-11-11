@@ -138,7 +138,18 @@ static partial class Game
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, Random.Shared);
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, Random.Shared);
-        PoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random);
+        int poisonStacksBefore = m.Poisons.Stacks(now);
+        if (TryPoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random,
+                out double poisonDps, out double poisonSeconds)
+            && Player("poison_reflected_to_self") != 0 && Player("cannot_be_poisoned") == 0
+            && Player("immune_to_poison") == 0
+            // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
+            && conn.IncomingAilments.PoisonStacks(now) < 100)
+        {
+            int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
+            for (int i = 0; i < accepted && conn.IncomingAilments.PoisonStacks(now) < 100; i++)
+                conn.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+        }
         // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
                 m.Effects["monster_chance_to_not_flee_%"], Random.Shared))

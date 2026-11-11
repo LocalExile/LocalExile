@@ -381,8 +381,8 @@ static partial class SurvivorsRewards
         if (!ownership.Current) return false;
         if (chosen.Kind == SurvivorsChoiceKind.Heal)
         {
-            if (!ownership.Commit(() => conn.PlayerLife = conn.PlayerMaxLife)) return false;
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+            if (!ownership.Commit(() => conn.PlayerLife = LifeCap(conn))) return false;
+            await Send(remote, stream, ciphers, PlayerLifeUpdate(conn),
                 "survivors healthstone restores life", still: () => ownership.Current);
         }
         if (!ownership.Current) return false;

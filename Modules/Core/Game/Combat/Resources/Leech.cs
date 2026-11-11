@@ -55,7 +55,7 @@ static partial class Game
         if (conn.PlayerLife == 0) LeechOf(conn).Clear(now);
         else
         {
-            LeechOf(conn).ClearFull(now, conn.PlayerLife >= conn.PlayerUnreservedLife,
+            LeechOf(conn).ClearFull(now, conn.PlayerLife >= LifeCap(conn),
                 conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum);
             SettleFullManaLocked(conn, ResourceEffectsTime(conn));
         }
@@ -92,7 +92,7 @@ static partial class Game
             if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
         }
         double now = ProjectileWorldTime(conn);
-        var instant = session.Hit(now, amounts, conn.PlayerLife >= conn.PlayerUnreservedLife,
+        var instant = session.Hit(now, amounts, conn.PlayerLife >= LifeCap(conn),
             conn.PlayerMana >= UnreservedMana(conn), conn.EnergyShield.Current >= conn.EnergyShield.Maximum, sources.Attack);
         var gain = sources.GainOnHit;
         uint life = conn.PlayerLife, mana = conn.PlayerMana;

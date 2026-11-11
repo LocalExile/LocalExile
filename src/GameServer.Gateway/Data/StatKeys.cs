@@ -16,6 +16,7 @@ static class StatKeys
     public const uint MovementVelocityCap = 0x44f;
     // Main-hand attack stats (client key = Stats.dat row + 1, checked against the keys the client reads in an attack).
     public const uint MainHandMinPhysical = 0x117, MainHandMaxPhysical = 0x118;
+    public const uint MainHandMinChaos = 0x113, MainHandMaxChaos = 0x114;
     public const uint MainHandMinTotal = 0x29e, MainHandMaxTotal = 0x29f;
     public const uint MainHandAttackDurationMs = 0x142;          // main_hand_base_weapon_attack_duration_ms
     public const uint MainHandTotalAttackDurationMs = 0x221a;    // main_hand_total_base_weapon_attack_duration_ms

@@ -54,7 +54,7 @@ static partial class Game
         {
             double now = ProjectileWorldTime(conn);
             frozen = m.Ailments.FrozenAtDeath(now);
-            conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
+            conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
         CurseCharges(conn, m, true);
@@ -130,6 +130,11 @@ static partial class Game
             added = ChargeEffects.Expand(Coefficient, t => held[t], t => converted[t]);
             slot.Last = new(new(stats), dev, heldNow, convertedNow, added);
         }
+        var finalAdded = new Dictionary<string, int>(added, StringComparer.Ordinal);
+        int poisonStacks;
+        lock (conn.Monsters) poisonStacks = conn.IncomingAilments.PoisonStacks(conn.Clock.Elapsed.TotalSeconds);
+        foreach (var (stat, value) in IncomingAilmentEffects.Expand(Coefficient, poisonStacks))
+            finalAdded[stat] = finalAdded.GetValueOrDefault(stat) + value;
         // Game_STAT_SNAPSHOT_VERIFY: a reused expansion must be the one computed now, in order.
         Dictionary<string, int> Verified(Dictionary<string, int> reused)
         {
@@ -141,7 +146,7 @@ static partial class Game
             }
             return reused;
         }
-        foreach (var (stat, value) in added.Select(kv => (Stat: kv.Key, kv.Value))
+        foreach (var (stat, value) in finalAdded.Select(kv => (Stat: kv.Key, kv.Value))
             .Concat(ChargeEffects.Display(t => held[t], t => limits[t], t => converted[t], t => minimumConverted[t])))
             if (Stats.Key(stat) is uint key) stats[key] = stats.GetValueOrDefault(key) + value;
         return stats;
