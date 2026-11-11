@@ -228,13 +228,39 @@ static partial class Game
             // Revalidate the actual grant after visual output. A refunded/retired source cannot admit a stale plan.
             if (!CurrentSource() || conn.Closed || conn.LeavingArea
                 || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused || !FootstepSkills(conn, ProjectileWorldTime(conn)).Contains(skill)) return;
+            using var statScope = new PlayerStatScope(conn, fresh: true);
             var player = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
             int Player(string name) => Stats.Key(name) is uint k ? player.GetValueOrDefault(k) : 0;
             int Own(string name) => Stats.Key(name) is uint k ? own.GetValueOrDefault(k) : 0;
-            var (hit, flat, merged, context) = GrantedSpell(conn, skill.Effect, skill.Level);
+            var merged = MergeSkillStats(player, own);
             int Merged(string name) => Stats.Key(name) is uint k ? merged.GetValueOrDefault(k) : 0;
-            var fire = flat[DamageType.Fire];
-            double igniteMore = ChargeDamageMore(merged);
+            var plan = SkillHitPlan.ForSkill(SkillsFor(conn), skill.Effect, skill.Level);
+            if (!plan.CanHit) return;
+            var context = new SkillDamageContext(plan.Kind, player);
+            var raw = DamageStats.RawAdded(plan.SpellBase, Merged, spell: true,
+                effectiveness: AddedEffectiveness(conn, skill.Effect, skill.Level));
+            var conversion = DamageStats.Conversion(merged, Stats, attack: false);
+            var types = Supports.Of(skill.Effect)?.Types.ToHashSet();
+            long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint damageKey
+                ? (long)player.GetValueOrDefault(damageKey) + own.GetValueOrDefault(damageKey) : 0;
+            AreaSkillDamageProfile Profile(long increased)
+            {
+                var hit = context.Hit(PlayerHitDamage.Resolve(raw, Merged, conversion, spell: true,
+                    area: Merged("is_area_damage") != 0, skillTypes: types, additionalIncreased: increased));
+                var rows = AilmentPanelStats.Compute(new("spell", Spell: true), raw, conversion, Merged, increased);
+                var ignite = MonsterIgnites.Settings.From(rows, "spell", Merged);
+                var poison = MonsterPoisons.Settings.From(rows, "spell", Merged);
+                double fireFactor = context.OverTime(new(DamageType.Fire, 1, 1)).DamagePerSecond;
+                double chaosFactor = context.OverTime(new(DamageType.Chaos, 1, 1)).DamagePerSecond;
+                return new(hit,
+                    ignite with { Min = ignite.Min * fireFactor, Max = ignite.Max * fireFactor,
+                        CriticalMin = ignite.CriticalMin * fireFactor, CriticalMax = ignite.CriticalMax * fireFactor },
+                    MonsterIgnites.Settings.None,
+                    poison with { Min = poison.Min * chaosFactor, Max = poison.Max * chaosFactor,
+                        CriticalMin = poison.CriticalMin * chaosFactor, CriticalMax = poison.CriticalMax * chaosFactor });
+            }
+            var normalProfile = Profile(0);
+            var blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
             var pen = Penetration.Of(player, Stats, attack: false, own);
             var mods = HitResistMods(player, own);
             int baseChance = (SkillsFor(conn).SpellCritChance(skill.Effect, skill.Level) ?? 0) + Own("additional_base_critical_strike_chance");
@@ -255,8 +281,11 @@ static partial class Game
                 // Retirement stops new contacts, while the transaction still completes its accepted hits/deaths below.
                 if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused) break;
                 if (!conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)
-                    || m.Dead || m.Life == 0 || MonsterBlocks(m, Random.Shared, spell: true)) continue;
-                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(hit, Random.Shared);
+                    || !m.Hostile || m.Dead || m.Life == 0 || m.Invulnerable || m.Asleep
+                    || conn.AsleepMonsters.Contains(id)) continue;
+                var profile = Blinded(conn, id) ? blindedProfile : normalProfile;
+                if (MonsterBlocks(m, Random.Shared, spell: true)) continue;
+                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, Random.Shared);
                 bool critical = RollCriticalStrike(conn, CriticalChanceOn(conn, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(conn);
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
@@ -271,14 +300,10 @@ static partial class Game
                 }
                 if (applied is not null)
                     AilmentsOnHitLocked(conn, id, m, mitigated, spell: true, critical, multiplier, player, own, hitAt,
-                        Random.Shared, reflected, blind: BlindHitInput.Capture(player, own));
+                        Random.Shared, reflected, poison: profile.Poison, blind: BlindHitInput.Capture(player, own));
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(conn, attack: false, melee: false, critical, own);
-                // shortcut: the ignite's flat fire is rolled apart from the hit (the game takes the hit's own roll; the
-                // spread is the same, and lucky or triple damage never reaches it either way), until a rolled hit
-                // carries its roll position.
-                if (applied is not null && IgniteFromHit(fire.Min + Random.Shared.NextDouble() * (fire.Max - fire.Min), critical,
-                        Merged, igniteMore, m, Random.Shared) is { } ignite)
-                    foreach (var packet in IgniteLocked(conn, id, m, context.OverTime(ignite), hitAt) ?? [])
+                if (applied is not null && m.Life > 0 && rolled[DamageType.Fire].Max > 0)
+                    foreach (var packet in IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, hitAt) ?? [])
                         conn.Minions.OutputQueue.Add(new(packet, $"0x01c1/0x01c2 monster 0x{id:x} ignited by {skill.EffectId}", id, m));
 
                 if (applied is not { } landed) continue;

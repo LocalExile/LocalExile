@@ -2452,6 +2452,7 @@ public sealed class ReservationCurseSummonTests
             await SacrificePrepaidConsumerFixture();
             await RealProjectileSacrificePaidProducerFixture();
             await TempestShieldBiteConsumerFixture();
+            await FootstepBiteDamageFixture();
 
             void DefaultMeleeBiteProfileFixture()
             {
@@ -5564,6 +5565,166 @@ public sealed class ReservationCurseSummonTests
                     if (tempestConnection is not null) tempestConnection.Closed = true;
                     Game.AreaUpdateContext.Value = previousContext;
                     PlayerInventories.Forget(character);
+                }
+            }
+
+            async Task FootstepBiteDamageFixture()
+            {
+                // A real connected Polytheist allocation supplies the footstep grant. The callback is controlled;
+                // walking animation admission and its native presentation remain separate proof boundaries.
+                const string optIn = "Game_VERIFIED_POLYTHEIST";
+                string? previousOptIn = Environment.GetEnvironmentVariable(optIn);
+                var oldContext = Game.AreaUpdateContext.Value;
+                var provider = new ModuleLifetime("PhreciaAscendancies");
+                ClientState? self = null;
+                Game.ProjectileSession? runtime = null;
+                string character = "FootstepBite" + Guid.NewGuid().ToString("N");
+                using var footWire = new Wire();
+                try
+                {
+                    Environment.SetEnvironmentVariable(optIn, "1");
+                    var catalog = new AscendancyCatalog();
+                    var definition = Assert.Single(catalog.Definitions, d => d.Name == "Polytheist");
+                    var grant = Assert.Single(new PassiveGrantedSkills(Program.Skills).For(definition.Nodes.Keys),
+                        g => PassiveGrantedSkills.IsFootstepSkill(g.EffectId));
+                    var parent = new Dictionary<ushort, ushort> { [definition.StartNode] = definition.StartNode };
+                    var frontier = new Queue<ushort>(); frontier.Enqueue(definition.StartNode);
+                    while (frontier.TryDequeue(out ushort node))
+                        foreach (ushort next in definition.Nodes[node].Adjacent)
+                            if (parent.TryAdd(next, node)) frontier.Enqueue(next);
+                    Assert.True(parent.ContainsKey(grant.Node));
+                    var path = new List<ushort>();
+                    for (ushort node = grant.Node; node != definition.StartNode; node = parent[node]) path.Add(node);
+                    path.Reverse();
+                    var progress = new AscendancyProgress(definition.Identity, path, AscendancyRules.AwardKeys);
+                    Assert.Equal(definition, new AscendancyRules(catalog).Validate(definition.BaseClass, progress));
+                    byte row = checked((byte)Program.Skills.RowOfClass(definition.BaseClass));
+                    PlayerInventories.SetClass(character, row);
+                    CharacterSaves.Write(character, new(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>(),
+                        Experience: CharacterStats.ExperienceFor(100), MainAscendancy: progress));
+                    var policy = (IAscendancyFamilyPolicy)Activator.CreateInstance(
+                        typeof(GameServer.Modules.PhreciaAscendancies.PhreciaAscendanciesModule).Assembly.GetType(
+                            "GameServer.Modules.PhreciaAscendancies.PhreciaFamilyPolicy", throwOnError: true)!, nonPublic: true)!;
+                    using var registration = AscendancyPolicies.Register(provider, policy);
+                    var schedule = new CatClockSchedule { At = 300 };
+                    var updates = new PlayerUpdatesState(lifetime, schedule);
+                    Game.AreaUpdateContext.Value = updates;
+                    self = new ClientState(conn.Layout, 0xC480, 1)
+                    {
+                        Character = character, CharacterId = Guid.NewGuid(), Account = "footstep-bite-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = row, MainAscendancy = progress,
+                        Instance = new(), PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
+                        Experience = CharacterStats.ExperienceFor(100), Wire = ("footstep-bite", footWire.Stream, footWire.Ciphers),
+                        Pools = new(100, 1, 1, 0, 0),
+                        LeagueModule = new(new("footstep-bite", "Standard", false, false),
+                            new HashSet<string>(["Game", "PhreciaAscendancies"], StringComparer.OrdinalIgnoreCase)),
+                    };
+                    Assert.Same(provider, AscendancyPolicies.SourceOwner(self));
+                    Assert.True(policy.Supports(definition.Identity));
+                    var inventory = Game.ItemsOf(self);
+                    var bite = new UniqueCatalog(Program.Items).Create("Farrul's Bite", new Random(504))!;
+                    var helmet = inventory.Add(PlayerInventories.Helmet, 0, 0, bite);
+                    inventory.Add(5, 0, 0, new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    inventory.Add(6, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(504))!);
+                    inventory.Add(7, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(505))!);
+                    self.Pools = Game.PoolsFor(self, 100); self.PlayerLife = self.Pools.Life; self.PlayerMana = self.Pools.Mana;
+                    Assert.False(Game.IsInactive(self, helmet.Id));
+                    Assert.Empty(self.PlayerStats);
+                    void Set(string name, int value)
+                    {
+                        uint key = Program.Stats.Key(name) ?? throw new InvalidOperationException("Missing canonical stat " + name);
+                        self.PlayerStats[key] = value;
+                    }
+                    foreach (string name in new[] { "spell_damage_+%", "fire_damage_+%", "chaos_damage_+%", "elemental_damage_+%",
+                        "area_damage_+%", "damage_over_time_+%", "fire_damage_over_time_+%", "burn_damage_+%", "ignite_damage_+%",
+                        "base_poison_damage_+%", "base_ailment_damage_+%", "base_extra_damage_rolls",
+                        "base_chance_to_deal_triple_damage_%", "chance_to_deal_double_damage_%" })
+                        if (Program.Stats.Key(name) is uint key) self.PlayerStats[key] = 0;
+                    Set("damage_+%", 100); Set("global_cannot_crit", 1);
+                    Set("spell_minimum_added_fire_damage", 10_000); Set("spell_maximum_added_fire_damage", 10_000);
+                    Set("spell_minimum_added_chaos_damage", 10_000); Set("spell_maximum_added_chaos_damage", 10_000);
+                    Set("base_chance_to_ignite_%", 100); Set("base_chance_to_poison_on_hit_%", 100);
+                    Set("global_chance_to_blind_on_hit_%", 100);
+                    runtime = new Game.ProjectileSession("footstep-bite", footWire.Stream, footWire.Ciphers, self);
+                    self.ProjectileRuntimeState = runtime;
+                    runtime.Runtime.AdvanceTo(ProjectileRuntime.Time(300));
+                    Assert.Equal(300, Game.ProjectileWorldTime(self), 9);
+                    Assert.Equal(300, Game.ResourceEffectsTime(self), 9);
+                    Assert.Contains(grant, Game.FootstepSkills(self, 300));
+                    Assert.DoesNotContain(Game.GemSkillEffects(self), g => Game.SkillsFor(self).EffectId(g.Effect) == grant.EffectId);
+                    DamagePacket raw;
+                    using (new Game.PlayerStatScope(self, fresh: true))
+                    {
+                        var player = Game.CharacterPlayerStats(self);
+                        Assert.Equal(40, player.GetValueOrDefault(Program.Stats.Key(PlayerHitDamage.VsBlindedDamageStat)!.Value));
+                        Assert.Equal(100, player.GetValueOrDefault(Program.Stats.Key("damage_+%")!.Value));
+                        var own = Game.SkillsFor(self).EffectStats(grant.Effect, grant.Level).ToDictionary(x => x.Item1, x => x.Item2);
+                        int Get(string n) => Program.Stats.Key(n) is uint k ? player.GetValueOrDefault(k) + own.GetValueOrDefault(k) : 0;
+                        var plan = SkillHitPlan.ForSkill(Game.SkillsFor(self), grant.Effect, grant.Level);
+                        Assert.Equal(SkillHitKind.Spell, plan.Kind);
+                        raw = DamageStats.RawAdded(plan.SpellBase, Get, spell: true,
+                            effectiveness: Game.AddedEffectiveness(self, grant.Effect, grant.Level));
+                    }
+                    (int Min, int Max) Bounds(double factor) => (raw.Components.Sum(c => (int)Math.Floor(c.Range.Min * factor)),
+                        raw.Components.Sum(c => (int)Math.Floor(c.Range.Max * factor)));
+                    var normal = Bounds(2); var blinded = Bounds(2.4);
+                    Assert.True(blinded.Min > normal.Max);
+                    var at = self.Walk.Position(300);
+                    SpawnedMonster Target(uint id, string label)
+                    {
+                        var m = new SpawnedMonster(label, new(at.X, at.Y, 0), 0, 0, 1_000_000)
+                            { Hostile = true, Level = 100, Life = 1_000_000 };
+                        self.Monsters[id] = m; return m;
+                    }
+                    var control = Target(0xC48001, "footstep-unblinded");
+                    var positive = Target(0xC48002, "footstep-owned-blind");
+                    var neighbor = Target(0xC48003, "footstep-unblinded-neighbor");
+                    Assert.True(Game.InflictMonsterBlind(self, 0xC48002, positive, 300, (100, 0, 4), new Random(1)));
+                    await Game.TriggerFootstepSkill("footstep-bite", footWire.Stream, footWire.Ciphers, self, grant);
+                    Assert.InRange(checked((int)(1_000_000 - control.Life)), normal.Min, normal.Max);
+                    Assert.InRange(checked((int)(1_000_000 - neighbor.Life)), normal.Min, normal.Max);
+                    int damage = checked((int)(1_000_000 - positive.Life));
+                    Assert.True(damage >= blinded.Min && damage <= blinded.Max,
+                        $"Actual legal {grant.EffectId} callback source Bite40/generic100: unblind {normal}, "
+                        + $"additive Blind {blinded}, actual {damage}; connected class/source {definition.Name}/{grant.Node}");
+                    Assert.True(Game.Blinded(self, 0xC48001));
+                    double normalPoison = .3 * raw[DamageType.Chaos].Min * 2;
+                    Assert.Equal(normalPoison, control.Poisons.TotalDps(300), 6);
+                    Assert.Equal(normalPoison * 1.2, positive.Poisons.TotalDps(300), 6);
+                    Assert.InRange(control.Ignites.PerSecond(300), .9 * raw[DamageType.Fire].Min * 2 - 1d / 30,
+                        .9 * raw[DamageType.Fire].Max * 2 + 1d / 30);
+                    Assert.InRange(positive.Ignites.PerSecond(300), .9 * raw[DamageType.Fire].Min * 2.4 - 1d / 30,
+                        .9 * raw[DamageType.Fire].Max * 2.4 + 1d / 30);
+                    Assert.False(control.Bleeds.Burning);
+                    double oldPoison = positive.Poisons.TotalDps(300), oldPoisonUntil = positive.Poisons.Until;
+                    double oldIgnite = positive.Ignites.PerSecond(300), oldIgniteUntil = positive.Ignites.Until;
+                    self.Monsters.Clear();
+                    Assert.NotNull(inventory.Remove(PlayerInventories.Helmet, helmet.Id));
+                    var removed = Target(0xC48004, "footstep-source-off-owned-blind");
+                    Assert.True(Game.InflictMonsterBlind(self, 0xC48004, removed, 300, (100, 0, 4), new Random(1)));
+                    await Game.TriggerFootstepSkill("footstep-bite-source-off", footWire.Stream, footWire.Ciphers, self, grant);
+                    Assert.InRange(checked((int)(1_000_000 - removed.Life)), normal.Min, normal.Max);
+                    Assert.Equal(normalPoison, removed.Poisons.TotalDps(300), 6);
+                    Assert.Equal(oldPoison, positive.Poisons.TotalDps(300), 6); Assert.Equal(oldPoisonUntil, positive.Poisons.Until);
+                    Assert.Equal(oldIgnite, positive.Ignites.PerSecond(300), 6); Assert.Equal(oldIgniteUntil, positive.Ignites.Until);
+                    Set("base_deal_no_damage", 1);
+                    self.Monsters.Clear(); var prohibited = Target(0xC48005, "footstep-prohibited");
+                    await Game.TriggerFootstepSkill("footstep-bite-prohibited", footWire.Stream, footWire.Ciphers, self, grant);
+                    Assert.Equal(1_000_000u, prohibited.Life); Assert.False(prohibited.Ignites.Burning); Assert.False(prohibited.Poisons.Poisoned);
+                    Set("base_deal_no_damage", 0);
+                    self.MainAscendancy = progress with { Nodes = path.Where(n => n != grant.Node).ToArray() };
+                    Assert.DoesNotContain(grant, Game.FootstepSkills(self, 300));
+                    await Game.TriggerFootstepSkill("footstep-bite-retired", footWire.Stream, footWire.Ciphers, self, grant);
+                    Assert.Equal(1_000_000u, prohibited.Life);
+                    Console.WriteLine($"#504 actual connected Polytheist {grant.EffectId} callback: damage={damage}, "
+                        + $"normal={normal}, blinded={blinded}, normalPoison={normalPoison}; source-off/prohibition/retirement passed");
+                }
+                finally
+                {
+                    if (self is not null) { self.Closed = true; self.ProjectileRuntimeState = null; }
+                    runtime?.Invalidate(); Game.AreaUpdateContext.Value = oldContext;
+                    Environment.SetEnvironmentVariable(optIn, previousOptIn); PlayerInventories.Forget(character);
+                    provider.Stop(_ => { });
                 }
             }
 
