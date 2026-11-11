@@ -63,16 +63,17 @@ static class IzaroSkills
         // His lieutenants (IzaroLieutenants): GrantedEffectsPerLevel's cooldowns; contacts from Art/Models/MONSTERS/skeleton
         // rig.amd. Sizes are ours where the data has none.
         // Lieutenant of Rage: IceCrash_ is not in LieutenantSkeletonBoss.act, so its Melee plays (attack1_sword_shield
-        // contact 732 of 1066 ms); active_skill_base_area_of_effect_radius 11, -20 % final: 9.
-        new(4819, "Ice Crash", 732.0 / 1066, 0, 14, Shape.Ahead, 9, 0, 25),
+        // contact 732 of 1066 ms); its second radius, active_skill_base_secondary_area_of_effect_radius 21, -20 % final: 17
+        // (with the first, 9, it did not hit in a fight).
+        new(4819, "Ice Crash", 732.0 / 1066, 0, 17, Shape.Ahead, 17, 0, 25),
         // Lieutenant of Rage: bull_thorns on itself for base_skill_effect_duration 5 s (SpellBuff: spellprojectile_unarmed
         // contact 799 of 1333 ms). The buff's values are not in the data: it shows, it does not return damage.
         new(4768, "Thorns", 799.0 / 1333, 0, 40, Shape.Self, 0, 0, 15, Buff: "bull_thorns", BuffSeconds: 5),
         // Lieutenant of the Mace: GlacialHammer is its Melee (attack1_sword_shield).
-        new(1013, "Burning Hammer", 732.0 / 1066, 0, 12, Shape.Ahead, 8, 0, 25),
+        new(1013, "Burning Hammer", 732.0 / 1066, 0, 12, Shape.Ahead, 12, 0, 25),
         // Lieutenant of the Mace: Storm Call (monster_cast_spell_%_on_attack_hit; cast here as a skill of its own), its mark
-        // bursting base_skill_effect_duration 2.95 s later at the cell; -31 % area of a radius of ours.
-        new(3078, "Storm Call", 799.0 / 1333, 0, 60, Shape.Circle, 14, 0, 15, DelaySeconds: 2.95, MonsterDamage: (DamageType.Fire, 0.8, 1.2)),
+        // bursting base_skill_effect_duration 2.95 s later at the cell; its radius is ours.
+        new(3078, "Storm Call", 799.0 / 1333, 0, 60, Shape.Circle, 20, 0, 15, DelaySeconds: 2.95, MonsterDamage: (DamageType.Fire, 0.8, 1.2)),
         // Lieutenant of the Bow: rain_of_arrow_bow contact 533 of 1166 ms (its act plays lightningarrows.ao); the arrows land
         // a moment later (ours).
         new(1537, "Rain of Arrows", 533.0 / 1166, 0, 60, Shape.Circle, 18, 0, 15, DelaySeconds: 0.5),
