@@ -145,7 +145,7 @@ public sealed class DelveEntryProtocolTests
         Assert.Equal(1, blob[18]); // Animated override, after flags and the 16-byte Positioned body.
         int chars = BinaryPrimitives.ReadInt32LittleEndian(blob.AsSpan(19));
         Assert.Equal(DelveRobotObject.Model, System.Text.Encoding.Unicode.GetString(blob, 23, chars * 2));
-        Assert.Equal(new byte[] { 1, 0, 0, 0 }, blob[(23 + chars * 2)..]);
+        Assert.Equal(new byte[] { 1, 1, 154, 0, 0, 0 }, blob[(23 + chars * 2)..]);
     }
 
     [Fact]

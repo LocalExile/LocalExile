@@ -53,10 +53,10 @@ static class BenchFeature
             uint benchId = conn.NextObjectId++;
             var obj = new HideoutObject(bench.X, bench.Y, bench.Rotation, components,
                 new HideoutDoodad(bench.Hash, (byte)bench.Variation), [.. states.Select(_ => 0)]);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(benchId,
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, benchId, InstanceEntities.CreateObject(benchId,
                 InstanceEntities.ObjectTypeHash(bench.Type!), obj.Blob()),
                 $"0x02bb create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(benchId), null);
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, benchId, InstanceProtocol.EnterWakeZone(benchId), null);
             conn.CraftingBenchObject = benchId;
             conn.CraftingBenchAt = (bench.X, bench.Y);
             await RegisterStationaryCollision(remote, stream, ciphers, conn, benchId, bench.Type!, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);
@@ -77,10 +77,10 @@ static class BenchFeature
         }
         uint benchId = conn.NextObjectId++;
         var obj = new HideoutObject(bench.X, bench.Y, bench.Rotation, components, States: [.. states.Select(_ => 0)], Model: bench.Model);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(benchId,
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, benchId, InstanceEntities.CreateObject(benchId,
             InstanceEntities.ObjectTypeHash(bench.Type), obj.Blob()),
             $"0x02bb create crafting bench 0x{benchId:x} at ({bench.X}, {bench.Y}) of {conn.Layout.Id}");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(benchId), $"0x01a9 crafting bench 0x{benchId:x} enters wake zone");
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, benchId, InstanceProtocol.EnterWakeZone(benchId), $"0x01a9 crafting bench 0x{benchId:x} enters wake zone");
         conn.CraftingBenchObject = benchId;
         conn.CraftingBenchAt = (bench.X, bench.Y);
         await RegisterStationaryCollision(remote, stream, ciphers, conn, benchId, bench.Type, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);

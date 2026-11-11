@@ -150,6 +150,14 @@ public static partial class Game
                 }
             };
         }
+        if (GatewayProjectileSkillProfiles.IsKineticBolt(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+        {
+            return use with
+            {
+                Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
+                Profile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(use.Profile, sequence)
+            };
+        }
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")) return use;
         // The client's life is the skill record's skill_effect_duration, in whole milliseconds.
         double life = Math.Round(1000 * SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)) / 1000;
@@ -312,7 +320,9 @@ public static partial class Game
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.
-            ClientPredicted = totem is not null || spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
+            // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
+            ClientPredicted = totem is not null || spell
+                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only

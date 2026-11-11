@@ -84,6 +84,9 @@ public sealed class ItemCatalog
     {
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+        /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's
+        /// walk to it takes as the target's size (a Scroll of Wisdom 1, a Rustic Sash 2, a Plate Vest 3).</summary>
+        public byte GroundSize { get; init; } = 1;
 
         /// <summary>A quest item's Quest component (its .it, item-types.json "quest"), or null for other items.</summary>
         public QuestItemFlags? Quest { get; init; }
@@ -590,6 +593,7 @@ public sealed class ItemCatalog
     {
         if (!t.Components.Contains("Sockets")) return ([], null);
         if (ResonatorSockets(t) > 0) return (ResonatorSocketList(t), null);
+        if (t.Id == AbyssJewels.StygianVise) return ([new(SocketColour.Abyss)], null);
         // 3.29: sockets are white by default; each has a chance to roll its attribute colour that rises with item level
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
@@ -624,7 +628,9 @@ public sealed class ItemCatalog
         return new(t.Hash, t.Components, t.VisualIdentity)
         {
             DefenceBaseRoll = defenceBaseRoll ?? (t.Components.Contains("Armour") ? (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) : (byte)0),
-            Charges = t.MaxCharges, Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t) : sockets ?? [],
+            Charges = t.MaxCharges,
+            Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
+                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : []),
             Links = ResonatorSockets(t) > 0 ? null : links,
             Mods = t.Components.Contains("Mods") ? [.. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };
@@ -735,6 +741,8 @@ public sealed class ItemCatalog
                     Tags = new HashSet<string>([.. itemTags.GetValueOrDefault(id) ?? [],
                         .. r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k < tagIds.Count).Select(k => tagIds[k])]),
                     ModDomain = r.GetProperty("ModDomain").GetInt32(),
+                    GroundSize = r.TryGetProperty("SizeOnGround", out var ground) && ground.ValueKind == JsonValueKind.Number
+                        ? (byte)ground.GetInt32() : (byte)1,
                     Quest = questFlags.GetValueOrDefault(id),
                     ClassRow = r.GetProperty("ItemClassesKey") is { ValueKind: JsonValueKind.Number } cr ? cr.GetInt32() : -1,
                     Unmodifiable = r.TryGetProperty("Unmodifiable", out var u) && u.ValueKind == JsonValueKind.True ||

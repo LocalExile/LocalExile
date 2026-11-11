@@ -227,7 +227,7 @@ public static partial class Game
         }
         foreach (var (id, buff) in ended)
         {
-            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, buff), null);
             // The buff may be another player's (who applied the ailment): theirs goes too (instances are the instance's).
             ToOthers(conn, id, InstanceEntities.RemoveBuff(id, buff));
         }
@@ -235,14 +235,14 @@ public static partial class Game
         {
             if (life == 0)
             {
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
                 if (m.Poisons.Buff is ushort pbuff)
                 {
-                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, pbuff), null);
+                    await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.RemoveBuff(id, pbuff), null);
                     m.Poisons.Buff = null;
                 }
             }
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) {died}" : null);
             if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
         }

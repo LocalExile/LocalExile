@@ -29,7 +29,10 @@ public sealed record NpcOption(ClientState Conn, string Npc, string Category, st
 }
 
 /// <summary>What an area's first message carries for a module: terrain data, achievement sets.</summary>
-public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets);
+public sealed record AreaHeader(byte[]? Terrain, IReadOnlyList<byte>? AchievementSets)
+{
+    public byte? Level { get; init; }
+}
 
 /// <summary>A killed monster's drops, before they are rolled. The multipliers of several subscribers multiply.</summary>
 public sealed class DropRoll(ClientState conn, MonsterInfo monster)

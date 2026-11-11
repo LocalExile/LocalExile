@@ -90,3 +90,16 @@ provenance. A change to the rows is a world update file (`sql/updates/pending_wo
   the 108 rows here are the major bosses and the known extras.
 - Exact boss chances need community samples; the table's `NULL` is the honest
   state until then.
+
+### Encounter jewel overrides
+
+A server owner can set an independent per-kill probability for a named encounter jewel on its existing boss row
+in world.db. The reference chance stays NULL when unpublished. For example, this gives the local Elder a 10%
+chance to grant a two-mod Watcher's Eye. Set the override to 0 to disable it, or delete it to use the reference
+chance. Restart the Gateway or reload world data to publish the change.
+
+```sql
+INSERT INTO encounter_jewel_drop_overrides (boss_id, item_id, chance)
+VALUES ('Metadata/Monsters/AtlasBosses/TheElder/TheElder', 'Watcher''s Eye', 0.10)
+ON CONFLICT (boss_id, item_id) DO UPDATE SET chance = excluded.chance;
+```
