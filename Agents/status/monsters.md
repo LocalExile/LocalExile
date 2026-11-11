@@ -170,7 +170,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   There is no life gate: a campaign boss does not stop taking damage at a threshold, and the two-variety
   phases the data describes (Abberath 6008 then 6012, Shakari 6275 then 6278) are a second monster in a second room
   that `WorldAreas` already places, so each kit's gate is created empty (`LifePhaseGate` with no thresholds never
-  arms, and `Step` still has one to read); Tukohama's shield is his own totem's. A later form the data does not place
+  arms, and `Step` still has one to read); Tukohama's shield is his own totem's. All twelve were played live
+  (2026-11-11, `/goto` each area and stand beside the boss): each wakes, deals damage and cycles three to six windups
+  plus its slams — except Solaris and Lunaris, whom the Harbour Bridge leaves out of its population until the two orbs
+  are handed to `GoddessFightStarter` (`On.UsedWith` then `On.Spawns`); `/spawn_mob` them and they fight like the rest.
+  A boss does nothing while the player stands inside it (the teleport dev command does that), so a check has to stand
+  eight to ten cells off. A later form the data does not place
   is the quest engine's: Merveil's `BossMerveil2`, Dominus' `Dominusdemon` and Malachai's `MalachaiBoss2` appear
   where the first one falls (`QuestEngine` SecondForm), and each gets its own controller from this same table. Damage
   comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
