@@ -120,7 +120,8 @@ public static partial class Game
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
                 charges.Converted(type), alive);
         }
-        return RequalifySourcePhasing(conn, flags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
+        var avatarFlags = RequalifyAvatarOfFire(conn, flags, lowLifeSources, conn.PlayerStats, activeItems);
+        return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
 

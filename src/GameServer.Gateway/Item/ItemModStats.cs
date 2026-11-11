@@ -190,6 +190,10 @@ public static class ItemModStats
         return new(cache.GetValue(item, current => new(Sum([current], mods, local: true))).Stats);
     }
 
+    /// <summary>Local conditional rows need the current actor's subject and cannot use the immutable item cache.</summary>
+    public static Dictionary<string, int> Local(Item item, ModCatalog mods, StatConditions.Subject subject,
+        Func<string, bool> statExists) => Sum([item], mods, local: true, subject: subject, statExists: statExists);
+
     /// <summary>A shield's block chance: the base type's from ShieldTypes.dat plus the shield's own local added block
     /// ("+X% Chance to Block" is a local modifier). A local no-block modifier (Kongming's Stratagem) removes it.</summary>
     public static int ShieldBlock(ItemCatalog items, Item item, ItemCatalog.BaseType type)

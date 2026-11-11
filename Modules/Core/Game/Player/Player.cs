@@ -894,6 +894,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendUnhinged(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SendAvatarOfFire(remote, stream, ciphers, conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
@@ -1755,6 +1757,7 @@ public static partial class Game
         await SendOwnAuraChanges(remote, stream, ciphers, conn, replay: true);
         await SendPhysicalAegis(remote, stream, ciphers, conn);
         await SendUnhinged(remote, stream, ciphers, conn);
+        await SendAvatarOfFire(remote, stream, ciphers, conn);
         if (conn.PeerTemplate is { WashedUp: true })
             CharacterSaves.ChangeTutorial(CharacterName(conn), tutorial => tutorial with { WakeUpShown = true });
     }

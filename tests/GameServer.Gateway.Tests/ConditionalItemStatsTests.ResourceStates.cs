@@ -8,6 +8,7 @@ public partial class ConditionalItemStatsTests
     void Existing_resource_conditions_reach_ailment_consumers(ClientState conn,
         Func<string, byte, InventoryItem> wear, Func<string, ItemMod> minimum)
     {
+        conn.Clock.Stop(); // Freeze this controlled owner timeline before any ailment or recovery admission.
         var inventory = Game.ItemsOf(conn);
         Dictionary<uint, int> Read() => Game.CharacterPlayerStats(conn);
         var low = Read();
@@ -44,7 +45,7 @@ public partial class ConditionalItemStatsTests
             $"Actual Scales/Foible pools: {conn.Pools.Life}/{conn.Pools.Mana}");
         Assert.Equal(1, Get("unaffected_by_ignite")); Assert.Equal(1, Get("unaffected_by_shock"));
         conn.ElementalAilments.Clear();
-        double ailmentAt = conn.Clock.Elapsed.TotalSeconds;
+        double ailmentAt = Math.Floor(conn.Clock.Elapsed.TotalSeconds);
         conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Ignite, 100, 4, ailmentAt, Get, new PhasingRoll(99));
         conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock, 30, 4, ailmentAt, Get, new PhasingRoll(99));
         Assert.True(conn.ElementalAilments.Snapshot(ailmentAt).Ignite);
@@ -69,13 +70,14 @@ public partial class ConditionalItemStatsTests
         conn.PlayerMana = (uint)Game.UnreservedMana(conn) / 2;
         low = Read();
         Game.ConfigureLeech(conn, Get, conn.PlayerStats, onLowLife: false);
-        ailmentAt = conn.Clock.Elapsed.TotalSeconds;
+        ailmentAt = Math.Floor(conn.Clock.Elapsed.TotalSeconds);
         conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Chill, 20, 100, ailmentAt, Get, new PhasingRoll(99));
         Assert.Equal(.8, conn.ElementalAilments.ActionFactor(ailmentAt));
         var leechTarget = new SpawnedMonster("Mana leech source", new(50, 50, 8), 60, 2, 1_000_000) { Hostile = true };
+        conn.Clock.Start(); // Actual hit admission rejects paused owners; resume only for the synchronous commit.
         Game.LeechOnHitLocked(conn, leechTarget, DamagePacket.Of(DamageType.Physical, 100_000, 100_000),
             100_000, Game.HitLeechSources(low, attack: true));
-        conn.Clock.Stop(); // Freeze admitted recovery time; this regression never waits on elapsed time.
+        conn.Clock.Stop();
         low = Read();
         Assert.True(Game.LeechOf(conn).Active(conn.Clock.Elapsed.TotalSeconds).Mana);
         Assert.Equal(1, Get("unaffected_by_chill"));

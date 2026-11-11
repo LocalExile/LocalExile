@@ -91,7 +91,16 @@ public static partial class Game
 
     // A hand's weapon attack (WeaponOf); null when the hand holds no weapon (empty, a shield, a quiver).
     public static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand) =>
-        WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand);
+        WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand) is { } weapon && hand is { } active
+            ? weapon with { LocalSources = QualifiedHandLocalStats(conn, active.Item).ToFrozenDictionary() } : null;
+
+    static Dictionary<string, int> QualifiedHandLocalStats(ClientState conn, Item item)
+    {
+        var local = ItemModStats.Local(item, ItemsFor(conn).Mods);
+        if (!local.Keys.Any(name => StatConditions.PlainOf(name) is not null)) return local;
+        var flags = conn.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(conn, ResourceEffectsTime(conn));
+        return ItemModStats.Local(item, ItemsFor(conn).Mods, new(Flags: flags), Stats.Has);
+    }
 
     public static SkillCatalog.Unarmed? WeaponIn(SkillCatalog skills, ItemCatalog catalog, int classRow,
         (Item Item, ItemCatalog.BaseType? Type)? hand)
@@ -116,7 +125,7 @@ public static partial class Game
     public static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(ClientState conn)
     {
         Dictionary<string, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
-            ? ItemModStats.Local(active.Item, ItemsFor(conn).Mods) : [];
+            ? QualifiedHandLocalStats(conn, active.Item) : [];
         // Weapon swaps exchange the equipment rows; rows 14/15 remain inactive even when an active hand is empty.
         return (Local(ActiveMainHand(conn)), Local(ActiveOffHand(conn)));
     }

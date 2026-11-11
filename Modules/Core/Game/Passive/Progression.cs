@@ -145,6 +145,7 @@ public static partial class Game
         }
         foreach (var (key, value) in MadnessRawStatsLocked(conn, sources))
             sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+        sources = WithAvatarOfFire(conn, sources);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
         sources = WithSummonBuffs(conn, sources);
         sources = WithRighteousFireSpellBonus(conn, sources);
@@ -687,6 +688,7 @@ public static partial class Game
             ["_while_not_cursed"] = conn.PlayerLife > 0 && !cursed,
         };
         var phaseInputs = curseInputs;
+        conditionFlags = RequalifyAvatarOfFire(conn, conditionFlags, phaseInputs, dev, active);
         conditionFlags = RequalifySourcePhasing(conn, conditionFlags, phaseInputs, dev, recentEvents, auraEffects, conditionNow);
         int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
             ? dev.TryGetValue(itemReservationKey, out int replacement) ? replacement
