@@ -74,7 +74,7 @@ public static partial class Game
         var quests = QuestsOf(conn);
         foreach (var c in candidates)
         {
-            bool want = c.Present(quests, Has);
+            bool want = c.Present(quests, Has) && KitavaActTen.PreFightNpcShown(conn, c.Npc.Id);
             bool transitioned;
             lock (conn.QuestNpcs) transitioned = QuestsOf(conn).NpcTransitioned(area, c.Npc.Id, Has) || QuestsOf(conn).NpcFreed(area, c.Npc.Id, conn.KilledVarieties);
             bool transitionable = c.Npc.Components?.Contains("Transitionable") == true;
