@@ -585,20 +585,18 @@ Abyss jewels go into abyss sockets on items, not into the passive tree. They are
 
 ## Catalogue gap check (poewiki, 2026-10-29)
 
-The wiki's [List of unique jewels](https://www.poewiki.net/wiki/List_of_unique_jewels) has 189 distinct jewel names
-after removing variant/mod rows; this catalogue now covers 182 rows including the generated Impossible Escape. The
-seven names below have no item source or mechanic in the server and are **not implemented** here. Rational Doctrine
-also has an item source now, but its ground mechanic remains inert.
+Five of the seven historical gaps below have a named item source. Random rolls come from the encounter-specific pools
+in world.db. Condition handling and encounter rewards are separate from creating an item.
 
 | Jewel | Base | Limit | Effect | Status |
 |---|---|---|---|---|
-| **Bound By Destiny** | Prismatic Jewel | 1 | One each of the influence item bonuses | Not implemented; no item source |
+| **Bound By Destiny** | Prismatic Jewel | 1 | One each of the influence item bonuses | Generates one modifier for each of the 2/4/6 influence-item thresholds. |
 | **Forbidden Flame** | Crimson Jewel | 1 | Allocates the matching Forbidden Flesh ascendancy notable; corrupted | Not implemented; granted-ascendancy-node model missing |
 | **Forbidden Flesh** | Cobalt Jewel | 1 | Allocates the matching Forbidden Flame ascendancy notable; corrupted | Not implemented; granted-ascendancy-node model missing |
-| **Megalomaniac** | Medium Cluster Jewel | - | Adds 4 passives; smalls grant nothing; 3 random notable mods; corrupted | Not implemented; unique cluster generation missing |
-| **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Not implemented; no item source |
-| **The Balance of Terror** | Cobalt Jewel | 1 | Two random curse modifiers and elemental resistance | Not implemented; no item source |
-| **Watcher's Eye** | Prismatic Jewel | 1 | Two or three random aura modifiers | Not implemented; no item source |
+| **Megalomaniac** | Medium Cluster Jewel | - | Adds 4 passives; smalls grant nothing; 3 random notable mods; corrupted | Four passives; three rolled notables and an empty small, with no jewel socket. |
+| **Sublime Vision** | Prismatic Jewel | 1 | One aura-bonus modifier | Generates one of 17 aura modifier rows. |
+| **The Balance of Terror** | Cobalt Jewel | 1 | Two random curse modifiers and elemental resistance | Generates elemental resistance and two distinct curse modifiers. |
+| **Watcher's Eye** | Prismatic Jewel | 1 | Two or three random aura modifiers | Generates three fixed modifiers and two aura modifiers (three for the level 86+ variant). |
 
 The client's `UniqueStashLayout`/`UniqueJewelLimits` also carry legacy names the current wiki list no longer has:
 Army of Bones, Boundless Grasp, Bulwark Legion, Cannibalistic Habits, Choking Ash, Divide and Conquer, Hotfooted,

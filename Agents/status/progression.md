@@ -167,10 +167,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   item's stats set through `/set_stat`): a critical strike created the profane ground art, applied buff 1569, and
   removed it after the linger.
 
-- Wiki catalogue gap check: the poewiki list (189 distinct names) vs this catalogue (182) leaves Bound By Destiny,
-  Forbidden Flame/Flesh, Megalomaniac, Sublime Vision, The Balance of Terror and Watcher's Eye unimplemented; they are
-  recorded in [unique-jewels](../docs/game/unique-jewels.md) without item sources. Impossible Escape and Rational
-  Doctrine are the two gaps closed here.
+- Watcher's Eye, Bound By Destiny, Sublime Vision, The Balance of Terror and Megalomaniac have named item generation.
+  Their encounter drop rates and individual conditional-stat consumers are partial. Megalomaniac adds three distinct
+  notables and an empty small passive. Forbidden Flame and Forbidden Flesh still lack a mainline source.
 
 - Command-based ordinary ascendancy selection, separate point awards, connected allocations, paid refunds and saves.
   A native Duelist/Slayer smoke checked ordinary nodes, ascendancy allocation/refund and both point budgets.

@@ -97,7 +97,13 @@ public static class ClusterJewelLayout
             if (order >= 0) orders[offset] = order;
         }
 
-        if (treeSocket)
+        if (size == 1 && nodes == 4 && notables == 3 && sockets == 0)
+        {
+            // Four-node medium ring: a small at the entrance, then the three sorted notables.
+            Put(0, Kind.Small);
+            for (int i = 0; i < 3; i++) Put(3 * (i + 1), Kind.Notable, i);
+        }
+        else if (treeSocket)
         {
             // The client's template layout: sockets take the first socket positions, the notables the first free notable
             // positions in ascending order (the item's notables in the client's order), the smalls the remaining list.

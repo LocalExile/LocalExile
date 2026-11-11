@@ -398,6 +398,14 @@ public static partial class Game
                     : $"only {limit} Historic timeless jewels can be socketed";
             }
         }
+        if (item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
+        {
+            var uniques = UniquesFor(conn);
+            var limitedJewel = uniques.All.FirstOrDefault(d => d.JewelLimit > 0 && uniques.NameWord(d) == nameWord);
+            if (limitedJewel is not null && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+                .Count(j => j.X != x && j.Item.Rarity == ItemRarity.Unique && j.Item.NameWords.Contains(nameWord)) >= limitedJewel.JewelLimit)
+                return $"only {limitedJewel.JewelLimit} {limitedJewel.Name} can be socketed";
+        }
         if (ImpossibleEscapeCatalogue.Read(item, ItemsFor(conn).Mods) is not null)
         {
             int limit = ItemsFor(conn).Limits.Get("impossible_escape", SystemSettings.Default.ImpossibleEscapeLimit);
@@ -464,6 +472,8 @@ public static partial class Game
         if (size < 0) return 0;
         int over = ItemModStats.Local(item, Items.Mods).GetValueOrDefault("local_jewel_expansion_jewels_count_override");
         if (over > 0) return over;
+        if (size == 1 && ClusterJewelStats.Entries(item).Any(e => e.Stat == "local_affliction_jewel_display_small_nodes_grant_nothing" && e.Value != 0))
+            return 0; // Megalomaniac: one empty small and three notables.
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
 

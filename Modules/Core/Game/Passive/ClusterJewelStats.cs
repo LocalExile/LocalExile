@@ -137,7 +137,15 @@ public static class ClusterJewelStats
     {
         var notables = Notables(jewel);
         if (order >= notables.Count) yield break;
-        string row = "affliction_notable_" + notables[order][NotablePrefix.Length..];
+        string suffix = notables[order][NotablePrefix.Length..] switch
+        {
+            "arcane_focus" => "arcane_adept",
+            "summer_commander" => "fiery_commander",
+            "winter_commander" => "icy_commander",
+            "grounded_commander" => "shocking_commander",
+            var id => id,
+        };
+        string row = "affliction_notable_" + suffix;
         if (Program.Passives.FindById(row) is not { } node) yield break;
         foreach (var (key, value) in node.Stats) yield return (key, value);
     }
