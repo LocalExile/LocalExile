@@ -6,7 +6,7 @@ using GameServer.Core.Projectiles;
 
 public static partial class Game
 {
-    static readonly ConditionalWeakTable<TotemState.Totem, SupportedGem> TotemSources = new();
+    static readonly RuleTable<TotemState.Totem, SupportedGem> TotemSources = new();
     public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true && UsesProjectileRuntime(effect)

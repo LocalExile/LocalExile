@@ -13,10 +13,10 @@ public static class DepravedTrinity
     public static readonly string[] Souls = ["Metadata/Monsters/Doedre/DoedreSoul", "Metadata/Monsters/Maligaro/MaligaroSoul", "Metadata/Monsters/Shavronne/ShavronneSoul"];
     static readonly string[] PortalNames = ["DoedrePortal", "MaligaroPortal", "ShavronnePortal"];
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, SeedScene> Seeds = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, SeedScene> Seeds = new();
     sealed class CleanupClock { public double Next; }
-    static readonly ConditionalWeakTable<InstanceState, CleanupClock> CleanupClocks = new();
+    static readonly RuleTable<InstanceState, CleanupClock> CleanupClocks = new();
     const string SeedType = "Metadata/QuestObjects/Act9/HarvestFinalBossAnimate";
     sealed class SeedScene
     {
@@ -46,9 +46,9 @@ public static class DepravedTrinity
             }
         }
     }
-    static readonly ConditionalWeakTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), Dictionary<uint, int>>> CachedStats = new();
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), Dictionary<uint, int>>> CachedStats = new();
     sealed record NativeSkill(int Level, Dictionary<uint, int> Stats, double Multiplier);
-    static readonly ConditionalWeakTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), NativeSkill>> ScaledSkills = new();
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int Effect, int Level), NativeSkill>> ScaledSkills = new();
     static NativeSkill Native(ClientState c, int effect, byte actorLevel)
     {
         var catalog = Game.SkillsFor(c);
@@ -71,7 +71,7 @@ public static class DepravedTrinity
         public readonly ushort[] Buffs = new ushort[2];
         public double NextStack;
     }
-    static readonly ConditionalWeakTable<ClientState, Exposure> Exposures = new();
+    static readonly RuleTable<ClientState, Exposure> Exposures = new();
     public static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
     {
         if (!Exposures.TryGetValue(c, out var e)) return stats;

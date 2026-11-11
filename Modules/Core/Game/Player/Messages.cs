@@ -712,7 +712,7 @@ public static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await GameEvents.RunAreaGenerated(conn);
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
-                    _ = RunLockstepFrames(remote, stream, ciphers, conn);
+                    StartWorldFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)

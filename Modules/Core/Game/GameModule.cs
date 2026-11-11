@@ -13,6 +13,8 @@ public sealed class GameModule : IModule
     {
         Rules.CombatLifetime = module.Lifetime;
         Program.SetGameLogic(new GameLogic(module.Lifetime));
+        module.Lifetime.Own(Rules.InstallMirror());
+        module.Lifetime.Own(RuleTables.EmptyOnUnload());
         string id = module.Manifest.Id;
         GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
@@ -56,6 +58,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
             Rules.EnsurePlayerUpdates(conn);
     }
+    public Task WorldFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart) =>
+        Rules.LockstepFrameEnded(remote, stream, ciphers, conn, nextFrameStart);
     public Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt) =>
         Rules.OnClientMessages(remote, stream, ciphers, messages, unknown, conn, readAt);
 

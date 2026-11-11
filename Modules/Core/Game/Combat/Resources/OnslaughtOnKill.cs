@@ -73,7 +73,7 @@ public sealed class KillOnslaught
 
 public static partial class Game
 {
-    public static readonly ConditionalWeakTable<ClientState, KillOnslaught> KillOnslaughts = new();
+    public static readonly RuleTable<ClientState, KillOnslaught> KillOnslaughts = new();
     public static KillOnslaught KillOnslaughtOf(ClientState conn) => KillOnslaughts.GetValue(conn, _ => new());
 
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.

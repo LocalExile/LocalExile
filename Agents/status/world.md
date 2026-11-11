@@ -34,7 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §5.
 - Server frames (S→C 0x2b8 frame length, 0x2b7 frame end every 33 ms): what a lockstep client's world runs on;
   ignored by a predictive client.
-  Code: `Game.RunLockstepFrames`, Gateway `WindowsTimerResolution`.
+  Code: Gateway `RunWorldFrames` and `WindowsTimerResolution`; the rules at each frame end, `Game.LockstepFrameEnded`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §6.
 - Area transitions in every area, with their destinations, models (the arch highlighted on hover), rotation and
   height.

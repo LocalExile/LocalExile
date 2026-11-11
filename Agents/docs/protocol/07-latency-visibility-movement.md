@@ -598,13 +598,13 @@ target. See [World message inputs](../re/projectiles/world-message-inputs.md) an
 Behind by 1, 2, 30 or 60 frames, it speeds up × 1.01, 1.5, 2 or 5;
 the most frames it was behind since the last tick goes out as the u8 of C→S 0x1b (world `+0xb98`,
 "lockstep_lag_frames"). Without 0x2b7 nothing runs: the player is created but never drawn. A predictive client ignores
-0x2b7, and 0x2b8 only stores its byte, so the Gateway always sends them (`RunLockstepFrames`, 33 ms, `Game_FRAME_MS`):
+0x2b7, and 0x2b8 only stores its byte, so the Gateway always sends them (`RunWorldFrames`, 33 ms, `Game_FRAME_MS`):
 a lockstep client is then drawn and its world runs. Found with hardware watchpoints on those fields.
 On Windows a timer wait ends on the clock tick, 15.6 ms unless the
 process asks for less, and Windows 11 drops the request of a process without a window (every launcher starts the
 Gateway so) unless it opts out of that power throttling ([headless clients](../dev/headless-client.md) set the
 opposite). Without both, lockstep frame ends went out 0 to 16 ms late (31 and 47 ms apart). With them, while a player
-is in game (`WindowsTimerResolution`), and `RunLockstepFrames` woken at each frame end, 77 to 93 % went out under 2 ms
+is in game (`WindowsTimerResolution`), and `RunWorldFrames` woken at each frame end, 77 to 93 % went out under 2 ms
 late (on loopback, in town and The Mud Flats); its earlier poll every third of a frame sent them 22 and 44 ms apart.
 
 **Explicit output records.** Game producers retain each World packet boundary and its unsigned scheduling key/checkpoint.

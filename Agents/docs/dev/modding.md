@@ -206,8 +206,13 @@ Gateway's log does with `[mods]`.
   restarts and rebuilds, and is kept in `mod-state.txt` in `Mods/Binaries/`, over the manifest's `enabled`. A running
   Gateway also applies that file when another program (a launcher) rewrites it.
 - After an unload the Gateway checks that the mod's load context was freed, and logs
-  `an unloaded mod is still in memory` when it was not after 2 s: a thread, timer or task of the mod still runs, or
-  something outside the mod holds one of its objects. Stop what the mod started in `Dispose`.
+  `an unloaded mod (<id>) is still in memory` when its collections stopped freeing anything: a thread, timer or task of the mod still runs, or
+  something outside the mod holds one of its objects. Stop what the mod started in `Dispose`. Work per connection
+  belongs on `GameEvents.Tick` or waits on `Lifetime.Stopping`, and a `ConditionalWeakTable` keyed by a connection or an
+  instance holds the mod until its key goes: empty it in `Dispose`. To find what holds one, take `dotnet-gcdump collect`
+  of the Gateway after the line and look for objects whose type's module is the old private copy
+  (`localexile-mod-copy\<folder>`); `dotnet-dump`'s `gcroot` misses the compiler's collection classes and lists the
+  runtime's weak handles for statics as roots. Attaching either while modules unload crashed the runtime here.
 
 Suggestions while working on a mod with the client in game: `dotnet build Mods\Source\<Name>` and watch the chat line;
 `live.ps1` builds every mod in `Mods\Source\` before it starts the Gateway (one that fails to build is left out with a

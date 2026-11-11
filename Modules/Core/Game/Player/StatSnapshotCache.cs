@@ -106,7 +106,7 @@ public static partial class Game
     {
         public readonly StatSnapshotTailSlot[] Stages = [new(), new(), new()];
     }
-    public static readonly ConditionalWeakTable<ClientState, StatSnapshotTailSlots> StatSnapshotTails = new();
+    public static readonly RuleTable<ClientState, StatSnapshotTailSlots> StatSnapshotTails = new();
 
     /// <summary>Game_STAT_SNAPSHOT_VERIFY=1 (or a test): every reused tail is also computed again and compared, in order.</summary>
     public static bool VerifyStatSnapshotTail = Environment.GetEnvironmentVariable("Game_STAT_SNAPSHOT_VERIFY") == "1";

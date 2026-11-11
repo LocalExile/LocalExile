@@ -72,7 +72,7 @@ public static class Slayer
         }
     }
 
-    static readonly ConditionalWeakTable<ClientState, State> States = new();
+    static readonly RuleTable<ClientState, State> States = new();
     public static State Of(ClientState conn) => States.GetValue(conn, _ => new());
 
     public static long Revision(ClientState conn) => States.TryGetValue(conn, out var state) ? state.Revision : 0;

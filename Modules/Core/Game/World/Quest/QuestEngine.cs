@@ -231,7 +231,7 @@ public static partial class Game
         public HashSet<string>? Flags;
         public IReadOnlyDictionary<string, int> Stats = new Dictionary<string, int>();
     }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, QuestStatCache> QuestStatCaches = new();
+    static readonly RuleTable<ClientState, QuestStatCache> QuestStatCaches = new();
 
     // Whether a flag change moves QuestStaticRewards' permanent stats (the pools and the panel follow).
     public static bool ChangesQuestStats(IEnumerable<string> changed) =>
@@ -587,7 +587,7 @@ public static partial class Game
                 { HideMinimapIcon = hideMinimapIcon }.Blob()
             : GlyphQuest.NestBlob(at, opened, hideMinimapIcon);
 
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, HashSet<uint>> HiddenQuestMarkers = new();
+    static readonly RuleTable<ClientState, HashSet<uint>> HiddenQuestMarkers = new();
 
     public static bool QuestMarkerCollected(ClientState conn, string itemId, IReadOnlySet<uint> carried) =>
         ItemsFor(conn).Find(itemId) is { } type && (carried.Contains(type.Hash)

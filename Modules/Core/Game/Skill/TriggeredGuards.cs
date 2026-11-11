@@ -16,7 +16,7 @@ public static partial class Game
         public SupportedGem? Gem;
         public ProjectileSession? Session;
     }
-    static readonly ConditionalWeakTable<ClientState, TriggeredGuard> TriggeredGuards = new();
+    static readonly RuleTable<ClientState, TriggeredGuard> TriggeredGuards = new();
     static bool TriggerGuardSpell(ClientState conn, SupportedGem gem) => SkillsFor(conn).EffectId(gem.Effect)
         is "QuickGuard" or "ImmortalCall" or "MoltenShell";
 

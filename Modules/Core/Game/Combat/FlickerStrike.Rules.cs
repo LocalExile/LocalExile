@@ -64,7 +64,7 @@ public static partial class Game
     // the server sends (the pools, FlickerMovementPct) while the buff lasts, as Shield Charge's does.
     const ushort FlickerSpeedBuffRow = 1344;
     sealed class FlickerSpeed { public int Percent, Token; public ushort Buff; }
-    static readonly ConditionalWeakTable<ClientState, FlickerSpeed> FlickerSpeeds = new();
+    static readonly RuleTable<ClientState, FlickerSpeed> FlickerSpeeds = new();
 
     // The running buff's movement bonus, for the pools (PoolsFor); 0 when none runs.
     public static int FlickerMovementPct(ClientState conn) => FlickerSpeeds.TryGetValue(conn, out var s) ? s.Percent : 0;

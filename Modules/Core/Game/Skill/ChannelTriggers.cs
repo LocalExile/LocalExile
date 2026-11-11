@@ -11,7 +11,7 @@ public static partial class Game
         public double NextAt = at + interval;
         public (int X, int Y) Aim = aim;
     }
-    static readonly ConditionalWeakTable<ClientState, ChannelTrigger> ChannelTriggers = new();
+    static readonly RuleTable<ClientState, ChannelTrigger> ChannelTriggers = new();
 
     public static void BeginChannelTriggers(ClientState conn, ProjectileSession session, ushort skill,
         int action, int generation, (int X, int Y) aim, double at)

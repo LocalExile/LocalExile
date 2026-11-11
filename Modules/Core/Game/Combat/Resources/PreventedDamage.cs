@@ -40,7 +40,7 @@ public sealed class PreventedDamageRecovery
 
 public static partial class Game
 {
-    static readonly ConditionalWeakTable<ClientState, PreventedDamageRecovery> PreventedDamage = new();
+    static readonly RuleTable<ClientState, PreventedDamageRecovery> PreventedDamage = new();
 
     public static PreventedDamageRecovery PreventedDamageOf(ClientState conn) => PreventedDamage.GetValue(conn, _ => new());
 }

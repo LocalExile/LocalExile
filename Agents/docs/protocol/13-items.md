@@ -433,7 +433,7 @@ from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask 
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
 (the flask's own mods and the character's flask effect/duration), with no charges or timer. Each such flask keeps its
 buff on the client with no duration (0x1c1 with the flask-bar cell and without bit 1), put on and taken off by a ticker
-(`RunUniqueBeltEffects`, about 4 a second) when the belt or the bar changes, on entering an area and on death. Magic utility
+(`StepUniqueBeltEffects`, every player tick) when the belt or the bar changes, on entering an area and on death. Magic utility
 flasks cannot be used while it is worn: the client enforces the item mod and the server refuses the use as a backstop.
 The character's stats are re-sent when the flask bar changes while it is worn (`PlaceItem`, `HeldOntoItem`, `PickUpItem`)
 and on equipment changes. Live 2026-10-26: placed flasks applied at once, and a flask key did nothing.

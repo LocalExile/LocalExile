@@ -6,7 +6,7 @@ public static partial class Game
 {
     sealed record MinionAilmentProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
         MonsterPoisons.Settings Poison, int PoisonChance);
-    static readonly ConditionalWeakTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
+    static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
 
     static void MinionAilmentsLocked(ClientState conn, GolemState.Golem fighter, GolemState.Ability ability,
         uint id, SpawnedMonster target, bool critical, double now)

@@ -3,9 +3,15 @@
 /// it stays listed: an ordinary collection may free it later, and its private copy is deleted at the end of a later pass.</summary>
 public static class UnloadCollector
 {
-    sealed record Unloaded(WeakReference Context, string CopyDirectory, Action StillInMemory, Action CopyStuck, TaskCompletionSource<bool> Done);
+    sealed record Unloaded(WeakReference Context, string CopyDirectory, Action<int> StillInMemory, Action CopyStuck, TaskCompletionSource<bool> Done);
 
-    const int Rounds = 5;
+    // A wave's contexts are freed in layers: a module's own goes only after those of the modules that depend on it, and
+    // each layer takes two rounds (a finalizer frees its loader allocator in one, the next collects the context). Live,
+    // with a player in game and nothing holding a module, a reload of the game module left 24, 9, 9, 2, 2 and 0 alive
+    // after rounds 1 to 6, the game module last. How deep the layers go depends on what the modules use of each other, so
+    // a pass goes on for as long as its rounds free something: it stops after IdleRounds in a row that freed nothing
+    // (what is left then is held), and after MaxRounds at the latest.
+    const int MaxRounds = 12, IdleRounds = 3;
     static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan BetweenRounds = TimeSpan.FromMilliseconds(500);
 
@@ -16,7 +22,8 @@ public static class UnloadCollector
     static bool running;
 
     /// <summary>Completes when the context was collected (true) or still was not after its pass (false).</summary>
-    public static Task<bool> Add(WeakReference context, string copyDirectory, Action stillInMemory, Action copyStuck)
+    /// <param name="stillInMemory">Told the number of rounds the pass ran.</param>
+    public static Task<bool> Add(WeakReference context, string copyDirectory, Action<int> stillInMemory, Action copyStuck)
     {
         var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         lock (Gate)
@@ -51,16 +58,20 @@ public static class UnloadCollector
     {
         try
         {
-            for (int i = 0; i < Rounds && batch.Any(u => u.Context.IsAlive); i++)
+            int rounds = 0;
+            for (int alive = batch.Count, idle = 0; rounds < MaxRounds && alive > 0 && idle < IdleRounds; rounds++)
             {
-                if (i > 0) await Task.Delay(BetweenRounds);
+                if (rounds > 0) await Task.Delay(BetweenRounds);
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
+                int left = batch.Count(u => u.Context.IsAlive);
+                idle = left < alive ? 0 : idle + 1;
+                alive = left;
             }
             foreach (var unloaded in batch)
             {
                 bool collected = !unloaded.Context.IsAlive;
-                if (!collected) { unloaded.StillInMemory(); lingering.Add(unloaded); }
+                if (!collected) { unloaded.StillInMemory(rounds); lingering.Add(unloaded); }
                 else if (unloaded.CopyDirectory.Length > 0 && !ModLoadContext.TryDeleteCopy(unloaded.CopyDirectory)) unloaded.CopyStuck();
                 unloaded.Done.TrySetResult(collected);
             }
