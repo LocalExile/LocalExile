@@ -22,6 +22,7 @@ The existing `Game_VERIFIED_GAMBLER`, `Game_VERIFIED_ANTIQUARIAN` and `Game_VERI
 opt-ins still require the reviewed combined 3.29.3b graph installed separately.
 Behemoth uses the same read-only boundary behind `Game_VERIFIED_BEHEMOTH=1`.
 Whisperer uses `Game_VERIFIED_WHISPERER=1` and the current packed graph boundary; see [Whisperer](whisperer.md).
+Harbinger uses `Game_VERIFIED_HARBINGER=1`; see [Harbinger](harbinger.md).
 The module verifies the original and alternate graph bytes read-only.
 It never installs, repairs or writes the client archive.
 Normal and unascended characters have no alternate-graph verification requirement.

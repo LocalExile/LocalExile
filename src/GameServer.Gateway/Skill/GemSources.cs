@@ -18,17 +18,15 @@ public static class GemSources
         foreach (var offer in QuestRewardCatalog.Load(folder).Offers)
             foreach (var choice in offer.Choices)
                 if (items.Row(choice.ItemRow) is { } type && items.Gem(type) is not null) pool.Add(type.Row);
-        string characters = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (ClientTables.Exists(characters) && ClientTables.Exists(gems))
+        if (ClientTables.Has("Characters") && ClientTables.Has("SkillGems"))
         {
-            using var c = JsonDocument.Parse(ClientTables.ReadAllBytes(characters));
-            using var g = JsonDocument.Parse(ClientTables.ReadAllBytes(gems));
-            foreach (var character in c.RootElement.EnumerateArray())
+            var c = ClientTables.Table("Characters");
+            var g = ClientTables.Table("SkillGems");
+            foreach (var character in c)
                 foreach (string column in new[] { "StartSkillGem", "StartSupportGem" })
-                    if (character.TryGetProperty(column, out var value) && value.ValueKind == JsonValueKind.Number
-                        && value.GetInt32() is int row && row >= 0 && row < g.RootElement.GetArrayLength()
-                        && g.RootElement[row].TryGetProperty("BaseItemTypesKey", out var baseRow) && baseRow.ValueKind == JsonValueKind.Number
-                        && items.Row(baseRow.GetInt32()) is { } type && items.Gem(type) is not null)
+                    if (character.IntOrNull(column) is int row && row >= 0 && row < g.Count
+                        && g[row].IntOrNull("BaseItemTypesKey") is int baseRow
+                        && items.Row(baseRow) is { } type && items.Gem(type) is not null)
                         pool.Add(type.Row);
         }
         foreach (string name in DropOnlySupports)

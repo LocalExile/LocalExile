@@ -82,7 +82,7 @@ public sealed class CurrencyExchangeModule : IModule
             if (!file.Exists || file.LastWriteTimeUtc == _ratesWritten) return _rates;
             try
             {
-                _rates = ExchangeRates.Parse(ClientTables.ReadAllText(RatesFile));
+                _rates = ExchangeRates.Parse(File.ReadAllText(RatesFile));
                 _ratesWritten = file.LastWriteTimeUtc;
                 _module.Log($"rates of {DateTimeOffset.FromUnixTimeSeconds(_rates?.SourceHour ?? 0):u}, current league {_rates?.Current}");
             }
@@ -217,13 +217,8 @@ public sealed class CurrencyExchangeModule : IModule
     static readonly Lazy<(ushort Npc, ushort Line)?> FaustusLine = new(() =>
     {
         if (Npcs.Value.Find("Metadata/NPC/League/Kalguur/VillageFaustusHideout") is not { } npc) return null;
-        using var lines = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/NPCTextAudio.json"));
-        int row = 0;
-        foreach (var line in lines.RootElement.EnumerateArray())
-        {
-            if (line.GetProperty("Id").GetString() == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)row);
-            row++;
-        }
+        foreach (var line in ClientTables.Table("NPCTextAudio"))
+            if (line.TextOrNull("Id") == "FaustusSettlersOrderFilled_Random") return ((ushort)npc.Row, (ushort)line.Index);
         return null;
     });
 

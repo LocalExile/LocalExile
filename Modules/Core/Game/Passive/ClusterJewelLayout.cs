@@ -33,17 +33,15 @@ public static class ClusterJewelLayout
     static readonly Lazy<Dictionary<int, Template>> Templates = new(() =>
     {
         var templates = new Dictionary<int, Template>();
-        string path = Path.Combine("data", "tables", "PassiveTreeExpansionJewels.json");
-        if (!ClientTables.Exists(path)) return templates;
-        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var row in document.RootElement.EnumerateArray())
+        if (!ClientTables.Has("PassiveTreeExpansionJewels")) return templates;
+        foreach (var row in ClientTables.Table("PassiveTreeExpansionJewels"))
         {
-            int size = row.GetProperty("PassiveTreeExpansionJewelSizesKey").GetInt32();
+            int size = row.Int("PassiveTreeExpansionJewelSizesKey");
             templates[size] = new(
-                [.. row.GetProperty("SmallIndices").EnumerateArray().Select(v => v.GetInt32())],
-                [.. row.GetProperty("NotableIndices").EnumerateArray().Select(v => v.GetInt32())],
-                [.. row.GetProperty("SocketIndices").EnumerateArray().Select(v => v.GetInt32())],
-                row.GetProperty("TotalIndices").GetInt32());
+                [.. row.Ints("SmallIndices")],
+                [.. row.Ints("NotableIndices")],
+                [.. row.Ints("SocketIndices")],
+                row.Int("TotalIndices"));
         }
         return templates;
     });

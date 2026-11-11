@@ -113,7 +113,7 @@ keeps the ids of the last list it sent (`ChooserList`).
 
 - **InstanceRegistry** (`src/GameServer.Core/World/InstanceRegistry.cs`):
   - A town has one instance, with seed 1. Auth's towns are the WorldAreas rows with `IsTown` (`WorldAreaTowns`, from
-    `data/tables/WorldAreas.json`): the 12 act towns, Lioneye's Watch to Karui Shores. `pvpTown` is left out (PvP is not
+    the `WorldAreas` table): the 12 act towns, Lioneye's Watch to Karui Shores. `pvpTown` is left out (PvP is not
     implemented), and without the table only Lioneye's Watch is a town. Auth logs the list at startup (`[auth] towns:`).
   - A plain click joins the character's previous live instance of the area, or creates one.
   - The chooser can join any instance or create a new one.

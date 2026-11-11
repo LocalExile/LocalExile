@@ -11,7 +11,6 @@ public sealed class GameDataStore : IDisposable
 {
     public sealed record ModStatOverride(string ModId, int StatIndex, int Minimum, int Maximum);
     public sealed record LimitOverride(string Key, int Value);
-    public sealed record CatalogRow(string Kind, string Key, string Payload, bool Enabled);
     public sealed record SettingRow(string Key, double Value);
     public sealed record UniqueWeightRow(string Name, double Weight, double RuthlessWeight);
     public sealed record CurrencyWeightRow(string CurrencyId, double Weight, int DropLevel, bool Enabled,
@@ -120,16 +119,24 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
-    public IReadOnlyList<CatalogRow> LoadCatalog(string kind)
+    /// <summary>Every row of a catalogue table (the item and jewel catalogues: unique_items, radius_jewels, ...) in the
+    /// order of <paramref name="orderBy"/>, its columns by name (INTEGER as long, TEXT as string, NULL as null).</summary>
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>> LoadRows(string table, string orderBy)
     {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(table, "^[a-z_]+$")
+            || !System.Text.RegularExpressions.Regex.IsMatch(orderBy, "^[a-z_]+(, [a-z_]+)*$"))
+            throw new ArgumentException($"not a table and its order: {table} by {orderBy}");
         lock (_gate)
         {
-            using var command = Command("SELECT kind, key, payload, enabled FROM catalog_entries WHERE kind = $kind ORDER BY key",
-                ("$kind", kind));
+            using var command = Command($"SELECT * FROM {table} ORDER BY {orderBy}");
             using var reader = command.ExecuteReader();
-            var result = new List<CatalogRow>();
+            var result = new List<IReadOnlyDictionary<string, object?>>();
             while (reader.Read())
-                result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3) != 0));
+            {
+                var row = new Dictionary<string, object?>(reader.FieldCount, StringComparer.Ordinal);
+                for (int i = 0; i < reader.FieldCount; i++) row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                result.Add(row);
+            }
             return result;
         }
     }

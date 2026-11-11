@@ -10,9 +10,9 @@ using GameServer.Core;
 /// <c>MtxTypes</c>, e.g. "Black Hole Portal Effect"). Armour skins, weapon skins and pets are not portal visuals: the
 /// client builds those from the account's MTX slots, which no local account has.
 /// </para>
-/// Game data, loaded on first use; without <c>data/tables</c> the list is empty.
+/// Game data, loaded on first use; without the client tables the list is empty.
 /// </summary>
-public sealed class CosmeticCatalog(string folder = "data")
+public sealed class CosmeticCatalog
 {
     /// <summary>One playable cosmetic: <paramref name="Index"/> is the table's own number.</summary>
     public sealed record Cosmetic(string Name, string Id, string Ao, int Index)
@@ -24,7 +24,7 @@ public sealed class CosmeticCatalog(string folder = "data")
         public override string ToString() => $"{Index} {Name}";
     }
 
-    private readonly Lazy<List<Cosmetic>> _portals = new(() => LoadPortals(folder));
+    private readonly Lazy<List<Cosmetic>> _portals = new(LoadPortals);
 
     public IReadOnlyList<Cosmetic> Portals => _portals.Value;
 
@@ -54,44 +54,34 @@ public sealed class CosmeticCatalog(string folder = "data")
     /// MtxTypeGameSpecific row index; that row's HASH32 is the MtxTypes row's HASH32, whose Name is the shop name.
     /// Rows without an AOFile are map-only or scripted variants and are skipped.
     /// </summary>
-    static List<Cosmetic> LoadPortals(string folder)
+    static List<Cosmetic> LoadPortals()
     {
-        string dir = Path.Combine(folder, "tables");
-        if (ReadRows(Path.Combine(dir, "MicrotransactionPortalVariations.json")) is not { } rows) return [];
+        if (ClientTables.TableOrNull("MicrotransactionPortalVariations") is not { } rows) return [];
 
         var names = new Dictionary<uint, string>();
-        foreach (var type in ReadRows(Path.Combine(dir, "MtxTypes.json")) ?? [])
-        {
-            if (!type.TryGetProperty("HASH32", out var hash) || !hash.TryGetUInt32(out uint h)) continue;
-            if (!type.TryGetProperty("Name", out var name) || name.ValueKind != JsonValueKind.String) continue;
-            names.TryAdd(h, name.GetString() ?? "");
-        }
-        var gameSpecific = ReadRows(Path.Combine(dir, "MtxTypeGameSpecific.json")) ?? [];
+        if (ClientTables.TableOrNull("MtxTypes") is { } types)
+            foreach (var type in types)
+                if (type.LongOrNull("HASH32") is long h && type.TextOrNull("Name") is { } name) names.TryAdd((uint)h, name);
+        var gameSpecific = ClientTables.TableOrNull("MtxTypeGameSpecific");
 
         var list = new List<Cosmetic>();
         foreach (var row in rows)
         {
-            if (!row.TryGetProperty("AOFile", out var ao) || ao.ValueKind != JsonValueKind.String) continue;
-            string path = ao.GetString() ?? "";
+            string path = row.TextOrNull("AOFile") ?? "";
             if (path.Length == 0) continue;
-            int index = row.TryGetProperty("Index", out var i) && i.TryGetInt32(out int n) ? n : list.Count + 1;
+            int index = row.IntOrNull("Index") ?? list.Count + 1;
             string name = "";
             uint hash = 0;
-            if (row.TryGetProperty("MtxTypeGameSpecific", out var gs) && gs.TryGetInt32(out int gsRow) &&
-                gsRow >= 0 && gsRow < gameSpecific.Count &&
-                gameSpecific[gsRow].TryGetProperty("HASH32", out var gh) && gh.TryGetUInt32(out hash))
+            if (row.IntOrNull("MtxTypeGameSpecific") is int gsRow && gameSpecific?.Row(gsRow) is { } gs
+                && gs.LongOrNull("HASH32") is long gh)
+            {
+                hash = (uint)gh;
                 names.TryGetValue(hash, out name!);
+            }
             if (string.IsNullOrEmpty(name)) name = $"Portal {index}";
             list.Add(new Cosmetic(name, name, path, index) { Hash = hash });
         }
         return list;
     }
 
-    static List<JsonElement>? ReadRows(string path)
-    {
-        if (!ClientTables.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        // Clone: the elements outlive the document, whose buffers they would otherwise point into.
-        return doc.RootElement.ValueKind == JsonValueKind.Array ? [.. doc.RootElement.EnumerateArray().Select(e => e.Clone())] : null;
-    }
 }

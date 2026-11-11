@@ -156,21 +156,14 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     {
         var list = new List<ItemCatalog.BaseType>();
         var seen = new HashSet<int>();
-        string path = Path.Combine(folder, "tables", "Scarabs.json");
-        if (ClientTables.Exists(path))
+        if (ClientTables.Has("Scarabs"))
         {
-            using var doc = GameTables.Open(path);
-            foreach (var row in doc.RootElement.EnumerateArray())
-            {
-                if (!row.TryGetProperty("Items", out var items) || items.ValueKind != System.Text.Json.JsonValueKind.Array)
-                    continue;
-                foreach (var item in items.EnumerateArray().Where(v => v.ValueKind == System.Text.Json.JsonValueKind.Number))
+            foreach (var row in ClientTables.Table("Scarabs"))
+                foreach (int n in row.Ints("Items"))
                 {
-                    int n = item.GetInt32();
                     if (!seen.Add(n)) continue;
                     if (catalog.Row(n) is { Supported: true } type) list.Add(type);
                 }
-            }
         }
         if (list.Count == 0)
         {
@@ -489,14 +482,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     static Dictionary<string, double> LoadUniqueWeights(string folder, bool hardMode)
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        string values = Path.Combine(folder, "tables", "VillageUniqueDisenchantValues.json"), words = Path.Combine(folder, "tables", "Words.json");
-        if (!ClientTables.Exists(values) || !ClientTables.Exists(words)) return weights;
-        using var wordsDoc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(words));
-        using var valuesDoc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(values));
-        foreach (var row in valuesDoc.RootElement.EnumerateArray())
+        if (!ClientTables.Has("VillageUniqueDisenchantValues") || !ClientTables.Has("Words")) return weights;
+        var wordsDoc = ClientTables.Table("Words");
+        foreach (var row in ClientTables.Table("VillageUniqueDisenchantValues"))
         {
-            double value = row.GetProperty(hardMode ? "RuthlessValue" : "Value").GetDouble();
-            if (value > 0 && wordsDoc.RootElement[row.GetProperty("UniqueName").GetInt32()].GetProperty("Text").GetString() is { Length: > 0 } text)
+            double value = row.Real(hardMode ? "RuthlessValue" : "Value");
+            if (value > 0 && wordsDoc[row.Int("UniqueName")].Text("Text") is { Length: > 0 } text)
                 weights[UniqueCatalog.NameKey(text)] = Math.Min(1, 1 / value);
         }
         return weights;

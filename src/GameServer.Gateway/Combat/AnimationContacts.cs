@@ -1,4 +1,4 @@
-using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>An animation event's position in the model's space (the rig .amd's "x y z" or an .ao event's "position",
 /// world units): +X the model's left, −Y its front, −Z up (the Ranger's attack1_bow contact: 59.8 in front, 127.5 up;
@@ -27,7 +27,7 @@ public enum CastAnimationKind { Attack, Projectile, Area, Buff }
 public readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 
 /// <summary>
-/// The "contact" keyframe of the character classes' animations (data/animation-contacts.json, written by
+/// The "contact" keyframe of the character classes' animations (client.db's animation_* tables, from data/animation-contacts.json written by
 /// <c>python -I scripts/re/anim_contacts.py</c> from each class's rig .amd and .ao event lists): per animated object, per
 /// animation, its length and the contact time in ms, and the keyframe's position in the model's space ("positions").
 /// A spell is released at the contact, which the client scales with the cast time, so the server releases it at the
@@ -37,7 +37,7 @@ public readonly record struct CastAnimationClip(string Name, uint Index, int Len
 /// swings the two halves of doublestrike_sword), with the ACT's attack_time budget; <see cref="DefaultAttackClip"/>
 /// says when its contact plays.
 /// </summary>
-public sealed class AnimationContacts(string folder = "data")
+public sealed class AnimationContacts
 {
     /// <summary>The Witch's spell_projectile fraction, used when the file or the animation is missing.</summary>
     public const double DefaultSpellRelease = 599.0 / 1066;
@@ -49,7 +49,13 @@ public sealed class AnimationContacts(string folder = "data")
     private sealed record ActorAnimations(Dictionary<string, AnimationClip> Clips,
         Dictionary<string, DefaultAttackClip[]> AttackPools);
 
-    private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo = new(() => Load(folder));
+    private readonly Lazy<Dictionary<string, ActorAnimations>> _byAo;
+
+    /// <summary>The rigs in client.db.</summary>
+    public AnimationContacts() : this(ClientTables.TableOrNull) { }
+
+    /// <summary>The rigs in the animation_* tables <paramref name="tables"/> gives by name (null: none), for a test.</summary>
+    public AnimationContacts(Func<string, ClientTable?> tables) => _byAo = new(() => Load(tables));
 
     /// <summary>When in a spell cast its projectile leaves, as a fraction of the cast: the class's spell_projectile
     /// animation (wand, unarmed, then any), else any spell animation's contact.</summary>
@@ -252,87 +258,65 @@ public sealed class AnimationContacts(string folder = "data")
         TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
             ? clip.CutInSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
 
-    private static Dictionary<string, ActorAnimations> Load(string folder)
+    private static Dictionary<string, ActorAnimations> Load(Func<string, ClientTable?> tables)
     {
-        string path = Path.Combine(folder, "animation-contacts.json");
         var result = new Dictionary<string, ActorAnimations>(StringComparer.OrdinalIgnoreCase);
-        if (!GameServer.Core.ClientTables.Exists(path)) return result;
-        using var d = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(path));
-        foreach (var ao in d.RootElement.EnumerateObject())
+        if (tables("animation_rigs") is not { } rigs) return result;
+        ILookup<long, ClientRow> By(string table, string column) =>
+            (tables(table) ?? ClientTable.FromRows(table, [])).By(column);
+        var clipsByRig = By("animation_clips", "rig");
+        // Every contact frame of a clip, in order: the clip then has only its earliest contact without them, and skills
+        // that ask for a later frame get null and model the timing themselves.
+        var framesByClip = By("animation_clip_contacts", "clip");
+        var attacksByRig = By("animation_default_attacks", "rig");
+        foreach (var rig in rigs)
         {
-            var positions = new Dictionary<string, ContactPoint>(StringComparer.Ordinal);
-            if (ao.Value.TryGetProperty("positions", out var listed) && listed.ValueKind == JsonValueKind.Object)
-                foreach (var entry in listed.EnumerateObject())
-                    if (Point(entry.Value) is { } point) positions[entry.Name] = point;
-            var indices = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
-            if (ao.Value.TryGetProperty("indices", out var listedIndices) && listedIndices.ValueKind == JsonValueKind.Object)
-                foreach (var entry in listedIndices.EnumerateObject())
-                    if (entry.Value.ValueKind == JsonValueKind.Number && entry.Value.TryGetUInt32(out uint index))
-                        indices[entry.Name] = index;
-            // Every contact frame of a clip, in order. Absent in data extracted before the key existed (it is git-ignored,
-            // so a checkout may still hold the older file): the clip then has only its earliest contact, and skills that
-            // ask for a later frame get null and model the timing themselves.
-            var frames = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
-            if (ao.Value.TryGetProperty("contacts", out var contactFrames) && contactFrames.ValueKind == JsonValueKind.Object)
-                foreach (var entry in contactFrames.EnumerateObject())
-                    if (entry.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        var times = new List<int>();
-                        foreach (var frame in entry.Value.EnumerateArray())
-                            if (frame.ValueKind == JsonValueKind.Array && frame.GetArrayLength() == 2
-                                && frame[0].ValueKind == JsonValueKind.Number && frame[0].TryGetInt32(out int ms)) times.Add(ms);
-                        if (times.Count > 0) frames[entry.Name] = times;
-                    }
-            var clips = ao.Value.GetProperty("animations").EnumerateObject()
-                .ToDictionary(a => a.Name, a => new AnimationClip(a.Value[0].GetInt32(), a.Value[1].GetInt32(),
-                    positions.TryGetValue(a.Name, out var point) ? point : null,
-                    indices.GetValueOrDefault(a.Name, uint.MaxValue),
-                    ao.Value.TryGetProperty("cancels", out var cancels) && cancels.TryGetProperty(a.Name, out _),
-                    ao.Value.TryGetProperty("cancels", out cancels) && cancels.TryGetProperty(a.Name, out var cancel)
-                        && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null,
-                    frames.TryGetValue(a.Name, out var times) ? times : null), StringComparer.OrdinalIgnoreCase);
+            string ao = rig.Text("ao")!;
+            var clips = new Dictionary<string, AnimationClip>(StringComparer.OrdinalIgnoreCase);
+            foreach (var c in clipsByRig[rig.Index])
+            {
+                if (c.IsNull("length")) continue;   // a clip listed only for its position, index or cancel
+                var times = framesByClip[c.Index].Where(f => !f.IsNull("ms")).Select(f => f.Int("ms")).ToList();
+                clips[c.Text("name")!] = new AnimationClip(c.Int("length"), c.Int("contact"), Point(c, "position"),
+                    c.IsNull("rig_index") ? uint.MaxValue : c.UInt("rig_index"),
+                    c.BoolOrNull("cancel_listed") ?? false, c.IntOrNull("cancel"), times.Count > 0 ? times : null);
+            }
             // The default attack's stance pools cover the wand's ACT-selected clip too, which main's "defaultWand" pools
             // served before the stance pools replaced them.
             var pools = new Dictionary<string, DefaultAttackClip[]>(StringComparer.Ordinal);
-            if (ao.Value.TryGetProperty("defaultAttack", out var attack))
-                foreach (var stance in attack.EnumerateObject())
+            foreach (var stance in attacksByRig[rig.Index].GroupBy(a => a.Text("stance")!))
+            {
+                var entries = stance.Select(a =>
                 {
-                    var entries = stance.Value.EnumerateArray().Select(a => new DefaultAttackClip(
-                        a.GetProperty("animation").GetString()!, a.GetProperty("source").GetString()!,
-                        a.GetProperty("index").GetInt32(), a.GetProperty("begin").GetInt32(),
-                        a.GetProperty("length").GetInt32(), a.GetProperty("contact").GetInt32(),
-                        a.TryGetProperty("cancel", out var cancel) && cancel.ValueKind == JsonValueKind.Number ? cancel.GetInt32() : null,
-                        a.TryGetProperty("slow", out var slow) && slow.ValueKind == JsonValueKind.Array ? slow[0].GetInt32() : null,
-                        a.TryGetProperty("slow", out slow) && slow.ValueKind == JsonValueKind.Array ? slow[1].GetInt32() : null,
-                        a.TryGetProperty("budget", out var budget) && budget.ValueKind == JsonValueKind.Number ? budget.GetDouble() : null,
-                        stance.Name, a.GetProperty("weight").GetUInt32(),
-                        a.TryGetProperty("item", out var item) && item.ValueKind == JsonValueKind.True,
-                        a.TryGetProperty("pair", out var pair) && pair.ValueKind == JsonValueKind.True,
-                        a.TryGetProperty("position", out var position) ? Point(position) : null)).ToArray();
-                    if (entries.Length == 0 || entries.Any(a => string.IsNullOrWhiteSpace(a.Animation)
-                        || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1
-                        || a.CancelMs is < 0 || a.CancelMs > a.LengthMs || a.BudgetSeconds is <= 0))
-                        throw new InvalidDataException($"Invalid default attack animation pool {ao.Name}/{stance.Name}.");
-                    pools.Add(stance.Name, entries);
-                }
-            result[ao.Name] = new ActorAnimations(clips, pools);
+                    long[] slow = a.Longs("slow");
+                    return new DefaultAttackClip(a.Text("animation")!, a.Text("source")!, a.Int("index"), a.Int("begin"),
+                        a.Int("length"), a.Int("contact"), a.IntOrNull("cancel"),
+                        slow.Length == 2 ? (int)slow[0] : null, slow.Length == 2 ? (int)slow[1] : null,
+                        a.RealOrNull("budget"), stance.Key, a.UInt("weight"), a.BoolOrNull("item") ?? false,
+                        a.BoolOrNull("pair") ?? false, Point(a, "position"));
+                }).ToArray();
+                if (entries.Length == 0 || entries.Any(a => string.IsNullOrWhiteSpace(a.Animation)
+                    || a.LengthMs <= 0 || a.ContactMs < 0 || a.ContactMs > a.LengthMs || a.Weight != 1
+                    || a.CancelMs is < 0 || a.CancelMs > a.LengthMs || a.BudgetSeconds is <= 0))
+                    throw new InvalidDataException($"Invalid default attack animation pool {ao}/{stance.Key}.");
+                pools.Add(stance.Key, entries);
+            }
+            result[ao] = new ActorAnimations(clips, pools);
         }
         return result;
     }
 
-    /// <summary>A three-number JSON array as a point; anything else is no position, and so is the rig's placeholder for
-    /// an event without one ("0 -0 -0" in the .amd), which would otherwise read as a release at the feet.</summary>
-    public static ContactPoint? Point(JsonElement value)
+    /// <summary>A list column of three numbers as a point (<see cref="Point(double[])"/>).</summary>
+    public static ContactPoint? Point(ClientRow row, string column) => row.IsNull(column) ? null : Point(row.Reals(column));
+
+    /// <summary>Three numbers as a point; anything else is no position, and so is the rig's placeholder for an event
+    /// without one ("0 -0 -0" in the .amd), which would otherwise read as a release at the feet.</summary>
+    public static ContactPoint? Point(double[] value)
     {
-        if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 3) return null;
-        Span<float> parts = stackalloc float[3];
-        for (int i = 0; i < 3; i++)
-        {
-            if (value[i].ValueKind != JsonValueKind.Number) return null;
-            parts[i] = (float)value[i].GetDouble();
-            if (!float.IsFinite(parts[i])) return null;
-        }
-        return parts[0] == 0 && parts[1] == 0 && parts[2] == 0 ? null : new(parts[0], parts[1], parts[2]);
+        if (value.Length != 3 || !value.All(double.IsFinite)) return null;
+        float x = (float)value[0], y = (float)value[1], z = (float)value[2];
+        if (!float.IsFinite(x) || !float.IsFinite(y) || !float.IsFinite(z)) return null;
+        return x == 0 && y == 0 && z == 0 ? null : new(x, y, z);
     }
 }
 

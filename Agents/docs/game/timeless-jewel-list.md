@@ -1,6 +1,6 @@
 # Timeless jewels: full list
 
-Generated from the target client's `AlternatePassiveSkills`, `AlternatePassiveAdditions` and `Mods.json`, with names and effect text from Path of Building's `LegionPassives.lua` and `stat_descriptions.lua`. `works` means every stat has a server consumer and is unconditional; `partial` means a condition is not modelled or some stats are unread; `inert` means no stat has a consumer. Keystone rows are applied as stats, but their special gameplay mechanics are separate. The additions section covers all 96 rows for the six timeless factions, including the four that Path of Building's `LegionPassives.lua` no longer lists; the client table's other 241 addition rows belong to the abyss jewels and are out of scope here.
+Generated from the target client's `AlternatePassiveSkills`, `AlternatePassiveAdditions` and `Mods`, with names and effect text from Path of Building's `LegionPassives.lua` and `stat_descriptions.lua`. `works` means every stat has a server consumer and is unconditional; `partial` means a condition is not modelled or some stats are unread; `inert` means no stat has a consumer. Keystone rows are applied as stats, but their special gameplay mechanics are separate. The additions section covers all 96 rows for the six timeless factions, including the four that Path of Building's `LegionPassives.lua` no longer lists; the client table's other 241 addition rows belong to the abyss jewels and are out of scope here.
 
 See [timeless-jewels](timeless-jewels.md) for the item, seed/conqueror and radius rules.
 

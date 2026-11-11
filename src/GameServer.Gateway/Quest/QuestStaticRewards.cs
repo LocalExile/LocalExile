@@ -48,22 +48,19 @@ public sealed class QuestStaticRewards
     public static QuestStaticRewards Load(string folder = "data")
     {
         var result = new QuestStaticRewards();
-        string table = Path.Combine(folder, "tables", "QuestStaticRewards.json"), flagsFile = Path.Combine(folder, "tables", "QuestFlags.json"),
-            statsFile = Path.Combine(folder, "tables", "Stats.json");
-        if (!ClientTables.Exists(table) || !ClientTables.Exists(flagsFile)) return result;
+        if (!ClientTables.Has("QuestStaticRewards") || !ClientTables.Has("QuestFlags")) return result;
         string[] flags, stats = [];
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(flagsFile)))
-            flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
-        if (ClientTables.Exists(statsFile))
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(statsFile)))
-                stats = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Id").GetString() ?? "")];
-        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes(table));
-        foreach (var r in rows.RootElement.EnumerateArray())
+        flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
+        if (ClientTables.Has("Stats"))
         {
-            if (r.GetProperty("QuestFlag") is not { ValueKind: JsonValueKind.Number } fv || fv.GetInt32() is not (>= 0 and var f) || f >= flags.Length) continue;
-            int Int(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
-            var keys = r.TryGetProperty("StatsKeys", out var sk) ? sk.EnumerateArray().Select(k => k.GetInt32()).ToArray() : [];
-            var values = r.TryGetProperty("StatValues", out var sv) ? sv.EnumerateArray().Select(k => k.GetInt32()).ToArray() : [];
+            stats = [.. ClientTables.Table("Stats").Select(s => s.Text("Id") ?? "")];
+        }
+        foreach (var r in ClientTables.Table("QuestStaticRewards"))
+        {
+            if (r.IntOrNull("QuestFlag") is not int fv || fv is not (>= 0 and var f) || f >= flags.Length) continue;
+            int Int(string name) => (r.IntOrNull(name) ?? 0);
+            var keys = r.Ints("StatsKeys");
+            var values = r.Ints("StatValues");
             var statList = keys.Zip(values).Where(p => p.First >= 0 && p.First < stats.Length).Select(p => (stats[p.First], p.Second)).ToList();
             result.byFlag[flags[f]] = new(flags[f], Int("__col1"), Int("__col5"), Int("__col7"), statList);
         }

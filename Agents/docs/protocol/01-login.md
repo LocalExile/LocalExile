@@ -42,7 +42,7 @@ Our side: `LoginGroups.cs`, `LoginKeys.cs` (keygen, image patching), `LoginHands
 `LoginCrypto.cs` (`ConnectionCiphers`, `LoginKdf`), `Salsa20.cs`.
 
 **The same cipher construction is reused by the instance connection**, with the 64 key bytes from 0x14 in place of
-`km` (see [02](02-instance-connection.md#4-switching-to-encryption-s→c-0x11)).
+`km` (see [02](02-instance-connection.md#4-switching-to-encryption-sc-0x11)).
 
 ## 3. Framing and field encodings
 
@@ -196,7 +196,7 @@ new character up by name in the character list and sends **Play (0x0e) with its 
 
 **Delete (C→S 0x0c)**: the server removes the character (name matched case-insensitively) and answers with the new
 0x15 list, then 0x0d result 0; an unknown name gets 0x0d 16 (BackendErrors row 15 + 1, CharacterDoesNotExist). Auth
-moves the character's save to the `deleted_characters` table of `data/characters.db` ([saves](../saves.md)), so a new character
+sets the character's save aside in `data/characters.db` (`character_saves.deleted_utc`, [saves](../saves.md)), so a new character
 with the same name starts with its class's kit, and the Gateway drops items it still holds in memory for a name that
 has no save any more.
 
