@@ -41,7 +41,7 @@ public static partial class Game
         return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support && g.ManuallyCast
             && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
-                || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect
+                || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
     }

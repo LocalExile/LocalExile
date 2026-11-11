@@ -114,6 +114,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             bool changed = CatAspectReconcileLocked(conn, AreaTime(conn));
+            changed |= IntimidatingCryPoolsChangedLocked(conn);
             changed |= AvianReconcileLocked(conn, AreaTime(conn));
             changed |= CrabReconcileLocked(conn, AreaTime(conn));
             SpiderReconcileOwnerLocked(conn, AreaTime(conn));

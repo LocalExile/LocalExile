@@ -14,6 +14,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public object? Owner { get; init; }
+    public bool IntimidatingCryExerted { get; init; }
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
     public Penetration.PerType Penetration { get; init; }

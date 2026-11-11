@@ -209,7 +209,7 @@ public static partial class Game
     // its life regeneration (Path of Building: power 1 normal, 2 magic, 10 rare, 20 unique). warcries_have_infinite_power
     // (Bring the Battle) makes the power 999999 (PoB CalcPerform's override): the charges reach their maximum and the
     // regeneration its 25-power cap. Every warcry then runs the on-warcry effects (WarcryReleased). The other warcries'
-    // own buffs and exerted attacks are not modelled.
+    // own buffs and exerted attacks remain separate, except Intimidating Cry (IntimidatingCry.cs).
     // True when the skill was a warcry.
     public static bool UseWarcryInstance(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect)
@@ -264,6 +264,10 @@ public static partial class Game
             }
             if (!enduring)
             {
+                if (SkillsFor(conn).EffectId(effect) == "IntimidatingCry")
+                    lock (conn.Monsters)
+                        if (conn.ProjectileActive(epoch) && conn.PlayerLife > 0)
+                            ApplyIntimidatingCryLocked(conn, own, CharacterPlayerStats(conn), now);
                 await WarcryReleased(remote, stream, ciphers, conn, here, radius, epoch);
                 return;
             }

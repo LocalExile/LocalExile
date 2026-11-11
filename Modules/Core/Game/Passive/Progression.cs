@@ -835,6 +835,8 @@ public static partial class Game
         if (CatAspectReconcileLocked(conn, AreaTime(conn), snapshot.Stats) && CatAspectRootActiveLocked(conn))
             snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
+        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
+            sources[cryMovement] = ActorScale.Saturate((long)sources.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AvianReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
         CrabReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
         foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats, includeReceived: true).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))

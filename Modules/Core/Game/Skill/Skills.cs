@@ -449,6 +449,8 @@ public static partial class Game
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
+        if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
+            extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AddGolemStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
         foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))

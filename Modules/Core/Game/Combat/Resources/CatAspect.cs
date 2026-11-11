@@ -71,6 +71,8 @@ public static partial class Game
     {
         if (conn.Reservations.CatOwner is not { } owner
             || owner.Skill != aura.SkillId || owner.RootBuff != aura.Buff) return;
+        if (conn.Reservations.Cat == ReservationState.CatPhase.Stealth)
+            QueueCatStealthLossLocked(conn, AreaTime(conn), AreaTime(conn));
         ClearCatRuntimeLocked(conn);
     }
 
@@ -137,6 +139,7 @@ public static partial class Game
         var root = CatAspectRootLocked(conn);
         if (root is null || conn.PlayerLife == 0)
         {
+            if (conn.PlayerLife == 0) ReconcileCatCrySourcesLocked(conn, now);
             bool wasActive = state.CatOwner is not null || state.Cat != ReservationState.CatPhase.None
                 || state.CatPhaseBuff != 0 || state.CatPhasing
                 || state.CatStealthGrantQualified || state.CatAgilityGrantQualified
@@ -145,6 +148,7 @@ public static partial class Game
             return wasActive;
         }
         rawSources ??= CharacterStatSources(conn).Stats;
+        ReconcileCatCrySourcesLocked(conn, now);
         var qualifiedSources = conn.StatSourcesCache;
         var owner = new ReservationState.CatAspectOwner(root.SkillId, root.Buff);
         double previousStartedAt = state.CatPhaseStartedAt;
@@ -243,6 +247,7 @@ public static partial class Game
             bool qualifiedAtEntry = wasAgilityGrantQualified && previousAgilityQualifiedSince <= entryAt + 1e-9
                 || state.CatAgilityGrantQualified && state.CatAgilityGrantQualifiedSince <= entryAt + 1e-9;
             state.CatObservedAgilityEntryAt = entryAt;
+            if (!ownerStarted) QueueCatStealthLossLocked(conn, entryAt, now);
             if (agilityGrantQualified && qualifiedAtEntry)
                 GrantCatChargesLocked(conn, entryAt, now, rawSources, [ChargeType.Frenzy, ChargeType.Endurance],
                     "Replica Farrul's Fur: gained Cat's Agility", "Cat's Agility");

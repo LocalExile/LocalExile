@@ -365,6 +365,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} attack on 0x{use.TargetId:x} out of reach: {Dist(stop, target):0.0} > {weapon.Range}");
             return;
         }
+        bool cryExerted;
+        lock (conn.Monsters) cryExerted = ConsumeIntimidatingCryExertLocked(conn, weapon.Melee && !ranged);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
         byte[][] actionRecords = [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y, target.X, target.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), InstanceProtocol.ActionEnded(PlayerId)];
         string actionLog = $"0x01ab player skill 0x{use.SkillId:x4} on monster 0x{use.TargetId:x} ({m.Label}, life {m.Life}/{m.MaxLife}), attack time {duration:0.000} s";
@@ -476,7 +478,8 @@ public static partial class Game
                 if (weapon.Melee)
                     hit = WithMeleeProximityLocked(conn, player, ownPenetration, m, hit, contactAt);
                 var gambler = GamblerFor(player);
-                var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared));
+                var ownRolled = GameEvents.WithOutgoingDamage(conn, player, m,
+                    WithIntimidatingCryExert(gambler with { DamageMorePct = 0 }, cryExerted).RollOutgoingHit(hit, Random.Shared));
                 critical = RollCriticalStrike(conn, CriticalChanceOn(conn, targetId, conn.Pools.AttackCriticalStrikeChance,
                         AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsProfane(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
@@ -928,7 +931,7 @@ public static partial class Game
         PlacedCastAdmission? placedAdmission = null;
         lock (conn.Monsters)
         {
-            if (SkillsFor(conn).EffectId(SupportedSkill(conn, skillId).Effect) == TwisterEffect) return false;
+            if (SkillsFor(conn).EffectId(SupportedSkill(conn, skillId).Effect) is TwisterEffect or CatStealthCryEffect) return false;
             if (actionToken is not null && (conn.ActionCount != action || conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) == 0 || conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))) return false;
             if (!TryCapturePlacedCastAdmissionLocked(conn, skillId, out placedAdmission)) return false;
         }
@@ -1551,11 +1554,14 @@ public static partial class Game
         if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
         // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
+        bool cryExerted;
+        lock (conn.Monsters) cryExerted = ConsumeIntimidatingCryExertLocked(conn,
+            channelGeneration is null && IntimidatingCryCanExert(conn, skillId, gem.Effect));
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt, prepaidRawExtra);
+                sequence, swingAt, prepaidRawExtra, cryExerted);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
@@ -1642,7 +1648,8 @@ public static partial class Game
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: prepaidRawExtra,
-                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
+                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge,
+                cryExerted: cryExerted));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -1817,10 +1824,10 @@ public static partial class Game
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
         double radiusMore = 1, long addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null,
-        DischargeUse? discharge = null, long baseChaos = 0) =>
+        DischargeUse? discharge = null, long baseChaos = 0, bool? cryExerted = null) =>
         AreaSkillHitStrike(remote, stream, ciphers, conn, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
-            repeatDelay, radiusMore, addedChaos, swingAt, triggeredCurrent, discharge, baseChaos, 0, null, null, null);
+            repeatDelay, radiusMore, addedChaos, swingAt, triggeredCurrent, discharge, baseChaos, 0, null, null, null, cryExerted);
 
     private static async Task AreaSkillHitStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -1828,7 +1835,7 @@ public static partial class Game
         double damageMore, uint excludeMonster, SkillCriticalRoll? criticalRoll, int? channelGeneration,
         uint targetId, int repeat, int? radiusOverride, ISet<uint>? once, double repeatDelay,
         double radiusMore, long addedChaos, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
-        long baseChaos, int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets)
+        long baseChaos, int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, bool? cryExerted)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1855,6 +1862,9 @@ public static partial class Game
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit) return;
+        lock (conn.Monsters) cryExerted ??= ConsumeIntimidatingCryExertLocked(conn,
+            !immediate && triggeredCurrent is null && repeat == 0 && channelGeneration is null
+                && IntimidatingCryCanExert(conn, skillId, gem.Effect));
         // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
         if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(conn));
         if (discharge is not null && discharge.Total == 0)
@@ -2132,8 +2142,8 @@ public static partial class Game
                     }
                     var gambler = GamblerFor(player);
                     var rolled = WithConditionalSupportDamageLocked(conn, skillStats, !spell, m,
-                        GameEvents.WithOutgoingDamage(conn, player, m, (gambler with { DamageMorePct = 0 })
-                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect))
+                        GameEvents.WithOutgoingDamage(conn, player, m, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
+                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(conn, skillId, gem.Effect)), cryExerted == true)
                             .RollOutgoingHit(contactHit, Random.Shared)),
                         ProjectileWorldTime(conn));
                     // Hallow: an attack against an enemy affected by Hallowing Flame gains its share of physical damage as
@@ -2270,7 +2280,8 @@ public static partial class Game
                 excludeMonster: excludeMonster, criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId,
                 repeat: repeat, radiusOverride: radiusOverride, once: null, repeatDelay: repeatDelay, radiusMore: radiusMore,
                 addedChaos: addedChaos, swingAt: null, triggeredCurrent: triggeredCurrent, discharge: discharge,
-                baseChaos: baseChaos, strikeIndex: 1, firstContactAt: next, ruthlessMore: ruthlessMore, priorTargets: alreadyHit);
+                baseChaos: baseChaos, strikeIndex: 1, firstContactAt: next, ruthlessMore: ruthlessMore, priorTargets: alreadyHit,
+                cryExerted: cryExerted);
         }
     }
 

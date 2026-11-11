@@ -79,7 +79,7 @@ public static partial class Game
     public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0, double? swingAt = null, long prepaidRawExtra = 0)
+        ushort sequence = 0, double? swingAt = null, long prepaidRawExtra = 0, bool cryExerted = false)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -117,7 +117,7 @@ public static partial class Game
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
                     CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                        prepaidRawExtra),
+                        prepaidRawExtra, cryExerted: cryExerted),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -233,7 +233,7 @@ public static partial class Game
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
-        long prepaidRawExtra = 0, TotemState.Totem? totem = null)
+        long prepaidRawExtra = 0, TotemState.Totem? totem = null, bool cryExerted = false)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -391,6 +391,7 @@ public static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
+        shot = shot with { IntimidatingCryExerted = cryExerted };
         if (totem is not null)
         {
             double totemMore = Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d);
