@@ -2448,6 +2448,7 @@ public sealed partial class ReservationCurseSummonTests
             }
             await CatCoreFixture();
             await AvianAspectFixture(conn, lifetime);
+            await AvianSharingFixture(conn, lifetime);
             await CrabAspectFixture(conn, lifetime);
             await SelfVulnerabilityFixture(conn, lifetime);
             await MadnessFixture(conn, lifetime);

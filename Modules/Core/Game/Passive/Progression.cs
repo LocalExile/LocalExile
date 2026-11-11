@@ -809,7 +809,7 @@ static partial class Game
         var sources = new Dictionary<uint, int>(snapshot.Stats);
         AvianReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
         CrabReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
-        foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))
+        foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats, includeReceived: true).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))
             sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         conn.Reservations.CrabPoolsDirty = false;
         AddGolemStats(conn, sources);

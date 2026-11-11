@@ -40,7 +40,7 @@ static partial class Game
         return [.. packets];
     }
 
-    static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
+    internal static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
     {
         var here = minion.Monster?.Walk.Position(AreaTime(conn)) ?? conn.Walk.Position(AreaTime(conn));
         var owner = conn.Walk.Position(AreaTime(conn));
@@ -48,7 +48,8 @@ static partial class Game
         var own = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Auras.Values
             .Where(a => AuraCatalog.Shared(a.EffectId) && Dist(here, owner) <= AuraRadius.Of(a, conn.Pools.AuraAreaPct, skills, Stats))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = conn.Pools.AuraEffectPct + a.SupportEffectPct });
-        var auras = own.Concat(conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Current && p.Life > 0)
+        var directAvian = SharedAvianAuras(conn).Where(a => Dist(here, owner) <= a.Radius).Select(a => a.Aura);
+        var auras = own.Concat(directAvian).Concat(conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Current && p.Life > 0)
                 .SelectMany(p => p.Auras.Where(a => Dist(here, (p.X, p.Y)) <= a.Radius)
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();

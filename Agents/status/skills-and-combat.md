@@ -1258,7 +1258,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Native checks cover Beacon stats, Touches, cooldown and cleanup; explosion geometry/art remain unverified.
   Spider applies timed webs, damage taken, Hinder, Shroud effects and webbed-hit recovery/charge rewards.
   Native checks cover four webs, recipient stats/buffs, reservation and earned expiry after source removal.
-  Spider range is a local fallback; Weave target-relative damage, Avian sharing and Twister remain open.
+  Avian shares sender-scaled phases with nearby players/minions using immutable peer snapshots.
+  Sharing stacking and cleanup have automated checks; retail ranges and multiparty visuals remain unverified.
+  Spider range is a local fallback; Weave target-relative damage and Twister remain open.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation, with pre-hit Blind damage profiles.

@@ -342,6 +342,14 @@ static class AuraCatalog
             {
                 switch (aura.EffectId)
                 {
+                    case "AvianMightShared":
+                        Add("chance_to_deal_double_damage_%"); Add("minion_chance_to_deal_double_damage_%");
+                        if (stats.Key("has_avians_might") is uint might) family[might] = 1;
+                        break;
+                    case "AvianFlightShared":
+                        Add("base_movement_velocity_+%"); Add("minion_movement_speed_+%");
+                        if (stats.Key("has_avians_flight") is uint flight) family[flight] = 1;
+                        break;
                     case "PurityOfElements":
                         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
                             if (stats.Key($"base_immune_to_{ailment}") is uint immune) family[immune] = 1;
