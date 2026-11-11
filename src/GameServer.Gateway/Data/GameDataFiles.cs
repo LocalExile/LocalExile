@@ -1,6 +1,6 @@
 using GameServer.Core;
 /// <summary>
-/// The game data the Gateway reads from data/ (extracted from Client/Content.ggpk by scripts/dev/extract-data.ps1,
+/// The game data the Gateway reads from data/ (extracted from the client in Client/ by scripts/dev/extract-data.ps1,
 /// which live.ps1 runs on every start; the client's tables and the generated ones come from client.db through
 /// ClientTables). Each feature turns itself off without its table or file; this lists the missing ones in
 /// one startup warning. Keep in step with extract-data.ps1's manifest.

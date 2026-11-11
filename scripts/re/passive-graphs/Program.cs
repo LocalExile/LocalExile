@@ -1,5 +1,5 @@
 // Read-only analysis of the exact target client's ordinary/Phrecia topology, never a different patch's web export.
-// dotnet run --project scripts/re/passive-graphs -- Client/Content.ggpk data/passive-skill-graphs.json
+// dotnet run --project scripts/re/passive-graphs -- Client data/passive-skill-graphs.json
 using System.Security.Cryptography;
 using System.Text.Json;
 using GameServer.Data;
@@ -13,7 +13,7 @@ const string CombinedHash = "F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A4
 const string Artifact = "phrecia-passive-skillgraph.psg";
 
 if (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal))
-    throw new ArgumentException("Usage: passive-graphs <Content.ggpk> data/passive-skill-graphs.json (read-only graph analysis; no client installation)");
+    throw new ArgumentException("Usage: passive-graphs <client folder or Content.ggpk> data/passive-skill-graphs.json (read-only graph analysis; no client installation)");
 string ggpkPath = Path.GetFullPath(args[0]);
 string target = Path.GetFullPath(args[1]);
 if (!string.Equals(target, Path.GetFullPath("data/passive-skill-graphs.json"), StringComparison.OrdinalIgnoreCase))

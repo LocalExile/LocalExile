@@ -9,7 +9,7 @@ servers need is generated locally from it.
 
 ## How to play?
 Download the zip from [Releases](https://github.com/LocalExile/LocalExile/releases), extract it, and run `LocalExile.exe`.
-You need your own standalone Path of Exile 3.29.3c client, and nothing else to install.
+You need your own Path of Exile 3.29.3c client (standalone, or Steam's 3.29.3c), and nothing else to install.
 Always start the game with `LocalExile.exe`: any other way can update the client, which breaks the setup.
 
 Prefer a launcher? [Waypoint](https://github.com/LocalExile/Waypoint) is a Windows workspace manager for LocalExile:
