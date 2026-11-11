@@ -19,7 +19,12 @@ public static partial class Game
         bool changed = false;
         foreach (var (key, old) in conn.ReceivedAuras.ToArray())
         {
-            if (desired.TryGetValue(key, out var next) && next with { Buff = old.Buff } == old) continue;
+            // Peer snapshots can recreate the stat array without changing the received effect.
+            if (desired.TryGetValue(key, out var next)
+                && next with { Buff = old.Buff, SkillStats = old.SkillStats } == old
+                && (ReferenceEquals(next.SkillStats, old.SkillStats)
+                    || next.SkillStats is { } stats && old.SkillStats is { } oldStats && stats.SequenceEqual(oldStats)))
+                continue;
             packets.Add(InstanceEntities.RemoveBuff(PlayerId, old.Buff));
             conn.ReceivedAuras.Remove(key); changed = true;
         }

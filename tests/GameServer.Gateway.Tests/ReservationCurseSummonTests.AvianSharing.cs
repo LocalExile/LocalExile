@@ -64,10 +64,13 @@ public sealed partial class ReservationCurseSummonTests
                 Assert.True(await Game.ToggleAura("avian-sharing", wire.Stream, wire.Ciphers, c, skill.Id, skill.Effect,
                     skill.Name, Game.SupportedReservationCost(c, skill.Id)!.Value, skill.Level, skill.Quality));
             }
-            void Publish(int x = 100)
+            void Publish(int x = 100, int? magnitude = null)
             {
                 var auras = Game.SharedAvianAuras(source);
                 Assert.Single(auras);
+                if (magnitude is int value)
+                    auras = [.. auras.Select(a => a with { Aura = a.Aura with
+                        { SkillStats = [.. a.Aura.SkillStats!.Select(s => (s.Key, value))] } })];
                 instance.PublishPlayer(new(source.PeerId, 0, null!, x, 100, source.PlayerLife, source) { Auras = auras });
                 // Another equal sender cannot stack the same received family a second time.
                 instance.PublishPlayer(new(source.PeerId + 1000, 0, null!, x, 100, source.PlayerLife, source) { Auras = auras });
@@ -85,6 +88,15 @@ public sealed partial class ReservationCurseSummonTests
             Publish();
             Assert.Single(receiver.Twister.Pending);
             receiver.Twister.Pending.Clear();
+            var receivedBuffs = receiver.ReceivedAuras.ToDictionary(p => p.Key, p => p.Value.Buff);
+            Publish();
+            Assert.Empty(receiver.Twister.Pending);
+            Assert.All(receiver.ReceivedAuras, p => Assert.Equal(receivedBuffs[p.Key], p.Value.Buff));
+            // A changed sender profile replaces the buff, but is not another phase gain.
+            Publish(magnitude: 25);
+            Assert.Equal(25, Stat(receiver, "chance_to_deal_double_damage_%"));
+            Assert.All(receiver.ReceivedAuras, p => Assert.NotEqual(receivedBuffs[p.Key], p.Value.Buff));
+            Assert.Empty(receiver.Twister.Pending);
             Publish();
             Assert.Empty(receiver.Twister.Pending);
             Assert.Equal(20, Stat(source, "chance_to_deal_double_damage_%"));
