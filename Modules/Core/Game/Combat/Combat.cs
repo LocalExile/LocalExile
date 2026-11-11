@@ -1850,9 +1850,10 @@ public static partial class Game
             && SpendDischargedCharges(remote, conn, gem.Name, gem.Gem, discharge, Stat("discharge_chance_not_to_consume_charges_%"), targets.Count)
             && immediate && spell)
             await ShowTriggeredDischarge(remote, stream, ciphers, conn, gem.Gem, discharge, centre, radius);
-        // Holy Sweep's hammers fall on enemies this sweep struck; Hammerfalls' waves fall around where it swung.
+        // Holy Sweep's hammers fall on enemies this sweep struck; Hammerfalls' waves fall around the player's cell, as
+        // the client centres them (its controller's +0x35c is the owner's cell).
         if (hammer is null && !spell && HolySweepHammers.For(Stat) is { } hammers)
-            _ = RunHolyHammers(remote, stream, ciphers, conn, skillId, gem, hammers, skillStats, centre, radius,
+            _ = RunHolyHammers(remote, stream, ciphers, conn, skillId, gem, hammers, skillStats, from, to, radius,
                 hammerTargets, damageMore, sequence, repeat);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
@@ -1880,14 +1881,16 @@ public static partial class Game
 
     // Holy Sweep's hammers (HolySweepHammers): each falls on its point and slams FallSeconds later, an AreaSkillHit of
     // its own around that point (the secondary radius, grown by area of effect) for the sweep's hit with the hammers'
-    // less damage. Holy Sweep's land on up to holy_sweep_number_of_holy_bolts_to_create enemies the sweep struck, at
-    // random, once each; Hammerfalls' waves fall on the monsters around where it swung (HolySweepHammers.Wave), one
-    // wave every rate while its duration lasts. They outlive the swing (a later action does not stop them); a death, an area change or a closed
-    // connection does. The hammer hits send no 0x1af: the client draws a hammer for each of the sweep's own 0x1af hits
-    // (23-microtransactions.md), and its own pick of struck enemies is not known, so it may draw them elsewhere.
+    // less damage. Holy Sweep's land on up to holy_sweep_number_of_holy_bolts_to_create enemies the sweep struck, once
+    // each; Hammerfalls' waves fall on the monsters around where it swung (HolySweepHammers.Wave), one wave every rate
+    // (faster with the main hand's attack speed) while its duration lasts. Both draw as the client draws its hammers, from
+    // the use's sequence, in the client's grid order (ClientEntityGrid). They outlive the swing (a later action does not
+    // stop them); a death, an area change or a closed connection does. The hammer hits send no 0x1af: the client draws
+    // its own hammers (11-skills.md §9a). Its Holy Sweep candidates are the enemies its own hit roll accepted, which can
+    // differ from the server's struck ones.
     static async Task RunHolyHammers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, HolySweepHammers.Settings hammers,
-        IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) centre, int sweepRadius,
+        IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) centre, (int X, int Y) facing, int sweepRadius,
         List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat)
     {
         try
@@ -1900,7 +1903,10 @@ public static partial class Game
             var waves = new List<(double At, List<(int X, int Y)> Points)>();
             if (!hammers.Hammerfall)
             {
-                var picked = HolySweepHammers.Pick(struck, hammers.Count, Random.Shared);
+                List<(uint Id, (int X, int Y) At)> ordered;
+                lock (conn.Monsters) ordered = ClientEntityGrid.Ordered(conn, struck, s => s.Id, s => s.At);
+                var picked = HolySweepHammers.Pick(ordered, hammers.Count, sequence, PlayerId,
+                    s => HolySweepHammers.SweepAngle(centre, facing, s.At));
                 if (picked.Count == 0) return;
                 waves.Add((HolySweepHammers.FallSeconds, [.. picked.Select(p => p.At)]));
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {picked.Count} holy hammer(s) of "
@@ -1911,26 +1917,32 @@ public static partial class Game
             {
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
                 double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
-                var times = HolySweepHammers.WaveTimes(hammers.RateSeconds, duration);
+                // The rate the client's controller holds (the combined_main_hand_attack_speed_+% the skill's stats carry).
+                int attackSpeed = SupportedMainHandAttackSpeedPct(conn, skillId);
+                double every = HolySweepHammers.WaveSeconds(hammers.RateSeconds, attackSpeed);
+                var times = HolySweepHammers.WaveTimes(every, duration);
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammerfall at ({centre.X}, {centre.Y}) "
                     + $"within {sweepRadius} cells for {duration:0.##} s, {times.Count} wave(s) of {hammers.Count} every "
-                    + $"{hammers.RateSeconds:0.##} s, {radius} cells each, {hammers.More:0.##}x damage");
+                    + $"{every:0.###} s ({attackSpeed}% attack speed), {radius} cells each, {hammers.More:0.##}x damage");
                 // Each wave picks its hammers among the monsters there at that moment (HolySweepHammers.Wave), and they
                 // hit HammerfallHitSeconds later where they fell.
                 var taken = new Dictionary<uint, int>();
                 bool Walkable(int x, int y) => conn.Layout.Walkable is not { } floor || floor(x, y) && !conn.Barrier.Contains((x, y));
-                foreach (double at in times)
+                for (int index = 0; index < times.Count; index++)
                 {
+                    double at = times[index];
                     if (!await WaitProjectileTime(conn, start + at, epoch)) return;
-                    var monsters = new List<(uint, (int, int), int)>();
+                    List<(uint Id, (int X, int Y) At, int Size)> monsters = [];
                     lock (conn.Monsters)
                     {
                         double now = conn.Clock.Elapsed.TotalSeconds;
                         foreach (var (id, m) in conn.Monsters)
                             if (m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null)
                                 monsters.Add((id, m.Walk.Position(now), Math.Clamp((m.Variety?.ObjectSize ?? 1) - 1, -1, 127)));
+                        monsters = ClientEntityGrid.Ordered(conn, monsters, m => m.Id, m => m.At);
                     }
-                    var wave = HolySweepHammers.Wave(monsters, taken, centre, sweepRadius, hammers.Count, Walkable, Random.Shared);
+                    var wave = HolySweepHammers.Wave(monsters, taken, centre, sweepRadius, hammers.Count, Walkable,
+                        sequence, PlayerId, index);
                     Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammer wave at {at:0.##} s: "
                         + string.Join(", ", wave.Select(h => h.Id is uint id ? $"0x{id:x}" : $"({h.At.X}, {h.At.Y})")));
                     if (!await WaitProjectileTime(conn, start + at + HolySweepHammers.HammerfallHitSeconds, epoch)) return;

@@ -248,7 +248,15 @@ public static partial class Game
         SupportedAttackSecondsFor(conn, skillId, offHand);
 
     public static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick = true, bool proxy = false)
+        bool clampToTick = true, bool proxy = false) => SupportedAttackTiming(conn, skillId, offHand, clampToTick, proxy).Seconds;
+
+    /// <summary>The supported attack's main-hand increased attack speed, the increase its swing time divides by before
+    /// any more multiplier: what the client reads as the skill's <c>combined_main_hand_attack_speed_+%</c>.</summary>
+    public static int SupportedMainHandAttackSpeedPct(ClientState conn, ushort skillId) =>
+        SupportedAttackTiming(conn, skillId, null, clampToTick: true, proxy: false).Increased;
+
+    static (double Seconds, int Increased) SupportedAttackTiming(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
+        bool clampToTick, bool proxy)
     {
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -303,7 +311,7 @@ public static partial class Game
         // Preserve the weapon timing's existing minimum, but compose MORE through the native integer final percent.
         double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
             / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / (proxy ? 1 : PlayerActionFactor(conn));
-        return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
+        return (clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced), baseSpeed);
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)

@@ -15,14 +15,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Sweep's area: its swings (ActionTypes Sweep, SweepAltX) hit around the player, where the client draws them,
   instead of around the aimed monster (live 2026-11-08); other melee area attacks still land on the target.
   Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Holy Sweep's hammers (live 2026-11-09: drawn and hitting): up to `holy_sweep_number_of_holy_bolts_to_create` struck
-  enemies get one each; Hammerfalls' waves of 3 every 700 ms fall on the monsters around the swing, fewest-hit first.
-  Each hits its secondary area (12 cells, with area) for 35% (Hammerfalls 50%) less; Holy Sweep's cannot be evaded.
-  The skills send their final secondary radius, which the hammers' art scales to (at 0 they were never seen).
-  The client draws from its own draws, so a drawn hammer may fall on another monster than the one hit, and some
-  hits land early, late or outside the drawn hammers (live 2026-11-09). The waves do not follow attack speed yet: the
-  client reads `combined_main_hand_attack_speed_+%`, which the server does not send.
-  Code: `HolySweepHammers.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Holy Sweep's hammers (live 2026-11-09: drawn and hitting; 2026-11-11: the client's draws, replayed exactly):
+  both variants pick and place their hammers as the client does, with its seeds and its grid order, so the server's
+  hammers fall where the client draws them. Hammerfalls' waves follow the main hand's attack speed (the skill sends
+  `combined_main_hand_attack_speed_+%`). Each hits its secondary area (12 cells, with area) for 35% (Hammerfalls 50%)
+  less; Holy Sweep's cannot be evaded. Partial: Holy Sweep's candidates are the server's landed hits, where the client
+  uses its own hit roll (the target attack entropy is not synchronised), and its hammers all fall at contact.
+  Code: `HolySweepHammers.cs`, `ClientEntityGrid.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Flicker Strike (live 2026-11-09): the server teleports the player (S→C 0x1b7), which the client's action never does,
   to the clicked monster in range or else the one nearest the aim; with none in range it strikes in place.
   Its 10% attack speed per Frenzy Charge counts, and each use gives its buff (20% movement speed for the skill's 3 s).
