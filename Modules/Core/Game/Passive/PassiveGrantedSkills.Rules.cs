@@ -17,7 +17,7 @@ public static partial class Game
     {
         if (Stats.Key(trigger) is not uint key) return [];
         var passives = PassivesFor(conn);
-        return (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For([.. conn.Passives, .. conn.MainAscendancy.Allocated])
+        return (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(PassiveEffectNodes(conn))
             .Where(g => passives.Find(g.Node)?.Stats.Any(s => s.Key == key && s.Value != 0) == true);
     }
 
@@ -28,7 +28,7 @@ public static partial class Game
     static IReadOnlyList<PassiveGrantedSkills.Grant> GrantedSkillsOf(ClientState conn)
     {
         ushort[] nodes;
-        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        lock (conn.Monsters) nodes = PassiveEffectNodes(conn);
         return [.. (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes)
             .Where(g => AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId)))];
@@ -45,7 +45,7 @@ public static partial class Game
     static (PassiveGrantedSkills.Grant Grant, int AllyRadius)? RelicTriggerOf(ClientState conn)
     {
         ushort[] nodes;
-        lock (conn.Monsters) nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+        lock (conn.Monsters) nodes = PassiveEffectNodes(conn);
         uint? enables = Stats.Key("can_trigger_summon_elemental_relic_on_nearby_ally_kill_or_on_hit_rare_or_unique");
         if (PassiveBuffAuras.AllyAurasFor(nodes, LeagueFor(conn).HardMode).FirstOrDefault(a => a.Stats.Any(s => s.Key == enables && s.Value != 0))
             is not { } buff) return null;
@@ -147,11 +147,11 @@ public static partial class Game
     // Fury).
     public static IReadOnlyList<PassiveGrantedSkills.Grant> FootstepSkills(ClientState conn, double now)
     {
-        List<ushort> nodes;
+        ushort[] nodes;
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || PlayerActionBlocked(conn, now, now)) return [];
-            nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+            nodes = PassiveEffectNodes(conn);
         }
         var skills = (LeagueFor(conn).HardMode ? RuthlessGrantedSkills : GrantedSkills).Value.For(nodes).Where(s => PassiveGrantedSkills.IsFootstepSkill(s.EffectId)).ToList();
         if (skills.Count == 0 || InTown(conn) || InGracePeriod(conn)) return [];
@@ -192,7 +192,7 @@ public static partial class Game
             && ReferenceEquals(AscendancyPolicies.SourceOwner(conn), source);
         lock (conn.Monsters)
             if (!CurrentSource() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-                || !conn.Passives.Contains(skill.Node) && !conn.MainAscendancy.Allocated.Contains(skill.Node)) return;
+                || !PassiveEffectNodes(conn).Contains(skill.Node)) return;
         var own = SkillsFor(conn).EffectStats(skill.Effect, skill.Level).ToDictionary(v => v.Item1, v => v.Item2);
         var area = MergeSkillStats(AreaPlayerStats(conn), own);
         int radius = SkillArea.Radius(PassiveGrantedSkills.FootstepExplosionRadius,

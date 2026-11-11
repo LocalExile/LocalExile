@@ -50,7 +50,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return;
-            nodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+            nodes = PassiveEffectNodes(conn);
         }
         // Outside the lock: the first call loads the aura table from PassiveSkills.
         var all = PassiveBuffAuras.EnemyAurasFor(nodes, LeagueFor(conn).HardMode, EnemyAuraActs);
@@ -60,7 +60,7 @@ public static partial class Game
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
                 now = AreaTime(conn);
-                ushort[] currentNodes = [.. conn.Passives, .. conn.MainAscendancy.Allocated];
+                ushort[] currentNodes = PassiveEffectNodes(conn);
                 var current = nodes.SequenceEqual(currentNodes) ? all
                     : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(conn).HardMode, EnemyAuraActs);
                 var auras = current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
