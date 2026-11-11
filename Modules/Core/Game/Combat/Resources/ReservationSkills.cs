@@ -231,6 +231,7 @@ static partial class Game
         var skill = SupportedSkill(conn, aura.SkillId);
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(skill.Stats, n) + GolemStat(player, n);
+        if (DamageStats.Prohibited(DamageType.Fire, Get)) return;
         // Overkill is already final hit damage. Only burning/DoT (including typed DoT multipliers) scales this burn.
         double dps = overkill * ReservationStat(conn, aura, "herald_of_ash_burning_%_overkill_damage_per_minute") / 6000.0
             * Math.Max(0, 1 + (Get("burn_damage_+%") + Get("damage_over_time_+%")) / 100.0)

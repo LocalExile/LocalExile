@@ -5749,6 +5749,77 @@ public sealed class ReservationCurseSummonTests
                         tempestConn.Placed.Grounds.Clear();
                     }
 
+
+                    // Herald of Ash's overkill burn is non-ailment damage. Its queued overkill amount is controlled,
+                    // while the equipped source, aura admission and actual strongest-burn consumer are real.
+                    var ashGem = Gem("Herald of Ash", 1);
+                    Assert.NotNull(inventory.Change(PlayerInventories.Weapon1, swordPlacement.Id,
+                        item => item with { Sockets = [new(SocketColour.White, ashGem)], Links = [] }));
+                    Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                    var ashSource = Assert.Single(Game.GemSkillEffects(tempestConn), g => g.Name == "Herald of Ash");
+                    var ashSupported = Game.SupportedSkill(tempestConn, ashSource.Id);
+                    Assert.True(ashSupported.RequirementsMet);
+                    var ashCost = Game.SupportedReservationCost(tempestConn, ashSource.Id);
+                    Assert.NotNull(ashCost);
+                    tempestConn.PlayerMana = tempestConn.Pools.Mana;
+                    Assert.True(await Game.ToggleAura("ash-boundary", tempestWire.Stream, tempestWire.Ciphers,
+                        tempestConn, ashSource.Id, ashSource.Effect, ashSource.Name, ashCost.Value,
+                        ashSupported.Level, ashSupported.Quality));
+                    Assert.True(tempestConn.Auras.TryGetValue(ashSource.Id, out var ashAura));
+                    Assert.Equal("HeraldOfAsh", ashAura!.EffectId);
+                    SetStat("damage_+%", 700);
+                    SetStat("fire_damage_+%", 800);
+                    SetStat("elemental_damage_+%", 900);
+                    SetStat("burn_damage_+%", 50);
+                    SetStat("damage_over_time_+%", 100);
+                    SetStat("global_chance_to_blind_on_hit_%", 100);
+                    const uint overkill = 1_000;
+                    int AshOwn(string n) => ashSupported.Stats.GetValueOrDefault(Program.Stats.Key(n)!.Value);
+                    double expectedAsh = overkill * AshOwn("herald_of_ash_burning_%_overkill_damage_per_minute") / 6000d
+                        * 2.5 * (1 + AshOwn("herald_of_ash_burning_damage_+%_final") / 100d);
+                    Assert.True(expectedAsh > 0);
+                    async Task<SpawnedMonster> AshProc(uint id, bool preBlind)
+                    {
+                        tempestConn.Monsters.Clear();
+                        var target = Target(id, "ash-non-ailment-boundary");
+                        double at = Game.ResourceEffectsTime(tempestConn);
+                        if (preBlind) Assert.True(Game.InflictMonsterBlind(tempestConn, id, target, at,
+                            (100, 0, 20), new Random(1)));
+                        Assert.Empty(tempestConn.Reservations.Procs);
+                        tempestConn.Reservations.Procs.Enqueue(new(ashSource.Id, targetAt, overkill));
+                        await Game.ReservationSkillsTick("ash-controlled-overkill", tempestWire.Stream,
+                            tempestWire.Ciphers, tempestConn, at);
+                        Assert.Empty(tempestConn.Reservations.Procs);
+                        Assert.Equal(1_000_000u, target.Life);
+                        Assert.False(target.Ignites.Burning);
+                        Assert.False(target.Poisons.Poisoned);
+                        Assert.Equal(preBlind, Game.Blinded(tempestConn, id));
+                        return target;
+                    }
+                    double ashAt = Game.ResourceEffectsTime(tempestConn);
+                    var ashPlain = await AshProc(0xC47B00, false);
+                    var ashBlind = await AshProc(0xC47B01, true);
+                    Assert.Equal(expectedAsh, ashPlain.HeraldBurns.PerSecond(ashAt), 9);
+                    Assert.Equal(expectedAsh, ashBlind.HeraldBurns.PerSecond(ashAt), 9);
+                    Assert.Equal(ashAt + 4, ashBlind.HeraldBurns.Until, 9);
+                    SetStat("never_damaging_ailments", 1);
+                    var notAnAilment = await AshProc(0xC47B02, true);
+                    Assert.Equal(expectedAsh, notAnAilment.HeraldBurns.PerSecond(ashAt), 9);
+                    SetStat("never_damaging_ailments", 0);
+                    SetStat("base_deal_no_damage", 1);
+                    var ashForbidden = await AshProc(0xC47B03, true);
+                    Console.WriteLine($"#504 actual Ash non-ailment consumer overkill={overkill} normal={expectedAsh} "
+                        + $"plain={ashPlain.HeraldBurns.PerSecond(ashAt)} blind={ashBlind.HeraldBurns.PerSecond(ashAt)} "
+                        + $"neverAilments={notAnAilment.HeraldBurns.PerSecond(ashAt)} prohibited={ashForbidden.HeraldBurns.PerSecond(ashAt)}");
+                    Assert.False(ashForbidden.HeraldBurns.Burning);
+                    SetStat("base_deal_no_damage", 0);
+                    SetStat("base_deal_no_fire_damage", 1);
+                    var ashFireForbidden = await AshProc(0xC47B04, true);
+                    Assert.False(ashFireForbidden.HeraldBurns.Burning);
+                    SetStat("base_deal_no_fire_damage", 0);
+                    Assert.Equal(expectedAsh, ashBlind.HeraldBurns.PerSecond(ashAt), 9);
+                    Assert.Equal(ashAt + 4, ashBlind.HeraldBurns.Until, 9);
+
                     _ = prohibitionKey;
                 }
                 finally
