@@ -115,7 +115,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Legs = legs(index); p.LegStart = position;
             p.ExpiresAt = Now + Time(p.Legs.Lifetime);
             // The first leg aims where the volley put this projectile's aim point, at the use's aim distance.
-            StartLeg(p, p.Legs.First(position, position + direction * (use.Aim - use.Origin).Length), publish: false);
+            var legAim = p.Legs.EndsAfterLegs && (use.Aim - use.Origin).Length <= 1e-6
+                ? position + direction
+                : position + direction * (use.Aim - use.Origin).Length;
+            StartLeg(p, p.Legs.First(position, legAim), publish: false);
+        }
+        else if (split && continuing is { } cont && p.Profile.Legs is not null && cont.Legs?.Continue(direction) is { } continuedLegs)
+        {
+            p.Legs = continuedLegs; p.LegStart = position;
+            StartLeg(p, continuedLegs.First(position, position + direction * p.Profile.Range), publish: false);
         }
         Publish(ProjectileEventKind.Spawn, p);
         StartStages(p);
@@ -137,10 +145,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             long horizon = Math.Min(until, (Now / TickQuanta + 1) * TickQuanta);
             if (scheduled.TryPeek(out _, out var next)) horizon = Math.Min(horizon, next.At);
             var actors = world.Actors(Now, horizon);
+            // Every projectile used to sort the same actors and evaluate their walks repeatedly.
+            // This snapshot lasts only until the next contact/scheduled callback: deaths, new actors
+            // and motion changes from a hit are read again on the very next simulation iteration.
+            var motion = actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation)
+                .Select(a => new ActorMotion(a, a.Position(Now), a.Position(horizon))).ToArray();
             Contact? first = null;
             foreach (var p in projectiles.Values)
             {
-                var candidate = NextContact(p, horizon, actors);
+                var candidate = NextContact(p, horizon, motion);
                 if (candidate is { } c && (first is null || c.CompareTo(first.Value) < 0)) first = c;
             }
             // The upper bound is inclusive: another flight may have a contact at the same instant.
@@ -176,7 +189,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
     }
 
-    Contact? NextContact(ProjectileEntity p, long horizon, IReadOnlyList<ProjectileActor> actors)
+    readonly record struct ActorMotion(ProjectileActor Actor, ProjectileVector From, ProjectileVector To);
+
+    Contact? NextContact(ProjectileEntity p, long horizon, IReadOnlyList<ActorMotion> motion)
     {
         if (p.WaitUntil > Now)
             return p.ExpiresAt <= horizon ? new(p.ExpiresAt, p, null, ProjectileEndReason.Lifetime, default) : null;
@@ -207,21 +222,30 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         var directRule = DirectHitRule(p);
         bool skipDenied = p.Phase == 0 ? p.Profile.SkipDeniedContacts || p.Profile.OutboundHitLimit is not null
             : p.Profile.SkipDeniedReturnContacts || p.Profile.ReturnHitLimit is not null;
-        foreach (var actor in actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
+        foreach (var sweep in motion)
         {
+            var actor = sweep.Actor;
             if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) continue;
-            // The client's contact (0x141e47ca0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
+            // The client's contact (0x141e4b3a0, 11-skills.md): Chebyshev cells against reach + the actor's size, with
             // cells centred on integers, so the square's half-width is half a cell wider.
             int? cells = p.Profile.ContactCells;
             if (cells is not null && actor.Size < 0) continue;
             double reach = cells is int c ? c + actor.Size + .5 : p.Profile.Radius + actor.Radius;
-            var gap = p.Position - actor.Position(Now);
+            var gap = p.Position - sweep.From;
             if (p.Contacts.Contains(actor.Key) && directRule.Repeat != ProjectileRepeat.Once
                 && (cells is null ? gap.Length : Math.Max(Math.Abs(gap.X), Math.Abs(gap.Y))) > reach + .001)
                 p.Contacts.Remove(actor.Key);
             if (p.Contacts.Contains(actor.Key)) continue;
-            double? t = cells is null ? ProjectileGeometry.Contact(gap, to - actor.Position(end), reach)
-                : ProjectileGeometry.SquareContact(gap, to - actor.Position(end), reach);
+            // Near expiry/range ends can precede horizon; use that exact walk position, not an
+            // interpolation across a bend in the actor's path.
+            var endPosition = end == horizon ? sweep.To : end == Now ? sweep.From : actor.Position(end);
+            var endGap = to - endPosition;
+            // A separating axis rejects distant sweeps for both round and square footprints.
+            // Keep contact-history reset above this check and leave precise/tie rules unchanged.
+            if (Math.Min(gap.X, endGap.X) > reach || Math.Max(gap.X, endGap.X) < -reach
+                || Math.Min(gap.Y, endGap.Y) > reach || Math.Max(gap.Y, endGap.Y) < -reach) continue;
+            double? t = cells is null ? ProjectileGeometry.Contact(gap, endGap, reach)
+                : ProjectileGeometry.SquareContact(gap, endGap, reach);
             if (t is not double f) continue;
             long at = Now + (long)Math.Ceiling((end - Now) * f);
             if (skipDenied && !ledger.CanHit(directRule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId,
@@ -261,14 +285,20 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             if (Continue(p, target, world.Actors(Now, Now))) return;
             End(p, ProjectileEndReason.Enemy, victim: target.Key);
         }
-        else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0)
+        else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
+            && blockedLegs.NextTurn(p.Position + c.Normal * .001, blocked: true) is { } blockedTurn)
         {
             p.Position += c.Normal * .001;
-            StartLeg(p, blockedLegs.Next(p.Position, blocked: true));
+            ApplyLegTurn(p, blockedTurn);
             p.WaitUntil = (Now / TickQuanta + 1) * TickQuanta;
         }
         else if (c.End == ProjectileEndReason.Distance && p.Legs is { } legs && p.Phase == 0 && !p.LegLeashed)
-            StartLeg(p, legs.Next(p.Position, blocked: false));
+        {
+            if (legs.NextTurn(p.Position, blocked: false) is { } turn)
+                ApplyLegTurn(p, turn);
+            else if (legs.EndsAfterLegs)
+                End(p, ProjectileEndReason.Distance);
+        }
         else if (c.End == ProjectileEndReason.Terrain)
         {
             if (AllowsTerminalArea(p) && (p.Phase == 0 || p.Profile.ContactAreaOnReturn)
@@ -290,6 +320,23 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         else End(p, c.End!.Value);
     }
 
+    void ApplyLegTurn(ProjectileEntity p, ProjectileLegTurn turn)
+    {
+        if (turn.SecondaryProfile is { } secondaryProfile)
+        {
+            var secondaryDir = turn.SecondaryDirection.Length > 0 ? turn.SecondaryDirection.Unit : p.Direction;
+            var secondaryUse = p.Use with
+            {
+                Profile = secondaryProfile,
+                Origin = p.Position,
+                Aim = p.Position + secondaryDir * secondaryProfile.Range
+            };
+            var secondary = Spawn(secondaryUse, p.UseId, p.EmissionId, p.Id, p.Position, secondaryDir, continuing: p);
+            secondary.Split = p.Split;
+        }
+        StartLeg(p, turn.Leg);
+    }
+
     void StartLeg(ProjectileEntity p, ProjectileLeg leg, bool publish = true)
     {
         var delta = leg.Target - p.Position;
@@ -308,6 +355,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     }
 
     bool CanContinue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => p.Phase == 0 && p.Profile.OutboundHitLimit is not null
+        || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
         || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
         || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors).Any()))
         || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
@@ -339,6 +387,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         // Explicit contact budgets limit actor attempts, never the remaining flight.
         if (p.Phase == 0 && profile.OutboundHitLimit is not null) return true;
         if (p.Split > 0 && !profile.CannotSplit && Split(p, actors)) return true;
+        if (p.Phase == 0 && p.Legs is { TurnsOnEnemy: true } legs && legs.NextTurn(p.Position, blocked: false) is { } turn)
+        {
+            ApplyLegTurn(p, turn);
+            return true;
+        }
         if (p.Phase > 0 && profile.PierceAllOnReturn && !profile.CannotPierce) return true;
         if (!profile.CannotPierce && p.Pierce != 0) { if (p.Pierce > 0) p.Pierce--; return true; }
         if (!profile.CannotFork && p.Fork > 0)

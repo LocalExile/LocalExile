@@ -1,22 +1,22 @@
 // Receipts retain source identities and values only, never callbacks into a replaceable Game module.
-sealed class TwisterState
+public sealed class TwisterState
 {
-    internal sealed class Source(WornGrantedSkills.Grant grant)
+    public sealed class Source(WornGrantedSkills.Grant grant)
     {
-        internal readonly WornGrantedSkills.Grant Grant = grant;
+        public readonly WornGrantedSkills.Grant Grant = grant;
     }
-    internal sealed record Gain(object Owner, int Epoch, Source Source, long Serial)
+    public sealed record Gain(object Owner, int Epoch, Source Source, long Serial)
     {
-        internal bool Consumed;
+        public bool Consumed;
     }
-    internal object? Owner;
-    internal long Serial;
-    internal ushort Sequence;
-    internal readonly Dictionary<WornGrantedSkills.Grant, Source> Sources = [];
-    internal readonly Queue<Gain> Pending = new();
+    public object? Owner;
+    public long Serial;
+    public ushort Sequence;
+    public readonly Dictionary<WornGrantedSkills.Grant, Source> Sources = [];
+    public readonly Queue<Gain> Pending = new();
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
-    internal readonly TwisterState Twister = new();
+    public readonly TwisterState Twister = new();
 }

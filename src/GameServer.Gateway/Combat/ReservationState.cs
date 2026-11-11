@@ -1,13 +1,13 @@
 // Mutable values only: reservation combat survives replacement of the Game assembly.
 // All access is under the owning connection's Monsters lock and uses area game time.
-sealed class ReservationState
+public sealed class ReservationState
 {
-    internal sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
-    internal sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
-    internal sealed record Ice((int X, int Y) At, double Until, uint? Object = null);
-    internal enum CatPhase { None, Stealth, Agility }
-    internal readonly record struct CatAspectOwner(ushort Skill, ushort RootBuff);
-    internal enum AvianPhase { None, Might, Flight }
+    public sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
+    public sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
+    public sealed record Ice((int X, int Y) At, double Until, uint? Object = null);
+    public enum CatPhase { None, Stealth, Agility }
+    public readonly record struct CatAspectOwner(ushort Skill, ushort RootBuff);
+    public enum AvianPhase { None, Might, Flight }
     public CatAspectOwner? AvianOwner;
     public AvianPhase Avian;
     public double AvianStartedAt, AvianDeadline;
@@ -49,7 +49,7 @@ sealed class ReservationState
     public long CatRevision, PresentedCatRevision;
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     public readonly ReservationState Reservations = new();
 }

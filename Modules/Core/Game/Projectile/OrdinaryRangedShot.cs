@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 /// <summary>An ordinary bow or wand's offensive inputs frozen at release. The target supplies evasion and impales
 /// at contact. Direct hit and reflected impale damage are resolved separately.</summary>
-sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int CriticalChance, int CriticalMultiplier, int ImpaleChance)
+public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int CriticalChance, int CriticalMultiplier, int ImpaleChance)
 {
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }
@@ -20,7 +20,7 @@ sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int CriticalCha
         var own = skillConversion.ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var (key, value) in own) conversion.TryAdd(key, value);
         var hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
-            DamageStats.Conversion(conversion, catalog, attack: true), spell: false, projectile: true,
+            DamageStats.Conversion(conversion, catalog, attack: true), spell: false, projectile: true, wieldingBow: weapon.Bow,
             additionalIncreased: additionalIncreased), Get), Get);
         var impale = ImpaleStats.From(character, catalog, attack: true, own, weapon.LocalSources);
         return new(hit, accuracy, criticalChance, criticalMultiplier, impale.Chance)

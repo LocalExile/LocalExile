@@ -7,6 +7,9 @@ using GameServer.Data.Terrain.Generation;
 
 static partial class QuestobjectsRules
 {
+    // A Labyrinth room's glyph statue stands about 50 cells (|dx| + |dy|) from the exit it belongs to.
+    const int MapStatueReach = 100;
+
     // Whether the six Normal trials are done (Labyrinths RequiredTrials; the character's flag or the league's).
     static bool NormalTrialsDone(ClientState conn, out int done, out int count) => LabyrinthTrialsDone(conn, 1, out done, out count);
 
@@ -15,7 +18,26 @@ static partial class QuestobjectsRules
     internal static async Task UseLabyrinthSelect(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthSelectUi), "0x007b open the Labyrinth select window");
 
-    // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town"): to the character's last town, else Act 3's.
+    // The Ascendancy Chamber's font (Act3Objects.AscendancyFont): the Labyrinth's two ascendancy points (once per tier; Izaro
+    // is not fought yet, so reaching the font is enough), then 0x7b kind 0x0a: the client opens its class selector for an
+    // unascended character (its choice comes back as C→S 0x39, ChooseAscendancyClass), else the passive tree.
+    internal static async Task UseAscendancyFont(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (LabyrinthDay.DifficultyOf(conn.Layout.Id) is not int tier) return;
+        try
+        {
+            int earned = await AwardAscendancyPoints(remote, stream, ciphers, conn, [global::AscendancyRules.AwardKeys[tier - 1]]);
+            Console.WriteLine($"[gateway] {remote} the font: Labyrinth {tier}'s points, {earned} earned");
+        }
+        catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
+        {
+            Console.WriteLine($"[gateway] {remote} the font's points refused: {ex.Message}");
+        }
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.AscendancySelectUi), "0x007b open the ascendancy class selector");
+    }
+
+    // The plaza's portal (Act3Objects.ReturnPortal, "Return To Town") and the Ascendancy Chamber's
+    // (Act3Objects.ChamberPortal): to the character's last town, else Act 3's.
     internal static async Task UsePlazaReturnPortal(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         ushort town = conn.LastTown != 0 ? conn.LastTown : AreaTransitionCatalog.HashOf(Act3Areas.SarnEncampment) ?? 0;
@@ -58,6 +80,7 @@ static partial class QuestobjectsRules
         int tilesFrom = ServerLevels.For(conn.Layout.Id, conn.Seed)?.RoomObjects.Count ?? all.Count;
         if (all.Count == 0 && !labyrinth) all = AreaPopulation.LoadObjects(conn.Layout.Id, conn.Seed, notes);
         var wiring = WireRoomObjects(conn, all, links);
+        Wirings.AddOrUpdate(conn, wiring);
         SetSwapLevers(conn, all, links);
         await SpawnTrialTraps(remote, stream, ciphers, conn, [.. all.Where(o => LabyrinthTrials.IsSpikeTrap(o.Type))],
             [.. all.Where(o => o.Type == LabyrinthTrials.Lever).Select(o => (o.X, o.Y))],
@@ -90,6 +113,10 @@ static partial class QuestobjectsRules
                 await SpawnNpc(remote, stream, ciphers, conn, npc, glyph.X, glyph.Y, glyph.Angle);
             else Console.WriteLine($"[gateway] {remote} trial monograph {glyph.Type}: unknown or unsupported NPC");
         }
+        // The rooms' stashes (the account's, as a town's: before Izaro's arenas and in the Ascendancy Chamber).
+        if (labyrinth) await PlaceLabyrinthStashes(remote, stream, ciphers, conn, all);
+        // Izaro's arena (Rules.Izaro.cs): his elevator, its doors and his trial.
+        if (labyrinth) await RunIzaroArena(remote, stream, ciphers, conn, all);
         // The statues wake only in the Labyrinth's own rooms (a trial's tiles keep theirs as they were).
         if (!labyrinth) all = [.. all.Where(o => !LabyrinthTrials.IsStatueSpawner(o.Type))];
         var objects = all.Where(o => LabyrinthTrials.Handles(o.Type)).ToList();
@@ -126,7 +153,7 @@ static partial class QuestobjectsRules
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type),
                     LabyrinthTrials.Blob(o.Type, o.Model, o.X, o.Y, o.Angle, o.Scale, state,
                         LabyrinthTrials.IsHotPlate(o.Type) || LabyrinthTrials.AtTileHeight(o.Type) ? o.Height : null)),
-                $"0x02b9 trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
+                $"0x02bb trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, state {state}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
             if (o.Type == LabyrinthTrials.OpenDoor)
             {
@@ -223,8 +250,34 @@ static partial class QuestobjectsRules
         for (int i = 0; i < all.Count; i++)
             if (LabyrinthWiring.IsCrank(all[i].Type) && wiring.Graph.IsOn(i) && !wiring.Graph.IsSpent(i))
                 foreach (var (k, _) in wiring.Graph.Turn(i, false)) conn.Instance.SetTransitioned(all[k].Type, all[k].X, all[k].Y, false);
-        Wirings.AddOrUpdate(conn, wiring);
         return wiring;
+    }
+
+    // The connection's room wiring. A hot reload of this module starts Wirings over while the player stays in the room
+    // (a lever then did nothing until the next area): it is built again from what the connection keeps, the room's
+    // objects and links, what this instance turned on, and the ids its placed objects have. A crank still down comes
+    // up here as on a new entry; the old module's timer brings it up on the client.
+    static bool TryWiring(ClientState conn, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out RoomWiring? wiring)
+    {
+        if (Wirings.TryGetValue(conn, out wiring)) return true;
+        List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
+        lock (conn.Monsters) placed = [.. conn.TrialObjects];
+        if (placed.Count == 0 || conn.Closed) return false;
+        wiring = Wirings.GetValue(conn, _ =>
+        {
+            var links = new List<PlacedLink>();
+            var all = LabyrinthRoomObjects(conn, [], links);
+            // A trial the Gateway does not generate has room-points.json's objects, unlinked.
+            if (all.Count == 0) all = [.. placed.OrderBy(p => p.Key).Select(p => p.Value)];
+            var rebuilt = WireRoomObjects(conn, all, links);
+            var taken = new HashSet<int>();
+            foreach (var (id, o) in placed)
+                for (int i = 0; i < all.Count; i++)
+                    if (all[i] == o && taken.Add(i)) { rebuilt.Ids[i] = id; break; }
+            Console.WriteLine($"[gateway] {conn.Layout.Id}: room wiring built again after a reload ({links.Count} link(s), {rebuilt.Ids.Count} of {placed.Count} placed object(s))");
+            return rebuilt;
+        });
+        return true;
     }
 
     // The room objects one links to by these names (its indexes in the room's objects); none when it has no links.
@@ -297,7 +350,7 @@ static partial class QuestobjectsRules
                 _ => LabyrinthTrials.Open,
             };
             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(at, LabyrinthTrials.TransitionableIndex(o.Type), state),
-                $"0x02ba wired {o.Type.Split('/')[^1]} 0x{at:x} at ({o.X}, {o.Y}): {change}");
+                $"0x02bc wired {o.Type.Split('/')[^1]} 0x{at:x} at ({o.X}, {o.Y}): {change}");
         }
     }
 
@@ -359,10 +412,10 @@ static partial class QuestobjectsRules
         bool other = !conn.Instance.Transitioned(swap.Type, swap.X, swap.Y);
         conn.Instance.SetTransitioned(swap.Type, swap.X, swap.Y, other);
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(swapId, LabyrinthTrials.TransitionableIndex(swap.Type),
-            LabyrinthTrials.SwapClientState(swap.Mirrored, other)), $"0x02ba swap piece 0x{swapId:x} at ({swap.X}, {swap.Y}) to its {(other ? "other" : "first")} arm");
+            LabyrinthTrials.SwapClientState(swap.Mirrored, other)), $"0x02bc swap piece 0x{swapId:x} at ({swap.X}, {swap.Y}) to its {(other ? "other" : "first")} arm");
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> placed;
         lock (conn.Monsters) placed = [.. conn.TrialObjects];
-        var levers = Wirings.TryGetValue(conn, out var wiring) ? SwapLevers(wiring.All, swap, wiring.Links) : SwapLevers([.. placed.Select(p => p.Value)], swap);
+        var levers = TryWiring(conn, out var wiring) ? SwapLevers(wiring.All, swap, wiring.Links) : SwapLevers([.. placed.Select(p => p.Value)], swap);
         foreach (var (l, gears) in levers)
         {
             bool pulled = LabyrinthTrials.OnFirstArm((l.X, l.Y), (swap.X, swap.Y), swap.Angle, swap.Mirrored) == other;
@@ -373,7 +426,7 @@ static partial class QuestobjectsRules
                 if (placed.FirstOrDefault(p => p.Value == o) is not { Value: not null } at) continue;
                 uint id = at.Key;
                 await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type),
-                    pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed), $"0x02ba swap {o.Type.Split('/')[^1]} 0x{id:x} {(pulled ? "on" : "off")}");
+                    pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed), $"0x02bc swap {o.Type.Split('/')[^1]} 0x{id:x} {(pulled ? "on" : "off")}");
             }
         }
     }
@@ -450,11 +503,16 @@ static partial class QuestobjectsRules
         if (conn.ActionCount != action || conn.Closed) return true;
         if (!GameServer.Core.World.PlayerWalk.InWalkUpRange(stop, (o.X, o.Y), size))
             Console.WriteLine($"[gateway] {remote} trial object 0x{use.TargetId:x} out of reach from ({stop.X}, {stop.Y})");
+        else if (IzaroStatues.IsStatue(o.Type))
+            await UseIzaroStatue(remote, stream, ciphers, conn, use.TargetId);
         else if ((o.Type is LabyrinthTrials.Lever or LabyrinthWiring.OnceMultiSwitch || LabyrinthWiring.IsCrank(o.Type))
-                 && Wirings.TryGetValue(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
+                 && TryWiring(conn, out var wiring) && wiring.IndexOf(use.TargetId) is int wired && wiring.Graph.Wired(wired))
             await PullWired(remote, stream, ciphers, conn, wiring, wired);
         else switch (o.Type)
         {
+            case IzaroFights.Gate:
+                await OpenIzaroGate(remote, stream, ciphers, conn, use.TargetId, o);
+                break;
             case LabyrinthTrials.IntroDoor or LabyrinthTrials.BarDoor:
                 await OpenTrialObject(remote, stream, ciphers, conn, use.TargetId, o);
                 break;
@@ -513,13 +571,23 @@ static partial class QuestobjectsRules
                 foreach (var (id, portal) in portals)
                     if (conn.Instance.Transition(portal.Type, portal.X, portal.Y))
                         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(portal.Type), LabyrinthTrials.Open),
-                            $"0x02ba trial portal 0x{id:x} opens: trial {trial.Flag} plaque used");
+                            $"0x02bc trial portal 0x{id:x} opens: trial {trial.Flag} plaque used");
                 // Every use shows the trials done (the window reads their flags itself).
                 await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.TrialPlaqueUi), "0x007b open the Trial Plaque window");
                 break;
             case LabyrinthTrials.Map:
-                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi), "0x007b open the Labyrinth map");
+            {
+                // The statue stands by one of the room's exits: the room behind it is shown, the way to it in green.
+                var exit = conn.Layout.AreaTransitions.Select(t => t.Transition).Where(t => t.Entrance is not null)
+                    .MinBy(t => (t.GridX - o.X) * (t.GridX - o.X) + (t.GridY - o.Y) * (t.GridY - o.Y));
+                var shown = exit is { Entrance: int number } && Math.Abs(exit.GridX - o.X) + Math.Abs(exit.GridY - o.Y) <= MapStatueReach
+                    ? LabyrinthDay.Reveal(CharacterName(conn), conn.Layout.Id, conn.Seed, number) : null;
+                if (shown is not null)
+                    await Send(remote, stream, ciphers, shown.Progress, $"0x01cb labyrinth progress: the map shows entrance{exit!.Entrance}'s room (row {shown.Row})");
+                await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.LabyrinthMapUi, (uint)(shown?.Row ?? 0)),
+                    $"0x007b open the Labyrinth map{(shown is null ? "" : $", the way to row {shown.Row} in green")}");
                 break;
+            }
             case LabyrinthTrials.Portal:
                 if (!conn.Instance.Transitioned(o.Type, o.X, o.Y)) break;   // closed until the plaque is used
                 if (NearestTrialObject(conn, LabyrinthTrials.IntroDoor, (o.X, o.Y), closed: false) is not { } entrance) break;
@@ -545,7 +613,7 @@ static partial class QuestobjectsRules
     {
         if (!conn.Instance.Transition(o.Type, o.X, o.Y)) return false;
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), LabyrinthTrials.Open),
-            $"0x02ba trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}) opens");
+            $"0x02bc trial object 0x{id:x} {o.Type} at ({o.X}, {o.Y}) opens");
         if (!LabyrinthTrials.IsDoor(o.Type)) return true;
         await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(id, false), $"0x01c6 trial door 0x{id:x} unblocked");
         lock (conn.Monsters)
@@ -632,7 +700,7 @@ static partial class QuestobjectsRules
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} smashable wall not broken: {ServerLog.Describe(ex)}"); }
     }
 
-    // An opened Locked Door's opening lifts the bars out of the way, so once it has played the door goes (0x2bb), and a
+    // An opened Locked Door's opening lifts the bars out of the way, so once it has played the door goes (0x2bd), and a
     // later entry does not create an opened one. (Its cells once stayed closed after 0x1c6, live 2026-10-31, while its
     // Positioned had a static position: LabyrinthTrials.Blob.)
     static async Task RemoveOpenedDoor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id)
@@ -640,7 +708,7 @@ static partial class QuestobjectsRules
         await Task.Delay(TimeSpan.FromSeconds(DoorOpeningSeconds));
         if (conn.Closed) return;
         lock (conn.Monsters) conn.TrialObjects.Remove(id);
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bb opened trial door 0x{id:x} removed");
+        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd opened trial door 0x{id:x} removed");
     }
 
     // How long a Locked Door's opening plays before it goes (our own number: the animation's length is not read).
@@ -655,7 +723,7 @@ static partial class QuestobjectsRules
         AreaPopulation.RoomObject o)
     {
         // With the room links, what the lever drives is theirs (its next, transitionN and pause links); without, the nearest.
-        var wiring = Wirings.TryGetValue(conn, out var w) && HasLinks(w, o) ? w : null;
+        var wiring = TryWiring(conn, out var w) && HasLinks(w, o) ? w : null;
         List<KeyValuePair<uint, AreaPopulation.RoomObject>> railSwitches;
         lock (conn.Monsters) railSwitches = [.. conn.TrialObjects.Where(t => LabyrinthTrials.IsRailSwitch(t.Value.Type))];
         if (wiring is not null && o.Type == LabyrinthTrials.Switch)
@@ -678,10 +746,18 @@ static partial class QuestobjectsRules
         conn.Instance.SetTransitioned(o.Type, o.X, o.Y, pulled);
         byte state = pulled ? LabyrinthTrials.Open : LabyrinthTrials.Closed;
         await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(o.Type), state),
-            $"0x02ba trial switch 0x{id:x} at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}");
+            $"0x02bc trial switch 0x{id:x} at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}");
         // Its cages (Door_Open) go the other way, each as it stands (several levers may share one: the Labyrinth's Prison
         // bottleneck_01); its Locked Doors (Door_Closed, a Switch_Multi's transitionN) open for good.
         var linked = wiring is null ? [] : Placed(conn, wiring, LinkedFrom(wiring, o, n => n == "next" || n.StartsWith("transition", StringComparison.Ordinal)));
+        // Its gears (TimerGears) turn, and what their next links lead to is the lever's too (1_Labyrinth_RT_branch_bottleneck_2:
+        // Switch → TimerGears → Door_Closed; live 2026-11-08, the door did not open without it).
+        if (wiring is not null && linked.Where(t => t.Object.Type == LabyrinthTrials.Gears).ToList() is { Count: > 0 } gears)
+        {
+            if (pulled)
+                foreach (var (gearId, gear) in gears) await OpenTrialObject(remote, stream, ciphers, conn, gearId, gear);
+            linked = [.. linked, .. Placed(conn, wiring, gears.SelectMany(g => LinkedFrom(wiring, g.Object, n => n == "next")))];
+        }
         var cages = wiring is not null
             ? linked.Where(t => t.Object.Type == LabyrinthTrials.OpenDoor).ToList()
             : NearestTrialObject(conn, LabyrinthTrials.OpenDoor, (o.X, o.Y), closed: false) is { } nearestCage ? [nearestCage] : [];
@@ -691,7 +767,7 @@ static partial class QuestobjectsRules
             conn.Instance.SetTransitioned(cage.Object.Type, cage.Object.X, cage.Object.Y, shut);
             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(cage.Id, LabyrinthTrials.TransitionableIndex(cage.Object.Type),
                     shut ? LabyrinthTrials.Open : LabyrinthTrials.Closed),
-                $"0x02ba trial cage 0x{cage.Id:x} at ({cage.Object.X}, {cage.Object.Y}) {(shut ? "shuts" : "opens")}");
+                $"0x02bc trial cage 0x{cage.Id:x} at ({cage.Object.X}, {cage.Object.Y}) {(shut ? "shuts" : "opens")}");
             BarCage(conn, cage.Id, cage.Object, shut);
             await Send(remote, stream, ciphers, InstanceEntities.BlockageUpdate(cage.Id, shut), null);
         }
@@ -712,7 +788,7 @@ static partial class QuestobjectsRules
         {
             conn.Instance.SetTransitioned(rail.Type, rail.X, rail.Y, pulled);
             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(railId, LabyrinthTrials.TransitionableIndex(rail.Type), state),
-                $"0x02ba trial rail switch 0x{railId:x} at ({rail.X}, {rail.Y}) to state {state}");
+                $"0x02bc trial rail switch 0x{railId:x} at ({rail.X}, {rail.Y}) to state {state}");
         }
         if (TrapRuns.TryGetValue(conn, out var linkedRuns) && wiring is not null && wiring.Links.Any(l => l.Name == "pause"))
         {
@@ -721,7 +797,8 @@ static partial class QuestobjectsRules
             Console.WriteLine($"[gateway] {remote} trial switch at ({o.X}, {o.Y}) {(pulled ? "pulled" : "pulled back")}: sawblades stopped now " +
                 string.Join(", ", paused.Select(i => $"({wiring.All[i].X}, {wiring.All[i].Y})")));
         }
-        else if (TrapRuns.TryGetValue(conn, out var runs))
+        // Without the room links, the sawblades nearest the lever stop (the links say otherwise where a room has them).
+        else if (wiring is null && TrapRuns.TryGetValue(conn, out var runs))
         {
             var saws = runs.Where(r => LabyrinthTrials.IsSawblade(r.Roomba.Type)).ToList();
             List<(int X, int Y)> switches;
@@ -1375,18 +1452,18 @@ static partial class QuestobjectsRules
                         {
                             down = false;
                             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Closed),
-                                $"0x02ba pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) comes up");
+                                $"0x02bc pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) comes up");
                         }
                         bool again = plate.Type.EndsWith("Multi_4", StringComparison.Ordinal);
                         if (!down && on && (left || again))
                         {
                             (down, at, left) = (true, now, false);
                             int room = RoomOf(plate.X, plate.Y);
-                            var fired = Wirings.TryGetValue(conn, out var wiring) && LinkedDarts(wiring, plate) is { Count: > 0 } linked
+                            var fired = TryWiring(conn, out var wiring) && LinkedDarts(wiring, plate) is { Count: > 0 } linked
                                 ? triggered.Where(t => linked.Contains(wiring.All.IndexOf(t.Trap))).ToList()
                                 : triggered.Where(t => RoomOf(t.Trap.X, t.Trap.Y) == room).ToList();
                             await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, LabyrinthTrials.TransitionableIndex(plate.Type), LabyrinthTrials.Open),
-                                $"0x02ba pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) pressed: {fired.Count} wall dart(s) fire");
+                                $"0x02bc pressure plate 0x{id:x} at ({plate.X}, {plate.Y}) pressed: {fired.Count} wall dart(s) fire");
                             foreach (var (dart, trap) in fired) await Fire(dart, trap, [(0, 0)]);
                         }
                         plates[id] = (down, at, left);
@@ -1547,7 +1624,7 @@ static partial class QuestobjectsRules
                 if (roombas[i].Type is LabyrinthTrials.Roomba or LabyrinthTrials.FlyingRoomba) paths[i] = scratched[i];
         }
         var saws = Enumerable.Range(0, roombas.Count).Where(i => LabyrinthTrials.IsSawblade(roombas[i].Type)).ToList();
-        var halted = Wirings.TryGetValue(conn, out var wiring) && links.Any(l => l.Name == "pause")
+        var halted = TryWiring(conn, out var wiring) && links.Any(l => l.Name == "pause")
             ? PausedSaws(conn, wiring).Select(i => roombas.IndexOf(all[i])).Where(i => i >= 0).ToHashSet()
             : Enumerable.Range(0, switches.Count)
                 .Where(k => conn.Instance.Transitioned(LabyrinthTrials.Switch, switches[k].X, switches[k].Y))
@@ -1671,7 +1748,7 @@ static partial class QuestobjectsRules
                             (r.From, r.Stopped) = (at, true);
                             await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(r.Id, LabyrinthTrials.RoombaTransitionableIndex, LabyrinthTrials.Open),
                                 .. InstanceProtocol.MoveTo(r.Id, cell.X, cell.Y, 0.05f, InstanceProtocol.FollowTerrain)],
-                                $"0x02ba trial sawblade 0x{r.Id:x} stops at ({cell.X}, {cell.Y})");
+                                $"0x02bc trial sawblade 0x{r.Id:x} stops at ({cell.X}, {cell.Y})");
                             continue;
                         }
                         uint previous = r.Id;
@@ -1679,7 +1756,7 @@ static partial class QuestobjectsRules
                         await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(previous), null);
                         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(r.Id, InstanceEntities.ObjectTypeHash(r.Roomba.Type),
                             LabyrinthTrials.RoombaBlob(r.Roomba.Type, cell.X, cell.Y, r.Roomba.Angle, r.Roomba.Model)),
-                            $"0x02b9 trial sawblade 0x{r.Id:x} (was 0x{previous:x}) runs on from ({cell.X}, {cell.Y})");
+                            $"0x02bb trial sawblade 0x{r.Id:x} (was 0x{previous:x}) runs on from ({cell.X}, {cell.Y})");
                         await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(r.Id), null);
                         (r.From, r.Stopped, r.LegEnd) = (at, false, double.NegativeInfinity);
                     }

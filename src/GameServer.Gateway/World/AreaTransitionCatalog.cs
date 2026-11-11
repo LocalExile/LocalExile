@@ -1,13 +1,14 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 /// <summary>
 /// Every area's area transitions: where they are (the client's generated layout, captured per (area, seed) by
 /// scripts/walkmaps, or the atlas's static placement for fixed layouts) and where each leads (the atlas,
 /// data/area-transitions.json from scripts/re/atlas). Agents/docs/protocol/08-area-transitions.md §5, §6.
 /// </summary>
-static class AreaTransitionCatalog
+public static class AreaTransitionCatalog
 {
     const string AtlasFile = "data/area-transitions.json";
     const string Folder = "data/walkability";
@@ -155,7 +156,7 @@ static class AreaTransitionCatalog
     /// else the nearest direction round it that has such floor, else a little nearer or farther. The floor reached from the
     /// walkable cells within reach of the object (walk value 2 and up, 8 neighbours, as the exit audit reads it) without
     /// going farther than twice the offset; the cell and its 8 neighbours must all be floor. Without any, +X as before.</summary>
-    internal static (int X, int Y) PortalCell(byte[] walk, int width, int height, int x, int y, float rotation)
+    public static (int X, int Y) PortalCell(byte[] walk, int width, int height, int x, int y, float rotation)
     {
         bool Floor(int cx, int cy) => cx >= 0 && cy >= 0 && cx < width && cy < height && walk[cy * width + cx] >= 2;
         const int Reach = 6, Range = PortalOffset * 2;
@@ -195,7 +196,7 @@ static class AreaTransitionCatalog
     /// <summary>Marks the exits without a model or object (<see cref="FromExits"/>: an entrance point no object marks)
     /// that lead to <paramref name="destination"/> as replaced by the quest portal of <paramref name="source"/>'s tables
     /// (they stand only where those do not run); returns how many.</summary>
-    internal static int ReplacePointExits(List<AreaTransitionObject> placed, ushort destination, string? source)
+    public static int ReplacePointExits(List<AreaTransitionObject> placed, ushort destination, string? source)
     {
         int n = 0;
         for (int i = 0; i < placed.Count; i++)
@@ -240,7 +241,7 @@ static class AreaTransitionCatalog
     }
 
     /// <summary>Whether two areas are of one act (WorldAreas Act; true when either is unknown or the table is missing).</summary>
-    internal static bool SameAct(string a, string b) =>
+    public static bool SameAct(string a, string b) =>
         !AreaActs.Value.TryGetValue(a, out int x) || !AreaActs.Value.TryGetValue(b, out int y) || x == y;
 
     // WorldAreas Id → Act (data/tables/WorldAreas.json).
@@ -250,8 +251,8 @@ static class AreaTransitionCatalog
         var acts = new Dictionary<string, int>(StringComparer.Ordinal);
         try
         {
-            if (!File.Exists(file)) return acts;
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            if (!ClientTables.Exists(file)) return acts;
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
             foreach (var r in doc.RootElement.EnumerateArray())
                 if (r.GetProperty("Id").GetString() is { } id) acts.TryAdd(id, r.GetProperty("Act").GetInt32());
         }
@@ -271,8 +272,8 @@ static class AreaTransitionCatalog
     static List<AreaTransitionObject> FromLayout(AtlasArea area, ServerLevels.Level level, uint seed, List<string> notes)
     {
         var labyrinth = LabyrinthConnections(area.Id, seed, notes);
-        // Izaro's arena's way on (boss_portals.arm "entranceNdisabled") opens when he falls; the fight is not built yet, so
-        // in a room of today's Labyrinth it is open from the start.
+        // Izaro's arena's ways out (boss_portals.arm "entranceNdisabled", "teleportNdisabled") open when he falls: in a room
+        // of today's Labyrinth they are created, marked LayoutDisabled, and shown by the fight (IzaroFights.Beaten).
         var placed = FromExits(area.Id, area.Hash16, labyrinth ?? area.Connections ?? [], level.Exits, notes, level.Entrances,
             openDisabled: labyrinth is not null);
         if (area.Id == LabyrinthDay.Plaza) placed.AddRange(LabyrinthEntrances(level, notes));
@@ -315,7 +316,7 @@ static class AreaTransitionCatalog
     /// that appears there (The Harvest's way to Highgate after Malachai, Weylam's boat at The Beacon and the Brine King's
     /// Reef), or a town's exit no tile marks (Karui Shores' camp.arm "entrance1" to Oriath, as the atlas's point-only
     /// exits); a quest gate on the destination still applies (Quests.FlagToEnter).</summary>
-    internal static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
+    public static List<AreaTransitionObject> FromExits(string areaId, ushort areaHash, IReadOnlyList<AtlasConnection> connections,
         IReadOnlyList<PlacedExit> exits, List<string> notes, IReadOnlyList<EntrancePoint>? entrances = null, bool openDisabled = false)
     {
         var placed = new List<AreaTransitionObject>();
@@ -345,13 +346,18 @@ static class AreaTransitionCatalog
                         break;
                     }
                     placed.Add(new AreaTransitionObject(o.X, o.Y, to.Hash16, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id) });
-                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, open: Izaro's way on" : "disabled, gated by a quest")}, {e.Why})");
+                        Type: Resolve(o.Type, what, notes))
+                    {
+                        SourceType = o.Type, QuestSource = e.Enabled || openDisabled ? null : GateSourceOf(areaId, to.Id),
+                        LayoutDisabled = !e.Enabled && openDisabled, Entrance = e.Number,
+                    });
+                    notes.Add($"{what} → {to.Id} (entrance{e.Number}{(e.Enabled ? "" : openDisabled ? "disabled, shown once Izaro's trial is won" : "disabled, gated by a quest")}, {e.Why})");
                     break;
                 case ExitKind.Teleport when e.Target is { } target:
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
                     placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
-                        Type: Resolve(o.Type, what, notes)) { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type });
+                        Type: Resolve(o.Type, what, notes))
+                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled && openDisabled });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:
@@ -367,7 +373,7 @@ static class AreaTransitionCatalog
             if (!p.Enabled || connections.FirstOrDefault(c => c.Index == p.Number) is not { } to) continue;
             if (exits.Any(e => e.Kind == ExitKind.Entrance && e.Enabled && e.Number == p.Number)) continue;
             if (placed.Any(t => t.DestinationHash16 == to.Hash16 && t.TeleportTo is null)) continue;
-            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16));
+            placed.Add(new AreaTransitionObject(p.X, p.Y, to.Hash16) { Entrance = p.Number });
             notes.Add($"entrance{p.Number} → {to.Id} at its point ({p.X}, {p.Y}): no object of its own, an exit without a model");
         }
         return placed;
@@ -380,10 +386,10 @@ static class AreaTransitionCatalog
     static readonly Lazy<Dictionary<string, uint>?> ClientStrings = new(() =>
     {
         const string file = "data/tables/ClientStrings.json";
-        if (!File.Exists(file)) return null;
+        if (!ClientTables.Exists(file)) return null;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllBytes(file));
+            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
             var map = new Dictionary<string, uint>(StringComparer.Ordinal);
             foreach (var r in doc.RootElement.EnumerateArray())
                 if (r.GetProperty("Id").GetString() is { } id && r.TryGetProperty("HASH32", out var h) && h.TryGetUInt32(out uint hash))
@@ -406,7 +412,7 @@ static class AreaTransitionCatalog
         return entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
     }
 
-    internal static bool TryDelveEntrance(string area, string? model, out ushort destination)
+    public static bool TryDelveEntrance(string area, string? model, out ushort destination)
     {
         destination = 0;
         destination = area switch
@@ -425,7 +431,7 @@ static class AreaTransitionCatalog
     /// live 2026-10-18, The Mud Flats' Metadata/QuestObjects/WaterCave/WaterCaveAreaTransition (adds Transitionable)
     /// is read with only AreaTransition's components, so a Transitionable byte in the blob became the task count
     /// (Buffer Underflow), and without it the component kept state 0 and its post-create event crashed the client
-    /// (0x141ded7b9, as for monsters sent state 0). How the real server sets that state is open (08 §5).</summary>
+    /// (0x141df0e19, as for monsters sent state 0). How the real server sets that state is open (08 §5).</summary>
     static string Resolve(string? type, string what, List<string> notes)
     {
         if (type is null or AreaTransitionObject.MetadataPath) return AreaTransitionObject.MetadataPath;
@@ -448,7 +454,7 @@ static class AreaTransitionCatalog
     static readonly Lazy<Dictionary<string, List<string>>?> ObjectTypes = new(() =>
     {
         const string file = "data/object-types.json";
-        if (!File.Exists(file)) return null;
+        if (!ClientTables.Exists(file)) return null;
         try
         {
             using var doc = GameTables.Open(file);
@@ -482,14 +488,14 @@ static class AreaTransitionCatalog
     /// <summary>Whether a scripts/walkmaps capture is read for an area the Gateway does not generate (on). A generated
     /// layout never reads one (<see cref="For"/>); scripts/re/exits turns captures off so that its comparison with the
     /// model matching (<see cref="UseLayout"/> off) runs on the generated objects too.</summary>
-    internal static bool UseCaptures { get; set; } = true;
+    public static bool UseCaptures { get; set; } = true;
 
     /// <summary>Whether a generated layout's exits come from its graph nodes (§8, on), or from §7's model matching over
     /// its objects (off: scripts/re/exits compares the two).</summary>
-    internal static bool UseLayout { get; set; } = true;
+    public static bool UseLayout { get; set; } = true;
 
     /// <summary>True once scripts/walkmaps saved this layout's tile objects.</summary>
-    public static bool Captured(string id, uint seed) => UseCaptures && File.Exists(CaptureFile(id, seed));
+    public static bool Captured(string id, uint seed) => UseCaptures && ClientTables.Exists(CaptureFile(id, seed));
 
     static string CaptureFile(string id, uint seed) => $"{Folder}/{id}_seed{seed}.transitions.json";
 
@@ -506,7 +512,7 @@ static class AreaTransitionCatalog
         {
             if (!Captured(id, seed))
                 return ServerLevels.For(id, seed)?.Objects.Select(o => new CapturedObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Z)).ToList();
-            return JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
+            return JsonSerializer.Deserialize<CaptureFileData>(ClientTables.ReadAllText(CaptureFile(id, seed)), Json)?.Objects;
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
@@ -529,10 +535,10 @@ static class AreaTransitionCatalog
 
     static Dictionary<ushort, AtlasArea>? Load()
     {
-        if (!File.Exists(AtlasFile)) return null;
+        if (!ClientTables.Exists(AtlasFile)) return null;
         try
         {
-            using var stream = File.OpenRead(AtlasFile);
+            using var stream = ClientTables.OpenRead(AtlasFile);
             // On a thread of its own: the reader's 56 MB of pooled buffers go with it (GameTables.Isolated).
             var file = GameTables.Isolated(() => JsonSerializer.Deserialize<AtlasFileData>(stream, Json));
             var areas = new Dictionary<ushort, AtlasArea>();
@@ -553,7 +559,7 @@ static class AreaTransitionCatalog
     sealed record AtlasFileData(List<AtlasArea>? Areas);
     sealed record AtlasArea(string Id, string? Name, ushort Hash16, List<AtlasTopology>? Topologies, List<AtlasConnection>? Connections,
         bool IsTown = false);
-    internal sealed record AtlasConnection(int Index, string Id, ushort Hash16);
+    public sealed record AtlasConnection(int Index, string Id, ushort Hash16);
     sealed record AtlasTopology(string Id, string? Kind, List<AtlasTransition>? Transitions);
     sealed record AtlasTransition(string? Model, string? ObjectType, bool? Enabled, string? Status, string? Destination,
         ushort? DestinationHash16, AtlasGrid? Grid);
@@ -564,13 +570,13 @@ static class AreaTransitionCatalog
 
 /// <summary>An AreaTransitionEffects object (GlowyFX, SlavePensIntroGround): Positioned, Animated, BaseEvents,
 /// Transitionable (<c>num_states 3</c>: 1 hidden or paused at the start, 2 plays, 3 at the animation's end).</summary>
-sealed record TransitionEffect(string Type, string Model, int X, int Y, float Rotation, float? Z)
+public sealed record TransitionEffect(string Type, string Model, int X, int Y, float Rotation, float? Z)
 {
     /// <summary>Created at its end state: the crater as it stands after the arrival's animation. Whether the real server
     /// plays state 2 on the first arrival is not captured.</summary>
     public const byte State = 3;
 
-    /// <summary>The 0x2b9 blob: Positioned (the record's height), Animated (the type's model), Transitionable (u8 state),
+    /// <summary>The 0x2bb blob: Positioned (the record's height), Animated (the type's model), Transitionable (u8 state),
     /// tasks; BaseEvents writes nothing (as the a1q4 waterfall's).</summary>
     public byte[] Blob()
     {

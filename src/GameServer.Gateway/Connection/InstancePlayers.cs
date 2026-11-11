@@ -1,7 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Immutable published poses; observers never lock another connection's simulation.</summary>
-sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, int Y, uint Life,
+public sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, int Y, uint Life,
     ClientState? Owner = null)
 {
     // Only session liveness is read through the owner; all replicated values remain immutable snapshots.
@@ -12,10 +12,10 @@ sealed record InstancePlayer(uint Id, uint Type, PlayerObject Template, int X, i
     public IReadOnlyList<SharedAura> Auras { get; init; } = [];
 }
 
-sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
+public sealed record SharedAura(AuraCatalog.Aura Aura, int Radius, int Effect);
 
 /// <summary>Player presence shared by one Auth instance, independently of its characters' private world state.</summary>
-sealed class InstancePresence
+public sealed class InstancePresence
 {
     readonly System.Collections.Concurrent.ConcurrentDictionary<uint, InstancePlayer> _players = new();
     public void PublishPlayer(InstancePlayer player) => _players[player.Id] = player;
@@ -25,27 +25,27 @@ sealed class InstancePresence
 }
 
 /// <summary>The instance's events (InstanceWorld): what a module can add to the shared instance.</summary>
-static class InstanceEvents
+public static class InstanceEvents
 {
     /// <summary>An instance to join for a transfer without a chosen one (a party member's), 0 for the default choice.</summary>
     public static readonly GameEvent<Func<ClientState, PendingTransfer, ulong>> TransferInstance = new();
 }
 
-sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life);
-sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
-sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,
+public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life);
+public sealed record SharedMonsterOrigin(uint Type, GameServer.Core.Protocol.Instance.MonsterObject Object, ushort Row, byte Level, MonsterRarity Rarity);
+public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedMonster Source, int X, int Y, (int X, int Y) Destination,
     uint Life, uint EnergyShield = 0, uint MaximumEnergyShield = 0);
 
-partial class Program
+public partial class Program
 {
     /// <summary>The connections in game now (entered an area, not yet gone), for what plays beside them without one of its
     /// own: server-driven players (the PlayerBots module) look up the towns players are in.</summary>
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<ClientState, byte> InGame = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<ClientState, byte> InGame = new();
 
     /// <summary>Sets the player's party size; a change tells the client the players in the area (S→C 0x231: the party
     /// panel's bonus icons, which compute their percentages from the client's own constants, Game.PartyBonus) and the
     /// player the bonus in chat.</summary>
-    internal static async Task SetPartySize(ClientState conn, int size)
+    public static async Task SetPartySize(ClientState conn, int size)
     {
         size = Math.Max(1, size);
         if (conn.PartySize == size) return;
@@ -63,19 +63,19 @@ partial class Program
     }
 }
 
-sealed partial class InstanceState
+public sealed partial class InstanceState
 {
     public InstanceState() : this(null) { }
-    internal InstanceState(InstancePresence? presence) => Presence = presence ?? new();
+    public InstanceState(InstancePresence? presence) => Presence = presence ?? new();
 
-    internal InstancePresence Presence { get; }
+    public InstancePresence Presence { get; }
     public void PublishPlayer(InstancePlayer player) => Presence.PublishPlayer(player);
     public void RemovePlayer(uint id) => Presence.RemovePlayer(id);
     public InstancePlayer[] PlayersExcept(uint id) => Presence.PlayersExcept(id);
     public InstancePlayer? Player(uint id) => Presence.Player(id);
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     static int _nextPeerId = 0x20000000;
     public readonly uint PeerId = unchecked((uint)Interlocked.Increment(ref _nextPeerId));

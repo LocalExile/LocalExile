@@ -17,7 +17,7 @@
 /// and Act 8's Sin) or on edge cells (Tarkleigh, Eramir, Silk, Helena, Irasha …). They are placed as the room has them;
 /// <see cref="NpcCatalog.Placement.FromRoom"/> keeps the Gateway from warning about them.</para>
 /// </summary>
-static class TownNpcs
+public static class TownNpcs
 {
     /// <summary>A town room as the client places it: its size in cells (the .arm's own key line, tiles × 23), the
     /// placement code of the .dgr node's rotation (I = 0, R270 = 3, as <c>TilePlacement.FromGraphRotation</c>) and the
@@ -28,7 +28,7 @@ static class TownNpcs
     /// from; with another seed the room's NPCs are not placed (Oriath is generated around its fixed rooms).</summary>
     public sealed record Room(string Arm, int Width, int Height, int Code, int OffsetX = 0, int OffsetY = 0, uint? Seed = null)
     {
-        // The client's 3-byte rows per placement code (0x142fa04b0; GameServer.Data.Terrain.TilePlacement).
+        // The client's 3-byte rows per placement code (0x142faa4d8; GameServer.Data.Terrain.TilePlacement).
         static readonly byte[] Table = [0, 1, 1, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 1];
 
         /// <summary>A room cell on the area grid: a = [w − x − 1, x, h − y − 1, y]; x' = a[T1 + 2·T0],

@@ -5,9 +5,9 @@ using GameServer.Core.World;
 /// bleed can continue after a stronger one expires; only the strongest active bleed deals damage. Poison stacks
 /// expire independently. Resource damage is advanced only by the player recovery owner under the Monsters lock.
 /// </summary>
-sealed class IncomingDamagingAilments
+public sealed class IncomingDamagingAilments
 {
-    internal readonly record struct State(bool Bleeding, double BleedUntil, int Poisons, double PoisonUntil,
+    public readonly record struct State(bool Bleeding, double BleedUntil, int Poisons, double PoisonUntil,
         long BleedRevision, long PoisonRevision);
 
     readonly record struct Bleed(double From, double Until, double DamagePerSecond, uint? Source, bool Reflected);
@@ -33,7 +33,7 @@ sealed class IncomingDamagingAilments
             .DefaultIfEmpty(double.NegativeInfinity).Max();
     public bool Idle => bleeds.Count == 0 && poisons.Count == 0;
 
-    internal State Snapshot(double now) =>
+    public State Snapshot(double now) =>
         new(Bleeding(now), BleedingUntil(now), PoisonStacks(now), PoisonUntil(now), bleedRevision, poisonRevision);
 
     /// <summary>
@@ -261,7 +261,7 @@ sealed class IncomingDamagingAilments
     static bool PreventsPoison(Func<string, int> get) =>
         get("cannot_be_poisoned") != 0 || get("immune_to_poison") != 0;
 
-    internal static double SelfDuration(Func<string, int>? get, bool bleed)
+    public static double SelfDuration(Func<string, int>? get, bool bleed)
     {
         if (get is null) return 1;
         string combined = bleed ? "combined_bleeding_duration_on_self_+%" : "combined_poison_duration_on_self_+%";

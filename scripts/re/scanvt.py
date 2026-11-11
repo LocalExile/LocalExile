@@ -1,4 +1,4 @@
-# usage: scanvt.py <func_va>   -- every .rdata vtable whose slot 1 is <func_va> (e.g. 0x14299e300 lists the network
+# usage: scanvt.py <func_va>   -- every .rdata vtable whose slot 1 is <func_va> (e.g. 0x1429a7660 lists the network
 # message handler groups); prints slots 0-3
 import struct, pefile, re, sys
 import os

@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 using DamageType = GameServer.Core.World.DamageType;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
-static partial class Game
+public static partial class Game
 {
     // Summon Elemental Relic's relics by element (MonsterVarieties 7185–7187, MonsterTypes ElementalRelic: IsPlayerMinion,
     // so MonsterCatalog.BaseLife, as the client, gives them the MinionLife column × LifeMultiplier 400). A RandomElement
@@ -18,7 +18,7 @@ static partial class Game
 
     /// <summary>The relics' death explosion radius in cells. Unverified: the data has no explosion skill for the relic; 22
     /// is Path of Building's radius for Minion Instability, the other minion death explosion.</summary>
-    internal const int RelicExplosionRadius = 22;
+    public const int RelicExplosionRadius = 22;
 
     // Every 100 ms of game time from area entry (a pause holds it): PlayerMinionsTick, then LinkSkillsTick (a link to a
     // minion that just ended sees it gone). A failed step is logged and the next one runs; a closed connection ends the loop.
@@ -53,7 +53,7 @@ static partial class Game
     /// queued relic summons are made, and each living minion's aura goes on the owner while he
     /// is within its radius and off when he leaves it or it ends; the player's stats are sent again when that changes.
     /// </summary>
-    internal static async Task PlayerMinionsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task PlayerMinionsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var rules = CombatLifetime;
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
@@ -232,7 +232,7 @@ static partial class Game
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));
     }
 
-    // The stats that mark a monster as the player's minion for the client (0x141bf8490 reads both).
+    // The stats that mark a monster as the player's minion for the client (0x141bfaf20 reads both).
     static IReadOnlyList<(uint Key, int Value)> MinionStats =>
         [.. new[] { "is_player_minion", "is_semantic_minion" }.Select(Stats.Key).OfType<uint>().Select(k => (k, 1))];
 
@@ -286,7 +286,7 @@ static partial class Game
     }
 
     // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
-    internal static (int X, int Y) NextToPlayer(ClientState conn)
+    public static (int X, int Y) NextToPlayer(ClientState conn)
     {
         var (px, py) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })

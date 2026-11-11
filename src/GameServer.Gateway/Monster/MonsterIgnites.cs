@@ -7,7 +7,7 @@ using GameServer.Core.World;
 /// adds here: a hit's chance (<see cref="TryApply"/>) or an ignite a granted skill worked out itself (<see cref="Add"/>,
 /// Abberath's Fury).
 /// </summary>
-sealed class MonsterIgnites
+public sealed class MonsterIgnites
 {
     /// <summary>What a hit can ignite with, captured at release: the chance, the ignite's fire damage per second for a
     /// non-critical and a critical hit (the panel's ignite rows, <see cref="AilmentPanelStats"/>, already scaled by the
@@ -19,9 +19,14 @@ sealed class MonsterIgnites
     /// aggravates the bleeds already on its target; <paramref name="Aggravated"/>: its own bleed is aggravated too.</param>
     public readonly record struct Settings(int Chance, double Min, double Max, double CriticalMin, double CriticalMax,
         double Seconds, int CriticalChance = 0, int Stacks = 1, int Aggravate = 0, int CriticalAggravate = 0,
-        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0)
+        bool Aggravated = false, int RupturePercent = 0, int FireExposure = 0, int Spread = 0, bool AllDamage = false)
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
+
+        /// <summary>Whether a hit of <paramref name="hit"/> (rolled, before mitigation) can ignite: its fire damage, or any
+        /// damage with "All Damage can Ignite" (<see cref="AllDamage"/>, Shaper of Flames).</summary>
+        public bool CanIgnite(DamagePacket hit) =>
+            AllDamage ? hit.Components.Any(c => c.Range.Max > 0) : hit[DamageType.Fire].Max > 0;
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
@@ -35,13 +40,15 @@ sealed class MonsterIgnites
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage") / 60.0 * faster;
-            long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%");
+            // Shaper of Flames: "Hits always Ignite" (always_ignite).
+            long chance = (long)get("base_chance_to_ignite_%") + get("chance_to_freeze_shock_ignite_%")
+                + (get("always_ignite") != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
                 * Math.Max(0, 1 + ((double)get("ignite_duration_+%") + get("base_all_ailment_duration_+%")) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
-                FireExposure: get("ignites_apply_fire_resistance_+"));
+                FireExposure: get("ignites_apply_fire_resistance_+"), AllDamage: get("all_damage_can_ignite") != 0);
         }
     }
 
@@ -59,8 +66,14 @@ sealed class MonsterIgnites
     public static double DurationMultiplier(Func<string, int> get) =>
         Math.Max(0, 1 + get("support_faster_ailments_ailment_duration_+%_final") / 100.0);
 
-    readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false);
+    // Spread: its proliferation radius in cells (0: it does not spread). Proliferated: the copy another monster's
+    // spreading ignite puts on this one, set again every AI tick (<see cref="Proliferated"/>).
+    readonly record struct Ignite(double From, double Until, double DamagePerSecond, bool Aggravated = false, int Spread = 0,
+        bool Proliferated = false);
     readonly List<Ignite> active = [];
+    // The spreading ignites it had when it died: a corpse goes on spreading them until they end (wiki Ignite
+    // Proliferation Support: the aura continues through death on intact corpses). They deal no damage.
+    List<Ignite> corpse = [];
 
     /// <summary>When an ignite was last applied (Controlled Blaze's "Enemy Ignited Recently" window).</summary>
     public double LastApplied { get; private set; }
@@ -147,15 +160,15 @@ sealed class MonsterIgnites
             || avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
-        return Add(now, perSecond, settings.Seconds, settings.Aggravated);
+        return Add(now, perSecond, settings.Seconds, settings.Aggravated, settings.Spread);
     }
 
     /// <summary>An ignite already worked out (its chance rolled, its damage and duration final). True when added.</summary>
-    public bool Add(double now, double perSecond, double seconds, bool aggravated = false)
+    public bool Add(double now, double perSecond, double seconds, bool aggravated = false, int spread = 0)
     {
         if (!(perSecond > 0) || !(seconds > 0)) return false;
         if (active.Count == 0) { last = now; carry = 0; }
-        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated));
+        active.Add(new(now, now + seconds / expiryRate, perSecond, aggravated, Math.Max(0, spread)));
         LastApplied = now;
         return true;
     }
@@ -193,7 +206,45 @@ sealed class MonsterIgnites
 
     /// <summary>Ends a dead monster's ignites. <paramref name="burnt"/>: its ignite killed it, so it died ignited even if
     /// that ignite ran out in the same advance.</summary>
-    public void Clear(bool burnt = false) { DiedBurning |= burnt || Burning; active.Clear(); carry = 0; }
+    public void Clear(bool burnt = false)
+    {
+        DiedBurning |= burnt || Burning;
+        if (active.Count > 0) corpse = active.Where(i => i.Spread > 0 && !i.Proliferated).ToList();
+        active.Clear();
+        carry = 0;
+    }
+
+    /// <summary>Drops a corpse's retained spreading ignites (shattered or consumed: nothing left to spread from).</summary>
+    public void RetireCorpse() => corpse = [];
+
+    /// <summary>Its own live ignites that spread (a corpse's included): each an aura of its own radius in cells.</summary>
+    public IEnumerable<(double DamagePerSecond, double Until, int Radius)> Spreads(double now) =>
+        (active.Count > 0 ? active : corpse).Where(i => i.Spread > 0 && !i.Proliferated && i.From <= now && now < i.Until)
+            .Select(i => (i.DamagePerSecond, i.Until, i.Spread));
+
+    /// <summary>The widest radius of its own ignites (0: none spreads), for the log.</summary>
+    public int SpreadRadius => active.Where(i => !i.Proliferated).Select(i => i.Spread).DefaultIfEmpty().Max();
+
+    /// <summary>Ignite proliferation (wiki Elemental proliferation): the strongest spreading ignite that reaches this
+    /// monster burns it at the same damage per second until that one ends, like an aura, competing with its own ignites
+    /// (only the strongest deals damage). The copy does not spread and is not a new ignite (LastApplied stays). Null takes
+    /// it off: the old copy ends at <paramref name="now"/>, so the next advance still counts it up to then. True when a
+    /// new copy started.</summary>
+    public bool Proliferated((double DamagePerSecond, double Until)? source, double now)
+    {
+        int at = active.FindIndex(i => i.Proliferated && i.Until > now);
+        if (at >= 0)
+        {
+            var current = active[at];
+            if (source is { } same && same.DamagePerSecond == current.DamagePerSecond && same.Until == current.Until)
+                return false;
+            active[at] = current with { Until = now };
+        }
+        if (source is not { } s || !(s.DamagePerSecond > 0) || !(s.Until > now)) return false;
+        if (active.Count == 0) { last = now; carry = 0; }
+        active.Add(new(now, s.Until, s.DamagePerSecond, Proliferated: true));
+        return true;
+    }
 
     /// <summary>It was ignited when it died (its ignites were cleared): the kill was of an ignited enemy.</summary>
     public bool DiedBurning { get; private set; }

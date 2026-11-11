@@ -10,10 +10,10 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using HitResistances = GameServer.Core.World.HitResistances;
 
-static partial class Game
+public static partial class Game
 {
     // Sample both moving actors at the hit time, after the approach and contact delay.
-    internal static (int Accuracy, bool Unique, bool CloseRange) AttackAccuracyAt(
+    public static (int Accuracy, bool Unique, bool CloseRange) AttackAccuracyAt(
         ClientState conn, SpawnedMonster target, double at)
     {
         bool unique = target.Rarity == MonsterRarity.Unique;
@@ -23,7 +23,7 @@ static partial class Game
     }
 
     // Both accuracy checks use the same target context. Only the first check consumes the defender's entropy.
-    internal static int AttackHitChanceAt(ClientState conn, uint id, SpawnedMonster target, double at,
+    public static int AttackHitChanceAt(ClientState conn, uint id, SpawnedMonster target, double at,
         AttackAccuracyProfile profile, IReadOnlyDictionary<uint, int>? player = null)
     {
         int evasion = target.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
@@ -33,7 +33,7 @@ static partial class Game
     }
 
     // A ground ranged shot reserves pacing, its action token and stationary walk together with the input-time gate.
-    internal static bool TryBeginRangedAttack(ClientState conn, double requestedAt, double duration,
+    public static bool TryBeginRangedAttack(ClientState conn, double requestedAt, double duration,
         ushort skill, ushort sequence, out (int Action, int X, int Y, SkillCriticalRoll CriticalRoll) started)
     {
         started = default;
@@ -58,11 +58,11 @@ static partial class Game
     // Whether an attack may start now: the shared attack timer (the default attack and the attack gem skills) is over, or
     // the use is no more than a quarter of an attack early (the client's jitter). Does not reserve the timer: an attack used
     // on a monster waits for the walk into reach, and CastGemSkill reserves it when the swing starts.
-    internal static double SkillAttackSeconds(ClientState conn, int effect, int level) =>
+    public static double SkillAttackSeconds(ClientState conn, int effect, int level) =>
         Math.Max(TickSeconds, SkillAttackTiming.ForSkill(SkillsFor(conn), effect, level, WeaponFor(conn),
             CharacterPlayerStats(conn)) / PlayerActionFactor(conn));
 
-    internal static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds)
+    public static bool AttackReady(ClientState conn, ushort skillId, int effect, int level, out double seconds)
     {
         // The supported skill's own speed includes its gem/support inputs; the generic fallback is for callers without
         // a skill id (ordinary weapon timing). Keep the gate and the interval CastGemSkill reserves on the same value.
@@ -73,16 +73,16 @@ static partial class Game
 
     // The 0x1af hit angle (0..255 = a full turn), the direction the hit comes from (attacker → target) in the client's
     // facing convention atan2(dx, −dy), like Positioned's rotation.
-    internal static byte HitAngle(int dx, int dy)
+    public static byte HitAngle(int dx, int dy)
     {
         double a = Math.Atan2(dx, -dy);
         if (a < 0) a += 2 * Math.PI;
         return (byte)((int)Math.Round(a * 256.0 / (2 * Math.PI)) & 0xff);
     }
 
-    // The 0x1af presentation type (code & 7; 3.29.3b table 0x1435d2110: 0 Physical, 1 Cold, 2 Fire, 3 Lightning,
+    // The 0x1af presentation type (code & 7; 3.29.3c table 0x1435d7520: 0 Physical, 1 Cold, 2 Fire, 3 Lightning,
     // 4 Chaos): the hit's largest damage component, Physical on a tie or an empty packet. One type, not the amounts.
-    internal static byte HitCode(GameServer.Core.World.DamagePacket packet)
+    public static byte HitCode(GameServer.Core.World.DamagePacket packet)
     {
         var type = GameServer.Core.World.DamageType.Physical;
         double most = double.NegativeInfinity;
@@ -102,7 +102,7 @@ static partial class Game
     // echo (the walk estimate leads the client's own walk, so the contact keyframe alone leaves the blood early). A fixed
     // offset is a compromise over the variable walk-sync; Game_HIT_OFFSET_MS overrides it (150 ms here covers most of the
     // walk-into-range error without overshooting a swing). A value that is not a finite number keeps the default.
-    internal static double HitContactOffsetSeconds() =>
+    public static double HitContactOffsetSeconds() =>
         (double.TryParse(Environment.GetEnvironmentVariable("Game_HIT_OFFSET_MS"), System.Globalization.CultureInfo.InvariantCulture, out var hitOff)
             && double.IsFinite(hitOff) ? hitOff : 150) / 1000.0;
 
@@ -110,14 +110,14 @@ static partial class Game
     // before the server read the action, and the release then waits for a 30 Hz tick and the output queue: Frida
     // 2026-10-31 had Burning Arrow's object about 75 ms after the client's flash at the contact, the default arrow about
     // 50 ms after the contact. Game_RELEASE_LEAD_MS overrides it; a value that is not a finite number keeps the default.
-    internal static double AttackReleaseDelay(double contactDelay) => Math.Max(0, contactDelay
+    public static double AttackReleaseDelay(double contactDelay) => Math.Max(0, contactDelay
         - (double.TryParse(Environment.GetEnvironmentVariable("Game_RELEASE_LEAD_MS"), System.Globalization.CultureInfo.InvariantCulture, out var lead)
             && double.IsFinite(lead) ? lead : 60) / 1000.0);
 
     // The attack's contact time in seconds (AttackTiming.ContactDelay): the attack time scaled to the active weapon's attack1
     // contact keyframe, plus the walk-in offset for an attack that approached its target first, and always before the next
     // attack may start (which would cancel the hit).
-    internal static double AttackContactDelay(ClientState conn, double attackSeconds, bool approach)
+    public static double AttackContactDelay(ClientState conn, double attackSeconds, bool approach)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         double contact = Animations.AttackContact(ao, WeaponProfileFor(conn, activeSet: true));
@@ -128,7 +128,7 @@ static partial class Game
     // of the attack), else the class's attack1 keyframe (AttackContactDelay: 0.692 for the Str rig's attack1_maul, the
     // default attack's own swing). The clip is taken to stretch to the attack time, as the client plays it, so the
     // server's hit lands where the client's weapon visually hits. clip/fraction come back for the sweep's log.
-    internal static double GemAttackContactDelay(ClientState conn, int effect, double attackSeconds,
+    public static double GemAttackContactDelay(ClientState conn, int effect, double attackSeconds,
         out string? clip, out double fraction)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
@@ -146,13 +146,13 @@ static partial class Game
 
     // The rig clip a skill is named by: its GrantedEffects Id without separators ("GroundSlam" → "groundslam",
     // "Cleave" → "cleave"), which is how the rigs name groundslam_maul and cleave_maul.
-    internal static string SkillClipName(string effectId) =>
+    public static string SkillClipName(string effectId) =>
         new([.. effectId.Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant)]);
 
     // PlayerActionCurrent's state half, without its action-token test: a gem melee swing keeps its hit when the player
     // only walks on (AreaSkillHit's holdsItsSwing), while a death, an area change, a retirement, a pause, a freeze or a
     // stun's hit recovery still ends it.
-    internal static bool PlayerStateAllowsAction(ClientState conn)
+    public static bool PlayerStateAllowsAction(ClientState conn)
     {
         lock (conn.Monsters)
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !conn.Paused
@@ -165,7 +165,7 @@ static partial class Game
     // from the actual approach result, rather than adding walk-in latency to a stationary swing; a lockstep client walks
     // up on the server's start as the estimate does (no lead to compensate), and the server paces its repeats, so no
     // early use cancels the hit.
-    internal static double DefaultAttackContactDelay(ClientState conn, double attackSeconds,
+    public static double DefaultAttackContactDelay(ClientState conn, double attackSeconds,
         (int X, int Y) from, (int X, int Y) stop, double departedAt, double arrivedAt, ushort sequence)
     {
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
@@ -175,12 +175,12 @@ static partial class Game
     }
 
     // How often a predictive client's walk-up estimate paths again, and when it stops following. Neither is the client's
-    // (its actor paths again every 0.05 s for the player, 0x141e8eb60, run again by 0x141e8ef50 only in that mode, and gives
+    // (its actor paths again every 0.05 s for the player, 0x141e95400, run again by 0x141e957f0 only in that mode, and gives
     // a walk-up no time limit): the Gateway's guesses, not yet sourced. A lockstep walk-up runs on its frames (StepWalkUp).
     const double SwingFollowSeconds = .1, SwingFollowLimitSeconds = 3;
 
     // The projectile grid value a ranged attack's line to its target must hold, the action's precision for the walk-up and
-    // the swing (0x141e8eb60 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
+    // the swing (0x141e95400 → MoveTo +0x528): 3 for the bow's and the wand's default attack, 1 for a one-hand sword's
     // and for a Move (live 2026-11-03, the client's searches). Attack gems' are taken to be the bow's.
     const int RangedPrecision = 3;
 
@@ -192,16 +192,16 @@ static partial class Game
     static bool SwingInReach(ClientState conn, SpawnedMonster m, (int X, int Y) from, (int X, int Y) target, double reach) =>
         conn.Walk.InReachOf(from, target, (int)reach, m.StopRange - 2);
 
-    // The walk-up's max range: the weapon's range less one, as the client's action gives its MoveTo (0x141e8eb60: max
+    // The walk-up's max range: the weapon's range less one, as the client's action gives its MoveTo (0x141e95400: max
     // range +0x168() − 1, min range +0x158() − 1, each from 1 when 0; tolerance +0x180, precision +0x170; live
     // 2026-11-03: max range 10 for the Rusted Sword's 11, 119 for a bow's 120), as a monster's chase walk-up takes it.
     // The swing's hit still tests the whole range (+ 2).
     static int WalkUpRange(SkillCatalog.Unarmed weapon) => Math.Max(weapon.Range, 1) - 1;
 
     // A predictive client's walk-up to a monster for a swing at it, from where the estimate has the player at `now`. Swing:
-    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e7b530 → 0x141e7b260). A walk-up
+    // the swing starts at once, when MoveTo finds its goal where the player stands (0x141e81c20 → 0x141e81950). A walk-up
     // with steps swings once it is over at a cell in reach. A lockstep client's is PlaceLockstepAttack's.
-    internal static ((int X, int Y) Here, (int X, int Y) Stop, double At, bool Swing) WalkUpToSwing(ClientState conn,
+    public static ((int X, int Y) Here, (int X, int Y) Stop, double At, bool Swing) WalkUpToSwing(ClientState conn,
         SpawnedMonster m, (int X, int Y) target, SkillCatalog.Unarmed weapon, double now, int precision)
     {
         int reach = WalkUpRange(weapon);
@@ -214,7 +214,7 @@ static partial class Game
     // Swing) returns at once. A lockstep client's walk-up is the step pass's (LockstepAttackStart), and this only waits for
     // its decision. Returns where the swing is swung from, when the walk-up got there and when the swing began (on a
     // lockstep client both the start of the frame it began in); null when the walk-up failed or another action replaced it.
-    internal static async Task<((int X, int Y) Stop, double Arrive, double Begun)?> FollowMonsterToSwing(ClientState conn,
+    public static async Task<((int X, int Y) Stop, double Arrive, double Begun)?> FollowMonsterToSwing(ClientState conn,
         SpawnedMonster m, SkillCatalog.Unarmed weapon, Func<bool> current, Func<double, double, Task<bool>> until,
         (int X, int Y) stop, double arrive, bool swing, double now, int precision = 1, LockstepAttack? lockstep = null)
     {
@@ -256,7 +256,7 @@ static partial class Game
     // (Characters.dat MinDamage..MaxDamage raised by the increased melee physical damage stats). Any later action (a move, another click) cancels both.
     // One attack per attack time (WeaponSpeed ms scaled by the player's attack speed stats, a quarter early allowed for
     // jitter); earlier repeats of 0x24 are ignored. At 0 the client's Life component runs its death; the corpse stays.
-    internal static async Task Attack(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task Attack(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, SpawnedMonster m, double requestedAt)
     {
         if (m.OwnerId is not null) return;
@@ -487,7 +487,7 @@ static partial class Game
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
                     blind: BlindHitInput.Capture(player));
-                if (life > 0 && (critical ? prehit.Ignite.CriticalMax : prehit.Ignite.Max) > 0
+                if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(conn, targetId, m, prehit.Ignite,
                         critical, at) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
@@ -501,7 +501,7 @@ static partial class Game
             ChargesOnHit(conn, m, critical, spell: false);
             if (critical) _ = GainFlaskChargesOnCrit(remote, stream, ciphers, conn);   // the hit landed
             if (critical) await MaybeCreateProfaneGround(remote, stream, ciphers, conn, target);
-            // At 0 the client's Life tick (0x141e6a190) stops notifying its listeners, so the mini life bar would keep the last
+            // At 0 the client's Life tick (0x141e70730) stops notifying its listeners, so the mini life bar would keep the last
             // value: hide it with the stat its listener watches (hide_mini_life_bar).
             if (life == 0)
                 await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(targetId, [(StatKeys.HideMiniLifeBar, 1)]),
@@ -533,16 +533,16 @@ static partial class Game
     }
 
     /// <summary>The immutable default-melee hit and damaging-ailment outputs chosen for one contact.</summary>
-    internal sealed record DefaultMeleePrehitProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+    public sealed record DefaultMeleePrehitProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
     /// <summary>The immutable hit and damaging-ailment outputs chosen for one AreaSkillHit victim.</summary>
-    internal sealed record AreaSkillDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+    public sealed record AreaSkillDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
     // Build the default melee contact's damage and ailment inputs from one saved weapon and caster snapshot. The caller
     // holds Monsters and uses the result through the contact without reading the player or weapon again.
-    internal static DefaultMeleePrehitProfile? DefaultMeleePrehitProfileLocked(ClientState conn, uint targetId,
+    public static DefaultMeleePrehitProfile? DefaultMeleePrehitProfileLocked(ClientState conn, uint targetId,
         SpawnedMonster target, IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed weapon,
         GameServer.Core.World.DamageConversion conversion, IReadOnlyDictionary<uint, int>? own, double at)
     {
@@ -567,7 +567,7 @@ static partial class Game
     // first, so the server walks its estimate too and only echoes the swing — and pays the skill's cost — on arrival. Before
     // 2026-10-25 the attack cast at the click from out of reach: the mana was gone at once and the hit landed around the
     // player, hitting nothing. CastGemSkill pays the cost and runs the skill's effect (projectile, area hit, aura, self-cast).
-    internal static async Task CastOn(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task CastOn(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         InstanceTransfer.UseSkillOnObject use, SpawnedMonster m, double requestedAt)
     {
         if (m.OwnerId is not null) return;
@@ -577,10 +577,11 @@ static partial class Game
             Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4}: unknown dynamic skill id (action not started)");
             return;
         }
+        if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, use.SkillId) is not null) return;
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) return;
         // A movement attack (Flicker Strike, Leap Slam) closes the distance itself, and an attack used with "always attack
         // without moving" (Flags bit 0) swings from where the player stands: both keep the immediate cast.
-        if (gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
+        if (gem.Name is not null && !IsTotemSkill(conn, use.SkillId) && SkillsFor(conn).IsAttack(gem.Effect) && !SkillsFor(conn).IsMovement(gem.Effect) && (use.Flags & 0x1) == 0)
         {
             if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
             {
@@ -663,7 +664,7 @@ static partial class Game
         }
         double castAt = conn.Clock.Elapsed.TotalSeconds;
         int castAction = 0;
-        (int X, int Y) aim = default, stand = default;
+        (int X, int Y) aim = default, stand = default, landing = default;
         int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(conn, use.SkillId, gem.Effect), chargeToken = 0;
         bool moves = gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect);
         if (gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
@@ -689,6 +690,10 @@ static partial class Game
             ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
             return;
         }
+        // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
+        bool flicker = moves && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
+        // The monster Flicker Strike goes to, which may not be the clicked one (FlickerStrike.Pick): its strike's target.
+        uint struckId = use.TargetId;
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -700,9 +705,19 @@ static partial class Game
                 conn.Walk.Order(stand.X, stand.Y, castAt);
                 // A movement skill aimed at a monster travels as one aimed at the ground does.
                 if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
+                else if (flicker)
+                {
+                    // With no monster in range it strikes in place, at no one (as on the ground).
+                    (landing, struckId) = (stand, 0);
+                    if (FlickerDestination(conn, gem.Effect, use.SkillId, stand, aim, use.TargetId, castAt) is { } to)
+                    {
+                        (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
+                        conn.Walk.Teleport(landing.X, landing.Y, castAt);
+                    }
+                }
                 else if (moves && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
                 {
-                    var landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    landing = MovementLanding(conn, gem.Effect, stand, aim);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
             }, out var spellUse, requestedAt: requestedAt)) return;
@@ -717,16 +732,23 @@ static partial class Game
             $"0x01ab player skill 0x{use.SkillId:x4} cast on monster 0x{use.TargetId:x} ({m.Label}) from ({stand.X}, {stand.Y}) to ({aim.X}, {aim.Y}), flags 0x{use.Flags:x4} (t={castAt:0.000})",
             still: () => spellAcknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                 () => spellUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, castAction)));
+        if (flickers && spellAcknowledged)
+        {
+            await FlickerArt(remote, stream, ciphers, conn, gem.Gem, stand, landing);
+            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, landing.X, landing.Y),
+                $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
+        }
+        if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
-        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stand, aim, use.TargetId, sequence: use.Sequence,
-            actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
+        if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, struckId,
+            sequence: use.Sequence, actionToken: spellUse?.ActionToken ?? castAction, cooldownUse: spellUse);
     }
 
     /// <summary>One Dash whose source, resources, cooldown, displacement and recent events committed together. The past
     /// event is immutable; delayed publication and acknowledgement still require the original owner and source to be
     /// current. They never move, pay or record again.</summary>
-    internal sealed record DashUseReceipt(ClientState Connection, GameServer.Modding.IModuleLifetime Lifetime,
+    public sealed record DashUseReceipt(ClientState Connection, GameServer.Modding.IModuleLifetime Lifetime,
         ushort SkillId, int Effect, GemSkillIds.Gem Source, int ActionToken, int ProjectileEpoch, double AcceptedAt,
         (int X, int Y) From, (int X, int Y) To,
         SingleUseCooldownState Cooldown, int UseVersion, uint ManaCost, uint LifeCost)
@@ -773,7 +795,7 @@ static partial class Game
             lock (conn.Monsters) return CurrentLocked(conn);
         }
 
-        internal bool CurrentLocked(ClientState conn) =>
+        public bool CurrentLocked(ClientState conn) =>
             ReferenceEquals(Connection, conn) && CurrentGameRules && ReferenceEquals(Lifetime, CombatLifetime)
             && conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0 && !conn.Paused
             && conn.PendingTransfer is null && conn.ActionCount == ActionToken
@@ -804,7 +826,7 @@ static partial class Game
     // Dash admission is its own transaction because unlike the ordinary cooldown ticket its movement is part of the
     // accepted use. Resolve the exact current source, landing, readiness and cost first; only then spend cooldown and
     // resources and commit displacement plus its original-time recents in the same Monsters critical section.
-    internal static bool TryCommitDashUse(ClientState conn, ushort skillId, int effect, (int X, int Y) aim,
+    public static bool TryCommitDashUse(ClientState conn, ushort skillId, int effect, (int X, int Y) aim,
         out DashUseReceipt? receipt, double? requestedAt = null, bool beginAction = true)
     {
         receipt = null;
@@ -843,7 +865,7 @@ static partial class Game
         }
     }
 
-    internal static async Task<bool> PublishDashUse(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> PublishDashUse(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, DashUseReceipt receipt)
     {
         if (!receipt.Current(conn)) return false;
@@ -871,7 +893,7 @@ static partial class Game
     // A gem skill's cast: Righteous Fire puts its buff on, any other skill launches its projectile (if it has one). False when
     // it was refused (cooldown, mana), so its use is not confirmed to the client. An attack's timer, hit and release
     // count from swingAt when its swing began before now (a lockstep walk-up's goal frame, CastOn), else from now.
-    internal static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<bool> CastGemSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool locationInstant = false,
         DashUseReceipt? dashReceipt = null, double? swingAt = null)
@@ -991,7 +1013,7 @@ static partial class Game
         // the right mouse button, twelve swings a second at 6 mana each). The timer is shared with the default attack, so
         // two attacks cannot start at once either.
         // Paid Vaal admission already reserved this swing atomically with its cost, before the native echo.
-        if (vaalUse is null && gem.Name is not null && SkillsFor(conn).IsAttack(gem.Effect))
+        if (vaalUse is null && gem.Name is not null && !IsTotemSkill(conn, skillId) && SkillsFor(conn).IsAttack(gem.Effect))
         {
             double duration = SupportedAttackSeconds(conn, skillId);
             double now = swingAt ?? conn.Clock.Elapsed.TotalSeconds, next;
@@ -1042,6 +1064,7 @@ static partial class Game
         {
             uint cost, lifeCost;
             bool paid;
+            int? channelWalk = ChannelWalkPercent(conn, skillId, gem.Effect);
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
@@ -1066,10 +1089,16 @@ static partial class Game
                 {
                     channelGeneration = ++conn.ChannelGeneration;
                     conn.ChannelSkill = skillId;
+                    bool walkChanges = channelWalk is not null || conn.ChannelMovement.Skill != 0;
+                    conn.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
+                    if (walkChanges) conn.ApplyMovementSpeed();
                     conn.ChannelSkillSequence = sequence;
                     conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
                     conn.PaidChannel = CombatLifetime is { IsActive: true } rules
                         ? new(skillId, gem.Effect, action, conn.ChannelGeneration, rules) : null;
+                    if (GolemStat(SupportedSkill(conn, skillId).Stats, "cast_while_channelling_time_ms") > 0)
+                        BeginChannelTriggers(conn, ProjectilesFor(remote, stream, ciphers, conn), skillId,
+                            action, conn.ChannelGeneration, to, conn.Clock.Elapsed.TotalSeconds);
                 }
                 // Capture at paid admission, before output or release scheduling can catch up other hits.
                 recoveryGeneration = conn.ActionInterruptionGeneration;
@@ -1136,12 +1165,14 @@ static partial class Game
             return await CastSummon(remote, stream, ciphers, conn, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Desecrate")
             return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
-        if (gem.Name is not null && TotemVariety(conn, gem.Effect) is { } totem)
+        if (gem.Name is not null && IsTotemSkill(conn, skillId) && TotemVariety(conn, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;
+        if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
+            return await ActivateBladefallTrarthus(remote, stream, ciphers, conn, skillId);
         if (gem.Name is not null && IsRighteousFire(gem.Effect))
             await ActivateRighteousFire(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, gem.Quality, gem.Gem);
         else
@@ -1188,10 +1219,11 @@ static partial class Game
 
     // An instant skill (C→S 0x191): its effect, then S→C 0x1ce, which has the client run the skill's action without animation
     // and consume a use of it: the skill bar's cooldown starts (the tooltip showed the cooldown, the bar did not run it).
-    internal static async Task UseInstantSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task UseInstantSkill(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, uint targetId, (int X, int Y) at)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (gem.Name is not null && InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             await UseInstantSkillAtLocation(remote, stream, ciphers, conn, skillId, default, targetId);
@@ -1226,11 +1258,11 @@ static partial class Game
         InstantLocationSkill.ObjectTargetSupported(SkillsFor(conn), effect)
         || !SkillsFor(conn).IsMovement(effect) && GolemStat(SupportedSkill(conn, skill).Stats, "base_skill_is_instant") != 0;
 
-    internal static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task UseInstantSkillAtLocation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (uint X, uint Y) aim, uint? targetObjectId = null)
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
-        if (gem.Name is null) return;
+        if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return;
         if (!InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))
         {
             // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
@@ -1297,7 +1329,7 @@ static partial class Game
 
     // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them
     // off. The reserved mana is sent in the Life pool and in every later 0x1b1 mana update; the client does not derive it.
-    internal static async Task<bool> ToggleAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<bool> ToggleAura(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect, string name, SkillCatalog.ReservationCost reservation, int level, int quality)
     {
         string? effectId = SkillsFor(conn).EffectId(effect);
@@ -1373,10 +1405,10 @@ static partial class Game
         return true;
     }
 
-    internal static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
+    public static IEnumerable<byte[]> AuraBuffs(AuraCatalog.Aura aura) =>
         AuraCatalog.StartPackets(aura, PlayerId, Skills.ActionHash(aura.Effect));
 
-    internal static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task DisableReservations(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string name)
     {
         lock (conn.Monsters)
@@ -1476,7 +1508,7 @@ static partial class Game
     }
 
     // Every projectile uses the same scheduler and simulator. Definitions change rules, never execution paths.
-    internal static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task LaunchProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
         int? channelGeneration = null, double? swingAt = null, long prepaidRawExtra = 0)
@@ -1485,6 +1517,8 @@ static partial class Game
         if (gem.Name is null) return Task.CompletedTask;
         // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
         if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
+        // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
+        if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
@@ -1552,13 +1586,31 @@ static partial class Game
             }
         }
         var jobs = new List<Task>();
+        // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
+        var discharge = DischargeUseFor(conn, gem.Effect, gem.Level, gem.Quality);
+        bool darkBargain = IsDarkBargain(conn, gem.Effect);
+        // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
+        if (IsStormCall(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            for (int repeat = 0; repeat <= spellRepeats; repeat++)
+                foreach (var area in cascadeAreas.Prepend(to))
+                    jobs.Add(PlaceStormCall(remote, stream, ciphers, conn, skillId, gem, area, repeat, actionToken, cooldownUse,
+                        criticalRoll, prepaidRawExtra));
+            return Task.WhenAll(jobs);
+        }
         for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
         {
+            // Dark Bargain explodes at skeletons (or the player), not at the aim: each repeat pays and chains again.
+            if (darkBargain)
+            {
+                jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, prepaidRawExtra));
+                continue;
+            }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: prepaidRawExtra,
-                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
+                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -1569,17 +1621,23 @@ static partial class Game
     // skill's own speed, its supports and the player's attack speed, as the tooltip shows) for as long as the channel
     // runs. The hits used to wait for the client's position updates (C→S 0x197), which do not come at that rate, so a
     // short channel landed one late sweep. The channel ends with C→S 0x199, any other action, mana, death or travel, or
-    // when the client's 0x197 updates stop for ChannelSilenceSeconds (it sends them all the time while the button is held,
-    // so a lost 0x199 cannot keep a channel spinning on its own).
-    internal const double ChannelSilenceSeconds = 1.0;
+    // when the client's 0x197 updates stop for ChannelSilenceSeconds (so a lost 0x199 cannot keep a channel spinning on
+    // its own). A held Winter Orb is the exception: its client sends 0x198 only when the aimed cell changes, so a still
+    // cursor leaves none, and the orb must keep charging the stages the bar is counting (ChannelCurrent).
+    public const double ChannelSilenceSeconds = 1.0;
 
-    internal static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
     {
         int generation = conn.ChannelGeneration;
         bool Running() => ChannelCurrent(conn, skillId, action, generation);
+        // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
+        // while this channel's cast ticks only build the orb's stages.
+        uint orbEffect = 0;
         try
         {
+            if (IsWinterOrb(gem.Effect))
+                orbEffect = await WinterOrbStart(remote, stream, ciphers, conn, skillId, gem, action);
             while (true)
             {
                 double wait = conn.NextChannelHitAt - conn.Clock.Elapsed.TotalSeconds;
@@ -1610,23 +1668,74 @@ static partial class Game
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
                 if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
                 if (!Running()) return;
+                // Winter Orb's orb pelts nearby enemies on its own loop (WinterOrb.cs); it does not sweep around the
+                // player. This cast tick only builds a stage, so a faster caster charges the orb sooner.
+                if (IsWinterOrb(gem.Effect))
+                {
+                    WinterOrbStageStep(conn);
+                    await WinterOrbPresentStages(remote, stream, ciphers, conn);
+                    continue;
+                }
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at,
                     immediate: true, sequence: conn.ChannelSkillSequence, actionToken: action, channelGeneration: generation);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        finally
+        {
+            // Winter Orb's orb outlives its channel (WinterOrb.cs): it keeps firing on its decaying stages until the
+            // duration they leave runs out, and death or an area change retires it with the connection. It has no object
+            // of its own to remove: the client draws the orb from the stage buff.
+            if (orbEffect != 0) WinterOrbRelease(conn, generation, action);
+        }
     }
 
-    internal static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)
+    // Cyclone moves while it is channelled: its final movement modifier (cyclone_movement_speed_+%_final, from the gem's
+    // stats with its supports); null for a channel that stands (Blade Flurry …).
+    public static int? ChannelWalkPercent(ClientState conn, ushort skillId, int effect) =>
+        SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect))
+            ? GolemStat(SupportedSkill(conn, skillId).Stats, "cyclone_movement_speed_+%_final") : null;
+
+    // C→S 0x197: the point the held channel is aimed at now (the cursor's cell), not the player's cell: it can be the
+    // whole screen away the moment the channel starts. The client walks Cyclone's player toward it at the movement speed
+    // with the skill's final modifier, as an order re-aimed on every update; the sweeps follow that walk (RunChannel).
+    // A channel that stands keeps the player where it is.
+    public static void ChannelAimedAt(ClientState conn, int x, int y, double at)
+    {
+        AimChannelTriggers(conn, (x, y));
+        if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill) conn.Walk.Order(x, y, at);
+    }
+
+    // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
+    // as part of the channel); the walk gets its usual speed back.
+    public static void ChannelReleased(ClientState conn, double at)
+    {
+        lock (conn.Monsters)
+        {
+            if (conn.ChannelMovement.Skill != 0 && conn.ChannelMovement.Skill == conn.ChannelSkill)
+            {
+                var (x, y) = conn.Walk.Position(at);
+                conn.Walk.Order(x, y, at);
+            }
+            conn.ChannelSkill = 0;
+            conn.ChannelGeneration++;
+        }
+    }
+
+    public static bool ChannelCurrent(ClientState conn, ushort skill, int action, int generation)
     {
         lock (conn.Monsters)
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
                 && conn.ChannelSkill == skill && conn.ActionCount == action && conn.ChannelGeneration == generation
-                && conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds;
+                // Winter Orb's channel is held by the button, not by the aim: a still cursor keeps the aimed cell and the
+                // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
+                // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
+                && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                    || conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
-    internal static bool PaidChannelCurrent(ClientState conn, ChannelPaymentReceipt receipt)
+    public static bool PaidChannelCurrent(ClientState conn, ChannelPaymentReceipt receipt)
     {
         lock (conn.Monsters)
         {
@@ -1644,7 +1753,7 @@ static partial class Game
     // The radius in cells of a gem skill's hit around its aimed point (AreaSkillHit): its own
     // active_skill_base_area_of_effect_radius, else Cyclone's 16 or the generic 12, grown by the player's area stats
     // (SkillArea). The radius stat is in cells (Righteous Fire's 18 is its 1.8 m, verified against the real game 2026-10-23).
-    internal static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
+    public static int SkillRadius(ClientState conn, IReadOnlyDictionary<uint, int> skillStats, bool spell, int effect)
     {
         var areaStats = MergeSkillStats(AreaPlayerStats(conn), skillStats);
         int Get(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
@@ -1652,10 +1761,10 @@ static partial class Game
     }
 
     // An area spell's centre: the aimed point, but a self-targeted spell (Ice Nova, Discharge, Vaal Cold Snap) goes off
-    // around the caster wherever it was aimed, as the client's action does (FUN_14193e290). A Nova among them goes off at
+    // around the caster wherever it was aimed, as the client's action does (FUN_1419439e0). A Nova among them goes off at
     // the aim when the caster has nova_spells_cast_at_target_location (Devout of Lunaris: "Nova Spells Cast at the
     // targeted location instead of around you"; the client's 0x2a6e).
-    internal static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
+    public static (int X, int Y) SpellCentre(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) to) =>
         !SkillsFor(conn).IsSelfTargeted(effect) || SkillsFor(conn).IsNova(effect)
             && Stats.Key("nova_spells_cast_at_target_location") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0
             ? to : from;
@@ -1668,12 +1777,13 @@ static partial class Game
     // (SkillCatalog.HitDamage) with the player's stats; both convert, crit and roll per monster. An attack's hit carries
     // the skill's damage effectiveness (SkillCatalog.DamageEffectiveness). Not modelled yet: the skills' own shapes (waves,
     // cones, chains) and stun.
-    internal static async Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task AreaSkillHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, long addedChaos = 0, double? swingAt = null)
+        double radiusMore = 1, long addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null,
+        DischargeUse? discharge = null, long baseChaos = 0)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1686,11 +1796,12 @@ static partial class Game
         bool TokenCurrent() => holdsItsSwing
             ? PlayerStateAllowsAction(conn)
             : cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
-        bool Current() => TokenCurrent()
+        bool Current() => (triggeredCurrent?.Invoke() ?? true) && TokenCurrent()
             && (SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null
                 || paidVaal is not null && VaalAdmissionCurrent(conn, paidVaal))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, actionToken ?? conn.ActionCount, generation));
         if (!Current()) return;
+        var criticalTrigger = spell ? null : CaptureCriticalTriggerSource(conn, skillId);
         var admittedGem = SupportedSkill(conn, skillId);
         var skillStats = admittedGem.Stats;
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
@@ -1698,6 +1809,13 @@ static partial class Game
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit) return;
+        // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
+        if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(conn));
+        if (discharge is not null && discharge.Total == 0)
+        {
+            Console.WriteLine($"[gateway] {remote} {gem.Name}: no removable charges, nothing discharged");
+            return;
+        }
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         var weapon = WeaponFor(conn);
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
@@ -1724,16 +1842,18 @@ static partial class Game
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
-        // still lands in front of the player; a self-targeted spell goes off around the caster.
-        var centre = wave || VaalExecutor(conn, gem.Effect) || !spell && Dist(from, to) > radius + weapon.Range ? from
-            : spell ? SpellCentre(conn, gem.Effect, from, to) : to;
+        // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
+        // around the caster.
+        var centre = wave || VaalExecutor(conn, gem.Effect) ? from
+            : spell ? SpellCentre(conn, gem.Effect, from, to)
+            : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
         // invisible in the log (the live tests cannot count what a swing did without it).
         bool Replaced()
         {
-            if (cooldownUse?.Instant == true || conn.ActionCount == action) return false;
+            if (triggeredCurrent is not null || cooldownUse?.Instant == true || conn.ActionCount == action) return false;
             // A gem melee swing survives the Move the client queued behind its swing (holdsItsSwing): the walk order
             // stands, the hit still lands, and only a real interruption (which PlayerStateAllowsAction refuses) drops it.
             if (holdsItsSwing && PlayerStateAllowsAction(conn))
@@ -1884,7 +2004,7 @@ static partial class Game
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
                     // target opens one fresh character scope, which every victim reuses until this sweep's loop exits.
                     if (conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0 || conn.Paused
-                        || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && !PlayerActionCurrent(conn, action))) break;
+                        || !(ring || wave) && (!Current() || !holdsItsSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(conn, action))) break;
                     if (m.Dead || m.Life == 0 || !m.Hostile
                         || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                     bool freshPlayer = player is null;
@@ -1897,14 +2017,14 @@ static partial class Game
                         var shield = spell ? null : ShieldWeapon(conn, skillId);
                         var sourceWeapon = shield ?? WeaponFor(conn);
                         var local = spell || shield is not null ? null : sourceWeapon.LocalSources;
-                        if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, capturedGem: admittedGem)
+                        if (SupportedHitInputsFor(conn, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem)
                             is not { } capturedInputs) break;
                         // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
                         // before the shared hit and ailment ancestry, so increases, more multipliers and prohibition
                         // rules see it exactly as they see any other spell-added damage.
-                        if (addedChaos > 0)
+                        if (addedChaos > 0 || baseChaos > 0)
                         {
-                            double added = addedChaos * AddedEffectiveness(conn, admittedGem.Effect, admittedGem.Level);
+                            double added = baseChaos + addedChaos * AddedEffectiveness(conn, admittedGem.Effect, admittedGem.Level);
                             capturedInputs = capturedInputs with
                             {
                                 Raw = capturedInputs.Raw.Add(DamageType.Chaos, new(added, added)),
@@ -2000,6 +2120,9 @@ static partial class Game
                         cull: Cull.Of(player, skillStats, critical, spell));
                     if (applied is not null)
                     {
+                        if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
+                            criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
+                        else ArcaneSurgeOnSpellHitLocked(conn, player, m);
                         conn.RecentEvents.RecordCriticalOutcome(at, critical);
                         landed++;
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.
@@ -2070,6 +2193,11 @@ static partial class Game
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        // An immediate (triggered) spell has no cast clip to draw Discharge's explosion: the server draws it.
+        if (discharge is not null
+            && SpendDischargedCharges(remote, conn, gem.Name, gem.Gem, discharge, Stat("discharge_chance_not_to_consume_charges_%"), targets.Count)
+            && immediate && spell)
+            await ShowTriggeredDischarge(remote, stream, ciphers, conn, gem.Gem, discharge, centre, radius);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
@@ -2078,7 +2206,7 @@ static partial class Game
         }
     }
 
-    internal static async Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch)
+    public static async Task<bool> WaitProjectileTime(ClientState conn, double until, int epoch)
     {
         while (true)
         {
@@ -2093,7 +2221,7 @@ static partial class Game
 
     // A hit on a living monster: life is mutated once under Monsters, then notifications await outside the lock. False when
     // the monster was dead already or the action was replaced (the hit did not land).
-    internal static async Task<bool> HitMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+    public static async Task<bool> HitMonster(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         int damage, string by, bool log = true, bool melee = false, ushort sequence = 0, int? actionToken = null,
         CooldownUseTicket? cooldownUse = null, Action? accepted = null, Func<int>? damageAtContact = null,
         List<(uint Id, SpawnedMonster M)>? deaths = null)
@@ -2121,16 +2249,16 @@ static partial class Game
     // with the hit's penetration subtracted from the capped value (HitMitigation), summed to the total the critical
     // multiplier later applies to. Damage over time has neither here and keeps its own path. Internal for the tests.
     // Without a time the target's chill and shock do not count: a player hit path uses MonsterHitDamage.
-    internal static int MonsterDamage(SpawnedMonster m, DamagePacket hit, Random random, Penetration.PerType pen) =>
+    public static int MonsterDamage(SpawnedMonster m, DamagePacket hit, Random random, Penetration.PerType pen) =>
         MonsterTakes(m, hit, random, spell: false, pen);
 
     // Resolve an already-rolled packet using its single critical draw; target damage taken follows mitigation. Without
     // the target's chill and shock: a player hit path uses MonsterHitDamage.
-    internal static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
+    public static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen = default, bool invertElemental = false)
         => MonsterDamage(m, rolled, critical, attack, mods, pen, out _, invertElemental);
 
-    internal static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
+    public static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen, out DamagePacket taken, bool invertElemental = false)
     {
         var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack, double.NaN, mods, pen, invertElemental);
@@ -2140,7 +2268,7 @@ static partial class Game
 
     // A player's hit as MonsterDamage, with the target's damage taken at now (its shock, Glacial Wave's chill) and the
     // resisted packet that AilmentsOnHitLocked needs: every player hit path calls both (surfcaster.md, Hit paths).
-    internal static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
+    public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
         bool invertElemental = false)
     {
@@ -2157,7 +2285,7 @@ static partial class Game
             described.Count > 0 ? string.Join(", ", described) : null, mitigated);
     }
 
-    internal static HitResistances.Mods HitResistMods(IReadOnlyDictionary<uint, int> player,
+    public static HitResistances.Mods HitResistMods(IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? skill = null)
     {
         var a = HitResistances.Mods.From(player, Stats.Key);
@@ -2169,7 +2297,7 @@ static partial class Game
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where
     // it hits from) is not the player's hit for his hit-recently.
-    internal static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
+    public static MonsterHit? ApplyMonsterHitLocked(ClientState conn, SpawnedMonster m, int damage,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null, (int X, int Y)? allyAt = null,
         Cull cull = default)
     {
@@ -2188,7 +2316,7 @@ static partial class Game
         return new(m.Life, starts);
     }
 
-    internal static async Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+    public static async Task NotifyMonsterHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
         List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false)
     {
@@ -2230,13 +2358,13 @@ static partial class Game
     // The gates (HitReaction) keep it a stun-like reaction rather than a loop; see that class. The monster is checked again
     // inside the send gate: a hit that kills it meanwhile marks it Dead before it sends its own 0x1b1, so the flinch either
     // goes out before the death or not at all.
-    internal static Task SendFlinch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static Task SendFlinch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, StunHit stun, bool log) => SendMonsterFlinch(remote, stream, ciphers, conn, id, m, stun, log);
 
-    internal sealed record PlayerRecoveryIntent(int Epoch, int Action, double Until, float Seconds);
+    public sealed record PlayerRecoveryIntent(int Epoch, int Action, double Until, float Seconds);
 
     // Cancellation belongs to the hit boundary; the native animation is a projection of that committed interval.
-    internal static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(ClientState conn, int damage, double now)
+    public static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(ClientState conn, int damage, double now)
     {
         if (damage <= 0) return null;
         var stats = CharacterPlayerStats(conn);
@@ -2273,7 +2401,7 @@ static partial class Game
         return new(conn.ProjectileEpoch, action, conn.HitRecovery.Until, seconds);
     }
 
-    internal static Task SendPlayerHitRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task SendPlayerHitRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         PlayerRecoveryIntent recovery) => Send(remote, stream, ciphers, [], "0x01d1 player TakeHit recovery", atGate: () =>
         {
             lock (conn.Monsters)
@@ -2287,7 +2415,7 @@ static partial class Game
             }
         });
 
-    internal static bool PlayerActionCurrent(ClientState conn, int action)
+    public static bool PlayerActionCurrent(ClientState conn, int action)
     {
         lock (conn.Monsters)
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
@@ -2296,7 +2424,7 @@ static partial class Game
 
     // A hit's damage off a monster's life (under the Monsters lock): the new life, and whether the hit starts its boss stage
     // (BossFights; the stage is then taken, so it runs once).
-    internal static (uint Life, bool StageStarts) TakeDamageLocked(SpawnedMonster m, int damage)
+    public static (uint Life, bool StageStarts) TakeDamageLocked(SpawnedMonster m, int damage)
     {
         // While the stage runs the boss cannot die: its life fills up at the end anyway. The humanoid King also waits for
         // the maze/treant phase before the treant form takes over; a burst cannot skip it. Its floor is 50% life (the
@@ -2325,9 +2453,9 @@ static partial class Game
     }
 
     // A boss's stage (BossFights): it stops and uses its stage skill in place (0x1ab, the skill's animation: Hillock pulls
-    // out his sword), then its Transitionable steps to the stage's state (0x2ba: the sword in his hand) and its life fills
+    // out his sword), then its Transitionable steps to the stage's state (0x2bc: the sword in his hand) and its life fills
     // up (0x1b1).
-    internal static async Task RunBossStage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    public static async Task RunBossStage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         var stage = m.Stage!;
         while (!m.StageActionStarted)
@@ -2358,7 +2486,7 @@ static partial class Game
 
     // A boss whose variety has the big life bar (MonsterVarieties BossHealthBar) shows it at the top of the screen once it
     // aggroes: its StateMachine's boss_life_bar (Metadata/Monsters/BossLifeBar.ot) and aggro (Hillock's aggro effect) go to 1.
-    internal static async Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn)
+    public static async Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn)
     {
         if (m.Variety is not { } v || m.States is not { } states) return;
         int index = v.ComponentsOrBase.ToList().IndexOf("StateMachine");
@@ -2366,17 +2494,17 @@ static partial class Game
         states = states.Set("boss_life_bar", 1).Set("aggro", 1);
         lock (conn.Monsters) m.States = states;
         await Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
-            $"0x02ba monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
+            $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
     }
 
     const double CorpseBlockDelaySeconds = .165;
 
     // The client keeps routing around a corpse until Positioned clears its body. Retire the lockstep estimate at
     // that message's send gate too; clearing it on death gives early post-kill Moves a different path.
-    internal static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
+    public static void StopCorpseBlocking(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m)
     {
         lock (conn.Monsters) conn.RetainCorpseBody(id, m, conn.LockstepFrame?.Start ?? ProjectileWorldTime(conn));
-        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b0 corpse of 0x{id:x} stops blocking", atGate: () =>
+        SendAfter(CorpseBlockDelaySeconds, () => Send(remote, stream, ciphers, [], $"0x02b2 corpse of 0x{id:x} stops blocking", atGate: () =>
         {
             using (ProjectileMutation(conn, phase: "send"))
             {
@@ -2396,7 +2524,7 @@ static partial class Game
     // enough and it drops its items around where it fell (ItemDrops). Its corpse stays where it fell for as long as the
     // player is in the area (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking); leaving does not save it.
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
-    internal static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
+    public static async Task MonsterKilled(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster m,
         bool byMinion = false, bool byHit = true)
         => await MonsterKilledBy(remote, stream, ciphers, conn, id, m, playerKill: !byMinion, byHit);
 
@@ -2430,7 +2558,7 @@ static partial class Game
         var monster = ModMonster(m, at);
         if (playerKill)
         {
-            await Program.ServerHooks.MonsterKilled(new(killer, monster));
+            await GameEvents.RunMonsterKilled(new(conn, monster));
             if (OnslaughtOnKill(conn)) await SendKillOnslaught(remote, stream, ciphers, conn);
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
@@ -2440,15 +2568,20 @@ static partial class Game
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, id, at);
         await SetQuestFlags(remote, stream, ciphers, conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id));
-        ShareKill(conn, id, m, variety, at);
+        // The party's kill: every living player within the experience range takes their share
+        // (Progression.PartyMultiplier), the killer included. The presence of a private area is the party (an area is
+        // entered as the party's instance).
+        var partyShares = PartyExperienceShares(conn, at);
+        ShareKill(conn, id, m, variety, at, partyShares);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
         // A summoned monster whose skill says so gives neither experience nor items.
         if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
-            uint xp = Program.ServerHooks.Experience(killer, monster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, m.Rarity, conn.Pools.Level, m.Level));
-            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too.
-            await GainGemExperience(remote, stream, ciphers, conn, xp);
+            var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
+                conn.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, conn));
+            // The gems gain their share of the kill only (not a quest's level or /add_xp), at the character's cap too:
+            // 10% of the kill's experience before the level penalty.
+            await GainGemExperience(remote, stream, ciphers, conn, gemXp);
             await GainExperience(remote, stream, ciphers, conn, xp, $"{m.Rarity} {m.Label} 0x{id:x}");
         }
         // A quest kill that levels the character up (a1q1: Hillock → at least level 2), wherever the player stands.
@@ -2465,14 +2598,14 @@ static partial class Game
 
     // The monster's items (ItemDrops.Roll) as WorldItem objects scattered around where it died, on walkable cells when the
     // area's walk map is known. Like dropped items they lie in the instance (InstanceStore).
-    internal static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
+    public static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         // A survivors run keeps the ground clear: no loot, no gold, nothing reaches the client.
         if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
         // The mods' changes (Program.Mods.cs): their multipliers on top of the league's, their own items besides.
-        var modded = Program.ServerHooks.Drops(PlayerOf(conn), ModMonster(m, at));
+        var modded = GameEvents.RunDrops(conn, ModMonster(m, at));
         List<ItemDrops.Drop> drops = [];
         // The King in the Mists always drops one of four uniques, plus its support gems and card. Its humanoid form is
         // removed without a death, so only the treant (Boss3) reaches here.
@@ -2480,17 +2613,20 @@ static partial class Game
             drops.AddRange(DropsFor(conn).KingInMists(m.Level, Random.Shared));
         if (modded is not { Cancel: true })
         {
-            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
-            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign.
+            if (m.Rarity == MonsterRarity.Unique && m.Variety is { } boss)
+                drops.AddRange(DropsFor(conn).EncounterJewels(boss.Id, m.Level, Random.Shared, DropDataProvider.Default.Current));
+            // A generic map drop (approximate rates): use the open map's tier in a map, tier 1 in the campaign. The same
+            // tier lets the rolls add their base card/scarab drops in a map.
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
+            drops.AddRange(DropsFor(conn).Roll(m.Level, m.Rarity, Random.Shared, IncreasedItemRarity(conn),
+                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, m), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
+            drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
             if (DropsFor(conn).Map(m.Level, m.Rarity, mapTier, Random.Shared) is { } mapDrop) drops.Add(mapDrop);
             // And a pile of gold (ItemDrops.Gold), picked up into the stash's gold.
             if (DropsFor(conn).Gold(m.Level, m.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(conn, m.Rarity, Random.Shared));
+            drops.AddRange(ExtraDropsFromMap(conn, m.Level, m.Rarity, Random.Shared));
         }
         foreach (string query in modded?.Items ?? [])
         {
@@ -2505,8 +2641,8 @@ static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
-                $"0x02b9 create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
+            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+                $"0x02bb create world item 0x{id:x} {drop.Type.Name} (item level {drop.Item.ItemLevel}) dropped by {m.Label} at ({x}, {y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
         }
     }

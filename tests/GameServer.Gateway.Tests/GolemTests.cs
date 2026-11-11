@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -2895,30 +2895,34 @@ public sealed class GolemTests
                 }
             }
 
-            // Revision 5 must replace the old seeded Fleshcrafter row but leave an administrator's later edit alone.
+            // The SQL correction replaces the imported Fleshcrafter row once and preserves later administrator edits.
             var catalogPath = Path.Combine(Path.GetTempPath(), $"localexile-catalog-{Guid.NewGuid():N}.db");
             try
             {
-                var store = new GameServer.Storage.GameDataStore(catalogPath);
+                using var store = new GameServer.Storage.GameDataStore(catalogPath);
                 static string UniqueKey(UniqueCatalog.Definition entry) => $"{entry.Name}|{entry.BaseTypeId}";
-                var oldSeed = UniqueCatalog.Seed.Select(entry => entry.Name == "Fleshcrafter"
-                    ? entry with { Mods = entry.Mods.Where(id => id != "MinionLifeConvertedToEnergyShieldUnique__1").ToArray() }
-                    : entry).ToArray();
-                GameDataCatalog.RefreshSeed(store, "unique_item", oldSeed, UniqueKey, "4");
-                GameDataCatalog.Seed(store, "unique_item", oldSeed, UniqueKey);
                 GameDataCatalog.Reload(store);
                 var correctedFlesh = GameDataCatalog.Uniques.Single(entry => entry.Name == "Fleshcrafter");
                 Assert.Contains("MinionLifeConvertedToEnergyShieldUnique__1", correctedFlesh.Mods);
 
                 string fleshKey = UniqueKey(correctedFlesh);
                 var customFlesh = correctedFlesh with { ItemLevel = 84 };
-                store.PutCatalogRow("unique_item", fleshKey, JsonSerializer.Serialize(customFlesh));
+                using (var db = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={catalogPath}"))
+                {
+                    db.Open();
+                    using var update = db.CreateCommand();
+                    update.CommandText = "UPDATE catalog_entries SET payload = $payload WHERE kind = 'unique_item' AND key = $key";
+                    update.Parameters.AddWithValue("$payload", JsonSerializer.Serialize(customFlesh));
+                    update.Parameters.AddWithValue("$key", fleshKey);
+                    Assert.Equal(1, update.ExecuteNonQuery());
+                }
+                GameServer.Storage.SqlUpdater.Update(catalogPath, "world", log: _ => { });
                 GameDataCatalog.Reload(store);
                 Assert.Equal(84, GameDataCatalog.Uniques.Single(entry => UniqueKey(entry) == fleshKey).ItemLevel);
             }
             finally
             {
-                GameDataCatalog.ResetToSeeds();
+                GameDataCatalog.Reload(GameData.Store!);
             }
 
             var criticalMods = MonsterModSet.None with
@@ -3373,8 +3377,8 @@ public sealed class GolemTests
                 uint c3aPreservedLife = c3aInitial.Monster.Life;
 
                 // Normal production XP, not a raw XP setter: Standard's null multiplier makes ten monster XP one
-                // whole gem XP. A fresh level-1 create is already waiting when the real commit changes the source
-                // to level 2, so its captured actor/pools cannot commit. The real tick rebuilds the owned golem while
+                // whole gem XP. XP stops below the next threshold; the actual level-up batch then changes the
+                // source to level 2 while a fresh level-1 create waits, so its captured pools cannot commit. The real tick rebuilds the owned golem while
                 // retaining absolute resources and status.
                 var c3aGemType = global::Game.ItemsFor(c3aSelf).Gem(
                     global::Game.ItemsFor(c3aSelf).ByHash(c3aFlameGem.TypeHash)!)!;
@@ -3395,7 +3399,12 @@ public sealed class GolemTests
                         c3aSource.Id, c3aDefinition, (100, 100), arrival: true);
                     Assert.False(c3aStaleLevelOneFresh.IsCompleted,
                         "the actual level-1 fresh golem did not reach the held create gate");
-                    (c3aXpPackets, c3aLeveled) = global::Game.CommitGemExperience(c3aSelf, c3aGain);
+                    var xp = global::Game.CommitGemExperience(c3aSelf, c3aGain);
+                    c3aXpPackets = xp.Packets;
+                    Assert.False(xp.Leveled);
+                    Assert.Equal(c3aLevelTwoExperience - 1,
+                        c3aInventory.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!.GemExperience);
+                    c3aLeveled = global::Game.LevelUpReadyGems(c3aSelf).Count != 0;
                 }
                 finally { c3aNormalXpGate.Release(); }
                 Assert.Equal(0u, await c3aStaleLevelOneFresh!);
@@ -4502,7 +4511,7 @@ public sealed class GolemTests
                         Send = (bytes, label) => Program.Send("test", wire.Stream, wire.Ciphers, bytes, label),
                         Reply = text => { replies.Add(text); return Task.CompletedTask; },
                     };
-                    self.Commands = CommandsFeature.Register(commands, "test", wire.Stream, wire.Ciphers, self);
+                    self.Commands = ConditionalSourceTestDrivers.Register(commands, "test", wire.Stream, wire.Ciphers, self);
 
                     uint actorId = await global::Game.SummonGolem("test", wire.Stream, wire.Ciphers, self,
                         source.Id, definition, (100, 100), arrival: true);
@@ -4529,33 +4538,29 @@ public sealed class GolemTests
                             checked((uint)delta * 10));
                         Assert.False(normalXp.IsCompleted,
                             "actual normal gem XP did not suspend after its synchronous qualification mutation");
-                        Assert.Equal(crossing + 1, global::Game.ItemsFor(self).GemLevel(SocketGem()));
-                        var inactive = Assert.Single(Sources(), row => row.Identity == sourceKey);
-                        Assert.False(inactive.Active);
-                        Assert.False(global::Game.SupportedSkill(self, inactive.Id).RequirementsMet);
-                        Assert.DoesNotContain(actorId, self.Golems.All.Keys);
-                        Assert.DoesNotContain(actorId, self.Monsters.Keys);
-                        Assert.False(self.Minions.Owns(actorId, actor.Monster));
-                        Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
-                        Assert.DoesNotContain(self.Golems.Buffs.Keys, buff => buff == definition.Buff);
-                        Assert.False(self.Golems.OwnerStats.ContainsKey(fireGolems));
-                        Assert.False(LastSavedSource(source.Id));
+                        Assert.Equal(crossing, global::Game.ItemsFor(self).GemLevel(SocketGem()));
+                        Assert.Equal(gemType.ExperienceFor(crossing + 1) - 1, SocketGem().GemExperience);
+                        Assert.True(Source().Active);
+                        Assert.True(global::Game.SupportedSkill(self, source.Id).RequirementsMet);
+                        Assert.Same(actor, self.Golems.All[actorId]);
+                        Assert.Same(token, self.GemSourceLifetimes.Current(sourceKey));
+                        Assert.True(LastSavedSource(source.Id));
                     }
                     finally { normalGate.Release(); }
-                    Assert.Equal(0u, await staleNormalFresh);
+                    actorId = await staleNormalFresh;
+                    Assert.NotEqual(0u, actorId); // Stored XP without a level change leaves the prepared summon valid.
                     await normalXp;
 
-                    // Restore qualification through the real /set_stat command. This creates no retired actor or token.
                     await commands.RunAsync($"/set_stat strength {nextRequirements.Str}");
                     await commands.RunAsync($"/set_stat dexterity {nextRequirements.Dex}");
                     await commands.RunAsync($"/set_stat intelligence {nextRequirements.Int}");
                     Assert.True(Source().Active);
-                    Assert.Null(self.GemSourceLifetimes.Current(sourceKey));
+                    Assert.Same(token, self.GemSourceLifetimes.Current(sourceKey));
 
-                    // Reset the isolated fixture to the crossing level, then make a fresh real command-path lease.
+                    // Reset the isolated fixture to the crossing level, then make a fresh real fixture mutation lease.
                     inventory.Change(PlayerInventories.Weapon1, host.Id, item => item with
                     {
-                        Sockets = [item.Sockets[0] with { Gem = GemAt(crossing) }],
+                        Sockets = [item.Sockets[0] with { Gem = PlayerInventories.PreserveGemIdentity(item.Sockets[0].Gem!, GemAt(crossing)) }],
                     });
                     await commands.RunAsync($"/set_stat strength {currentRequirements.Str}");
                     await commands.RunAsync($"/set_stat dexterity {currentRequirements.Dex}");
@@ -4580,7 +4585,7 @@ public sealed class GolemTests
                         Assert.False(staleCommandFresh.IsCompleted);
                         highCommand = commands.RunAsync($"/gem_xp {gemType.ExperienceFor(crossing + 1)}");
                         Assert.False(highCommand.IsCompleted,
-                            "actual /gem_xp dispatch did not suspend after its synchronous qualification mutation");
+                            "fixture experience dispatch did not suspend after its synchronous qualification mutation");
                         Assert.Equal(crossing + 1, global::Game.ItemsFor(self).GemLevel(SocketGem()));
                         var inactive = Assert.Single(Sources(), row => row.Identity == sourceKey);
                         Assert.False(inactive.Active);
@@ -5809,7 +5814,7 @@ public sealed class GolemTests
                     AssertRequirements(102, hostQualified: false);
                     Assert.Equal((ushort)1, self.RefundPoints);
 
-                    var cluster = global::CommandsRules.CreateClusterJewel(2, 8, 2, null,
+                    var cluster = ConditionalSourceTestDrivers.CreateClusterJewel(2, 8, 2, null,
                         ["AfflictionJewelSmallPassivesGrantInt_"])!;
                     Assert.Equal(ItemRarity.Magic, cluster.Rarity);
                     Assert.Equal(8, global::Game.ClusterNodeBudget(cluster));
@@ -7255,7 +7260,7 @@ public sealed class GolemTests
                         || packet.AsSpan().IndexOf(InstanceProtocol.EnterWakeZone(paidMineObjectStart)) >= 0);
 
                     // The same physical source now has a fresh continuous lifetime. A pending cast levels it through the
-                    // real normal-XP commit while the final send gate is held; the old cast must construct its proxy,
+                    // real XP and level-up batch while the final send gate is held; the old cast must construct its proxy,
                     // damage and reservation from that one new profile rather than its level-one admission copy.
                     mineSource = Source("StormblastMine");
                     var mineGem = inventory.Items(PlayerInventories.BodyArmour).Single(item => item.Id == bodyHost.Id)
@@ -7307,7 +7312,8 @@ public sealed class GolemTests
                             uint gain = checked((uint)((mineGemType.ExperienceFor(mineLevelBefore + 1)
                                 - mineGem.GemExperience) * 10));
                             var (xpPackets, leveled) = global::Game.CommitGemExperience(self, gain);
-                            Assert.True(leveled);
+                            Assert.False(leveled);
+                            Assert.NotEmpty(global::Game.LevelUpReadyGems(self));
                             Assert.NotEmpty(xpPackets);
                             var leveledMineGem = inventory.Items(PlayerInventories.BodyArmour)
                                 .Single(item => item.Id == bodyHost.Id).Item.Sockets[3].Gem!;
@@ -8865,7 +8871,7 @@ public sealed class GolemTests
                     }
                     finally { Program.ProjectileOutputGuard.Value = previousOutputGuard; }
 
-                    // Real normal XP: one gem experience crosses an adjacent real SpellMore increase. The held output
+                    // Real normal XP fills the bar; the batch click crosses an adjacent real SpellMore increase. The held output
                     // proves the retained state, resources and spell hit advance before the first send resumes.
                     int oldMore = activated.SpellDamageMore;
                     int newMore = SpellMoreAt(crossing);
@@ -8880,8 +8886,8 @@ public sealed class GolemTests
                     Task? normalExperience = null;
                     try
                     {
-                        normalExperience = global::Game.GainGemExperience(
-                            "test", wire.Stream, wire.Ciphers, self, 10);
+                        normalExperience = Task.WhenAll(global::Game.GainGemExperience("test", wire.Stream, wire.Ciphers, self, 10),
+                            global::Game.LevelUpAllGems("test", wire.Stream, wire.Ciphers, self));
                         Assert.False(normalExperience.IsCompleted);
                         Assert.Same(activated, self.RighteousFire);
                         Assert.Same(sourceLease, self.GemSourceLifetimes.Current(rf.Identity));
@@ -9154,7 +9160,7 @@ public sealed class GolemTests
                         Send = (bytes, label) => Program.Send("test", wire.Stream, wire.Ciphers, bytes, label),
                         Reply = text => { replies.Add(text); return Task.CompletedTask; },
                     };
-                    self.Commands = CommandsFeature.Register(commands, "test", wire.Stream, wire.Ciphers, self);
+                    self.Commands = ConditionalSourceTestDrivers.Register(commands, "test", wire.Stream, wire.Ciphers, self);
 
                     // An actual activation is held after its owner commits but before any send. Source-off retires that
                     // exact owner; its pending buff and ring creates/wake never reach the wire.
@@ -9226,8 +9232,8 @@ public sealed class GolemTests
                     Task? normalExperience = null;
                     try
                     {
-                        normalExperience = global::Game.GainGemExperience(
-                            "test", wire.Stream, wire.Ciphers, self, 10);
+                        normalExperience = Task.WhenAll(global::Game.GainGemExperience("test", wire.Stream, wire.Ciphers, self, 10),
+                            global::Game.LevelUpAllGems("test", wire.Stream, wire.Ciphers, self));
                         Assert.False(normalExperience.IsCompleted);
                         Assert.Same(live, self.RighteousFire);
                         Assert.Same(sourceLease, self.GemSourceLifetimes.Current(source.Identity));
@@ -9327,6 +9333,20 @@ public sealed class GolemTests
                     Assert.Equal(1, ringPackets.Count(packet => packet.SequenceEqual(
                         InstanceProtocol.EnterWakeZone(retainedFinalRing))));
 
+                    Task GainAndClickThrough(int targetLevel)
+                    {
+                        var outputs = new List<Task>();
+                        while (CurrentGemLevel() < targetLevel)
+                        {
+                            int before = CurrentGemLevel();
+                            outputs.Add(global::Game.GainGemExperience("test", wire.Stream, wire.Ciphers, self,
+                                GainToLevel(targetLevel)));
+                            outputs.Add(global::Game.LevelUpAllGems("test", wire.Stream, wire.Ciphers, self));
+                            Assert.True(CurrentGemLevel() > before);
+                        }
+                        return Task.WhenAll(outputs);
+                    }
+
                     // Two further real profile crossings queue intermediate and final rings before the minion drain. The
                     // exact receipt gate suppresses every intermediate create/wake and emits only the current ring.
                     Assert.Equal(radiusLevels[1], CurrentGemLevel());
@@ -9335,14 +9355,12 @@ public sealed class GolemTests
                     Task? firstChange = null, finalChange = null;
                     try
                     {
-                        firstChange = global::Game.GainGemExperience(
-                            "test", wire.Stream, wire.Ciphers, self, GainToLevel(radiusLevels[2]));
+                        firstChange = GainAndClickThrough(radiusLevels[2]);
                         Assert.False(firstChange.IsCompleted);
                         Assert.Equal(radiusLevels[2], CurrentGemLevel());
                         uint intermediateRing = Assert.IsType<uint>(retained.Ring);
                         Assert.Same(retained, self.RighteousFire);
-                        finalChange = global::Game.GainGemExperience(
-                            "test", wire.Stream, wire.Ciphers, self, GainToLevel(radiusLevels[3]));
+                        finalChange = GainAndClickThrough(radiusLevels[3]);
                         Assert.False(finalChange.IsCompleted);
                         Assert.Equal(radiusLevels[3], CurrentGemLevel());
                         Assert.Same(retained, self.RighteousFire);
@@ -9605,7 +9623,7 @@ public sealed class GolemTests
                         Send = (bytes, label) => Program.Send("test", wire.Stream, wire.Ciphers, bytes, label),
                         Reply = text => { replies.Add(text); return Task.CompletedTask; },
                     };
-                    self.Commands = CommandsFeature.Register(commands, "test", wire.Stream, wire.Ciphers, self);
+                    self.Commands = ConditionalSourceTestDrivers.Register(commands, "test", wire.Stream, wire.Ciphers, self);
 
                     var source = Source();
                     await Activate(source);
@@ -9902,8 +9920,8 @@ public sealed class GolemTests
                             "same-lease progression", unpicked, slot.GemHash);
                         Assert.False(heldProfileRelight.IsCompleted);
                         Assert.Null(self.RighteousFire);
-                        normalExperience = global::Game.GainGemExperience(
-                            "test", wire.Stream, wire.Ciphers, self, GainToNextLevel());
+                        normalExperience = Task.WhenAll(global::Game.GainGemExperience("test", wire.Stream, wire.Ciphers, self, GainToNextLevel()),
+                            global::Game.LevelUpAllGems("test", wire.Stream, wire.Ciphers, self));
                         Assert.False(normalExperience.IsCompleted);
                         progressedLevel = CurrentGemLevel();
                         Assert.Equal(levelBefore + 1, progressedLevel);

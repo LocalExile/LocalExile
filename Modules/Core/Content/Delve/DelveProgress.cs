@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 namespace GameServer.Modules.Delve;
 
@@ -14,8 +15,8 @@ public static class DelveEquipment
     sealed record Upgrade(int Type, byte Level, uint Cost, int[] Keys, int[] Values);
     static readonly Lazy<Dictionary<(int Type, byte Level), Upgrade>> Rows = new(() =>
     {
-        if (!File.Exists("data/tables/DelveUpgrades.json")) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes("data/tables/DelveUpgrades.json"));
+        if (!ClientTables.Exists("data/tables/DelveUpgrades.json")) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/DelveUpgrades.json"));
         return doc.RootElement.EnumerateArray().Select(r => new Upgrade(r.GetProperty("DelveUpgradeTypeKey").GetInt32(),
             r.GetProperty("UpgradeLevel").GetByte(), r.GetProperty("Cost").GetUInt32(),
             [.. r.GetProperty("StatsKeys").EnumerateArray().Select(v => v.GetInt32())],
@@ -25,8 +26,8 @@ public static class DelveEquipment
     static readonly Lazy<uint[]> DynamitePrices = new(() => Prices("DelveDynamite", "__col12"));
     static uint[] Prices(string table, string field)
     {
-        if (!File.Exists($"data/tables/{table}.json")) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes($"data/tables/{table}.json"));
+        if (!ClientTables.Exists($"data/tables/{table}.json")) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes($"data/tables/{table}.json"));
         return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty(field).GetUInt32())];
     }
     public static int Value(DelveProgress progress, int type) =>

@@ -1,8 +1,8 @@
-static partial class Game
+public static partial class Game
 {
-    internal static class GolemPools
+    public static class GolemPools
     {
-        internal readonly record struct Result(
+        public readonly record struct Result(
             double RawBaseLife,
             double LifeIncreasedPercent,
             double LifeMore,
@@ -15,7 +15,7 @@ static partial class Game
             bool Fatal,
             int ChaosResistance);
 
-    internal static Result Calculate(MonsterCatalog monsters, MonsterCatalog.Variety variety, byte level,
+    public static Result Calculate(MonsterCatalog monsters, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, MonsterModEffects effects)
     {
         int Own(string name) => GolemStat(golem.Own, name);

@@ -1,11 +1,11 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     static MapMods? MapModsOf(ClientState conn) =>
         MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods;
 
-    internal static Dictionary<string, int> MapMonsterEffects(MapMods mods)
+    public static Dictionary<string, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
         if (mods.Get("map_monsters_cannot_be_stunned") != 0)
@@ -39,15 +39,15 @@ static partial class Game
         return list;
     }
 
-    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(ClientState conn, MonsterRarity rarity, Random rng)
+    static IEnumerable<ItemDrops.Drop> ExtraDropsFromMap(ClientState conn, int monsterLevel, MonsterRarity rarity, Random rng)
     {
         if (MapModsOf(conn) is not { } mods) yield break;
         var drops = DropsFor(conn);
-        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng) is { } packCard)
+        if (rarity == MonsterRarity.Magic && mods.PacksDropCards > 0 && drops.Card(rng, monsterLevel) is { } packCard)
             yield return packCard;
-        if (mods.CardDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CardDropChance, 0, 80) && drops.Card(rng) is { } card)
+        if (mods.CardDropChance > 0 && rng.Next(100) < Math.Clamp(mods.CardDropChance, 0, 80) && drops.Card(rng, monsterLevel) is { } card)
             yield return card;
-        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && drops.Scarab(rng) is { } scarab)
+        if (mods.ScarabDropChance > 0 && rng.Next(100) < Math.Clamp(mods.ScarabDropChance, 0, 80) && drops.Scarab(rng, monsterLevel) is { } scarab)
             yield return scarab;
     }
 

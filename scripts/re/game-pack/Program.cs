@@ -14,8 +14,8 @@ switch (args.FirstOrDefault())
 {
     case "constants":
         byte[] exe = File.ReadAllBytes("Client/Game.exe");
-        HncSender.LoadMask(exe); // Checks the mask against its known hash.
-        byte[] mask = PeImage.ReadAtVa(exe, HncSender.MaskVa, 64);
+        byte[] mask = HncSender.ExtractMask(exe); // Checks each supported location against the known hash.
+        HncSender.UseMask(mask);
         new ClientConstants(Convert.ToHexString(mask), Convert.ToHexString(GgpkMaintenance.RootHash(Ggpk))).Save();
         Console.WriteLine($"wrote {ClientConstants.DefaultFile}");
         return 0;

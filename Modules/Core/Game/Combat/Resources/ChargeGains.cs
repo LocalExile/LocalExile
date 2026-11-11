@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>Something that can grant charges (issue #237): a hit, a kill, being hit, a block, a skill's own grant, or
 /// the /charges command.</summary>
-abstract record ChargeEvent
+public abstract record ChargeEvent
 {
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
@@ -31,6 +31,9 @@ abstract record ChargeEvent
 
     /// <summary>The /charges command sets a type's count; null type with 0 clears all.</summary>
     public sealed record Set(ChargeType? Type, int Count) : ChargeEvent;
+
+    /// <summary>A skill spends <paramref name="Count"/> charges of a type (Discharge): never below the minimum.</summary>
+    public sealed record Spend(ChargeType Type, int Count, string Why) : ChargeEvent;
 }
 
 /// <summary>
@@ -43,7 +46,7 @@ abstract record ChargeEvent
 /// "or soon after the hit" part is not modelled). Gains that need mechanics the server does not have (freeze,
 /// bleed, poison, curses, traps, mines, Vaal souls, support gems) are not here; 11-skills.md §15 lists them.
 /// </summary>
-static class ChargeGains
+public static class ChargeGains
 {
     /// <summary>One stat that grants charges: the stat, the charge type (null: a random one of the three), and when it
     /// applies.</summary>
@@ -119,6 +122,9 @@ static class ChargeGains
                 if (g.Count > 0) gains.Add(new(g.Type, g.Count, g.Why));
                 return gains;
             case ChargeEvent.Set:
+                return gains;
+            case ChargeEvent.Spend spend:
+                if (spend.Count > 0) gains.Add(new(spend.Type, -spend.Count, spend.Why));
                 return gains;
         }
         var skill = (e as ChargeEvent.Hit)?.Skill;

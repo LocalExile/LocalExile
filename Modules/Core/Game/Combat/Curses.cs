@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static readonly HashSet<string> CurseRecipientStats = [
         "base_resist_all_elements_%", "base_fire_damage_resistance_%", "base_cold_damage_resistance_%",
@@ -42,7 +42,7 @@ static partial class Game
             : Math.Max(0, 1 + Get("number_of_additional_curses_allowed"));
     }
 
-    internal static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
+    public static int CurseRadius(ClientState conn, ushort skill, bool aura, SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
         var own = (captured ?? SupportedSkill(conn, skill)).Stats; var player = sources ?? CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(player, n) + GolemStat(own, n);
@@ -51,7 +51,7 @@ static partial class Game
             n => Get(n) + (n == SkillArea.BaseIncreased ? Get("curse_area_of_effect_+%") : 0), spell: true);
     }
 
-    internal static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
+    public static bool ApplyCurseLocked(ClientState conn, SpawnedMonster monster, ushort skill, double now, bool aura,
         SupportedGem? captured = null, IReadOnlyDictionary<uint, int>? sources = null)
     {
         var gem = captured ?? SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect) ?? "";

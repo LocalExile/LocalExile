@@ -15,6 +15,7 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageRange = GameServer.Core.World.DamageRange;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 using GameServer.Core.Diagnostics;
+using GameServer.Core;
 
 // GameServer.Gateway — the instance (game) server the client connects to after login 0x14, or after 0x27 on an area
 // change (Agents/docs/protocol/02, 09).
@@ -24,6 +25,15 @@ using GameServer.Core.Diagnostics;
 // movement and area transition clicks (0x24: change area, or with Ctrl the instance chooser; Agents/docs/protocol/09-area-change.md).
 // Port: Game_GATEWAY_PORT (default 6112). Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET), shared with
 // GameServer.Auth. Auth control: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495); without it every ticket gets Lioneye's Watch.
+
+// The client tables (ClientTables) are in data/client.db, built and brought up to date from sql/ before anything reads
+// them (Agents/docs/dev/databases.md). Its lines go to standard error: the commands below print JSON.
+try { GameServer.Storage.SqlUpdater.Update(ClientTables.DefaultPath, "client", log: Console.Error.WriteLine); }
+catch (Exception e) when (e is GameServer.Storage.SqlUpdateException or IOException or Microsoft.Data.Sqlite.SqliteException)
+{
+    Console.Error.WriteLine($"[gateway] {ClientTables.DefaultPath} can't be built: {e.Message}");
+    return 1;
+}
 
 // `commands`: one JSON line per chat command ({"name", "usage", "args"}) for tools such as the desktop launcher, then
 // exit; nothing starts. `values <kind>`: what an argument of that kind can be ({"value", "detail"}), from the Gateway's
@@ -35,6 +45,23 @@ if (args is ["crafter"])
     var stdout = Console.Out;
     Console.SetOut(TextWriter.Null);
     var lines = ItemCrafter.Catalog(Items, Rolls, Bench, StatDescriptions.Load()).Select(l => l.ToJsonString()).ToList();
+    Console.SetOut(stdout);
+    foreach (string line in lines) Console.WriteLine(line);
+    return 0;
+}
+// `labyrinth [yyyy-mm-dd | seed]`: the day's four Labyrinths, rooms with their map positions, connections and secrets
+// (LabyrinthDay.Listing; today's by default, Game_LAB_SEED's when set). /lab_layout's date came with it.
+if (args is ["labyrinth"] or ["labyrinth", _])
+{
+    bool dated = true;
+    uint seed;
+    if (args.Length == 1) { seed = LabyrinthDay.Seed; dated = !uint.TryParse(Environment.GetEnvironmentVariable("Game_LAB_SEED"), out _); }
+    else if (DateOnly.TryParseExact(args[1], "yyyy-MM-dd", out var date)) seed = LabyrinthDay.SeedOf(date);
+    else if (uint.TryParse(args[1], out seed)) dated = false;
+    else { Console.Error.WriteLine($"[gateway] labyrinth: {args[1]} is neither a yyyy-mm-dd date nor a seed"); return 1; }
+    var stdout = Console.Out;
+    Console.SetOut(TextWriter.Null);
+    var lines = LabyrinthDay.Listing(seed, dated).Select(l => l.ToJsonString()).ToList();
     Console.SetOut(stdout);
     foreach (string line in lines) Console.WriteLine(line);
     return 0;
@@ -61,38 +88,11 @@ if (args is ["values", var kind])
 
 ServerLog.Install("gateway");
 
-// dotnet run --project src/GameServer.Gateway -- seed-game-data [database]
-// Fills the SQLite game-data overlay from data/tables without starting the servers. The first Gateway start does the
-// same; this mode is for a fresh database, an editor or a check while the Gateway is stopped.
-if (args.Length > 0 && args[0].Equals("seed-game-data", StringComparison.OrdinalIgnoreCase))
-{
-    string path = args.Length > 1 ? args[1] : Saves.DefaultPath;
-    try
-    {
-        GameData.Open(path);
-        var (stats, mods, modStats) = (GameData.Store
-            ?? throw new InvalidOperationException("the game-data store did not open")).ReferenceCounts();
-        if (stats == 0 || mods == 0 || modStats == 0)
-        {
-            Console.Error.WriteLine("[gateway] game data seed: Stats.json/Mods.json are missing; run scripts/dev/extract-data.ps1 first");
-            return 1;
-        }
-        Console.WriteLine($"[gateway] game data seeded into {path}: {stats} stat(s), {mods} mod(s), " +
-            $"{modStats} default mod stat row(s)");
-        return 0;
-    }
-    catch (Exception e)
-    {
-        Console.Error.WriteLine($"[gateway] game data seed failed: {e.Message}");
-        return 1;
-    }
-}
-
 int port = GatewayEndpoint.Port;
 var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
 
 // The HNC side channel needs a 64-byte table from the client: extracted to data/, not shipped.
-if (!File.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
+if (!ClientTables.Exists(GameServer.Data.Ggpk.ClientConstants.DefaultFile))
 {
     Console.Error.WriteLine($"[gateway] {GameServer.Data.Ggpk.ClientConstants.DefaultFile} not found; run .\\scripts\\dev\\extract-data.ps1");
     return 1;
@@ -108,12 +108,12 @@ try
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
     // The short-lived parsing thread releases its pooled buffers after startup.
-    GameTables.Isolated(() => GameData.Open(Saves.Db.Path));
-    Console.WriteLine($"[gateway] saves: {Saves.Db.Path}");
+    GameTables.Isolated(() => GameData.Open(GameData.DefaultPath));
+    Console.WriteLine($"[gateway] saves: {Saves.Db.Path} (accounts: {Saves.Db.AuthPath})");
 }
-catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException)
+catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or GameServer.Storage.SqlUpdateException)
 {
-    Console.Error.WriteLine($"[gateway] the save database can't be opened: {e.Message}");
+    Console.Error.WriteLine($"[gateway] the databases can't be opened: {e.Message}");
     return 1;
 }
 
@@ -124,7 +124,7 @@ Item.LevelRequirementOf = item => !item.Components.Contains("SkillGem") && Items
     ? ItemModStats.LevelRequirement(item, t.DropLevel, Items.Mods) : 0;
 
 // Local play only by default; Game_BIND=0.0.0.0 to accept other machines (then also set Game_GATEWAY_HOST).
-var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
+var bind = ServerConfig.GatewayBind;
 var listener = new TcpListener(bind, port);
 // Before any client connects: Auth forgets the players of this Gateway's last run, which may have stopped without
 // sending "leave" for them (their instances would never expire).
@@ -178,46 +178,46 @@ static async Task SaveUnsavedProgress(CancellationToken stop)
     catch (OperationCanceledException) { }
 }
 
-sealed partial class Program
+public sealed partial class Program
 {
-    internal const uint PlayerId = 0x1000;
+    public const uint PlayerId = 0x1000;
     // The server's tick: 30 per second. Nothing the server times (an attack) is shorter than one tick.
-    internal const int TickRate = 30;
-    internal const double TickSeconds = 1.0 / TickRate;
+    public const int TickRate = 30;
+    public const double TickSeconds = 1.0 / TickRate;
     // Destination tickets of waypoint travel: that connection's player arrives next to the area's waypoint.
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, byte> WaypointArrivals = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, byte> WaypointArrivals = new();
 
     /// <summary>Tickets whose connection arrives at a given cell (back through a town portal).</summary>
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (int X, int Y)> SpotArrivals = new();
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, (int X, int Y)> SpotArrivals = new();
     // The skills granted to players (the default attack); loaded with the first player.
-    internal static readonly SkillCatalog Skills = new();
+    public static readonly SkillCatalog Skills = new();
     // Stat names ↔ client keys (Stats.dat row + 1).
-    internal static readonly StatCatalog Stats = new();
+    public static readonly StatCatalog Stats = new();
     // Item types (BaseItemTypes + data/item-types.json); loaded with the first player.
-    internal static readonly ItemCatalog Items = new();
+    public static readonly ItemCatalog Items = new();
     // What dying monsters drop (ItemDrops.cs).
     // Magic and rare items (ItemRolls.cs).
-    internal static readonly ItemRolls Rolls = new(Items);
-    internal static readonly BenchCrafting Bench = new(Items, Rolls);
+    public static readonly ItemRolls Rolls = new(Items);
+    public static readonly BenchCrafting Bench = new(Items, Rolls);
     // Each live area instance's ground items, across connections (InstanceStore.cs). The lifetime is Auth's
     // InstanceRegistry.Lifetime: the Gateway wipes an instance when Auth would.
-    internal static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
+    public static readonly InstanceStore Instances = new(TimeProvider.System, new GameServer.Core.World.InstanceRegistry().Lifetime);
     // The passive tree's nodes (PassiveSkills.dat by PassiveSkillGraphId).
-    internal static readonly PassiveTree Passives = new();
+    public static readonly PassiveTree Passives = new();
 
-    internal static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> SendGates = new();
+    public static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ConnectionCiphers, SemaphoreSlim> SendGates = new();
 
     // The client's walking speed in grid cells per second at 100% (measured live: ~37 = Character.ot Pathfinding
     // base_speed). Game_WALK_SPEED overrides it.
-    internal static readonly double WalkSpeed =
+    public static readonly double WalkSpeed =
         double.TryParse(Environment.GetEnvironmentVariable("Game_WALK_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 37;
 
     // Game_TRACE=move (or the older Game_MOVE_TRACE=1) logs "[move-trace] qpc=…" for the client's 0x24/0x25/0x191 as read
     // and the server's 0x1ab/0x1b7/0x1ba as written, on the machine's QPC clock (scripts/re/frida/trace-movement.js uses
     // the same clock).
-    internal static readonly bool MoveTrace = ServerTrace.Move;
+    public static readonly bool MoveTrace = ServerTrace.Move;
 
-    // The server frame length (ms, S→C 0x2b6): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
-    internal static readonly byte FrameMs =
+    // The server frame length (ms, S→C 0x2b8): a lockstep client's world advances by these frames. Game_FRAME_MS overrides.
+    public static readonly byte FrameMs =
         byte.TryParse(Environment.GetEnvironmentVariable("Game_FRAME_MS"), out var fm) && fm > 0 ? fm : (byte)33;
 }

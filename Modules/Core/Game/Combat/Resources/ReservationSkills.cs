@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static void EndReservationRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
     {
@@ -27,7 +27,7 @@ static partial class Game
     static int ReservationStat(ClientState conn, AuraCatalog.Aura aura, string name) => Stats.Key(name) is uint key
         ? SkillsFor(conn).EffectStats(aura.Effect, aura.Level, aura.Quality).FirstOrDefault(p => p.Item1 == key).Item2 : 0;
 
-    internal static void ReservationKill(KillContext kill)
+    public static void ReservationKill(KillContext kill)
     {
         if (!kill.PlayerKill) return;
         var conn = kill.Conn;
@@ -91,7 +91,7 @@ static partial class Game
     }
 
     // Secondary damage never borrows a weapon or spell-only increases, added damage or supports.
-    internal static DamagePacket ReservationHitPacket(ClientState conn, AuraCatalog.Aura aura)
+    public static DamagePacket ReservationHitPacket(ClientState conn, AuraCatalog.Aura aura)
     {
         if (aura.EffectId == "TempestShield") return SupportedHitFor(conn, aura.SkillId, suppress: false);
         var skill = SupportedSkill(conn, aura.SkillId);
@@ -130,7 +130,7 @@ static partial class Game
     }
 
     /// <summary>The immutable hit and damaging-ailment outputs selected for one reservation contact.</summary>
-    internal sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+    public sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
     static double ReservationRadius(ClientState conn, AuraCatalog.Aura aura, int fallback)
@@ -266,7 +266,7 @@ static partial class Game
             }
     }
 
-    internal static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
         bool catChanged = false;

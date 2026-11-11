@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal const string MadnessEffect = "EmbraceMadness";
+    public const string MadnessEffect = "EmbraceMadness";
     const double MadnessTouchSeconds = 20;
     const string MadnessAllPoison = "all_damage_can_poison_while_affected_by_glorious_madness";
 
@@ -29,9 +29,9 @@ static partial class Game
         return state;
     }
 
-    internal static bool MadnessActiveLocked(ClientState conn) => MadnessAt(conn).Active;
+    public static bool MadnessActiveLocked(ClientState conn) => MadnessAt(conn).Active;
 
-    internal static void MadnessExpiryRateLocked(ClientState conn, double now, double rate)
+    public static void MadnessExpiryRateLocked(ClientState conn, double now, double rate)
     {
         var state = conn.Madness;
         rate = Math.Max(.25, rate);
@@ -51,7 +51,7 @@ static partial class Game
         ? SkillsFor(conn).EffectStats(SkillsFor(conn).EffectRow(MadnessEffect), 1)
             .FirstOrDefault(p => p.Item1 == key).Item2 : 0;
 
-    internal static bool MadnessReconcileLocked(ClientState conn, double now)
+    public static bool MadnessReconcileLocked(ClientState conn, double now)
     {
         long before = conn.Madness.Revision;
         var state = MadnessAt(conn);
@@ -89,7 +89,7 @@ static partial class Game
         }
     }
 
-    internal static IReadOnlyList<(uint Key, int Value)> MadnessRawStatsLocked(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> MadnessRawStatsLocked(ClientState conn,
         IReadOnlyDictionary<uint, int> raw)
     {
         var state = MadnessAt(conn);
@@ -140,7 +140,7 @@ static partial class Game
         return result;
     }
 
-    internal static async Task<bool> ToggleMadness(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> ToggleMadness(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
     {
         bool accepted = false;

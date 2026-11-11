@@ -7,13 +7,13 @@ namespace LocalExile;
 /// path, as they do in a checkout. Game.exe and Game.patched.exe are added beside the client's own files.</summary>
 static class ClientInstall
 {
-    const string Folder = "Client";
+    static string Folder => GameServer.Core.ServerConfig.ClientFolder;
     static string Ggpk => Path.Combine(Folder, "Content.ggpk");
     static string GameExe => Path.Combine(Folder, "Game.exe");
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
     static readonly string Keys = Path.Combine("data", "login-keys.json");
 
-    /// <summary>The folder's 3.29.3b executable, or why it has none.</summary>
+    /// <summary>The folder's 3.29.3c executable, or why it has none.</summary>
     static string? FindExecutable(string folder, out string problem)
     {
         problem = "";
@@ -36,7 +36,7 @@ static class ClientInstall
             }
             catch (Exception e) when (e is FormatException or InvalidDataException or ArgumentException or IOException or InvalidOperationException) { }
         }
-        problem = $"{folder} does not hold the Path of Exile 3.29.3b executable; other versions do not work";
+        problem = $"{folder} does not hold the Path of Exile 3.29.3c executable; other versions do not work";
         return null;
     }
 
@@ -44,7 +44,7 @@ static class ClientInstall
     {
         string? exe = FindExecutable(folder, out string problem);
         if (exe is null) throw new LauncherException(ExitCode.Client, problem);
-        log.Value("client", $"{exe} is the 3.29.3b client");
+        log.Value("client", $"{exe} is the 3.29.3c client");
     }
 
     /// <summary>Client\ holds the checked client when this returns.</summary>
@@ -63,7 +63,7 @@ static class ClientInstall
         string source = options.Client ?? Ask(log);
         string? found = FindExecutable(source, out string why);
         if (found is null) throw new LauncherException(ExitCode.Client, why);
-        log.Info($"{found} is the 3.29.3b client");
+        log.Info($"{found} is the 3.29.3c client");
 
         string mode = options.ClientMode ?? AskMode(source, log);
         if (mode == "link") Link(source, log);
@@ -74,13 +74,13 @@ static class ClientInstall
     static string Ask(Output log)
     {
         string? guess = Guesses().FirstOrDefault(g => FindExecutable(g, out _) is not null);
-        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3b client?", guess);
+        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3c client?", guess);
         if (guess is not null)
         {
-            Console.Write($"Found the 3.29.3b client in {guess}. Use it? [Y/n] ");
+            Console.Write($"Found the 3.29.3c client in {guess}. Use it? [Y/n] ");
             if ((Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "" or "y" or "yes") return guess;
         }
-        Console.Write("Folder of your Path of Exile 3.29.3b client: ");
+        Console.Write("Folder of your Path of Exile 3.29.3c client: ");
         string answer = (Console.ReadLine() ?? "").Trim().Trim('"');
         if (answer.Length == 0) throw new LauncherException(ExitCode.NeedsInput, "no client folder given");
         return answer;
@@ -116,7 +116,7 @@ static class ClientInstall
         long needed = Size(source);
         long free = new DriveInfo(Path.GetFullPath(".")).AvailableFreeSpace;
         Console.WriteLine($"LocalExile changes the client's login list and adds two files beside it. A failed write could damage the client,");
-        Console.WriteLine($"and a newer launcher cannot bring 3.29.3b back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
+        Console.WriteLine($"and a newer launcher cannot bring 3.29.3c back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
         Console.Write("[C]opy the client, or [L]ink to it and use that folder itself? [C/l] ");
         return (Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "l" or "link" ? "link" : "copy";
     }
@@ -188,7 +188,12 @@ static class ClientInstall
             log.Info("generating your own login keys (kept in data\\; never share them)");
             Tools.RunOrThrow(Tools.Auth, ["keygen", GameExe], "auth-keygen", ExitCode.Client, log);
         }
-        if (File.Exists(PatchedExe) && File.GetLastWriteTimeUtc(PatchedExe) >= File.GetLastWriteTimeUtc(Keys)) return;
+        // Patched from these keys and this Game.exe: a client updated in place (a linked install) has a newer Game.exe, and
+        // the patch keeps the size, so an older or differently sized Game.patched.exe is another build's.
+        var patched = new FileInfo(PatchedExe);
+        var game = new FileInfo(GameExe);
+        if (patched.Exists && patched.Length == game.Length && patched.LastWriteTimeUtc >= game.LastWriteTimeUtc
+            && patched.LastWriteTimeUtc >= File.GetLastWriteTimeUtc(Keys)) return;
         log.Info("writing Client\\Game.patched.exe, the copy of the client that trusts your keys (antivirus may flag a modified executable)");
         Tools.RunOrThrow(Tools.Auth, ["patch", GameExe, PatchedExe], "auth-patch", ExitCode.Client, log);
         if (!File.Exists(PatchedExe)) throw new LauncherException(ExitCode.Client, "Client\\Game.patched.exe is missing after patching: allow it in your antivirus");
@@ -198,7 +203,7 @@ static class ClientInstall
     /// already name this one, and the original is kept in data\gateway_list.original.txt.</summary>
     public static void SelectLocalLogin(Ports ports, Output log)
     {
-        if (ports.Patch != Ports.DefaultPatch) return;
+        if (ports.Base != 0) return;
         log.Step("login-list", "checking the client's login list ...");
         var (code, lines) = Tools.Capture(Tools.Patch, ["gateway", Ggpk]);
         var list = lines.Where(l => l.Split(';').Length >= 3).ToList();
@@ -210,10 +215,11 @@ static class ClientInstall
             "could not change the client's login list; close every client and try again");
     }
 
-    /// <summary>The Patch server answers with this hash; the client's data may have changed since it was saved.</summary>
+    /// <summary>The Patch server answers with this hash; the client's data may have changed since it was saved. A zero hash
+    /// (left by the official patcher or a GGPK tool) is given a value first: the client never skips patching with one.</summary>
     public static void RefreshRootHash(Output log)
     {
-        var (code, _) = Tools.Capture(Tools.Patch, ["root-hash", Ggpk, "--save"]);
+        var (code, _) = Tools.Capture(Tools.Patch, ["root-hash", Ggpk, "--repair", "--save"]);
         if (code != 0) log.Warn("could not refresh the client data's hash; the saved one is used");
     }
 }

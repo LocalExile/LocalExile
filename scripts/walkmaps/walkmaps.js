@@ -1,15 +1,15 @@
 // Walk-map capture (Frida, loaded by walkmaps.py into the running client).
 //
 // When the client generates an area it builds a terrain walkability grid before drawing it. Right after the grid
-// provider returns (client 3.29.3b, VA 0x1410ddcfd, just after the vtable +0x50 call in 0x1410ddb90) rax points to
+// provider returns (client 3.29.3c, VA 0x1410e00bd, just after the vtable +0x50 call in 0x1410dff50) rax points to
 //   { i32 width; i32 height; vector<u8> cells [+0x08 begin, +0x10 end]; vector<u8> second [+0x20, +0x28] }.
 // The first vector is width × height bytes, one per cell; the client walks on cells >= 2. The second, the same size,
 // stops projectiles where it is 0 (walls, doodads; water is open there).
 // Each grid is sent to walkmaps.py, which names it after the area the Gateway is serving.
 
 const IMAGE_BASE = ptr('0x140000000');
-const HOOK_VA = ptr('0x1410ddcfd');
-// The instructions at the hook in the 3.29.3b client (mov rcx,[rax]; mov [rbp-0x38],rcx; lea rdx,[rax+8]; ...).
+const HOOK_VA = ptr('0x1410e00bd');
+// The instructions at the hook in the 3.29.3c client (mov rcx,[rax]; mov [rbp-0x38],rcx; lea rdx,[rax+8]; ...).
 // Nothing is hooked unless they match, so another client build is left untouched.
 const EXPECTED = '488b0848894dc8488d5008488d4dd048';
 
@@ -23,7 +23,7 @@ if (!exe) {
   const bytes = inside ? Array.from(new Uint8Array(hook.readByteArray(EXPECTED.length / 2)))
     .map(b => b.toString(16).padStart(2, '0')).join('') : '';
   if (bytes !== EXPECTED) {
-    send({ type: 'refused', reason: `${exe.name} is not the 3.29.3b client (code at the hook does not match)` });
+    send({ type: 'refused', reason: `${exe.name} is not the 3.29.3c client (code at the hook does not match)` });
   } else {
     Interceptor.attach(hook, function () {
       try {
@@ -52,8 +52,8 @@ if (!exe) {
   }
 }
 
-// Room pick probe (Agents/docs/re/011-level-generation.md §8, the Sanctum floors): every 0x142105a70(layout, out, node,
-// &cell) of an area in PROBE_AREAS is reported with the cell its caller 0x142106b00 computed
+// Room pick probe (Agents/docs/re/011-level-generation.md §8, the Sanctum floors): every 0x14210c370(layout, out, node,
+// &cell) of an area in PROBE_AREAS is reported with the cell its caller 0x14210d400 computed
 // (graph +0x40 × node +0x4c / graph +0x50, +0x48 × node +0x50 / +0x54; graph = layout[2]), the inputs, the node's tag
 // and orientation (+0x40) and the graph's orientation (+0x58). Generation only: no in-game cost.
 const PROBE_AREAS = /^Sanctum(Cellar|Crypt|Nave|Vaults)$/;
@@ -69,7 +69,7 @@ function hookRoomPickProbe(exe) {
     const len = p.add(0x10).readU64().toNumber(), cap = p.add(0x18).readU64().toNumber();
     return (cap > 7 ? p.readPointer() : p).readUtf16String(len);
   };
-  Interceptor.attach(at('0x142105a70'), {
+  Interceptor.attach(at('0x14210c370'), {
     onEnter(a) {
       if (currentGen === null) return;
       const area = areaOf();
@@ -94,9 +94,9 @@ function hookRoomPickProbe(exe) {
 // loop visits every placed room even when it has no client doodads. Layout/addresses corroborated by PR #136's
 // DoodadStage and SpecialNodes, then verified against the native reader below and the captured Strand rooms.
 function hookRooms(exe) {
-  const hook=exe.base.add(ptr('0x142040770').sub(IMAGE_BASE));
+  const hook=exe.base.add(ptr('0x142046fc0').sub(IMAGE_BASE));
   const hex=Array.from(new Uint8Array(hook.readByteArray(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
-  if(hex!=='488bc44c894820488950104889480855') {send({type:'refused',reason:'room placement hook differs from 3.29.3b'});return;}
+  if(hex!=='488bc44c894820488950104889480855') {send({type:'refused',reason:'room placement hook differs from 3.29.3c'});return;}
   Interceptor.attach(hook,{onEnter(args){
     try {
       const r=args[2], handle=r.readPointer(), data=handle.add(0x28).readPointer();
@@ -109,23 +109,23 @@ function hookRooms(exe) {
 }
 
 // Area transitions and waypoints of the generated layout (Agents/docs/protocol/08-area-transitions.md §5).
-// While generating, 0x141d7f700 walks each placed tile's .tmd records and calls 0x1420415e0(ctx, record):
+// While generating, 0x141d82d90 walks each placed tile's .tmd records and calls 0x142047e30(ctx, record):
 //   ctx[1] → placed tile: +0x30 i16 height offset (steps of 7.8125), +0x36 u8 rotation/flip code 0..7
 //   ctx[2] → i32 x, i32 y: the tile's grid origin;  ctx[3] → handle, *handle+0x28 → +0x60/+0x61 u8 size in tiles
 //   record: i32 x, i32 y (tile-local cell), f32 z (+0x10), f32 angle (+0x14); +0x30 type, +0x38 .ao (handle+8 → path)
 // The client spawns only its own doodads from them; server types (AreaTransition …) are skipped there, so their
-// placement is computed here the way 0x14202f1c0 does it, with the constants read from the client.
+// placement is computed here the way 0x142035a10 does it, with the constants read from the client.
 function hookTileObjects(exe) {
   const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
-  const hook = at('0x1420415e0');
+  const hook = at('0x142047e30');
   const bytes = Array.from(new Uint8Array(hook.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (bytes !== '488bc448895808555657415441554156') {
-    send({ type: 'refused', reason: 'tile object hook: code does not match 3.29.3b' });
+    send({ type: 'refused', reason: 'tile object hook: code does not match 3.29.3c' });
     return;
   }
-  const codes = Array.from(new Uint8Array(at('0x142fa04b0').readByteArray(24)));
-  const quarter = at('0x1436a3318').readFloat(), turn = at('0x1436a3674').readFloat();
-  const noHeight = at('0x1436a48d4').readFloat();
+  const codes = Array.from(new Uint8Array(at('0x142faa4d8').readByteArray(24)));
+  const quarter = at('0x1436ae110').readFloat(), turn = at('0x1436ae46c').readFloat();
+  const noHeight = at('0x1436af6cc').readFloat();
   const path = h => { try { return h.isNull() ? null : h.add(8).readPointer().readUtf16String(); } catch (e) { return null; } };
   Interceptor.attach(hook, {
     onEnter(a) {
@@ -161,16 +161,16 @@ function hookTileObjects(exe) {
   });
 }
 
-// Every doodad the client places, rooms' doodads included (Agents/docs/protocol/14-monster-packs.md §3). 0x142042360
+// Every doodad the client places, rooms' doodads included (Agents/docs/protocol/14-monster-packs.md §3). 0x142048bb0
 // (record, …) creates one client-side doodad from a placed record laid out like a .tmd record, already in world terms:
 // i32 grid x, i32 grid y, f32 world x, f32 world y, f32 z (+0x10), f32 angle (+0x14), type handle +0x30, .ao handle +0x38.
 // The Gateway matches them against data/room-points.json to find where rooms with monster points ("mapboss") were put.
 // Sent in batches; walkmaps.py writes <area>_seed<seed>.doodads.json.
 function hookDoodads(exe) {
-  const hook = exe.base.add(ptr('0x142042360').sub(IMAGE_BASE));
+  const hook = exe.base.add(ptr('0x142048bb0').sub(IMAGE_BASE));
   const bytes = Array.from(new Uint8Array(hook.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (bytes !== '4c8bdc49895310535657415441554156') {
-    send({ type: 'refused', reason: 'doodad hook: code does not match 3.29.3b (or another script hooks it)' });
+    send({ type: 'refused', reason: 'doodad hook: code does not match 3.29.3c (or another script hooks it)' });
     return;
   }
   const path = h => { try { return h.isNull() ? null : h.add(8).readPointer().readUtf16String(); } catch (e) { return null; } };
@@ -192,20 +192,20 @@ function hookDoodads(exe) {
   });
 }
 
-// The level generator's trace (Agents/docs/re/011-level-generation.md §8): while 0x14204d820 generates an area, every
+// The level generator's trace (Agents/docs/re/011-level-generation.md §8): while 0x142054070 generates an area, every
 // random draw on its thread, then the placed tile grid. walkmaps.py writes <area>_seed<seed>.gen.json, which
 // `dotnet run --project scripts/re/levelgen -- compare` checks the server's generator against, draw by draw.
-//   draws: [kind, caller VA, argument, result]; kind 'n' = 0x141ff9720(n), 'u' = 0x141f5d130(n) called directly,
-//   'r' = a raw mt19937 draw (0x140a0f990) not made by those two, 'l' = LCG bits (0x140e3b310).
+//   draws: [kind, caller VA, argument, result]; kind 'n' = 0x141ffff70(n), 'u' = 0x141f63a20(n) called directly,
+//   'r' = a raw mt19937 draw (0x140a0ae10) not made by those two, 'l' = LCG bits (0x140e3d630).
 //   tiles: [x, y, .tdt path, height (+0x30), rotation (+0x36), flags +0x34, +0x35] for every non-empty grid entry.
-// The ground height of every cell of the finished tile map, as the client reads it (0x141d84a10(map, &[x, y]): the
+// The ground height of every cell of the finished tile map, as the client reads it (0x141d880a0(map, &[x, y]): the
 // highest of the map's height rectangles at +0x130 that has the cell, else the tile's byte map at the cell turned by
-// the entry's code plus map +0x104 × the entry's height +0x30; × 7.8125 gives world units, 0x141d84be0). Sent as i16
+// the entry's code plus map +0x104 × the entry's height +0x30; × 7.8125 gives world units, 0x141d88270). Sent as i16
 // per cell, row by row; walkmaps.py writes <area>_seed<seed>.heights.bin. Also the map's +0x104 and how many height
 // rectangles it has, to see whether generation ever adds any.
 let heightModule = null;
 function sendCellHeights(area, seed, map, w, h) {
-  const fn = exe.base.add(ptr('0x141d84a10').sub(IMAGE_BASE));
+  const fn = exe.base.add(ptr('0x141d880a0').sub(IMAGE_BASE));
   if (heightModule === null)
     heightModule = new CModule(`
       typedef int (*height_fn)(void *, int *);
@@ -230,16 +230,16 @@ function sendCellHeights(area, seed, map, w, h) {
 function hookGeneration(exe) {
   const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
   const hooks = {
-    generate: ['0x14204d820', '4c8bdc49894b08535657415441554156'],
-    next: ['0x141ff9720', '48895c24084889742410574883ec3065'],
-    uniform: ['0x141f5d130', '48895c240848896c2410488974241848'],
-    raw: ['0x140a0f990', '448b1941b9700200004c8bc1453bd975'],
-    lcg: ['0x140e3b310', '4883ec084533d285c9747048891c248b'],
+    generate: ['0x142054070', '4c8bdc49894b08535657415441554156'],
+    next: ['0x141ffff70', '48895c24084889742410574883ec3065'],
+    uniform: ['0x141f63a20', '48895c240848896c2410488974241848'],
+    raw: ['0x140a0ae10', '448b1941b9700200004c8bc1453bd975'],
+    lcg: ['0x140e3d630', '4883ec084533d285c9747048891c248b'],
   };
   for (const [name, [va, expected]] of Object.entries(hooks)) {
     const bytes = Array.from(new Uint8Array(at(va).readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
     if (bytes !== expected) {
-      send({ type: 'refused', reason: `generation trace: ${name} (${va}) does not match 3.29.3b` });
+      send({ type: 'refused', reason: `generation trace: ${name} (${va}) does not match 3.29.3c` });
       return;
     }
   }
@@ -286,10 +286,10 @@ function hookGeneration(exe) {
     },
   });
   // The trace as it stands: the placed tiles, every draw and the stage records. On a failed generation the client
-  // throws, 0x14204d820 never returns and the client hangs on its error: a generation that has drawn nothing for
+  // throws, 0x142054070 never returns and the client hangs on its error: a generation that has drawn nothing for
   // 8 s is sent as it stands as 'generation-failed' (walkmaps.py: <area>_seed<seed>.failtrace.json, kept apart from
   // the .gen.json traces; a slow load that goes on later still writes its .gen.json). Hooking the throw helper
-  // 0x142cdd4c0 instead crashed the client once in game (2026-10-28).
+  // 0x142ce6a40 instead crashed the client once in game (2026-10-28).
   function sendTrace(type, gen, seed) {
     const world = gen.add(0x38).readPointer();
     const row = world.add(0xb0).readPointer();
@@ -365,37 +365,37 @@ function hookGeneration(exe) {
 // Edge: +8 internal points (i32 x, y), +0x20 / +0x28 nodes, +0x38 type, +0x48 / +0x49 v-end set, +0x4a, +0x4c v-end
 // points (A: 2 points, B: 2 points), +0x6d split, +0x70 / +0x78 end offsets, +0x80 / +0x84 min / max width.
 var graphStages = [];
-// Per relaxation (0x1421239d0), its placement records (0x98 bytes each, the vector in its second argument): the node's
+// Per relaxation (0x14212a2d0), its placement records (0x98 bytes each, the vector in its second argument): the node's
 // position (+0x78), the room's tile position (+0x70 / +0x74), size (+0x40 / +0x41), slot sides (+0x80..+0x8c), align (+0x91).
 var relaxRecords = [];
-// The view's vertices as the fill (0x141fef070) starts: [ground index, height, flags] row by row over
+// The view's vertices as the fill (0x141ff5890) starts: [ground index, height, flags] row by row over
 // (w + 1) × (h + 1), with the ground paths by index. View: +0 map, +8 / +0xc offset, +0x18 / +0x1c size; map: +0x40
 // vertex stride, +0x50 vertices (3 bytes: ground index, height, flags), +0x68 ground handles (+8 path).
 var fillVertices = null;
-// 0x142110d60 (the level painting): its two levels, the grounds at layout +0x20 → +0xa0 / +0xa8 / +0xb0, and the view's
+// 0x142117660 (the level painting): its two levels, the grounds at layout +0x20 → +0xa0 / +0xa8 / +0xb0, and the view's
 // vertices as it returns (as fillVertices).
 var paint = null;
-// Dungeon graphs: the layout as 0x1421038d0 returns, and the rooms in the order they were placed (see below).
+// Dungeon graphs: the layout as 0x14210a1d0 returns, and the rooms in the order they were placed (see below).
 var dungeon = null, dungeonPlaced = [], dungeonStages = [], dungeonSizes = [], dungeonMap = null;
-// Composite maps: every layout of the load in order (dungeon is the last one), and every subgraph as 0x1420452e0
+// Composite maps: every layout of the load in order (dungeon is the last one), and every subgraph as 0x14204bb30
 // starts it: {index, draws, path, x, y, w, h, flags (+0x90), parent (+0x92), count (records in the list)}.
 var dungeons = [], subgraphs = [];
-// Dungeon tilising fill records: ['r', draws, x, y, w, h, height, accessible] as 0x1420eec10 records them, then
-// ['f', draws, x, y, height, accessible, placed height] as 0x1420f3de0 fills each (placed height null: already taken).
+// Dungeon tilising fill records: ['r', draws, x, y, w, h, height, accessible] as 0x1420f5510 records them, then
+// ['f', draws, x, y, height, accessible, placed height] as 0x1420fa6e0 fills each (placed height null: already taken).
 var dungeonFills = [];
 // Tile heights (entry +0x30, null for an empty entry) row by row at generation stages: [stage, draws, heights].
 var heightStages = [], currentGen = null;
 function hookGraphStages(exe, currentThread, drawCount) {
   const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
   const stages = [
-    ['special', '0x1421225d0', '48895c24184889742420555741544156', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
+    ['special', '0x142128ed0', '48895c24184889742420555741544156', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
     // Taken on entry: the graph as the relaxation sees it (special and plain nodes placed, not yet pushed).
-    ['relax', '0x1421239d0', '488bc448895810448840184889480855', a => a[0].add(0x78).readPointer().add(0x20).readPointer(), true],
-    ['route', '0x142125790', '48895c24185556574154415541564157', a => a[0].readPointer()],
-    ['corners', '0x142114f00', '48895c2410488974241855574156488d', a => a[0].add(0x20).readPointer()],
-    ['virtualNode', '0x14211e9b0', '4885d20f840601000048894c24085553', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
-    ['split', '0x142113c10', '48895c2410488974242055574156488d', a => a[0].add(0x20).readPointer()],
-    ['merge', '0x1421148c0', '48895c24185556574881ecb000000048', a => a[0].add(0x20).readPointer()],
+    ['relax', '0x14212a2d0', '488bc448895810448840184889480855', a => a[0].add(0x78).readPointer().add(0x20).readPointer(), true],
+    ['route', '0x14212c090', '48895c24185556574154415541564157', a => a[0].readPointer()],
+    ['corners', '0x14211b800', '48895c2410488974241855574156488d', a => a[0].add(0x20).readPointer()],
+    ['virtualNode', '0x1421252b0', '4885d20f840601000048894c24085553', a => a[0].add(0x78).readPointer().add(0x20).readPointer()],
+    ['split', '0x14211a510', '48895c2410488974242055574156488d', a => a[0].add(0x20).readPointer()],
+    ['merge', '0x14211b1c0', '48895c24185556574881ecb000000048', a => a[0].add(0x20).readPointer()],
   ];
   const wstring = s => s.add(0x18).readU64().compare(7) > 0 ? s.readPointer().readUtf16String() : s.readUtf16String();
   const vector = (p, size) => {
@@ -437,7 +437,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
       }
     return { ox, oy, w, h, grounds, v };
   };
-  // Dungeon graphs (.dgr): every room 0x1420fe780 places, as it returns, and the layout as 0x1421038d0 returns.
+  // Dungeon graphs (.dgr): every room 0x142105080 places, as it returns, and the layout as 0x14210a1d0 returns.
   // Layout (its third argument): +0x28 / +0x2c size in room units, +0x40 cells (i32: 0 free, 1 reserved, k ≥ 2 =
   // room k − 2), +0x58 rooms (0x60 each): +0 room (+8 path), +8 / +0xc x, y, +0x10, +0x11 exit count, +0x12 height,
   // +0x13 orientation, +0x14 kind, +0x15 flags, +0x20 / +0x24 w, h, +0x28 exits (0x10 each: edge type (+8 path), 4 bytes).
@@ -451,7 +451,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
     return [h.isNull() ? null : wstring(h.add(8)), r.add(8).readS32(), r.add(0xc).readS32(), r.add(0x20).readS32(), r.add(0x24).readS32(),
             r.add(0x13).readU8(), r.add(0x12).readU8(), r.add(0x14).readU8(), r.add(0x15).readU8(), r.add(0x10).readU8(), exits];
   };
-  const dungeonAt = at('0x1421038d0'), roomAt = at('0x1420fe780');
+  const dungeonAt = at('0x14210a1d0'), roomAt = at('0x142105080');
   const bytesAt = p => Array.from(new Uint8Array(p.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   const cellsOf = l => {
     const w = l.add(0x28).readU32(), h = l.add(0x2c).readU32(), c = [];
@@ -460,14 +460,14 @@ function hookGraphStages(exe, currentThread, drawCount) {
   };
   // The cells as each layout stage starts ('<') and returns ('>').
   const dungeonStageHooks = [
-    ['fill', '0x1420fd4e0', '488bc448895010488948085553565741'], ['connect', '0x1420facb0', '405355565741544155415641574881ec'],
-    ['prune', '0x1420fd9c0', '48894c24085553565741544155415641'], ['fc690', '0x1420fc690', '48895c24184889542410555657415441'],
-    ['fca30', '0x1420fca30', '48895c2410488974241848897c242055'], ['100d60', '0x142100d60', '4c89442418488954241048894c240855'],
-    ['1012c0', '0x1421012c0', '4c894424184889542410555356574154'], ['100910', '0x142100910', '4c8bdc5553564155498d6ba14881ec88'],
-    ['108dc0', '0x142108dc0', '40534883ec60488bd9488b4928e88e06'], ['pick', '0x1421083e0', '48895c2410488974241848897c242055'],
+    ['fill', '0x142103de0', '488bc448895010488948085553565741'], ['connect', '0x1421015b0', '405355565741544155415641574881ec'],
+    ['prune', '0x1421042c0', '48894c24085553565741544155415641'], ['fc690', '0x142102f90', '48895c24184889542410555657415441'],
+    ['fca30', '0x142103330', '48895c2410488974241848897c242055'], ['100d60', '0x142107660', '4c89442418488954241048894c240855'],
+    ['1012c0', '0x142107bc0', '4c894424184889542410555356574154'], ['100910', '0x142107210', '4c8bdc5553564155498d6ba14881ec88'],
+    ['108dc0', '0x14210f6c0', '40534883ec60488bd9488b4928e8eea0'], ['pick', '0x14210ece0', '48895c2410488974241848897c242055'],
   ];
   for (const [name, va0, expected] of dungeonStageHooks) {
-    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `dungeon stage ${name} (${va0}) does not match 3.29.3b` }); continue; }
+    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `dungeon stage ${name} (${va0}) does not match 3.29.3c` }); continue; }
     Interceptor.attach(at(va0), {
       onEnter(a) {
         this.on = this.threadId === currentThread() && dungeonMap !== null;
@@ -480,9 +480,9 @@ function hookGraphStages(exe, currentThread, drawCount) {
       },
     });
   }
-  // 0x1420fd4e0 after its lookup (rdi): the edge type's room sizes [w, h, weight] and their total (+0x18).
-  if (bytesAt(at('0x1420fd58e')) === '48897d7f488b47084839070f84fb0300')
-    Interceptor.attach(at('0x1420fd58e'), function () {
+  // 0x142103de0 after its lookup (rdi): the edge type's room sizes [w, h, weight] and their total (+0x18).
+  if (bytesAt(at('0x142103e8e')) === '48897d7f488b47084839070f84fb0300')
+    Interceptor.attach(at('0x142103e8e'), function () {
       if (this.threadId !== currentThread()) return;
       try {
         const l = this.context.rdi, sizes = [];
@@ -491,10 +491,10 @@ function hookGraphStages(exe, currentThread, drawCount) {
         dungeonSizes.push([drawCount(), sizes, l.add(0x18).readS32()]);
       } catch (e) { send({ type: 'error', message: 'dungeon sizes: ' + String(e) }); }
     });
-  // 0x1420452e0(generator, index): one subgraph record (0x98 bytes, list at generator +0x30 → +0x10 / +0x18): graph
+  // 0x14204bb30(generator, index): one subgraph record (0x98 bytes, list at generator +0x30 → +0x10 / +0x18): graph
   // path (std::wstring +0x20), rect +0x40 x, +0x44 y, +0x48 w, +0x4c h, +0x90 flags (bit 0: .dgr), +0x92 parent.
-  const subgraphAt = at('0x1420452e0');
-  if (bytesAt(subgraphAt) !== '48895c24184889742420555741544156') send({ type: 'refused', reason: 'subgraph: 0x1420452e0 does not match 3.29.3b' });
+  const subgraphAt = at('0x14204bb30');
+  if (bytesAt(subgraphAt) !== '48895c24184889742420555741544156') send({ type: 'refused', reason: 'subgraph: 0x14204bb30 does not match 3.29.3c' });
   else Interceptor.attach(subgraphAt, {
     onEnter(a) {
       if (this.threadId !== currentThread()) return;
@@ -507,7 +507,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
       } catch (e) { send({ type: 'error', message: 'subgraph: ' + String(e) }); }
     },
   });
-  if (bytesAt(dungeonAt) !== '4c8bdc4d89431849894b085356574154') send({ type: 'refused', reason: 'dungeon: 0x1421038d0 does not match 3.29.3b' });
+  if (bytesAt(dungeonAt) !== '4c8bdc4d89431849894b085356574154') send({ type: 'refused', reason: 'dungeon: 0x14210a1d0 does not match 3.29.3c' });
   else {
     Interceptor.attach(dungeonAt, {
       onEnter(a) {
@@ -560,8 +560,8 @@ function hookGraphStages(exe, currentThread, drawCount) {
       },
     });
   }
-  if (bytesAt(at('0x1420eec10')) !== '48895c24204c89442418555657415441') send({ type: 'refused', reason: 'fills: 0x1420eec10 does not match 3.29.3b' });
-  else Interceptor.attach(at('0x1420eec10'), {
+  if (bytesAt(at('0x1420f5510')) !== '48895c24204c89442418555657415441') send({ type: 'refused', reason: 'fills: 0x1420f5510 does not match 3.29.3c' });
+  else Interceptor.attach(at('0x1420f5510'), {
     onEnter(a) {
       if (this.threadId !== currentThread()) return;
       try {
@@ -570,8 +570,8 @@ function hookGraphStages(exe, currentThread, drawCount) {
       } catch (e) { send({ type: 'error', message: 'fill record: ' + String(e) }); }
     },
   });
-  if (bytesAt(at('0x1420f3de0')) !== '48895c2418574883ec304c8bd24c8bd9') send({ type: 'refused', reason: 'fills: 0x1420f3de0 does not match 3.29.3b' });
-  else Interceptor.attach(at('0x1420f3de0'), {
+  if (bytesAt(at('0x1420fa6e0')) !== '48895c2418574883ec304c8bd24c8bd9') send({ type: 'refused', reason: 'fills: 0x1420fa6e0 does not match 3.29.3c' });
+  else Interceptor.attach(at('0x1420fa6e0'), {
     onEnter(a) {
       this.on = this.threadId === currentThread();
       if (!this.on) return;
@@ -607,12 +607,12 @@ function hookGraphStages(exe, currentThread, drawCount) {
     return out;
   };
   const heightHooks = [
-    ['tiler', '0x1420f3480', '40555356574154415541564157488dac'], ['outer', '0x142044f30', '48895c241048896c2418565741544156'],
-    ['scale', '0x14204cbd0', '48895c241048896c2418488974242057'], ['mission', '0x14203e1f0', '48895c24105556574154415541564157'],
-    ['postunique', '0x14203ece0', '48894c24085553565741544155415641'],
+    ['tiler', '0x1420f9d80', '40555356574154415541564157488dac'], ['outer', '0x14204b780', '48895c241048896c2418565741544156'],
+    ['scale', '0x142053420', '48895c241048896c2418488974242057'], ['mission', '0x142044a40', '48895c24105556574154415541564157'],
+    ['postunique', '0x142045530', '48894c24085553565741544155415641'],
   ];
   for (const [name, va0, expected] of heightHooks) {
-    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `heights ${name} (${va0}) does not match 3.29.3b` }); continue; }
+    if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `heights ${name} (${va0}) does not match 3.29.3c` }); continue; }
     Interceptor.attach(at(va0), {
       onEnter() {
         this.on = this.threadId === currentThread() && currentGen !== null;
@@ -639,9 +639,9 @@ function hookGraphStages(exe, currentThread, drawCount) {
       },
     });
   }
-  const paintAt = at('0x142110d60');
+  const paintAt = at('0x142117660');
   const paintBytes = Array.from(new Uint8Array(paintAt.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  if (paintBytes !== '48895c2410488974241848897c242055') send({ type: 'refused', reason: 'paint: 0x142110d60 does not match 3.29.3b' });
+  if (paintBytes !== '48895c2410488974241848897c242055') send({ type: 'refused', reason: 'paint: 0x142117660 does not match 3.29.3c' });
   else Interceptor.attach(paintAt, {
     onEnter(a) {
       this.on = this.threadId === currentThread() && paint === null;
@@ -661,9 +661,9 @@ function hookGraphStages(exe, currentThread, drawCount) {
       try { paint = Object.assign(this.info, { after: viewVertices(this.view) }); } catch (e) { send({ type: 'error', message: 'paint: ' + String(e) }); }
     },
   });
-  const fillAt = at('0x141fef070');
+  const fillAt = at('0x141ff5890');
   const fillBytes = Array.from(new Uint8Array(fillAt.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
-  if (fillBytes !== '48895c2418565741564883ec30488bf1') send({ type: 'refused', reason: 'fill vertices: 0x141fef070 does not match 3.29.3b' });
+  if (fillBytes !== '48895c2418565741564883ec30488bf1') send({ type: 'refused', reason: 'fill vertices: 0x141ff5890 does not match 3.29.3c' });
   else Interceptor.attach(fillAt, {
     onEnter(a) {
       if (this.threadId !== currentThread() || fillVertices !== null) return;
@@ -691,7 +691,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   for (const [name, va0, expected, graphOf, onEntry] of stages) {
     const bytes = Array.from(new Uint8Array(at(va0).readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
     if (bytes !== expected) {
-      send({ type: 'refused', reason: `graph snapshot: ${name} (${va0}) does not match 3.29.3b` });
+      send({ type: 'refused', reason: `graph snapshot: ${name} (${va0}) does not match 3.29.3c` });
       continue;
     }
     Interceptor.attach(at(va0), {

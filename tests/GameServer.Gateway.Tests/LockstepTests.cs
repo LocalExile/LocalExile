@@ -229,7 +229,7 @@ public class LockstepTests
         Assert.Equal((123, 100), Game.PlaceLockstepPlayerMove(conn, (140, 130), .693));
 
         // A target that has left the cell searched toward is searched for again mid-path 2.0 s after the search, or 0.7 s
-        // after it once 64 cells from that cell (0x141e7bfb0). Here it goes off his line, out of reach of it: 16 and 13
+        // after it once 64 cells from that cell (0x141e826a0). Here it goes off his line, out of reach of it: 16 and 13
         // cells from (190, 100), the walk-up searches again at the end of the frame from 2.013, a step from a waypoint in
         // goal, where it stands at once; 64 and 13 cells away, at the end of the frame from 0.726.
         (ClientState Conn, LockstepAttack Attack) Off(int x, int y)

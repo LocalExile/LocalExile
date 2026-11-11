@@ -4,14 +4,15 @@ using GameServer.Core.World;
 /// <summary>Damage outputs captured for a target condition at release. A null
 /// <see cref="ProjectileOffense.VsBlinded"/> means the shot has no frozen alternate and must stay on its normal
 /// damage if the target later becomes Blinded.</summary>
-sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? AreaHit, MonsterIgnites.Settings Ignite,
+public sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? AreaHit, MonsterIgnites.Settings Ignite,
     MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
 /// <summary>Frozen offensive inputs. Targets, including evasion and resistance, are resolved at contact.</summary>
-sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
+public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
+    public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public object? Owner { get; init; }
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
@@ -34,6 +35,7 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
     public ushort SourceSkill { get; init; }
+    public Game.LinkedTriggerSource? CriticalTrigger { get; init; }
     public long? RampageEpoch { get; init; }
     public RampageCatalog.SkillLevel? RampageSkill { get; init; }
     public int Level { get; init; } = 1;
@@ -70,7 +72,7 @@ sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int 
 
     /// <summary>Selects the frozen output for the target's state before this hit's side effects, without recapturing
     /// release inputs or drawing random numbers.</summary>
-    internal ProjectileOffense Against(bool targetWasBlinded, int webs = 0)
+    public ProjectileOffense Against(bool targetWasBlinded, int webs = 0)
     {
         if (webs > 0 && Spider is { } spider)
         {

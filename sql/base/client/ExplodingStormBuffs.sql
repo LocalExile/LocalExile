@@ -1,0 +1,26 @@
+-- Client table ExplodingStormBuffs (3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "ExplodingStormBuffs" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "BuffDefinitionsKey1" INTEGER,
+    "__col2" JSON,
+    "StatValues" JSON,
+    "__col4" INTEGER,
+    "__col5" JSON,
+    "__col6" INTEGER,
+    "__col7" INTEGER,
+    "__col8" INTEGER,
+    "Friendly_MonsterVarietiesKey" INTEGER,
+    "MiscObjectsKey" INTEGER,
+    "MiscAnimatedKey" INTEGER,
+    "BuffVisualsKey" INTEGER,
+    "Enemy_MonsterVarietiesKey" INTEGER,
+    "__col14" INTEGER,
+    "__col15" INTEGER,
+    "__col16" INTEGER,
+    "BuffDefinitionsKey2" INTEGER,
+    "IsOnlySpawningNearPlayer" BOOLEAN,
+    "PlayerBuffTemplate" INTEGER,
+    "MonsterBuffTemplate" INTEGER,
+    "__col21" BOOLEAN
+);

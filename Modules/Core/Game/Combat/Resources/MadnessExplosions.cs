@@ -1,11 +1,11 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // PoB other.lua EnemyExplode uses 22 cells. This separate profile has not had its retail radius/art measured;
     // the measured Crusader physical explosion's fixed 25-cell radius does not establish this mechanic's geometry.
-    internal const int MadnessExplosionBaseRadius = 22;
+    public const int MadnessExplosionBaseRadius = 22;
     const string MadnessExplosionChance =
         "explode_enemies_for_25%_life_as_chaos_on_kill_while_affected_by_glorious_madness_chance_%";
 
@@ -26,7 +26,7 @@ static partial class Game
             SkillArea.Radius(MadnessExplosionBaseRadius, Get, spell: false), corpse.Walk.Position(ProjectileWorldTime(conn)));
     }
 
-    internal static void QueueMadnessExplosionLocked(ClientState conn, uint id, SpawnedMonster corpse)
+    public static void QueueMadnessExplosionLocked(ClientState conn, uint id, SpawnedMonster corpse)
     {
         var receipt = corpse.MadnessExplosion;
         corpse.MadnessExplosion = null;
@@ -37,7 +37,7 @@ static partial class Game
             conn.Madness.Explosions.Enqueue((id, corpse, receipt));
     }
 
-    internal static void MadnessExplosionsLocked(ClientState conn, double now)
+    public static void MadnessExplosionsLocked(ClientState conn, double now)
     {
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused) return;
         // Chained explosions enqueue more primitive receipts. Iteration avoids a recursive kill/notification stack.

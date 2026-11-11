@@ -3,7 +3,7 @@
 /// data-driven (SkillCatalog.Reservation). Enemy auras, herald procs, reservation minions and persistent spell buffs
 /// have separate executors; their HUD state does not turn them into ordinary player-stat auras.
 /// </summary>
-static class AuraCatalog
+public static class AuraCatalog
 {
     /// <summary>One active reservation skill: the skill id, its GrantedEffects row and id, its buff instance, and its gem's
     /// level and quality.</summary>
@@ -35,7 +35,7 @@ static class AuraCatalog
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
                 player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
                 // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
-                // from the first two list entries without checking its length (0x1417a4380).
+                // from the first two list entries without checking its length (0x1417a9410).
                 list: behaviourData);
     }
 
@@ -204,10 +204,10 @@ static class AuraCatalog
     public static int RequiredLife(CharacterStats.Pools pools, IEnumerable<Aura> auras)
         => Required(pools.Life, pools.LifeReservationEfficiencyPct, auras.Where(UsesLife), true);
 
-    internal static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
+    public static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras)
         => Required(maximum, efficiencyPct, auras, false);
 
-    internal static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras, bool life)
+    public static int Required(uint maximum, int efficiencyPct, IEnumerable<Aura> auras, bool life)
     {
         double flat = 0, percent = 0;
         foreach (var aura in auras)

@@ -15,7 +15,7 @@ using static Game;
 /// life for the humanoid and about 26.6M for the treant; resistances are 50/50/50/30. The mechanics and the full skill
 /// list are in Agents/docs/game/king-in-the-mists.md.</para>
 /// </summary>
-static class KingInMists
+public static class KingInMists
 {
     public const string Boss2 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2";
     public const string Boss3 = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss3";
@@ -25,9 +25,9 @@ static class KingInMists
     const string GuidingLight = "Metadata/Monsters/LeagueAzmeri/GuidingLight/GuidingLightDaemonMaze_";
     const string WerewolfMaze = "Metadata/Monsters/LeagueAzmeri/Werewolves/WerewolfMaze";
     const string MeleeSpiderMaze = "Metadata/Monsters/LeagueAzmeri/Spiders/MeleeSpiderMaze";
-    internal const string MysticFetish = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2RitualPillar";
-    internal const string CentralShrine = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2";
-    internal const string CentralShrineModel = "Metadata/Terrain/Doodads/Leagues/Azmeri/HugeRitualShrine01_01.ao";
+    public const string MysticFetish = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/VoodooKingBoss2RitualPillar";
+    public const string CentralShrine = "Metadata/Monsters/LeagueAzmeri/VoodooKingBoss/RitualPillar2";
+    public const string CentralShrineModel = "Metadata/Terrain/Doodads/Leagues/Azmeri/HugeRitualShrine01_01.ao";
 
     // The official fetish create blobs at the arena's mapboss point (162, 174): (232, 490), (368, 491) and (298, 606),
     // i.e. the offsets below, with their Positioned rotations 5.23599, 1.0472 and 3.14159 rad. The cells are blocked
@@ -64,8 +64,8 @@ static class KingInMists
     const int BossStartEffect = 6227;
     // The official actor ids of the two forms' default attacks (MeleeAtAnimationSpeedUnique). They are not the
     // player/generic 0x0102: using that id made the client play an unarmed/absent clip and the King T-posed.
-    internal const ushort Boss2AttackSkill = 0x4001;
-    internal const ushort Boss3AttackSkill = 0x4000;
+    public const ushort Boss2AttackSkill = 0x4001;
+    public const ushort Boss3AttackSkill = 0x4000;
     // Restore the fight in steps. BasicOnly trims the actor's skill table to the default attack, CTS1BossFightStart and
     // the three basic attacks (no ritual, effigy, hex or phase transition); Game_KING_BASIC=0 uses the full table.
     // While BasicOnly runs, phase 1 makes only the default attack decision, so the attack and its clip can be verified
@@ -98,19 +98,19 @@ static class KingInMists
 
     // The fetish hazards are actions on the fetish actor, not on the King. The official fetish manager has ids
     // 0x4000-0x4003 for RatSwarm, CorruptedBloodDegen and SummonFrogSwamps (row 5766 is the CGE variant).
-    internal const ushort FetishRatSkill = 0x4000, FetishBloodSkill = 0x4001, FetishSwampSkill = 0x4002,
+    public const ushort FetishRatSkill = 0x4000, FetishBloodSkill = 0x4001, FetishSwampSkill = 0x4002,
         FetishBloodAuraSkill = 0x4003;
     static readonly int[] FetishEffects = [10351, 10352, 10353, 5766, 5767];
 
     // BuffDefinitions rows: Portent Vapors, Branching Affliction, the two ritual hexes, Mystic Miasma and the invisible
     // cannot_be_damaged buff that covers the humanoid's start channel.
-    internal const ushort PortentVaporsRow = 2409, BranchingAfflictionRow = 2371, MysticMiasmaRow = 2401,
+    public const ushort PortentVaporsRow = 2409, BranchingAfflictionRow = 2371, MysticMiasmaRow = 2401,
         CannotBeDamagedRow = 350;
     // Phase-1 hexes: Ritual of Meditation (0x4006, row 2358) and Ritual of Dance (0x4007, row 2359).
-    internal const ushort HexNoMovementRow = 2358, HexNoStandingRow = 2359;
+    public const ushort HexNoMovementRow = 2358, HexNoStandingRow = 2359;
     // Unlike the invisible row 350, row 7 (god_mode / "Invulnerability") is visible and uses the client's
     // invulnerability.dds buff icon. Use it for the ritual so the immunity has a visual state on the boss.
-    internal const ushort RitualImmunityRow = 7;
+    public const ushort RitualImmunityRow = 7;
 
     public static bool IsBoss2(MonsterCatalog.Variety? variety) =>
         variety is not null && variety.Id.Equals(Boss2, StringComparison.Ordinal);
@@ -134,15 +134,17 @@ static class KingInMists
 
     /// <summary>The actor skill list for either form, built from the GrantedEffects rows the client must know to play the
     /// action's own animation. The ids are also the 0x1ab ids this controller sends.</summary>
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
         MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
         var list = new List<GrantedSkill>();
         void Add(ushort id, int effect, MonsterAttack use)
         {
+            // The record's skill_behaviour_variation (the effect's SkillID) names GSVoodooKingRitual's GeometryAttack row and
+            // so its GeometryChannel: without it the 0x400e channel crashed the client (SkillCatalog.BehaviourVariation).
             var stats = use.Projectile is null
-                ? use.SkillStats()
+                ? WithBehaviourVariation(conn, effect, use.SkillStats())
                 : MonsterProjectileSkillStats(conn, effect, level, use);
             if (Game.SkillsFor(conn).FindByRow(id, effect, level, stats) is { } skill) list.Add(skill);
         }
@@ -200,7 +202,7 @@ static class KingInMists
 
     /// <summary>The Mystic Fetish actor's full granted-effect list. The King controller sends the hazard actions to the
     /// fetish actor itself, as the official server does (RatSwarm, CorruptedBloodDegen, SummonFrogSwamps).</summary>
-    internal static IReadOnlyList<GrantedSkill> FetishSkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GrantedSkill> FetishSkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level,
         MonsterAttack attack)
     {
         if (!IsFetish(variety)) return [];
@@ -209,7 +211,7 @@ static class KingInMists
         {
             ushort id = (ushort)(FetishRatSkill + i);
             // The fetish's granted effects are spells: they need their own cast-time stats, not the attack duration.
-            var stats = (attack with { Spell = true }).SkillStats();
+            var stats = WithBehaviourVariation(conn, FetishEffects[i], (attack with { Spell = true }).SkillStats());
             if (Game.SkillsFor(conn).FindByRow(id, FetishEffects[i], level, stats) is { } skill) list.Add(skill);
         }
         return list;
@@ -1174,18 +1176,18 @@ static class KingInMists
                 await Task.Delay(1200);
                 if (!Present()) return;
 
-                if (_fetishes[which] is null) return;
-                // The client's `0x400e` channel start is the StartChannelling crash path (0xc0000005 at 0x19e0daf).
-                // Play the official rig clips directly instead: call_start_01 (4), call_loop_01 (3) and
-                // call_end_01 (2). The ritual itself stays server-side, and the fetish StateMachine `active` update is
-                // also withheld for now (it enters the same channel path with no action).
+                if (_fetishes[which] is not { } fetishId) return;
+                // The ritual is the client's own GSVoodooKingRitual channel (0x400e), aimed at the fetish: the record's
+                // skill_behaviour_variation names its GeometryChannel (SkillCatalog.BehaviourVariation), and the King's
+                // .act plays call_start_01, call_loop_01 and, when the action ends, call_end_01.
                 double startedAt;
+                int ritual;
                 lock (conn.Monsters)
                 {
                     startedAt = conn.Clock.Elapsed.TotalSeconds;
                     var here = boss.Walk.Position(startedAt);
                     boss.Walk.Order(here.X, here.Y, startedAt);   // a channel stops the teleport/chase
-                    ++boss.ActionGeneration;
+                    ritual = ++boss.ActionGeneration;
                     boss.BusyUntil = Math.Max(boss.BusyUntil, startedAt + 4.0);
                 }
                 Console.WriteLine($"[gateway] {remote} King in the Mists 0x{id:x} phase {_phase}: channels into Mystic Fetish {which + 1}");
@@ -1197,18 +1199,15 @@ static class KingInMists
                 // The ritual bark belongs to the start of call_start_01, not to the teleport: Client.txt 11:45:27
                 // "Bid the darkness!" and 11:45:50 "Nothingness approaches!" both land on clip 4.
                 await Say(RitualBarks[ritualIndex % RitualBarks.Length]);
-                await Program.Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 4, 1f),
-                    "0x01b2 King in the Mists ritual start (call_start_01)");
-                // call_start_01 is 1.733 s in the rig; the official capture keeps it for its full length (the first
-                // ritual's 14 ms transition is a queued-action artifact, the second one holds the whole clip).
-                await Task.Delay(1700);
-                if (!Present()) return;
-                // The fetish stays immune through the channel; its immunity (and hidden bar) is released when the
-                // whole ritual animation is over, before the return teleport.
-                await Program.Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 3, 1f),
-                    "0x01b2 King in the Mists ritual channel (call_loop_01)");
+                if (!await SendMonsterAction(remote, stream, ciphers, conn, id, boss, ritual,
+                    () => InstanceProtocol.ActionStarted(id, x, y, fx, fy, K.Ritual, NextSeq(), conn.MonsterOrderFlags,
+                        targetObjectId: fetishId),
+                    $"0x01ab King in the Mists channels GSVoodooKingRitual (0x{K.Ritual:x4}) into Mystic Fetish {which + 1} (0x{fetishId:x})")) return;
 
-                double until = startedAt + 3.4;   // 1.7 s start + 1.7 s loop
+                // call_start_01 (1.733 s in the rig) and a loop: the official channel holds about 3.4 s before it ends.
+                // The fetish stays immune through the channel; its immunity (and hidden bar) is released when the whole
+                // ritual animation is over, before the return teleport.
+                double until = startedAt + 3.4;
                 while (conn.Clock.Elapsed.TotalSeconds < until)
                 {
                     await Task.Delay(50);
@@ -1219,8 +1218,13 @@ static class KingInMists
                     if (boss.Dead || !FetishAlive(which)) interrupted = true;
                 }
                 if (!interrupted) await CastFetish(which);
-                await Program.Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 2, 0.4f),
-                    "0x01b2 King in the Mists ritual end (call_end_01)");
+                // The action's end has the client play the channel's end (ChannelEnd: call_end_01), unless a hit reaction
+                // owns the actor (the flinch ends it).
+                bool ritualFlinching;
+                lock (conn.Monsters) ritualFlinching = conn.Clock.Elapsed.TotalSeconds < boss.FlinchUntil;
+                if (!ritualFlinching)
+                    await Program.Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id),
+                        "0x01ac King in the Mists ends the ritual channel (call_end_01)");
                 // The official client holds call_end_01 for ~1 s before the return teleport.
                 await Task.Delay(1000);
                 if (!Present()) return;
@@ -1324,7 +1328,7 @@ static class KingInMists
                 var obj = new EffectObject(ox + roomX, oy + roomY, model) { Scale = scale };
                 await Program.Send(remote, stream, ciphers,
                     InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), obj.Blob()),
-                    $"0x02b9 create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
+                    $"0x02bb create arena object 0x{id:x} {type} at ({ox + roomX}, {oy + roomY})");
                 await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
                     $"0x01a9 arena object 0x{id:x} enters wake zone");
             }
@@ -1350,7 +1354,7 @@ static class KingInMists
             var obj = new RitualPillarObject(x, y, 0f, CentralShrineModel, states);
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.CreateObject(shrineId, InstanceEntities.ObjectTypeHash(CentralShrine), obj.Blob()),
-                $"0x02b9 create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
+                $"0x02bb create central HugeRitualShrine 0x{shrineId:x} at ({x}, {y}), state active_pillars = 0");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(shrineId),
                 $"0x01a9 central HugeRitualShrine 0x{shrineId:x} enters wake zone");
         }
@@ -1363,7 +1367,7 @@ static class KingInMists
             _centralShrineStates = states;
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.StateMachineUpdate(shrineId, RitualPillarObject.StateMachineComponentIndex, states),
-                $"0x02ba central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
+                $"0x02bc central HugeRitualShrine 0x{shrineId:x} active_pillars = {value}");
         }
 
         // The three Mystic Fetishes are room objects of arena.arm (not doodads), so the server has to create them. They
@@ -1511,7 +1515,7 @@ static class KingInMists
             states = states.Set("active", 1);
             lock (conn.Monsters) fetish.States = states;
             await Program.Send(remote, stream, ciphers, InstanceEntities.StateMachineUpdate(fetishId, (byte)index, states),
-                $"0x02ba Mystic Fetish {which + 1} activates");
+                $"0x02bc Mystic Fetish {which + 1} activates");
         }
 
 
@@ -1581,7 +1585,7 @@ static class KingInMists
             var effect = new EffectObject(x, y, ao) { Scale = scale };
             await Program.Send(remote, stream, ciphers,
                 InstanceEntities.CreateObject(effectId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
-                $"0x02b9 effect {ao} at ({x}, {y})");
+                $"0x02bb effect {ao} at ({x}, {y})");
             await Program.Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effectId),
                 "0x01a9 effect enters the wake zone");
             return effectId;
@@ -1864,7 +1868,7 @@ static class KingInMists
                 conn.Monsters.Remove(id);
             }
             await Program.Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
-                $"0x02bb remove the King's humanoid form 0x{id:x}");
+                $"0x02bd remove the King's humanoid form 0x{id:x}");
             if (_portentBuff is { } stale)
             {
                 _portentBuff = null;

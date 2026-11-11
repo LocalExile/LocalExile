@@ -2,17 +2,17 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal const string PhysicalAegisEffect = "PhysicalAegis";
-    internal const string PhysicalAegisBlindStat =
+    public const string PhysicalAegisEffect = "PhysicalAegis";
+    public const string PhysicalAegisBlindStat =
         "nearby_enemies_are_blinded_while_you_have_active_physical_aegis";
     // The Ghastly Theatre's "nearby" range is estimated at 5 m (50 cells at the project's 10 cells per metre).
     // It is an item condition, not an aura skill: aura area modifiers do not scale it.
-    internal const int PhysicalAegisNearbyRadius = 50;
-    internal const ushort PhysicalAegisBuffRow = 960;
-    internal const ushort PhysicalAegisDepletedBuffRow = 965;
-    internal const ushort PhysicalAegisPersistBuffRow = 970;
+    public const int PhysicalAegisNearbyRadius = 50;
+    public const ushort PhysicalAegisBuffRow = 960;
+    public const ushort PhysicalAegisDepletedBuffRow = 965;
+    public const ushort PhysicalAegisPersistBuffRow = 970;
 
     /// <summary>
     /// Resolve the current real grant and reconcile the connection-owned state with it. This never advances recharge: a
@@ -59,11 +59,11 @@ static partial class Game
     }
 
     /// <summary>The condition/state view. It installs a newly equipped source but never performs recharge.</summary>
-    internal static PhysicalAegisState PhysicalAegisStatus(ClientState conn, double now) =>
+    public static PhysicalAegisState PhysicalAegisStatus(ClientState conn, double now) =>
         PhysicalAegisAt(conn, now, advance: false);
 
     /// <summary>The player tick's state advance. The source is revalidated before the recharge commit.</summary>
-    internal static bool AdvancePhysicalAegis(ClientState conn, double now)
+    public static bool AdvancePhysicalAegis(ClientState conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -94,7 +94,7 @@ static partial class Game
         return (maximum, delayMs / 1000.0, Get("active_skill_display_aegis_variation"));
     }
 
-    internal static int PhysicalAegisRadius(ClientState conn, PhysicalAegisState state)
+    public static int PhysicalAegisRadius(ClientState conn, PhysicalAegisState state)
     {
         if (state.Source is not { } source) return 0;
         return source.EffectId == PhysicalAegisEffect ? PhysicalAegisNearbyRadius : 0;
@@ -115,7 +115,7 @@ static partial class Game
     /// The final Aegis Blind predicate shared by accuracy/evasion, critical and damage-taken consumers. Presentation
     /// membership is only a receipt; this revalidates the live grant, modifier and radius at the consuming commit.
     /// </summary>
-    internal static bool PhysicalAegisBlinds(ClientState conn, uint monster)
+    public static bool PhysicalAegisBlinds(ClientState conn, uint monster)
     {
         if (!conn.Monsters.TryGetValue(monster, out var target)) return false;
         double now = ResourceEffectsTime(conn);
@@ -130,10 +130,10 @@ static partial class Game
         }
     }
 
-    internal static Task SendPhysicalAegis(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendPhysicalAegis(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () => PhysicalAegisPresentation(conn));
 
-    internal static byte[]? PhysicalAegisPresentation(ClientState conn)
+    public static byte[]? PhysicalAegisPresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {

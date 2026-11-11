@@ -1,7 +1,7 @@
 namespace GameServer.Data.Terrain.Generation;
 
 /// <summary>A node of a tile graph as the generator holds it (the client's 0x98-byte node, built from the .tgr record by
-/// <c>0x142126b40</c>): position in cells (+0x4c), tag (+0x20), orientation (+0x40), descriptions (+8), exist % (+0x44),
+/// <c>0x14212d440</c>): position in cells (+0x4c), tag (+0x20), orientation (+0x40), descriptions (+8), exist % (+0x44),
 /// height (+0x48), priority (+0x42), random offset rectangle (+0x78), x / y locked (+0x8b / +0x8c) and up to four edges
 /// (+0x58), in the order the file lists them.</summary>
 public sealed class GraphNode
@@ -22,7 +22,7 @@ public sealed class GraphNode
     /// <summary>A room or tile took the node (+0x88). For a dungeon graph (.dgr): the node is void ("V"), it takes no
     /// room.</summary>
     public bool Placed;
-    /// <summary>One of the node's edges is virtual (+0x89, <c>0x14211f100</c>; cleared or set again by the split).</summary>
+    /// <summary>One of the node's edges is virtual (+0x89, <c>0x142125a00</c>; cleared or set again by the split).</summary>
     public bool OnVirtual;
     /// <summary>Emptied by the link merge, to be removed (+0x8a).</summary>
     public bool Dead;
@@ -35,7 +35,7 @@ public sealed class GraphNode
     public override string ToString() => $"node ({X}, {Y}) '{Tag}'";
 }
 
-/// <summary>An edge of a tile graph (<c>0x142126c40</c>): its two nodes (+0x20 / +0x28), internal points (+8), exist %
+/// <summary>An edge of a tile graph (<c>0x14212d540</c>): its two nodes (+0x20 / +0x28), internal points (+8), exist %
 /// (+0x30), chirality (+0x41), priority (+0x40), edge type (.et, +0x38) and widths (+0x80 / +0x84).</summary>
 public sealed class GraphEdge
 {
@@ -54,12 +54,12 @@ public sealed class GraphEdge
     /// <summary>+0x4a (must be clear for the split), +0x6c (tiled, or part of a tiled chain) and +0x6d (the edge was
     /// split).</summary>
     public bool Flag4a, Done, Split;
-    /// <summary>A dungeon graph's (.dgr) edge fields (<c>0x142a0c0a0</c>).</summary>
+    /// <summary>A dungeon graph's (.dgr) edge fields (<c>0x142a15400</c>).</summary>
     public DungeonEdge? Dungeon;
 
     public override string ToString() => $"edge {A} -> {B} ({Path.GetFileNameWithoutExtension(Type)})";
 
-    /// <summary><c>0x141d942e0</c>: a copy with the same nodes, points, type and fields.</summary>
+    /// <summary><c>0x141d97970</c>: a copy with the same nodes, points, type and fields.</summary>
     public GraphEdge Copy()
     {
         var c = (GraphEdge)MemberwiseClone();
@@ -71,7 +71,7 @@ public sealed class GraphEdge
     }
 }
 
-/// <summary>The fields a dungeon graph's (.dgr) edge record adds after the type (<c>0x142a0c0a0</c>), with their
+/// <summary>The fields a dungeon graph's (.dgr) edge record adds after the type (<c>0x142a15400</c>), with their
 /// offsets in the client's edge: branching chances (+0x48, +0x4c), depth limit (+0x50, version &gt; 20), branch edge
 /// type (+0x68, version &gt; 17), extra door % (+0x5c) and type (+0x70, version &gt; 19; default rooms.et), fuzzy %
 /// (+0x58, how much the room path search follows each room's random number), impenetrability (+0x54), impenetrable
@@ -83,28 +83,28 @@ public sealed class DungeonEdge
     public int ExtraDoor;
     public string ExtraDoorType = "Metadata/Terrain/Dungeon/rooms.et";
     /// <summary>+0x58 fuzzy; +0x5c, the last number before I/P: the path search bias of the rooms the edge's path takes
-    /// (<c>0x1420facb0</c>) and the edge lists' key (<c>0x1420014a0</c>). <see cref="ExtraDoor"/> (+0x54) is their
+    /// (<c>0x1421015b0</c>) and the edge lists' key (<c>0x142007cf0</c>). <see cref="ExtraDoor"/> (+0x54) is their
     /// extra door chance (room +0x10).</summary>
     public int Fuzzy, Bias;
     public bool Impenetrable, Void, Accessible;
 }
 
 /// <summary>A logical link (the generator's 0x20-byte entries): two node ends that belong together, and the nodes
-/// the split adds next to them (+0x10 / +0x18, <c>0x142112480</c>).</summary>
+/// the split adds next to them (+0x10 / +0x18, <c>0x142118d80</c>).</summary>
 public sealed class LogicalLink(GraphNode a, GraphNode b)
 {
     public GraphNode A = a, B = b;
     public GraphNode? A2, B2;
 }
 
-/// <summary>A tile graph (.tgr): size in tiles, master file, nodes and edges in file order (parsers <c>0x142a157c0</c>,
-/// <c>0x142bb2a10</c> header, <c>0x142bb34c0</c> nodes, <c>0x142bb3f20</c> edges).</summary>
+/// <summary>A tile graph (.tgr): size in tiles, master file, nodes and edges in file order (parsers <c>0x142a1eb20</c>,
+/// <c>0x142bbbd70</c> header, <c>0x142bbc820</c> nodes, <c>0x142bbd280</c> edges).</summary>
 public sealed class TileGraph
 {
     public int Version;
     public int Width, Height;
     public string MasterFile = "";
-    /// <summary>The three ground lines after the counts (<c>0x142bb2a10</c>: "top", "default", "bottom" ground type).</summary>
+    /// <summary>The three ground lines after the counts (<c>0x142bbbd70</c>: "top", "default", "bottom" ground type).</summary>
     public string TopGround = "", DefaultGround = "", BottomGround = "";
     /// <summary>A dungeon graph (.dgr): its "Default%:" line follows the grounds.</summary>
     public bool IsDungeon;
@@ -113,10 +113,10 @@ public sealed class TileGraph
     public List<GraphNode> Nodes = [];
     public List<GraphEdge> Edges = [];
     /// <summary>Logical links between the ends of a split node's edges (the generator's list at +0, 0x20 bytes each,
-    /// <c>0x14211dbc0</c>), merged back by <c>0x1421148c0</c>.</summary>
+    /// <c>0x1421244c0</c>), merged back by <c>0x14211b1c0</c>.</summary>
     public List<LogicalLink> Links = [];
 
-    /// <summary><c>0x141d94560</c>: a new node at a position, appended.</summary>
+    /// <summary><c>0x141d97bf0</c>: a new node at a position, appended.</summary>
     public GraphNode AddNode((int X, int Y) at)
     {
         var n = new GraphNode { X = at.X, Y = at.Y, Exist = 100 };
@@ -124,7 +124,7 @@ public sealed class TileGraph
         return n;
     }
 
-    /// <summary><c>0x141d94390</c>: an edge between two nodes, slotted into both, appended.</summary>
+    /// <summary><c>0x141d97a20</c>: an edge between two nodes, slotted into both, appended.</summary>
     public void AddEdge(GraphNode a, GraphNode b, GraphEdge e)
     {
         e.A = a;
@@ -169,7 +169,7 @@ public sealed class TileGraph
         g.DefaultGround = Next().Text;
         g.BottomGround = Next().Text;
         if (g.Version < 0x13) throw new NotSupportedException($"graph version {g.Version} scales coordinates (not ported)");
-        // A dungeon graph (.dgr, 0x142a0c0a0): "Default%:" branching, extra door and fuzzy percents (and, after version
+        // A dungeon graph (.dgr, 0x142a15400): "Default%:" branching, extra door and fuzzy percents (and, after version
         // 22, whether extra doors may open into impenetrable rooms).
         if (at < tokens.Count && tokens[at].Text == "Default%:")
         {
@@ -195,7 +195,7 @@ public sealed class TileGraph
             for (int k = 0; k < count; k++) s[k] = Int() + 1;
             slots.Add(s);
             n.Tag = Next().Text;
-            // 0x14299d980's table: I … FR270, "(any)" = 8, "(best)" = 9 (taken as 8 in tile graphs, not looked at there).
+            // 0x1429a6ce0's table: I … FR270, "(any)" = 8, "(best)" = 9 (taken as 8 in tile graphs, not looked at there).
             string ow = Next().Text;
             n.Orientation = g.IsDungeon && ow == "(best)" ? (byte)9 : ParseOrientation(ow);
             int descriptions = Int();
@@ -259,7 +259,7 @@ public sealed class TileGraph
             g.Edges.Add(e);
         }
         if (g.IsDungeon)
-            // 0x142003300 → 0x1420035a0: a .dgr ignores the node records' edge lists; each edge in file order takes the
+            // 0x142009b50 → 0x142009df0: a .dgr ignores the node records' edge lists; each edge in file order takes the
             // first free slot of both its nodes (1_5_3 node 12 lists "34 33 6" and holds 6, 33, 34).
             foreach (var e in g.Edges)
                 foreach (var n in (ReadOnlySpan<GraphNode>)[e.A, e.B])
@@ -269,17 +269,17 @@ public sealed class TileGraph
                     n.Slots[k] = e;
                 }
         else
-            // 0x142126550: each node's edge slots in the order its record lists them.
+            // 0x14212ce50: each node's edge slots in the order its record lists them.
             for (int i = 0; i < nodes; i++)
                 for (int k = 0; k < 4; k++)
                     g.Nodes[i].Slots[k] = slots[i][k] == 0 ? null : g.Edges[slots[i][k] - 1];
         return g;
     }
 
-    /// <summary><c>0x14299d980</c>: an orientation word; "(any)" and unknown words are 8 (any).</summary>
+    /// <summary><c>0x1429a6ce0</c>: an orientation word; "(any)" and unknown words are 8 (any).</summary>
     static byte ParseOrientation(string word) => (byte)Orientation.Parse(word);
 
-    /// <summary><c>0x141f4f130</c>: takes an edge out of its nodes' slots and the edge list.</summary>
+    /// <summary><c>0x141f55a20</c>: takes an edge out of its nodes' slots and the edge list.</summary>
     public void RemoveEdge(GraphEdge e)
     {
         Unslot(e.A, e);
@@ -299,8 +299,8 @@ public sealed class TileGraph
         if (i >= 0) n.Slots[i] = e;
     }
 
-    /// <summary><c>0x142036640</c>: removes a node. A node between two edges of one type whose other ends share its
-    /// height is merged away (<c>0x1420371a0</c>: the first edge takes over the second's far node, the node's position
+    /// <summary><c>0x14203ce90</c>: removes a node. A node between two edges of one type whose other ends share its
+    /// height is merged away (<c>0x14203d9f0</c>: the first edge takes over the second's far node, the node's position
     /// and the second edge's points). A tagged node with two or more edges stays as a plain node: tag and descriptions
     /// cleared, any orientation. Otherwise each of its edges moves its end to its nearest internal point (a new node
     /// there) or, without points, goes, and the node goes.</summary>
@@ -309,7 +309,7 @@ public sealed class TileGraph
         var edges = node.Slots.Where(s => s is not null).Cast<GraphEdge>().ToList();
         if (edges.Count == 2 && edges[0].Type == edges[1].Type)
         {
-            if (edges[0] == edges[1]) throw new NotSupportedException($"removing {node} on a loop edge (0x142036640) is not ported");
+            if (edges[0] == edges[1]) throw new NotSupportedException($"removing {node} on a loop edge (0x14203ce90) is not ported");
             var other0 = edges[0].A == node ? edges[0].B : edges[0].A;
             var other1 = edges[1].A == node ? edges[1].B : edges[1].A;
             if (other0.Height == node.Height && other1.Height == node.Height)

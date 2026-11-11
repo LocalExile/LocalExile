@@ -12,11 +12,8 @@ namespace GameServer.Modules.M_questobjects;
 /// it registers while loaded, the engine's hooks on entering an area, a kill, a click on a quest object and a read of item
 /// moves (the engine itself is the Game module's World/Quest/), the opening tutorial, its gems, the Glyph quest and the
 /// Trials of Ascendancy.</summary>
-public sealed class QuestObjectsModule : IModule, IDisposable
+public sealed class QuestObjectsModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("QuestObjects", run));
-
     /// <summary>Every act of this assembly (each class deriving <see cref="Quests.Act"/>, one per file in Acts/), in order.</summary>
     internal static IReadOnlyList<Quests.Act> Acts() =>
         [.. typeof(QuestObjectsModule).Assembly.GetTypes()
@@ -24,21 +21,15 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             .Select(t => (Quests.Act)Activator.CreateInstance(t)!).OrderBy(a => a.Number)];
 
     /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
-    /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
-        _events.Add(Quests.Register(module.Manifest.Id, acts));
+        module.Lifetime.Own(Quests.Register(module.Manifest.Id, acts));
         Console.WriteLine($"[gateway] quest engine: {string.Join(", ", acts)}");
-        module.OnAreaGenerated(async player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            var (remote, stream, ciphers) = conn.Wire;
             await SpawnQuestRoomObjects(remote, stream, ciphers, conn);
             await SpawnOpeningTutorial(remote, stream, ciphers, conn);
             await SpawnGlyphQuest(remote, stream, ciphers, conn);
@@ -47,10 +38,10 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             await StartQuestArea(remote, stream, ciphers, conn);
             await TickBeacon(conn);
         });
-        module.OnTick((player, _) => TickBeacon(ConnOf(player)));
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => TickBeacon(conn));
         // The quests after a kill's flags: quest drops (Hailrake's Medicine Chest), second forms (Merveil), NPCs that appear
         // or are freed, a fight of several bosses, a cleared area (a1q8).
-        On(GameEvents.Kill, kill =>
+        GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
             if (kill.Monster.Variety is not { } variety) return;
             var (remote, stream, ciphers) = kill.Conn.Wire;
@@ -59,12 +50,12 @@ public sealed class QuestObjectsModule : IModule, IDisposable
         });
         // After a read that moved items, the quest items' flags (and the removal of those done with: the Medicine Chest once
         // Nessa has one), on the message path so the inventory revisions stay in order.
-        On(GameEvents.MessagesHandled, async (conn, ids) =>
+        GameEvents.MessagesHandled.Add(module.Manifest.Id, async (conn, ids) =>
         {
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.PlayerSent && ids.Any(QuestItems.MovesItems)) await SyncQuestItems(remote, stream, ciphers, conn, removeItems: true);
         });
-        On(GameEvents.Kill, kill =>
+        GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
             if (kill.Conn.Layout.Id != TutorialObjects.Strand || kill.VarietyId != TutorialObjects.Zombie
                 || CharacterSaves.Load(CharacterName(kill.Conn))?.Tutorial is not { ZombieKilled: false }) return;
@@ -74,8 +65,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             else kill.Later(() => DropTutorialGem(remote, stream, ciphers, kill.Conn, false, kill.At.X, kill.At.Y));
         });
         // A trial dart's slow on the player's movement speed.
-        On(GameEvents.PlayerStatSources, WithDartSlow);
-        On(GameEvents.NpcTalk, async (conn, id, npc) =>
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, WithDartSlow);
+        GameEvents.NpcTalk.Add(module.Manifest.Id, async (conn, id, npc) =>
         {
             if (npc.Npc.Id.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal))
             {
@@ -88,13 +79,13 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             await TalkToWoundedExile(remote, stream, ciphers, conn, id, npc);
             return true;
         });
-        On(GameEvents.NpcDialogueClosing, conn =>
+        GameEvents.NpcDialogueClosing.Add(module.Manifest.Id, conn =>
         {
             TutorialObjects.SkipDialogue(conn);
             return Task.CompletedTask;
         });
         // Deathrattle: a warcry opens the quest chests within its radius.
-        On(GameEvents.ChestsOpened, async (conn, at, radius) =>
+        GameEvents.ChestsOpened.Add(module.Manifest.Id, async (conn, at, radius) =>
         {
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.TutorialChestId != 0 && conn.TutorialChest is { } chest && Dist((chest.X, chest.Y), at) <= radius)
@@ -105,12 +96,12 @@ public sealed class QuestObjectsModule : IModule, IDisposable
             foreach (var (id, nest) in nests) await OpenRhoaNestCore(remote, stream, ciphers, conn, id, nest);
         });
         // A cast near a Labyrinth smashable wall breaks it (not this module's cast: it goes on).
-        On(GameEvents.SkillCast, (conn, effect, skillId, from, current) =>
+        GameEvents.SkillCast.Add(module.Manifest.Id, (conn, effect, skillId, from, current) =>
         {
             _ = BreakSmashableWalls(conn, from);
             return null;
         });
-        On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, requestedAt) =>
         {
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.TutorialChestId == use.TargetId && conn.TutorialChest is { } tutorialChest)
@@ -135,7 +126,10 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                     {
                         Act3Objects.LabyrinthPlaque => () => QuestobjectsRules.UseSarnPlaque(remote, stream, ciphers, conn),
                         Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(remote, stream, ciphers, conn),
-                        Act3Objects.ReturnPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
+                        Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(remote, stream, ciphers, conn),
+                        Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(remote, stream, ciphers, conn),
+                        Act7Objects.Orrery => () => Send(remote, stream, ciphers,
+                            InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,
                     });
                 return true;
@@ -152,6 +146,8 @@ public sealed class QuestObjectsModule : IModule, IDisposable
                 await UseGlyphWall(remote, stream, ciphers, conn, use);
                 return true;
             }
+            // A Labyrinth room's stash: the one clicked is the stash the game opens (it knows one per area).
+            if (QuestobjectsRules.PickLabyrinthStash(conn, use.TargetId)) return false;
             return await UseTrialObject(remote, stream, ciphers, conn, use);
         });
     }

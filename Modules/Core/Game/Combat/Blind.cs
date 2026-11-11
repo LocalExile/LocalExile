@@ -4,28 +4,28 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 /// <summary>Blind inputs captured before an accepted hit chooses its attack/spell and critical result.</summary>
-readonly record struct BlindHitInput(long GlobalChance, long AttackChance, long CriticalChance, int Effect, double Seconds)
+public readonly record struct BlindHitInput(long GlobalChance, long AttackChance, long CriticalChance, int Effect, double Seconds)
 {
     static int Saturate(long value) => (int)Math.Clamp(value, (long)int.MinValue, int.MaxValue);
-    internal static BlindHitInput Capture(IReadOnlyDictionary<uint, int> player,
+    public static BlindHitInput Capture(IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
         long Get(string name) => Program.Stats.Key(name) is uint key ? (long)player.GetValueOrDefault(key)
             + (own?.GetValueOrDefault(key) ?? 0) : 0;
         return Capture(Get);
     }
-    internal static BlindHitInput Capture(Func<string, int> get) => new(
+    public static BlindHitInput Capture(Func<string, int> get) => new(
         get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
         get("%_chance_to_blind_on_critical_strike"), get("blind_effect_+%"), Game.BlindSeconds(get));
-    internal static BlindHitInput Capture(Func<string, long> get) => new(
+    public static BlindHitInput Capture(Func<string, long> get) => new(
         get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
         get("%_chance_to_blind_on_critical_strike"), Saturate(get("blind_effect_+%")),
         Game.BlindSeconds(name => Saturate(get(name))));
-    internal int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
+    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
         + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
 }
 
-static partial class Game
+public static partial class Game
 {
     static bool BlindImmune(ClientState conn, IReadOnlyDictionary<uint, int>? player = null)
     {
@@ -40,13 +40,13 @@ static partial class Game
         var value = state.PlayerBlind.Read(now, conn.PlayerLife == 0);
         return value.Less > 0 && BlindImmune(conn, player) ? state.PlayerBlind.Read(now, true) : value;
     }
-    internal static int PlayerBlindAccuracy(ClientState conn, int rating, IReadOnlyDictionary<uint, int>? player = null) =>
+    public static int PlayerBlindAccuracy(ClientState conn, int rating, IReadOnlyDictionary<uint, int>? player = null) =>
         TimedBlind.Apply(rating, PlayerBlindValue(conn, player).Less);
-    internal static int PlayerAccuracy(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
+    public static int PlayerAccuracy(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
         PlayerBlindAccuracy(conn, conn.Pools.Accuracy, player);
-    internal static int PlayerEvasion(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
+    public static int PlayerEvasion(ClientState conn, IReadOnlyDictionary<uint, int>? player = null) =>
         TimedBlind.Apply(PlayerEvasionBase(conn, ResourceEffectsTime(conn)), PlayerBlindValue(conn, player).Less);
-    internal static int PlayerEvasion(ClientState conn, double now) =>
+    public static int PlayerEvasion(ClientState conn, double now) =>
         TimedBlind.Apply(PlayerEvasionBase(conn, now), PlayerBlindValue(conn).Less);
     static void WithBlind(ClientState conn, Dictionary<uint, int> stats)
     {
@@ -54,7 +54,7 @@ static partial class Game
         if (blind.Less > 0 || conn.ResourceEffectsState is ResourceEffectsState state && state.PlayerBlind.Sent.Less > 0)
         { stats[973] = blind.Less > 0 ? 1 : 0; stats[15023] = stats[15024] = -blind.Less; }
     }
-    internal static bool InflictPlayerBlind(ClientState conn, double seconds, int effect = 0,
+    public static bool InflictPlayerBlind(ClientState conn, double seconds, int effect = 0,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         lock (conn.Monsters)
@@ -78,7 +78,7 @@ static partial class Game
         return (conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || PhysicalAegisBlinds(conn, id))
             && smokeLess > value.Less ? (smokeLess, 0) : value;
     }
-    internal static int MonsterBlindRating(ClientState conn, uint id, SpawnedMonster target, int rating, double at,
+    public static int MonsterBlindRating(ClientState conn, uint id, SpawnedMonster target, int rating, double at,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
@@ -86,7 +86,7 @@ static partial class Game
             : BlindEffectLess(player ?? CharacterStatSources(conn).Stats);
         return TimedBlind.Apply(rating, MonsterBlindValue(conn, id, target, at, smoke).Less);
     }
-    internal static (int Chance, int Effect, double Seconds) BlindInputs(IReadOnlyDictionary<uint, int> player,
+    public static (int Chance, int Effect, double Seconds) BlindInputs(IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? (int)Math.Clamp((long)player.GetValueOrDefault(key)
@@ -94,10 +94,10 @@ static partial class Game
         return (Math.Clamp(Get("global_chance_to_blind_on_hit_%"), 0, 100), Get("blind_effect_+%"),
             4 * Math.Max(0d, 1 + Get("blind_duration_+%") / 100d));
     }
-    internal static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
+    public static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
         => InflictMonsterBlind(conn, id, target, at, input.Chance, input.Effect, input.Seconds, random);
-    internal static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
+    public static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
         BlindHitInput input, bool spell, bool critical, Random? random = null)
         => InflictMonsterBlind(conn, id, target, at, input.Chance(spell, critical), input.Effect, input.Seconds, random);
     static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at, int chance,
@@ -111,7 +111,7 @@ static partial class Game
         return ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
             .Inflict(at, seconds, effect, target.Mods.Effects["cannot_be_blinded"] != 0);
     }
-    internal static byte[]? BlindPresentation(ClientState conn, IReadOnlyDictionary<uint, int>? snapshot = null)
+    public static byte[]? BlindPresentation(ClientState conn, IReadOnlyDictionary<uint, int>? snapshot = null)
     {
         lock (conn.Monsters)
         {
@@ -180,15 +180,15 @@ static partial class Game
             return bytes.Count == 0 ? null : [.. bytes];
         }
     }
-    internal static Task SendBlind(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendBlind(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () => BlindPresentation(conn));
 
-    internal const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
-    internal const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
+    public const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
+    public const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
 
-    internal static bool Blinded(ClientState conn, uint monster) => Blinded(conn, monster, ResourceEffectsTime(conn));
+    public static bool Blinded(ClientState conn, uint monster) => Blinded(conn, monster, ResourceEffectsTime(conn));
 
-    internal static bool Blinded(ClientState conn, uint monster, double at) =>
+    public static bool Blinded(ClientState conn, uint monster, double at) =>
         conn.Monsters.TryGetValue(monster, out var target)
         && !target.Dead && target.Life > 0 && target.Mods.Effects["cannot_be_blinded"] == 0
         && (conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster) || PhysicalAegisBlinds(conn, monster)
@@ -196,7 +196,7 @@ static partial class Game
             || conn.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
                 && ReferenceEquals(value.Target, target) && value.Blind.Read(at).Less > 0);
 
-    internal static int UnderBlind(ClientState conn, uint monster, int value) =>
+    public static int UnderBlind(ClientState conn, uint monster, int value) =>
         conn.Monsters.TryGetValue(monster, out var target) ? MonsterBlindRating(conn, monster, target, value, ResourceEffectsTime(conn)) : value;
 
     static int StatOf(IReadOnlyDictionary<uint, int> stats, string name) =>
@@ -205,7 +205,7 @@ static partial class Game
     // critical_strike_chance_+%_vs_blinded_enemies (PoB "against Blinded Enemies": ActorCondition enemy Blinded) is an
     // increase: a hit's chance against a Blinded target is recomputed from its base with it in the increased sum, never
     // the final chance scaled. Each site computes that second chance once (null without the stat) and picks it here.
-    internal static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded, int? vsProfane = null) =>
+    public static int CriticalChanceOn(ClientState conn, uint target, int chance, int? vsBlinded, int? vsProfane = null) =>
         Math.Clamp((vsProfane is int profane && conn.FlaskGrounds.Profane(target) ? profane
         : vsBlinded is int blinded && Blinded(conn, target) ? blinded : chance)
         + (conn.Monsters.GetValueOrDefault(target)?.Curses["enemy_additional_critical_strike_chance_against_self"] ?? 0), 0, 10000);
@@ -213,13 +213,13 @@ static partial class Game
     // The default attack's (and an ordinary bow's) chance against a Blinded target: the main hand's base with the pooled
     // attack increases and the vs-Blinded one, as Pools.AttackCriticalStrikeChance is built. A release keeps the
     // unprohibited chance, as the bow's ordinary one; the roll checks the prohibitions.
-    internal static int? AttackCriticalChanceVsBlinded(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
+    public static int? AttackCriticalChanceVsBlinded(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
         StatOf(player, VsBlindedCriticalStat) is not (not 0 and var extra)
             ? null : AttackCriticalChanceWith(conn, player, extra, release);
 
     // The default attack's (and an ordinary bow's) chance against a target on the player's profane ground: +100%
     // increased critical strike chance (PoB's SelfCritChance INC for enemies on Profane Ground).
-    internal static int? AttackCriticalChanceVsProfane(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
+    public static int? AttackCriticalChanceVsProfane(ClientState conn, IReadOnlyDictionary<uint, int> player, bool release = false) =>
         AttackCriticalChanceWith(conn, player, FlaskGrounds.ProfaneCritIncrease, release);
 
     static int? AttackCriticalChanceWith(ClientState conn, IReadOnlyDictionary<uint, int> player, long extra, bool release)
@@ -230,15 +230,15 @@ static partial class Game
     }
 
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
-    internal static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
+    public static int? SupportedCriticalChanceVsBlinded(ClientState conn, ushort skillId, bool release) =>
         conn.Pools.VsBlindedCriticalPct is not 0 and var extra ? SupportedCriticalChanceFor(conn, skillId, release, extra) : null;
 
     // A supported gem's chance against a target on the player's profane ground (+100% increased critical chance).
-    internal static int? SupportedCriticalChanceVsProfane(ClientState conn, ushort skillId, bool release) =>
+    public static int? SupportedCriticalChanceVsProfane(ClientState conn, ushort skillId, bool release) =>
         SupportedCriticalChanceFor(conn, skillId, release, FlaskGrounds.ProfaneCritIncrease);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where
     // it joins the other increased damage taken (shock), and the ticks of the ignite its hit inflicted (Advance's takenFrom).
-    internal static int DamageTakenFromBlindedPct(ClientState conn, uint monster, IReadOnlyDictionary<uint, int> player) =>
+    public static int DamageTakenFromBlindedPct(ClientState conn, uint monster, IReadOnlyDictionary<uint, int> player) =>
         Blinded(conn, monster) ? StatOf(player, FromBlindedDamageTakenStat) : 0;
 }

@@ -1,12 +1,12 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     const string AvianAspect = "AspectOfTheAvian";
     // Nearby-allies policy pending retail range measurement, kept separate from ordinary aura area/effect scaling.
-    internal const int AvianSharingRadius = 40;
+    public const int AvianSharingRadius = 40;
 
-    internal static SharedAura[] SharedAvianAuras(ClientState conn)
+    public static SharedAura[] SharedAvianAuras(ClientState conn)
     {
         if (conn.Closed || conn.LeavingArea || InTown(conn) || !AvianActive(conn) || AvianRoot(conn) is not { } root) return [];
         var raw = CharacterStatSources(conn).Stats;
@@ -31,7 +31,7 @@ static partial class Game
     static AuraCatalog.Aura? AvianRoot(ClientState conn) => conn.PlayerLife > 0
         ? conn.Auras.Values.FirstOrDefault(a => a.EffectId == AvianAspect) : null;
 
-    internal static bool AvianActive(ClientState conn) => AvianRoot(conn) is { } root
+    public static bool AvianActive(ClientState conn) => AvianRoot(conn) is { } root
         && conn.Reservations.AvianOwner == new ReservationState.CatAspectOwner(root.SkillId, root.Buff)
         && conn.Reservations.Avian != ReservationState.AvianPhase.None;
 
@@ -51,7 +51,7 @@ static partial class Game
         conn.Minions.StatRevision++;
     }
 
-    internal static bool AvianReconcileLocked(ClientState conn, double now,
+    public static bool AvianReconcileLocked(ClientState conn, double now,
         IReadOnlyDictionary<uint, int>? raw = null)
     {
         var state = conn.Reservations;
@@ -105,7 +105,7 @@ static partial class Game
         return changed;
     }
 
-    internal static IReadOnlyList<(uint Key, int Value)> AvianRawStatsLocked(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> AvianRawStatsLocked(ClientState conn,
         IReadOnlyDictionary<uint, int> raw, bool includeReceived = false)
     {
         var root = AvianRoot(conn);

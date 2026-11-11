@@ -3,7 +3,7 @@
 /// catalogues and command checks; this provider holds an immutable override snapshot. A value above zero is the
 /// maximum, zero means no limit, and an absent key uses the base value.
 /// </summary>
-sealed class LimitSettings
+public sealed class LimitSettings
 {
     static readonly IReadOnlyDictionary<string, int> Empty = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 

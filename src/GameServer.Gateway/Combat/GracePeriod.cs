@@ -1,7 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Per-entry protection. Never saved; the deadline uses the connection's game clock.</summary>
-sealed class GracePeriod
+public sealed class GracePeriod
 {
     public const ushort BuffRow = 6; // BuffDefinitions: grace_period; BuffVisuals 8 (invulnerability.dds).
 

@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static bool GolemEnemyOrderLocked(ClientState conn, uint id, SpawnedMonster enemy, double now, double ownerDistance)
     {
@@ -76,7 +76,7 @@ static partial class Game
         }
     }
 
-    internal static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
+    public static bool GolemTakeHitLocked(ClientState conn, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
     {
         if (!GolemCurrent(conn, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (GolemIgnoresDots(g)) return false;
@@ -102,7 +102,7 @@ static partial class Game
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical, now: now);
+        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical, now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects["chaos_damage_does_not_bypass_energy_shield"] != 0;
         long damage = 0;

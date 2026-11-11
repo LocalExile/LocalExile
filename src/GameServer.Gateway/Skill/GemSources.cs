@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Which gems can drop from monsters (19-gems.md §5). The data's SkillGems table also holds rows that never drop in 3.29:
@@ -7,7 +8,7 @@ using System.Text.Json;
 /// QuestRewardOffers gems of every class, each class's starting gems (Characters StartSkillGem/StartSupportGem) and the
 /// drop-only exceptional supports (Empower, Enhance, Enlighten).
 /// </summary>
-static class GemSources
+public static class GemSources
 {
     static readonly string[] DropOnlySupports = ["Empower Support", "Enhance Support", "Enlighten Support"];
 
@@ -18,10 +19,10 @@ static class GemSources
             foreach (var choice in offer.Choices)
                 if (items.Row(choice.ItemRow) is { } type && items.Gem(type) is not null) pool.Add(type.Row);
         string characters = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (File.Exists(characters) && File.Exists(gems))
+        if (ClientTables.Exists(characters) && ClientTables.Exists(gems))
         {
-            using var c = JsonDocument.Parse(File.ReadAllBytes(characters));
-            using var g = JsonDocument.Parse(File.ReadAllBytes(gems));
+            using var c = JsonDocument.Parse(ClientTables.ReadAllBytes(characters));
+            using var g = JsonDocument.Parse(ClientTables.ReadAllBytes(gems));
             foreach (var character in c.RootElement.EnumerateArray())
                 foreach (string column in new[] { "StartSkillGem", "StartSupportGem" })
                     if (character.TryGetProperty(column, out var value) && value.ValueKind == JsonValueKind.Number

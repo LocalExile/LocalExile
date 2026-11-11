@@ -11,7 +11,7 @@
 /// the consumer on; /set_stat 0 turns it off again. This class is the derived source both the pools and the spell
 /// consumers read, so nothing counts the modifier twice.
 /// </summary>
-static class ResistanceOvercap
+public static class ResistanceOvercap
 {
     /// <summary>evasion_rating_increased_by_overcapped_cold_resistance: +1% increased evasion per 1% cold overcap.</summary>
     public const string ColdEvasionFlag = "evasion_rating_increased_by_overcapped_cold_resistance";
@@ -50,20 +50,28 @@ static class ResistanceOvercap
         int Effective(string name) => stats.Key(name) is uint key && devStats.TryGetValue(key, out int dev) ? dev : StatOf(name);
         int Replacement(string name) => Effective(name) - StatOf(name);
         int commonResistance = Replacement("base_resist_all_elements_%") + Replacement(ColdAndLightningResistance);
-        int coldRaw = bonus.ColdResistance + commonResistance + Replacement("base_cold_damage_resistance_%");
-        int lightningRaw = bonus.LightningResistance + commonResistance + Replacement("base_lightning_damage_resistance_%");
+        // The other two pair stats: fire-and-cold raises cold, fire-and-lightning raises lightning.
+        int fireCold = Replacement("fire_and_cold_damage_resistance_%");
+        int fireLightning = Replacement("fire_and_lightning_damage_resistance_%");
+        int coldRaw = bonus.ColdResistance + commonResistance + fireCold + Replacement("base_cold_damage_resistance_%");
+        int lightningRaw = bonus.LightningResistance + commonResistance + fireLightning + Replacement("base_lightning_damage_resistance_%");
         int commonMaximum = Replacement("additional_maximum_all_resistances_%")
             + Replacement("additional_maximum_all_elemental_resistances_%");
+        int fireMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
+            + bonus.FireMaxResistance + commonMaximum + Replacement("base_maximum_fire_damage_resistance_%"));
         int coldMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
             + bonus.ColdMaxResistance + commonMaximum + Replacement("base_maximum_cold_damage_resistance_%"));
         int lightningMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
             + bonus.LightningMaxResistance + commonMaximum + Replacement("base_maximum_lightning_damage_resistance_%"));
+        if (Effective("elemental_resistances_are_limited_by_highest_maximum_elemental_resistance") != 0)
+            fireMax = coldMax = lightningMax = Math.Max(fireMax, Math.Max(coldMax, lightningMax));
         var derived = Increases(coldRaw + penalty, coldMax, Enabled(stats, sources, devStats, ColdEvasionFlag),
             lightningRaw + penalty, lightningMax, Enabled(stats, sources, devStats, LightningCritFlag));
         return bonus with
         {
             ColdResistance = coldRaw - CharacterStats.BaseResistance,
             LightningResistance = lightningRaw - CharacterStats.BaseResistance,
+            FireMaxResistance = fireMax - GameServer.Core.World.DamageModel.DefaultMaxResistance,
             ColdMaxResistance = coldMax - GameServer.Core.World.DamageModel.DefaultMaxResistance,
             LightningMaxResistance = lightningMax - GameServer.Core.World.DamageModel.DefaultMaxResistance,
             ColdOvercapEvasionPct = derived.EvasionPct, LightningOvercapCritPct = derived.CriticalStrikeChancePct
@@ -71,7 +79,9 @@ static class ResistanceOvercap
     }
 
     public static bool IsInput(string name) => name is ColdEvasionFlag or LightningCritFlag or ColdAndLightningResistance
+        or "fire_and_cold_damage_resistance_%" or "fire_and_lightning_damage_resistance_%"
         or "base_cold_damage_resistance_%" or "base_lightning_damage_resistance_%" or "base_resist_all_elements_%"
+        or "elemental_resistances_are_limited_by_highest_maximum_elemental_resistance" or "base_maximum_fire_damage_resistance_%"
         or "base_maximum_cold_damage_resistance_%" or "base_maximum_lightning_damage_resistance_%"
         or "additional_maximum_all_resistances_%" or "additional_maximum_all_elemental_resistances_%";
 

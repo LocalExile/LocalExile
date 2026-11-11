@@ -5,9 +5,9 @@ namespace GameServer.Core.World;
 /// <summary>
 /// The quest flag an area sets when a character enters it (QuestFlags rows): MapPins <c>QuestFlagVisit</c> of the pins
 /// that show the area, and the area's WorldAreas <c>StartQuestFlags</c> (the same flag where both exist, e.g. 124 for
-/// Lioneye's Watch). The World panel reveals a pin when any of its MapPins <c>QuestFlags</c> is set (0x140ab6200), and
+/// Lioneye's Watch). The World panel reveals a pin when any of its MapPins <c>QuestFlags</c> is set (0x140ab4c10), and
 /// those are the neighbouring areas' visit flags (The Coast's pin: Lioneye's Watch's 124), so visiting an area reveals
-/// the next one; a connection line is drawn only between two revealed or activated pins (0x140a9a7d0).
+/// the next one; a connection line is drawn only between two revealed or activated pins (0x140aa5fb0).
 /// Agents/docs/protocol/16-waypoints.md §4.
 /// </summary>
 public sealed class AreaVisitFlags
@@ -30,8 +30,8 @@ public sealed class AreaVisitFlags
         var pinned = new List<string>();
         try
         {
-            if (!File.Exists(worldAreasJson)) return new([], []);
-            using var areas = JsonDocument.Parse(File.ReadAllBytes(worldAreasJson));
+            if (!ClientTables.Exists(worldAreasJson)) return new([], []);
+            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes(worldAreasJson));
             var ids = areas.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "").ToList();
             int row = 0;
             foreach (var r in areas.RootElement.EnumerateArray())
@@ -40,9 +40,9 @@ public sealed class AreaVisitFlags
                     foreach (var f in start.EnumerateArray()) Add(ids[row], f.GetInt32());
                 row++;
             }
-            if (File.Exists(mapPinsJson))
+            if (ClientTables.Exists(mapPinsJson))
             {
-                using var pins = JsonDocument.Parse(File.ReadAllBytes(mapPinsJson));
+                using var pins = JsonDocument.Parse(ClientTables.ReadAllBytes(mapPinsJson));
                 foreach (var p in pins.RootElement.EnumerateArray())
                 {
                     if (!p.TryGetProperty("WorldAreasKeys", out var keys) || keys.ValueKind != JsonValueKind.Array) continue;

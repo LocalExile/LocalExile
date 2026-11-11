@@ -6,7 +6,7 @@ namespace GameServer.Data.Terrain.Generation;
 public sealed record PlacedTileObject(string Type, string Model, int X, int Y, float Rotation, float Z, int Code = 0, float Scale = 1);
 
 /// <summary>A placed .arm room as scripts/walkmaps captures it (&lt;area&gt;_seed&lt;seed&gt;.rooms.json, the room
-/// loop of the doodad stage <c>0x142040770</c>): its origin and its unturned size (room data +0x138 / +0x139) in grid
+/// loop of the doodad stage <c>0x142046fc0</c>): its origin and its unturned size (room data +0x138 / +0x139) in grid
 /// cells, and its orientation code.</summary>
 public sealed record PlacedArmRoom(string Path, int X, int Y, int Width, int Height, int Code);
 
@@ -15,7 +15,7 @@ public sealed record PlacedArmRoom(string Path, int X, int Y, int Width, int Hei
 public sealed record PlacedLink(int From, int To, string Name);
 
 /// <summary>The area transitions and waypoints of a generated grid, placed as <see cref="DoodadStage"/>'s tile lines
-/// place tile objects (<c>0x142041200</c>): row by row, every tile origin's objects (the record master's Reskin copy
+/// place tile objects (<c>0x142047a50</c>): row by row, every tile origin's objects (the record master's Reskin copy
 /// when there is one; per sub-tile for a tile made of them), then the .tmd the .tdt names (+0x180), turned by the
 /// entry's orientation. What scripts/walkmaps captures from the client as &lt;area&gt;_seed&lt;seed&gt;.transitions.json.
 /// The transitions' server-only effects (<see cref="EffectsFolder"/>: Act 5's crater glow and ground shatter) are
@@ -62,7 +62,7 @@ public static class AreaObjects
 
     /// <summary>The server object lines of the placed .arm rooms whose type <paramref name="keep"/> takes (default: any type
     /// but the plain doodad: a waypoint, an area transition such as The Submerged Passage's <c>DepthsReturnTransition</c>
-    /// boat, a quest object), placed as <see cref="DoodadStage"/>'s room lines (<c>0x142040770</c>: the cell turned by the
+    /// boat, a quest object), placed as <see cref="DoodadStage"/>'s room lines (<c>0x142046fc0</c>: the cell turned by the
     /// room's code, the angle mirrored for codes 4–7 plus (code &amp; 3)·π/2), which skip them as no client doodad; with
     /// <paramref name="points"/> also the
     /// named points named by an object type (a room's point list can place a chest: The Cavern of Anger's

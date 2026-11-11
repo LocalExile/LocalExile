@@ -3,13 +3,13 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly SummonCatalog SummonData = new();
+    public static readonly SummonCatalog SummonData = new();
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 
-    internal static void SaveSummons(ClientState conn)
+    public static void SaveSummons(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -26,7 +26,7 @@ static partial class Game
         }
     }
 
-    internal static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
+    public static int SummonLimit(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem)
     {
         if (definition.LimitStat.Length == 0) return 1;
         var player = CharacterPlayerStats(conn);
@@ -87,7 +87,7 @@ static partial class Game
         return true;
     }
 
-    internal static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
         Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
@@ -244,7 +244,7 @@ static partial class Game
         conn.Minions.StatRevision++;
     }
 
-    internal static async Task SummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task SummonsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var state = conn.Summons;
         if (!state.Restored)

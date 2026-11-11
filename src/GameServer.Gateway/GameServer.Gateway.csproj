@@ -11,37 +11,9 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
-  <!-- The Gateway's types are internal (top-level program); its tests and the modules reach them. -->
+  <!-- The Gateway's types are public: modules and mods reach the whole server (Agents/docs/dev/modding.md). -->
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
-    <InternalsVisibleTo Include="game" />
-    <InternalsVisibleTo Include="atlas" />
-    <InternalsVisibleTo Include="bench" />
-    <InternalsVisibleTo Include="commands" />
-    <InternalsVisibleTo Include="cosmetics" />
-    <InternalsVisibleTo Include="delve" />
-    <InternalsVisibleTo Include="harvest" />
-    <InternalsVisibleTo Include="heist" />
-    <InternalsVisibleTo Include="hideoutediting" />
-    <InternalsVisibleTo Include="nessadevelopmenttabs" />
-    <InternalsVisibleTo Include="npcdialogue" />
-    <InternalsVisibleTo Include="pantheon" />
-    <InternalsVisibleTo Include="portals" />
-    <InternalsVisibleTo Include="phreciaascendancies" />
-    <InternalsVisibleTo Include="questobjects" />
-    <InternalsVisibleTo Include="ruthless" />
-    <InternalsVisibleTo Include="social" />
-    <InternalsVisibleTo Include="survivorsskills" />
-    <InternalsVisibleTo Include="survivorsrewards" />
-    <InternalsVisibleTo Include="survivorsrun" />
-    <InternalsVisibleTo Include="tattoos" />
-    <InternalsVisibleTo Include="uniquebelts" />
-    <InternalsVisibleTo Include="vendors" />
-    <!-- scripts/re/exits: the offline area transition audit. -->
-    <InternalsVisibleTo Include="exits" />
-    <!-- scripts/perf/PerfBench: the in-process performance measurements (Agents/docs/dev/performance.md). -->
-    <InternalsVisibleTo Include="perfbench" />
-    <InternalsVisibleTo Include="playerbots" />
   </ItemGroup>
 
   <PropertyGroup>

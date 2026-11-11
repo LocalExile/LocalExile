@@ -3,22 +3,22 @@
 /// by the character's actual <see cref="PlayerInventories"/>. Every local access is made under
 /// <see cref="ClientState.Monsters"/>. A retired lifetime is irrevocable; a later source with the same key gets a new one.
 /// </summary>
-sealed class GemSourceLifetimes
+public sealed class GemSourceLifetimes
 {
     /// <summary>The physical lifetimes shared by every connection using one loaded inventory. Socket mutations and owner
     /// replacement retire markers here; dictionary access uses only this short lock and never a connection's Monsters.</summary>
-    internal sealed class SourceStore
+    public sealed class SourceStore
     {
         readonly Dictionary<GemSkillIds.Gem, SourceMarker> _current = [];
         readonly Dictionary<(string Namespace, ushort Skill), ActivationOwner> _writers = [];
         readonly Lock _lock = new();
         bool _retired;
 
-        internal readonly record struct ActivationOwner(SourceMarker Marker, Guid Owner);
+        public readonly record struct ActivationOwner(SourceMarker Marker, Guid Owner);
 
-        internal bool Retired => Volatile.Read(ref _retired);
+        public bool Retired => Volatile.Read(ref _retired);
 
-        internal SourceMarker? Capture(GemSkillIds.Gem key)
+        public SourceMarker? Capture(GemSkillIds.Gem key)
         {
             lock (_lock)
             {
@@ -29,7 +29,7 @@ sealed class GemSourceLifetimes
             }
         }
 
-        internal void RetireSocket(uint host, int socket)
+        public void RetireSocket(uint host, int socket)
         {
             lock (_lock)
             {
@@ -48,7 +48,7 @@ sealed class GemSourceLifetimes
         }
 
         /// <summary>Makes <paramref name="owner"/> the connection that owns this saved source's current activation.</summary>
-        internal bool ClaimActivation(string saveNamespace, ushort skill, SourceMarker marker, Guid owner)
+        public bool ClaimActivation(string saveNamespace, ushort skill, SourceMarker marker, Guid owner)
         {
             lock (_lock)
             {
@@ -59,7 +59,7 @@ sealed class GemSourceLifetimes
         }
 
         /// <summary>The current activation writer, without constructing an inventory or entering a Saves transaction.</summary>
-        internal ActivationOwner? ActivationWriter(string saveNamespace, ushort skill)
+        public ActivationOwner? ActivationWriter(string saveNamespace, ushort skill)
         {
             lock (_lock)
             {
@@ -72,7 +72,7 @@ sealed class GemSourceLifetimes
             }
         }
 
-        internal void RetireOwner()
+        public void RetireOwner()
         {
             lock (_lock)
             {
@@ -86,35 +86,35 @@ sealed class GemSourceLifetimes
         }
     }
 
-    internal sealed class SourceMarker(GemSkillIds.Gem key, SourceStore owner)
+    public sealed class SourceMarker(GemSkillIds.Gem key, SourceStore owner)
     {
-        internal GemSkillIds.Gem Key { get; } = key;
-        internal SourceStore Owner { get; } = owner;
+        public GemSkillIds.Gem Key { get; } = key;
+        public SourceStore Owner { get; } = owner;
         bool _retired;
-        internal bool Retired => Volatile.Read(ref _retired) || Owner.Retired;
-        internal void Retire() => Volatile.Write(ref _retired, true);
+        public bool Retired => Volatile.Read(ref _retired) || Owner.Retired;
+        public void Retire() => Volatile.Write(ref _retired, true);
     }
 
-    internal sealed class SourceLifetime(GemSkillIds.Gem key, SourceMarker? parent = null, bool retired = false)
+    public sealed class SourceLifetime(GemSkillIds.Gem key, SourceMarker? parent = null, bool retired = false)
     {
-        internal GemSkillIds.Gem Key { get; } = key;
-        internal SourceMarker? Parent { get; } = parent;
+        public GemSkillIds.Gem Key { get; } = key;
+        public SourceMarker? Parent { get; } = parent;
         bool _retired = retired;
-        internal bool Retired => Volatile.Read(ref _retired) || Parent is { Retired: true };
+        public bool Retired => Volatile.Read(ref _retired) || Parent is { Retired: true };
 
-        internal void Retire() => Volatile.Write(ref _retired, true);
+        public void Retire() => Volatile.Write(ref _retired, true);
     }
 
     readonly Dictionary<GemSkillIds.Gem, SourceLifetime> _current = [];
 
-    internal SourceLifetime Capture(GemSkillIds.Gem key)
+    public SourceLifetime Capture(GemSkillIds.Gem key)
     {
         if (_current.GetValueOrDefault(key) is not { Retired: false } current)
             _current[key] = current = new(key);
         return current;
     }
 
-    internal SourceLifetime Capture(GemSkillIds.Gem key, SourceMarker parent)
+    public SourceLifetime Capture(GemSkillIds.Gem key, SourceMarker parent)
     {
         if (parent.Key != key) throw new ArgumentException("the shared marker belongs to another gem source", nameof(parent));
         if (_current.GetValueOrDefault(key) is { Retired: false } current
@@ -123,21 +123,21 @@ sealed class GemSourceLifetimes
         return _current[key] = new(key, parent);
     }
 
-    internal SourceLifetime CaptureRetired(GemSkillIds.Gem key) => new(key, retired: true);
+    public SourceLifetime CaptureRetired(GemSkillIds.Gem key) => new(key, retired: true);
 
-    internal SourceLifetime? Current(GemSkillIds.Gem key) => _current.GetValueOrDefault(key);
+    public SourceLifetime? Current(GemSkillIds.Gem key) => _current.GetValueOrDefault(key);
 
-    internal bool IsCurrent(SourceLifetime lifetime) =>
+    public bool IsCurrent(SourceLifetime lifetime) =>
         !lifetime.Retired && _current.GetValueOrDefault(lifetime.Key) is { } current
         && ReferenceEquals(current, lifetime);
 
-    internal void Retire(GemSkillIds.Gem key)
+    public void Retire(GemSkillIds.Gem key)
     {
         if (_current.Remove(key, out var lifetime)) lifetime.Retire();
     }
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     /// <summary>The connection's current physical gem-source lifetimes, under <see cref="Monsters"/>.</summary>
     public readonly GemSourceLifetimes GemSourceLifetimes = new();

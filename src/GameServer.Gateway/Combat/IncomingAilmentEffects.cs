@@ -2,7 +2,7 @@
 /// Self-poison coefficients read from the same live poison count as the incoming ailment owner.
 /// These are final-stat expansions, not independent state.
 /// </summary>
-static class IncomingAilmentEffects
+public static class IncomingAilmentEffects
 {
     public sealed record Rule(string Stat, string Target, int? Cap = null);
 

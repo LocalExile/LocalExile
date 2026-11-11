@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task RegisterStationaryCollision(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task RegisterStationaryCollision(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, string type, int x, int y,
         float rotation, string? editorKey = null, string? model = null)
     {

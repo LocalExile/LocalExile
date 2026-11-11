@@ -1,8 +1,8 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
-    internal static IReadOnlyList<PlayerSkillSource> CaptureGemSourceRowsLocked(ClientState conn) =>
+    public static IReadOnlyList<PlayerSkillSource> CaptureGemSourceRowsLocked(ClientState conn) =>
         [.. PlayerSkillSourcesLocked(conn)];
 
     static GemSourceLifetimes.SourceLifetime CaptureGemSourceLifetimeLocked(ClientState conn,
@@ -78,7 +78,7 @@ static partial class Game
     // Golem owner state can make another old source fail its requirements (for example, by losing a Golem slot), so
     // repeat fresh qualification until no old identity becomes newly invalid. Every pass must end at least one old key;
     // therefore no unchanged read can keep this loop alive and no retired lifetime can be reactivated.
-    internal static void ReconcileEquipmentSourceLifetimesLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> before)
+    public static void ReconcileEquipmentSourceLifetimesLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> before)
     {
         if (before.Count == 0) return;
         var pending = before.DistinctBy(source => source.Identity).ToList();

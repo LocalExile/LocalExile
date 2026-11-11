@@ -3,17 +3,17 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal sealed record RageTransfer(string Character, DateTime At, RageState.Carried State);
-    internal static readonly ConcurrentDictionary<uint, RageTransfer> CarriedRage = new();
+    public sealed record RageTransfer(string Character, DateTime At, RageState.Carried State);
+    public static readonly ConcurrentDictionary<uint, RageTransfer> CarriedRage = new();
 
-    internal static int RageStat(IReadOnlyDictionary<uint, int> stats, string name) =>
+    public static int RageStat(IReadOnlyDictionary<uint, int> stats, string name) =>
         Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
     // Called after raw character/utility inputs and before attack damage/panel calculations. Derived values are
     // authoritative: setting current_rage cannot create resources or bypass gain prevention.
-    internal static void WithRage(ClientState conn, Dictionary<uint, int> stats)
+    public static void WithRage(ClientState conn, Dictionary<uint, int> stats)
     {
         lock (conn.Monsters)
         {
@@ -31,7 +31,7 @@ static partial class Game
     }
 
     // Only accepted contacts call these, in the same Monsters critical section as life mutation, before any await.
-    internal static bool RageOnHitLocked(ClientState conn, bool attack, bool melee, bool critical,
+    public static bool RageOnHitLocked(ClientState conn, bool attack, bool melee, bool critical,
         IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         if (conn.Character is null || conn.Closed || conn.LeavingArea || conn.RageRetired
@@ -44,24 +44,26 @@ static partial class Game
             soulGainPrevention: Get("has_soul_gain_prevention") != 0);
     }
 
-    internal static void RageWhenHitLocked(ClientState conn)
+    public static void RageWhenHitLocked(ClientState conn)
     {
         if (conn.RageRetired || conn.Closed || conn.LeavingArea || conn.Paused) return;
-        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); conn.RetireOwnedCombat(); return; }
+        // The lethal hit retires combat here, before PlayerDiedAtEpoch: the orb's stage icon must be queued for removal
+        // first, or RetireOwnedCombat drops the runtime and the icon keeps the charges the player died with.
+        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); WinterOrbRetire(conn); conn.RetireOwnedCombat(); return; }
         if (conn.Character is null) return;
         var stats = CharacterPlayerStats(conn);
         conn.Rage.EnemyHit(ProjectileWorldTime(conn), RageStats.Inputs(name => RageStat(stats, name)),
             Random.Shared.Next(100), soulGainPrevention: RageStat(stats, "has_soul_gain_prevention") != 0);
     }
 
-    internal static void ClearRageOnDeath(ClientState conn)
+    public static void ClearRageOnDeath(ClientState conn)
     {
         lock (conn.Monsters) conn.Rage.Clear();
     }
 
     // Successful Auth transfer moves count, loss fraction, activity age and shared interval exactly once. Loading time
     // is frozen by policy. The old connection is retired even when empty; it cannot mint a second carried balance.
-    internal static void CarryRage(ClientState conn, uint ticket)
+    public static void CarryRage(ClientState conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -76,7 +78,7 @@ static partial class Game
         }
     }
 
-    internal static void RestoreRage(ClientState conn)
+    public static void RestoreRage(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -89,7 +91,7 @@ static partial class Game
     }
 
     // Executed inside the connection's send gate so a queued refresh cannot resurrect a dead/retired balance or buff.
-    internal static byte[]? RagePresentation(ClientState conn, RagePrepared? prepared = null)
+    public static byte[]? RagePresentation(ClientState conn, RagePrepared? prepared = null)
     {
         if (!CurrentGameWork) return null;
         using (conn.Performance.Lock(conn.Monsters, "rage"))
@@ -102,7 +104,7 @@ static partial class Game
     }
 
     // Called only by RagePresentation under the send gate and state lock; no send or reconciliation recursion.
-    internal static byte[] RageSnapshot(ClientState conn, RagePrepared? prepared = null)
+    public static byte[] RageSnapshot(ClientState conn, RagePrepared? prepared = null)
     {
         if (!CurrentGameWork) return [];
         var stats = CharacterPlayerStats(conn);
@@ -133,11 +135,11 @@ static partial class Game
     }
 
     /// <summary>A Rage value and the skill list built for it ahead of the send gate.</summary>
-    internal sealed record RagePrepared(RageState.Value Value, IReadOnlyList<GrantedSkill> Skills,
+    public sealed record RagePrepared(RageState.Value Value, IReadOnlyList<GrantedSkill> Skills,
         SkillSnapshotInputs? Inputs = null);
 
     // A Rage value alone cannot identify a skill list: gems, equipment, conditional stats, pools, art and client mode also matter.
-    internal sealed record SkillSnapshotInputs(Dictionary<uint, int> Stats,
+    public sealed record SkillSnapshotInputs(Dictionary<uint, int> Stats,
         InventoryItem[] Equipment, Dictionary<string, CharacterSaves.SavedCosmetic> Cosmetics,
         CharacterStats.Pools Pools, uint Life, bool LockstepClient)
     {
@@ -160,7 +162,7 @@ static partial class Game
 
     // Gem XP rewrites an equipped host on every kill. XP within the same gem level changes neither its requirements
     // nor its skill records. Compare every other item field, socket colour and gem field normally.
-    internal static bool SameSkillItem(Item a, Item b, ItemCatalog catalog)
+    public static bool SameSkillItem(Item a, Item b, ItemCatalog catalog)
     {
         if (ReferenceEquals(a, b)) return true;
         if (a.Sockets.Count != b.Sockets.Count || a with { Sockets = b.Sockets } != b) return false;
@@ -179,7 +181,7 @@ static partial class Game
     // The skill list is the expensive part of a Rage change (every gem's panel damage): build it before the send gate, so
     // the gate, which every hit and echo waits on, normally holds only comparison and packet assembly. Changed inputs
     // fall back to a current build rather than publishing the prepared list under the wrong owner state.
-    internal static Task SendRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task SendRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return Task.CompletedTask;
         RagePrepared? prepared = null;
@@ -207,7 +209,7 @@ static partial class Game
         return Send(remote, stream, ciphers, [], null, atGate: () => RagePresentation(conn, prepared));
     }
 
-    internal static async Task RunRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    public static async Task RunRage(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         try

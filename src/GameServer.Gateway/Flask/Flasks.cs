@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 /// recovers Flasks.dat LifePerUse / ManaPerUse evenly over RecoveryTime (with its mods: FlaskRecovery). Charges come back
 /// from kills and other sources (FlaskCharges), and in full in towns and hideouts and on resurrection.
 /// </summary>
-static class Flasks
+public static class Flasks
 {
     /// <summary>What one use recovers (life, mana) over <paramref name="Seconds"/>, and its charges: spent per use, and the
     /// most it holds.</summary>
@@ -38,7 +38,7 @@ static class Flasks
         flask with { Charges = (int)Math.Min(f.MaxCharges, (long)flask.Charges + charges) };
 
     /// <summary>A flask's buff on the player (S→C 0x1c1): its duration in flags bit1's field, which the client reads as an
-    /// f32 in seconds (+0x68, reader 0x141fdf870; without it +infinity), and the flask-bar cell as the source skill (+0x60):
+    /// f32 in seconds (+0x68, reader 0x141fe6090; without it +infinity), and the flask-bar cell as the source skill (+0x60):
     /// the client draws the effect's draining timer bar under that flask (live 2026-10-25). <paramref name="values"/>: the
     /// IsRecovery rows' one u32 per GrantedStats entry.</summary>
     public static byte[] Buff(uint player, ushort buff, ushort row, byte slot, double? seconds, IReadOnlyList<uint>? values = null) =>
@@ -72,7 +72,7 @@ static class Flasks
         double ManaAtEnd = 0, bool LifeStays = false, bool ManaStays = false, bool NoQueue = false)
     {
         // An accepted recipient snapshot, independent of the Game assembly that admitted the paid use.
-        internal bool CopyManaToLife { get; set; }
+        public bool CopyManaToLife { get; set; }
 
         /// <summary>Whether a full pool ends it: a life effect when life is full, a mana one when mana is (a hybrid one when
         /// both are), unless it stays at full.</summary>

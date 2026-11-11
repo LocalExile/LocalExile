@@ -7,26 +7,26 @@ using GameServer.Core.World;
 /// (MonsterMagic7, MonsterRare7, MonsterUnique7: monster_chance_to_not_flee_% 50, 100, 100). The AI walks it
 /// (Program.Monsters RunMonsterAi).
 /// </summary>
-static class MonsterFlee
+public static class MonsterFlee
 {
     /// <summary>How far it runs, in cells (10 to the metre). The real game picks the point on its server; this distance
     /// is not verified.</summary>
-    internal const int Distance = 50;
+    public const int Distance = 50;
 
     /// <summary>A hit's chance as the client's calculators sum it: an attack's main_hand_hit_causes_monster_flee_%
-    /// (0x1427906b0: the global stat plus the main-hand weapon's local one) or a spell's global stat, plus the skill's own
+    /// (0x142797260: the global stat plus the main-hand weapon's local one) or a spell's global stat, plus the skill's own
     /// global stat (Chance to Flee Support).</summary>
-    internal static int Chance(bool spell, Func<string, int> player, Func<string, int> skill) =>
+    public static int Chance(bool spell, Func<string, int> player, Func<string, int> skill) =>
         player(spell ? "global_hit_causes_monster_flee_%" : "main_hand_hit_causes_monster_flee_%")
         + skill("global_hit_causes_monster_flee_%");
 
     /// <summary>One roll per hit at the chance, then the monster's chance not to flee.</summary>
-    internal static bool Rolls(int chance, int notFlee, Random random) =>
+    public static bool Rolls(int chance, int notFlee, Random random) =>
         RandomRolls.Chance(chance, 100, random) && !RandomRolls.Chance(notFlee, 100, random);
 
     /// <summary>A floor cell <see cref="Distance"/> from the monster within 60° of straight away from the player, eight
     /// tries, then eight at half the distance; null when none (it gives up at once).</summary>
-    internal static (int X, int Y)? Point((int X, int Y) monster, (int X, int Y) player, Func<int, int, bool> floor, Random random)
+    public static (int X, int Y)? Point((int X, int Y) monster, (int X, int Y) player, Func<int, int, bool> floor, Random random)
     {
         double away = monster == player ? random.NextDouble() * 2 * Math.PI : Math.Atan2(monster.Y - player.Y, monster.X - player.X);
         foreach (int distance in new[] { Distance, Distance / 2 })

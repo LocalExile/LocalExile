@@ -7,7 +7,7 @@ using System.Text;
 /// a handler error or a connection that breaks prints the last ones to the log, Game_PACKET_DUMPS=&lt;folder&gt; (live.ps1
 /// sets logs\packets) writes all of them to a file at every disconnect, and /lastpackets prints them on demand.
 /// </summary>
-sealed class PacketHistory
+public sealed class PacketHistory
 {
     public const int Capacity = 256;
     // Bytes kept per message: the id and the fields after it, enough to tell most messages apart without a full copy.
@@ -29,8 +29,8 @@ sealed class PacketHistory
     /// <summary>Messages recorded since the connection opened (more than Capacity once the oldest are dropped).</summary>
     public long Count { get { lock (gate) return count; } }
 
-    // The clock messages, several a second, would push everything else out: C→S 0x1b ticks and S→C 0x2b5 frame ends.
-    public static bool Kept(bool sent, ushort id) => sent ? id != 0x02b5 : id != 0x001b;
+    // The clock messages, several a second, would push everything else out: C→S 0x1b ticks and S→C 0x2b7 frame ends.
+    public static bool Kept(bool sent, ushort id) => sent ? id != 0x02b7 : id != 0x001b;
 
     public void Received(ushort id, ReadOnlySpan<byte> bytes) => Add(sent: false, id, bytes);
 

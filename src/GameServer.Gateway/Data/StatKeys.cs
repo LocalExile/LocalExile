@@ -1,18 +1,18 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>
-/// Client stat keys (the int passed to the Stats getter 0x1424cfa40), read from client code. They are NOT the rows of
+/// Client stat keys (the int passed to the Stats getter 0x1424d6510), read from client code. They are NOT the rows of
 /// our extracted data/tables/Stats.json: the order drifts (key 245 is row 244 there, other keys are further off).
 /// </summary>
-static class StatKeys
+public static class StatKeys
 {
     /// <summary>monster_life_+%_final_from_rarity (Stats.dat row 2895): the rarity's extra life (MonsterCatalog.RarityLifePct).</summary>
     public const uint MonsterLifeFromRarityPct = 0xb50;
     /// <summary>maximum_life (Stats.dat row 246): the final maximum the life bars and orbs read.</summary>
     public const uint MaximumLife = 0xf7;
-    /// <summary>movement_velocity_+%: walk speed = base × (1 + value / 100), at least −100 (0x141e7c0b0).</summary>
+    /// <summary>movement_velocity_+%: walk speed = base × (1 + value / 100), at least −100 (0x141e827a0).</summary>
     public const uint MovementVelocityPct = 0xf5;
-    /// <summary>movement_velocity_cap (0x141e7c0b0 caps the speed with it when positive).</summary>
+    /// <summary>movement_velocity_cap (0x141e827a0 caps the speed with it when positive).</summary>
     public const uint MovementVelocityCap = 0x44f;
     // Main-hand attack stats (client key = Stats.dat row + 1, checked against the keys the client reads in an attack).
     public const uint MainHandMinPhysical = 0x117, MainHandMaxPhysical = 0x118;
@@ -30,18 +30,18 @@ static class StatKeys
     public const uint OffHandTotalAttackDurationMs = 0x221b;    // off_hand_total_base_weapon_attack_duration_ms
     public const uint OffHandAttackSpeedPct = 0x127;
     public const uint OffHandBaseMaxAttackDistance = 0x147, OffHandMaxAttackDistance = 0x4d4;
-    /// <summary>hide_mini_life_bar: non-zero hides the object's overhead life bar (listener 0x140220c30).</summary>
+    /// <summary>hide_mini_life_bar: non-zero hides the object's overhead life bar (listener 0x140220fd0).</summary>
     public const uint HideMiniLifeBar = 0x2a8b;
     /// <summary>skill_is_non_pathing: the action starts where the actor stands instead of walking into range first.</summary>
     public const uint SkillIsNonPathing = 0x4f32;
-    // A projectile action's release count and art. The release (0x141ba51a0) fires nothing without
-    // number_of_projectiles_override or a count from 0x141ba6070, which reads virtual_total_number_of_projectiles, or
-    // virtual_total_number_of_arrows for an action that says it fires arrows; the mortar attack's constructor (0x141b69900)
+    // A projectile action's release count and art. The release (0x141ba7c30) fires nothing without
+    // number_of_projectiles_override or a count from 0x141ba8b00, which reads virtual_total_number_of_projectiles, or
+    // virtual_total_number_of_arrows for an action that says it fires arrows; the mortar attack's constructor (0x141b6c390)
     // takes its MonsterMortar row from skill_behaviour_variation, row 0 (MortarMolten) without it.
     public const uint TotalProjectilesToFire = 0x2d5, TotalArrowsToFire = 0x2d6, VirtualTotalProjectiles = 0x4b4b,
         VirtualTotalArrows = 0x4b4c, SkillBehaviourVariation = 0x1921;
     // A spell action's own timing: the client's cast-duration function reads the virtual base milliseconds, and a draft
-    // spell skill without it dereferenced a missing value (0xc0000005 at 0x19e0daf, live 2026-10-31).
+    // spell skill without it dereferenced a missing value (0xc0000005 at 0x19e37bf, live 2026-10-31).
     public const uint BaseSpellCastTimeMs = 0x2a9, VirtualBaseSpellCastTimeMs = 0x24b9,
         HundredTimesCastsPerSecond = 0x2aa, CastingSpell = 0x1b6;
     // "Increased attack speed" stats that apply to an unarmed melee attack (attack time = base / (1 + sum / 100)).

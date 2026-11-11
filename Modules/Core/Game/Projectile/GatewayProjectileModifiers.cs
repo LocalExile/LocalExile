@@ -2,7 +2,7 @@ using GameServer.Core.Projectiles;
 
 
 /// <summary>Binds resolved stats to source-neutral projectile profiles and their child stages.</summary>
-static class GatewayProjectileModifiers
+public static class GatewayProjectileModifiers
 {
     public static ProjectileProfile Resolve(ProjectileProfile profile, Func<string, int> get, bool attack,
         bool arrows = false, bool chainInputConsumed = false, bool intrinsicSplitCount = false)
@@ -28,6 +28,9 @@ static class GatewayProjectileModifiers
         int forkCount = Math.Max(get("virtual_number_of_forks_for_projectiles_final"),
             (forks ? 1 : 0) + get("number_of_additional_forks_base")
                 + (attack ? get("attack_projectiles_fork_additional_times") : 0));
+        bool forksApplyToZigZags = get("kinetic_bolt_forks_apply_to_zig_zags") != 0;
+        int theoreticalForks = Math.Max(get("theoretical_number_of_forks"), forkCount);
+        int zigZags = Math.Max(0, get("kinetic_wand_base_number_of_zig_zags") + (forksApplyToZigZags ? theoreticalForks : 0));
         var modifiers = new ProjectileModifiers
         {
             ExtraProjectiles = extra, Pierce = pierce,
@@ -38,7 +41,8 @@ static class GatewayProjectileModifiers
                 || get("projectile_return_%_chance") >= 100,
             CannotPierce = get("cannot_pierce") != 0 || get("virtual_projectiles_cannot_pierce") != 0
                 || !attack && get("projectiles_from_spells_cannot_pierce") != 0,
-            CannotFork = get("virtual_projectiles_cannot_fork") != 0 || !attack && get("projectiles_from_spells_cannot_fork") != 0,
+            CannotFork = forksApplyToZigZags || get("virtual_projectiles_cannot_fork") != 0
+                || !attack && get("projectiles_from_spells_cannot_fork") != 0,
             CannotChain = get("virtual_projectiles_cannot_chain") != 0 || !attack && get("projectiles_from_spells_cannot_chain") != 0,
             CannotSplit = get("projectiles_cannot_split") != 0,
             CannotReturn = get("skill_projectiles_cannot_return") != 0
@@ -72,7 +76,7 @@ static class GatewayProjectileModifiers
             PierceAllOnReturn = target.PierceAllOnReturn || get("returning_projectiles_always_pierce") != 0,
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get("returned_projectile_speed_+%") / 100d)
         };
-        p = ReturnControls(ProjectileParameters.Resolve(p, modifiers));
+        p = ReturnControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers));
         // Children receive already resolved continuation grants, never another count expansion.
         if (p.EndEmission is { } endEmission)
             p = p with { EndEmission = endEmission with { Child = ReturnControls(ProjectileParameters.Resolve(endEmission.Child,
@@ -80,6 +84,8 @@ static class GatewayProjectileModifiers
         if (p.TravelEmission is { } travelEmission)
             p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
+        if (get("projectiles_can_shotgun") != 0)
+            p = p with { HitRule = new(ProjectileHitScope.Projectile) };
         return p;
     }
 

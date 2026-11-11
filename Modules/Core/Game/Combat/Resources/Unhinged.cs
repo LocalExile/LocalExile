@@ -3,15 +3,15 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal const string UnhingeEffect = "Unhinge";
-    internal const string UnhingeGrant = "GrantsUnhingeUnique__1";
-    internal const string UnhingedCriticalFinal = "critical_strike_chance_+%_final_while_unhinged";
-    internal const string SaneDamageFinal = "physical_and_chaos_damage_taken_+%_final_while_not_unhinged";
-    internal const string SaneHitRecovery = "regenerate_%_life_over_1_second_when_hit_while_not_unhinged";
-    internal const string UnhingedCorpseDestroy = "enemies_explode_on_kill_while_unhinged";
-    internal const ushort UnhingedBuffRow = 1723;
+    public const string UnhingeEffect = "Unhinge";
+    public const string UnhingeGrant = "GrantsUnhingeUnique__1";
+    public const string UnhingedCriticalFinal = "critical_strike_chance_+%_final_while_unhinged";
+    public const string SaneDamageFinal = "physical_and_chaos_damage_taken_+%_final_while_not_unhinged";
+    public const string SaneHitRecovery = "regenerate_%_life_over_1_second_when_hit_while_not_unhinged";
+    public const string UnhingedCorpseDestroy = "enemies_explode_on_kill_while_unhinged";
+    public const ushort UnhingedBuffRow = 1723;
 
     /// <summary>
     /// Resolve the live equipped grant and reconcile source ownership. Unhinge itself starts sane; toggling changes only
@@ -56,17 +56,17 @@ static partial class Game
         if (conn.Unhinged.Retire() is ushort buff and not 0) conn.RetiredUnhingedBuffs.Add(buff);
     }
 
-    internal static bool Unhinged(ClientState conn)
+    public static bool Unhinged(ClientState conn)
     {
         lock (conn.Monsters) return UnhingedAt(conn, ResourceEffectsTime(conn)).Active;
     }
 
     /// <summary>The exact raw sane Damage Taken final for one component. It has no effect on elemental damage.</summary>
-    internal static int UnhingedPhysicalChaosTakenPct(DamageType type, Func<string, int> get) =>
+    public static int UnhingedPhysicalChaosTakenPct(DamageType type, Func<string, int> get) =>
         type is DamageType.Physical or DamageType.Chaos ? get(SaneDamageFinal) : 0;
 
     /// <summary>Apply the sane physical/chaos final once, after ordinary mitigation/increased taken.</summary>
-    internal static int ApplyUnhingedTaken(int damage, DamageType type, Func<string, int> get) =>
+    public static int ApplyUnhingedTaken(int damage, DamageType type, Func<string, int> get) =>
         (int)Math.Clamp((long)Math.Max(0, damage) * Math.Max(0L, 100L + UnhingedPhysicalChaosTakenPct(type, get)) / 100,
             0, int.MaxValue);
 
@@ -74,7 +74,7 @@ static partial class Game
     /// Accepted hit contact while sane starts or refreshes one non-stacking one-second regeneration contribution. This
     /// runs after block/avoidance/range admission, so a fully absorbed or blocked hit still recovers and a miss does not.
     /// </summary>
-    internal static void UnhingedHitRecoveryLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
+    public static void UnhingedHitRecoveryLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
         if (conn.PlayerLife == 0) return;
         var state = UnhingedAt(conn, now);
@@ -87,7 +87,7 @@ static partial class Game
         if (perSecond > 0) state.HitRecovery.Begin(now, 1, perSecond);
     }
 
-    internal static bool UnhingedCorpseDestruction(ClientState conn)
+    public static bool UnhingedCorpseDestruction(ClientState conn)
     {
         if (!Unhinged(conn)) return false;
         var stats = CharacterPlayerStats(conn);
@@ -95,14 +95,14 @@ static partial class Game
     }
 
     /// <summary>Freeze the item decision as part of the lethal hit mutation, before hit notifications can yield.</summary>
-    internal static void CaptureUnhingedHitKillLocked(ClientState conn, SpawnedMonster m, bool playerHit)
+    public static void CaptureUnhingedHitKillLocked(ClientState conn, SpawnedMonster m, bool playerHit)
     {
         if (m.Life == 0)
             m.UnhingedHitKill = new(conn, playerHit && UnhingedCorpseDestruction(conn));
     }
 
     /// <summary>Consume the decision for this exact monster and owner. No current-state fallback is allowed.</summary>
-    internal static bool TakeUnhingedHitKillLocked(ClientState conn, SpawnedMonster m)
+    public static bool TakeUnhingedHitKillLocked(ClientState conn, SpawnedMonster m)
     {
         var receipt = m.UnhingedHitKill;
         if (receipt is null || !ReferenceEquals(receipt.Owner, conn)) return false;
@@ -110,7 +110,7 @@ static partial class Game
         return receipt.DestroyCorpse;
     }
 
-    internal static Task PublishUnhingedCorpseDestruction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static Task PublishUnhingedCorpseDestruction(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, SpawnedMonster m, bool committed)
     {
         if (!committed) return Task.CompletedTask;
@@ -132,7 +132,7 @@ static partial class Game
             });
     }
 
-    internal static async Task<bool> ToggleUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> ToggleUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, int effect, Func<bool> current)
     {
         bool toggled = false;
@@ -161,10 +161,10 @@ static partial class Game
         return toggled;
     }
 
-    internal static Task SendUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendUnhinged(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () => UnhingedPresentation(conn));
 
-    internal static byte[]? UnhingedPresentation(ClientState conn)
+    public static byte[]? UnhingedPresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {

@@ -56,8 +56,8 @@ public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplie
 public sealed record ProjectileSplitFormRecipe(double SpeedMultiplier, int Pierce);
 public sealed record ProjectileTargetedRecipe(string Stage, int Count, double Radius);
 
-/// <summary>The client's volley (0x141bb13a0 with 0x141bb0f20's stats). A nova (0x141bb9500) puts projectile i at
-/// i × 2π / count from the aim. A fan (0x141bb9730) steps <see cref="FixedDegrees"/> / (count − 1) when set, otherwise
+/// <summary>The client's volley (0x141bb3e30 with 0x141bb39b0's stats). A nova (0x141bbbf90) puts projectile i at
+/// i × 2π / count from the aim. A fan (0x141bbc1c0) steps <see cref="FixedDegrees"/> / (count − 1) when set, otherwise
 /// atan(k × <see cref="Width"/> / aim distance), at most min(2π, k × 120°) / (count − 1) and at least 0.1428 rad, with
 /// k = 1 + <see cref="SpreadPercent"/> / 100 (live 2026-10-31: 175 Spark volleys).</summary>
 public sealed record ProjectileNativeVolley
@@ -69,7 +69,7 @@ public sealed record ProjectileNativeVolley
     /// <summary>multiple_projectiles_projectile_spread_+%.</summary>
     public int SpreadPercent { get; init; }
     public bool Nova { get; init; }
-    /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bb9280).</summary>
+    /// <summary>The host's seeded direction of each projectile from the aim (random_projectile_direction, 0x141bbbd10).</summary>
     public IReadOnlyList<double>? Angles { get; init; }
 
     public double Angle(int index, int count, double distance)
@@ -98,8 +98,18 @@ public interface IProjectileLegs
     ProjectileLeg First(ProjectileVector from, ProjectileVector aim);
     /// <summary>The leg after the last one ended (<paramref name="blocked"/> false) or terrain stopped it.</summary>
     ProjectileLeg Next(ProjectileVector from, bool blocked);
+    /// <summary>Whether an enemy hit triggers the next leg before Pierce/Fork/Chain/Return.</summary>
+    bool TurnsOnEnemy => false;
+    /// <summary>When <see cref="NextTurn"/> returns null, end the flight instead of continuing infinitely.</summary>
+    bool EndsAfterLegs => false;
+    /// <summary>Optional turn step with an optional secondary projectile emitted at the turn.</summary>
+    ProjectileLegTurn? NextTurn(ProjectileVector from, bool blocked) => new ProjectileLegTurn(Next(from, blocked));
+    /// <summary>Clone remaining leg state for a continuation child (such as Split).</summary>
+    IProjectileLegs? Continue(ProjectileVector direction) => null;
 }
 public readonly record struct ProjectileLeg(ProjectileVector Target, double Speed);
+public readonly record struct ProjectileLegTurn(ProjectileLeg Leg, ProjectileProfile? SecondaryProfile = null,
+    ProjectileVector SecondaryDirection = default);
 
 /// <summary>Resolved stage parameters. Counts and restrictions are resolved before a use is released.</summary>
 public sealed record ProjectileProfile(string Id)
@@ -194,9 +204,14 @@ public sealed record ProjectileProfile(string Id)
     public Func<int, IProjectileLegs>? Legs { get; init; }
     /// <summary>A legged flight ends this far from where it started; zero has no limit.</summary>
     public double LegLeash { get; init; }
+    /// <summary>Total zig-zag direction changes before normal continuation/termination.</summary>
+    public int ZigZags { get; init; }
     /// <summary>The server simulates this flight for damage but sends no object: the client draws it itself (Tornado
     /// Shot's terminal secondary arrows).</summary>
     public bool HideVisual { get; init; }
+    /// <summary>Hide this child flight's object when its owner use is <c>ClientPredicted</c> (client-spawned Kinetic Bolt
+    /// secondaries).</summary>
+    public bool HidePredictedVisual { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,

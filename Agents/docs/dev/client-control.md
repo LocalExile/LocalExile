@@ -96,20 +96,20 @@ The bridge refuses a different executable path or code signatures. Addresses bel
 
 | Address | Purpose |
 |---|---|
-| `0x141526cbf` | State-stack update after its `+0x38` transition guard is entered. Calling transitions before this guard can destroy live UI state. One pending RPC is serviced here, with a five-second cancellation if no frame arrives. |
-| `0x1445cbe68` / `0x1445cbe40` | App and state-stack singleton pointers. App `+0x358` is login; `+0x348` is instance. |
-| `0x14213d9f0` | Connect using UTF-16 host/port strings; bridge forces `127.0.0.1`. |
-| `0x14213c660` | Native account-login writer. The handshake listener can auto-submit its saved form before a second RPC arrives; supply the requested account/digest to this **one** submission. The native string assignment owns its allocation; the digest is cleared from bridge memory after copying. |
-| `0x14213ea10` | Login sender, used only if the handshake listener has not already submitted. |
-| `0x14213f190` | Capture the actual login result (`0x04`, result at `+0x10`), the delete result (`0x0d`, `+0x10`) and the create result (`0x13`: reader `0x14219b8d0` stores the u16 at `+0x12`, the bool at `+0x10`). |
-| `0x142140490` | Native C→S 0x12 create-character sender: (login, name view, league view, unused r9, password view, start-state view). Its caller in 009, the create screen's `0x140cf5ef0`, pushes state 11 and sets the class first; the bridge does neither, so no Play follows. An empty password view sends 32 zero bytes. |
-| `0x141f950c0` | C→S 0x0c message writer, slot 1 of class `0x1435bfcd8`: (message, socket) writes u16 `+8`, wstr `+0x10`, u8 `+0x30`; the bridge flushes after it like the delete screen's sender `0x140cfafa0`, which itself needs that screen. |
-| instance `+0xc278` → `+0xb0` | Current WorldAreas row: Id string pointer at `+0`, HASH16 at `+0x2a`. The map overlay `0x1406b2030` titles the area with this row's `+0x8` (Name) and tests `+0x14`/`+0x1e4`; the delve gauge (`0x1404301f0`) tests `+0x1e4`. |
+| `0x141528fbf` | State-stack update after its `+0x38` transition guard is entered. Calling transitions before this guard can destroy live UI state. One pending RPC is serviced here, with a five-second cancellation if no frame arrives. |
+| `0x1445d6fd8` / `0x1445d6fb0` | App and state-stack singleton pointers. App `+0x358` is login; `+0x348` is instance. |
+| `0x142144340` | Connect using UTF-16 host/port strings; bridge forces `127.0.0.1`. |
+| `0x142142fb0` | Native account-login writer. The handshake listener can auto-submit its saved form before a second RPC arrives; supply the requested account/digest to this **one** submission. The native string assignment owns its allocation; the digest is cleared from bridge memory after copying. |
+| `0x142145360` | Login sender, used only if the handshake listener has not already submitted. |
+| `0x142145ae0` | Capture the actual login result (`0x04`, result at `+0x10`), the delete result (`0x0d`, `+0x10`) and the create result (`0x13`: reader `0x1421a2240` stores the u16 at `+0x12`, the bool at `+0x10`). |
+| `0x142146de0` | Native C→S 0x12 create-character sender: (login, name view, league view, unused r9, password view, start-state view). Its caller in 009, the create screen's `0x140cf5e60`, pushes state 11 and sets the class first; the bridge does neither, so no Play follows. An empty password view sends 32 zero bytes. |
+| `0x141f9baf0` | C→S 0x0c message writer, slot 1 of class `0x1435ca710`: (message, socket) writes u16 `+8`, wstr `+0x10`, u8 `+0x30`; the bridge flushes after it like the delete screen's sender `0x140cfaf60`, which itself needs that screen. |
+| instance `+0xc278` → `+0xb0` | Current WorldAreas row: Id string pointer at `+0`, HASH16 at `+0x2a`. The map overlay `0x1406b25f0` titles the area with this row's `+0x8` (Name) and tests `+0x14`/`+0x1e4`; the delve gauge (`0x140430780`) tests `+0x1e4`. |
 | login `+0xe68` | Received character vector, 0x50-byte entries. |
-| `0x1421406f0` | Play with the chosen name view and list index. Set in-game state `+0xa48` to its class; push **state 11 (loading)**, which installs the assignment listener. Directly pushing state 4 skips that listener. |
-| `0x140d0f740` | Existing root login state's logout routine; preserves the correct login form lifecycle. |
-| `0x140dfb760` / `0x140dfb8c0` | Existing buffered socket writer/flush, for `0x153` return to selection and `0x15` slash commands. Encryption remains the client's. |
-| `0x14216e940` | Signature-checked reference for socket write coordination: mark writing, acquire the socket lock while threaded, write, release and unmark before flushing. |
+| `0x142147040` | Play with the chosen name view and list index. Set in-game state `+0xa48` to its class; push **state 11 (loading)**, which installs the assignment listener. Directly pushing state 4 skips that listener. |
+| `0x140d0f770` | Existing root login state's logout routine; preserves the correct login form lifecycle. |
+| `0x140dfa000` / `0x140dfa160` | Existing buffered socket writer/flush, for `0x153` return to selection and `0x15` slash commands. Encryption remains the client's. |
+| `0x1421752b0` | Signature-checked reference for socket write coordination: mark writing, acquire the socket lock while threaded, write, release and unmark before flushing. |
 
 The bridge coordinates buffered writes with the network thread's flush through the socket's own lock.
 An unsynchronized write could desynchronize encryption permanently; author-reported native quest runs verified the fix.
@@ -151,7 +151,7 @@ waits for a change of area or instance: the instance leaves state 3 and returns,
 change and the Id are required (travel into the current area). `{"command":"item:pickup","id":<ground item id>}`
 sends the `object:interact` 0x24, which puts the item into the first free main-inventory cell.
 
-Every message the bridge writes on a socket goes out as the client's own instance send (`0x14216e940`) writes one:
+Every message the bridge writes on a socket goes out as the client's own instance send (`0x1421752b0`) writes one:
 the socket is marked as being written (+0x240) and, while another thread services it (+0x242), the buffered writer
 runs under the socket's SRW lock (+0x248), which the flush takes too. Written without the lock, a command raced the
 network thread's flush and the client's cipher fell out of step with the Gateway's for good (twice in about six

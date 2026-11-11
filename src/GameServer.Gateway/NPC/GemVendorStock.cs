@@ -1,10 +1,11 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Vendor-specific quest/class gem membership from the reviewed snapshot, joined to native quest offers.
 /// Siosa and campaign Lilly use their own all-class unlocks; hard mode keeps its native gem index.
 /// </summary>
-sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
+public sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCatalog npcs, SkillCatalog skills, string folder = "data")
 {
     // Cache immutable catalogues, never character stock: quest/class/rule filters are evaluated on every open.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ItemCatalog,
@@ -87,8 +88,8 @@ sealed class GemVendorStock(ItemCatalog items, QuestRewardCatalog rewards, NpcCa
 
     static IReadOnlySet<int> HardModeGemRows(string folder)
     {
-        using var index = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
-        using var gems = System.Text.Json.JsonDocument.Parse(File.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
+        using var index = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables/IndexableSkillGems.json")));
+        using var gems = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables/SkillGems.json")));
         return index.RootElement.EnumerateArray().Where(r => r.GetProperty("IndexRuthless").ValueKind == System.Text.Json.JsonValueKind.Number)
             .SelectMany(r => r.GetProperty("SkillGem2").EnumerateArray().Select(x => x.GetInt32()))
             .Where(row => row >= 0 && row < gems.RootElement.GetArrayLength())

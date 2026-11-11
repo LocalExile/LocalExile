@@ -17,7 +17,7 @@ using GameServer.Core.World;
 /// (Stats row 3906, client key 3907, permyriad) 1000 = 10.00% where the WeaponTypes base is 0. Neither base is a spell
 /// value: <see cref="SpellCriticalStrike"/> stays on the spell route with its own extracted bases.
 /// </summary>
-static class AttackBaseCriticalStrike
+public static class AttackBaseCriticalStrike
 {
     /// <summary>Stats.dat row 9892: the armed main hand's base critical strike chance, permyriad (800 = 8.00%).</summary>
     public const string WeaponOverrideStat = "override_weapon_base_critical_strike_chance";

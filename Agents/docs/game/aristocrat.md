@@ -41,8 +41,8 @@ Dreadful Attitude:
 - While a condition holds (strictly higher; ties are not immune), the player stats carry the plain
   `cannot_be_frozen` / `cannot_be_ignited` / `cannot_be_shocked`. The Defence tab shows them as "Cannot be ...", and the
   ailment consumer reads the same stats; `Reconcile` drops an ailment already active once one starts to hold.
-- The client checks gem and item requirements scaled by `global_item_attribute_requirements_+%` (`0x1402ce5f0`,
-  `0x1421eca50`, `0x14246fc40`'s callers). The tooltip's number stays unscaled; the red/white colour and the socket
+- The client checks gem and item requirements scaled by `global_item_attribute_requirements_+%` (`0x1402ceb80`,
+  `0x1421f33c0`, `0x142476710`'s callers). The tooltip's number stays unscaled; the red/white colour and the socket
   refusal show the change.
 - Dreadful Attitude adds to `damage_+%` once per stat build, like the other derived bonuses; a `/set_stat damage_+%`
   replaces it.

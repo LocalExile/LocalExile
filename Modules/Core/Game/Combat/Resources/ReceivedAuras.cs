@@ -1,10 +1,10 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // Several copies of one aura do not stack. External snapshots retain the caster's effect,
     // never the receiving player's aura-effect modifier; Generosity still reaches nearby allies.
-    internal static List<AuraCatalog.Aura> AffectingAuras(ClientState conn) => conn.Auras.Values.Where(a => a.AffectsSelf)
+    public static List<AuraCatalog.Aura> AffectingAuras(ClientState conn) => conn.Auras.Values.Where(a => a.AffectsSelf)
         .Concat(conn.ReceivedAuras.Values).ToList();
 
     static byte[] ReconcileReceivedAurasLocked(ClientState conn)
@@ -44,7 +44,7 @@ static partial class Game
         return [.. packets];
     }
 
-    internal static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
+    public static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
     {
         var here = minion.Monster?.Walk.Position(AreaTime(conn)) ?? conn.Walk.Position(AreaTime(conn));
         var owner = conn.Walk.Position(AreaTime(conn));

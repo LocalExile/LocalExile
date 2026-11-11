@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Utility flasks (Agents/docs/protocol/13-items.md §8a): Quicksilver, Granite, Jade, Ruby, Sapphire, Topaz, Amethyst,
@@ -10,7 +11,7 @@ using GameServer.Core.Protocol.Instance;
 /// (<see cref="DuringEffect"/>). How each stat counts is <see cref="SupportOf"/>: modelled, shown on the character panel
 /// only (unsupported ailment sources and curses), or consumed by the authoritative Ward pool.
 /// </summary>
-static class UtilityFlasks
+public static class UtilityFlasks
 {
     /// <summary>One base type's use: its buff (BuffDefinitions row and Id), the buff's stats with their values, how long
     /// it lasts, and its charges. <paramref name="Extra"/>: a second buff the flask grants with its own stats (the Silver
@@ -122,7 +123,7 @@ static class UtilityFlasks
     {
         var result = new Dictionary<int, Utility>();
         string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !File.Exists(Table(t)))) return result;
+        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !ClientTables.Exists(Table(t)))) return result;
         var stats = new StatCatalog(folder);
         string StatName(JsonElement row) => stats.Name((uint)row.GetInt32() + 1);
 
@@ -225,7 +226,7 @@ static class UtilityFlasks
     public sealed record Active(uint ItemId, byte Slot, string Name, Utility Flask, ushort Buff, ushort? ExtraBuff,
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
-        internal long Activation { get; set; }
+        public long Activation { get; set; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
     }
@@ -265,7 +266,7 @@ static class UtilityFlasks
             }
         }
 
-        internal bool IsLatest(uint item, long activation)
+        public bool IsLatest(uint item, long activation)
         {
             lock (_lock) return _latest.GetValueOrDefault(item) == activation;
         }
@@ -420,8 +421,8 @@ static class UtilityFlasks
                 // own sources, so the stat does not count it twice.
                 "attack_speed_+%" => "attack_speed_+%",
                 "life_regeneration_rate_per_minute_%" => stat,   // consecrated ground (FlaskGrounds)
-                // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141e9cd68: +0x52e "Phase Through
-                // Objects", which picks its blocker filter, 0x141e7b77c).
+                // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
+                // Objects", which picks its blocker filter, 0x141e81e6c).
                 "phase_through_objects" => "virtual_phase_through_objects",
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat) => stat,
                 _ => null,

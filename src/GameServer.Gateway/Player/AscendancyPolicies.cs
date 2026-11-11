@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using GameServer.Modding;
 
 /// <summary>An optional family's source and admission rules. Durable identities remain readable without its module.</summary>
-interface IAscendancyFamilyPolicy
+public interface IAscendancyFamilyPolicy
 {
     AscendancyFamily Family { get; }
     bool Supports(AscendancyIdentity identity);
@@ -14,7 +14,7 @@ interface IAscendancyFamilyPolicy
 }
 
 /// <summary>Normal ascendancies are built in. Optional families require a live provider listed by this connection's league.</summary>
-static class AscendancyPolicies
+public static class AscendancyPolicies
 {
     static ImmutableDictionary<AscendancyFamily, Registration> _providers = ImmutableDictionary<AscendancyFamily, Registration>.Empty;
     static readonly ConditionalWeakTable<ClientState, Registration> Attachments = new();
@@ -81,8 +81,7 @@ static class AscendancyPolicies
     public static void RequireCurrentSelection(AscendancyIdentity? expected, AscendancyIdentity? durable)
     {
         if (expected is null && durable is null) return;
-        if (expected is not null && durable is not null && expected.Family == durable.Family
-            && expected.Id == durable.Id && expected.Revision == durable.Revision) return;
+        if (AscendancyCatalog.SameChoice(expected, durable)) return;
         throw new PassiveProgressConflictException();
     }
 

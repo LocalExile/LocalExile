@@ -3,9 +3,9 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly GolemCatalog GolemData = new();
+    public static readonly GolemCatalog GolemData = new();
     const string GolemSaveKey = "Game.Golems";
     static int GolemStat(IReadOnlyDictionary<uint, int> stats, string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
     static void GolemAdd(Dictionary<uint, int> stats, string name, int value)
@@ -202,7 +202,7 @@ static partial class Game
     static double SavedPositiveDelay(double seconds) =>
         double.IsFinite(seconds) && seconds > 0 ? seconds : .001;
 
-    internal static bool GolemSummonedInPastEightSeconds(ClientState conn, double at)
+    public static bool GolemSummonedInPastEightSeconds(ClientState conn, double at)
     {
         lock (conn.Monsters)
         {
@@ -231,7 +231,7 @@ static partial class Game
                     stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
     }
 
-    internal static void SaveGolems(ClientState conn)
+    public static void SaveGolems(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -306,7 +306,7 @@ static partial class Game
         return true;
     }
 
-    internal static async Task<uint> SummonGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<uint> SummonGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
         Func<bool>? current = null, double summonedSecondsRemaining = 0,
         GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
@@ -447,7 +447,7 @@ static partial class Game
         conn.Golems.RefreshAt = 0;
     }
 
-    internal static async Task GolemsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task GolemsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         if (!conn.PlayerSent || !CurrentGameWork || conn.Closed || conn.LeavingArea) return;
         if (!conn.Golems.Restored)
@@ -654,7 +654,7 @@ static partial class Game
         return ([.. bytes], changed);
     }
 
-    internal static async Task RefreshGolemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RefreshGolemBuffs(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
@@ -678,7 +678,7 @@ static partial class Game
         });
     }
 
-    internal static byte[] GolemOwnerBuffPacket(ushort instance, ushort row, GolemState.Golem golem) =>
+    public static byte[] GolemOwnerBuffPacket(ushort instance, ushort row, GolemState.Golem golem) =>
         InstanceEntities.AddBuff(PlayerId, instance, row, golem.Id,
             values: row == 592 ? [(uint)GolemStat(golem.OwnerBuff, "melee_damage_removed_from_stone_golem_before_life_or_es_%")] : null,
             u82: row == 592 ? (ushort)0 : null);

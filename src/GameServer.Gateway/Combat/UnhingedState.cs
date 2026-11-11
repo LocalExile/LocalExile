@@ -3,19 +3,19 @@
 /// the player-controlled on/off flag, its native buff and the sane-state hit recovery. Installing or retiring a source
 /// always returns to sane.
 /// </summary>
-sealed class UnhingedState
+public sealed class UnhingedState
 {
-    internal object? Owner;
-    internal WornGrantedSkills.Grant? Source;
-    internal bool Enabled;
-    internal ushort Buff;
-    internal int Version;
-    internal readonly TimedLifeRecovery HitRecovery = new();
+    public object? Owner;
+    public WornGrantedSkills.Grant? Source;
+    public bool Enabled;
+    public ushort Buff;
+    public int Version;
+    public readonly TimedLifeRecovery HitRecovery = new();
 
-    internal bool Exists => Source is not null;
-    internal bool Active => Exists && Enabled;
+    public bool Exists => Source is not null;
+    public bool Active => Exists && Enabled;
 
-    internal void Install(object owner, WornGrantedSkills.Grant source)
+    public void Install(object owner, WornGrantedSkills.Grant source)
     {
         Owner = owner;
         Source = source;
@@ -24,7 +24,7 @@ sealed class UnhingedState
         HitRecovery.Clear();
     }
 
-    internal bool Toggle()
+    public bool Toggle()
     {
         if (!Exists) return false;
         Enabled = !Enabled;
@@ -34,7 +34,7 @@ sealed class UnhingedState
     }
 
     /// <summary>Returns the native buff instance the client must remove, if one was presented.</summary>
-    internal ushort Retire()
+    public ushort Retire()
     {
         ushort buff = Buff;
         Owner = null;

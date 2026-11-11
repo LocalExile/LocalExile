@@ -7,11 +7,12 @@ using GameServer.Storage;
 using GameServer.Core.Diagnostics;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
 
-static partial class Game
+public static partial class Game
 {
     // The real connection's admission path, shared with regression tests before any area packets are published.
-    internal static int PrepareCharacterForArea(string remote, ClientState conn, int level)
+    public static int PrepareCharacterForArea(string remote, ClientState conn, int level)
     {
+        conn.Instance?.Ground.Observe(conn);
         lock (conn.Monsters)
         {
             using var availability = AscendancyPolicies.Enter(conn,
@@ -38,7 +39,7 @@ static partial class Game
 
     // The Escape menu (C→S 0x1d4, 22-pause.md) pauses the area outside towns and hideouts, where the client does not ask
     // anyway: the Clock stops, the monster AI and the player tick skip their steps, and S→C 0x1d3 pauses the client's world.
-    internal static async Task SetPaused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool pause)
+    public static async Task SetPaused(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, bool pause)
     {
         ushort here = conn.Layout.Hash;
         if (pause && (WaypointCatalog.Areas.Find(here) is { IsTown: true } || HideoutCatalog.Hideouts.Any(h => h.AreaHash16 == here)))

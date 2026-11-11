@@ -1,12 +1,12 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     const string CrabAspect = "AspectOfTheCrab";
     static AuraCatalog.Aura? CrabRoot(ClientState conn) => conn.PlayerLife > 0
         ? conn.Auras.Values.FirstOrDefault(a => a.EffectId == CrabAspect) : null;
-    internal static bool CrabActive(ClientState conn) => CrabRoot(conn) is { } root
+    public static bool CrabActive(ClientState conn) => CrabRoot(conn) is { } root
         && conn.Reservations.CrabOwner == new ReservationState.CatAspectOwner(root.SkillId, root.Buff);
 
     static void EndCrabAspectLocked(ClientState conn, AuraCatalog.Aura aura)
@@ -22,7 +22,7 @@ static partial class Game
         conn.AuraStatsDirty = true;
     }
 
-    internal static bool CrabReconcileLocked(ClientState conn, double now,
+    public static bool CrabReconcileLocked(ClientState conn, double now,
         IReadOnlyDictionary<uint, int>? raw = null, Random? random = null)
     {
         var state = conn.Reservations;
@@ -69,7 +69,7 @@ static partial class Game
 
     // This runs after mitigation, Aegis and Ward, before allocating the hit to ES, Mana and Life.
     // Dodges, fully blocked/shifted/prevented hits and damage over time cannot reach this producer with physical > 0.
-    internal static void CrabPhysicalHitLocked(ClientState conn, int physical, double now,
+    public static void CrabPhysicalHitLocked(ClientState conn, int physical, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (physical <= 0 || !CrabActive(conn)) return;
@@ -86,7 +86,7 @@ static partial class Game
         conn.AuraStatsDirty = true;
     }
 
-    internal static IReadOnlyList<(uint Key, int Value)> CrabRawStatsLocked(ClientState conn,
+    public static IReadOnlyList<(uint Key, int Value)> CrabRawStatsLocked(ClientState conn,
         IReadOnlyDictionary<uint, int> raw)
     {
         if (!CrabActive(conn) || CrabRoot(conn) is not { } root) return [];

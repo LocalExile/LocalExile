@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// QuestStaticRewards.dat (Agents/docs/protocol/12-quests.md §5): what a quest flag gives for good. Column 1 is passive skill
@@ -10,7 +11,7 @@ using System.Text.Json;
 /// points_from_level, skill_points_from_passives and extra_skill_points, 15-progression.md §2), so the server sends them
 /// there. Refund points are spent, so a flag credits its refund points once (the save's QuestRefundsCredited).</para>
 /// </summary>
-sealed class QuestStaticRewards
+public sealed class QuestStaticRewards
 {
     public sealed record Reward(string Flag, int PassivePoints, int AscendancyPoints, int RefundPoints, IReadOnlyList<(string Stat, int Value)> Stats);
 
@@ -49,14 +50,14 @@ sealed class QuestStaticRewards
         var result = new QuestStaticRewards();
         string table = Path.Combine(folder, "tables", "QuestStaticRewards.json"), flagsFile = Path.Combine(folder, "tables", "QuestFlags.json"),
             statsFile = Path.Combine(folder, "tables", "Stats.json");
-        if (!File.Exists(table) || !File.Exists(flagsFile)) return result;
+        if (!ClientTables.Exists(table) || !ClientTables.Exists(flagsFile)) return result;
         string[] flags, stats = [];
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(flagsFile)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(flagsFile)))
             flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
-        if (File.Exists(statsFile))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(statsFile)))
+        if (ClientTables.Exists(statsFile))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(statsFile)))
                 stats = [.. doc.RootElement.EnumerateArray().Select(s => s.GetProperty("Id").GetString() ?? "")];
-        using var rows = JsonDocument.Parse(File.ReadAllBytes(table));
+        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes(table));
         foreach (var r in rows.RootElement.EnumerateArray())
         {
             if (r.GetProperty("QuestFlag") is not { ValueKind: JsonValueKind.Number } fv || fv.GetInt32() is not (>= 0 and var f) || f >= flags.Length) continue;

@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 
 // Server-controlled players use the same rules and ordered output as socket players. Only the
 // final transport is absent; action replication still sees their unencrypted outgoing packets.
-interface IControlledPlayerRules
+public interface IControlledPlayerRules
 {
     CharacterSaves.Save BuildControlled(CharacterClass characterClass, int level);
     Task InitializeControlled(ClientState player, ClientState leader);
@@ -13,12 +13,24 @@ interface IControlledPlayerRules
     Task ControlledCompletion(ClientState player);
 }
 
-static class ControlledPlayers
+// Optional command boundary supplied by a game module. The transport does not implement gameplay rules.
+public sealed record ControlledPlayerIntent(string Id, string Action, double Until, ushort Skill = 0,
+    uint Target = 0, int X = 0, int Y = 0, int Flask = 0, long WallDeadline = 0);
+
+public interface IControlledPlayerCommands
+{
+    double MaximumLeaderDistance { get; }
+    void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent);
+    void ClearControlledIntent(ClientState player);
+    object ObserveControlledPlayer(ClientState player, ClientState leader);
+}
+
+public static class ControlledPlayers
 {
     static readonly ConditionalWeakTable<ConnectionCiphers, object> Transports = new();
-    internal static bool IsTransport(ConnectionCiphers ciphers) => Transports.TryGetValue(ciphers, out _);
+    public static bool IsTransport(ConnectionCiphers ciphers) => Transports.TryGetValue(ciphers, out _);
 
-    internal static ClientState Open(Character character, string account, ClientState leader)
+    public static ClientState Open(Character character, string account, ClientState leader)
     {
         var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
         Transports.Add(ciphers, new());
@@ -37,7 +49,7 @@ static class ControlledPlayers
         return player;
     }
 
-    internal static void Close(ClientState player)
+    public static void Close(ClientState player)
     {
         if (player.Closed) return;
         var updates = (Program.GameLogicOrNull as IControlledPlayerRules)?.ControlledCompletion(player) ?? Task.CompletedTask;

@@ -4,9 +4,9 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal const string TwisterEffect = "Twister";
+    public const string TwisterEffect = "Twister";
 
     static void ReconcileTwisterSourcesLocked(ClientState conn)
     {
@@ -27,7 +27,7 @@ static partial class Game
 
     // Called once for an observed new phase, never for a duration/effect-only refresh. Long skips earn only the
     // currently observed gain, rather than replaying every missed phase as a burst after pause or a stalled tick.
-    internal static void QueueTwisterGainLocked(ClientState conn)
+    public static void QueueTwisterGainLocked(ClientState conn)
     {
         ReconcileTwisterSourcesLocked(conn);
         var state = conn.Twister;
@@ -40,7 +40,7 @@ static partial class Game
         }
     }
 
-    internal static bool TwisterGainCurrentLocked(ClientState conn, TwisterState.Gain gain)
+    public static bool TwisterGainCurrentLocked(ClientState conn, TwisterState.Gain gain)
     {
         ReconcileTwisterSourcesLocked(conn);
         return !gain.Consumed && CurrentGameWork && ReferenceEquals(gain.Owner, CombatLifetime)
@@ -51,13 +51,13 @@ static partial class Game
 
     // Admission and native acknowledgement share the send gate. No flight, cooldown spend, resource payment or
     // action interruption occurs before this final source/area/rules check.
-    internal static byte[]? AdmitTwisterGainLocked(ClientState conn, TwisterState.Gain gain, ProjectileSession session)
+    public static byte[]? AdmitTwisterGainLocked(ClientState conn, TwisterState.Gain gain, ProjectileSession session)
     {
         if (!TwisterGainCurrentLocked(conn, gain) || !session.Active || !ReferenceEquals(conn.ProjectileRuntime, session)) return null;
         var grant = gain.Source.Grant;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Effect == grant.Effect
             && SupportedSkill(conn, g.Id).WornGrant == grant);
-        if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is not null) return null;
+        if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id, triggered: true) is not null) return null;
         var supported = SupportedSkill(conn, gem.Id);
         int chance = GolemStat(supported.Stats, "cast_on_gain_avians_flight_or_avians_might_%");
         if (!RandomRolls.Chance(chance, 100, conn.CriticalRandom)) return null;

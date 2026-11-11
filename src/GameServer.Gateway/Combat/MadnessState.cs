@@ -1,5 +1,5 @@
 // Only primitive/runtime data survives replacement of the Game module; no scheduled module callbacks are retained.
-sealed class MadnessState
+public sealed class MadnessState
 {
     public object? Owner;
     public WornGrantedSkills.Grant? Source;
@@ -26,10 +26,10 @@ sealed class MadnessState
     }
 }
 
-sealed record MadnessExplosion(object Owner, ClientState Killer, IReadOnlyDictionary<uint, int> Player,
+public sealed record MadnessExplosion(object Owner, ClientState Killer, IReadOnlyDictionary<uint, int> Player,
     GameServer.Core.World.DamagePacket Raw, double Radius, (int X, int Y) At);
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     public readonly MadnessState Madness = new();
 }

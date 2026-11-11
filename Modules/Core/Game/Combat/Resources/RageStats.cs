@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Current (3.25+) Rage inputs and derived native stats, independent of any class selection.</summary>
-static class RageStats
+public static class RageStats
 {
     public const string PhysicalAddedAsFirePerRage = "physical_damage_%_to_add_as_fire_per_rage",
         BleedDotMultiplierPerRagePerEquippedAxe = "bleed_dot_multiplier_+_per_rage_if_equipped_axe",

@@ -8,7 +8,7 @@
 /// ones it names and answer <c>NotModelled</c> for anything it does not carry.
 /// </para>
 /// </summary>
-sealed class RecentEvents
+public sealed class RecentEvents
 {
     /// <summary>The window every "recently" stat uses, in seconds.</summary>
     public const double WindowSeconds = RecentEnemyHits.RecentlySeconds;

@@ -2,13 +2,13 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal const string SummonBeastialUrsaEffect = "SummonBeastialUrsa";
-    internal const string SummonBeastialRhoaEffect = "SummonBeastialRhoa";
-    internal const string SummonBeastialSnakeEffect = "SummonBeastialSnake";
+    public const string SummonBeastialUrsaEffect = "SummonBeastialUrsa";
+    public const string SummonBeastialRhoaEffect = "SummonBeastialRhoa";
+    public const string SummonBeastialSnakeEffect = "SummonBeastialSnake";
 
-    internal sealed record BeastKind(string EffectId, string Variety, string MinionKind);
+    public sealed record BeastKind(string EffectId, string Variety, string MinionKind);
 
     static readonly IReadOnlyDictionary<string, BeastKind> BeastKindsByEffect =
         new Dictionary<string, BeastKind>(StringComparer.Ordinal)
@@ -21,10 +21,10 @@ static partial class Game
                 "Metadata/Monsters/Snake/SnakeSpitUniqueSummoned", "Summoned Cobra"),
         };
 
-    internal static BeastKind? BeastKindFor(string? effectId) =>
+    public static BeastKind? BeastKindFor(string? effectId) =>
         effectId is not null && BeastKindsByEffect.TryGetValue(effectId, out var kind) ? kind : null;
 
-    internal static bool IsSummonBeastialCompanionEffect(string? effectId) => BeastKindFor(effectId) is not null;
+    public static bool IsSummonBeastialCompanionEffect(string? effectId) => BeastKindFor(effectId) is not null;
 
     static bool IsBeastCompanionKind(string kind) =>
         BeastKindsByEffect.Values.Any(candidate => candidate.MinionKind == kind);
@@ -42,7 +42,7 @@ static partial class Game
     /// Reconciles the live worn grants without building CharacterPlayerStats or SupportedSkill. A missing eligible grant
     /// retires its generation irrevocably and drops pending/active ownership in the same observation.
     /// </summary>
-    internal static void ReconcileBeastCompanionsLocked(ClientState conn)
+    public static void ReconcileBeastCompanionsLocked(ClientState conn)
     {
         var live = AllWornGrantedSkillsOf(conn).Where(g => BeastSourceEligible(conn, g)).ToArray();
         var identities = live.Select(BeastSourceIdentity).ToHashSet();
@@ -98,7 +98,7 @@ static partial class Game
         lock (conn.Monsters) return CurrentBeastSourceLocked(conn, grant) is not null;
     }
 
-    internal static bool HasSourceValidBeastMinion(ClientState conn)
+    public static bool HasSourceValidBeastMinion(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -117,14 +117,14 @@ static partial class Game
     }
 
     /// <summary>Rejects a stale worn-host activation before cooldown or resource payment.</summary>
-    internal static bool BeastCompanionAdmissionCurrent(ClientState conn, SupportedGem gem, ushort skillId) =>
+    public static bool BeastCompanionAdmissionCurrent(ClientState conn, SupportedGem gem, ushort skillId) =>
         gem.WornGrant is { } grant
         && gem.RequirementsMet
         && BeastGrantCurrent(conn, grant)
         && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null;
 
     /// <summary>Captures accepted work under the same Monsters lock that paid for it.</summary>
-    internal static void QueueBeastCompanionLocked(ClientState conn, SupportedGem gem, ushort skillId, int? actionToken)
+    public static void QueueBeastCompanionLocked(ClientState conn, SupportedGem gem, ushort skillId, int? actionToken)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
             || gem.WornGrant is not { } grant
@@ -139,7 +139,7 @@ static partial class Game
             Stat("minion_maximum_life_+%"), limit, CombatLifetime, conn.Instance, actionToken);
     }
 
-    internal static async Task TickBeastCompanions(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task TickBeastCompanions(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, double now, object? rules)
     {
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);

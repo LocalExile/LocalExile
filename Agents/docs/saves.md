@@ -4,15 +4,19 @@ How the servers keep player progress: what is saved, where, and how a change is 
 
 ## What is saved, and where
 
-Everything is in one SQLite file, `data/saves.db` (`Game_SAVES_DB` to put it elsewhere; git-ignored with the rest of
-`data/`), shared by the Gateway, Auth and the dev host:
+Player progress is in two SQLite files under `data/` (git-ignored), built from `sql/` by the servers
+([databases](dev/databases.md)) and shared by the Gateway, Auth and the dev host: `data/auth.db` (accounts;
+`Game_AUTH_DB`) and `data/characters.db` (everything else below; `Game_CHARACTERS_DB`). A connection opens
+`characters.db` with `auth.db` attached, so the rows written together (a deleted character and its save set aside) are in
+one file. A `data/saves.db` from before the split is moved over once, after a copy, by the first server
+to start ([databases](dev/databases.md)).
 
 | What | Table | Code |
 |---|---|---|
 | A character's items (every inventory row and the cursor), skill bar, experience, passives and mastery effects, refund and extra passive points, main ascendancy identity/nodes/tier awards, waypoints, visited areas, quest flags, the start weapon still on the ground | `characters`, one row per character | `CharacterSaves`, `PlayerInventories` (Gateway) |
 | An account stash's header: its tabs (name, type, colour), last tab, next stash item id, gold, the league quest flags its characters set (a Trial of Ascendancy's) | `stashes`, one row per account and league | `AccountStash` (Gateway) |
 | The items of one stash tab | `stash_tabs`, one row per account and tab | `AccountStash` (Gateway) |
-| Accounts | `accounts` | `SqliteAccountStore` (Auth, Host) |
+| Accounts (`auth.db`) | `accounts` | `SqliteAccountStore` (Auth, Host) |
 | Characters of an account: class, league, level (a copy for the character list), last town | `account_characters` | `SqliteAccountStore` (Auth, Host) |
 | Deleted characters' saves, for recovery by hand | `deleted_characters` | `SqliteAccountStore.DeleteCharacter` |
 
@@ -21,22 +25,8 @@ build wrote it) is kept as it is by the next write, at the top level of a record
 doesn't know, such as `Influences`, when it saves that item. Nothing is cached across processes: Auth and the host read and write
 the database directly, and a write waits for another process's transaction to end.
 
-The same file also holds the server's game-data overlay (`game_data_meta`, `mod_stat_overrides`, `limit_overrides`,
-`system_settings`, `catalog_entries`, `catalog_seed_keys`, `catalog_seed_defaults`, the `stats`/`mods`/`mod_stats`
-reference tables, `unique_weights`/`unique_weight_overrides`, the `effective_mod_stats` view and the future
-`item_templates`), which is not player progress: the Gateway loads it into
-an in-memory snapshot at startup and republishes the snapshot after a `/game_data` edit. See
-[editable game data](dev/editable-game-data.md) for the client-compatibility boundary and the cache rules.
-
-The first Gateway start after `scripts/dev/extract-data.ps1` creates the overlay tables and fills them once:
-`catalog_entries` with the 1,299-row unique catalogue and the jewel/tattoo rows, `system_settings` with its 51 defaults,
-`stats`/`mods`/`mod_stats` with 23,346 / 40,355 / 60,695 rows from `data/tables/Stats.json` and `Mods.json`, and
-`unique_weights` with 1,527 unique drop weights from `VillageUniqueDisenchantValues.json`.
-Later starts add only seed keys new to the build, and a new unique seed revision corrects the rows nobody edited; edited
-rows and rows deleted by an admin stay as they are. The Gateway
-log reports the reference counts (`[gateway] game data reference: ...`); `/game_data reference` rebuilds the reference
-tables without a restart. `dotnet run --project src/GameServer.Gateway -- seed-game-data` fills the overlay without
-starting the server (stop the Gateway first, or run `/game_data reload` after it).
+Game data (settings, catalogues, drop tables, client tables) is not in these files: it is in `world.db` and
+`client.db` ([databases](dev/databases.md)).
 
 Saved items include their raw `DefenceBaseRoll`, shared by armour, evasion and Energy Shield.
 Ordinary rolls are 0 through 31; raw 32 preserves the native special minimum-base state.

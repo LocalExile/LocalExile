@@ -1,10 +1,11 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>Native OT footprints for NPCs and functional scenery. Loot and waypoints stay nonblocking.</summary>
-static class StationaryCollision
+public static class StationaryCollision
 {
-    internal sealed record Profile(int Size, bool Blocking, bool Static, string? Model)
+    public sealed record Profile(int Size, bool Blocking, bool Static, string? Model)
     {
         public string? BlockingLeagueFlag { get; init; }
         public int BlockerSize(double? hull) => Blocking ? Math.Max(0, Size - 1) : hull > 0 ? 0 : -1;
@@ -23,8 +24,8 @@ static class StationaryCollision
     });
     static readonly Lazy<Dictionary<string, double>> Radii = new(() =>
     {
-        if (!File.Exists("data/hideouts.json")) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes("data/hideouts.json"));
+        if (!ClientTables.Exists("data/hideouts.json")) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes("data/hideouts.json"));
         return doc.RootElement.TryGetProperty("collisionRadii", out var r)
             ? r.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetDouble(), StringComparer.Ordinal) : [];
     });
@@ -39,10 +40,10 @@ static class StationaryCollision
         return (p.BlockerSize(hull), hull);
     }
 
-    internal static Dictionary<string, Profile> Load(string path)
+    public static Dictionary<string, Profile> Load(string path)
     {
         var result = new Dictionary<string, Profile>(StringComparer.Ordinal);
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
             if (!t.TryGetProperty("positioned", out var p)) continue;

@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     static GolemState.Golem? OwnedFighter(ClientState conn, uint id) =>
         conn.Golems.All.GetValueOrDefault(id) ?? conn.Reservations.Fighters.GetValueOrDefault(id) ?? conn.Summons.Fighters.GetValueOrDefault(id);
@@ -163,7 +163,7 @@ static partial class Game
         }
     }
 
-    internal static int SkitterAilmentStat(GolemState.Golem fighter, string name)
+    public static int SkitterAilmentStat(GolemState.Golem fighter, string name)
     {
         int Get(string n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, "minion_" + n);
         return name switch {

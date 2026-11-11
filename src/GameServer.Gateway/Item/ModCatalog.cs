@@ -1,12 +1,13 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Mods.dat (data/tables/Mods.json, loaded on first use): what the server needs to put mods on items
 /// (Agents/docs/protocol/13-items.md §2a). The client identifies a mod by its HASH16 and counts its stats itself
 /// (StatsKey1..8 up to the first empty one), so every <see cref="ItemMod"/> is built here with exactly that many values.
 /// </summary>
-sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
+public sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
 {
     public ModRangeProvider Ranges { get; } = ranges ?? ModRangeProvider.Default;
 
@@ -21,7 +22,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
     public sealed record Mod(int Row, string Id, ushort Hash, string Name, int Domain, int GenerationType, int Level,
         IReadOnlyList<ModStat> Stats)
     {
-        internal ModRangeProvider? Ranges { get; init; }
+        public ModRangeProvider? Ranges { get; init; }
         public IReadOnlyList<int> Families { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> GenerationWeights { get; init; } = [];
@@ -58,7 +59,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
                 ? Ranges?.Range(Id, index, Stats[index].Min, Stats[index].Max) ?? Normalise(Stats[index])
                 : (0, 0);
 
-        /// <summary>An admin's range (/game_data mod) applies to this stat.</summary>
+        /// <summary>A range from world.db's mod_stat_overrides applies to this stat.</summary>
         public bool RangeOverridden(int index) => Ranges?.All.ContainsKey((Id, index)) == true;
 
         /// <summary>The effective maxima, in stat order (max-roll dev items and unique definitions use these).</summary>
@@ -121,17 +122,17 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         string path = Path.Combine(folder, "tables", "Mods.json"), statsPath = Path.Combine(folder, "tables", "Stats.json"),
             tagsPath = Path.Combine(folder, "tables", "Tags.json"), modTypePath = Path.Combine(folder, "tables", "ModType.json");
         var rows = new List<Mod>();
-        if (!File.Exists(path) || !File.Exists(statsPath)) return (rows, [], []);
+        if (!ClientTables.Exists(path) || !ClientTables.Exists(statsPath)) return (rows, [], []);
         List<(string Id, bool Local)> stats;
         using (var s = GameTables.Open(statsPath))
             stats = [.. s.RootElement.EnumerateArray().Select(r => (r.GetProperty("Id").GetString() ?? "", r.GetProperty("IsLocal").GetBoolean()))];
         List<string> modTypes = [];
-        if (File.Exists(modTypePath))
-            using (var t = JsonDocument.Parse(File.ReadAllBytes(modTypePath)))
+        if (ClientTables.Exists(modTypePath))
+            using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(modTypePath)))
                 modTypes = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Name").GetString() ?? "")];
         List<string> tags = [];
-        if (File.Exists(tagsPath))
-            using (var t = JsonDocument.Parse(File.ReadAllBytes(tagsPath)))
+        if (ClientTables.Exists(tagsPath))
+            using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath)))
                 tags = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
         List<(string, int)> Weights(JsonElement r, string keys, string values) =>
             [.. r.GetProperty(keys).EnumerateArray().Zip(r.GetProperty(values).EnumerateArray(),
@@ -141,7 +142,7 @@ sealed class ModCatalog(string folder = "data", bool hardMode = false, ModRangeP
         {
             bool alternate = hardMode && r.TryGetProperty("HasHardmodeStatValues", out var hardmode) && hardmode.GetBoolean();
             string suffix = alternate ? "Hardmode" : "";
-            // The client's stat iterator (0x142430710) stops at the first empty key, so the count does too.
+            // The client's stat iterator (0x1424371e0) stops at the first empty key, so the count does too.
             var modStats = new List<ModStat>();
             for (int i = 1; i <= 8; i++)
             {

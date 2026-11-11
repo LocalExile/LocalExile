@@ -6,14 +6,14 @@ using GameServer.Storage;
 
 /// <summary>
 /// An account's stash (Agents/docs/protocol/18-stash.md): its tabs and their items, shared by every character of the
-/// account, the tab the stash was last on, and the account's gold (S→C 0x2a9, also shared by every character). One row
+/// account, the tab the stash was last on, and the account's gold (S→C 0x2aa, also shared by every character). One row
 /// per account in the save database (<see cref="Saves"/>), written in a transaction after every change. A new account
 /// gets <see cref="StarterTabs"/>.
 /// <para>Item ids: characters number their items from 1, each on its own, so an item put into the stash gets a stash id
 /// (from <see cref="FirstItemId"/>, never reused: the next id is saved) and keeps it when a character takes it out.
 /// PlayerInventories does not count stash ids when it picks its next id.</para>
 /// </summary>
-sealed partial class AccountStash
+public sealed partial class AccountStash
 {
     /// <summary>Stash item ids start here (PlayerInventories counts from 1, ground items from 0x100000).</summary>
     public const uint FirstItemId = 0x40000000;
@@ -200,7 +200,7 @@ sealed partial class AccountStash
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
 
-    /// <summary>The account's gold (S→C 0x2a9).</summary>
+    /// <summary>The account's gold (S→C 0x2aa).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }
 
 
@@ -832,5 +832,5 @@ sealed partial class AccountStash
     public uint NewItemId() { lock (_lock) return _nextItemId++; }
 
     /// <summary>Forgets the account's loaded stash: the next use loads it from the database (tests: a restart).</summary>
-    internal static void Forget(string account) => ByAccount.TryRemove(account, out _);
+    public static void Forget(string account) => ByAccount.TryRemove(account, out _);
 }

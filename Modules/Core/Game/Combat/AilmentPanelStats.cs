@@ -22,7 +22,7 @@ using GameServer.Core.World;
 /// The "from only Chaos Damage" poison rows (<c>_to_always_deal_</c>) show the poison the chaos portion alone deals,
 /// when a "Chaos Damage has a chance to Poison" source is present.
 /// </summary>
-static class AilmentPanelStats
+public static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
     /// secondary), whether it is a spell and whether it is a melee hit.</summary>
@@ -43,6 +43,7 @@ static class AilmentPanelStats
     // (GemSupportDamage applies those to the hit, with the generic and typed ones here).
     static readonly More[] SupportMore =
     [
+        new("doedre_aura_damage_+%_final"), new("cast_on_damage_taken_damage_+%_final"),
         new("support_echo_damage_+%_final"), new("support_reduced_duration_damage_+%_final"),
         new("support_spirit_strike_damage_+%_final"), new("support_storm_barrier_damage_+%_final"),
         new("support_pure_shock_damage_+%_final"), new("support_blood_thirst_damage_+%_final"),

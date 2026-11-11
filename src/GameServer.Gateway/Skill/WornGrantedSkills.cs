@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Instance;
 /// resolver, while <see cref="For"/> exposes every grant so later trigger, minion, aspect and temporary-state owners
 /// can use the same source identity without placing a non-executable skill in the player's Actor.
 /// </summary>
-sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool ruthless = false, string folder = "data")
+public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool ruthless = false, string folder = "data")
 {
     /// <summary>
     /// One item-granted effect source. <paramref name="Socket"/> is a negative synthetic host slot, so an active gem

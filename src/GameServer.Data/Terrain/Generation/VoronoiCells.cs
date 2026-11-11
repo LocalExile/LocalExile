@@ -1,8 +1,8 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The Voronoi graph <c>0x141f230e0</c> builds around a tile graph's points (its nodes, then every edge's
+/// <summary>The Voronoi graph <c>0x141f299d0</c> builds around a tile graph's points (its nodes, then every edge's
 /// internal points): vertices as nodes, segments and border pieces as edges, and per site point the edges around its
-/// cell (in the order the client appends them). <see cref="Jitter"/> is <c>0x141f22460</c>.</summary>
+/// cell (in the order the client appends them). <see cref="Jitter"/> is <c>0x141f28d50</c>.</summary>
 public sealed class VoronoiCells
 {
     public sealed class VNode(int x, int y)
@@ -22,7 +22,7 @@ public sealed class VoronoiCells
     public readonly List<VEdge> Edges = [];
     /// <summary>Per site point, the edges of its cell (<c>param_1 + 0x10</c>).</summary>
     public readonly Dictionary<(int X, int Y), List<VEdge>> Cells = [];
-    // Per Voronoi node, the site points around it, ordered by x · 65536 + y (std::set, 0x141f4f390).
+    // Per Voronoi node, the site points around it, ordered by x · 65536 + y (std::set, 0x141f55c80).
     readonly Dictionary<VNode, SortedSet<(int X, int Y)>> _nodeSites = [];
 
     static readonly IComparer<(int X, int Y)> SiteOrder =
@@ -61,7 +61,7 @@ public sealed class VoronoiCells
         Nodes.Add(new VNode(w - 1, 0));
         Nodes.Add(new VNode(w - 1, h - 1));
 
-        // 0x141f58e30: nodes with at most two edges on the border.
+        // 0x141f5f720: nodes with at most two edges on the border.
         List<VNode> right = [], left = [], bottom = [], top = [];
         foreach (var n in Nodes)
         {
@@ -87,7 +87,7 @@ public sealed class VoronoiCells
         Border(bottom, 1);
     }
 
-    // 0x141f4f4b0 with 0x141f5bf30: the node at (x, y), else the nearest one (squared distance, first of equals).
+    // 0x141f55da0 with 0x141f62820: the node at (x, y), else the nearest one (squared distance, first of equals).
     VNode? Find(int x, int y)
     {
         VNode? found = null;
@@ -115,7 +115,7 @@ public sealed class VoronoiCells
 
     SortedSet<(int X, int Y)> Sites(VNode n) => _nodeSites.TryGetValue(n, out var s) ? s : _nodeSites[n] = new(SiteOrder);
 
-    /// <summary><c>0x141f4e930</c>.</summary>
+    /// <summary><c>0x141f55220</c>.</summary>
     VEdge Connect(VNode a, VNode b)
     {
         var e = new VEdge(a, b);
@@ -136,7 +136,7 @@ public sealed class VoronoiCells
         return (o.X, o.Y);
     }
 
-    /// <summary><c>0x141f22e50</c>: a border corner takes, from its neighbour on the border, the neighbour's site on the
+    /// <summary><c>0x141f29740</c>: a border corner takes, from its neighbour on the border, the neighbour's site on the
     /// given side of the neighbour's Voronoi edge.</summary>
     void Corner(VNode to, VNode from, int sign)
     {
@@ -153,7 +153,7 @@ public sealed class VoronoiCells
         }
     }
 
-    /// <summary><c>0x141f227c0</c>: edges along one border between its nodes in order, each added to the cell on the
+    /// <summary><c>0x141f290b0</c>: edges along one border between its nodes in order, each added to the cell on the
     /// inner side.</summary>
     void Border(List<VNode> list, int sign)
     {
@@ -199,7 +199,7 @@ public sealed class VoronoiCells
         }
     }
 
-    /// <summary><c>0x141f22460</c>: every unlocked node moves to a random point of its cell, then every edge's internal
+    /// <summary><c>0x141f28d50</c>: every unlocked node moves to a random point of its cell, then every edge's internal
     /// points.</summary>
     public void Jitter(LevelRandom rng)
     {
@@ -218,7 +218,7 @@ public sealed class VoronoiCells
                 }
     }
 
-    /// <summary><c>0x141f21dd0</c>: a triangle of the cell fan around (cx, cy) by area (<c>0x141f21c00</c>), then a random
+    /// <summary><c>0x141f286c0</c>: a triangle of the cell fan around (cx, cy) by area (<c>0x141f284f0</c>), then a random
     /// point in it, pulled in to 80 %.</summary>
     (int X, int Y) RandomOffset(LevelRandom rng, List<VEdge> cell, int cx, int cy)
     {

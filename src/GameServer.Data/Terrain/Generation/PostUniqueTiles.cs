@@ -1,10 +1,10 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary><c>0x14203ece0</c> (after the mirror seams, before the outer buffer): each post-unique tile of the TileSet
+/// <summary><c>0x142045530</c> (after the mirror seams, before the outer buffer): each post-unique tile of the TileSet
 /// (<see cref="TileStore.PostUnique"/>) replaces one placed tile with the same key. Row by row over the view, every
 /// tile origin without a tag (tile data +0x10: the length of the tag string at +0), with a corner vertex inside the map
 /// and walkable (no vertex flag 8), whose turned key equals the post-unique tile's key under some allowed orientation is a candidate: its orientation is drawn among the
-/// matching ones (<c>0x14203f560</c>, <c>Next(count)</c>). Then <c>Next(candidates)</c> picks the place; the tile goes
+/// matching ones (<c>0x142045db0</c>, <c>Next(count)</c>). Then <c>Next(candidates)</c> picks the place; the tile goes
 /// in there at the old tile's height. No candidate is fatal.</summary>
 static class PostUniqueTiles
 {

@@ -9,11 +9,11 @@ using GameServer.Storage;
 
 /// <summary>
 /// A character's saved state: its items per inventory (Inventories.dat row), its skill bar and its progress, one row per
-/// character in the save database (<see cref="Saves"/>, data/saves.db, git-ignored). Items are stored by BaseItemTypes
+/// character in the save database (<see cref="Saves"/>, data/characters.db, git-ignored). Items are stored by BaseItemTypes
 /// HASH32 and rebuilt through the <see cref="ItemCatalog"/>, so the save holds no client-side layout. Every change is a
 /// transaction: it reads the row, changes one part and writes it back, and nothing else writes in between.
 /// </summary>
-static class CharacterSaves
+public static class CharacterSaves
 {
     public sealed record SavedSocket(SocketColour Colour, SavedItem? Gem = null);
 
@@ -29,15 +29,18 @@ static class CharacterSaves
         ItemRarity Rarity = ItemRarity.Normal, bool Identified = true, List<SavedMod>? Mods = null, List<uint>? Name = null,
         int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
         byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false,
-        bool Foreseeing = false, uint ForeseeSeed = 0, byte? AlternateQualityType = null);
+        bool Foreseeing = false, uint ForeseeSeed = 0, byte? AlternateQualityType = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? OriginalItem = null);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
     /// <summary>A Monster Statue decoration: the MonsterVarieties HASH16 and the actor variation (5 the stone pose).</summary>
     public sealed record SavedMonsterStatue(int X, int Y, float Rotation, ushort MonsterHash16, ushort Scale = 100, byte Variation = 5);
 
-    /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1) and the 0x1f9 option byte it was picked with.</summary>
-    public sealed record SavedCosmetic(uint Record, byte Option = 0);
+    /// <summary>A worn cosmetic: the record picked (a MtxTypes row + 1), the 0x1f9 option byte it was picked with and the
+    /// record's MtxTypes HASH32, which names it in every game version. A save without the hash was written by a 3.29.3b
+    /// build: its record is a 3.29.3b row (<see cref="CosmeticMigration"/>).</summary>
+    public sealed record SavedCosmetic(uint Record, byte Option = 0, uint? Hash = null);
 
     /// <summary>Skill bar: slot index → a GrantedEffects Id (skill ids change with the socketed gems, effects do not),
     /// "Action/&lt;ActionTypes Id&gt;" for a basic action ("Action/Move") or "" for a cleared slot. Experience: the
@@ -376,7 +379,7 @@ static class CharacterSaves
     });
 
     /// <summary>The save with the refund points of its quest flags that it has not been credited yet (QuestStaticRewards).</summary>
-    internal static Save CreditQuestRefunds(Save s)
+    public static Save CreditQuestRefunds(Save s)
     {
         var (points, flags) = QuestStaticRewards.Default.Value.NewRefunds(s.QuestFlags ?? [], s.QuestRefundsCredited ?? []);
         if (flags.Count == 0) return s;
@@ -470,7 +473,7 @@ static class CharacterSaves
         public static PassiveProgressSnapshot From(Save? save) =>
             new(save?.MainAscendancy, save?.Passives, save?.MasteryEffects, save?.RefundPoints ?? 0);
 
-        internal bool Matches(Save save) => _refundPoints == (save.RefundPoints ?? 0) &&
+        public bool Matches(Save save) => _refundPoints == (save.RefundPoints ?? 0) &&
             _passives.SequenceEqual(save.Passives ?? []) &&
             _masteries.Count == (save.MasteryEffects?.Count ?? 0) &&
             _masteries.All(kv => save.MasteryEffects is not null && save.MasteryEffects.TryGetValue(kv.Key, out ushort value) && value == kv.Value) &&
@@ -538,7 +541,8 @@ static class CharacterSaves
         i.Links is null ? null : [.. i.Links], i.GemExperience, i.Rarity, i.Identified,
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
-        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType);
+        i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
+        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods));
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -556,10 +560,19 @@ static class CharacterSaves
             Sockets = emptyResonator ? ItemCatalog.ResonatorSocketList(t)
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
+            OriginalItem = s.OriginalItem is null ? null : FromSaved(s.OriginalItem, catalog),
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
+        // Older Stygian Vises could be saved with missing or ordinary sockets. Preserve every occupied layout.
+        if (t.Id == AbyssJewels.StygianVise && item.Sockets.All(socket => socket.Gem is null)
+            && !item.Sockets.Any(socket => socket.Colour == SocketColour.Abyss))
+        {
+            var local = ItemModStats.Local(item, catalog.Mods);
+            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+                item = AbyssJewels.StygianSockets(item, local);
+        }
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
     }
 
@@ -574,6 +587,6 @@ static class CharacterSaves
 
 /// <summary>A save holds an item, gem or mod the extracted game data doesn't know (tables missing or out of date). The
 /// login stops and the save stays as it is.</summary>
-sealed class UnknownSavedItemException(string what) : IOException(
+public sealed class UnknownSavedItemException(string what) : IOException(
     $"the save holds {what}, which the game data doesn't know; nothing was changed: extract the game data " +
     "(scripts/dev/extract-data.ps1, Agents/GettingStarted.md) and log in again");

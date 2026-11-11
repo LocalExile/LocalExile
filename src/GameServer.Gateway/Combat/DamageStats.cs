@@ -7,7 +7,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// <c>attack_physical_damage_%_to_add_as_lightning</c>, and so on. Skill, base and global conversion stack; the
 /// resulting percentages are normalised by <see cref="DamageConversion"/>.
 /// </summary>
-static class DamageStats
+public static class DamageStats
 {
     public const string SpellDamageIncreasesApplyToAttacks150 = ArcaneMight.Fixed150;
 
@@ -70,7 +70,7 @@ static class DamageStats
     /// ids: the Replica Alberon's Warpath pair is named <c>_per_50_strength</c>, but its description (and PoB's and
     /// RePoE's text, "Adds 1 to 80 Chaos Damage to Attacks per 80 Strength") applies it per 80. Weapon-local "with this
     /// Weapon" and spell per-attribute stats are not these.</summary>
-    internal static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
+    public static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
         AttackAddedPerAttribute =
     [
         (DamageType.Physical, "attack_minimum_added_physical_damage_per_25_strength",
@@ -143,7 +143,10 @@ static class DamageStats
         foreach (var type in Types)
         {
             string slug = Slug(type), prefix = spell ? "spell" : "attack";
-            var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"));
+            // Global added damage applies to attacks and spells alike (a ring's "Adds # to # Fire Damage"); the
+            // attack-/spell-specific stats are extra on top, not a replacement.
+            var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"))
+                .Add(new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage")));
             if (!spell) range = range.Add(AttributeAdded(get, type));
             if (!spell && type == DamageType.Lightning)
             {

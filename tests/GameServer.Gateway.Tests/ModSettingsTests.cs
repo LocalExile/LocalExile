@@ -55,12 +55,14 @@ public sealed class ModSettingsTests
         Assert.True((bool)saved["spawning"]!["night"]!);
         Assert.Throws<ArgumentException>(() => ModSettings.Saved(schema, bots with { MaxBots = 501 }, null, Rarity));
 
-        // A wrong declaration fails the load, its default included; every shipped settings.json reads.
+        // A wrong declaration fails the load, its default included; every shipped settings.json reads (the modules', and
+        // those of mods installed from source: the mods live in LocalExile-Mods, so a checkout may have no Mods/Source).
         Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "integer", "default": 1.5 } } }"""));
         Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "choice", "default": "a" } } }"""));
         Assert.Throws<FormatException>(() => ModSettings.Parse("""{ "settings": { "x": { "type": "bool", "default": true, "colour": 1 } } }"""));
+        string modSources = Path.Combine("Mods", "Source");
         var shipped = Directory.GetFiles("Modules", ModSettings.FileName, SearchOption.AllDirectories)
-            .Concat(Directory.GetFiles(Path.Combine("Mods", "Source"), ModSettings.FileName, SearchOption.AllDirectories))
+            .Concat(Directory.Exists(modSources) ? Directory.GetFiles(modSources, ModSettings.FileName, SearchOption.AllDirectories) : [])
             .Where(f => !f.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")).ToList();
         Assert.NotEmpty(shipped);
         foreach (string file in shipped) ModSettings.Parse(File.ReadAllText(file));

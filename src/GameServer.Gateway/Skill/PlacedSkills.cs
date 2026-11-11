@@ -1,16 +1,16 @@
 using GameServer.Core.World;
 
-sealed class PlacedSkills
+public sealed class PlacedSkills
 {
-    internal sealed record DamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+    public sealed record DamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
         MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
-    internal sealed record DamageSnapshot(DamageProfile Normal, DamageProfile Blinded,
+    public sealed record DamageSnapshot(DamageProfile Normal, DamageProfile Blinded,
         IReadOnlyDictionary<uint, int> Caster, bool Spell)
     {
         public SpiderDamageSource? Spider { get; init; }
     }
 
-    internal sealed record Placed(uint Id, ushort Skill, int Effect, (int X, int Y) At, bool Mine,
+    public sealed record Placed(uint Id, ushort Skill, int Effect, (int X, int Y) At, bool Mine,
         double Armed, double Until, DamagePacket Damage, IReadOnlyDictionary<uint, int> Own,
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
@@ -22,7 +22,7 @@ sealed class PlacedSkills
         public bool Landed = true;
     }
     public readonly Dictionary<uint, Placed> All = [];
-    internal sealed record Ground(uint Object, ushort Source, (int X, int Y) At, double Radius,
+    public sealed record Ground(uint Object, ushort Source, (int X, int Y) At, double Radius,
         double DamagePerSecond, double Until, double Created)
     {
         public double LastAt = Created;
@@ -40,7 +40,7 @@ sealed class PlacedSkills
                 p.Flat, p.Percent, ReservationEfficiencyPct: p.Efficiency)));
 }
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     PlacedSkills? placedSkills;
     public PlacedSkills Placed => System.Threading.LazyInitializer.EnsureInitialized(ref placedSkills);

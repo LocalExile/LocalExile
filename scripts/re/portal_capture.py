@@ -1,6 +1,6 @@
 """Read the portal objects a Gateway session created out of its log, decoded.
 
-The Gateway logs every S→C 0x02b9 (create object) and 0x008f (map device portals) as hex, so a session's portals can be
+The Gateway logs every S→C 0x02bb (create object) and 0x008f (map device portals) as hex, so a session's portals can be
 recovered after the fact without a Frida session. This is where the portal's own fields come from: for a MultiplexPortal
 the object blob carries its place index, portal type and open flag, and each 0x008f entry carries the area it leads to,
 the portal variation (+0x26, 0 = the default visual) and the owner name.
@@ -25,9 +25,9 @@ from pathlib import Path
 HEADER = 2 + 4 + 4 + 2 + 4 + 2   # id, object, u32, u16, object type, blob length (u16 BE)
 
 CREATE_PORTAL = re.compile(
-    r"0x02b9 create map portal (0x[0-9a-f]+) \(place (\d+), (\d+)/(\d+)\) to (\S+) at \((\d+), (\d+)\): ([0-9A-F]+)")
+    r"0x02bb create map portal (0x[0-9a-f]+) \(place (\d+), (\d+)/(\d+)\) to (\S+) at \((\d+), (\d+)\): ([0-9A-F]+)")
 CREATE_EFFECT = re.compile(
-    r"0x02b9 create effect (0x[0-9a-f]+) (\S+) at \((\d+), (\d+)\) \((.*)\): ([0-9A-F]+)")
+    r"0x02bb create effect (0x[0-9a-f]+) (\S+) at \((\d+), (\d+)\) \((.*)\): ([0-9A-F]+)")
 DEVICE_PORTALS = re.compile(
     r"0x008f map device (0x[0-9a-f]+) portals: (\d+) open to (\S+): ([0-9A-F]+)")
 
@@ -47,7 +47,7 @@ def compact(b, i):
 
 
 def object_header(b):
-    """The 0x02b9 header and the blob it carries (LoginWriter.Blob: u16 length, then the bytes)."""
+    """The 0x02bb header and the blob it carries (LoginWriter.Blob: u16 length, then the bytes)."""
     length = struct.unpack_from(">H", b, 16)[0]
     return {
         "objectId": f"0x{struct.unpack_from('>I', b, 2)[0]:x}",

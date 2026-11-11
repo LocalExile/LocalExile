@@ -2,13 +2,13 @@ using System.Net.Sockets;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Development fallback for lobbed skills without a radius stat, in cells. The Sand Spitter's native straight
     // projectile uses direct contact and never this fallback.
-    internal const double MonsterMortarRadiusCells = 10;
+    public const double MonsterMortarRadiusCells = 10;
 
-    internal static double MonsterMortarRadius() =>
+    public static double MonsterMortarRadius() =>
         double.TryParse(Environment.GetEnvironmentVariable("Game_MONSTER_MORTAR_RADIUS"), out double radius) && radius > 0
             ? radius : MonsterMortarRadiusCells;
 
@@ -16,10 +16,10 @@ static partial class Game
     /// other shots target the player's current cell. A
     /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
     /// actors) are in its way, never the other monsters. A monster's action releases a projectile of the client's own only
-    /// with a count on its skill record (the mortar attack's release, 0x141ba51a0): a <c>monster_mortar_attack</c>
+    /// with a count on its skill record (the mortar attack's release, 0x141ba7c30): a <c>monster_mortar_attack</c>
     /// record carries one and the client draws it (MonsterProjectileProfile); any other shot's, a spell mortar's included,
     /// carries none, and the server's object is the projectile the player sees.</summary>
-    internal static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
+    public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null,
         (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence)
     {
@@ -77,7 +77,7 @@ static partial class Game
     /// straight one flies <paramref name="straightRange"/> cells. A mortar attack the client draws (its record carries the
     /// row and count, MonsterProjectileSkillStats) gets no object, so the player sees one mortar, as from GGG, which creates
     /// none; the flight still lands its hit.</summary>
-    internal static ProjectileProfile MonsterProjectileProfile(SkillCatalog.MonsterProjectileInfo projectile, double speed,
+    public static ProjectileProfile MonsterProjectileProfile(SkillCatalog.MonsterProjectileInfo projectile, double speed,
         double landing, double straightRange) => new(projectile.Metadata)
     {
         Speed = speed, Radius = projectile.CollisionRadius, Count = Math.Max(1, projectile.Count), Lobbed = projectile.Lobbed,
@@ -97,7 +97,7 @@ static partial class Game
     /// <c>mortar_projectile_scale_animation_speed_instead_of_projectile_speed</c>), and the impact clip plays where it
     /// stops, keeping the object for the clip's length. Null without clip data: the object then flies as its .ao
     /// presents it by itself.</summary>
-    internal static ProjectilePresentation? MonsterProjectilePresentation(SkillCatalog.ProjectileClips? clips, double flightSeconds)
+    public static ProjectilePresentation? MonsterProjectilePresentation(SkillCatalog.ProjectileClips? clips, double flightSeconds)
     {
         if (clips is null || clips is { Flight: null, Impact: null }) return null;
         var presentation = new ProjectilePresentation();
@@ -118,7 +118,7 @@ static partial class Game
 
     // The release at the attack's contact: the flight owns contact and damage (HostileHit).
     // The AI action must still be current when the runtime releases it.
-    internal static void LaunchMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static void LaunchMonsterProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
         (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)
     {
@@ -132,7 +132,7 @@ static partial class Game
     // Called under the XP -> Monsters lock by the runtime. Only the player takes a monster's projectile; a friendly monster in
     // its way is passed through. The monster's damage pipeline (CommitMonsterHitLocked) owns evasion, block, armour,
     // ailments, recovery and the hit packet; the presentation follows through the session's ordered outbox.
-    internal static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
+    public static ProjectileHitResult HostileHit(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var conn = session.Conn;
         if (OwnedFighter(conn, contact.Target.Id) is { } golem)
@@ -161,7 +161,7 @@ static partial class Game
 /// <summary>A monster's projectile attack in flight: the monster that released it, its attack and the AI action it belongs
 /// to. The player is its only target (<c>Game.HostileHit</c>); the monster's own damage pipeline commits the hit when
 /// the flight reaches the player, or, for a mortar, when it lands on them.</summary>
-sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, MonsterAttack Attack, int Action, string Label)
+public sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, MonsterAttack Attack, int Action, string Label)
 {
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }
@@ -169,7 +169,7 @@ sealed record HostileProjectileOffense(uint MonsterId, SpawnedMonster Monster, M
 
 /// <summary>A shot of a server object that is no monster (a Trial of Ascendancy's dart trap). Its own rule commits a
 /// contact, under the connection's lock as <c>Game.HostileHit</c> is; a miss lets the flight go on.</summary>
-sealed record ObjectProjectileOffense(string Label, Func<Game.ProjectileSession, ProjectileDamage, ProjectileHitResult> Hit)
+public sealed record ObjectProjectileOffense(string Label, Func<Game.ProjectileSession, ProjectileDamage, ProjectileHitResult> Hit)
 {
     /// <summary>The rig clips the object needs to be seen (Game.MonsterProjectilePresentation).</summary>
     public Game.ProjectilePresentation? Presentation { get; init; }

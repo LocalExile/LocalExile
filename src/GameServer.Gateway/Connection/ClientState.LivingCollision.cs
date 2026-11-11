@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     readonly Dictionary<uint, (SpawnedMonster Monster, ClientPathfinder.Blocker Body)> corpseBodies = [];
 
@@ -64,7 +64,7 @@ sealed partial class ClientState
         new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
             () => size < 0 ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
-            // The client's budget for this mover (0x141e4d890): 1000 expansions for a unique, 100 for any other monster.
+            // The client's budget for this mover (0x141e50f90): 1000 expansions for a unique, 100 for any other monster.
             limit: unique ? ClientPathfinder.SearchLimit.Expansions1000 : ClientPathfinder.SearchLimit.Expansions100, sight: Layout.Sight)
         { FrameOf = LockstepFrameOf };
 }

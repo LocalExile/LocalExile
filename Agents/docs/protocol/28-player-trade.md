@@ -22,12 +22,12 @@ The offer, accept and cancel messages of the open window are the sale's: C→S 0
 ## 2. Known players: S→C 0xa7
 
 The client keeps a table of the players it knows (instance `+0xc738`, an FNV-hashed map keyed by the first wstr;
-inserted by `0x142173b60` → `0x142178940`, dispatcher case 0x28). The trade request is looked up in it by character
-name (`0x142166b40`, entry `+0x70`), the party list (0xa9, case 0x2a) looks its members up the same way, and an account
-name lookup (`0x142166a50`, entry `+0x30`) exists. Both tables were empty with the server sending nothing, so the request
+inserted by `0x14217a4d0` → `0x14217f2b0`, dispatcher case 0x28). The trade request is looked up in it by character
+name (`0x14216d4f0`, entry `+0x70`), the party list (0xa9, case 0x2a) looks its members up the same way, and an account
+name lookup (`0x14216d400`, entry `+0x30`) exists. Both tables were empty with the server sending nothing, so the request
 was dropped silently: S→C **0xa7** adds an entry, S→C 0xa8 (case 0x29) removes one by key.
 
-0xa7 (class `0x1435dbda8`, 0xd0 bytes, write `0x1421a11a0` → `0x141f8f580`):
+0xa7 (class `0x1435e6cc8`, 0xd0 bytes, write `0x1421a7b10` → `0x141f95e70`):
 
 - wstr account (the key; entry `+0x30`), wstr (`+0x50`), u8 flags: bit 0 a u16 pair (`+0xaa`, `+0xae`) follows, bit 1 a
   u16 pair (`+0xb0`, `+0xb2`), bit 2 (`+0xba`) the character section, bits 3–6 `+0xbb` / `+0xbc` / `+0xbd` / `+0xbe`;
@@ -42,24 +42,24 @@ The Gateway sends `InstanceSocial.KnownPlayer` (flags 0x04, with the pair 0x06) 
 
 ## 3. The request and the window: S→C 0xb8 flags
 
-The in-game UI's 0xb8 listener (`0x140dccdf0`) reads struct `+0x50`:
+The in-game UI's 0xb8 listener (`0x140dca680`) reads struct `+0x50`:
 
 | bit 0 | bit 1 | Shows |
 |---|---|---|
-| 0 | 1 | the notification "{name} sent you a trade request" (ClientStrings 0x441, `0x140afb820`), when the name is known and the option at `0x1419135f0(…, 0x19)` allows it |
+| 0 | 1 | the notification "{name} sent you a trade request" (ClientStrings 0x441, `0x140afc570`), when the name is known and the option at `0x141918e00(…, 0x19)` allows it |
 | 1 | 0 | the requester's "Waiting for player to accept trade request..." box with Cancel (ClientStrings 0x2bd) |
-| 1 | 1 | the trade window (`0x140c38d70` → `0x140c33e70`) |
+| 1 | 1 | the trade window (`0x140c38ef0` → `0x140c33ff0`) |
 | 0 | 0 | nothing |
 
-Bit 0 is also the active trade for Ctrl + click (`0x140d62ec0`), 0x10 lets Accept send 0xb6 without hovering each item,
+Bit 0 is also the active trade for Ctrl + click (`0x140d60630`), 0x10 lets Accept send 0xb6 without hovering each item,
 **0x04** greys the player's own offer grid and turns Accept into Cancel Accept (0xb7), **0x08** greys the other
-player's offer grid (the window copies the struct at `0x140c32800`; `0x140c37140` sets each grid's `+0x33b` from
+player's offer grid (the window copies the struct at `0x140c32980`; `0x140c372c0` sets each grid's `+0x33b` from
 `+0x378` bits 2 and 3).
 
-- Even the waiting box and the notification build the window's two offer grids (`0x140317440`, manager 1 `+0xca10`):
-  0xb8 with offer inventory 0 crashed both clients at `0x1402d0a99`, so both offer inventories (0xc0, manager 1) exist
+- Even the waiting box and the notification build the window's two offer grids (`0x1403179d0`, manager 1 `+0xca10`):
+  0xb8 with offer inventory 0 crashed both clients at `0x1402d1029`, so both offer inventories (0xc0, manager 1) exist
   before the first 0xb8.
-- The window is created once per other party and found again by that id (`0x140c38d70`, a hash of struct `+0x08`):
+- The window is created once per other party and found again by that id (`0x140c38ef0`, a hash of struct `+0x08`):
   the 0xb8 that opens the window and every later state update keep the request's offer inventories. Creating new ones
   on accept left the grids bound to the old ones and every offered item invisible.
 - The player trade uses the sale's offer inventory ids (`NpcShops.FirstTabId + 0x10` and `+ 0x11`); a player is never in
@@ -88,7 +88,7 @@ containing both inventory saves. Failed settlement leaves both durable inventori
 
 Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs`: `PartyInvites`, `Parties`).
 
-- **S→C 0xa9** (class `0x1435dc860`, read `0x1421a18b0`, dispatcher case 0x2a at `0x14214c53c`) has this layout:
+- **S→C 0xa9** (class `0x1435e7740`, read `0x1421a8220`, dispatcher case 0x2a at `0x142152e8c`) has this layout:
   1. u32 party id (`+0x68`);
   2. wstr leader character (`+0x28`);
   3. wstr leader account (`+0x48`);
@@ -97,23 +97,23 @@ Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs
   6. u8 `+0x6c`, u8 `+0x6d`, u8 `+0x6f`;
   7. u8 count, then count × (wstr account name, u8 status).
 
-  `0x142149d80` maps a status byte 0 → 1, 1 → 2, 2 → 0, any other → 3 (none).
-- **The invite notice.** "{account} sent you a party invite" (ClientStrings `0x43f`) is built by `0x140aee190` through
-  `0x140dd0ad0` on the event at `+0x7f78` (case 0x2a's slot). It shows only when all of these hold:
+  `0x1421506d0` maps a status byte 0 → 1, 1 → 2, 2 → 0, any other → 3 (none).
+- **The invite notice.** "{account} sent you a party invite" (ClientStrings `0x43f`) is built by `0x140aeeee0` through
+  `0x140dce360` on the event at `+0x7f78` (case 0x2a's slot). It shows only when all of these hold:
   - the party id is one the client doesn't know (`+0xc668`; a reused id only updates the entry);
-  - the second wstr is an account name in the known players (`0x1421669a0` → `0x142166a50`), so both sides get 0xa7 first;
+  - the second wstr is an account name in the known players (`0x14216d350` → `0x14216d400`), so both sides get 0xa7 first;
   - `+0x6c` is 0 and `+0x6d` is non-zero.
 
   The Gateway sends a fresh id per invite, `+0x6d` = 1, and both members with status 0.
-- **Accept** is C→S 0x95. Accept and Decline call `0x142162ad0` and `0x142162a30` (C→S 0x80 with u16 0x200 / 0x100) only
+- **Accept** is C→S 0x95. Accept and Decline call `0x142169480` and `0x1421693e0` (C→S 0x80 with u16 0x200 / 0x100) only
   for a non-empty name; live, Accept sent 0x95. Decline is not answered yet.
 - **The party.** Every member gets 0xa9 with its own `+0x6e`, the leader with status 2 and the others with 1, members by
   account name.
   - Every member, the player itself too, must be in the known players first.
-  - Without its own entry, the joining client threw (a huge string copy in `0x14020b230`) from the party-changed event
-    (`+0x7578`, raised by `0x142157450`).
-- **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435bf570`, read `0x141f9c0b0`, case 0x2b at
-  `0x14214cb45`): u32 party id, u8 reason.
+  - Without its own entry, the joining client threw (a huge string copy in `0x14020b5a0`) from the party-changed event
+    (`+0x7578`, raised by `0x14215ddc0`).
+- **Leaving.** C→S 0x96 is answered with **S→C 0xaa** (class `0x1435c9f88`, read `0x141fa2ae0`, case 0x2b at
+  `0x142153495`): u32 party id, u8 reason.
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
   - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
   - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
@@ -121,15 +121,15 @@ Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs
 ## 6. Friends
 
 The Social module handles the ordinary context-menu and Friends-panel actions through C→S `0x80`.
-The final bytes are independent list/action bytes (`0x141f94db0`), not a network-order ushort.
+The final bytes are independent list/action bytes (`0x141f9b7e0`), not a network-order ushort.
 List 0 selects friends; action 0 adds, 1 removes or declines, and 2 accepts an incoming invitation.
 Other lists/actions do not mutate friendships.
 Names resolve to durable account identities through the account/character store; self and unknown targets are refused.
 Accept requires an existing incoming invitation.
 
 S→C `0xa7` supplies account and character metadata, followed by **`0xc9`**: u8 flags, wstr account, wstr note.
-Dispatcher case `0x3c` (`0x14214e3da`) puts flag bits 0/1 into the account map, or removes its entry for bit 2.
-The Friends panel (`0x140a3a340`, `0x140a3bd70`) uses bit 0 to distinguish accepted friends from incoming invitations,
+Dispatcher case `0x3c` (`0x142154d2a`) puts flag bits 0/1 into the account map, or removes its entry for bit 2.
+The Friends panel (`0x140a3a8d0`, `0x140a3c300`) uses bit 0 to distinguish accepted friends from incoming invitations,
 and `0xa7`'s character-present bit to split online and offline rows.
 The implementation sends flags 1 for the owner's added friend, 0 for the other account's incoming invitation,
 and 4 to remove the relation.

@@ -98,6 +98,20 @@ public sealed class SupportHitDamageTests
             Assert.Equal(1, GemSupportDamage.Multipliers(DamageTypeHistory.Physical, stats, spell).ElementalOrChaos);
         }
 
+        // Green Effluent affects every damage type and composes with the existing support multiplier.
+        foreach (var history in new[] { DamageTypeHistory.Physical, DamageTypeHistory.Fire, DamageTypeHistory.Cold,
+            DamageTypeHistory.Lightning, DamageTypeHistory.Chaos })
+        {
+            HashSet<int> types = [1];
+            var baseline = GemSupportDamage.Multipliers(history, [("support_echo_damage_+%_final", -10)], types);
+            var affected = GemSupportDamage.Multipliers(history,
+                [("support_echo_damage_+%_final", -10), ("doedre_aura_damage_+%_final", -70)], types);
+            Assert.Equal(baseline.GeneralOrPhysical * .3, affected.GeneralOrPhysical, 8);
+            Assert.Equal(baseline.ElementalOrChaos, affected.ElementalOrChaos);
+            Assert.Equal(baseline, GemSupportDamage.Multipliers(history,
+                [("support_echo_damage_+%_final", -10), ("doedre_aura_damage_+%_final", 0)], types));
+        }
+
         // Point Blank ramps from 30% more near to 30% less far.
         Assert.Equal(1.3, AntiquarianEffects.PointBlank(0));
         Assert.Equal(1.3, AntiquarianEffects.PointBlank(10));

@@ -5,21 +5,21 @@ using GameServer.Core.Protocol.Login;
 
 // Where serving lockstep differs from GGG's server, each on purpose and each with its reason. Lockstep.cs holds what
 // follows GGG; 07 §6 lists these.
-static partial class Game
+public static partial class Game
 {
     // Differs from GGG: its server steps its world in frames, so a frame is a tick of the simulation. Ours walks on the
     // clock, so frames are laid over it: frame n ends n × FrameMs after the first, and a frame missed by a late timer goes
     // out at once instead of being lost, which keeps every frame start on the conn.Clock timeline the walks use (a free
     // 33 ms timer drifted 28 to 47 ms apart, with gaps to 390 ms). GGG's spacing is 30 to 36 ms. The Clock stops in the
     // Escape menu's pause, and so do the frames.
-    // Differs from GGG: it never sends 0x2b6 (14 236 frames) and relies on the client's default, which is not traced; ours
+    // Differs from GGG: it never sends 0x2b8 (14 236 frames) and relies on the client's default, which is not traced; ours
     // says the length it paces by. Every connection runs these frames: the client alone picks its Network Mode, and a
-    // predictive one ignores 0x2b5 (07 §6).
-    internal static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // predictive one ignores 0x2b7 (07 §6).
+    public static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b6 server frame length {FrameMs} ms");
+            await Send(remote, stream, ciphers, InstanceProtocol.FrameLength(FrameMs), $"0x02b8 server frame length {FrameMs} ms");
             double frame = FrameMs / 1000d, first = conn.Clock.Elapsed.TotalSeconds;
             long ended = 0;
             while (!conn.Closed)
@@ -39,7 +39,7 @@ static partial class Game
                 for (; first + (ended + 1) * frame <= now; ended++)
                 {
                     // The frame advances in the frame end's send gate, under the combat lock: an order written after the
-                    // 0x2b5 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
+                    // 0x2b7 finds the new frame (LockstepOrderFrom), one written before it the old, and a pass that holds
                     // the lock sees one frame throughout.
                     long ending = ended;
                     await Send(remote, stream, ciphers, [], null, atGate: () =>
@@ -64,20 +64,20 @@ static partial class Game
     }
 
     // Differs from GGG: it keys a Move from its tick by the player (u16 0x9001, 3 286 of 3 492 Moves). Keys must reach the
-    // client sorted or the rest of the frame waits for its end (0x142184680), and everything else the Gateway sends is key
+    // client sorted or the rest of the frame waits for its end (0x14218aff0), and everything else the Gateway sends is key
     // 0 in no set order, so ours is key 0 too: applied before the objects tick, which fits a walk starting at the frame's
     // start.
     static byte[] LockstepActionStart(ClientState conn, (int X, int Y) from, (int X, int Y) target, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, target.X, target.Y, conn.LockstepHold.Skill, sequence, conn.LockstepHold.Flags);
 
     // Differs from GGG: a monster out of its wake zone stands on its server as on the client, so nothing needs placing when
-    // it comes back. Ours walks on out there, and a lockstep client skips 0x128 (case 0x50 of 0x14214a190), so a returner
+    // it comes back. Ours walks on out there, and a lockstep client skips 0x128 (case 0x50 of 0x142150ae0), so a returner
     // would stay on its old cell until its next action. 0x1b7 is not gated by the network mode.
     static byte[] LockstepPlace(List<(uint Id, int X, int Y)> back) =>
         [.. back.SelectMany(m => InstanceProtocol.Teleport(m.Id, m.X, m.Y))];
 
     // Differs from GGG: it reports the object's cell as the target. The client replaces the target with the object's own
-    // position when it starts the action (0x1421940a0), and this path has no cell for every kind of object.
+    // position when it starts the action (0x14219aa10), and this path has no cell for every kind of object.
     static byte[] LockstepObjectStart((int X, int Y) from, InstanceTransfer.UseSkillOnObject use, ushort sequence) =>
         InstanceProtocol.ActionStarted(PlayerId, from.X, from.Y, from.X, from.Y, use.SkillId, sequence, use.Flags, targetObjectId: use.TargetId);
 
@@ -116,7 +116,7 @@ static partial class Game
     // Differs from GGG: its server steps by frames and so can know the frame the client was on; a lockstep request carries
     // no frame here, so this estimates it. The client runs a round trip and about two frames behind the server (160 to
     // 220 ms at 100 ms, 66 to 100 ms on loopback), and its offsets are from the cell it had then. Called under conn.Monsters.
-    internal static (int X, int Y) LockstepClientCell(ClientState conn, double now)
+    public static (int X, int Y) LockstepClientCell(ClientState conn, double now)
     {
         double lowest = conn.LockstepLatency.Lowest;
         double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
@@ -153,7 +153,7 @@ static partial class Game
     }
 
     // The client's answer to 0x194: readAt is when its bytes reached the socket, so handlers running late do not count.
-    internal static void AnswerLockstepProbe(string remote, ClientState conn, long readAt)
+    public static void AnswerLockstepProbe(string remote, ClientState conn, long readAt)
     {
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0) conn.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);
@@ -172,5 +172,5 @@ static partial class Game
 
     // Differs from GGG: a monster whose chase walk-up starts its swing (StepWalkUp, TakeLockstepChase) gets no 0x1ac
     // (MonsterSwing's begunAt path). GGG sends one when its own copy starts the swing; a lockstep client does nothing with
-    // a 0x1ac (0x14164dc70), and its swing starts by its own goal test either way.
+    // a 0x1ac (0x1416502e0), and its swing starts by its own goal test either way.
 }

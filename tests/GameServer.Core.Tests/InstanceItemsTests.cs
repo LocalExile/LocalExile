@@ -126,7 +126,7 @@ public class InstanceItemsTests
     [InlineData(0x403b9b3bu, 2u, "0263403B9B3B0000000C00000002000000000000")]
     public void Successful_flask_use_matches_the_official_sound_confirmation(uint typeHash, uint itemId, string capture)
     {
-        // Official 3.28 captures; field order and widths verified against the 3.29.3b reader 0x1421aded0.
+        // Official 3.28 captures; field order and widths verified against the 3.29.3c reader 0x1421b4840.
         Assert.Equal(capture, Convert.ToHexString(InstanceItems.ItemUsed(typeHash, 12, itemId)));
     }
 
@@ -265,6 +265,8 @@ public class InstanceItemsTests
         Assert.Equal(new InstanceItems.SocketGem(3, 1, 0),
             InstanceItems.ReadLevelUpGem(Convert.FromHexString("0031000000030000000100000000")));
         Assert.Equal(14, InstanceProtocol.KnownClientLength(InstanceItems.LevelUpGemId));
+        // Captured 2026-11-09: "Click to level up ALL" is the id alone (2 bytes).
+        Assert.Equal(2, InstanceProtocol.KnownClientLength(InstanceItems.LevelUpAllGemsId));
         Assert.Equal(new InstanceItems.LockGem(3, 1, 0, true),
             InstanceItems.ReadLockGem(Convert.FromHexString("00D700000003000000010000000001")));
         Assert.Equal(new InstanceItems.LockGem(3, 1, 1, false),

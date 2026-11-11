@@ -1,16 +1,16 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static bool GolemSummonedInPastEightSeconds(GolemState.Golem golem, double at) =>
+    public static bool GolemSummonedInPastEightSeconds(GolemState.Golem golem, double at) =>
         golem.Definition.IsGolem && at >= golem.SummonedAt && at - golem.SummonedAt < 8;
 
-    internal static int GolemRecentDamageIncrease(GolemState.Golem golem, double at) =>
+    public static int GolemRecentDamageIncrease(GolemState.Golem golem, double at) =>
         GolemSummonedInPastEightSeconds(golem, at)
             ? GolemStat(golem.Player, "golem_damage_+%_if_summoned_in_past_8_seconds") : 0;
 
-    internal readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
+    public readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
 
     static GolemOwnerResistances GolemOwnerResistancesFor(ClientState conn)
     {
@@ -18,7 +18,7 @@ static partial class Game
         return new(Capped(DamageType.Fire), Capped(DamageType.Cold), Capped(DamageType.Lightning), Capped(DamageType.Chaos));
     }
 
-    internal static MonsterModSet GolemModifiers(ClientState conn, GolemState.Golem golem,
+    public static MonsterModSet GolemModifiers(ClientState conn, GolemState.Golem golem,
         IReadOnlyDictionary<uint, int> player, double at = double.NegativeInfinity,
         GolemOwnerResistances? ownerResistances = null)
     {
@@ -113,7 +113,7 @@ static partial class Game
     static int OwnerMaximumPowerCharges(IReadOnlyDictionary<uint, int> player) =>
         Charges.LimitsOf(ChargeType.Power, name => GolemStat(player, name)).Maximum;
 
-    internal static uint NativeEnergyShield(double value) => value <= 0 ? 0
+    public static uint NativeEnergyShield(double value) => value <= 0 ? 0
         : value >= int.MaxValue ? int.MaxValue : (uint)Math.Floor(value);
 
     static uint SnapshotMaximumEnergyShield(MonsterObject monster) =>
@@ -143,7 +143,7 @@ static partial class Game
             conn.Minions.OutputQueue.Add(new([], "golem energy shield", golem.Id, golem.Monster, PlayerMinions.OutputKind.EnergyShield));
     }
 
-    internal static byte[]? GolemEnergyShieldPresentation(ClientState conn, PlayerMinions.Output output)
+    public static byte[]? GolemEnergyShieldPresentation(ClientState conn, PlayerMinions.Output output)
     {
         if (output.TargetId is not uint id || output.Target is null) return null;
         GolemState.Golem? golem = conn.Golems.All.GetValueOrDefault(id)
@@ -157,13 +157,25 @@ static partial class Game
         return [.. maximumStat, .. InstanceProtocol.LifeUpdate(id, current, pool: 2)];
     }
 
-    internal static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    static int SkeletonShieldChaos(ClientState conn, GolemState.Golem fighter, IReadOnlyDictionary<uint, int> player)
+    {
+        if (fighter.Definition.Kind != "Skeleton") return 0;
+        int percent = GolemStat(player, "your_skeletons_gain_added_chaos_damage_equal_to_%_of_energy_shield_on_shield");
+        if (percent <= 0 || ActiveOffHand(conn) is not { Type: { Class: "Shield" } shield } hand) return 0;
+        var items = ItemsFor(conn);
+        if (items.Defences(shield) is not { } defences) return 0;
+        int localShield = ItemDefences.Calculate(hand.Item, defences, items.Mods).EnergyShield;
+        return (int)Math.Min(int.MaxValue, (long)localShield * percent / 100);
+    }
+
+    public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player, double? at = null,
         GolemOwnerResistances? ownerResistances = null)
     {
         var catalog = SkillsFor(conn); var result = new List<GolemState.Ability>();
         double now = at ?? AreaTime(conn);
         var mods = GolemModifiers(conn, golem, player, now, ownerResistances).Effects;
+        int shieldChaos = SkeletonShieldChaos(conn, golem, player);
         int Own(string name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
@@ -194,6 +206,11 @@ static partial class Game
             {
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(multiplier);
+            }
+            if (shieldChaos > 0 && damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
+            {
+                double added = shieldChaos * AddedEffectiveness(conn, effect, skillLevel);
+                damage = damage.Add(DamageType.Chaos, new(added, added));
             }
             foreach (var type in DamageTypes.ConversionOrder)
             {
@@ -289,7 +306,7 @@ static partial class Game
         _ => null,
     };
 
-    internal static IReadOnlyList<GrantedSkill> GolemNativeSkills(ClientState conn, byte level, IReadOnlyList<GolemState.Ability> abilities)
+    public static IReadOnlyList<GrantedSkill> GolemNativeSkills(ClientState conn, byte level, IReadOnlyList<GolemState.Ability> abilities)
     {
         var result = new List<GrantedSkill>();
         foreach (var ability in abilities)
@@ -316,6 +333,7 @@ static partial class Game
         var hash = new HashCode();
         hash.Add(CombatLifetime);
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
+        hash.Add(SkeletonShieldChaos(conn, golem, player));
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stats.Key("dexterity") is uint dexKey) hash.Add((dexKey, player.GetValueOrDefault(dexKey)));

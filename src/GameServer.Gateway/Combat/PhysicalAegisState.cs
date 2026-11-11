@@ -2,32 +2,32 @@
 /// The source-owned Physical Aegis resource. The equipped grant supplies its capacity and recharge delay; this state
 /// owns the remaining physical-hit absorption and the native active/depleted presentation.
 /// </summary>
-sealed class PhysicalAegisState
+public sealed class PhysicalAegisState
 {
-    internal object? Owner;
-    internal WornGrantedSkills.Grant? Source;
-    internal int Maximum;
-    internal int Current;
-    internal int Variation;
-    internal double RechargeDelay;
-    internal double RestoresAt = double.PositiveInfinity;
+    public object? Owner;
+    public WornGrantedSkills.Grant? Source;
+    public int Maximum;
+    public int Current;
+    public int Variation;
+    public double RechargeDelay;
+    public double RestoresAt = double.PositiveInfinity;
 
     // The three native BuffDefinitions rows: active (960), depleted (965), and the invisible persistence row (970).
-    internal ushort StageBuff;
-    internal ushort PersistBuff;
-    internal ushort StageRow;
-    internal int PresentedCurrent = -1;
+    public ushort StageBuff;
+    public ushort PersistBuff;
+    public ushort StageRow;
+    public int PresentedCurrent = -1;
 
-    internal readonly PassiveBuffAuras.BlindState Blind = new();
+    public readonly PassiveBuffAuras.BlindState Blind = new();
 
-    internal sealed record Carried(WornGrantedSkills.Grant Source, int Maximum, int Current, int Variation,
+    public sealed record Carried(WornGrantedSkills.Grant Source, int Maximum, int Current, int Variation,
         double RechargeDelay, double Remaining);
 
-    internal bool Exists => Source is not null && Maximum > 0;
-    internal bool Depleted => Exists && Current == 0;
-    internal bool Active => Exists && Current > 0;
+    public bool Exists => Source is not null && Maximum > 0;
+    public bool Depleted => Exists && Current == 0;
+    public bool Active => Exists && Current > 0;
 
-    internal void Install(object owner, WornGrantedSkills.Grant source, int maximum, double rechargeDelay, int variation)
+    public void Install(object owner, WornGrantedSkills.Grant source, int maximum, double rechargeDelay, int variation)
     {
         Owner = owner;
         Source = source;
@@ -38,7 +38,7 @@ sealed class PhysicalAegisState
         RestoresAt = double.PositiveInfinity;
     }
 
-    internal bool Advance(double now)
+    public bool Advance(double now)
     {
         if (!Exists || RestoresAt == double.PositiveInfinity || now < RestoresAt) return false;
         Current = Maximum;
@@ -46,7 +46,7 @@ sealed class PhysicalAegisState
         return true;
     }
 
-    internal int Absorb(int amount, double now)
+    public int Absorb(int amount, double now)
     {
         Advance(now);
         if (!Active || amount <= 0) return Math.Max(0, amount);
@@ -57,12 +57,12 @@ sealed class PhysicalAegisState
         return amount - absorbed;
     }
 
-    internal Carried? Capture(double at) => Exists
+    public Carried? Capture(double at) => Exists
         ? new(Source!.Value, Maximum, Current, Variation, RechargeDelay,
             double.IsPositiveInfinity(RestoresAt) ? double.PositiveInfinity : Math.Max(0, RestoresAt - at))
         : null;
 
-    internal void Restore(Carried value, object owner, double at)
+    public void Restore(Carried value, object owner, double at)
     {
         Install(owner, value.Source, value.Maximum, value.RechargeDelay, value.Variation);
         Current = Math.Clamp(value.Current, 0, Maximum);
@@ -74,7 +74,7 @@ sealed class PhysicalAegisState
     /// Drops the source identity and returns the buff instances the client must remove. The blind instances remain until
     /// the enemy-debuff reconciliation has removed them, so a depleted/removed Aegis cannot leave a stale blindness.
     /// </summary>
-    internal ushort[] Retire()
+    public ushort[] Retire()
     {
         ushort[] buffs = [StageBuff, PersistBuff];
         Owner = null;

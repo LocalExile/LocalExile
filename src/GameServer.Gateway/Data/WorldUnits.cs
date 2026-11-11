@@ -4,7 +4,7 @@
 /// Positioned fixed-height marker or terrain height step is 7.8125 units. The same unit scales models, so a rig event's
 /// vertical offset converts to marker steps directly.
 /// </summary>
-static class WorldUnits
+public static class WorldUnits
 {
     public const double PerCell = 250.0 / 23;
     public const double PerHeightStep = 7.8125;

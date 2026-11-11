@@ -4,27 +4,27 @@ using GameServer.Core.World;
 // "Intimidated enemies take 10% increased Attack Damage"; Grattus Signet: "Unnerved enemies take 10% increased Spell
 // Damage"), Exposure and Withered. Each lasts from the hit that inflicts it, a later one restarting it;
 // EnemyDebuffsTick shows the buff.
-static partial class Game
+public static partial class Game
 {
-    internal const double HitDebuffSeconds = 4;
-    internal const int HitDebuffTakenPct = 10;
+    public const double HitDebuffSeconds = 4;
+    public const int HitDebuffTakenPct = 10;
     // BuffDefinitions intimidated and unnerved; neither is IsRecovery, so 0x1c1 carries no values.
-    internal const ushort IntimidatedBuffRow = 733, UnnervedBuffRow = 1412;
+    public const ushort IntimidatedBuffRow = 733, UnnervedBuffRow = 1412;
     // Crush (Awakened Brutality: "10% chance to Crush Enemies for 4 seconds on Hit"): its own buff, and 15% off the
     // monster's physical damage reduction for those 4 seconds.
-    internal const ushort CrushedBuffRow = 1600;
-    internal const double CrushSeconds = 4;
-    internal const int CrushReductionPct = 15;
+    public const ushort CrushedBuffRow = 1600;
+    public const double CrushSeconds = 4;
+    public const int CrushReductionPct = 15;
     // Maim (Maim Support: "30% chance to Maim on Hit"; Maimed enemies have 30% reduced Movement Speed): its own
     // BuffDefinitions row and four seconds. The support's physical damage taken is a separate timed property; plain
     // Maim only changes movement.
-    internal const ushort MaimedBuffRow = 513;
-    internal const double MaimSeconds = 4;
+    public const ushort MaimedBuffRow = 513;
+    public const double MaimSeconds = 4;
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
     /// Signet's crits: spells_inflict_intimidate_on_crit, attacks_inflict_unnerve_on_crit.</summary>
-    internal static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<string, int> get, bool spell, bool critical, Random random)
+    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<string, int> get, bool spell, bool critical, Random random)
     {
         bool intimidate = spell && critical && get("spells_inflict_intimidate_on_crit") != 0
             || RandomRolls.Chance(get("chance_to_intimidate_on_hit_%") + (spell ? 0 : get("attacks_intimidate_on_hit_%")), 100, random);
@@ -33,13 +33,19 @@ static partial class Game
         return (intimidate, unnerve);
     }
 
+    /// <summary>Whether a hit blinds: global_chance_to_blind_on_hit_% (the Blind support's 10%), attacks_chance_to_blind_on_hit_%
+    /// for an attack and %_chance_to_blind_on_critical_strike on a critical strike, one roll for their sum.</summary>
+    public static bool BlindRoll(Func<string, int> get, bool spell, bool critical, Random random) =>
+        RandomRolls.Chance(get("global_chance_to_blind_on_hit_%") + (spell ? 0 : get("attacks_chance_to_blind_on_hit_%"))
+            + (critical ? get("%_chance_to_blind_on_critical_strike") : 0), 100, random);
+
     /// <summary>A Blind's duration: 4 s base (poedb Blind), with blind_duration_+%.</summary>
-    internal static double BlindSeconds(Func<string, int> get) =>
+    public static double BlindSeconds(Func<string, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get("blind_duration_+%") / 100.0);
 
     // A hit that landed on a living hostile monster, under the Monsters lock. <paramref name="random"/> belongs to the
     // hit so projectile draws stay in order; callers without one use Random.Shared.
-    internal static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<string, int> get, bool spell, bool critical, double now,
+    public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<string, int> get, bool spell, bool critical, double now,
         Random? random = null)
     {
         if (!m.Hostile || m.Dead || m.Life == 0) return;
@@ -55,7 +61,7 @@ static partial class Game
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
     /// when the chance is at most zero, and true without drawing when it is at least the scale.</summary>
-    internal static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
+    public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
     {
         if (!m.Hostile || m.Dead || m.Life == 0) return false;
         if (m.Effects["immune_to_maim"] != 0 || RandomRolls.Chance(m.Effects["avoid_maim_%_chance"], 100, random))
@@ -73,28 +79,28 @@ static partial class Game
 
     /// <summary>The physical damage reduction Crush takes away from a monster at <paramref name="now"/> (15% while
     /// crushed, 0 otherwise); without a time Crush does not count.</summary>
-    internal static int CrushReduction(SpawnedMonster m, double now) => m.CrushedUntil > now ? CrushReductionPct : 0;
+    public static int CrushReduction(SpawnedMonster m, double now) => m.CrushedUntil > now ? CrushReductionPct : 0;
 
     /// <summary>The increased physical damage a maimed monster takes from its actual support at <paramref name="now"/>;
     /// plain Maim gives 0.</summary>
-    internal static int MaimedPhysicalTaken(SpawnedMonster m, double now) =>
+    public static int MaimedPhysicalTaken(SpawnedMonster m, double now) =>
         m.MaimedUntil > now && m.MaimedPhysicalTakenUntil > now ? m.MaimedPhysicalTakenPct : 0;
 
     // Exposure (poedb Exposure): an unspecified value "defaults to -10% to the affected resistance", a duration "defaults to
     // 4 seconds", and "only the highest Exposure of the element applies". BuffDefinitions Fire, Cold and Lightning
     // Exposure (reduced_*_resistance_from_skill); none is IsRecovery, so 0x1c1 carries no values.
-    internal const int DefaultExposure = -10;
-    internal const double ExposureSeconds = 4;
-    internal static readonly DamageType[] ExposureTypes = [DamageType.Fire, DamageType.Cold, DamageType.Lightning];
-    internal static readonly ushort[] ExposureBuffRows = [1268, 1269, 1270];
+    public const int DefaultExposure = -10;
+    public const double ExposureSeconds = 4;
+    public static readonly DamageType[] ExposureTypes = [DamageType.Fire, DamageType.Cold, DamageType.Lightning];
+    public static readonly ushort[] ExposureBuffRows = [1268, 1269, 1270];
     // Elemental Equilibrium (poedb: "Exposure inflicted this way applies -25% to Resistances").
-    internal const int ElementalEquilibriumExposure = -25;
+    public const int ElementalEquilibriumExposure = -25;
 
     /// <summary>The Exposure of one element a hit inflicts, 0 for none. {element}_exposure_on_hit_magnitude always
     /// inflicts its own; inflict_all_exposure_on_hit, base_inflict_{element}_exposure_on_hit_%_chance and, for a hit with
     /// that damage, chance_to_inflict_{element}_exposure_on_hit_with_{element}_damage_% inflict the default -10%. The
     /// stronger one counts (<see cref="InflictedExposure"/>).</summary>
-    internal static int ExposureRoll(Func<string, int> get, DamageType type, bool withType, Random random)
+    public static int ExposureRoll(Func<string, int> get, DamageType type, bool withType, Random random)
     {
         string e = type.ToString().ToLowerInvariant();
         bool rolled = get("inflict_all_exposure_on_hit") != 0 || RandomRolls.Chance(get($"base_inflict_{e}_exposure_on_hit_%_chance")
@@ -105,7 +111,7 @@ static partial class Game
 
     /// <summary>The player's Exposure of this base magnitude as he inflicts it: plus the extra stats, at least
     /// exposure_you_inflict_has_minimum_resistance_%, none with cannot_inflict_exposure.</summary>
-    internal static int InflictedExposure(Func<string, int> get, DamageType type, int magnitude)
+    public static int InflictedExposure(Func<string, int> get, DamageType type, int magnitude)
     {
         if (get("cannot_inflict_exposure") != 0) return 0;
         string e = type.ToString().ToLowerInvariant();
@@ -119,7 +125,7 @@ static partial class Game
     // same magnitude restarting it. Then Elemental Equilibrium (poedb: "Hits that deal Elemental Damage remove Exposure to
     // those Elements and inflict Exposure to other Elements"), after the hit's own Exposure as in PoB, for 4 s too:
     // Exposure's default duration, as the keystone names none.
-    internal static void ExposureOnHitLocked(SpawnedMonster m, Func<string, int> get, DamagePacket mitigated, double now, Random random)
+    public static void ExposureOnHitLocked(SpawnedMonster m, Func<string, int> get, DamagePacket mitigated, double now, Random random)
     {
         if (m.Mods.Effects["immune_to_exposure"] > 0) return;
         for (int i = 0; i < ExposureTypes.Length; i++)
@@ -150,7 +156,7 @@ static partial class Game
 
     /// <summary>The resistance its Exposure of this type applies at <paramref name="now"/>: the highest running one, 0
     /// without a time.</summary>
-    internal static int MonsterExposure(SpawnedMonster m, DamageType type, double now)
+    public static int MonsterExposure(SpawnedMonster m, DamageType type, double now)
     {
         int strongest = 0;
         foreach (var ((t, magnitude), until) in m.Exposures)
@@ -159,7 +165,7 @@ static partial class Game
     }
 
     // Its Exposure of this type ended (EnemyDebuffsTick: it ran out, or it or the player died).
-    internal static void EndExposureLocked(SpawnedMonster m, DamageType type)
+    public static void EndExposureLocked(SpawnedMonster m, DamageType type)
     {
         if (m.Exposures.Count == 0) return;
         foreach (var key in m.Exposures.Keys.Where(k => k.Type == type).ToArray()) m.Exposures.Remove(key);
@@ -168,14 +174,14 @@ static partial class Game
     // Withered (poedb Withered: "6% increased chaos damage taken on the affected target, stacking up to 15 times"; most
     // sources inflict it "for 2 seconds"). Each stack keeps its own end, and a 16th replaces the one ending first.
     // BuffDefinitions withered is IsRecovery, with chaos_damage_taken_+% and is_withered.
-    internal const double WitheredPct = 6;
-    internal const int WitheredMaxStacks = 15;
-    internal const ushort WitheredBuffRow = 506;
+    public const double WitheredPct = 6;
+    public const int WitheredMaxStacks = 15;
+    public const ushort WitheredBuffRow = 506;
 
     /// <summary>How long a hit withers for, 0 for not: one roll for withered_on_hit_for_2_seconds_%_chance and Withering
     /// Touch's withered_on_hit_chance_%, for its support_withered_base_duration_ms or else 2 s, expiring slower by
     /// wither_expire_speed_+% (the Eldritch gloves' "Withered you Inflict expires X% slower").</summary>
-    internal static double WitherRoll(Func<string, int> get, Random random)
+    public static double WitherRoll(Func<string, int> get, Random random)
     {
         if (!RandomRolls.Chance(get("withered_on_hit_for_2_seconds_%_chance") + get("withered_on_hit_chance_%"), 100, random)) return 0;
         double seconds = get("support_withered_base_duration_ms") is > 0 and var ms ? ms / 1000.0 : 2;
@@ -183,7 +189,7 @@ static partial class Game
     }
 
     // A hit that landed on a living monster, under the Monsters lock: one more Withered stack, with withered_effect_+%.
-    internal static void WitherOnHitLocked(SpawnedMonster m, Func<string, int> get, double now, Random random)
+    public static void WitherOnHitLocked(SpawnedMonster m, Func<string, int> get, double now, Random random)
     {
         if (m.Mods.Effects["immune_to_wither"] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
         m.Withered.RemoveAll(s => s.Until <= now);
@@ -192,7 +198,7 @@ static partial class Game
     }
 
     /// <summary>The increased chaos damage its running Withered stacks give at <paramref name="now"/>, 0 without a time.</summary>
-    internal static double WitheredTaken(SpawnedMonster m, double now)
+    public static double WitheredTaken(SpawnedMonster m, double now)
     {
         double taken = 0;
         foreach (var (until, pct) in m.Withered)
@@ -202,6 +208,6 @@ static partial class Game
 
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's
     /// on a spell.</summary>
-    internal static int HitDebuffTaken(SpawnedMonster m, bool spell, double now) =>
+    public static int HitDebuffTaken(SpawnedMonster m, bool spell, double now) =>
         (spell ? m.UnnervedUntil : m.IntimidatedUntil) > now ? HitDebuffTakenPct : 0;
 }

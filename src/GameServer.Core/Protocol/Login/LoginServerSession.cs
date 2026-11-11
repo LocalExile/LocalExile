@@ -9,7 +9,9 @@ namespace GameServer.Core.Protocol.Login;
 /// </summary>
 public sealed class LoginServerSession(AccountService accounts)
 {
-    /// <summary>0x04 result codes. 0 moves the client to logged-in state 3 (0x14213f190 case 4). Non-zero codes are
+    /// <summary>The class byte from saved progression, including the main ascendancy.</summary>
+    public Func<Character, byte> CharacterListClass { get; init; } = c => (byte)c.Class;
+    /// <summary>0x04 result codes. 0 moves the client to logged-in state 3 (0x142145ae0 case 4). Non-zero codes are
     /// BackendErrors rows + 1: the client showed 5 as "The specified account does not exist." (row 4, live 2026-10-16),
     /// so 6 is row 5 InvalidPassword.</summary>
     public const ushort ResultOk = 0, ResultAccountDoesNotExist = 5, ResultInvalidPassword = 6;
@@ -18,7 +20,7 @@ public sealed class LoginServerSession(AccountService accounts)
     /// it (live 2026-10-16), so the transport should disconnect once the reply is sent.</summary>
     public bool Failed { get; private set; }
 
-    /// <summary>0x04 Flags0 bits (0x14213f190 case 4).</summary>
+    /// <summary>0x04 Flags0 bits (0x142145ae0 case 4).</summary>
     public const byte FlagVerified = 0x20;
 
     /// <summary>The leagues sent in 0x1b after login: the create screen offers them (with none its Create button stays
@@ -31,16 +33,16 @@ public sealed class LoginServerSession(AccountService accounts)
     public IReadOnlyList<ILoginMessage> Handle(ILoginMessage message) => message switch
     {
         AccountLogin m => Login(m),
-        // Sent when the character screen opens (0x140d13060, only in logged-in state 3). Answered with the character
-        // list 0x15 (stored at login+0xe68 and shown by the character screen 0x140d12590; live-tested).
+        // Sent when the character screen opens (0x140d13090, only in logged-in state 3). Answered with the character
+        // list 0x15 (stored at login+0xe68 and shown by the character screen 0x140d125c0; live-tested).
         EmptyMessage { MessageId: 0x18 } => [CharacterList()],
         // Play on the character screen sends 0x0e (u8 0, u32 0: character index?; captured 2026-10-16). It waits
         // ("Contacting Server...") for the instance assignment 0x14.
         U8U32 m => EnterGame(m),
         CreateCharacter m => Create(m),
-        // Delete on the character screen, after its confirmation (0x140cfafa0): the character's name and a byte (0 live).
+        // Delete on the character screen, after its confirmation (0x140cfaf60): the character's name and a byte (0 live).
         WStringU8Message { MessageId: DeleteCharacterId } m => Delete(m.Text),
-        // "Leagues with progress" (0x140d166a0): the leagues a character could migrate progress from. None yet; the
+        // "Leagues with progress" (0x140d166d0): the leagues a character could migrate progress from. None yet; the
         // client then shows "There are no available leagues to migrate progress from."
         EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, [])],
         _ => [],
@@ -138,7 +140,7 @@ public sealed class LoginServerSession(AccountService accounts)
         // The real client waits for a push after 0x04; an empty 0x1b moves it on to the character screen, which then
         // asks for the character list with 0x18 (captured 2026-10-16). What 0x1b's own entries are is still unknown.
         // Flags0 bit 5 → login+0xea8: the account's email is verified. With it clear the character screen builds the
-        // "Your account is not verified" panel (0x140d195d0) and chat/trade features are locked.
+        // "Your account is not verified" panel (0x140d19600) and chat/trade features are locked.
         byte[] remembered = m.Flag94 ? accounts.SavedClientCredential(Session.AccountId, m.MachineIdA, m.MachineIdB) : new byte[32];
         return [new LoginResult(ResultOk, "", remembered, FlagVerified, 0, []),
                 new LeagueList(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), Leagues.Entries(), false, false)];
@@ -147,7 +149,7 @@ public sealed class LoginServerSession(AccountService accounts)
     /// <summary>0x15: the characters, then B28 (→ character screen +0x280: the index of the character it selects, the
     /// last played one here; verified live 2026-10-22) and B29, the character slots (login+0xe81 → character screen
     /// +0x281): its Create Character button is enabled only while the account has fewer characters than that
-    /// (0x140d17cc0; 0 kept it greyed out, live 2026-10-18).</summary>
+    /// (0x140d17cf0; 0 kept it greyed out, live 2026-10-18).</summary>
     private List15 CharacterList() => new(CharacterEntries(), LastPlayedIndex(), (byte)Math.Clamp(accounts.MaxCharacters, 0, 255), []);
 
     /// <summary>The list index of the account's most recently played character (Play updates LastPlayedUtc), 0 for none.</summary>
@@ -172,7 +174,7 @@ public sealed class LoginServerSession(AccountService accounts)
 
     /// <summary>
     /// Delete character (0x0c) → the new character list (0x15), then 0x0d result 0, on which the delete screen
-    /// (0x140cfb5f0, listener at +0xa90) closes back to the list; non-zero shows the BackendErrors text.
+    /// (0x140cfb5b0, listener at +0xa90) closes back to the list; non-zero shows the BackendErrors text.
     /// </summary>
     private ILoginMessage[] Delete(string name)
     {
@@ -210,7 +212,7 @@ public sealed class LoginServerSession(AccountService accounts)
                 AuthError.InvalidClass => ResultInvalidClass,
                 _ => ResultCharacterNameInvalid,
             }, false)];
-        // The list first: on 0 the create screen (0x140cf8010) looks the new character up by name in the character list
+        // The list first: on 0 the create screen (0x140cf7fb0) looks the new character up by name in the character list
         // and sends Play (0x0e) with its index; with the list sent after 0x13 it was not there yet and the client waited
         // on "Contacting Server..." (live 2026-10-18).
         return [CharacterList(), new CreateCharacterResult(ResultOk, false)];
@@ -253,8 +255,8 @@ public sealed class LoginServerSession(AccountService accounts)
     private ListEntry15[] CharacterEntries() =>
         Session is null ? [] :
         [.. accounts.Characters(Session.AccountId).Select(c =>
-            // The character screen draws U46 (+0x46), the portrait variation, in U44 (+0x44), the frame (0x14082e210 →
-            // 0x142426b00, 0x14082d660).
+            // The character screen draws U46 (+0x46), the portrait variation, in U44 (+0x44), the frame (0x140841260 →
+            // 0x14242d610, 0x1408406b0).
             new ListEntry15(c.Name, c.League, (byte)(c.HardcoreDeath?.PermanentlyDead == true || !HardcoreDeathRules.CanEnter(c) || !Leagues.CanEnter(c.League) ? 1 : 0), 0,
-                (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, c.PortraitFrame, c.Portrait, 0, 0))];
+                (byte)Math.Clamp(c.Level, 0, 255), 0, CharacterListClass(c), c.PortraitFrame, c.Portrait, 0, 0))];
 }

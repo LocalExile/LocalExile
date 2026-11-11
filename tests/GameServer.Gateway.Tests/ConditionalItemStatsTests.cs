@@ -5473,7 +5473,7 @@ public class ConditionalItemStatsTests
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
+            Assert.True(Game.TrySyntheticEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
                 block: false, spell: false, suppress: false, out _));
             double now = conn.Clock.Elapsed.TotalSeconds;
             Assert.Equal(1, conn.RecentEnemyHits.Count(now));
@@ -5747,7 +5747,7 @@ public class ConditionalItemStatsTests
             var debug = NewConnection(10);
             debug.Pools = global::Game.PoolsFor(debug, 100);
             var debugAegis = global::Game.PhysicalAegisStatus(debug, conn.Clock.Elapsed.TotalSeconds);
-            Assert.True(CommandsRules.TryDevEnemyHit(debug, DamageType.Physical, 100, block: false, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(debug, DamageType.Physical, 100, block: false, spell: false,
                 suppress: false, out var debugHit));
             Assert.Equal(1000 - debugHit.Damage, debugAegis.Current);
 
@@ -5790,18 +5790,18 @@ public class ConditionalItemStatsTests
             var manaAegis = global::Game.PhysicalAegisStatus(manaConn, manaConn.Clock.Elapsed.TotalSeconds);
             manaConn.Pools = manaConn.Pools with { BlockChance = 100 };
             manaConn.IncomingHitRandom = new Random(1);
-            Assert.True(CommandsRules.TryDevEnemyHit(manaConn, DamageType.Physical, 100, block: true, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(manaConn, DamageType.Physical, 100, block: true, spell: false,
                 suppress: false, out var zeroBlocked));
             Assert.Equal((true, 0, 900, 950u, 950u),
                 (zeroBlocked.Blocked, zeroBlocked.Damage, manaAegis.Current, zeroBlocked.Mana, zeroBlocked.Life));
             var blockControl = NewConnection(13);
             blockControl.Pools = global::Game.PoolsFor(blockControl, 100);
             blockControl.IncomingHitRandom = new Random(1);
-            Assert.True(CommandsRules.TryDevEnemyHit(blockControl, DamageType.Physical, 100, block: false, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(blockControl, DamageType.Physical, 100, block: false, spell: false,
                 suppress: false, out var unblocked));
             manaConn.PlayerStats[Program.Stats.Key("keystone_glancing_blows")!.Value] = 1;
             manaConn.IncomingHitRandom = new Random(1);
-            Assert.True(CommandsRules.TryDevEnemyHit(manaConn, DamageType.Physical, 100, block: true, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(manaConn, DamageType.Physical, 100, block: true, spell: false,
                 suppress: false, out var glancingBlocked));
             Assert.True(unblocked.Damage > 0);
             Assert.Equal((int)Math.Round(unblocked.Damage * 0.65), glancingBlocked.Damage);
@@ -5925,7 +5925,7 @@ public class ConditionalItemStatsTests
             Assert.Equal((1000, true), (aegis.Current, aegis.Active));
             Assert.NotNull(global::Game.PhysicalAegisPresentation(conn));
             Assert.Equal(global::Game.PhysicalAegisBuffRow, aegis.StageRow);
-            Assert.Equal(0, global::Game.ItemConditionFlags(conn, conditionNow)
+            Assert.Equal(0, global::Game.ItemConditionFlags(conn, deadline)
                 .Where(kv => kv.Key == "_while_you_have_active_physical_aegis").Select(kv => kv.Value ? 0 : 1).Single());
 
             // Removing the source before its deadline cannot recharge or publish the old state.
@@ -6169,7 +6169,7 @@ public class ConditionalItemStatsTests
             uint lowLife = conn.PlayerMaxLife / 2;
             conn.PlayerLife = lowLife - 100;
             conn.IncomingHitRandom = new Random(1);
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, DamageType.Physical, 20, block: false, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(conn, DamageType.Physical, 20, block: false, spell: false,
                 suppress: false, out var absorbed));
             Assert.True(absorbed.Damage > 0);
             Assert.Equal(lowLife - 100, conn.PlayerLife);
@@ -6190,7 +6190,7 @@ public class ConditionalItemStatsTests
             uint reservedCap = (uint)((long)conn.PlayerMaxLife * 40 / 100);
             conn.PlayerLife = reservedCap - 10;
             Assert.Equal(reservedCap, global::Game.LifeCap(conn));
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, DamageType.Physical, 1, block: false, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(conn, DamageType.Physical, 1, block: false, spell: false,
                 suppress: false, out _));
             hitAt = conn.Clock.Elapsed.TotalSeconds;
             RunResourceTick(conn, hitAt);
@@ -6202,7 +6202,7 @@ public class ConditionalItemStatsTests
             conn.PlayerLife = 500;
             conn.EnergyShield.SetMaximum(200, refill: false);
             Assert.Equal(0u, conn.EnergyShield.Current);
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, DamageType.Physical, 1, block: false, spell: false,
+            Assert.True(ConditionalSourceTestDrivers.TryDevEnemyHit(conn, DamageType.Physical, 1, block: false, spell: false,
                 suppress: false, out _));
             hitAt = conn.Clock.Elapsed.TotalSeconds;
             double oathRate = conn.Unhinged.HitRecovery.Rate(hitAt);

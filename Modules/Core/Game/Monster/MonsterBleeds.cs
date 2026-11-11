@@ -2,19 +2,19 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static bool Has(IReadOnlyDictionary<uint, int> player, string stat) =>
         Stats.Key(stat) is uint key && player.GetValueOrDefault(key) != 0;
-    internal static bool BleedReflected(IReadOnlyDictionary<uint, int> player) => Has(player, "bleeding_reflected_to_self")
+    public static bool BleedReflected(IReadOnlyDictionary<uint, int> player) => Has(player, "bleeding_reflected_to_self")
         && !Has(player, "cannot_gain_bleeding") && !Has(player, "virtual_immune_to_bleeding")
         && !Has(player, "immune_to_bleeding");
 
     /// <summary>The wiki's Bleeding: a moving enemy takes 200% more damage from it (the trial spike traps' bleed too).</summary>
-    internal const double BleedMovingMore = 3;
+    public const double BleedMovingMore = 3;
 
     /// <summary>Crimson Dance: "You can inflict Bleeding on an Enemy up to 8 times" (ReminderTextKeystoneCrimsonDance).</summary>
-    internal const int CrimsonDanceStacks = 8;
+    public const int CrimsonDanceStacks = 8;
 
     /// <summary>
     /// What an attack's hit can bleed with (wiki Bleeding), in the shape of an ignite (<see cref="MonsterIgnites.Settings"/>):
@@ -33,7 +33,7 @@ static partial class Game
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
     /// </summary>
-    internal static MonsterIgnites.Settings BleedSettings(IEnumerable<(string Stat, int Value)> rows, string hand,
+    public static MonsterIgnites.Settings BleedSettings(IEnumerable<(string Stat, int Value)> rows, string hand,
         Func<string, int> get, IReadOnlyDictionary<string, int>? local, bool melee, bool bow,
         bool projectileAttack = false)
     {
@@ -72,7 +72,7 @@ static partial class Game
 
     /// <summary>A skill's bleed, as <see cref="SupportedIgnite"/>: none for a spell; a shield skill's shield
     /// (<paramref name="weapon"/>) brings no main-hand local chance.</summary>
-    internal static MonsterIgnites.Settings SupportedBleed(ClientState conn, ushort skillId, bool spell,
+    public static MonsterIgnites.Settings SupportedBleed(ClientState conn, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, bool melee = false,
         long additionalIncreased = 0, SupportedHitInputs? capturedInputs = null)
     {
@@ -93,7 +93,7 @@ static partial class Game
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
-    internal static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static MonsterIgnites.Settings DefaultAttackBleed(ClientState conn, IReadOnlyDictionary<uint, int> player,
         SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -111,7 +111,7 @@ static partial class Game
     // cannot_gain_bleeding stop it. First the hit aggravates the bleeds already on the target, whether or not it bleeds
     // (wiki Bleeding, Aggravate): they deal damage as though it moved for the rest of their durations.
     // shortcut: callers only come here for a hit that dealt physical damage, so a hit without any never aggravates.
-    internal static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
+    public static List<byte[]>? BleedOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false)
     {
         if (target.Invulnerable || LabyrinthTrials.BleedingBuffRow is not ushort row) return null;
@@ -135,10 +135,10 @@ static partial class Game
         return ShowDotBuffLocked(conn, id, target.Bleeds, row, now);
     }
 
-    internal static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
+    public static string BleedingLog(uint id, SpawnedMonster target, bool critical, double now) =>
         $"monster 0x{id:x} ({target.Label}) bleeding{(critical ? " from a critical hit" : "")} for {target.Bleeds.Until - now:0.##} s";
 
-    internal static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+    public static void BleedOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, bool reflect = false) =>
         QueueDotBuff(session, BleedOnHitLocked(session.Conn, id, target, settings, critical, now, reflect),
             BleedingLog(id, target, critical, now));
@@ -146,17 +146,17 @@ static partial class Game
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
     /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves, but not for Crimson Dance's
     /// stacks.</summary>
-    internal static double BleedTaken(SpawnedMonster m, double now) =>
+    public static double BleedTaken(SpawnedMonster m, double now) =>
         MonsterDotTaken(m, DamageType.Physical, now) * m.Ruptures.More(now)
         * (m.Bleeds.Stacks == 1 && m.Walk.Moving(now) ? BleedMovingMore : 1);
 
     /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
     /// damage; moving, the strongest already deals it, and the two do not stack (wiki Bleeding, Aggravate).</summary>
-    internal static double AggravatedExtra(SpawnedMonster m, double now) =>
+    public static double AggravatedExtra(SpawnedMonster m, double now) =>
         m.Bleeds.Stacks == 1 && !m.Walk.Moving(now) ? BleedMovingMore - 1 : 0;
 
     // One tick of the bleeding monsters (RunPlayerTick), as BurnIgnited: only the strongest bleed deals damage (Crimson
     // Dance: the 8 strongest).
-    internal static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task BleedMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         TickStrongestDots(remote, stream, ciphers, conn, m => m.Bleeds, BleedTaken, "bled to death", AggravatedExtra);
 }

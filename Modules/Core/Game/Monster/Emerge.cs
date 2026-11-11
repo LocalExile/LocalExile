@@ -2,14 +2,14 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Monsters that rise from the ground (MonsterEmerge.cs); loaded with the first monster spawned.
-    internal static readonly MonsterEmerge Emerges = new();
+    public static readonly MonsterEmerge Emerges = new();
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    internal static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         bool start;
         lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
@@ -17,12 +17,12 @@ static partial class Game
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
-    // For each, 0x2ba steps its Transitionable to the transitioned state (on_transition: EnableTargetable), S→C 0x1ab gives
+    // For each, 0x2bc steps its Transitionable to the transitioned state (on_transition: EnableTargetable), S→C 0x1ab gives
     // it its Emerge basic action in place, and 0x1ac at once lets the action play: the .act's Emerge clip, from the paused
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead.
-    internal static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
@@ -59,7 +59,7 @@ static partial class Game
         }
     }
 
-    internal static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;
@@ -68,10 +68,10 @@ static partial class Game
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
             var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
-            await Send(remote, stream, ciphers, messages[0], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            await Send(remote, stream, ciphers, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
             ToOthers(conn, id, [.. messages[0], .. messages[1]]);
-            // A server action waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag (0x141e94720, looked at
+            // A server action waits in the Actor's pending slot (+0x1b8) until 0x1ac sets its go flag (0x141e9afc0, looked at
             // again every 0.25 s); only then does it move to +0x1b0 and play.
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
             await Send(remote, stream, ciphers, messages[1],

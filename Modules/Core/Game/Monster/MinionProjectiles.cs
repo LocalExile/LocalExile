@@ -3,12 +3,12 @@ using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>Releases a player minion's catalogue projectile at its rig contact toward the hostile target captured
     /// by the accepted swing. The shared runtime owns flight, walls and moving-target contact; this payload only names
     /// the source-owned minion, and the existing minion damage/outcome pipeline owns every contact.</summary>
-    internal static bool ReleaseMinionProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static bool ReleaseMinionProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, PlayerMinions.Attack attack, SkillCatalog.MonsterProjectileInfo projectile, double now)
     {
         if (!MinionProjectileAttackCurrent(conn, attack)) return false;
@@ -80,7 +80,7 @@ static partial class Game
         };
     }
 
-    internal static ProjectileHitResult MinionProjectileHit(ProjectileSession session, ProjectileDamage contact,
+    public static ProjectileHitResult MinionProjectileHit(ProjectileSession session, ProjectileDamage contact,
         MinionProjectileOffense shot)
     {
         var conn = session.Conn;
@@ -116,7 +116,7 @@ static partial class Game
 
 /// <summary>A released player-minion projectile. It keeps the accepted monster identity but no action token: a later
 /// swing cannot cancel a flight already in the shared runtime.</summary>
-sealed record MinionProjectileOffense(uint MinionId, SpawnedMonster Monster, MonsterAttack Attack, int Accuracy,
+public sealed record MinionProjectileOffense(uint MinionId, SpawnedMonster Monster, MonsterAttack Attack, int Accuracy,
     string Label)
 {
     public Game.ProjectilePresentation? Presentation { get; init; }

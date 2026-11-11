@@ -2,23 +2,23 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // The Cosmetics tab (K) wears what S→C 0x1f3 lists, all slots at once (23-microtransactions.md). Saved picks first; a
     // portal effect set with /cosmetic and no Portal slot saved shows in that slot too.
     // Read from the save once per connection (the stats ask for it on every hit); a pick clears it.
-    internal static List<InstanceMicrotransactions.Equipped> WornCosmetics(ClientState conn)
+    public static List<InstanceMicrotransactions.Equipped> WornCosmetics(ClientState conn)
     {
         if (conn.WornCosmetics is { } cached) return cached;
         var worn = new Dictionary<byte, CharacterSaves.SavedCosmetic>(CharacterSaves.Cosmetics(CharacterName(conn)));
         if (!worn.ContainsKey(InstanceMicrotransactions.PortalSlot) && conn.CosmeticPortalVariation != 0
             && Cosmetics.Portals.FirstOrDefault(p => p.Index == conn.CosmeticPortalVariation) is { Hash: not 0 } portal
             && Mtx.ByHash(portal.Hash) is { } record)
-            worn[InstanceMicrotransactions.PortalSlot] = new CharacterSaves.SavedCosmetic(record.Id);
+            worn[InstanceMicrotransactions.PortalSlot] = new CharacterSaves.SavedCosmetic(record.Id, Hash: record.MtxTypeHash);
         return conn.WornCosmetics = Mtx.Equipped(worn);
     }
 
-    internal static async Task SendWornCosmetics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
+    public static async Task SendWornCosmetics(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {
         await Send(remote, stream, ciphers, [], null, atGate: () =>
         {
@@ -35,14 +35,14 @@ static partial class Game
     // effect slot type it takes (SkillGems MtxSlotTypes: the skill's effect, a totem skin), naming the first socket that
     // holds it (the panel finds the gem item there). Keys start at 50, past the fixed slots, and identify target lifetimes,
     // not positions in this list. Refresh only at the send gate: queued work must not publish an obsolete binding.
-    internal static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(ClientState conn) =>
+    public static List<(byte Row, byte Socket, uint Gem, byte SlotType)> SkillCosmeticPlaces(ClientState conn) =>
         PlayerInventories.For(CharacterName(conn), ItemsFor(conn)).SocketedGemPlaces()
             .Where(g => ItemsFor(conn).GemEffects(g.Gem).Any()).DistinctBy(g => g.Gem.TypeHash)
             .SelectMany(g => (ItemsFor(conn).ByHash(g.Gem.TypeHash) is { } t && ItemsFor(conn).Gem(t) is { MtxSlotTypes.Count: > 0 } gem ? gem.MtxSlotTypes : [0])
                 .Select(slotType => (g.Row, (byte)g.Socket, Gem: g.Gem.TypeHash, SlotType: (byte)slotType)))
             .Take(byte.MaxValue).ToList();
 
-    internal static List<InstanceMicrotransactions.SkillSlot> SkillSlots(ClientState conn)
+    public static List<InstanceMicrotransactions.SkillSlot> SkillSlots(ClientState conn)
     {
         string character = CharacterName(conn);
         var places = SkillCosmeticPlaces(conn);
@@ -53,7 +53,7 @@ static partial class Game
         {
             uint key = previous.TryGetValue(place, out uint existing) ? existing : checked(conn.NextSkillCosmeticKey++);
             var slot = new InstanceMicrotransactions.SkillSlot(key, place.Gem, place.Row, place.Socket, place.SlotType);
-            slots.Add(worn.TryGetValue(CharacterSaves.SkillCosmeticKey(place.Gem, place.SlotType), out var w) && Mtx.Find(w.Record) is { } record
+            slots.Add(worn.TryGetValue(CharacterSaves.SkillCosmeticKey(place.Gem, place.SlotType), out var w) && Mtx.Resolve(w) is { } record
                 ? slot with { RecordId = record.Id, MtxTypeHash = record.MtxTypeHash } : slot);
         }
         conn.SkillSlots = slots.ToDictionary(s => s.Key);
@@ -63,7 +63,7 @@ static partial class Game
     // Ends a burning Righteous Fire and lights it again from its gem (only from the gem of type `gem`, when given), so a
     // change of art or ring size shows at once. `expectedRelight` is the exact owner seen by the producer before its own
     // awaits; null means no RF was present and never late-binds to one that appeared later.
-    internal static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> RelightRighteousFire(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, string why, RighteousFireState? expectedRelight, uint? gem = null)
     {
         PlayerSkillSource source;
@@ -92,11 +92,11 @@ static partial class Game
     }
 
     // The worn portrait's variation (the Player component's +0x1aa), 0 for the class's own.
-    internal static ushort WornPortrait(ClientState conn) =>
+    public static ushort WornPortrait(ClientState conn) =>
         WornCosmetics(conn).FirstOrDefault(w => w.Slot == PortraitSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Portrait ?? 0 : (ushort)0;
 
     // The portrait frame in the Social Frame slot, 0 for the default. What the client draws is the one it logged in with
     // (ClientState.PortraitFrame).
-    internal static ushort WornFrame(ClientState conn) =>
+    public static ushort WornFrame(ClientState conn) =>
         WornCosmetics(conn).FirstOrDefault(w => w.Slot == SocialFrameSlot) is { } worn ? MtxEffects.Of(worn.MtxTypeHash)?.Frame ?? 0 : (ushort)0;
 }

@@ -10,6 +10,7 @@
     "Core/Item/UniqueBelts",
     "Core/NPC/NpcDialogue",
     "Core/NPC/Vendors",
+    "Core/Player/Chat",
     "Core/Player/Commands",
     "Core/Player/Pantheon",
     "Core/Player/Social",
@@ -17,6 +18,6 @@
     "Core/World/HideoutEditing",
     "Core/World/Portals",
     "Core/World/QuestObjects",
-    "PhreciaAscendancies"
+    "Legacy/PhreciaAscendancies"
   ]
 }

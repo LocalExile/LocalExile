@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// The pilot radius unique jewels: the six attribute-conversion jewels and the five damage/defence-conversion jewels.
@@ -8,120 +9,12 @@ using GameServer.Core.Protocol.Instance;
 /// same stat move to the allocated passives in the item's radius. Lioneye's Fall is not in this catalogue yet: its
 /// melee-to-bow change needs the weapon/melee modifier flags the server's stat model does not carry.
 /// </summary>
-static class RadiusJewelCatalogue
+public static class RadiusJewelCatalogue
 {
     public sealed record Variant(string Name, string ModId, int? Value = null);
     public sealed record Entry(string Name, string Base, string[] GlobalMods, string ConversionMod,
         int Limit = 0, byte Level = 1, bool Corrupted = false, int Radius = 0, Variant[]? Variants = null,
         string[]? ExtraConversionMods = null, bool VariantKeepsConversionMod = false);
-
-    static readonly Variant[] RingVariants =
-    [
-        new("Small Ring", "JewelRingRadiusValuesUnique__1", 1),
-        new("Medium Ring", "JewelRingRadiusValuesUnique__1", 2),
-        new("Large Ring", "JewelRingRadiusValuesUnique__1", 3),
-        new("Very Large Ring", "JewelRingRadiusValuesUnique__1", 4),
-        new("Massive Ring", "JewelRingRadiusValuesUnique__2", 5),
-    ];
-
-    static readonly Variant[] NodeVariants =
-    [
-        new("Life", "UniqueJewelNodeIncreasedLifeUnique__1"),
-        new("Energy Shield", "UniqueJewelNodeEnergyShieldUnique__1"),
-        new("Mana", "UniqueJewelNodeIncreasedManaUnique__1"),
-        new("Armour", "UniqueJewelNodeArmourUnique__1"),
-        new("Evasion Rating", "UniqueJewelNodeEvasionUnique__1"),
-        new("Attributes", "UniqueJewelNodeAllAttributesUnique__1"),
-        new("Global Crit Chance", "UniqueJewelNodeCriticalStrikeChanceUnique__1"),
-        new("Physical Damage", "UniqueJewelNodePhysicalDamageUnique__1"),
-        new("Lightning Damage", "UniqueJewelNodeLightningDamageUnique__1"),
-        new("Cold Damage", "UniqueJewelNodeColdDamageUnique__1"),
-        new("Fire Damage", "UniqueJewelNodeFireDamageUnique__1"),
-        new("Chaos Damage", "UniqueJewelNodeChaosDamageUnique__1"),
-        new("Chaos Resistance", "UniqueJewelNodeChaosResistUnique__1"),
-    ];
-
-    internal static readonly Entry[] Seed =
-    [
-        new("Brute Force Solution", "Cobalt Jewel", ["IntelligenceUniqueJewel35"], "JewelStrToIntUniqueJewel35"),
-        new("Careful Planning", "Viridian Jewel", ["DexterityUniqueJewel36"], "JewelIntToDexUniqueJewel36"),
-        new("Efficient Training", "Crimson Jewel", ["StrengthUniqueJewel34"], "JewelIntToStrUniqueJewel34"),
-        new("Fertile Mind", "Cobalt Jewel", ["IntelligenceUniqueJewel11"], "JewelDexToIntUniqueJewel11"),
-        new("Fluid Motion", "Viridian Jewel", ["DexterityUniqueJewel13"], "JewelStrToDexUniqueJewel13"),
-        new("Inertia", "Crimson Jewel", ["StrengthUniqueJewel37"], "JewelDexToStrUniqueJewel37"),
-        new("Cold Steel", "Viridian Jewel", [], "ColdAndPhysicalNodesInRadiusSwapPropertiesUniqueJewel48_"),
-        new("Fireborn", "Crimson Jewel", [], "AllDamageInRadiusBecomesFireUniqueJewel49"),
-        new("Lioneye's Fall", "Viridian Jewel", [], "UniqueJewelMeleeToBow", 0, 1, false, 1200),
-        new("Energy From Within", "Cobalt Jewel", ["IncreasedEnergyShieldPercentUniqueJewel51"],
-            "LifeInRadiusBecomesEnergyShieldAtHalfValueUniqueJewel51"),
-        new("Healthy Mind", "Cobalt Jewel", ["MaximumManaUniqueJewel54"],
-            "LifePassivesBecomeManaPassivesInRadiusUniqueJewel54", 1),
-        new("Energised Armour", "Crimson Jewel", ["IncreasedPhysicalDamageReductionRatingPercentUniqueJewel50"],
-            "EnergyShieldInRadiusIncreasesArmourUniqueJewel50"),
-        new("Fevered Mind", "Cobalt Jewel", ["IntelligenceUnique__21"],
-            "NotablesGrantManaCostAndSpellDamageUnique1", 1, 1, true),
-        new("Fortress Covenant", "Cobalt Jewel",
-            ["MinionDamageUnique__6", "MinionAttackBlockChanceUnique__1", "MinionSpellBlockChanceUnique__1_"],
-            "NotablesGrantMinionDamageTakenUnique__1_", 1, 20, true),
-        new("Quickening Covenant", "Viridian Jewel",
-            ["MinionAttackAndCastSpeedUnique__1", "MinionSuppressSpellChanceUnique__1"],
-            "NotablesGrantMinionMovementSpeedUnique__1_", 1, 20, true),
-        new("Coated Shrapnel", "Crimson Jewel", ["TrapPoisonChanceUnique__1"],
-            "PassivesGrantTrapMineAddedPhysicalUnique__1_", 0, 1, false, 800),
-        new("Martial Artistry", "Crimson Jewel", ["UnarmedStrikeRangeUniqueJewel__1_"],
-            "PassivesGrantUnarmedAttackSpeedUnique__1_", 1, 1, false, 800),
-        new("The Blue Dream", "Cobalt Jewel", ["ChaosDamageAsPortionOfLightningDamageUnique__1"],
-            "LightningResistAlsoGrantsPowerChargeOnKillJewelUnique__1", 0, 1, false, 1500),
-        new("The Blue Nightmare", "Cobalt Jewel", ["ChaosDamageAsPortionOfLightningDamageUnique__1"],
-            "LightningResistConvertedToSpellBlockChanceScaledJewelUnique__1", 1, 1, false, 1500),
-        new("The Green Dream", "Viridian Jewel", ["ChaosDamageAsPortionOfColdDamageUnique__1"],
-            "ColdResistAlsoGrantsFrenzyChargeOnKillJewelUnique__1", 0, 1, false, 1500),
-        new("The Green Nightmare", "Viridian Jewel", ["ChaosDamageAsPortionOfColdDamageUnique__1"],
-            "ColdResistConvertedToDodgeChanceScaledJewelUnique__1", 1, 1, false, 1500),
-        new("The Red Dream", "Crimson Jewel", ["ChaosDamageAsPortionOfFireDamageUnique__1"],
-            "FireResistAlsoGrantsEnduranceChargeOnKillJewelUnique__1", 0, 1, false, 1500),
-        new("The Red Nightmare", "Crimson Jewel", ["ChaosDamageAsPortionOfFireDamageUnique__1"],
-            "FireResistConvertedToBlockChanceScaledJewelUnique__1_", 1, 1, false, 1500),
-        new("The Light of Meaning", "Prismatic Jewel", [], NodeVariants[0].ModId, 1, 1, false, 1500, NodeVariants),
-        new("The Perandus Pact", "Prismatic Jewel", [], NodeVariants[0].ModId, 1, 1, false, 1500, NodeVariants),
-        new("Anatomical Knowledge", "Cobalt Jewel", ["MaximumLifeUniqueJewel52"],
-            "LifePerIntelligenceInRadusUniqueJewel52", 0, 1, false, 1500),
-        new("Eldritch Knowledge", "Cobalt Jewel", [], "ChaosDamageIncreasedPerIntUniqueJewel2", 0, 1, false, 1200),
-        new("Pugilist", "Viridian Jewel", [], "ClawPhysDamageAndEvasionPerDexUniqueJewel47", 0, 1, false, 1500),
-        new("Spire of Stone", "Crimson Jewel", ["TotemsCannotBeStunnedUniqueJewel15"],
-            "TotemLifePerStrengthUniqueJewel15", 1, 1, false, 1500),
-        new("Static Electricity", "Viridian Jewel", [], "AddedLightningDamagePerDexInRadiusUniqueJewel53", 0, 1, false, 1500),
-        new("Tempered Flesh", "Crimson Jewel", [], "AdditionalStrengthPerAllocatedStrengthJewelUnique__1_",
-            0, 1, false, 1200, null, ["LifeRecoveryRatePerAllocatedStrengthUnique__1_"]),
-        new("Tempered Mind", "Cobalt Jewel", [], "AdditionalIntelligencePerAllocatedIntelligenceJewelUnique__1__",
-            0, 1, false, 1200, null, ["ManaRecoveryRatePerAllocatedIntelligenceUnique__1"]),
-        new("Tempered Spirit", "Viridian Jewel", [], "AdditionalDexterityPerAllocatedDexterityJewelUnique__1",
-            0, 1, false, 1200, null, ["MovementSpeedPerAllocatedDexterityJewelUnique__1"]),
-        new("Transcendent Flesh", "Crimson Jewel", [], "AdditionalStrengthPerAllocatedStrengthJewelUnique__1_",
-            0, 1, false, 1200, null,
-            ["CriticalStrikeMultiplierPerUnallocatedStrengthJewelUnique__1_",
-             "LifeRecoveryRatePerAllocatedStrengthUnique__2", "LifeRecoveryRatePerUnallocatedStrengthUnique__1_"]),
-        new("Transcendent Mind", "Cobalt Jewel", [], "AdditionalIntelligencePerAllocatedIntelligenceJewelUnique__1__",
-            0, 1, false, 1200, null,
-            ["DamageOverTimeMultiplierPerUnallocatedIntelligenceUnique__1___",
-             "ManaRecoveryRatePerAllocatedIntelligenceUnique__2", "ManaRecoveryRatePerUnallocatedIntelligenceUnique__1"]),
-        new("Transcendent Spirit", "Viridian Jewel", [], "AdditionalDexterityPerAllocatedDexterityJewelUnique__1",
-            0, 1, false, 1200, null,
-            ["MovementSpeedPerAllocatedDexterityUnique__2", "AccuracyRatingPerUnallocatedDexterityUnique__1_",
-             "MovementSpeedPerUnallocatedDexterityUnique__1_"]),
-        new("Might of the Meek", "Crimson Jewel", [], "PassiveEffectivenessJewelUnique__1_", 0, 20, false, 1500),
-        new("Might in All Forms", "Crimson Jewel", [],
-            "DexterityAndIntelligenceGiveStrengthMeleeBonusInRadiusUniqueJewel55", 0, 1, false, 1200),
-        new("Pitch Darkness", "Viridian Jewel", [], "BurningArrowThresholdJewelUnique__1", 0, 1, false, 1200,
-            null, ["FireDamagePercentUnique__9"]),
-        new("Sudden Ignition", "Viridian Jewel", [], "BurningArrowThresholdJewel_2", 1, 1, false, 1200,
-            null, ["FireDamagePercentUnique__10"]),
-        new("Intuitive Leap", "Viridian Jewel", [], "JewelUniqueAllocateDisconnectedPassives", 0, 1, false, 800),
-        new("Thread of Hope", "Crimson Jewel", ["AllResistancesUnique__6"],
-            "JewelUniqueAllocateDisconnectedPassives", 0, 1, false, 800, RingVariants, null, true),
-        new("Unnatural Instinct", "Viridian Jewel", [], "GrantsStatsFromNonNotablesInRadiusUnique__1", 1, 1, false, 800,
-            null, ["AllocatedNonNotablesGrantNothingUnique__1_"]),
-    ];
 
     public static Entry[] All => GameDataCatalog.RadiusJewels;
 
@@ -173,7 +66,7 @@ static class RadiusJewelCatalogue
         int Ring = 0,
         bool SuppressAllocatedSmalls = false,
         bool CopyUnallocatedSmalls = false,
-        bool StrengthMeleeBonus = false)
+        bool StrengthMeleeBonus = false, int TattooEffectPct = 0)
     {
         public uint? From => Moves.Count > 0 ? Moves[0].From : Swap?.From;
         public uint? To => Moves.Count > 0 ? Moves[0].To : Swap?.To;
@@ -286,7 +179,7 @@ static class RadiusJewelCatalogue
         var additionStats = new List<(uint Key, int Value)>();
         var scalingStats = new List<ScalingStat>();
         ResistanceAddition? resistance = null;
-        int radius = 0, effectPct = 0, ring = 0;
+        int radius = 0, effectPct = 0, ring = 0, tattooEffectPct = 0;
         bool physicalToCold = false, coldToPhysical = false, suppressNotables = false;
         bool allocateDisconnected = false, suppressAllocatedSmalls = false, copyUnallocatedSmalls = false;
         bool strengthMeleeBonus = false;
@@ -296,6 +189,11 @@ static class RadiusJewelCatalogue
             for (int i = 0; i < row.Stats.Count && i < mod.Values.Count; i++)
             {
                 string id = row.Stats[i].Id;
+                if (id == "local_unique_jewel_tattoos_in_radius_effect_+%")
+                {
+                    tattooEffectPct += mod.Values[i];
+                    continue;
+                }
                 if (id == "local_jewel_effect_base_radius")
                 {
                     radius = mod.Values[i];
@@ -428,8 +326,8 @@ static class RadiusJewelCatalogue
                         AddMove(moves, "maximum_energy_shield_+%", "physical_damage_reduction_rating_+%", 2);
                         break;
                     case "local_unique_jewel_melee_applies_to_bow":
-                        // Needs melee/weapon flags on each modifier, not just a stat-key move; not in this pilot.
-                        return null;
+                        if (mod.Values[i] != 0) moves.AddRange(MeleeToBow.Value);
+                        break;
                 }
             }
         }
@@ -446,7 +344,7 @@ static class RadiusJewelCatalogue
         if (moves.Count == 0 && swap is null && notableStats.Count == 0 && additionStats.Count == 0
             && resistance is null && scalingStats.Count == 0 && effectPct == 0 && !suppressNotables
             && !allocateDisconnected && ring == 0 && !suppressAllocatedSmalls && !copyUnallocatedSmalls
-            && !strengthMeleeBonus)
+            && !strengthMeleeBonus && tattooEffectPct == 0)
             return null;
         return new(moves, swap, radius,
             notableStats.Count > 0 ? notableStats : null,
@@ -459,12 +357,12 @@ static class RadiusJewelCatalogue
             ring,
             suppressAllocatedSmalls,
             copyUnallocatedSmalls,
-            strengthMeleeBonus);
+            strengthMeleeBonus, tattooEffectPct);
     }
 
     /// <summary>Path of Building's <c>ScaleAddList</c> scales integer stats and truncates toward zero; 50% on 5
     /// therefore gives 7, not 8.</summary>
-    internal static int ScaleEffect(int value, int pct) =>
+    public static int ScaleEffect(int value, int pct) =>
         (int)Math.Truncate(value * (100 + pct) / 100.0);
 
     /// <summary>Might in All Forms: the Dexterity plus Intelligence on a passive, counted toward the Strength melee
@@ -478,6 +376,40 @@ static class RadiusJewelCatalogue
             if (key == dexterity || key == intelligence) total += value;
         return total;
     }
+
+    // These families encode their weapon applicability in the stat ID itself. Only move a stat if both
+    // rows exist in this client. An unrelated stat on the same passive retains its exact original key.
+    static readonly Lazy<List<Move>> MeleeToBow = new(() =>
+    {
+        var result = new List<Move>();
+        foreach (string weapon in new[] { "claw", "dagger", "sword", "axe", "mace", "staff" })
+        {
+            foreach (string suffix in new[] { "damage_+%", "hit_and_ailment_damage_+%", "ailment_damage_+%",
+                "elemental_damage_+%", "attack_speed_+%", "accuracy_rating", "accuracy_rating_+%",
+                "critical_strike_chance_+%", "critical_strike_multiplier_+", "stun_duration_+%",
+                "stun_threshold_reduction_+%", "steal_power_frenzy_endurance_charges_on_hit_%" })
+                AddMove(result, $"{weapon}_{suffix}", $"bow_{suffix}");
+            AddMove(result, $"physical_{weapon}_damage_+%", "physical_bow_damage_+%");
+            AddMove(result, $"global_critical_strike_chance_+%_while_holding_{weapon}", "global_critical_strike_chance_+%_while_holding_bow");
+            AddMove(result, $"global_critical_strike_multiplier_+_while_holding_{weapon}", "global_critical_strike_multiplier_+_while_holding_bow");
+            AddMove(result, $"with_{weapon}_additional_block_%", "with_bow_additional_block_%");
+            AddMove(result, $"spell_block_with_{weapon}_%", "spell_block_with_bow_%");
+            AddMove(result, $"knockback_on_crit_with_{weapon}", "knockback_on_crit_with_bow");
+        }
+        AddMove(result, "melee_damage_+%", "bow_damage_+%");
+        AddMove(result, "melee_physical_damage_+%", "physical_bow_damage_+%");
+        AddMove(result, "melee_attack_speed_+%", "bow_attack_speed_+%");
+        AddMove(result, "melee_critical_strike_chance_+%", "bow_critical_strike_chance_+%");
+        AddMove(result, "melee_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        AddMove(result, "mace_or_staff_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
+        AddMove(result, "axe_or_sword_ailment_damage_+%", "bow_ailment_damage_+%");
+        AddMove(result, "melee_weapon_ailment_damage_+%", "bow_ailment_damage_+%");
+        AddMove(result, "melee_weapon_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        AddMove(result, "melee_skills_area_of_effect_+%", "area_of_effect_+%_with_bow_skills");
+        AddMove(result, "melee_attacks_usable_without_mana_cost", "bow_attacks_usable_without_mana_cost");
+        AddMove(result, "staff_block_%", "with_bow_additional_block_%");
+        return result;
+    });
 
     static void AddMove(List<Move> moves, string from, string to, int factor = 1)
     {
@@ -638,15 +570,15 @@ static class RadiusJewelCatalogue
 
     static readonly Lazy<Dictionary<string, uint>> NameWords = new(() => LoadNameWords("data"));
 
-    internal static uint? WordHash(string name, string folder) =>
+    public static uint? WordHash(string name, string folder) =>
         folder == "data" ? NameWords.Value.GetValueOrDefault(name) : LoadNameWords(folder).GetValueOrDefault(name);
 
     static Dictionary<string, uint> LoadNameWords(string folder)
     {
         var result = new Dictionary<string, uint>(StringComparer.OrdinalIgnoreCase);
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in d.RootElement.EnumerateArray())
             if (row.GetProperty("Wordlist").GetInt32() == 6)
                 result[row.GetProperty("Text").GetString() ?? ""] = row.GetProperty("HASH32").GetUInt32();

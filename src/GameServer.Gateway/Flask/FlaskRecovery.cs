@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 /// 13-items.md §8): what it recovers instantly and over how long, as Path of Building's Item.lua and CalcPerform
 /// calcFlaskRecovery and poewiki (Flask, "Recovery from flasks") compute it.
 /// </summary>
-static class FlaskRecovery
+public static class FlaskRecovery
 {
     /// <summary>A use: life and mana recovered over <paramref name="Seconds"/> and instantly, what it takes from the other
     /// pool on use, the mana that comes all at once at the end instead (0: none), whether the effect stays on a full pool, the extra

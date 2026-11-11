@@ -42,9 +42,9 @@ The suspend/restore lifecycle is explicit LocalExile policy; see protocol/11-ski
   and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
 - **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up.
-  Its action has two repeats: after a ring its update (`0x141c00180`) waits 0.3 s and rings again while +0x320 is under
-  the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412df740`) jumps to the spell base's replay
-  (`0x1419e3960`), which plays the animation again. Which of them runs, and when, is not readable statically.
+  Its action has two repeats: after a ring its update (`0x141c02c10`) waits 0.3 s and rings again while +0x320 is under
+  the count and bytes +0x2b8 and +0x2b9 are equal, and its slot 0x460 (`0x1412e1ad0`) jumps to the spell base's replay
+  (`0x1419e6370`), which plays the animation again. Which of them runs, and when, is not readable statically.
   Start: cast Ice Nova with Spell Echo linked under `scripts/re/frida/trace-ice-nova-repeat.js` (it logs those fields,
   each ring start, victim and end, and each replay), with `Game_ICE_NOVA_REPEATS=1` set for the Gateway so it sends
   the count, then hit with each ring.
@@ -96,7 +96,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   preflight before action side effects.
   Initial Dash recovery, early raw rejection, pause and native mid-cooldown rate changes pass live alongside
   layout/send-gate checks; remaining base progress is retained without consuming another use.
-  Remaining cooldown work includes multi-use recharge, shared groups, bypass, typed/conditional/more recovery,
+  Remaining cooldown work includes multi-use recharge, shared groups, typed/conditional/more recovery,
   official tick boundaries.
   See [11](../docs/protocol/11-skills.md) §9.
 - **Spell cast timing (#192):** native base milliseconds are preserved and cast speed adjusts server waits and
@@ -146,9 +146,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Herald of Ice) whose rows are display-only. Deferred (2026-10-29, owner's decision): Spirit and Siphoning Charges. Their only 3.29
   player sources are unique mods (`maximum_spirit_charges_per_abyss_jewel_equipped`,
   `maximum_siphoning_charges_per_elder_or_shaper_item_equipped`), so they need, in the items area, unique definitions
-  beyond Mageblood (#60), abyss jewels socketable into abyssal sockets (the Stygian Vise is created without its socket,
-  `PlayerInventories.Socket` takes gems only, `ItemModStats.Global` reads no socketed item's mods) and Shaper/Elder
-  a consumer for `Item.Influences` (13-items.md §2f). Blitz and Challenger
+  beyond Mageblood (#60), abyss sockets on the other uniques that have them (only the Stygian Vise rolls its socket)
+  and Shaper/Elder a consumer for `Item.Influences` (13-items.md §2f). Blitz and Challenger
   Charges have no 3.29 player source at all.
   Selected area/item-rarity/minion-increased aliases now use one raw actor-plus-own snapshot, with explicit final
   zero/replacement precedence, source clearing and Cyclone radius preservation. `SendPlayer` initial/transition
@@ -312,8 +311,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   enemy-distance executor remain separate.
   Ordinary player and controlled-fighter aura sharing, Life reservation and Blasphemy hex execution are implemented;
   remaining enemy/banner/Vaal executors are separate.
-  Passive enemy auras send and apply only hit conversions so far ([11](../docs/protocol/11-skills.md) section 10e);
-  the others (Overwhelm, the Occultist's) need consumers for their stats first.
+  Passive enemy auras send and apply hit conversions and Overwhelm's crit multiplier ([11](../docs/protocol/11-skills.md)
+  section 10e); the others (the Occultist's) need consumers for their stats first.
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous
   Fire's); banners and unsupported conditional effects. Complete the remaining herald combat matrix and
   retail Virulence decay; shared placed spell hit/ailment profiles work, while skill-specific payloads remain partial.
@@ -436,7 +435,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   protocol/11-skills.md §critical strikes).
   Recheck the resolved stack's shared half-up midpoint natively; the original head's native checks remain historical.
   Recheck development generic/spell increases and rounding live after the input-consistency review fixes.
-  Deliver their nodes through the separate ascendancy lifecycle; Slayer's per-nearby-enemy crit multiplier is separate.
+  Deliver their nodes through the separate ascendancy lifecycle.
   Generic conditional rolls and the unarmed melee multiplier are implemented and native-verified separately.
   Continue native spell/projectile checks and the resolved critical-hit/Fortification composition on `effb797`.
   Verify successful paid Final Blow refunds once Phrecia play has an agreed client-compatible graph.

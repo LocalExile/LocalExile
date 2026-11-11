@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 /// <summary>The bounded instant movement path: ordinary Frostblink's distance calculation on a captured grid.
 /// Terrain endpoint searches, other movement skills and Frostblink's damage/chilled ground are not modelled here.</summary>
-static class InstantLocationSkill
+public static class InstantLocationSkill
 {
     public static bool Supported(SkillCatalog skills, int effect) =>
         skills.EffectId(effect) is "Frostblink" or "FrostblinkHardMode" && skills.IsInstant(effect) && skills.IsMovement(effect);
@@ -11,7 +11,7 @@ static class InstantLocationSkill
     public static bool ObjectTargetSupported(SkillCatalog skills, int effect) =>
         Supported(skills, effect) || skills.IsInstant(effect) && !skills.IsMovement(effect);
 
-    // 0x141bfe610: the object route extends the target (or its 32-cell minimum) by both Positioned sizes + 2.
+    // 0x141c010a0: the object route extends the target (or its 32-cell minimum) by both Positioned sizes + 2.
     // The returned inclusive trace precedes the ordinary 32/42-cell clamp. Coincident targets use native seeded RNG.
     public static ((int X, int Y) Start, (int X, int Y) End)? ObjectAim(
         (int X, int Y) from, (int X, int Y) target, int playerSize, int targetSize)
@@ -35,8 +35,8 @@ static class InstantLocationSkill
         return (first, last);
     }
 
-    // 0x141bfe240: max distance truncates 42 * (100 + skill_maximum_travel_distance_+%) / 100;
-    // min distance is float 32 at 0x1436a3888. 0x140671d00 rounds each normalized component with floor(x + .5).
+    // 0x141c00cd0: max distance truncates 42 * (100 + skill_maximum_travel_distance_+%) / 100;
+    // min distance is float 32 at 0x1436ae680. 0x1406722c0 rounds each normalized component with floor(x + .5).
     public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct)
     {
         if (aim.X > int.MaxValue || aim.Y > int.MaxValue) return null;
@@ -109,7 +109,7 @@ static class InstantLocationSkill
             aim = target.Walk.Position(now);
             if (ObjectAim(from, aim, 1, variety.ObjectSize - 1) is not { } trace
                 || !TryResolveFrom(conn, epoch, from, ((uint)trace.End.X, (uint)trace.End.Y), inTown, stat, out to)) return false;
-            // 0x141c02050 retains the last valid Bresenham candidate. Requiring a wholly clear extension avoids
+            // 0x141c04ae0 retains the last valid Bresenham candidate. Requiring a wholly clear extension avoids
             // guessing its two terrain-layer thresholds or the outer native terrain fallback on partial traces.
             foreach (var cell in ClientPathfinder.Line(trace.Start, trace.End))
                 if (cell.X < 0 || cell.Y < 0 || cell.X >= conn.Layout.GridW || cell.Y >= conn.Layout.GridH

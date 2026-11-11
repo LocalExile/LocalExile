@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 
 /// <summary>
@@ -7,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// <c>PassiveSkillTattoos</c> for the target set and tribe. The effect itself is the replacement passive; the
 /// currency item carries no mods. Runegrafts share the apply action and are excluded by the name filter.
 /// </summary>
-static class TattooCatalogue
+public static class TattooCatalogue
 {
     public sealed record Entry(int Row, string Id, string Name, int Set, string Target, int Tribe, int Override,
         int OverrideHash, int RequiresAdjacent, int MaxAdjacent, int Limit, bool Forbidden)
@@ -66,14 +67,14 @@ static class TattooCatalogue
         string tattooPath = Path.Combine("data", "tables", "PassiveSkillTattoos.json");
         string setPath = Path.Combine("data", "tables", "PassiveSkillTattooTargetSets.json");
         string overridePath = Path.Combine("data", "tables", "PassiveSkillOverrides.json");
-        if (!File.Exists(basePath) || !File.Exists(tattooPath) || !File.Exists(setPath)) return result;
+        if (!ClientTables.Exists(basePath) || !ClientTables.Exists(tattooPath) || !ClientTables.Exists(setPath)) return result;
 
         var overrideHashes = new List<int>();
         var overrideRequires = new List<int>();
         var overrideMax = new List<int>();
         var overrideLimits = new List<int>();
-        if (File.Exists(overridePath))
-            using (var document = JsonDocument.Parse(File.ReadAllBytes(overridePath)))
+        if (ClientTables.Exists(overridePath))
+            using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(overridePath)))
                 foreach (var row in document.RootElement.EnumerateArray())
                 {
                     overrideHashes.Add(row.GetProperty("HASH16").GetInt32());
@@ -84,7 +85,7 @@ static class TattooCatalogue
                 }
 
         var sets = new List<string>();
-        using (var document = JsonDocument.Parse(File.ReadAllBytes(setPath)))
+        using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(setPath)))
             foreach (var row in document.RootElement.EnumerateArray())
             {
                 string name = row.GetProperty("Name").GetString() ?? "";
@@ -93,7 +94,7 @@ static class TattooCatalogue
             }
 
         var targets = new Dictionary<int, (int Set, int Tribe, int Override)>();
-        using (var document = JsonDocument.Parse(File.ReadAllBytes(tattooPath)))
+        using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(tattooPath)))
             foreach (var row in document.RootElement.EnumerateArray())
             {
                 int item = row.GetProperty("Tattoo").GetInt32();
@@ -101,7 +102,7 @@ static class TattooCatalogue
                     row.GetProperty("Override").GetInt32());
             }
 
-        using var bases = JsonDocument.Parse(File.ReadAllBytes(basePath));
+        using var bases = JsonDocument.Parse(ClientTables.ReadAllBytes(basePath));
         int index = 0;
         foreach (var row in bases.RootElement.EnumerateArray())
         {

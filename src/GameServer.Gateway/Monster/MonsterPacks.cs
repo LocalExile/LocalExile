@@ -1,6 +1,7 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Terrain;
+using GameServer.Core;
 
 /// <summary>
 /// The monster packs of an area, from the extracted tables: MonsterPacks (which areas and their weights, how many
@@ -11,7 +12,7 @@ using GameServer.Data.Terrain;
 /// area (Maps.dat Regular_WorldAreasKey) also gets the map's own packs (Maps.dat MonsterPacksKeys: Beach → atlas-crab1),
 /// which no MonsterPacks row lists by area. Agents/docs/protocol/14-monster-packs.md.
 /// </summary>
-sealed class PackCatalog(string folder = "data")
+public sealed class PackCatalog(string folder = "data")
 {
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
         IReadOnlyList<int> BossVarieties, IReadOnlyList<(int Variety, int Weight)> Entries, IReadOnlyDictionary<int, int> AreaWeights)
@@ -85,7 +86,7 @@ sealed class PackCatalog(string folder = "data")
     {
         string file = Path.Combine(folder, "tables", "MonsterVarieties.json");
         var rows = new Dictionary<string, int>(StringComparer.Ordinal);
-        if (!File.Exists(file)) return rows;
+        if (!ClientTables.Exists(file)) return rows;
         using var doc = GameTables.Open(file);
         int row = 0;
         foreach (var v in doc.RootElement.EnumerateArray()) { if (v.GetProperty("Id").GetString() is { } id) rows.TryAdd(id, row); row++; }
@@ -96,7 +97,7 @@ sealed class PackCatalog(string folder = "data")
     {
         string packs = Path.Combine(folder, "tables", "MonsterPacks.json"), entries = Path.Combine(folder, "tables", "MonsterPackEntries.json"),
             areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!File.Exists(packs) || !File.Exists(entries) || !File.Exists(areas)) return null;
+        if (!ClientTables.Exists(packs) || !ClientTables.Exists(entries) || !ClientTables.Exists(areas)) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
         using (var doc = GameTables.Open(entries))
             foreach (var e in doc.RootElement.EnumerateArray())
@@ -107,7 +108,7 @@ sealed class PackCatalog(string folder = "data")
                 list.Add((e.GetProperty("MonsterVarietiesKey").GetInt32(), e.GetProperty("Weight").GetInt32()));
             }
         var result = new List<Pack>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(packs)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(packs)))
             foreach (var p in doc.RootElement.EnumerateArray())
             {
                 int row = result.Count;
@@ -122,15 +123,15 @@ sealed class PackCatalog(string folder = "data")
                     byPack.GetValueOrDefault(row) ?? [], areaWeights));
             }
         var areaRows = new List<(string, int, int[])>();
-        using (var doc = JsonDocument.Parse(File.ReadAllBytes(areas)))
+        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(areas)))
             foreach (var a in doc.RootElement.EnumerateArray())
                 areaRows.Add((a.GetProperty("Id").GetString() ?? "", a.GetProperty("AreaLevel").GetInt32(),
                     [.. a.GetProperty("Bosses_MonsterVarietiesKeys").EnumerateArray().Select(b => b.GetInt32())]));
         // Maps.dat: a map's area → its packs (optional table: without it maps have no packs of their own).
         var mapPacks = new Dictionary<int, List<int>>();
         string maps = Path.Combine(folder, "tables", "Maps.json");
-        if (File.Exists(maps))
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(maps)))
+        if (ClientTables.Exists(maps))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(maps)))
                 foreach (var m in doc.RootElement.EnumerateArray())
                     if (m.GetProperty("Regular_WorldAreasKey") is { ValueKind: JsonValueKind.Number } area)
                     {
@@ -146,7 +147,7 @@ sealed class PackCatalog(string folder = "data")
 /// packs an area has and how often a pack is magic or has a rare are decided by the official server and are not in the
 /// client, so the numbers here are our own (<see cref="CellsPerPack"/>, <see cref="MagicChance"/>, <see cref="RareChance"/>).
 /// </summary>
-static class AreaPopulation
+public static class AreaPopulation
 {
     // Local population seed derivation. HashCode.Combine has a process-random salt and cannot reproduce instances.
     public static int PopulationSeed(ushort areaHash, uint areaSeed) => unchecked((int)InstanceEntities.ObjectTypeHash(
@@ -539,7 +540,7 @@ static class AreaPopulation
     /// <see cref="MercyMission.BoatRooms"/>) for their points, quest rooms for their objects. With
     /// <paramref name="generated"/>, the Gateway's own generation of the seed is used even where a capture exists (the
     /// capture tour's records compare the two fits).</summary>
-    internal static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
+    public static (List<RoomPoint> Points, List<RoomObject> Objects, List<string> Captured) FitRooms(string areaId, uint seed, List<string> notes,
         string folder, bool generated = false, List<PlacedRoom>? placedRooms = null)
     {
         string walkability = Path.Combine(folder, "walkability");
@@ -547,11 +548,11 @@ static class AreaPopulation
         if ((folder == "data" ? RoomFits.Value : LoadRoomIndex(Path.Combine(folder, "room-points.json"))) is not { } rooms) { notes.Add("no data/room-points.json (dotnet run --project scripts/re/atlas -- Client/Content.ggpk room-points)"); return ([], [], []); }
         if (!rooms.Areas.TryGetValue(areaId, out var candidates)) return ([], [], []);
         // Without a capture, an area the Gateway generates itself has the same doodads from the port (ServerLevels).
-        var level = folder == "data" && (generated || !File.Exists(capture)) ? ServerLevels.For(areaId, seed) : null;
+        var level = folder == "data" && (generated || !ClientTables.Exists(capture)) ? ServerLevels.For(areaId, seed) : null;
         if (generated && level is null) { notes.Add($"{areaId} seed {seed} is not generated by the Gateway"); return ([], [], []); }
-        if (!File.Exists(capture) && level is null) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], [], []); }
+        if (!ClientTables.Exists(capture) && level is null) { notes.Add($"no {capture} (live.ps1 -Walkmaps, then enter the area): no room points"); return ([], [], []); }
         // Which rooms the client placed, and where: the generated layout's, or the recorder's <area>_seed<seed>.rooms.json.
-        bool placementsKnown = level is not null || File.Exists(Path.Combine(walkability, $"{areaId}_seed{seed}.rooms.json"));
+        bool placementsKnown = level is not null || ClientTables.Exists(Path.Combine(walkability, $"{areaId}_seed{seed}.rooms.json"));
         var placed = new HashSet<(string, int, int)>();
         var byModel = new Dictionary<string, List<(int X, int Y)>>(StringComparer.OrdinalIgnoreCase);
         void Add(string model, int x, int y)
@@ -566,7 +567,7 @@ static class AreaPopulation
                 foreach (var d in level.Doodads) Add(d.Model, d.X, d.Y);
             else
             {
-                using var doc = JsonDocument.Parse(File.ReadAllBytes(capture));
+                using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(capture));
                 var models = doc.RootElement.GetProperty("models").EnumerateArray().Select(m => m.GetString() ?? "").ToArray();
                 foreach (var d in doc.RootElement.GetProperty("doodads").EnumerateArray())
                     Add(models[d[0].GetInt32()], d[1].GetInt32(), d[2].GetInt32());
@@ -714,7 +715,7 @@ static class AreaPopulation
 
     static RoomIndex? LoadRoomIndex(string file)
     {
-        if (!File.Exists(file)) return null;
+        if (!ClientTables.Exists(file)) return null;
         using var doc = GameTables.Open(file);
         var areas = doc.RootElement.GetProperty("areas").EnumerateObject()
             .ToDictionary(a => a.Name, a => a.Value.EnumerateArray().Select(r => r.GetString()!).ToList());

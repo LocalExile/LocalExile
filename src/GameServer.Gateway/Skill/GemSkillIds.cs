@@ -7,12 +7,12 @@
 /// equipment for an update or more, and a new gem takes the lowest id no gem had. A Vaal gem has two skills in its
 /// socket (its Vaal skill and its regular skill), each with its own id.
 /// </summary>
-sealed class GemSkillIds
+public sealed class GemSkillIds
 {
     public enum SourceKind { SocketedGem, PassiveGrant, WornGrant }
 
     // Neutral identity state must outlive a Game module replacement: a live actor holds these skill ids.
-    internal static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, GemSkillIds> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// One source that may grant a skill: its source kind, host, source-local socket and GrantedEffects row. Socketed

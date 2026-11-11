@@ -5,7 +5,7 @@
 /// skill reservations, per skill before summation. Current Life is clamped by callers when sources change and is never
 /// refilled when a reservation ends.
 /// </summary>
-static class LifeReservation
+public static class LifeReservation
 {
     public const string ItemPercentStat = "life_reserved_by_stat_%";
     public const string EnergyShieldPerReservedStat = "maximum_energy_shield_+_per_100_life_reserved";

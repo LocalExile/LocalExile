@@ -2,30 +2,30 @@ using System.Collections.Concurrent;
 using GameServer.Modding;
 
 /// <summary>Rule-owned resources, separate from the animated-actor runtime and its worker.</summary>
-sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? source, ClientState? connection = null) : ITransferCombatState
+public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? source, ClientState? connection = null) : ITransferCombatState
 {
-    internal IModuleLifetime? Rules { get; } = rules;
-    internal IModuleLifetime? Source { get; } = source;
-    internal long Generation;
-    internal readonly ManaRecoupState Mana = new();
-    internal readonly TimedBlind PlayerBlind = new();
-    internal readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
+    public IModuleLifetime? Rules { get; } = rules;
+    public IModuleLifetime? Source { get; } = source;
+    public long Generation;
+    public readonly ManaRecoupState Mana = new();
+    public readonly TimedBlind PlayerBlind = new();
+    public readonly Dictionary<uint, (SpawnedMonster Target, TimedBlind Blind)> Targets = [];
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
-    internal sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
+    public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
         PhysicalAegisState.Carried? Aegis);
-    internal Snapshot? TransferCheckpoint;
-    internal bool Loading;
+    public Snapshot? TransferCheckpoint;
+    public bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
 
-    internal TimedBlind TargetBlind(uint id, SpawnedMonster target)
+    public TimedBlind TargetBlind(uint id, SpawnedMonster target)
     {
         if (Targets.TryGetValue(id, out var old) && ReferenceEquals(old.Target, target)) return old.Blind;
         if (old.Blind is { Buff: > 0 } blind) retired.Add((id, blind.Buff));
         var value = new TimedBlind(); Targets[id] = (target, value); return value;
     }
-    internal Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at),
+    public Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at),
         connection?.PhysicalAegis.Capture(at));
-    internal void CollectRetiredTargets(ClientState conn)
+    public void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
             if (!ReferenceEquals(conn.Monsters.GetValueOrDefault(id), value.Target))
@@ -41,7 +41,7 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
         // A refused transfer resumes the live draft, discarding loading earnings rather than paying catch-up.
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
-    internal void Restore(Snapshot value, double at)
+    public void Restore(Snapshot value, double at)
     {
         Mana.Restore(value.Mana, at); PlayerBlind.Restore(value.Blind, at);
         if (connection is not null && value.Aegis is { } aegis) connection.PhysicalAegis.Restore(aegis, this, at);
@@ -67,10 +67,10 @@ sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime? sourc
     }
 }
 
-static partial class Game
+public static partial class Game
 {
     static readonly ResourceEffectsState RetiredResourceEffects = new(null, null);
-    internal static ResourceEffectsState ResourceEffectsOf(ClientState conn)
+    public static ResourceEffectsState ResourceEffectsOf(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -87,18 +87,18 @@ static partial class Game
             conn.RetireResourceEffects(); return RetiredResourceEffects;
         }
     }
-    internal static bool ResourceEffectsCurrent(ClientState conn, ResourceEffectsState state) => CurrentGameRules
+    public static bool ResourceEffectsCurrent(ClientState conn, ResourceEffectsState state) => CurrentGameRules
         && !conn.Closed && !conn.RageRetired && ReferenceEquals(conn.ResourceEffectsState, state)
         && ReferenceEquals(state.Source, AscendancyPolicies.SourceOwner(conn)) && state.Rules is { IsActive: true } owner
         && conn.ResourceEffectsLease.Current(owner, state.Source, state, state.Generation);
 
-    internal static double ResourceEffectsTime(ClientState conn)
+    public static double ResourceEffectsTime(ClientState conn)
     {
         if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true }) return 0;
         return conn.LeavingArea && conn.RampageTransferAt is double at ? at
             : conn.ProjectileRuntimeState is { Active: true } runtime ? runtime.NowTicks / 120000d : conn.Clock.Elapsed.TotalSeconds;
     }
-    internal static void ManaSpentLocked(ClientState conn, uint amount, IReadOnlyDictionary<uint, int> player)
+    public static void ManaSpentLocked(ClientState conn, uint amount, IReadOnlyDictionary<uint, int> player)
     {
         if (amount == 0 || conn.LeavingArea || conn.PlayerLife == 0 || !CurrentGameRules) return;
         conn.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(conn), amount);
@@ -108,18 +108,18 @@ static partial class Game
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
         if (gain > 0) conn.Rage.Gain(gain, ResourceEffectsTime(conn), RageStats.Inputs(Get), Get("has_soul_gain_prevention") != 0);
     }
-    internal static void SettleFullManaLocked(ClientState conn, double at)
+    public static void SettleFullManaLocked(ClientState conn, double at)
     {
         if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state)
             && conn.PlayerMana >= UnreservedMana(conn))
         { state.Mana.Take(at); state.Mana.DiscardRecoveryFraction(); }
     }
-    internal static void DiscardResourceLoadingRecovery(ClientState conn, double now)
+    public static void DiscardResourceLoadingRecovery(ClientState conn, double now)
     {
         if (conn.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(conn, state))
         { state.Mana.Take(now); state.Mana.DiscardRecoveryFraction(); }
     }
-    internal static bool CompleteResourceRecoveryLocked(ClientState conn, double from, double now,
+    public static bool CompleteResourceRecoveryLocked(ClientState conn, double from, double now,
         IReadOnlyDictionary<uint, int> stats, double earnedMana, uint manaBefore, uint manaCap, ref double manaCarry)
     {
         AdvancePlayerAilmentsLocked(conn, from, now, stats);
@@ -138,7 +138,7 @@ static partial class Game
     sealed record ResourceTransfer(string Character, DateTime At, IModuleLifetime Rules, IModuleLifetime? Source,
         ResourceEffectsState.Snapshot State);
     static readonly ConcurrentDictionary<uint, ResourceTransfer> CarriedResourceEffects = new();
-    internal static void CarryResourceEffects(ClientState conn, uint ticket)
+    public static void CarryResourceEffects(ClientState conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -152,7 +152,7 @@ static partial class Game
             state.Clear();
         }
     }
-    internal static void RestoreResourceEffects(ClientState conn)
+    public static void RestoreResourceEffects(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -167,7 +167,7 @@ static partial class Game
             state.Restore(entry.State, 0); state.Loading = true;
         }
     }
-    internal static void ActivateResourceEffects(ClientState conn, double at)
+    public static void ActivateResourceEffects(ClientState conn, double at)
     {
         lock (conn.Monsters)
             if (conn.ResourceEffectsState is ResourceEffectsState { Loading: true } state && ResourceEffectsCurrent(conn, state))

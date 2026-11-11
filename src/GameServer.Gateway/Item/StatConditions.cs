@@ -108,6 +108,9 @@ public static class StatConditions
         "_if_you_have_cat_aspect", "_while_you_have_cat_aspect", "_while_have_cat_aspect",
         "_if_you_have_cats_stealth", "_while_you_have_cats_stealth", "_while_have_cats_stealth",
         "_if_you_have_cats_agility", "_while_you_have_cats_agility", "_while_have_cats_agility",
+        // The item mods spell the same life/mana states with "when" rather than "while" (Lioneye's Paws, Daresso's
+        // Salute, Infernal Mantle); ConditionalItemPools publishes both keys for the same state.
+        "_when_on_full_life", "_when_on_low_life", "_when_on_full_mana", "_when_on_low_mana",
     ];
 
     const string MagicRingCondition = "_if_magic_ring_equipped";

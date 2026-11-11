@@ -1,5 +1,5 @@
 // Earned recipient debuffs outlive their emitting reservation; no Game callback is retained.
-sealed class SpiderWebState
+public sealed class SpiderWebState
 {
     public sealed record Web(uint Caster, double From, double Until, int Taken, int Resistance, int Damage);
     public readonly List<Web> Webs = new();

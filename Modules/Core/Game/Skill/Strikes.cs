@@ -1,11 +1,11 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // BuffDefinitions skill_location_memory (invisible, CancelOnDeath, behaviour RecordSkillUseLocations): the client keeps a
-    // Strike skill's previous locations in it, and its melee action (0x141c9ad30) finds it by the skill id and ActionTypes
-    // hash of its bit-3 association. Its behaviour (0x14205a100) takes its first entry from the message's u32 list unchecked:
-    // the use's sequence, the player's cell and the target cell; later uses it records itself as they start (0x14205a350).
+    // Strike skill's previous locations in it, and its melee action (0x141c9d7c0) finds it by the skill id and ActionTypes
+    // hash of its bit-3 association. Its behaviour (0x142060950) takes its first entry from the message's u32 list unchecked:
+    // the use's sequence, the player's cell and the target cell; later uses it records itself as they start (0x142060ba0).
     const ushort SkillLocationMemoryBuffRow = 1451;
 
     // A Strike use's extra targets, decided as its swing starts, as the client decides them when its melee action starts

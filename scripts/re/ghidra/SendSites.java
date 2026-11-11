@@ -1,4 +1,4 @@
-// Usage: -postScript SendSites.java <out.json> [send:0x14216e940/RDX+0x141d625f0/RDX]
+// Usage: -postScript SendSites.java <out.json> [send:0x1421752b0/RDX+0x141d65c80/RDX]
 // Every call of a message send function, resolved to the (vtable, id) pairs of the message it sends. The message
 // argument is a stack object: its vtable is the qword at [slot], its u16 id the word at [slot+8]. From the call the
 // control-flow graph (with Ghidra's resolved jump tables) is walked backwards path by path, so ids set in different
@@ -26,7 +26,7 @@ public class SendSites extends GhidraScript {
         bbm = new BasicBlockModel(currentProgram);
         for (String r : new String[] { "RAX", "RCX", "RDX", "R8", "R9", "R10", "R11" }) volatileRegs.add(reg(r));
         LinkedHashMap<Long, String> sends = new LinkedHashMap<>();
-        sends.put(0x14216e940L, "RDX");
+        sends.put(0x1421752b0L, "RDX");
         for (int i = 1; i < a.length; i++) {
             if (!a[i].startsWith("send:")) continue;
             sends.clear();

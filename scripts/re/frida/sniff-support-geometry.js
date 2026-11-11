@@ -11,19 +11,19 @@
 // The client predicts its own casts, so the server 0x1ab stream does not carry the repeats for the caster. This hooks
 // the client-side path too:
 //
-//   srv     S->C 0x1ab Actor action (0x1421940a0): the cast echo. Target object +0x20, target cell +0x24/+0x28,
+//   srv     S->C 0x1ab Actor action (0x14219aa10): the cast echo. Target object +0x20, target cell +0x24/+0x28,
 //           server cell +0x2c/+0x30, skill +0x34, sequence +0x36. The local player is the actor whose sequence
 //           matches a local use.
-//   use     C->S use (0x142166300, a[2] = action): sequence +0x11a and aimed cell +0x130/+0x134. A cast marker.
-//   action  0x141ee97f0 (manager, &action, skill id) creates an action; *&action is the action after the call.
+//   use     C->S use (0x14216ccb0, a[2] = action): sequence +0x11a and aimed cell +0x130/+0x134. A cast marker.
+//   action  0x141ef0050 (manager, &action, skill id) creates an action; *&action is the action after the call.
 //           Logs the skill id, action type +0x118 (ActionTypes HASH16), sequence +0x11a and aimed cell.
-//   obj     client-side object creation (0x141ebdf30): the metadata path. The object is arg 0; its Positioned
+//   obj     client-side object creation (0x141ec47e0): the metadata path. The object is arg 0; its Positioned
 //           component is [[obj+8]+0x98].
-//   place   0x141e31e90 (Positioned, int cell[2], ...): the cell a recently created effect was placed at. These are
+//   place   0x141e351d0 (Positioned, int cell[2], ...): the cell a recently created effect was placed at. These are
 //           Spell Cascade's extra areas.
-//   create  S->C 0x2b9 object create (0x141ebe190): object id, metadata path and cell.
-//   proj    Projectile component constructor (0x141e37850): the projectile entity.
-//   path    Positioned movement update (0x141e32710) of a projectile created in this window: cell, at most 24 per
+//   create  S->C 0x2bb object create (0x141ec4a40): object id, metadata path and cell.
+//   proj    Projectile component constructor (0x141e3ab90): the projectile entity.
+//   path    Positioned movement update (0x141e35a50) of a projectile created in this window: cell, at most 24 per
 //           entity.
 //
 // Reading the log:
@@ -38,14 +38,14 @@ const base = ptr('0x140000000');
 const at = va => image.base.add(ptr(va).sub(base));
 
 const EXPECTED = {
-  // 0x1421940a0  Actor 0x1ab handler (trace-actions.js).
-  '0x1421940a0': '48895c24085556574154415541564157',
-  // 0x141ebe190  0x2b9 create handler (trace-projectile-create.js).
-  '0x141ebe190': '48895c241048894c2408565741564883',
-  // 0x141ebdf30  client-side object create (sniff-bloodsoaked-vanguard.js).
-  '0x141ebdf30': '48895c241848894c2408555657415641',
-  // 0x141ee97f0  action created by the Actor skill manager (trace-actions.js).
-  '0x141ee97f0': '48895c240848896c2418488954241056',
+  // 0x14219aa10  Actor 0x1ab handler (trace-actions.js).
+  '0x14219aa10': '48895c24085556574154415541564157',
+  // 0x141ec4a40  0x2bb create handler (trace-projectile-create.js).
+  '0x141ec4a40': '48895c241048894c2408565741564883',
+  // 0x141ec47e0  client-side object create (sniff-bloodsoaked-vanguard.js).
+  '0x141ec47e0': '48895c241848894c2408555657415641',
+  // 0x141ef0050  action created by the Actor skill manager (trace-actions.js).
+  '0x141ef0050': '48895c240848896c2418488954241056',
 };
 
 const u16 = (p, o) => { try { return p.add(o).readU16(); } catch (e) { return null; } };
@@ -96,7 +96,7 @@ function cellOfPositioned(p) {
   try { return [p.add(0x294).readS32(), p.add(0x298).readS32()]; } catch (e) { return null; }
 }
 
-const created = new Map();      // entity pointer -> { t, type } for objects created by 0x141ebdf30
+const created = new Map();      // entity pointer -> { t, type } for objects created by 0x141ec47e0
 const projectiles = new Map(); // projectile entity -> { t, type, cells }
 let lastReap = 0;
 let lastReapTarget = null;
@@ -105,9 +105,9 @@ let windowUntil = 0;
 const openWindow = () => { windowUntil = stamp() + 6000; };
 
 // --- 0x1ab: S->C Actor actions (the cast echo) ------------------------------
-if (check('0x1421940a0')) {
+if (check('0x14219aa10')) {
   try {
-    Interceptor.attach(at('0x1421940a0'), {
+    Interceptor.attach(at('0x14219aa10'), {
       onEnter(args) {
         try {
           if (args[1].add(8).readU16() !== 0x1ab) return;
@@ -118,13 +118,13 @@ if (check('0x1421940a0')) {
         } catch (e) { send({ t: stamp(), hookError: 'action', message: String(e) }); }
       }
     });
-    send({ t: stamp(), attached: '0x1421940a0' });
+    send({ t: stamp(), attached: '0x14219aa10' });
   } catch (e) { send({ t: stamp(), hookError: 'actionAttach', message: String(e) }); }
 }
 
-// --- 0x142166300: the client sends a use (C->S 0x24/0x25), action in a[2] ---
+// --- 0x14216ccb0: the client sends a use (C->S 0x24/0x25), action in a[2] ---
 try {
-  Interceptor.attach(at('0x142166300'), {
+  Interceptor.attach(at('0x14216ccb0'), {
     onEnter(args) {
       try {
         const a = args[2];
@@ -135,13 +135,13 @@ try {
       } catch (e) { send({ t: stamp(), hookError: 'use', message: String(e) }); }
     }
   });
-  send({ t: stamp(), attached: '0x142166300' });
+  send({ t: stamp(), attached: '0x14216ccb0' });
 } catch (e) { send({ t: stamp(), hookError: 'useAttach', message: String(e) }); }
 
-// --- 0x141ee97f0: create an action (manager, &action, skill id) -------------
-if (check('0x141ee97f0')) {
+// --- 0x141ef0050: create an action (manager, &action, skill id) -------------
+if (check('0x141ef0050')) {
   try {
-    Interceptor.attach(at('0x141ee97f0'), {
+    Interceptor.attach(at('0x141ef0050'), {
       onEnter(args) { this.slot = args[1]; this.skill = args[2].toInt32() & 0xffff; },
       onLeave() {
         try {
@@ -154,14 +154,14 @@ if (check('0x141ee97f0')) {
         } catch (e) { send({ t: stamp(), hookError: 'actionCreate', message: String(e) }); }
       }
     });
-    send({ t: stamp(), attached: '0x141ee97f0' });
+    send({ t: stamp(), attached: '0x141ef0050' });
   } catch (e) { send({ t: stamp(), hookError: 'actionCreateAttach', message: String(e) }); }
 }
 
-// --- 0x141ebdf30: client-side object creation -------------------------------
-if (check('0x141ebdf30')) {
+// --- 0x141ec47e0: client-side object creation -------------------------------
+if (check('0x141ec47e0')) {
   try {
-    Interceptor.attach(at('0x141ebdf30'), {
+    Interceptor.attach(at('0x141ec47e0'), {
       onEnter(args) {
         try {
           this.type = typePath(args[1].readPointer());
@@ -183,7 +183,7 @@ if (check('0x141ebdf30')) {
               const meta = { p3: this.p3, p4: this.p4, p5: this.p5 };
               const sample = (tag, entity) => {
                 const info = { t: stamp(), kind: 'fx', tag, entity: entity.toString(), p3: meta.p3, p4: meta.p4, p5: meta.p5 };
-                const positionedVt = image.base.add(ptr('0x1435a0f18').sub(base));
+                const positionedVt = image.base.add(ptr('0x1435ab608').sub(base));
                 try {
                   const begin = entity.add(0x10).readPointer(), end = entity.add(0x18).readPointer();
                   const count = Math.min(24, end.sub(begin).toInt32() / 8);
@@ -215,13 +215,13 @@ if (check('0x141ebdf30')) {
         } catch (e) { send({ t: stamp(), hookError: 'objectCreate', message: String(e) }); }
       }
     });
-    send({ t: stamp(), attached: '0x141ebdf30' });
+    send({ t: stamp(), attached: '0x141ec47e0' });
   } catch (e) { send({ t: stamp(), hookError: 'objectCreateAttach', message: String(e) }); }
 }
 
-// --- 0x141e31e90: place a Positioned at a cell ------------------------------
+// --- 0x141e351d0: place a Positioned at a cell ------------------------------
 try {
-  Interceptor.attach(at('0x141e31e90'), {
+  Interceptor.attach(at('0x141e351d0'), {
     onEnter(args) {
       try {
         // The Positioned's +8 is the entity (trace-projectile-path.js).
@@ -234,20 +234,20 @@ try {
       } catch (e) { send({ t: stamp(), hookError: 'place', message: String(e) }); }
     }
   });
-  send({ t: stamp(), attached: '0x141e31e90' });
+  send({ t: stamp(), attached: '0x141e351d0' });
 } catch (e) { send({ t: stamp(), hookError: 'placeAttach', message: String(e) }); }
 
-// --- 0x2b9: S->C object creation -------------------------------------------
-if (check('0x141ebe190')) {
+// --- 0x2bb: S->C object creation -------------------------------------------
+if (check('0x141ec4a40')) {
   try {
-    Interceptor.attach(at('0x141ebe190'), {
+    Interceptor.attach(at('0x141ec4a40'), {
       onEnter(args) {
         try {
           if (stamp() > windowUntil) return;
           let type = '?';
           try { type = typePath(args[1].readPointer()); } catch (e) { }
           const id = hex8(args[2].toInt32() >>> 0);
-          // The 0x2b9 blob carries the object's own fields; an effect's AO path is in it as UTF-16. Dump it so the
+          // The 0x2bb blob carries the object's own fields; an effect's AO path is in it as UTF-16. Dump it so the
           // Arrow Nova payload's effect (not just its generic ServerEffect type) can be named.
           let blob = null, paths = [];
           try {
@@ -265,13 +265,13 @@ if (check('0x141ebe190')) {
         } catch (e) { send({ t: stamp(), hookError: 'create', message: String(e) }); }
       }
     });
-    send({ t: stamp(), attached: '0x141ebe190' });
+    send({ t: stamp(), attached: '0x141ec4a40' });
   } catch (e) { send({ t: stamp(), hookError: 'createAttach', message: String(e) }); }
 }
 
-// --- 0x141e37850: a Projectile component is built; a[1] is its entity ------
+// --- 0x141e3ab90: a Projectile component is built; a[1] is its entity ------
 try {
-  Interceptor.attach(at('0x141e37850'), {
+  Interceptor.attach(at('0x141e3ab90'), {
     onEnter(args) {
       try {
         if (stamp() > windowUntil) return;
@@ -282,12 +282,12 @@ try {
       } catch (e) { send({ t: stamp(), hookError: 'projectile', message: String(e) }); }
     }
   });
-  send({ t: stamp(), attached: '0x141e37850' });
+  send({ t: stamp(), attached: '0x141e3ab90' });
 } catch (e) { send({ t: stamp(), hookError: 'projectileAttach', message: String(e) }); }
 
-// --- 0x141e32710: a tracked projectile's Positioned movement update --------
+// --- 0x141e35a50: a tracked projectile's Positioned movement update --------
 try {
-  Interceptor.attach(at('0x141e32710'), {
+  Interceptor.attach(at('0x141e35a50'), {
     onEnter(args) {
       try {
         const p = args[0];
@@ -308,14 +308,14 @@ try {
       } catch (e) { }
     }
   });
-  send({ t: stamp(), attached: '0x141e32710' });
+  send({ t: stamp(), attached: '0x141e35a50' });
 } catch (e) { send({ t: stamp(), hookError: 'pathAttach', message: String(e) }); }
 
-// --- 0x1b2: animated-object clip update (0x141e58ef0) ----------------------
+// --- 0x1b2: animated-object clip update (0x141e5d440) ----------------------
 // The official server sends the rain rig its animation clip/index; without it the client plays the art's default
 // (the landing pose or a T-pose).
 try {
-  Interceptor.attach(at('0x141e58ef0'), {
+  Interceptor.attach(at('0x141e5d440'), {
     onEnter(args) {
       try {
         const m = args[1];
@@ -325,7 +325,7 @@ try {
       } catch (e) { }
     }
   });
-  send({ t: stamp(), attached: '0x141e58ef0' });
+  send({ t: stamp(), attached: '0x141e5d440' });
 } catch (e) { send({ t: stamp(), hookError: 'animAttach', message: String(e) }); }
 
 send('sniff-support-geometry ready');

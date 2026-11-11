@@ -1,4 +1,4 @@
-// Standalone, optional 3.29.3b recovery probe. No common.js needed. Reads only the local player's pools.
+// Standalone, optional 3.29.3c recovery probe. No common.js needed. Reads only the local player's pools.
 // .venv/Scripts/python.exe scripts/re/frida/run.py Game.patched.exe --seconds 120 --log logs/recovery.jsonl scripts/re/frida/trace-recovery.js
 // Hook ABIs/signatures verified against Client/Game.exe with scripts/re/dis.py. A different build is refused.
 // tick-change = before/after one client Life tick; server-update = the applied 0x1b1 value, not a raw socket packet.
@@ -7,9 +7,9 @@
   const module = Process.enumerateModules().find(m => /^(Game\.patched|Game|PathOfExile)\.exe$/i.test(m.name));
   const base = ptr('0x140000000');
   const specs = [
-    ['life-tick', '0x141e6a190', '40534883ec3083b9a801000000488bd9'],
-    ['pool-update', '0x141e69fb0', '405341574883ec288b42204c8bfa448b'],
-    ['frame-length', '0x141645fa0', '89911c010000c3cccccccccccccccccc'],
+    ['life-tick', '0x141e70730', '40534883ec3083b9a801000000488bd9'],
+    ['pool-update', '0x141e70550', '405341574883ec288b42204c8bfa448b'],
+    ['frame-length', '0x141648b50', '89911c010000c3cccccccccccccccccc'],
   ];
   if (!module) { send({event: 'refused', reason: 'no supported executable module'}); return; }
   const addresses = {};
@@ -18,7 +18,7 @@
     const inside = p.compare(module.base) >= 0 && p.add(size).compare(module.base.add(module.size)) <= 0;
     let actual = '';
     try { if (inside) actual = Array.from(new Uint8Array(p.readByteArray(size))).map(x => x.toString(16).padStart(2, '0')).join(''); } catch (_) {}
-    if (actual !== expected) { send({event: 'refused', hook: name, reason: 'code signature differs from 3.29.3b'}); return; }
+    if (actual !== expected) { send({event: 'refused', hook: name, reason: 'code signature differs from 3.29.3c'}); return; }
     addresses[name] = p;
   }
   const hooks = [], start = Date.now();
@@ -33,7 +33,7 @@
       clearInterval(timer);
     }
   };
-  // Life+8 is its owning object; Life tick 0x141e6a26d reads the object's id at +0x88.
+  // Life+8 is its owning object; Life tick 0x141e7080d reads the object's id at +0x88.
   const player = life => !life.isNull() && life.add(8).readPointer().add(0x88).readU32() === 0x1000;
   const snapshot = life => Object.fromEntries([['life', 0x178], ['mana', 0x1c8], ['es', 0x210]].map(([name, offset]) => {
     const pool = life.add(offset);

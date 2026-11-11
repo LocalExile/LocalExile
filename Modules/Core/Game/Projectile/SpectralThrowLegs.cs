@@ -10,7 +10,7 @@ using GameServer.Core.Projectiles;
 /// shortcut: distance scales with projectile speed at the same 0.85 s; that is assumed, not traced.
 /// shortcut: a wall stops the flight without a return (the runtime returns only before the flight's life ends).
 /// </summary>
-sealed class SpectralThrowLegs(double speed) : IProjectileLegs
+public sealed class SpectralThrowLegs(double speed) : IProjectileLegs
 {
     public const double BaseSpeed = 92, BaseDistance = 42, OutboundSeconds = .85, RestSeconds = .26;
     const int Segments = 10;
@@ -63,7 +63,7 @@ sealed class SpectralThrowLegs(double speed) : IProjectileLegs
 /// shortcut: when the client starts the combo over at 01a is not known; the server only alternates.
 /// shortcut: other classes and stances keep the attack1 contact (AttackContactDelay); their Melee is not read.
 /// </summary>
-static class SpectralThrowRelease
+public static class SpectralThrowRelease
 {
     /// <summary>A view's length and contact (seconds into it) and how long its outside of the slow span takes.</summary>
     readonly record struct Swing(double Length, double Contact, double NormalSeconds);

@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // Reuse the ordinary planner's cadence, action generations and repath budget for owned weapon targets.
     static bool PlanRampageWeaponTarget(ClientState conn, MonsterAiCadence cadence, MonsterAiPlan plan,

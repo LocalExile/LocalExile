@@ -1,9 +1,9 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task InitializeControlledPlayer(ClientState conn, ClientState leader)
+    public static async Task InitializeControlledPlayer(ClientState conn, ClientState leader)
     {
         RegisterVitalsAdmission(conn);
         PrepareCharacterForArea(conn.Wire.Remote, conn, conn.Pools.Level);
@@ -23,7 +23,7 @@ static partial class Game
         EnsurePlayerUpdates(conn);
     }
 
-    internal static async Task StepControlledPlayer(ClientState conn, ClientState leader)
+    public static async Task StepControlledPlayer(ClientState conn, ClientState leader)
     {
         if (conn.Closed || leader.Closed || conn.LeavingArea || conn.Paused || !leader.PlayerSent) return;
         EnsurePlayerUpdates(conn);
@@ -38,7 +38,7 @@ static partial class Game
             }
             return;
         }
-        bool following = KeepControlledFollowerNear(conn, leader, now);
+        bool following = KeepControlledFollowerNear(conn, leader, now, ControlledExternalMovement(conn, leader, now));
         if (now < conn.ControlledNextAction) return;
         conn.ControlledNextAction = now + .35;
         if (conn.Passives.Count < conn.Pools.Level - 1)
@@ -56,6 +56,7 @@ static partial class Game
             }
             await SendCharacterStats(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, "bot allocates earned passive points");
         }
+        if (await ExecuteControlledIntent(conn, leader, now, following)) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillHitPlan.ForSkill(SkillsFor(conn), g.Effect, g.Level, g.Quality).CanHit
             && GemSkillInstanceDisabled(conn, g.Effect, g.Id) is null);
         bool onTheMove = following || leader.Walk.Moving(now);

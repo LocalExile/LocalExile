@@ -4,13 +4,13 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
         && (conn.Golems.All.GetValueOrDefault(g.Id) == g || conn.Reservations.Fighters.GetValueOrDefault(g.Id) == g || conn.Summons.Fighters.GetValueOrDefault(g.Id) == g)
         && conn.Monsters.GetValueOrDefault(g.Id) == g.Monster;
 
-    internal static void GolemStepLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
+    public static void GolemStepLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
     {
         var m = g.Monster;
         if (!GolemCurrent(conn, g) || m.Dead || conn.PlayerLife == 0) return;
@@ -199,7 +199,7 @@ static partial class Game
             0x2909, conn.NextActionSequence(), 0x0408), null, g.Id, m, Action: generation));
     }
 
-    internal static void GolemAbilityContactLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static void GolemAbilityContactLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         GolemState.Golem g, GolemState.Action action, double now)
     {
         var a = action.Ability; var at = g.Monster.Walk.Position(now);
@@ -223,6 +223,7 @@ static partial class Game
         {
             var (dps, unitDps, normalIncrease) = GolemHazardDamage(conn, g, now,
                 GolemStat(a.Stats, "base_chaos_damage_to_deal_per_minute") / 60.0, area: true);
+            (dps, unitDps) = (dps * DoedreSewers.MinionDamageFactor(conn), unitDps * DoedreSewers.MinionDamageFactor(conn));
             g.Hazards.Add(new(a.Effect, at, now + GolemStat(a.Stats, "base_skill_effect_duration") / 1000.0, a.Radius,
                 dps, DamageType.Chaos, Follows: true, Wither: a.Effect == 4337,
                 UnitDamagePerSecond: unitDps, NormalDamageIncrease: normalIncrease) { LastAt = now });
@@ -282,6 +283,7 @@ static partial class Game
         {
             var (dps, unitDps, normalIncrease) = GolemHazardDamage(conn, g, now,
                 GolemStat(a.Stats, "base_fire_damage_to_deal_per_minute") / 60.0, area: true);
+            (dps, unitDps) = (dps * DoedreSewers.MinionDamageFactor(conn), unitDps * DoedreSewers.MinionDamageFactor(conn));
             if (dps > 0 || (unitDps > 0 && g.Definition.IsGolem))
                 g.Hazards.Add(new(a.Effect, at, now + 5, a.Radius, dps, DamageType.Fire,
                     UnitDamagePerSecond: unitDps, NormalDamageIncrease: normalIncrease) { LastAt = now });
@@ -330,7 +332,7 @@ static partial class Game
         }
     }
 
-    internal static bool GolemHitLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g,
+    public static bool GolemHitLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g,
         GolemState.Ability a, uint id, SpawnedMonster target, double now)
     {
         if (!GolemCurrent(conn, g) || !CurrentGameWork || target.Dead || target.Invulnerable || !target.Hostile
@@ -354,7 +356,7 @@ static partial class Game
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), Random.Shared.Next(100))) return false;
         }
         if (MonsterBlocks(target, Random.Shared, a.Attack.Spell)) return false;
-        double factor = 1;
+        double factor = DoedreSewers.MinionDamageFactor(conn);
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -405,7 +407,7 @@ static partial class Game
         return true;
     }
 
-    internal static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods)
+    public static int GolemCriticalChance(GolemState.Ability ability, MonsterModSet mods)
     {
         long increased = (long)mods.Effects["critical_strike_chance_+%"]
             + (ability.Attack.Spell ? mods.Effects["spell_critical_strike_chance_+%"] : 0);
@@ -413,10 +415,10 @@ static partial class Game
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 
-    internal static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random) =>
+    public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random) =>
         GamblerModifiers.From(name => effects[name]).ForSkill(_ => 0, spell).RollOutgoingHit(damage, random);
 
-    internal static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll) =>
+    public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll) =>
         mods.Effects["never_crit"] == 0 && (mods.Effects["always_crit"] != 0 || roll < GolemCriticalChance(ability, mods));
 
     static void GolemLaunch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g,
@@ -455,7 +457,7 @@ static partial class Game
         GolemReserveLocked(conn, g, a, 0, null, g.Monster.Walk.Position(now), now);
     }
 
-    internal static void GolemHazardsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
+    public static void GolemHazardsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
     {
         foreach (var hazard in g.Hazards.ToArray())
         {

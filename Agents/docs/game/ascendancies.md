@@ -2,12 +2,15 @@
 
 An ascendancy is a second class chosen for an existing character.
 This change supplies the server's choice and passive-point lifecycle through chat commands.
-It does not implement the native Labyrinth/Altar chooser (#151), or every special effect of the 19 Phrecia classes.
+The Ascendancy Chamber's font opens the native class selector (S→C 0x7b kind 0x0a; the client picks the selector for an
+unascended class byte, else the passive tree) and its Ascend sends C→S 0x39 with the Ascendancy.dat row (0x3a: a
+Descendancy row). It does not implement every special effect of the 19 Phrecia classes.
 
 ## What can be used
 
 Ordinary ascendancies keep their normal choices, including the Scion alternatives.
-Their nodes work where a consumer exists; [Juggernaut](juggernaut.md) is audited node by node.
+Their nodes work where a consumer exists; [Juggernaut](juggernaut.md), [Slayer](slayer.md) and [Hierophant](hierophant.md) are audited
+node by node.
 The server can list the 21 ordinary and 19 Phrecia definitions from the exact 3.29.3b tables and graph export.
 Each choice is identified by family, stable table Id and revision; two families can share a class number and start node.
 Only one main ascendancy is selected at a time, and it must belong to the character's base class.

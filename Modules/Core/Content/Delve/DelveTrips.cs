@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Delve;
 
@@ -19,7 +20,7 @@ public sealed partial class DelveModule
             await player.Send(InstanceDelve.SulphiteChanged(amount, amount), "Synchronize Delve sulphite gauge");
     }
 
-    async Task RequestTrip(IModuleContext module, IPlayer player, IReadOnlyList<InstanceDelve.RoutePoint> route)
+    async Task RequestTrip(IPlayer player, IReadOnlyList<InstanceDelve.RoutePoint> route)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
         if (!conn.PlayerSent || conn.LeavingArea || conn.Closed || conn.PlayerLife == 0
@@ -40,30 +41,30 @@ public sealed partial class DelveModule
             }
             finally { if (!conn.LeavingArea) _pendingTrips.TryRemove(CharacterName(conn), out _); }
         }
-        else await StartTrip(module, player);
+        else await StartTrip(player);
     }
 
-    async Task StartPendingTrip(IModuleContext module, IPlayer player)
+    async Task StartPendingTrip(IPlayer player)
     {
         var conn = ConnOf(player);
         if (conn.Layout.Hash == InstanceDelve.MineArea && _pendingTrips.TryRemove(CharacterName(conn), out _))
-            await StartTrip(module, player);
+            await StartTrip(player);
     }
 
-    async Task StartTrip(IModuleContext module, IPlayer player)
+    async Task StartTrip(IPlayer player)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
-        var world = module.World(player);
+        var world = WorldOf(player);
         var state = _states.GetOrCreateValue(player);
         if (state.Journey is not null || state.Crawler == 0 || conn.Layout.Walkable is null) return;
-        if (!File.Exists("data/tables/DelveLevelScaling.json"))
+        if (!ClientTables.Exists("data/tables/DelveLevelScaling.json"))
         {
             await player.Tell("Delve trip scaling data is unavailable; no sulphite was spent."); return;
         }
         var rail = DelveRailRoute.Load(conn.Layout.Id, conn.Seed);
         if (rail is null) { await player.Tell("The mine rail capture is unavailable; no sulphite was spent."); return; }
-        using var scaling = JsonDocument.Parse(File.ReadAllBytes("data/tables/DelveLevelScaling.json"));
-        // 0x141ea3300 prices path points after the origin. BlockY*8 + CellY + 1 = 2 for the first quest destination.
+        using var scaling = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/DelveLevelScaling.json"));
+        // 0x141ea9bb0 prices path points after the origin. BlockY*8 + CellY + 1 = 2 for the first quest destination.
         var depth = scaling.RootElement.EnumerateArray().First(r => r.GetProperty("Depth").GetInt32() == 2);
         int cost = depth.GetProperty("SulphiteCost").GetInt32();
         byte level = depth.GetProperty("MonsterLevel").GetByte();
@@ -92,13 +93,13 @@ public sealed partial class DelveModule
         await Send(remote, stream, ciphers, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
         await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 0), "Close chart for Delve departure");
         Console.WriteLine($"[gateway] {remote} Delve trip armed (smooth motion + trail): {rail.Points.Count} rail points, {trip.Length:0.0} cells, cost {cost}, monster level {level}");
-        _ = RunTrip(module, player, state, trip, level, rail.Encounters);
+        _ = RunTrip(player, state, trip, level, rail.Encounters);
     }
 
-    static async Task RunTrip(IModuleContext module, IPlayer player, State state, DelveJourney trip, byte level, IReadOnlyList<DelveRailRoute.Encounter> encounters)
+    static async Task RunTrip(IPlayer player, State state, DelveJourney trip, byte level, IReadOnlyList<DelveRailRoute.Encounter> encounters)
     {
         var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
-        var character = module.World(player).CharacterData;
+        var character = WorldOf(player).CharacterData;
         int epoch = conn.ProjectileEpoch;
         var spawned = new HashSet<int>();
         // The tutorial is an Azurite quest room. Use its authored Weta/Spider pack pool for the initial route;
@@ -210,7 +211,7 @@ public sealed partial class DelveModule
                     await SpawnEncounters(spawnQueue);
                     await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(state.Crawler, 0, 0, 1), "Delve Crawler arrived", valid);
                     Console.WriteLine($"[gateway] {remote} Delve trip finished at {target}, sulphite {trip.Charged}/{trip.Cost}");
-                    await BlockCrawler(module, player, state, target.X, target.Y, heading);
+                    await BlockCrawler(player, state, target.X, target.Y, heading);
                     // Arrival alone is not victory: finish the route's own encounter before opening its reward.
                     while (valid() && conn.PlayerLife > 0)
                     {
@@ -266,7 +267,7 @@ public sealed partial class DelveModule
         foreach (var (id, ground) in groundItems)
         {
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
-                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()), "Delve completion reward", valid);
+                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)), "Delve completion reward", valid);
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, valid);
         }
         Console.WriteLine($"[gateway] {remote} Delve depth {trip.Depth} completed: {groundItems.Count} items, +{reward.QuantityPercent}% quantity, +{reward.Rarity}% rarity");

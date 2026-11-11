@@ -1,7 +1,7 @@
-static partial class Game
+public static partial class Game
 {
-    internal const string CatAspectFamily = "CatAspect";
-    internal const ushort CatAspectRootRow = 1036, CatsStealthRow = 1037, CatsAgilityRow = 1038;
+    public const string CatAspectFamily = "CatAspect";
+    public const ushort CatAspectRootRow = 1036, CatsStealthRow = 1037, CatsAgilityRow = 1038;
     const string CatBuffEffect = "aspect_of_the_cat_buff_effect_+%";
     const string CatStealthDuration = "cats_stealth_duration_ms_+";
     const string CatAgilityDuration = "aspect_of_the_cat_base_secondary_duration";
@@ -15,10 +15,10 @@ static partial class Game
     const string CatAttackSpeed = "attack_speed_+%";
     const string CatCastSpeed = "base_cast_speed_+%";
 
-    internal readonly record struct CatAspectPhaseStats(int CriticalStrikeChancePct, int AvoidDamagePct,
+    public readonly record struct CatAspectPhaseStats(int CriticalStrikeChancePct, int AvoidDamagePct,
         int StealthPct, int AttackSpeedPct, int CastSpeedPct)
     {
-        internal int Value(string stat) => stat switch
+        public int Value(string stat) => stat switch
         {
             CatCrit => CriticalStrikeChancePct,
             CatAvoid => AvoidDamagePct,
@@ -32,7 +32,7 @@ static partial class Game
     static AuraCatalog.Aura? CatAspectRootLocked(ClientState conn) =>
         conn.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == CatAspectFamily);
 
-    internal static bool CatAspectRootActiveLocked(ClientState conn)
+    public static bool CatAspectRootActiveLocked(ClientState conn)
     {
         var state = conn.Reservations;
         return CatAspectRootLocked(conn) is { } root && state.CatOwner is { } owner
@@ -40,7 +40,7 @@ static partial class Game
             && state.Cat is not ReservationState.CatPhase.None;
     }
 
-    internal static ushort CatAspectPhaseRow(ReservationState.CatPhase phase) => phase switch
+    public static ushort CatAspectPhaseRow(ReservationState.CatPhase phase) => phase switch
     {
         ReservationState.CatPhase.Stealth => CatsStealthRow,
         ReservationState.CatPhase.Agility => CatsAgilityRow,
@@ -67,7 +67,7 @@ static partial class Game
         conn.AuraStatsDirty = true;
     }
 
-    internal static void EndCatAspectRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
+    public static void EndCatAspectRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
     {
         if (conn.Reservations.CatOwner is not { } owner
             || owner.Skill != aura.SkillId || owner.RootBuff != aura.Buff) return;
@@ -130,7 +130,7 @@ static partial class Game
         return (other, transition + first, transition + first + second);
     }
 
-    internal static bool CatAspectReconcileLocked(ClientState conn, double now,
+    public static bool CatAspectReconcileLocked(ClientState conn, double now,
         IReadOnlyDictionary<uint, int>? rawSources = null)
     {
         var state = conn.Reservations;
@@ -314,16 +314,16 @@ static partial class Game
             Console.WriteLine($"[gateway] {conn.Wire.Remote} {line} ({entryName} entry {entryAt:0.###})");
     }
 
-    internal static bool CatOnslaughtActiveLocked(ClientState conn) =>
+    public static bool CatOnslaughtActiveLocked(ClientState conn) =>
         conn.PlayerLife > 0 && CatAspectRootActiveLocked(conn)
         && conn.Reservations.Cat == ReservationState.CatPhase.Agility && conn.Reservations.CatOnslaughtQualified;
 
-    internal static IEnumerable<UtilityFlasks.Source> CatOnslaughtSources(ClientState conn, Func<string, int> character) =>
+    public static IEnumerable<UtilityFlasks.Source> CatOnslaughtSources(ClientState conn, Func<string, int> character) =>
         CatOnslaughtActiveLocked(conn) && ItemsFor(conn).Onslaught is { } onslaught
             ? UtilityFlasks.OnslaughtSources(onslaught,
                 Math.Max(0, 1 + character("onslaught_effect_+%") / 100.0)) : [];
 
-    internal static CatAspectPhaseStats CatAspectPhaseStatsLocked(ClientState conn, int auraEffectPct,
+    public static CatAspectPhaseStats CatAspectPhaseStatsLocked(ClientState conn, int auraEffectPct,
         Func<string, int> raw)
     {
         if (!CatAspectRootActiveLocked(conn) || CatAspectRootLocked(conn) is not { } root)
@@ -350,7 +350,7 @@ static partial class Game
         };
     }
 
-    internal static IReadOnlyList<uint> CatAspectPhaseValues(ReservationState.CatPhase phase,
+    public static IReadOnlyList<uint> CatAspectPhaseValues(ReservationState.CatPhase phase,
         CatAspectPhaseStats phaseStats) => phase switch
     {
         ReservationState.CatPhase.Stealth =>
@@ -361,7 +361,7 @@ static partial class Game
         _ => [],
     };
 
-    internal static IReadOnlyList<(uint Key, int Value)> CatAspectRawStatsLocked(ClientState conn, int auraEffectPct,
+    public static IReadOnlyList<(uint Key, int Value)> CatAspectRawStatsLocked(ClientState conn, int auraEffectPct,
         Func<string, int> raw)
     {
         var phase = CatAspectPhaseStatsLocked(conn, auraEffectPct, raw);

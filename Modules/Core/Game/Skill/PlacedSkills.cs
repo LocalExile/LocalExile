@@ -3,14 +3,14 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static readonly Lazy<IReadOnlyDictionary<int, string>> TrapVisuals = new(() =>
     {
         using var rows = GameTables.Open(Path.Combine("data", "tables", "SkillTrapVariations.json"));
         return rows.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("Id").GetInt32(), r => r.GetProperty("Metadata").GetString()!);
     });
-    internal static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
+    public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
     {
         var types = (Supports.Of(gem.Effect)?.Types ?? []).Concat(gem.Supports.SelectMany(s => s.Effect.Added)).ToHashSet();
         return (types.Contains(32), types.Contains(35));
@@ -88,7 +88,7 @@ static partial class Game
         }
     }
 
-    internal static int PlacedSkillLimit(ClientState conn, SupportedGem gem, bool mine)
+    public static int PlacedSkillLimit(ClientState conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
         int Get(string n) => GolemStat(gem.Stats, n) + GolemStat(player, n);
@@ -97,7 +97,7 @@ static partial class Game
             + Get(mine ? "number_of_additional_remote_mines_allowed" : "number_of_additional_traps_allowed"), 0, 200);
     }
 
-    internal static int PlacedSkillCount(ClientState conn, SupportedGem gem, bool mine)
+    public static int PlacedSkillCount(ClientState conn, SupportedGem gem, bool mine)
     {
         var player = CharacterPlayerStats(conn);
         string additional = mine ? "number_of_additional_mines_to_place" : "number_of_additional_traps_to_throw";
@@ -246,17 +246,17 @@ static partial class Game
             .. InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)];
     }
 
-    internal static void DetonateMinesLocked(ClientState conn, double now)
+    public static void DetonateMinesLocked(ClientState conn, double now)
     {
         conn.Placed.Chain = 0; conn.Placed.NextChain = now;
         foreach (var mine in conn.Placed.All.Values.Where(p => p.Mine && p.Armed <= now).OrderBy(p => p.Armed))
             mine.DetonateAt = now + .2 * conn.Placed.Chain++;
     }
 
-    internal static bool CanDetonateMines(ClientState conn) =>
+    public static bool CanDetonateMines(ClientState conn) =>
         conn.Placed.All.Values.Any(p => p.Mine && p.Armed <= AreaTime(conn));
 
-    internal static void LandPlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
+    public static void LandPlacedLocked(ClientState conn, PlacedSkills.Placed placed, double now, List<byte> bytes)
     {
         if (placed.Landed || now < placed.LandAt) return;
         placed.Landed = true;
@@ -334,7 +334,7 @@ static partial class Game
         }
     }
 
-    internal static void PlacedGroundsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static void PlacedGroundsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, double now, List<byte> bytes)
     {
         // Burning grounds do not stack. Keep a separate fractional carry and stop exactly at expiry.

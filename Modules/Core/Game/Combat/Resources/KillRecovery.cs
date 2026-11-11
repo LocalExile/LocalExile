@@ -4,7 +4,7 @@
 /// sum and applies no recovery rate. The cannot-recover Life/ES flags stop their pool's share. <see cref="When"/> holds the
 /// amounts that need the killed enemy's ailments, which <see cref="For"/> adds.
 /// </summary>
-readonly record struct KillRecovery(int Life, int LifePct, int Mana, int ManaPct, int EnergyShield, int EnergyShieldPct)
+public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int ManaPct, int EnergyShield, int EnergyShieldPct)
 {
     // "Gain X Life per Ignited Enemy Killed", "Recover X% of Life on Killing a Chilled Enemy", "+X Energy Shield gained on
     // Killing a Shocked Enemy", "+X Mana gained on Killing a Frozen Enemy".
@@ -37,11 +37,11 @@ readonly record struct KillRecovery(int Life, int LifePct, int Mana, int ManaPct
     };
 }
 
-static partial class Game
+public static partial class Game
 {
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): its "on kill" recovery, at once. The
     // amounts follow the last player stat snapshot (ConfigureLeech), so a pack's deaths do not each rebuild the stats.
-    internal static void RecoverOnKill(ClientState conn, SpawnedMonster m)
+    public static void RecoverOnKill(ClientState conn, SpawnedMonster m)
     {
         lock (conn.Monsters)
         {

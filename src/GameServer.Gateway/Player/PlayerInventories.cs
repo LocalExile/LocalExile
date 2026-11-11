@@ -1,19 +1,29 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// A character's items, by Inventories.dat row (the Gateway registers inventory id = row + 1 for every row, 05 §2). Kept
 /// in memory per character name and saved after every change (<see cref="CharacterSaves"/>, data/saves/), so they follow
 /// the player through area changes and Gateway restarts.
 /// </summary>
-sealed class PlayerInventories
+public sealed class PlayerInventories
 {
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
         Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
         PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43, Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
+
+    // Persistent gem edits replace immutable records without replacing the physical socketed gem.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, object> GemIdentities = new();
+    public static object GemIdentity(Item gem) => GemIdentities.GetValue(gem, _ => new());
+    public static Item PreserveGemIdentity(Item before, Item after)
+    {
+        if (!ReferenceEquals(before, after)) GemIdentities.Add(after, GemIdentity(before));
+        return after;
+    }
 
     private readonly Dictionary<byte, List<InventoryItem>> _items = [];
     private readonly Dictionary<byte, uint> _revisions = [];
@@ -148,14 +158,21 @@ sealed class PlayerInventories
         return result;
     }
 
-    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false)
+    // Vendor preflight uses the same placement checks without putting an unpaid item on the cursor.
+    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
+        PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
+
+    Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false,
+        InventoryItem? incoming = null, bool preview = false)
     {
         lock (_lock)
         {
             why = "";
             if (row == Cursor || row >= InstanceInventories.PlayerDefaults.Length) { why = "not an inventory to place into"; return null; }
-            if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
-            var held = cursor[0];
+            var cursor = ItemsIn(Cursor);
+            if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
+            if (incoming is not null && cursor.Count != 0) { why = "something held"; return null; }
+            var held = incoming ?? cursor[0];
             if (shapeOf(held.Item) is not { } shape) { why = "unknown item type"; return null; }
             var slot = InstanceInventories.PlayerDefaults[row];
             List<InventoryItem> inTheWay;
@@ -174,11 +191,12 @@ sealed class PlayerInventories
             {
                 if (x < 0 || y < 0 || x + shape.Width > slot.Width || y + shape.Height > slot.Height) { why = "outside the grid"; return null; }
                 if (row == Flask && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the flask slots"; return null; }
-                if (row == MapDevice && !Accepts(row, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
+                if (row == MapDevice && !global::MapDevice.AcceptsItem(held.Item.TypeHash, shape.Class)) { why = $"{shape.Class} does not go in the map device"; return null; }
                 inTheWay = [.. ItemsIn(row).Where(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < y + shape.Height && y < i.Y + s.Height)];
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
             if (inTheWay.Any(i => _offered.ContainsKey(i.Id))) { why = "an item offered for sale is in the way"; return null; }
+            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault());
             var items = ItemsIn(row);
             int amount = one ? 1 : held.Item.StackSize;
             if (inTheWay is [var under] && under.Item.TypeHash == held.Item.TypeHash && shape.MaxStack > 1 && under.Item.StackSize < shape.MaxStack)
@@ -293,7 +311,7 @@ sealed class PlayerInventories
             why = "";
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
-            if (shapeOf(held.Item)?.Class is not ("Active Skill Gem" or "Support Skill Gem")) { why = "the held item is not a gem"; return null; }
+            var heldClass = shapeOf(held.Item)?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -301,6 +319,12 @@ sealed class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
+            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
+                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                return null;
+            }
             var old = sockets[socket].Gem;
             sockets[socket] = sockets[socket] with { Gem = held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
@@ -351,7 +375,7 @@ sealed class PlayerInventories
     public IReadOnlyList<(uint ItemId, Item Gem)> SocketedGemsByItem() => [.. SocketedGemPlaces().Select(g => (g.ItemId, g.Gem))];
 
     // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
-    internal IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
+    public IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
     {
         lock (_lock)
             return [.. ItemModStats.EquipmentRows.SelectMany(row =>
@@ -368,7 +392,7 @@ sealed class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem)).Where(g => g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
     }
 
@@ -393,8 +417,9 @@ sealed class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket].Gem is { } gem && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
+                            after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
                             sockets[socket] = sockets[socket] with { Gem = after };
                         }
@@ -820,13 +845,13 @@ sealed class PlayerInventories
     }
 
     /// <summary>Forgets the character's loaded items: the next use loads them from the database (tests: a restart).</summary>
-    internal static void Forget(string character)
+    public static void Forget(string character)
     {
         if (ByCharacter.TryRemove(character, out var old)) old._gemSourceLifetimes.RetireOwner();
     }
 
     // A confirmed build replacement retires old references, including the periodic unsaved-items writer.
-    internal static void Invalidate(string character)
+    public static void Invalidate(string character)
     {
         if (ByCharacter.TryRemove(character, out var old))
         {
@@ -837,22 +862,22 @@ sealed class PlayerInventories
 
     /// <summary>The physical shared marker for a source in this loaded inventory, or null after this owner was retired.
     /// Taking the inventory lock makes capture linearizable with the accepted socket writes below.</summary>
-    internal GemSourceLifetimes.SourceMarker? CaptureGemSourceLifetime(GemSkillIds.Gem key)
+    public GemSourceLifetimes.SourceMarker? CaptureGemSourceLifetime(GemSkillIds.Gem key)
     {
         lock (_lock) return _gemSourceLifetimes.Capture(key);
     }
 
     /// <summary>The loaded inventory currently registered for a character, without constructing or loading another one.</summary>
-    internal static PlayerInventories? Current(string character) =>
+    public static PlayerInventories? Current(string character) =>
         ByCharacter.TryGetValue(character, out var inventory) ? inventory : null;
 
     /// <summary>Claims the current saved activation of one source. Takes only the neutral store lock.</summary>
-    internal bool ClaimGemActivation(string saveNamespace, ushort skill,
+    public bool ClaimGemActivation(string saveNamespace, ushort skill,
         GemSourceLifetimes.SourceMarker marker, Guid owner) =>
         _gemSourceLifetimes.ClaimActivation(saveNamespace, skill, marker, owner);
 
     /// <summary>Looks up one source's activation writer using only the neutral store lock.</summary>
-    internal GemSourceLifetimes.SourceStore.ActivationOwner? GemActivationWriter(
+    public GemSourceLifetimes.SourceStore.ActivationOwner? GemActivationWriter(
         string saveNamespace, ushort skill) =>
         _gemSourceLifetimes.ActivationWriter(saveNamespace, skill);
 
@@ -1044,7 +1069,7 @@ sealed class PlayerInventories
         var inv = new PlayerInventories();
         if (Environment.GetEnvironmentVariable("Game_START_ITEMS") == "0") return inv;
         string chars = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (catalog.Error is not null || !File.Exists(chars) || !File.Exists(gems))
+        if (catalog.Error is not null || !ClientTables.Exists(chars) || !ClientTables.Exists(gems))
         {
             // The empty kit is saved like any other, so this character stays empty: say why.
             Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no {chars} or {gems}"} (extract the tables and data/item-types.json first, Agents/GettingStarted.md)");

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "settings": {
+    "mcpEnabled": {
+      "type": "bool", "default": false, "label": "External AI control (MCP)",
+      "description": "Authenticated loopback MCP for bots in human-led parties.", "applies": "restart"
+    },
+    "mcpPort": {
+      "type": "integer", "default": 6194, "min": 1024, "max": 65535,
+      "label": "MCP port", "description": "Loopback HTTP port for external AI clients.", "applies": "restart"
+    },
+    "mcpLeaseSeconds": {
+      "type": "integer", "default": 30, "min": 15, "max": 120,
+      "label": "External control lease", "description": "Wall seconds before unattended control returns to ordinary AI.",
+      "format": "duration", "unit": "s", "applies": "restart"
+    },
+    "maxBots": {
+      "type": "integer", "default": 100, "min": 0, "max": 1000,
+      "label": "Most bots",
+      "description": "Bots at most, all towns together."
+    },
+    "firstSpawnSeconds": {
+      "type": "integer", "default": 60, "min": 0, "max": 86400, "format": "duration", "unit": "s",
+      "label": "First bot after",
+      "description": "How long after the Gateway starts the first bot is created."
+    },
+    "spawnIntervalSeconds": {
+      "type": "integer", "default": 60, "min": 1, "max": 86400, "format": "duration", "unit": "s",
+      "label": "A new bot every",
+      "description": "How often a new bot is created, while there are fewer than the most."
+    },
+    "league": {
+      "type": "text", "default": "Standard", "minLength": 1,
+      "label": "League",
+      "description": "The league of the bots' characters.",
+      "applies": "restart"
+    },
+    "questMinutes": {
+      "type": "range", "of": "integer", "default": [2, 6], "min": 1, "max": 120, "unit": "min",
+      "label": "Quest time",
+      "description": "How long a quest takes, out of sight: a random time in this range."
+    },
+    "townActivities": {
+      "type": "range", "of": "integer", "default": [2, 4], "min": 1, "max": 20,
+      "label": "Things to do in town",
+      "description": "How many places a staying visit goes to in town."
+    },
+    "idleSeconds": {
+      "type": "range", "of": "integer", "default": [8, 75], "min": 1, "max": 3600, "format": "duration", "unit": "s",
+      "label": "Time at each place",
+      "description": "How long a bot stands at each place in town."
+    },
+    "deathChancePerQuest": {
+      "type": "number", "default": 0.15, "min": 0, "max": 1, "format": "percent",
+      "label": "Death chance per quest",
+      "description": "A death makes the bot retry the quest."
+    },
+    "statusSeconds": {
+      "type": "integer", "default": 10, "min": 1, "max": 3600, "format": "duration", "unit": "s",
+      "label": "Status file every",
+      "description": "How often logs/status.txt and state/bots.json are rewritten.",
+      "advanced": true
+    }
+  }
+}

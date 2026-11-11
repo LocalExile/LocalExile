@@ -1,10 +1,10 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>The owned GolemState actor for this id and exact monster lifetime, if any.</summary>
-    internal static bool OwnedGolemActor(ClientState conn, uint id, SpawnedMonster monster)
+    public static bool OwnedGolemActor(ClientState conn, uint id, SpawnedMonster monster)
     {
         GolemState.Golem? golem = conn.Golems.All.GetValueOrDefault(id)
             ?? conn.Reservations.Fighters.GetValueOrDefault(id)
@@ -12,7 +12,7 @@ static partial class Game
         return golem is not null && ReferenceEquals(golem.Monster, monster);
     }
 
-    internal static bool GolemElementalImmune(GolemState.Golem golem)
+    public static bool GolemElementalImmune(GolemState.Golem golem)
     {
         int Player(string name) => GolemStat(golem.Player, name);
         return golem.Definition.IsGolem && (Player("golem_immunity_to_elemental_damage") > 0
@@ -21,7 +21,7 @@ static partial class Game
     }
 
     /// <summary>The invulnerable reservation families reject every contact and every owned damaging ailment.</summary>
-    internal static bool GolemIgnoresDots(GolemState.Golem golem) =>
+    public static bool GolemIgnoresDots(GolemState.Golem golem) =>
         !golem.Definition.IsGolem && golem.Definition.Kind is "Agony" or "SkitterCold" or "SkitterLightning";
 
     static bool GolemHasDots(GolemState.Golem golem) =>
@@ -32,7 +32,7 @@ static partial class Game
 
     /// <summary>Advances every owned ailment set once, applies its positive whole typed damage to ES then Life, and
     /// interrupts recharge at the latest positive subinterval end.</summary>
-    internal static void GolemDotsLocked(ClientState conn, GolemState.Golem golem, double from, double to)
+    public static void GolemDotsLocked(ClientState conn, GolemState.Golem golem, double from, double to)
     {
         var m = golem.Monster;
         if (!(to > from) || !GolemCurrent(conn, golem) || m.Dead || m.Life == 0) return;
@@ -114,7 +114,7 @@ static partial class Game
     }
 
     /// <summary>Shows the moved sets once on their new actor, using only their remaining absolute lifetimes.</summary>
-    internal static void PresentTransferredGolemDotBuffsLocked(ClientState conn, GolemState.Golem golem, double now)
+    public static void PresentTransferredGolemDotBuffsLocked(ClientState conn, GolemState.Golem golem, double now)
     {
         var m = golem.Monster;
         if (m.Ignites.Until > now)
@@ -139,7 +139,7 @@ static partial class Game
 
     /// <summary>Admits hostile bleed and poison from an accepted contact's real source effects onto the golem's own
     /// monster ailment sets, using the player pipeline's frozen chance, damage and duration contract.</summary>
-    internal static void GolemHostileAilmentsLocked(ClientState conn, GolemState.Golem golem, uint attacker,
+    public static void GolemHostileAilmentsLocked(ClientState conn, GolemState.Golem golem, uint attacker,
         SpawnedMonster source, DamagePacket rolled, bool critical, bool attack, double now)
     {
         var target = golem.Monster;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -6,7 +7,7 @@ using System.Text.Json;
 /// Callers validate the ascendancy allocation separately, then supply its candidate nodes so refunding an Ascendant
 /// Path of the class cannot leave an ordinary branch depending on the removed additional start.
 /// </summary>
-sealed class OrdinaryPassiveRules(string folder = "data")
+public sealed class OrdinaryPassiveRules(string folder = "data")
 {
     sealed record Node(bool IsAscendancy, bool IsMastery, bool RequiresExpansion,
         IReadOnlyList<byte> Starts, byte? GrantedStart);
@@ -129,20 +130,20 @@ sealed class OrdinaryPassiveRules(string folder = "data")
         string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
         string characterPath = Path.Combine(folder, "tables", "Characters.json");
         string statsPath = Path.Combine(folder, "tables", "Stats.json");
-        if (!new[] { graphPath, passivePath, characterPath, statsPath }.All(File.Exists)) return null;
+        if (!new[] { graphPath, passivePath, characterPath, statsPath }.All(ClientTables.Exists)) return null;
 
         using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != AscendancyCatalog.Revision)
             throw new InvalidDataException($"{graphPath}: expected passive data revision {AscendancyCatalog.Revision}");
         var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, f =>
             ReadGraph(graphs.RootElement.GetProperty(f == AscendancyFamily.Normal ? "normal" : "phrecia")));
-        using var characters = JsonDocument.Parse(File.ReadAllBytes(characterPath));
+        using var characters = JsonDocument.Parse(ClientTables.ReadAllBytes(characterPath));
         byte[] classes = characters.RootElement.EnumerateArray()
             .Select(r => checked((byte)r.GetProperty("IntegerId").GetInt32())).ToArray();
         using var stats = GameTables.Open(statsPath);
         int grantStat = Array.FindIndex(stats.RootElement.EnumerateArray().ToArray(),
             r => r.GetProperty("Id").GetString() == "display_can_take_character_start_point");
-        using var passives = JsonDocument.Parse(File.ReadAllBytes(passivePath));
+        using var passives = JsonDocument.Parse(ClientTables.ReadAllBytes(passivePath));
         var nodes = new Dictionary<ushort, Node>();
         var starts = new Dictionary<byte, ushort>();
         foreach (var row in passives.RootElement.EnumerateArray())

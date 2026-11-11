@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Impossible Escape (Viridian Jewel, Small, limited to 1): a generated unique whose variant is one of the client's
@@ -7,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// <c>JewelUniqueAllocateDisconnectedPassivesAroundKeystone</c> mod stores the chosen row and the 800 radius.
 /// The server uses that value for the allocation bypass around the keystone.
 /// </summary>
-static class ImpossibleEscapeCatalogue
+public static class ImpossibleEscapeCatalogue
 {
     const string ModId = "JewelUniqueAllocateDisconnectedPassivesAroundKeystone";
     const string KeystoneStat = "local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash";
@@ -21,6 +22,10 @@ static class ImpossibleEscapeCatalogue
     static readonly Lazy<List<Keystone>> Entries = new(Load);
 
     public static IReadOnlyList<Keystone> All => Entries.Value;
+
+    // Current items store a graph ID; older items stored the row of the same Maven keystone.
+    public static Keystone? ForStoredValue(int value) =>
+        All.FirstOrDefault(entry => entry.GraphId == value) ?? All.FirstOrDefault(entry => entry.Row == value);
 
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 
@@ -62,8 +67,7 @@ static class ImpossibleEscapeCatalogue
     public static Item Migrate(Item item, ModCatalog mods)
     {
         if (Read(item, mods) is not { } read) return item;
-        if (Program.Passives.Find((ushort)read.Value) is { IsKeystone: true }) return item;
-        if (Program.Passives.GraphIdForRow(read.Value) is not ushort graphId) return item;
+        if (ForStoredValue(read.Value) is not { GraphId: var graphId } || graphId == read.Value) return item;
         var rewritten = new List<ItemMod>(item.Mods.Count);
         foreach (var itemMod in item.Mods)
         {
@@ -115,8 +119,8 @@ static class ImpossibleEscapeCatalogue
     {
         var result = new List<Keystone>();
         string path = Path.Combine("data", "tables", "MavenJewelRadiusKeystones.json");
-        if (!File.Exists(path)) return result;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var entry in document.RootElement.EnumerateArray())
         {
             int row = entry.GetProperty("Keystone").GetInt32();

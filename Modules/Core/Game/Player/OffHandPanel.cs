@@ -1,7 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>
     /// The Offence tab's Off Hand rows (issue #75) for an attack that swings the off-hand weapon of a dual-wielded pair:
@@ -13,7 +13,7 @@ static partial class Game
     /// <paramref name="player"/> is the character's final stats; <paramref name="own"/> a selected attack gem's own
     /// stats, whose flat/increased accuracy and critical increases join as they do for the main hand.
     /// </summary>
-    internal static List<(string Stat, int Value)>? OffHandPanelStats(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static List<(string Stat, int Value)>? OffHandPanelStats(ClientState conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<string, int> mainLocal, IReadOnlyDictionary<string, int> offLocal,
         int mainHandAttackSpeedPct, IReadOnlyDictionary<uint, int>? own = null, int effect = -1) =>
         OffHandPanelStats(() => OffhandWeaponFor(conn), () => ActiveOffHand(conn), () => conn.Pools,
@@ -21,7 +21,7 @@ static partial class Game
             player, mainLocal, offLocal, mainHandAttackSpeedPct, own, PlayerBlindValue(conn, player).Less);
 
     // The same rows from inputs read once (the stat snapshot's tail inputs), each asked where the line above asks conn.
-    internal static List<(string Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,
+    public static List<(string Stat, int Value)>? OffHandPanelStats(Func<SkillCatalog.Unarmed?> offhandWeapon,
         Func<(Item Item, ItemCatalog.BaseType? Type)?> activeOffHand, Func<CharacterStats.Pools> currentPools,
         Func<WeaponProfile> weaponProfile, ItemCatalog catalog, Func<int> attackCriticalMultiplier,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<string, int> mainLocal, IReadOnlyDictionary<string, int> offLocal,
@@ -64,7 +64,7 @@ static partial class Game
 
     /// <summary>The off hand's twelve damage rows for a selected attack gem: the same supported hit swung with the
     /// off-hand weapon, every type written (zero clears a type the conversion no longer deals).</summary>
-    internal static IEnumerable<(string Stat, int Value)> OffHandDamageRows(DamagePacket hit)
+    public static IEnumerable<(string Stat, int Value)> OffHandDamageRows(DamagePacket hit)
     {
         var ranges = PanelStats.HandDamage(hit, "off_hand").ToDictionary(r => r.Stat, r => r.Value);
         foreach (string stat in PanelStats.DamageRows("off_hand")) yield return (stat, ranges.GetValueOrDefault(stat));

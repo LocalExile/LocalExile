@@ -1,8 +1,8 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The fill of <c>0x142116600</c> (<c>0x141fef070</c>): every empty entry of the view, row by row, gets a fill
+/// <summary>The fill of <c>0x14211cf00</c> (<c>0x141ff5890</c>): every empty entry of the view, row by row, gets a fill
 /// tile or fill room for the ground of its top-left vertex from the master's FillTiles (.gft, master +0x218: per ground
-/// name, tiles and rooms with weights; no ground or one left out of keys is "default"), <c>0x141feb970</c>.</summary>
+/// name, tiles and rooms with weights; no ground or one left out of keys is "default"), <c>0x141ff2190</c>.</summary>
 sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offsetX, int offsetY, int width, int height, TileStore store,
     Dictionary<string, List<(int Weight, string Path, int Orientation)>> fills, List<PlacedRoom> rooms, List<string> notes)
 {
@@ -11,7 +11,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
 
     int Flags(string? g) => files.Ground(g)?.Flags ?? 0;
 
-    /// <summary>The listeners <c>0x141feb970</c> / <c>0x141fe89e0</c> call after each tile (tile, orientation, view
+    /// <summary>The listeners <c>0x141ff2190</c> / <c>0x141fef200</c> call after each tile (tile, orientation, view
     /// x, y).</summary>
     public Action<TileDef, int, int, int>? TilePlaced { get; init; }
 
@@ -40,7 +40,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
     {
         if (ground is not null && (Flags(ground) & 0x10) != 0) ground = null;
         string name = ground is null ? "default" : files.Ground(ground)?.Name ?? "default";
-        // 0x141fefa40: a ground without fill tiles or rooms of its own takes the default ones.
+        // 0x141ff6260: a ground without fill tiles or rooms of its own takes the default ones.
         if (!fills.TryGetValue(name, out var list) && !fills.TryGetValue("default", out list)) return null;
         var tiles = new List<Choice>();
         var rooms = new List<Choice>();
@@ -63,9 +63,9 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return list[^1];
     }
 
-    /// <summary><c>0x141feb970</c>: returns how many more entries of the row the placed tile covers. A given height
-    /// (the dungeon fill's, <c>0x1420f3de0</c>) is used as it is; without one (0x80000000) the area's corners give it
-    /// (<c>0x141fec8f0</c>).</summary>
+    /// <summary><c>0x141ff2190</c>: returns how many more entries of the row the placed tile covers. A given height
+    /// (the dungeon fill's, <c>0x1420fa6e0</c>) is used as it is; without one (0x80000000) the area's corners give it
+    /// (<c>0x141ff3110</c>).</summary>
     internal int FillEntry(int x, int y, string? ground, bool open, short? height = null)
     {
         if (ground is not null && (Flags(ground) & 0x10) != 0) ground = null;
@@ -95,8 +95,8 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         }
         else
         {
-            // 0x142012f70 / 0x141fed2d0: the tiles, then the rooms (a room with named points only when open). A room with
-            // a real edge or a corner ground that does not suit the vertex's (0x141d77670) is fatal.
+            // 0x1420197c0 / 0x141ff3af0: the tiles, then the rooms (a room with named points only when open). A room with
+            // a real edge or a corner ground that does not suit the vertex's (0x141d7ad00) is fatal.
             var list = new List<Choice>(group.Tiles.Where(c => c.Weight != 0));
             foreach (var c in group.Rooms)
             {
@@ -130,11 +130,11 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return Entry(x, y) is null ? FillEntry(x, y, ground, open, height) : 0;
     }
 
-    /// <summary><c>0x141fed640</c>: the fill of the empty entry beside an edge tile's open side
+    /// <summary><c>0x141ff3e60</c>: the fill of the empty entry beside an edge tile's open side
     /// (<see cref="GroundStages.EdgePoints"/>), at the given height. As <see cref="FillEntry"/>, but a choice reaching
     /// across the side is shifted to end at the entry (side 0: up by its height − 1; side 3: left by its width − 1),
     /// "open" comes from the ground alone (none or flag 4), and no room is left out for its spawn points
-    /// (<c>0x141fee9f0</c>).</summary>
+    /// (<c>0x141ff5210</c>).</summary>
     internal void FillSide(int x, int y, string? ground, short height, int side)
     {
         if (!grid.Inside(x + offsetX, y + offsetY) || Entry(x, y) is not null) return;
@@ -180,16 +180,16 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         FillRoom(room, rx, ry, o, height, ground, open);
     }
 
-    /// <summary><c>0x141fee460</c> / <c>0x141fee670</c>: a w × h choice beside side 0 or 3 ends at the entry.</summary>
+    /// <summary><c>0x141ff4c80</c> / <c>0x141ff4e90</c>: a w × h choice beside side 0 or 3 ends at the entry.</summary>
     static (int X, int Y) Anchor(int x, int y, int w, int h, int side) =>
         (side == 3 ? x + 1 - w : x, side == 0 ? y + 1 - h : y);
 
-    /// <summary><c>0x141fe89e0</c> for a room placed before the fill (the tile graph's shrines and pre-unique rooms):
+    /// <summary><c>0x141fef200</c> for a room placed before the fill (the tile graph's shrines and pre-unique rooms):
     /// see <see cref="FillRoom"/>.</summary>
     internal void PlaceRoom(RoomDef room, int x, int y, int o, short height, string? ground, bool open) =>
         FillRoom(room, x, y, o, height, ground, open);
 
-    /// <summary><c>0x141d77670</c>: two grounds that do not suit each other: different, unless either is null or flag 8
+    /// <summary><c>0x141d7ad00</c>: two grounds that do not suit each other: different, unless either is null or flag 8
     /// against a null or flag-8 one, or both lack flags 1 and 4.</summary>
     bool Unsuited(string? a, string? b)
     {
@@ -199,7 +199,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return !(a is not null && b is not null && (Flags(a) & 5) == 0 && (Flags(b) & 5) == 0);
     }
 
-    // 0x141feb970's retries take out only the list's first entry of the same tile (or room) and line orientation: a
+    // 0x141ff2190's retries take out only the list's first entry of the same tile (or room) and line orientation: a
     // second line of the same tile stays (2_8_3's fill, 2026-10-27).
     static void Without(List<Choice> list, Choice c, ref int total)
     {
@@ -209,7 +209,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         list.RemoveAt(i);
     }
 
-    /// <summary><c>0x141fec8f0</c> with no height given: the middle (rounded up) of the heights at the area's four corner
+    /// <summary><c>0x141ff3110</c> with no height given: the middle (rounded up) of the heights at the area's four corner
     /// vertices that have one written (flag 2); 0 when none has.</summary>
     short AreaHeight(int x, int y, int w, int h)
     {
@@ -221,7 +221,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return (short)(hi - (hi - lo) / 2);
     }
 
-    /// <summary><c>0x141fecd00</c>: a fixed orientation if the tile fits so; a square tile <c>Next(8)</c> when it fits;
+    /// <summary><c>0x141ff3520</c>: a fixed orientation if the tile fits so; a square tile <c>Next(8)</c> when it fits;
     /// any other the orientations it fits in (even codes for its own size, odd for the turned one), <c>Next(840)</c>.</summary>
     int TileOrientation(Choice c, int x, int y, int side = -1)
     {
@@ -232,9 +232,9 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return mask == 0 ? 8 : LevelRandom.OrientationFromMask(mask, rng.Next(840u));
     }
 
-    /// <summary><c>0x141fecc10</c> → <c>0x141ffbbe0</c>: within the view give or take one entry, and the map area is free
-    /// (<c>0x141d84ed0</c> with the ground checks off; <c>0x141feb800</c> only looks at the entry itself, which is empty).
-    /// Beside an edge tile's side (<c>0x141fee460</c>) the tile is first shifted to end at the entry.</summary>
+    /// <summary><c>0x141ff3430</c> → <c>0x142002430</c>: within the view give or take one entry, and the map area is free
+    /// (<c>0x141d88560</c> with the ground checks off; <c>0x141ff2020</c> only looks at the entry itself, which is empty).
+    /// Beside an edge tile's side (<c>0x141ff4c80</c>) the tile is first shifted to end at the entry.</summary>
     bool TileFits(TileDef tile, int x, int y, int o, int side = -1)
     {
         var (w, h) = Orientation.Size(o, tile.Width, tile.Height);
@@ -243,7 +243,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return AreaFree(x + offsetX, y + offsetY, w, h);
     }
 
-    /// <summary><c>0x141d84e10</c>: inside the map and every entry empty.</summary>
+    /// <summary><c>0x141d884a0</c>: inside the map and every entry empty.</summary>
     bool AreaFree(int x, int y, int w, int h)
     {
         if (x < 0 || y < 0 || x + w > grid.Width || y + h > grid.Height) return false;
@@ -253,7 +253,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return true;
     }
 
-    /// <summary><c>0x141fecf80</c>: a fixed orientation if the room fits so; a square room <c>Next(8)</c> when it fits;
+    /// <summary><c>0x141ff37a0</c>: a fixed orientation if the room fits so; a square room <c>Next(8)</c> when it fits;
     /// any other the orientations it fits in, <c>Next(840)</c>.</summary>
     int RoomOrientation(RoomDef room, int fixedO, int x, int y, int side = -1)
     {
@@ -263,7 +263,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return mask == 0 ? 8 : LevelRandom.OrientationFromMask(mask, rng.Next(840u));
     }
 
-    /// <summary><c>0x141fece90</c>: the turned room lies inside the view on free entries (<c>0x141fee670</c>: shifted
+    /// <summary><c>0x141ff36b0</c>: the turned room lies inside the view on free entries (<c>0x141ff4e90</c>: shifted
     /// to end at the entry beside an edge tile's side).</summary>
     bool RoomFits(RoomDef room, int x, int y, int o, int side = -1)
     {
@@ -272,7 +272,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return x >= 0 && y >= 0 && x + w <= width && y + h <= height && AreaFree(x + offsetX, y + offsetY, w, h);
     }
 
-    // 0x141fea4d0's per-orientation shift of a tile in a slot by (1 − w, 1 − h).
+    // 0x141ff0cf0's per-orientation shift of a tile in a slot by (1 − w, 1 − h).
     static readonly int[] SlotShift = [0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0];
 
     static (int X, int Y) Shift(int o, int w, int h)
@@ -285,11 +285,11 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
 
     bool Wild(string? g) => g is null || (Flags(g) & 8) != 0;
 
-    /// <summary><c>0x141fe89e0</c>: a fill room's slots, column by column: a fill slot (no tag or edges, one ground) on an
-    /// empty entry takes a fill tile for its ground that fits the map and the room's fill slots (<c>0x141fea4d0</c>,
-    /// <c>0x141fe8660</c>), turned by the room, its vertices taking the slot's ground; any other slot (or a fill slot with
+    /// <summary><c>0x141fef200</c>: a fill room's slots, column by column: a fill slot (no tag or edges, one ground) on an
+    /// empty entry takes a fill tile for its ground that fits the map and the room's fill slots (<c>0x141ff0cf0</c>,
+    /// <c>0x141feee80</c>), turned by the room, its vertices taking the slot's ground; any other slot (or a fill slot with
     /// no fitting tile) takes a tile from the TileSet for its key and tag (up to five draws until one fits). Then the
-    /// room's own vertex grounds go in (<c>0x141ffbd70</c>) and every vertex of the room without a ground takes the fill
+    /// room's own vertex grounds go in (<c>0x1420025c0</c>) and every vertex of the room without a ground takes the fill
     /// ground.</summary>
     void FillRoom(RoomDef room, int x, int y, int o, short h0, string? fillGround, bool open)
     {
@@ -316,7 +316,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
                     }
                 }
                 var list = store.Candidates(slot.Tag, key.Rotate(o));
-                // 0x141fe89e0: no tile in the tile set; a "missiontile" slot takes a mission tile (not ported), any
+                // 0x141fef200: no tile in the tile set; a "missiontile" slot takes a mission tile (not ported), any
                 // other the second store (param_1[2] + 0x90: the extra room pool's tiles, not ported), and a tagged
                 // slot with neither fails (BetrayalMastermindFight seed 1's churchruin_4 'round west').
                 if (list.Count == 0 && slot.Tag is { Length: > 0 } and not "missiontile" && PoolHasTiles?.Invoke() == false)
@@ -343,7 +343,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
             }
         var (rw, rh) = Orientation.Size(o, room.Width, room.Height);
         rooms.Add(new PlacedRoom(room, x + offsetX, y + offsetY, rw, rh, [], o));
-        // 0x141ffbd70: the room's own inner vertex grounds (the .arm's), turned with it, before the fill ground.
+        // 0x1420025c0: the room's own inner vertex grounds (the .arm's), turned with it, before the fill ground.
         if (room.VertexGrounds.Length > 0)
             for (int v = 1; v < room.Height; v++)
                 for (int u = 1; u < room.Width; u++)
@@ -384,7 +384,7 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return th;
     }
 
-    /// <summary>The fill tile of a fill slot (<c>0x141fe89e0</c> with <c>0x141fea670</c>): <c>Next(total)</c>, its
+    /// <summary>The fill tile of a fill slot (<c>0x141fef200</c> with <c>0x141ff0e90</c>): <c>Next(total)</c>, its
     /// orientation (relative to the room) as for a fill tile, retried without the failed choice.</summary>
     (TileDef? Tile, int Orientation) FillSlotTile(List<Choice> tiles, RoomDef room, int col, int row, int o, int sx, int sy)
     {
@@ -413,9 +413,9 @@ sealed class Fill(TerrainCache files, LevelRandom rng, TileGrid grid, int offset
         return (null, 8);
     }
 
-    /// <summary><c>0x141fea4d0</c>: the tile turned by its orientation and the room's fits the map at the slot (shifted
-    /// for its size, <c>0x141ffbbe0</c>) and covers only fill slots of the room with its ground and height
-    /// (<c>0x141fe8660</c>).</summary>
+    /// <summary><c>0x141ff0cf0</c>: the tile turned by its orientation and the room's fits the map at the slot (shifted
+    /// for its size, <c>0x142002430</c>) and covers only fill slots of the room with its ground and height
+    /// (<c>0x141feee80</c>).</summary>
     bool SlotFits(TileDef tile, int to, RoomDef room, int col, int row, int o, int sx, int sy)
     {
         var (tw, th) = Orientation.Size(to, tile.Width, tile.Height);

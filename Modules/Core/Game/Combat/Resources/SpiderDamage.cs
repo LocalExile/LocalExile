@@ -1,17 +1,17 @@
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     const string SpiderMin = "minimum_added_chaos_damage_per_spiders_web_on_enemy";
     const string SpiderMax = "maximum_added_chaos_damage_per_spiders_web_on_enemy";
     const string SpiderThree = "hit_and_ailment_damage_+%_vs_enemies_affected_by_at_least_3_spiders_webs";
     static bool HasSpiderDamage(Func<string, int> get) => get(SpiderMin) != 0 || get(SpiderMax) != 0 || get(SpiderThree) != 0;
-    internal static long SpiderDamageIncrease(Func<string, int> get, int webs) => webs >= 3 ? get(SpiderThree) : 0;
-    internal static DamagePacket SpiderRawDamage(DamagePacket raw, Func<string, int> get, int webs, double effectiveness = 1)
+    public static long SpiderDamageIncrease(Func<string, int> get, int webs) => webs >= 3 ? get(SpiderThree) : 0;
+    public static DamagePacket SpiderRawDamage(DamagePacket raw, Func<string, int> get, int webs, double effectiveness = 1)
         => webs <= 0 ? raw : raw.Add(DamageType.Chaos,
             new(get(SpiderMin) * (double)webs * effectiveness, get(SpiderMax) * (double)webs * effectiveness));
 
-    internal static SpiderDamageSource? CaptureSpiderDamage(ClientState conn, SupportedHitInputs inputs, double effectiveness,
+    public static SpiderDamageSource? CaptureSpiderDamage(ClientState conn, SupportedHitInputs inputs, double effectiveness,
         bool context = false, IReadOnlyDictionary<string, int>? local = null, bool bow = false)
     {
         if (!HasSpiderDamage(inputs.Get)) return null;
@@ -22,11 +22,11 @@ static partial class Game
         return new(inputs.Raw, inputs.Conversion, new Dictionary<uint, int>(inputs.FrozenStats),
             new Dictionary<uint, int>(inputs.Caster), inputs.Attack, inputs.Melee, inputs.Area, inputs.Projectile,
             inputs.Modifiers.ToArray(), new HashSet<int>(inputs.Types), effectiveness, inputs.WieldingWand,
-            Context: context, Local: local is null ? null : new Dictionary<string, int>(local), Bow: bow,
+            Context: context, Local: local is null ? null : new Dictionary<string, int>(local), Bow: bow || inputs.WieldingBow,
             IgniteFactor: igniteFactor);
     }
 
-    internal static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded)
+    public static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded)
     {
         int Get(string name) => Stats.Key(name) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
@@ -34,7 +34,8 @@ static partial class Game
         var hit = PlayerHitDamage.Resolve(raw, Get, source.Conversion, spell: !source.Attack && !source.Secondary,
             melee: source.Melee, area: source.Area, projectile: source.Projectile, supportModifiers: source.Modifiers,
             skillTypes: source.Types, secondary: source.Secondary, wieldingWand: source.WieldingWand,
-            retaliation: source.Attack && source.Types.Contains(120), additionalIncreased: increased);
+            retaliation: source.Attack && source.Types.Contains(120), additionalIncreased: increased,
+            wieldingBow: source.Attack && source.Bow);
         if (source.Attack)
         {
             hit = RageStats.ApplyAttack(hit, Get);
@@ -45,7 +46,8 @@ static partial class Game
         string hand = source.Secondary ? "secondary" : source.Attack ? "main_hand" : "spell";
         var rows = AilmentPanelStats.Compute(new(hand, Spell: !source.Attack && !source.Secondary, source.Melee),
             raw, source.Conversion, Get, increased);
-        var ignite = MonsterIgnites.Settings.From(rows, hand, Get);
+        var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, Get), source.Stats, null,
+            !source.Attack && !source.Secondary, hand);
         ignite = ignite with { Min = ignite.Min * source.IgniteFactor, Max = ignite.Max * source.IgniteFactor,
             CriticalMin = ignite.CriticalMin * source.IgniteFactor, CriticalMax = ignite.CriticalMax * source.IgniteFactor };
         var poison = MonsterPoisons.Settings.From(rows, hand, Get, source.Local, projectileAttack: source.Attack && source.Projectile);

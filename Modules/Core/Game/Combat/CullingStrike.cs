@@ -3,15 +3,15 @@ using GameServer.Core.Protocol.Instance;
 // Culling Strike: a hit that leaves an enemy at or below a share of its maximum Life kills it (poedb SupportCullingStrike:
 // "Kill Enemies that have 10% Life or lower when Hit by Supported Skills"). The client's hit logic never reads these
 // stats, so the server owns the kill and the death goes out the usual way.
-static partial class Game
+public static partial class Game
 {
     // Threshold: the highest share that applies to this hit, in percent (0: no culling). RecoverLifePct: the support's
     // quality, "Recover (0-2)% of Life when Supported Skills Cull an Enemy". NormalMagicThreshold: Cull the Weak's share,
     // which only normal and magic enemies are culled at. CannotKill: Pacifism, whose hits leave the enemy at 1 Life.
-    internal readonly record struct Cull(int Threshold, int RecoverLifePct, int NormalMagicThreshold = 0, bool CannotKill = false)
+    public readonly record struct Cull(int Threshold, int RecoverLifePct, int NormalMagicThreshold = 0, bool CannotKill = false)
     {
         // The character's stats and the skill's own (support gems included); pass them apart, not merged.
-        internal static Cull Of(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? skill, bool critical,
+        public static Cull Of(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? skill, bool critical,
             bool spell)
         {
             int Get(string name) => Stats.Key(name) is uint k
@@ -29,7 +29,7 @@ static partial class Game
     }
 
     // The hit's own damage, then the cull. A boss stage this hit starts, or one still running, keeps the boss alive.
-    internal static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
+    public static (uint Life, bool StageStarts) TakeOwnerHitLocked(ClientState conn, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         m.LastHitBy = conn;

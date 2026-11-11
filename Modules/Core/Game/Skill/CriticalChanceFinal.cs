@@ -3,7 +3,7 @@ using System.Numerics;
 
 /// <summary>Unconditional MORE/LESS chance inputs, after intrinsic/added BASE and INC, before rounding/capping.
 /// Native final display aliases and target/owner conditions are not raw inputs to this stage.</summary>
-static class CriticalChanceFinal
+public static class CriticalChanceFinal
 {
     public const string ControlledDestruction = "support_controlled_destruction_critical_strike_chance_+%_final";
     public const string Unhinged = "critical_strike_chance_+%_final_while_unhinged";

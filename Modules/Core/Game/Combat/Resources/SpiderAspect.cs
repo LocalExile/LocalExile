@@ -1,14 +1,14 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     const string SpiderAspect = "AspectOfTheSpider";
     // Local nearby policy, matching the ordinary aura fallback. The client export provides no radius;
     // this value is not a measurement of the retail Spider range.
-    internal const int SpiderSimulationRadius = 40;
+    public const int SpiderSimulationRadius = 40;
 
-    internal static void SpiderReconcileOwnerLocked(ClientState conn, double now)
+    public static void SpiderReconcileOwnerLocked(ClientState conn, double now)
     {
         var state = conn.Reservations;
         var root = ReservationAura(conn, SpiderAspect);
@@ -30,7 +30,7 @@ static partial class Game
         // Existing recipient webs keep their earned expiry when a reservation or its equipment is removed.
     }
 
-    internal static void SpiderAspectTickLocked(ClientState conn, double now)
+    public static void SpiderAspectTickLocked(ClientState conn, double now)
     {
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.Paused) return;
         var state = conn.Reservations;
@@ -122,11 +122,11 @@ static partial class Game
         }
     }
 
-    internal static int SpiderHinder(SpawnedMonster target, double now) => target.SpiderWebs.Count(now) > 0
+    public static int SpiderHinder(SpawnedMonster target, double now) => target.SpiderWebs.Count(now) > 0
         && target.Effects["immune_to_hinder"] == 0 && target.Effects["you_cannot_be_hindered"] == 0
         ? (int)Math.Max(0, Math.Round(30 * (1 + target.Effects["hinder_effect_on_self_+%"] / 100d))) : 0;
 
-    internal static int SpiderRecipientStat(SpawnedMonster target, string name, double now) => name switch
+    public static int SpiderRecipientStat(SpawnedMonster target, string name, double now) => name switch
     {
         "base_damage_taken_+%" => target.SpiderWebs.Taken(now),
         "damage_+%" => target.SpiderWebs.Damage(now),
@@ -136,14 +136,14 @@ static partial class Game
         _ => 0,
     };
 
-    internal static double SpiderOutgoingFactor(SpawnedMonster source, double now)
+    public static double SpiderOutgoingFactor(SpawnedMonster source, double now)
     {
         int reduction = source.SpiderWebs.Damage(now);
         double increased = 100d + source.Effects["damage_+%"] + source.Effects["physical_damage_+%"];
         return reduction == 0 ? 1 : increased > 0 ? Math.Max(0, increased + reduction) / increased : 0;
     }
 
-    internal static void SpiderHitRewardsLocked(ClientState conn, SpawnedMonster target, double now,
+    public static void SpiderHitRewardsLocked(ClientState conn, SpawnedMonster target, double now,
         IReadOnlyDictionary<uint, int>? player = null, Random? random = null)
     {
         if (!target.Hostile || target.SpiderWebs.Count(now) == 0 || conn.PlayerLife == 0) return;

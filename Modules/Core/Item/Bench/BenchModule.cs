@@ -13,28 +13,28 @@ public sealed class BenchModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnHideoutReady(player =>
+        GameEvents.HideoutReady.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(player);
             return BenchFeature.SpawnBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
-        module.OnObjectUsed(async use =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn =>
         {
-            var conn = ConnOf(use.Player);
-            if (conn.CraftingBenchObject == 0 || use.ObjectId != conn.CraftingBenchObject) return false;
-            await BenchFeature.OpenCraftingBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, use.ObjectId, use.RequestedAt);
+            return BenchFeature.SpawnTownBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+        });
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, at) =>
+        {
+            if (conn.CraftingBenchObject == 0 || use.TargetId != conn.CraftingBenchObject) return false;
+            await BenchFeature.OpenCraftingBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, use.TargetId, at);
             return true;
         });
-        module.OnPacket(InstanceBench.MoveId, async p =>
+        GameEvents.Packet(InstanceBench.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await BenchFeature.MoveToBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadMove(p.Bytes.ToArray()));
+            await BenchFeature.MoveToBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadMove(bytes));
             return true;
         });
-        module.OnPacket(InstanceBench.CraftId, async p =>
+        GameEvents.Packet(InstanceBench.CraftId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await BenchFeature.CraftBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadCraft(p.Bytes.ToArray()));
+            await BenchFeature.CraftBench(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceBench.ReadCraft(bytes));
             return true;
         });
     }
@@ -55,12 +55,35 @@ static class BenchFeature
                 new HideoutDoodad(bench.Hash, (byte)bench.Variation), [.. states.Select(_ => 0)]);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(benchId,
                 InstanceEntities.ObjectTypeHash(bench.Type!), obj.Blob()),
-                $"0x02b9 create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})");
+                $"0x02bb create crafting bench 0x{benchId:x} left of guild stash at ({bench.X}, {bench.Y})");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(benchId), null);
             conn.CraftingBenchObject = benchId;
             conn.CraftingBenchAt = (bench.X, bench.Y);
             await RegisterStationaryCollision(remote, stream, ciphers, conn, benchId, bench.Type!, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);
         }
+    }
+
+    // A town's bench (TownBench): the room's own line places it, next to the stash. The hideout's comes from its decoration
+    // (SpawnBench) and a hideout has no TownBench entry.
+    internal static async Task SpawnTownBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    {
+        if (!LeagueFor(conn).Rules.CraftingBench || conn.CurrentHideoutScene is not null) return;
+        if (HideoutCatalog.ByArea(conn.Layout.Hash) is not null) return;
+        if (TownBench.In(conn.Layout.Hash) is not { } bench) return;
+        if (HideoutCatalog.TypeOf(bench.Type) is not var (components, states) || !HideoutObject.CanSerialize(components))
+        {
+            Console.WriteLine($"[gateway] {remote} crafting bench: {bench.Type} has no serialisable components (data/object-types.json)");
+            return;
+        }
+        uint benchId = conn.NextObjectId++;
+        var obj = new HideoutObject(bench.X, bench.Y, bench.Rotation, components, States: [.. states.Select(_ => 0)], Model: bench.Model);
+        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(benchId,
+            InstanceEntities.ObjectTypeHash(bench.Type), obj.Blob()),
+            $"0x02bb create crafting bench 0x{benchId:x} at ({bench.X}, {bench.Y}) of {conn.Layout.Id}");
+        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(benchId), $"0x01a9 crafting bench 0x{benchId:x} enters wake zone");
+        conn.CraftingBenchObject = benchId;
+        conn.CraftingBenchAt = (bench.X, bench.Y);
+        await RegisterStationaryCollision(remote, stream, ciphers, conn, benchId, bench.Type, bench.X, bench.Y, bench.Rotation, "bench", bench.Model);
     }
 
     // C→S 0x24: approach the bench before opening the ordinary crafting window (0x7b kind 0x33, bench type 0).
@@ -98,7 +121,7 @@ static class BenchFeature
 
     internal static async Task CraftBench(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int Recipe, bool Bound) request)
     {
-        if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen || HideoutCatalog.ByArea(conn.Layout.Hash) is null) return;
+        if (!LeagueFor(conn).Rules.CraftingBench || !conn.BenchOpen || conn.CraftingBenchObject == 0) return;
         var items = ItemsOf(conn);
         var stash = PersonalStashOf(conn);
         var result = ItemMoves.CraftAtBench(items, stash, Bench, request.Recipe, Random.Shared);

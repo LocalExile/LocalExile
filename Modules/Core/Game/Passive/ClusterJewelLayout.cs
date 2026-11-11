@@ -1,12 +1,13 @@
 using GameServer.Core.Protocol.Instance;
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
 /// The client's cluster jewel layout: which node sits on each position of the id block it numbers for a pane cell.
 ///
 /// Built from <c>PassiveTreeExpansionJewels.dat</c> (the template lists of smalls, notables and sockets per size),
-/// <c>PassiveJewelSlots.dat</c>'s <c>StartIndices</c> and the client's own node-id function (Ghidra <c>FUN_141f0e770</c>,
+/// <c>PassiveJewelSlots.dat</c>'s <c>StartIndices</c> and the client's own node-id function (Ghidra <c>FUN_141f15060</c>,
 /// hooked live with Frida):
 /// <list type="bullet">
 /// <item>the block base is <c>39 * ClusterIndex</c> for a jewel in a tree socket (cell 20, index 5, uses 195), a child
@@ -21,9 +22,9 @@ using System.Text.Json;
 /// 195..206 (socket 206/198, notables 196/200/204 and smalls 195/197/202), a medium 4/1 in cell 51 gives
 /// 208/209/211 (smalls) and 212 (socket), the same medium in cell 53 gives 225/228/229 and 226.
 /// </summary>
-static class ClusterJewelLayout
+public static class ClusterJewelLayout
 {
-    public enum Kind { None, Small, Notable, Socket }
+    public enum Kind { None, Small, Notable, Socket, Keystone }
 
     public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders);
 
@@ -33,8 +34,8 @@ static class ClusterJewelLayout
     {
         var templates = new Dictionary<int, Template>();
         string path = Path.Combine("data", "tables", "PassiveTreeExpansionJewels.json");
-        if (!File.Exists(path)) return templates;
-        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return templates;
+        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var row in document.RootElement.EnumerateArray())
         {
             int size = row.GetProperty("PassiveTreeExpansionJewelSizesKey").GetInt32();
@@ -86,17 +87,31 @@ static class ClusterJewelLayout
         // of it, whatever the jewel's own size.
         bool compressed = cellSize != 2;
 
+        int Offset(int index)
+        {
+            int position = ((index + start) % total + total) % total;
+            return compressed ? position / 2 : position;
+        }
+        // A single-keystone small cluster creates its only node at index zero, rotated by the cell start.
+        if (size == 0 && keystones == 1 && nodes == 1)
+            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, []);
+
         var kinds = new Dictionary<int, Kind>();
         var orders = new Dictionary<int, int>();
         void Put(int index, Kind kind, int order = -1)
         {
-            int position = ((index + start) % total + total) % total;
-            int offset = compressed ? position / 2 : position;
+            int offset = Offset(index);
             kinds[offset] = kind;
             if (order >= 0) orders[offset] = order;
         }
 
-        if (treeSocket)
+        if (size == 1 && nodes == 4 && notables == 3 && sockets == 0)
+        {
+            // Four-node medium ring: a small at the entrance, then the three sorted notables.
+            Put(0, Kind.Small);
+            for (int i = 0; i < 3; i++) Put(3 * (i + 1), Kind.Notable, i);
+        }
+        else if (treeSocket)
         {
             // The client's template layout: sockets take the first socket positions, the notables the first free notable
             // positions in ascending order (the item's notables in the client's order), the smalls the remaining list.

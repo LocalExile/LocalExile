@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 using DamageModel = GameServer.Core.World.DamageModel;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageConversion = GameServer.Core.World.DamageConversion;
@@ -11,7 +12,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// (Words.dat keys). <see cref="Effects"/> are the numbers the server's calculations read. One set per monster; kept
 /// with the instance (SavedMonster) so a re-entered area has the same mods.
 /// </summary>
-sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> NameWords, MonsterModEffects Effects)
+public sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> NameWords, MonsterModEffects Effects)
 {
     public static readonly MonsterModSet None = new([], [], MonsterModEffects.None);
 
@@ -24,7 +25,7 @@ sealed record MonsterModSet(IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> Nam
 /// on the player, its walk, the player's hit chance and the damage the player deals read. Only the stats in
 /// <see cref="MonsterModCatalog.Modelled"/> act; the others are kept for the record.
 /// </summary>
-sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
+public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 {
     public static readonly MonsterModEffects None = new(new Dictionary<string, int>());
 
@@ -101,6 +102,20 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         return hit.Add(DamageType.Chaos, new GameServer.Core.World.DamageRange(minChaos, maxChaos).Round());
     }
 
+    /// <summary>A hit with the "gain as extra" stats of <paramref name="extra"/> added and its damage_+% (an encounter's
+    /// buffs, given after the monster's own hit was fixed at its spawn: <see cref="Hit"/>; the increase is applied on the
+    /// fixed hit, not summed with the monster's own).</summary>
+    public static DamagePacket AddedTo(DamagePacket hit, IReadOnlyDictionary<string, int> extra)
+    {
+        var gains = new DamageConversion()
+            .AddGain(DamageType.Physical, DamageType.Fire, extra.GetValueOrDefault("physical_damage_%_to_add_as_fire"))
+            .AddGain(DamageType.Physical, DamageType.Cold, extra.GetValueOrDefault("physical_damage_%_to_add_as_cold"))
+            .AddGain(DamageType.Physical, DamageType.Lightning, extra.GetValueOrDefault("physical_damage_%_to_add_as_lightning"));
+        var added = hit.Convert(gains);
+        if (extra.GetValueOrDefault("damage_+%") is int increased and not 0) added = added.Scale(Math.Max(0, 1 + increased / 100.0));
+        return added.Round();
+    }
+
     /// <summary>The attack time: the base over (1 + attack_speed_+%) and the rarity's more speed
     /// (monster_rarity_attack_cast_speed_+%_and_damage_-%_final). Every attack-speed mod of the pool gives cast speed
     /// alike, so a casting monster's skill uses the same time.</summary>
@@ -114,7 +129,7 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         : seconds * Math.Max(0.1, 1 + this["attack_speed_+%"] / 100.0) / Math.Max(0.1, 1 + (this["attack_speed_+%"] + extraPct) / 100.0);
 
     /// <summary>The walk's movement_velocity_+% (base_movement_velocity_+% summed), sent to the client so both walk
-    /// the monster at its base × (1 + value / 100) (0x141e7c0b0).</summary>
+    /// the monster at its base × (1 + value / 100) (0x141e827a0).</summary>
     public int MovementPct => this["base_movement_velocity_+%"];
 
     public double MovementSpeed(double baseSpeed) => Math.Max(1, baseSpeed * (100 + MovementPct) / 100.0);
@@ -179,7 +194,7 @@ sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
 /// pool for tests). Counts: <see cref="AffixCount"/>. A rare monster is named from Words.dat lists 3 (monster prefix)
 /// and 4 (monster suffix) by the same tag weights.
 /// </summary>
-sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
+public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
 {
     public const int Domain = 3, Prefix = 1, Suffix = 2;
     public const int MonsterPrefixWords = 3, MonsterSuffixWords = 4;
@@ -254,7 +269,7 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     public ModCatalog Mods => mods;
 
     /// <summary>The monster's tags for spawn weights: its MonsterVarieties TagsKeys, "default", "magic" / "rare" for
-    /// its rarity (the client adds the same tag, 0x1421ff3c0) and "not_part_of_pack" for a monster on its own.</summary>
+    /// its rarity (the client adds the same tag, 0x142205d50) and "not_part_of_pack" for a monster on its own.</summary>
     public IReadOnlySet<string> TagsOf(MonsterCatalog.Variety variety, MonsterRarity rarity, bool alone)
     {
         var tags = new HashSet<string>(_varietyTags.Value.GetValueOrDefault(variety.Row) ?? new HashSet<string>()) { "default" };
@@ -423,8 +438,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     static List<string> LoadTagNames(string folder)
     {
         string path = Path.Combine(folder, "tables", "Tags.json");
-        if (!File.Exists(path)) return [];
-        using var t = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
     }
 
@@ -432,7 +447,7 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
         var result = new Dictionary<int, IReadOnlySet<string>>();
-        if (!File.Exists(path)) return result;
+        if (!ClientTables.Exists(path)) return result;
         var tags = LoadTagNames(folder);
         using var d = GameTables.Open(path);
         int row = 0;
@@ -445,9 +460,9 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     static List<ItemRolls.Word> LoadWords(string folder)
     {
         string path = Path.Combine(folder, "tables", "Words.json");
-        if (!File.Exists(path)) return [];
+        if (!ClientTables.Exists(path)) return [];
         var tags = LoadTagNames(folder);
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray()
             .Where(r => r.GetProperty("Wordlist").GetInt32() is MonsterPrefixWords or MonsterSuffixWords)
             .Select(r => new ItemRolls.Word(r.GetProperty("HASH32").GetUInt32(), r.GetProperty("Text").GetString() ?? "",
@@ -461,8 +476,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         int[] Table(string name)
         {
             string path = Path.Combine(folder, "tables", name + ".json");
-            if (!File.Exists(path)) return [];
-            using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+            if (!ClientTables.Exists(path)) return [];
+            using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
             return [.. d.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Level").GetInt32()).Select(r => r.GetProperty("Life").GetInt32())];
         }
         return (Table("MagicMonsterLifeScalingPerLevel"), Table("RareMonsterLifeScalingPerLevel"));
@@ -471,8 +486,8 @@ sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     static (int, int)[] LoadRarity(string folder)
     {
         string path = Path.Combine(folder, "tables", "Rarity.json");
-        if (!File.Exists(path)) return [];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().Select(r => (r.GetProperty("MaxPrefix").GetInt32(), r.GetProperty("MaxSuffix").GetInt32()))];
     }
 }

@@ -2,7 +2,7 @@
 /// The character's one shared stance. Blood and Sand and Flesh and Stone are independent reservation sources, but both
 /// publish the same Blood/Sand selection to the player. Blood is the implicit default when neither source is active.
 /// </summary>
-static class StanceCatalog
+public static class StanceCatalog
 {
     public const string BloodAndSand = "BloodAndSand";
     public const string FleshAndStone = "FleshAndStone";

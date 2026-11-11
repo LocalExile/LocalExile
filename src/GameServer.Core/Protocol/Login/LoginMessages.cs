@@ -29,35 +29,35 @@ public sealed record EmptyMessage(ushort MessageId) : ILoginMessage
     public void WriteFields(LoginWriter w) { }
 }
 
-/// <summary>One u16 (class 0x1435bf7e8, 0x141f92870/0x141f928d0): S→C 0x0b, 0x0d, 0x0f, 0x17 (disconnect reason), 0x1e, 0x44.</summary>
+/// <summary>One u16 (class 0x1435ca200, 0x141f99160/0x141f991c0): S→C 0x0b, 0x0d, 0x0f, 0x17 (disconnect reason), 0x1e, 0x44.</summary>
 public sealed record U16Message(ushort MessageId, ushort Value) : ILoginMessage
 {
     public void WriteFields(LoginWriter w) => w.U16(Value);
     internal static U16Message Read(ushort id, ref LoginReader r) => new(id, r.U16());
 }
 
-/// <summary>One u32 (class 0x14316c420, 0x140912ff0/0x140913050): S→C 0x1f, 0x20. Also C→S 0x46 (sender 0x140d14690).</summary>
+/// <summary>One u32 (class 0x1431767e8, 0x140911210/0x140911270): S→C 0x1f, 0x20. Also C→S 0x46 (sender 0x140d146c0).</summary>
 public sealed record U32Message(ushort MessageId, uint Value) : ILoginMessage
 {
     public void WriteFields(LoginWriter w) => w.U32(Value);
     internal static U32Message Read(ushort id, ref LoginReader r) => new(id, r.U32());
 }
 
-/// <summary>One u8: C→S 0x3a (0x140d08c80), 0x42 (0x142140810).</summary>
+/// <summary>One u8: C→S 0x3a (0x140d08cb0), 0x42 (0x142147160).</summary>
 public sealed record U8Message(ushort MessageId, byte Value) : ILoginMessage
 {
     public void WriteFields(LoginWriter w) => w.U8(Value);
     internal static U8Message Read(ushort id, ref LoginReader r) => new(id, r.U8());
 }
 
-/// <summary>One wide string (class 0x1435bf650, 0x141f91850/0x141f918b0): S→C 0x24, 0x25, 0x26, 0x28, 0x29; C→S 0x3f, 0x40.</summary>
+/// <summary>One wide string (class 0x1435ca068, 0x141f98140/0x141f981a0): S→C 0x24, 0x25, 0x26, 0x28, 0x29; C→S 0x3f, 0x40.</summary>
 public sealed record WStringMessage(ushort MessageId, string Text) : ILoginMessage
 {
     public void WriteFields(LoginWriter w) => w.WStr(Text);
     internal static WStringMessage Read(ushort id, ref LoginReader r) => new(id, r.WStr());
 }
 
-/// <summary>Wide string + u8 (class 0x1435bfcd8, 0x141f950c0/0x141f95140): C→S 0x0c, 0x2a, 0x2b. The byte is the realm byte | 0x40 for 0x2a/0x2b.</summary>
+/// <summary>Wide string + u8 (class 0x1435ca710, 0x141f9baf0/0x141f9bb70): C→S 0x0c, 0x2a, 0x2b. The byte is the realm byte | 0x40 for 0x2a/0x2b.</summary>
 public sealed record WStringU8Message(ushort MessageId, string Text, byte Value) : ILoginMessage
 {
     public void WriteFields(LoginWriter w) => w.WStr(Text).U8(Value);
@@ -66,7 +66,7 @@ public sealed record WStringU8Message(ushort MessageId, string Text, byte Value)
 
 // ---------------------------------------------------------------- server → client
 
-/// <summary>S→C 0x04 (vtable 0x1435dbac8, write 0x14219b140, read 0x14219b230). Result 0 moves the client to state 3 (logged in).</summary>
+/// <summary>S→C 0x04 (vtable 0x1435e6568, write 0x1421a1ab0, read 0x1421a1ba0). Result 0 moves the client to state 3 (logged in).</summary>
 public sealed record LoginResult(ushort Result, string AccountName, byte[] Digest, byte Flags0, byte Flags1, byte[] Data) : ILoginMessage
 {
     public const ushort Id = 0x04;
@@ -75,7 +75,7 @@ public sealed record LoginResult(ushort Result, string AccountName, byte[] Diges
     internal static LoginResult Read(ushort id, ref LoginReader r) => new(r.U16(), r.WStr(), r.Fixed(32), r.U8(), r.U8(), r.Blob());
 }
 
-/// <summary>S→C 0x11 (vtable 0x1435dba88, 0x14219b5a0/0x14219b610): u8 + u16-length blob, parsed by the client into 17 records of 0x80 bytes (0x14213d060).</summary>
+/// <summary>S→C 0x11 (vtable 0x1435e6528, 0x1421a1f10/0x1421a1f80): u8 + u16-length blob, parsed by the client into 17 records of 0x80 bytes (0x1421439b0).</summary>
 public sealed record Blob11(byte Kind, byte[] Data) : ILoginMessage
 {
     public const ushort Id = 0x11;
@@ -84,8 +84,8 @@ public sealed record Blob11(byte Kind, byte[] Data) : ILoginMessage
     internal static Blob11 Read(ushort id, ref LoginReader r) => new(r.U8(), r.Blob());
 }
 
-/// <summary>S→C 0x13 (vtable 0x1435dbae8, 0x14219b850/0x14219b8d0): the answer to C→S 0x12 (create character). The
-/// create screen's listener (0x140cf8010 at +0xa10) treats 0 as done ("character_creation_done") and goes back to the
+/// <summary>S→C 0x13 (vtable 0x1435e6588, 0x1421a21c0/0x1421a2240): the answer to C→S 0x12 (create character). The
+/// create screen's listener (0x140cf7fb0 at +0xa10) treats 0 as done ("character_creation_done") and goes back to the
 /// character list. When the flag is set the client posts to /api/tracking-conversions/.</summary>
 public sealed record CreateCharacterResult(ushort Result, bool Tracking) : ILoginMessage
 {
@@ -96,7 +96,7 @@ public sealed record CreateCharacterResult(ushort Result, bool Tracking) : ILogi
 }
 
 /// <summary>
-/// S→C 0x14 (vtable 0x1435dba08, 0x14219b9c0/0x14219bb20): instance (game server) assignment. AreaHash is looked up in
+/// S→C 0x14 (vtable 0x1435e64a8, 0x1421a2330/0x1421a2490): instance (game server) assignment. AreaHash is looked up in
 /// the area table ("Area reported by instance does not exist. Hash was: ").
 /// </summary>
 public sealed record InstanceInfo(string Host, ushort U16_30, uint U32_34, ushort AreaHash, uint U32_38, byte[] Key64, byte[] Data8, byte U8_86) : ILoginMessage
@@ -109,7 +109,7 @@ public sealed record InstanceInfo(string Host, ushort U16_30, uint U32_34, ushor
         new(r.Str(), r.U16(), r.U32(), r.U16(), r.U32(), r.Fixed(64), r.Fixed(8), r.U8());
 }
 
-/// <summary>Element of S→C 0x15 (0x50-byte struct, 0x142507200/0x142507480). Wire order differs from struct order.</summary>
+/// <summary>Element of S→C 0x15 (0x50-byte struct, 0x14250ddb0/0x14250e030). Wire order differs from struct order.</summary>
 public sealed record ListEntry15(string Name, string Text, byte B49, byte B4d, byte B48, uint U40, byte B4a, ushort U44, ushort U46, byte B4b, byte B4c)
 {
     internal void Write(LoginWriter w) => w.WStr(Name).WStr(Text).U8(B49).U8(B4d).U8(B48).U32(U40).U8(B4a).U16(U44).U16(U46).U8(B4b).U8(B4c);
@@ -117,7 +117,7 @@ public sealed record ListEntry15(string Name, string Text, byte B49, byte B4d, b
         new(r.WStr(), r.WStr(), r.U8(), r.U8(), r.U8(), r.U32(), r.U8(), r.U16(), r.U16(), r.U8(), r.U8());
 }
 
-/// <summary>S→C 0x15 (vtable 0x1435dba48, 0x14219b3f0/0x14219b490): u8 count + entries, two bytes, then a blob parsed like 0x11.</summary>
+/// <summary>S→C 0x15 (vtable 0x1435e64e8, 0x1421a1d60/0x1421a1e00): u8 count + entries, two bytes, then a blob parsed like 0x11.</summary>
 public sealed record List15(IReadOnlyList<ListEntry15> Entries, byte B28, byte B29, byte[] Data) : ILoginMessage
 {
     public const ushort Id = 0x15;
@@ -138,12 +138,12 @@ public sealed record List15(IReadOnlyList<ListEntry15> Entries, byte B28, byte B
 }
 
 /// <summary>
-/// A league: element of S→C 0x1a / 0x1b (0xe8-byte struct, read by 0x1424ed2c0, constructed by 0x1408befd0). Static
+/// A league: element of S→C 0x1a / 0x1b (0xe8-byte struct, read by 0x1424f2e40, constructed by 0x1408c0c90). Static
 /// analysis 2026-10-18 (Agents/docs/protocol/01-login.md §7):
 /// <list type="bullet">
 /// <item>Name (+0x10, view at +0x00): what C→S 0x12 sends back and what 0x15's league text is compared with.</item>
 /// <item>SsfParent (+0x60), HardcoreParent (+0x80), RuthlessParent (+0xa0): a variant names the league it is the SSF /
-/// Hardcore / Ruthless form of. The create screen (0x140ccc4a0) shows one card per main league and its Hardcore, Solo
+/// Hardcore / Ruthless form of. The create screen (0x140cccff0) shows one card per main league and its Hardcore, Solo
 /// Self-Found and Ruthless check boxes switch to the variants found through these links (combinations chain: SSF
 /// Hardcore links SsfParent to the Hardcore league).</item>
 /// <item>Flags0 (+0xe0): bit 0 private (password box), bit 1 hardcore (confirmation, hardcore banner), bit 4 shown only
@@ -152,7 +152,7 @@ public sealed record List15(IReadOnlyList<ListEntry15> Entries, byte B28, byte B
 /// <item>StartStateSet (+0xc0): CharacterStartStateSet row for new characters. C1 (+0xc1): 1 scrolls to the league's card.</item>
 /// </list>
 /// Description (+0x40, view +0x30): the card text, a ClientStrings-style key when it starts with '#'; empty crashes the
-/// client ("invalid string position", 0x140cc8820). The times (+0xd0, +0xd8, +0xc8, little-endian) are unconfirmed;
+/// client ("invalid string position", 0x140cc9370). The times (+0xd0, +0xd8, +0xc8, little-endian) are unconfirmed;
 /// RawC4 defaults to 0xd1.
 /// </summary>
 public sealed record LeagueEntry(string Name, string Description, string SsfParent, string HardcoreParent, string RuthlessParent,
@@ -183,8 +183,8 @@ public sealed record LeagueEntry(string Name, string Description, string SsfPare
     }
 }
 
-/// <summary>S→C 0x1a (vtable 0x1435db9e8, 0x14219b6d0/0x14219b740): result + the leagues with progress to migrate from,
-/// the answer to C→S 0x19 (listener 0x140d17170 at +0x810; a non-zero result shows a "League Migrations" error, an
+/// <summary>S→C 0x1a (vtable 0x1435e6488, 0x1421a2040/0x1421a20b0): result + the leagues with progress to migrate from,
+/// the answer to C→S 0x19 (listener 0x140d171a0 at +0x810; a non-zero result shows a "League Migrations" error, an
 /// empty list "There are no available leagues to migrate progress from.").</summary>
 public sealed record LeaguesWithProgress(ushort Result, IReadOnlyList<LeagueEntry> Leagues) : ILoginMessage
 {
@@ -195,9 +195,9 @@ public sealed record LeaguesWithProgress(ushort Result, IReadOnlyList<LeagueEntr
 }
 
 /// <summary>
-/// S→C 0x1b (vtable 0x1435dba28, 0x14219bd20/0x14219bdb0): the league list (login+0xe88), which the character screen
-/// copies (0x140d12590) and the create-character screen offers; with no leagues its Create button stays disabled
-/// (0x140cf97a0). ServerTime is a raw little-endian i64 (the client stores it minus _time64). Flags bit 0 → +0x30, bit 1
+/// S→C 0x1b (vtable 0x1435e64c8, 0x1421a2690/0x1421a2720): the league list (login+0xe88), which the character screen
+/// copies (0x140d125c0) and the create-character screen offers; with no leagues its Create button stays disabled
+/// (0x140cf9760). ServerTime is a raw little-endian i64 (the client stores it minus _time64). Flags bit 0 → +0x30, bit 1
 /// → +0x31 (append to the existing list instead of replacing).
 /// </summary>
 public sealed record LeagueList(long ServerTime, IReadOnlyList<LeagueEntry> Leagues, bool Flag0, bool Append) : ILoginMessage
@@ -219,7 +219,7 @@ public sealed record LeagueList(long ServerTime, IReadOnlyList<LeagueEntry> Leag
     }
 }
 
-/// <summary>S→C 0x3c (vtable 0x1435bf8a8, 0x141f926a0/0x141f92720): two u32; the second is stored at +0xe60.</summary>
+/// <summary>S→C 0x3c (vtable 0x1435ca2c0, 0x141f98f90/0x141f99010): two u32; the second is stored at +0xe60.</summary>
 public sealed record TwoU32(uint A, uint B) : ILoginMessage
 {
     public const ushort Id = 0x3c;
@@ -228,7 +228,7 @@ public sealed record TwoU32(uint A, uint B) : ILoginMessage
     internal static TwoU32 Read(ushort id, ref LoginReader r) => new(r.U32(), r.U32());
 }
 
-/// <summary>S→C 0x3e (vtable 0x1435dba68, 0x141f95fa0/0x14219bef0): u16 + bool.</summary>
+/// <summary>S→C 0x3e (vtable 0x1435e6508, 0x141f9c9d0/0x1421a2860): u16 + bool.</summary>
 public sealed record U16Bool(ushort Value, bool Flag) : ILoginMessage
 {
     public const ushort Id = 0x3e;
@@ -237,7 +237,7 @@ public sealed record U16Bool(ushort Value, bool Flag) : ILoginMessage
     internal static U16Bool Read(ushort id, ref LoginReader r) => new(r.U16(), r.Bool());
 }
 
-/// <summary>S→C 0x41 (vtable 0x1435c01b8, 0x141f9f890/0x141f9f920): one narrow string.</summary>
+/// <summary>S→C 0x41 (vtable 0x1435cabf0, 0x141fa62c0/0x141fa6350): one narrow string.</summary>
 public sealed record StringMessage(string Text) : ILoginMessage
 {
     public const ushort Id = 0x41;
@@ -246,7 +246,7 @@ public sealed record StringMessage(string Text) : ILoginMessage
     internal static StringMessage Read(ushort id, ref LoginReader r) => new(r.Str());
 }
 
-/// <summary>S→C 0x43 (vtable 0x1435bf630, 0x141f9f430/0x141f9f4b0): u8 + wide string.</summary>
+/// <summary>S→C 0x43 (vtable 0x1435ca048, 0x141fa5e60/0x141fa5ee0): u8 + wide string.</summary>
 public sealed record U8WString(byte Value, string Text) : ILoginMessage
 {
     public const ushort Id = 0x43;
@@ -255,7 +255,7 @@ public sealed record U8WString(byte Value, string Text) : ILoginMessage
     internal static U8WString Read(ushort id, ref LoginReader r) => new(r.U8(), r.WStr());
 }
 
-/// <summary>S→C 0x47 (vtable 0x1435dbaa8, 0x14219bfe0/0x14219c1c0): u32, u16, then a u8 count of narrow strings.</summary>
+/// <summary>S→C 0x47 (vtable 0x1435e6548, 0x1421a2950/0x1421a2b30): u32, u16, then a u8 count of narrow strings.</summary>
 public sealed record StringList47(uint A, ushort B, IReadOnlyList<string> Items) : ILoginMessage
 {
     public const ushort Id = 0x47;
@@ -277,10 +277,10 @@ public sealed record StringList47(uint A, ushort B, IReadOnlyList<string> Items)
 // ---------------------------------------------------------------- client → server
 
 /// <summary>
-/// C→S 0x03 (vtable 0x1435d8b88, write 0x14213c660, senders 0x14213ea10 and 0x140d05f70): account login.
-/// Version is 2. MachineIdA comes from 0x14213e970 and MachineIdB from 0x14299b130 (32-byte client identifiers),
-/// PasswordDigest is 32 bytes (the client hashes passwords with SHA-256 over UTF-16LE, 0x140e23290). Realm is the
-/// realm byte (0x143a6002c) | 0x40. Flag94 requests Remember Password; Flag95 means PasswordDigest
+/// C→S 0x03 (vtable 0x1435e3658, write 0x142142fb0, senders 0x142145360 and 0x140d060a0): account login.
+/// Version is 2. MachineIdA comes from 0x1421452c0 and MachineIdB from 0x1429a4490 (32-byte client identifiers),
+/// PasswordDigest is 32 bytes (the client hashes passwords with SHA-256 over UTF-16LE, 0x140e21b30). Realm is the
+/// realm byte (0x143a6b89c) | 0x40. Flag94 requests Remember Password; Flag95 means PasswordDigest
 /// carries the previously returned LoginResult.Digest saved credential rather than a password hash.
 /// </summary>
 public sealed record AccountLogin(uint Version, string Account, byte[] MachineIdA, byte[] PasswordDigest, byte[] MachineIdB,
@@ -295,7 +295,7 @@ public sealed record AccountLogin(uint Version, string Account, byte[] MachineId
         new(r.U32(), r.Str(), r.Fixed(32), r.Fixed(32), r.Fixed(32), r.Bool(), r.Bool(), r.U8(), r.U8());
 }
 
-/// <summary>C→S 0x05 (vtable 0x1435d8b30, 0x14213c1c0/0x14213c290, sender 0x14213eda0): login with a binary token.</summary>
+/// <summary>C→S 0x05 (vtable 0x1435e3568, 0x142142b10/0x142142be0, sender 0x1421456f0): login with a binary token.</summary>
 public sealed record TokenLogin(byte Realm, byte[] MachineIdB, byte[] MachineIdA, byte B69, byte[] Token) : ILoginMessage
 {
     public const ushort Id = 0x05;
@@ -304,14 +304,14 @@ public sealed record TokenLogin(byte Realm, byte[] MachineIdB, byte[] MachineIdA
     internal static TokenLogin Read(ushort id, ref LoginReader r) => new(r.U8(), r.Fixed(32), r.Fixed(32), r.U8(), r.Blob());
 }
 
-/// <summary>C→S 0x06 / 0x07 (vtable 0x1435d8ae8, 0x14213bf60/0x14213c050, senders 0x14213eba0 / 0x14213ef90): login with a string ticket.</summary>
+/// <summary>C→S 0x06 / 0x07 (vtable 0x1435e3540, 0x1421428b0/0x1421429a0, senders 0x1421454f0 / 0x1421458e0): login with a string ticket.</summary>
 public sealed record TicketLogin(ushort MessageId, string Ticket, byte Realm, byte[] MachineIdB, byte[] MachineIdA, byte B71) : ILoginMessage
 {
     public void WriteFields(LoginWriter w) => w.Str(Ticket).U8(Realm).Fixed(MachineIdB, 32).Fixed(MachineIdA, 32).U8(B71);
     internal static TicketLogin Read(ushort id, ref LoginReader r) => new(id, r.Str(), r.U8(), r.Fixed(32), r.Fixed(32), r.U8());
 }
 
-/// <summary>C→S 0x08 (sender 0x140d60410): u32 + 8 raw bytes. Sent through the object at global+0x350, not the login object (+0x358).</summary>
+/// <summary>C→S 0x08 (sender 0x140d5db80): u32 + 8 raw bytes. Sent through the object at global+0x350, not the login object (+0x358).</summary>
 public sealed record U32Raw64(uint A, ulong RawB) : ILoginMessage
 {
     public const ushort Id = 0x08;
@@ -320,7 +320,7 @@ public sealed record U32Raw64(uint A, ulong RawB) : ILoginMessage
     internal static U32Raw64 Read(ushort id, ref LoginReader r) => new(r.U32(), r.RawU64());
 }
 
-/// <summary>C→S 0x0a (vtable 0x1435d8aa0, 0x14213c9f0/0x14213ca50, sender 0x140cf3150): two SHA-256 digests of UTF-16LE strings.</summary>
+/// <summary>C→S 0x0a (vtable 0x1435e3630, 0x142143340/0x1421433a0, sender 0x140cf30c0): two SHA-256 digests of UTF-16LE strings.</summary>
 public sealed record TwoDigests(byte[] DigestA, byte[] DigestB) : ILoginMessage
 {
     public const ushort Id = 0x0a;
@@ -329,7 +329,7 @@ public sealed record TwoDigests(byte[] DigestA, byte[] DigestB) : ILoginMessage
     internal static TwoDigests Read(ushort id, ref LoginReader r) => new(r.Fixed(32), r.Fixed(32));
 }
 
-/// <summary>C→S 0x0e (vtable 0x1435c0898, 0x141f92c90/0x141f92d10, sender 0x1421406f0): realm byte + u32.</summary>
+/// <summary>C→S 0x0e (vtable 0x1435cb2d0, 0x141f99580/0x141f99600, sender 0x142147040): realm byte + u32.</summary>
 public sealed record U8U32(byte Realm, uint Value) : ILoginMessage
 {
     public const ushort Id = 0x0e;
@@ -338,8 +338,8 @@ public sealed record U8U32(byte Realm, uint Value) : ILoginMessage
     internal static U8U32 Read(ushort id, ref LoginReader r) => new(r.U8(), r.U32());
 }
 
-/// <summary>C→S 0x12 (vtable 0x1435d8b10, 0x14213cb50/0x14213cc30, sender 0x142140490, called by the create screen's
-/// 0x140cf5ef0): create a character. Name is the name box, League the chosen <see cref="LeagueEntry.Name"/>. The two
+/// <summary>C→S 0x12 (vtable 0x1435e35c0, 0x1421434a0/0x142143580, sender 0x142146de0, called by the create screen's
+/// 0x140cf5e60): create a character. Name is the name box, League the chosen <see cref="LeagueEntry.Name"/>. The two
 /// u32 were 0 and S78 the chosen CharacterStartStates.dat Id ("DexDefault" for a Ranger, live 2026-10-18).
 /// PasswordDigest is SHA-256 of the UTF-16LE league password (private leagues), or zeros.</summary>
 public sealed record CreateCharacter(string Name, string League, uint U50, uint U54, string S78, byte[] PasswordDigest) : ILoginMessage
@@ -350,7 +350,7 @@ public sealed record CreateCharacter(string Name, string League, uint U50, uint 
     internal static CreateCharacter Read(ushort id, ref LoginReader r) => new(r.WStr(), r.WStr(), r.U32(), r.U32(), r.WStr(), r.Fixed(32));
 }
 
-/// <summary>C→S 0x1c (sender 0x142140a80): two u16; the second defaults to the client's count at +0xe58.</summary>
+/// <summary>C→S 0x1c (sender 0x1421473d0): two u16; the second defaults to the client's count at +0xe58.</summary>
 public sealed record TwoU16(ushort A, ushort B) : ILoginMessage
 {
     public const ushort Id = 0x1c;
@@ -359,7 +359,7 @@ public sealed record TwoU16(ushort A, ushort B) : ILoginMessage
     internal static TwoU16 Read(ushort id, ref LoginReader r) => new(r.U16(), r.U16());
 }
 
-/// <summary>C→S 0x22 (vtable 0x1435d8ac8, 0x14213ce00, sender 0x142140b40): 5 raw bytes decoded from a 10-hex-digit string.</summary>
+/// <summary>C→S 0x22 (vtable 0x1435e3520, 0x142143750, sender 0x142147490): 5 raw bytes decoded from a 10-hex-digit string.</summary>
 public sealed record HexCode(byte[] Code) : ILoginMessage
 {
     public const ushort Id = 0x22;
@@ -368,7 +368,7 @@ public sealed record HexCode(byte[] Code) : ILoginMessage
     internal static HexCode Read(ushort id, ref LoginReader r) => new(r.Fixed(5));
 }
 
-/// <summary>C→S 0x2c (vtable 0x1435d8a80, 0x14213c4e0/0x14213c5a0, sender 0x140d01a60): Epic (EOS) login: wide string, realm, token blob.</summary>
+/// <summary>C→S 0x2c (vtable 0x1435e3610, 0x142142e30/0x142142ef0, sender 0x140d01b40): Epic (EOS) login: wide string, realm, token blob.</summary>
 public sealed record EpicLogin(string Name, byte Realm, byte[] Token) : ILoginMessage
 {
     public const ushort Id = 0x2c;
@@ -377,7 +377,7 @@ public sealed record EpicLogin(string Name, byte Realm, byte[] Token) : ILoginMe
     internal static EpicLogin Read(ushort id, ref LoginReader r) => new(r.WStr(), r.U8(), r.Blob());
 }
 
-/// <summary>C→S 0x3d (vtable 0x1435d8b68, 0x14213cee0/0x14213cf70, sender 0x142140890): two wide strings + bool.</summary>
+/// <summary>C→S 0x3d (vtable 0x1435e35a0, 0x142143830/0x1421438c0, sender 0x1421471e0): two wide strings + bool.</summary>
 public sealed record TwoWStringsBool(string A, string B, bool Flag) : ILoginMessage
 {
     public const ushort Id = 0x3d;
@@ -396,7 +396,7 @@ public static class LoginCodec
     private static ILoginMessage ReadKeyExchange(ushort id, ref LoginReader r) => new KeyExchange(r.Blob(), r.Blob());
     private static ILoginMessage ReadEmpty(ushort id, ref LoginReader r) => new EmptyMessage(id);
 
-    // Mirrors the client's factory 0x14219c350.
+    // Mirrors the client's factory 0x1421a2cc0.
     private static readonly Dictionary<ushort, Reader> ServerToClient = new()
     {
         [0x01] = ReadEmpty, [0x02] = ReadKeyExchange, [0x04] = LoginResult.Read,
@@ -411,7 +411,7 @@ public static class LoginCodec
     };
 
     // Collected from the client's senders (writes to the login socket at +0xdd0). 0x01 (no fields) was seen live after
-    // 0x18 on the character screen (2026-10-16), probably a keepalive; it shares class 0x14316c930 with S→C 0x01.
+    // 0x18 on the character screen (2026-10-16), probably a keepalive; it shares class 0x1431768d8 with S→C 0x01.
     private static readonly Dictionary<ushort, Reader> ClientToServer = new()
     {
         [0x01] = ReadEmpty, [0x02] = ReadKeyExchange, [0x03] = AccountLogin.Read, [0x05] = TokenLogin.Read,

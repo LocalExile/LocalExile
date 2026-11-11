@@ -12,10 +12,10 @@ The absent names `defend_with_%_more_armour` and `chance_to_defend_with_double_a
 
 Parent task `localexile-steel-willed-hit-armour-boundary-effb-r1` inspected the original `Game.exe`.
 Its recorded SHA-256 begins `78a0e227`; this implementation uses that research without another native run.
-Virtual resolver `0x1428b0750` reads key 20680 at `0x1428b0854`, counter 4534 at `0x1428b08eb`,
-and multiplies at `0x1428b0962`.
-It caps that contribution at 30 at `0x1428b0c24..0x1428b0c36`.
-It separately reads generic key 8404 at `0x1428b0be3` and adds it at `0x1428b0c3f`.
+Virtual resolver `0x1428b7310` reads key 20680 at `0x1428b7414`, counter 4534 at `0x1428b74ab`,
+and multiplies at `0x1428b7522`.
+It caps that contribution at 30 at `0x1428b77e4..0x1428b77f6`.
+It separately reads generic key 8404 at `0x1428b77a3` and adds it at `0x1428b77ff`.
 The 30% cap applies to the per-contact contribution, before adding the generic chance.
 See the [address index](../protocol/address-index.md#skills-11-skillsmd).
 

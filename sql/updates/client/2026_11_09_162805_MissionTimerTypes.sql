@@ -1,0 +1,20 @@
+-- Client table MissionTimerTypes: all 18 rows of the 3.29.3c client. Written by scripts/dev/client-sql.ps1.
+INSERT INTO "MissionTimerTypes" ("_row", "Id", "Image", "BackgroundImage", "SoundEffects", "__col4", "__col5", "__col6", "__col7", "__col8", "__col9", "__col10") VALUES
+(0, 'Generic', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(1, 'Incursion', 'Art/2DArt/UIImages/InGame/MissionTimerIncursion', 'Art/2DArt/UIImages/InGame/Console/TimerIncursionBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(2, 'Zana', 'Art/2DArt/UIImages/InGame/MissionTimerZana', 'Art/2DArt/UIImages/InGame/Console/TimerZanaBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(3, 'Legion', 'Art/2DArt/UIImages/InGame/MissionTimerLegion', 'Art/2DArt/UIImages/InGame/Console/TimerLegionBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(4, 'Breach', 'Art/2DArt/UIImages/InGame/MissionTimerBreach', 'Art/2DArt/UIImages/InGame/Console/TimerBreachBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(5, 'Abyss', 'Art/2DArt/UIImages/InGame/MissionTimerAbyss', 'Art/2DArt/UIImages/InGame/Console/TimerAbyssBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(6, 'Affliction', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(7, 'Heist', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(8, 'Ultimatum', 'Art/2DArt/UIImages/InGame/MissionTimerUltimatum', 'Art/2DArt/UIImages/InGame/Console/TimerUltimatumBackground', '[260,261,262]', '[3,2,1]', 259, NULL, '', '', 0, 85),
+(9, 'Royale', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[263,264,265,266,267,268]', '[5,4,3,2,1,0]', NULL, 269, '', '', 0, 85),
+(10, 'Hellscape', 'Art/2DArt/UIImages/InGame/Hellscape/HellscapeTimer', 'Art/2DArt/UIImages/InGame/Console/TimerHellscapeBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(11, 'Kirac', 'Art/2DArt/UIImages/InGame/MissionTimerKirac', 'Art/2DArt/UIImages/InGame/Console/TimerKiracBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(12, 'HideoutPvp', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[265,266,267,268]', '[3,2,1,0]', NULL, 269, '', '', 0, 85),
+(13, 'Crucible', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(14, 'BrambleBash', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[265,266,267,268]', '[3,2,1,0]', NULL, 269, '', '', 0, 85),
+(15, 'Brequel', 'Art/2DArt/UIImages/InGame/BreachLeague/BreachTimerBase', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[]', '[]', NULL, NULL, 'Art/2DArt/UIImages/InGame/BreachLeague/BreachTimerIntense', '', 10, 24),
+(16, 'Deepwater', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[]', '[]', NULL, NULL, '', '', 0, 85),
+(17, 'HideoutMaze', 'Art/2DArt/UIImages/InGame/MissionTimer', 'Art/2DArt/UIImages/InGame/Console/TimerBackground', '[855,856,857,858,859,860]', '[5,4,3,2,1,0]', NULL, 861, '', '', 0, 85);

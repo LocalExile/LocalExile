@@ -1,4 +1,4 @@
-// Usage: -postScript ReadSchema.java <out.json> <components.json> [factory:0x1421b5c40+0x1421c6150+0x14219c350+0x1428f74d0] [only:0xfunc+...]
+// Usage: -postScript ReadSchema.java <out.json> <components.json> [factory:0x1421bc5b0+0x1421ccac0+0x1421a2cc0+0x1428ff920] [only:0xfunc+...]
 // (no "=" or ",": cmd.exe splits arguments there)
 //
 // Read-sequence summaries for
@@ -6,7 +6,7 @@
 //   - every message class the S->C factories create (switch case -> vtable; slot 1 = write, slot 2 = read).
 // Callee parameters are committed first (decompile + commitParamsToDatabase, bottom-up, in memory only: the project is
 // opened -readOnly), so calls that pass the reader in a register the callee's stored prototype did not list (the
-// ObjectMagicProperties base part, 0x141f92000 in message reads) show their arguments.
+// ObjectMagicProperties base part, 0x141f988f0 in message reads) show their arguments.
 //
 // A summary keeps the decompiled C lines that read, and the if/loop/switch lines around them. Reads are found in the
 // p-code of the decompiled function:
@@ -33,14 +33,14 @@ import java.util.regex.*;
 public class ReadSchema extends GhidraScript {
     // address -> {name, min bytes or -1, kind}; kind r = reader primitive, s = stream read (dst, n), w = stream write
     static final Object[][] PRIMS = {
-        { 0x141e61010L, "cint", 1, "r" }, { 0x14089cad0L, "cint", 1, "r" }, { 0x141fa3d60L, "cint", 1, "r" },
-        { 0x140e0cbe0L, "wstr", -1, "r" }, { 0x1408402a0L, "str", -1, "r" },
-        { 0x141fa4610L, "blob16", 2, "r" }, { 0x141fa44f0L, "blob16.w", 2, "w" },
-        { 0x140dfb630L, "raw", 0, "s" }, { 0x140dfb760L, "raw.w", 0, "sw" },
-        { 0x141fa3c50L, "cint.w", 1, "w" },
-        { 0x140e28cf0L, "raw", 0, "b" },      // blob reader memcpy (reader, dst, n)
+        { 0x141e655b0L, "cint", 1, "r" }, { 0x14089dc40L, "cint", 1, "r" }, { 0x141faa790L, "cint", 1, "r" },
+        { 0x140e0b480L, "wstr", -1, "r" }, { 0x14083f460L, "str", -1, "r" },
+        { 0x141fab040L, "blob16", 2, "r" }, { 0x141faaf20L, "blob16.w", 2, "w" },
+        { 0x140df9ed0L, "raw", 0, "s" }, { 0x140dfa000L, "raw.w", 0, "sw" },
+        { 0x141faa680L, "cint.w", 1, "w" },
+        { 0x140e27590L, "raw", 0, "b" },      // blob reader memcpy (reader, dst, n)
     };
-    static final long[] IGNORE = { 0x140e28a30L, 0x142cdd4c0L }; // out-of-range exception builder, throw
+    static final long[] IGNORE = { 0x140e272d0L, 0x142ce6a40L }; // out-of-range exception builder, throw
     static final String[] ARG_REGS = { "RCX", "RDX", "R8", "R9" };
 
     DecompInterface di;
@@ -72,7 +72,7 @@ public class ReadSchema extends GhidraScript {
         String[] a = getScriptArgs();
         mem = currentProgram.getMemory();
         for (Object[] p : PRIMS) prims.put((Long) p[0], p);
-        List<Long> factories = new ArrayList<>(List.of(0x1421b5c40L, 0x1421c6150L, 0x14219c350L, 0x1428f74d0L));
+        List<Long> factories = new ArrayList<>(List.of(0x1421bc5b0L, 0x1421ccac0L, 0x1421a2cc0L, 0x1428ff920L));
         for (int i = 2; i < a.length; i++) {
             if (a[i].startsWith("factory:")) {
                 factories.clear();
@@ -248,7 +248,7 @@ public class ReadSchema extends GhidraScript {
         }
         if (vt != null) return new String[] { vt, "case" };
         for (Function c : calls) {
-            if (c.getEntryPoint().getOffset() == 0x142c835e0L) continue; // operator new
+            if (c.getEntryPoint().getOffset() == 0x142c8cb50L) continue; // operator new
             String v = lastZeroStoreVt(c, 0);
             if (v != null) return new String[] { v, "ctor " + hex(c.getEntryPoint()) };
         }

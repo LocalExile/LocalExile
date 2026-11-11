@@ -200,7 +200,7 @@ public class HinekoraLockGatewayTests
                 var header = new byte[14];
                 await ReadExactly(reader.GetStream(), header);
                 clientCiphers.Receive.Process(header);
-                Assert.Equal(0x029f, (ushort)(header[0] << 8 | header[1]));
+                Assert.Equal(0x02a0, (ushort)(header[0] << 8 | header[1]));
                 ushort key = (ushort)(header[2] << 8 | header[3]);
                 ushort status = (ushort)(header[4] | header[5] << 8);
                 ulong count = BitConverter.ToUInt64(header, 6);
@@ -249,7 +249,7 @@ public class HinekoraLockGatewayTests
             .U32(currency.Id).U32(PlayerInventories.InventoryId(Main)).U32(target.Id).ToArray();
 
     static byte[] PreviewRequest(ushort key, InventoryItem currency, InventoryItem target) =>
-        new LoginWriter().U16(0x29c).U16(key).U32(PlayerInventories.InventoryId(Main))
+        new LoginWriter().U16(0x29d).U16(key).U32(PlayerInventories.InventoryId(Main))
             .U32(currency.Id).U32(PlayerInventories.InventoryId(Main)).U32(target.Id).ToArray();
 
     sealed class SaveFixture : IDisposable
