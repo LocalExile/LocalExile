@@ -13,13 +13,13 @@ static class HideoutEditingFeature
         foreach (var s in CharacterSaves.MonsterStatues(character, conn.Layout.Id))
         {
             uint id = conn.NextObjectId++;
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
                 InstanceMonsterStatue.Blob(s.X, s.Y, s.MonsterHash16, s.Scale, s.Variation, s.Rotation)),
                 $"0x02bb saved monster statue at ({s.X}, {s.Y})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),
                 $"0x01a9 saved monster statue 0x{id:x} enters wake zone");
-            await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
                 $"0x1b2 saved monster statue 0x{id:x} idle");
         }
     }
@@ -47,14 +47,14 @@ static class HideoutEditingFeature
         }
         var (x, y) = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         uint id = conn.NextObjectId++;
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id,
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
             InstanceMonsterStatue.Blob(x, y, variety.Hash16)), $"0x02bb monster statue of {variety} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),
             $"0x01a9 monster statue 0x{id:x} enters wake zone");
-        await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
             $"0x1b2 monster statue 0x{id:x} idle");
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(create.Target),
+        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, create.Target,
             $"0x02bd remove the monster 0x{create.Target:x} turned into a statue");
         lock (conn.Monsters) conn.Monsters.Remove(create.Target);
         if (CharacterName(conn) is { } character)
@@ -91,7 +91,7 @@ static class HideoutEditingFeature
         if (move.ObjectId == WaypointCatalog.ObjectId && conn.Layout.Waypoint is { } waypoint)
             conn.MoveWaypoint(waypoint with { GridX = p.X, GridY = p.Y, Rotation = p.Rotation });
         conn.Furniture = null;
-        await Send(remote, stream, ciphers, InstanceProtocol.Teleport(move.ObjectId, p.X, p.Y, 0x7fffffff),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, move.ObjectId, InstanceProtocol.Teleport(move.ObjectId, p.X, p.Y, 0x7fffffff),
             $"hideout move {entry.Key} 0x{move.ObjectId:x} to ({p.X},{p.Y}), saved");
         await Send(remote, stream, ciphers, InstanceHideoutEditing.Rotation(move.ObjectId, p.Rotation),
             $"hideout rotation {p.Rotation:0.###}");

@@ -81,7 +81,7 @@ public sealed class ReservationCurseSummonTests
                 Assert.NotEmpty(Game.GolemNativeSkills(conn, 70, abilities));
             }
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSummonSkeletons")!);
-            var weapon = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with { Sockets = [new(SocketColour.White, gem)] };
+            var weapon = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with { Sockets = [new(SocketColour.White, gem)] };
             Game.ItemsOf(conn).Add(PlayerInventories.Weapon1, 0, 0, weapon);
             var source = Game.GemSkillEffects(conn).Single(g => Program.Skills.EffectId(g.Effect) == "SummonSkeletons");
             var skeleton = catalog.Find("SummonSkeletons")!;
@@ -90,6 +90,21 @@ public sealed class ReservationCurseSummonTests
             for (int i = 0; i < limit + 2; i++) Assert.NotEqual(0u, await Game.SummonFighter("test", wire.Stream, wire.Ciphers, conn, source.Id, skeleton, (100, 100)));
             Assert.Equal(limit, conn.Summons.Fighters.Count); Assert.Empty(conn.Golems.All);
             Assert.All(conn.Summons.Fighters.Values, g => Assert.Contains(g.Abilities, a => a.Attack.Damage.MaxTotal > 0));
+            var summonedSkeleton = conn.Summons.Fighters.Values.First();
+            double Chaos() => summonedSkeleton.Abilities.Max(a => a.Attack.Damage[GameServer.Core.World.DamageType.Chaos].Max);
+            double baseChaos = Chaos();
+            var shield = ItemCatalog.Create(Program.Items.Find("Titanium Spirit Shield")!);
+            var inventories = Game.ItemsOf(conn);
+            var wornShield = inventories.Add(PlayerInventories.Offhand1, 0, 0, shield);
+            var eye = new UniqueCatalog(Program.Items).Create("Dead Reckoning", new Random(3))!;
+            conn.Passives.Add(Program.Passives.JewelNodeForSlot(1)!.Value);
+            inventories.Put(PlayerInventories.PassiveJewels, new(192, 1, 0, eye));
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            await Game.SummonsTick("test", wire.Stream, wire.Ciphers, conn, now + 1);
+            Assert.True(Chaos() > baseChaos);
+            inventories.Remove(PlayerInventories.Offhand1, wornShield.Id);
+            await Game.SummonsTick("test", wire.Stream, wire.Ciphers, conn, now + 2);
+            Assert.Equal(baseChaos, Chaos());
             await Game.SummonsTick("test", wire.Stream, wire.Ciphers, conn, conn.Clock.Elapsed.TotalSeconds + 21);
             Assert.Empty(conn.Summons.Fighters);
             ushort Equip(string effect, params string[] supports)

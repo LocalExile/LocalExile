@@ -15,6 +15,8 @@ using GameServer.Core.World;
 public sealed class KillOnslaught
 {
     public IReadOnlyList<(int Chance, double Seconds)> Rolls = [];
+    // "You gain Onslaught for 4 seconds on Hit" (gain_onslaught_on_hit_duration_ms): every hit, no roll.
+    public int HitMs;
     public double Until = double.NegativeInfinity;
     public double SentUntil = double.NegativeInfinity;
     public ushort Buff;
@@ -40,6 +42,15 @@ public sealed class KillOnslaught
             if (RandomRolls.Chance(chance, 100, random)) seconds = Math.Max(seconds, s);
         if (seconds <= 0 || now + seconds <= Until) return false;
         Until = now + seconds;
+        return true;
+    }
+
+    /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
+    /// X seconds on Hit"). A gain never shortens the Onslaught running.</summary>
+    public bool Hit(double now)
+    {
+        if (HitMs <= 0 || now + HitMs / 1000.0 <= Until) return false;
+        Until = now + HitMs / 1000.0;
         return true;
     }
 
@@ -69,7 +80,12 @@ public static partial class Game
     public static void ConfigureKillOnslaught(ClientState conn, Func<string, int> get)
     {
         var rolls = KillOnslaught.From(get);
-        lock (conn.Monsters) KillOnslaughtOf(conn).Rolls = rolls;
+        lock (conn.Monsters)
+        {
+            var onslaught = KillOnslaughtOf(conn);
+            onslaught.Rolls = rolls;
+            onslaught.HitMs = get("gain_onslaught_on_hit_duration_ms");
+        }
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
@@ -78,6 +94,12 @@ public static partial class Game
     {
         lock (conn.Monsters)
             return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared);
+    }
+
+    // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
+    public static bool OnslaughtOnHitLocked(ClientState conn, double now)
+    {
+        lock (conn.Monsters) return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Hit(now);
     }
 
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,
@@ -113,7 +135,7 @@ public static partial class Game
                 RecomputePoolsAndSpeed(conn);
                 bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-                Console.WriteLine($"[gateway] Onslaught on kill {(o.Applied ? "started" : "ended")}");
+                Console.WriteLine($"[gateway] Onslaught {(o.Applied ? "started" : "ended")}");
             }
             return [.. bytes];
         }

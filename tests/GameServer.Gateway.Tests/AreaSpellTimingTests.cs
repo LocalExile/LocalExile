@@ -11,7 +11,9 @@ public sealed class AreaSpellTimingTests : IDisposable
         Directory.CreateDirectory(_folder);
         File.WriteAllText(Path.Combine(_folder, "animation-contacts.json"), """
             { "Metadata/Characters/Int/Int.ao": { "animations": {
-                "spell_projectile_wand": [1066, 599], "spell_aoe_wand": [766, 266] } },
+                "spell_projectile_wand": [1066, 599], "spell_aoe_wand": [766, 266] },
+                "indices": { "spell_projectile_wand": 25, "spell_aoe_wand": 33 },
+                "cancels": { "spell_projectile_wand": 754, "spell_aoe_wand": null } },
               "Metadata/Characters/StrInt/StrInt.ao": { "animations": {
                 "spell_projectile_unarmed": [900, 500], "spellaoe_unarmed": [833, 366] } },
               "Metadata/Characters/Dex/Dex.ao": { "animations": { "spell_projectile_unarmed": [1000, 400] } } }
@@ -29,6 +31,19 @@ public sealed class AreaSpellTimingTests : IDisposable
         // No area clip: the projectile release; no such rig: the default.
         Assert.Equal(0.4, contacts.SpellAreaRelease("Metadata/Characters/Dex/Dex.ao"), 6);
         Assert.Equal(AnimationContacts.DefaultSpellRelease, contacts.SpellAreaRelease("Metadata/None.ao"));
+        var wand = new WeaponProfile { Wand = true };
+        var window = contacts.SpellMoveWindow("Metadata/Characters/Int/Int.ao", wand,
+            CastAnimationKind.Projectile, 0, .65, false)!.Value;
+        Assert.True(window.AllowsMove(.1));
+        Assert.False(window.AllowsMove(.2));
+        Assert.False(window.AllowsMove(.45));
+        Assert.True(window.AllowsMove(.46));
+        Assert.False(window.AllowsMove(.1, earlyCancellation: false));
+        Assert.False(contacts.SpellMoveWindow("Metadata/Characters/Int/Int.ao", wand,
+            CastAnimationKind.Projectile, 0, .65, true)!.Value.AllowsMove(.1));
+        Assert.Equal(.65 * 266 / 766, contacts.SpellMoveWindow("Metadata/Characters/Int/Int.ao", wand,
+            CastAnimationKind.Area, 0, .65, false)!.Value.LateFrom, 6);
+        Assert.Null(contacts.SpellMoveWindow("Metadata/None.ao", wand, CastAnimationKind.Projectile, 0, .65, false));
     }
 
     [Fact]

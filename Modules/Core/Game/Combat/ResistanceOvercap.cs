@@ -57,16 +57,21 @@ public static class ResistanceOvercap
         int lightningRaw = bonus.LightningResistance + commonResistance + fireLightning + Replacement("base_lightning_damage_resistance_%");
         int commonMaximum = Replacement("additional_maximum_all_resistances_%")
             + Replacement("additional_maximum_all_elemental_resistances_%");
+        int fireMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
+            + bonus.FireMaxResistance + commonMaximum + Replacement("base_maximum_fire_damage_resistance_%"));
         int coldMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
             + bonus.ColdMaxResistance + commonMaximum + Replacement("base_maximum_cold_damage_resistance_%"));
         int lightningMax = Math.Min(GameServer.Core.World.DamageModel.MaxResistCap, GameServer.Core.World.DamageModel.DefaultMaxResistance
             + bonus.LightningMaxResistance + commonMaximum + Replacement("base_maximum_lightning_damage_resistance_%"));
+        if (Effective("elemental_resistances_are_limited_by_highest_maximum_elemental_resistance") != 0)
+            fireMax = coldMax = lightningMax = Math.Max(fireMax, Math.Max(coldMax, lightningMax));
         var derived = Increases(coldRaw + penalty, coldMax, Enabled(stats, sources, devStats, ColdEvasionFlag),
             lightningRaw + penalty, lightningMax, Enabled(stats, sources, devStats, LightningCritFlag));
         return bonus with
         {
             ColdResistance = coldRaw - CharacterStats.BaseResistance,
             LightningResistance = lightningRaw - CharacterStats.BaseResistance,
+            FireMaxResistance = fireMax - GameServer.Core.World.DamageModel.DefaultMaxResistance,
             ColdMaxResistance = coldMax - GameServer.Core.World.DamageModel.DefaultMaxResistance,
             LightningMaxResistance = lightningMax - GameServer.Core.World.DamageModel.DefaultMaxResistance,
             ColdOvercapEvasionPct = derived.EvasionPct, LightningOvercapCritPct = derived.CriticalStrikeChancePct
@@ -76,6 +81,7 @@ public static class ResistanceOvercap
     public static bool IsInput(string name) => name is ColdEvasionFlag or LightningCritFlag or ColdAndLightningResistance
         or "fire_and_cold_damage_resistance_%" or "fire_and_lightning_damage_resistance_%"
         or "base_cold_damage_resistance_%" or "base_lightning_damage_resistance_%" or "base_resist_all_elements_%"
+        or "elemental_resistances_are_limited_by_highest_maximum_elemental_resistance" or "base_maximum_fire_damage_resistance_%"
         or "base_maximum_cold_damage_resistance_%" or "base_maximum_lightning_damage_resistance_%"
         or "additional_maximum_all_resistances_%" or "additional_maximum_all_elemental_resistances_%";
 
