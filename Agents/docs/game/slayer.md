@@ -49,7 +49,10 @@ The client's own calculators show what they read, by key (Stats row + 1):
 
 - "Nearby" is 60 cells, the radius of Overwhelm's own aura; the client does not name it.
 - The tick (250 ms) counts the awake hostile monsters within it that the client has been shown, and kills of the
-  last 4 s, only when a stat reads them. Each count stops where its capped product does (10 at the base values).
+  last 4 s, only when a Slayer stat reads them. The real counts are sent: the client also reads
+  `number_of_nearby_enemies` for other per-enemy stats with their own caps (`0x14251aa40`, `0x142525b99`,
+  `0x142710f20`, `0x142753203`, `0x14285d770`). A resend waits for a change Slayer's capped products see (10 at the
+  base values), or any change when one of those other stats is on the player.
   They join the stat sources with `have_killed_recently`; a change rebuilds the pools and sends the stats.
 - Headsman's buffs are BuffDefinitions 1341 and 1342 (`bane_of_legends_*`, invisible, no values): 20 s from the last
   kill, refreshed by each, ended by death.
@@ -62,6 +65,7 @@ The client's own calculators show what they read, by key (Stats row + 1):
 
 ## Not applied
 
+- The counts without a Slayer stat: other stats that read them get 0, and the server applies none of them.
 - `melee_range_+`: the server models no melee range stat.
   The client reads it in a range sum (`0x1427e3950`), but whether its walk-up distance grows is not known.
 - Bane of Legends on other hit executors (triggered spells, traps, totems) and on damage over time not made from a hit.
