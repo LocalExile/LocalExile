@@ -9,23 +9,14 @@ using static PortalsFeature;
 namespace GameServer.Modules.M_portals;
 
 /// <summary>Town portals, Portal Scrolls, the map device and map portals.</summary>
-public sealed class PortalsModule : IModule, IDisposable
+public sealed class PortalsModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Portals", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnAreaGenerated(async player =>
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, async conn =>
         {
-            var conn = ConnOf(player); var (remote, stream, ciphers) = conn.Wire;
+            var (remote, stream, ciphers) = conn.Wire;
             await SpawnHideoutDoodads(remote, stream, ciphers, conn);
             await SpawnMapReturnPortal(remote, stream, ciphers, conn);
             await SpawnTownPortals(remote, stream, ciphers, conn);
@@ -34,7 +25,7 @@ public sealed class PortalsModule : IModule, IDisposable
                 && (open.ReturnTo is null ? !device.Campaign : open.ReturnTo.Area == conn.Layout.Hash && open.ReturnTo.Instance == conn.InstanceNumber))
                 await SpawnMapPortals(remote, stream, ciphers, conn, open, firstAfterMs: MapPortalEntryMs);
         });
-        On(GameEvents.ObjectUse, async (conn, use, requestedAt) =>
+        GameEvents.ObjectUse.Add(module.Manifest.Id, async (conn, use, requestedAt) =>
         {
             var (remote, stream, ciphers) = conn.Wire;
             if (conn.BackPortal is { } home && use.TargetId == home.Id && OpenPortals.TryGetValue(CharacterName(conn), out var origin))
@@ -66,7 +57,7 @@ public sealed class PortalsModule : IModule, IDisposable
             return true;
         });
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
-        On(GameEvents.SkillCast, (conn, effect, skillId, from, current) =>
+        GameEvents.SkillCast.Add(module.Manifest.Id, (conn, effect, skillId, from, current) =>
         {
             if (effect != "Portal") return null;
             var (remote, stream, ciphers) = conn.Wire;
@@ -79,28 +70,28 @@ public sealed class PortalsModule : IModule, IDisposable
             });
             return true;
         });
-        On(GameEvents.ItemUse, async (conn, use, item, type) =>
+        GameEvents.ItemUse.Add(module.Manifest.Id, async (conn, use, item, type) =>
         {
             if (type.Id != PortalScroll) return false;
             var (remote, stream, ciphers) = conn.Wire;
             await UsePortalScroll(remote, stream, ciphers, conn, use, item, type);
             return true;
         });
-        module.OnPacket(InstanceMapDevice.ActivateId, async p =>
+        GameEvents.Packet(InstanceMapDevice.ActivateId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await ActivateMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadActivate(bytes));
             return true;
         });
-        module.OnPacket(InstanceMapDevice.SelectMapId, async p =>
+        GameEvents.Packet(InstanceMapDevice.SelectMapId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await SelectAtlasMap(remote, stream, ciphers, conn, InstanceMapDevice.ReadSelectMap(bytes));
             return true;
         });
-        module.OnPacket(InstanceMapDevice.MoveId, async p =>
+        GameEvents.Packet(InstanceMapDevice.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player); var (remote, stream, ciphers) = conn.Wire; byte[] bytes = p.Bytes.ToArray();
+            var (remote, stream, ciphers) = conn.Wire;
             await MoveToMapDevice(remote, stream, ciphers, conn, InstanceMapDevice.ReadMove(bytes));
             return true;
         });

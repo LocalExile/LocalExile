@@ -7,7 +7,7 @@ using DamageType = GameServer.Core.World.DamageType;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
 /// <param name="ArriveAt">Arrive at this cell (back through a town portal).</param>
-sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool AtSpawn = false, bool AtWaypoint = false, (int X, int Y)? ArriveAt = null)
+public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool AtSpawn = false, bool AtWaypoint = false, (int X, int Y)? ArriveAt = null)
 {
     /// <summary>Called with Auth's answer to the transfer (a map portal records the map's new instance).</summary>
     public Action<ControlResponse>? Done { get; init; }
@@ -22,9 +22,9 @@ sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool AtSpaw
 /// (Program.MonsterReleaseFor): the clip, its contact keyframe as a fraction of the attack, the keyframe's position when
 /// the skill spawns the shot there (<c>projectile_uses_contact_position</c>), and whether the monster turns its back for
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
-sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
+public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
-sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
+public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     public bool Ranged { get; init; }
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
@@ -86,14 +86,14 @@ sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, Damage
     }
 }
 
-sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
+public sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
 {
     /// <summary>Its Transitionable state as the client has it (NPCTalk scripts step it: Game.StepNpcTransition).</summary>
     public byte State { get; set; } = Npc.TransitionState;
 }
 
 // An open sell window: the NPC, the two offer inventories (manager 1), the offered items and the NPC's offer.
-sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
+public sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
 {
     public SpawnedNpc Npc { get; } = npc;
     public uint Mine { get; } = mine;
@@ -107,7 +107,7 @@ sealed class NpcSale(SpawnedNpc npc, uint mine, uint theirs)
 }
 
 // An open shop tab: the NPC, its inventory id (manager 1), the items left by id and the tab's 0xbf revision.
-sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem Item)> items)
+public sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem Item)> items)
 {
     public string? StockKey { get; init; }
     public Dictionary<uint, Guid> Finite { get; init; } = [];
@@ -121,7 +121,7 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
     readonly Dictionary<uint, uint> _revisions = [];
 }
 
-sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
+public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public double ReceivedActionFactor = 1;
     public double ReceivedActionUntil;
@@ -322,7 +322,7 @@ sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int s
 /// <summary>A lockstep client's attack on a monster or ground point (07 §5, §6): the player's MoveTo toward its aim, which
 /// the client's frames run and the step pass follows (Game.StepFrames), and the swing it ends in. Under the Monsters
 /// lock.</summary>
-sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? target, int reach, int tolerance, int precision,
+public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? target, int reach, int tolerance, int precision,
     Func<double> hold)
 {
     public int Action { get; } = action;
@@ -362,7 +362,7 @@ sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? target, i
 
 // A running Righteous Fire: the player's buff instance, the skill, its damage (percent of maximum life per minute, to
 // enemies and to the player), its radius in cells, and the aura buff instance on each monster inside it.
-sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute, int Radius)
+public sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushort Skill, int DamagePctPerMinute, int BurnPctPerMinute, int Radius)
 {
     public int EnergyShieldBurnPctPerMinute { get; init; }
     public int EnergyShieldDamagePctPerMinute { get; init; }
@@ -374,7 +374,7 @@ sealed record RighteousFireState(ushort Buff, ushort SelfAura, uint? Ring, ushor
 // A running Bladefall of Trarthus (BladefallVolleys): its two buff instances (skill_cost_over_time, righteous_blades),
 // the skill, the game time of its next volley and the mana it spends per minute (mana_spent_per_minute, as set on the
 // player). Blades: the ground blades still standing, oldest first, with the game time each falls quiet and goes.
-sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
+public sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort Skill)
 {
     public double NextVolley;
     public int ManaPerMinute;
@@ -383,12 +383,14 @@ sealed record BladefallTrarthusState(ushort CostBuff, ushort BladesBuff, ushort 
 }
 
 // The last instance list shown (0xae); 0xaf picks a row of it.
-sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false);
+public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtWaypoint = false);
 
-sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
+public sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 {
-    internal bool Controlled, ControlledPrepared;
-    internal double ControlledNextAction, ControlledDeadSince = double.NaN;
+    public readonly CharacterBuildImports.Session BuildImport = new();
+    public bool BuildFinalized;
+    public bool Controlled, ControlledPrepared;
+    public double ControlledNextAction, ControlledDeadSince = double.NaN;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;
@@ -402,13 +404,13 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
     public bool Ssf { get; init; }
     public string? LeagueForm { get; init; }
     /// <summary>The league this connection plays by (Program.LeagueFor); LeagueForm above is the character's league form, from Auth.</summary>
-    internal LeagueRuntime? LeagueModule;
+    public LeagueRuntime? LeagueModule;
     /// <summary>The hideout scene furnishing this area, for the modules placing stations.</summary>
-    internal HideoutScene? CurrentHideoutScene;
+    public HideoutScene? CurrentHideoutScene;
     /// <summary>The module whose native window is open (IPlayerWorld.OpenWindow).</summary>
     public string? ModuleWindow;
     /// <summary>What sends to this client, for what is reached only with the connection (the built-in mods).</summary>
-    internal (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers) Wire;
+    public (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers) Wire;
     public double GemExperienceCarry;
     public bool BossRecoveryHandled;
     public bool HardcoreDeathRecorded;
@@ -868,8 +870,8 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
         }
     }
     // Defaults to the original shared stream; an isolated connection may supply deterministic critical draws.
-    internal Random CriticalRandom { get; init; } = Random.Shared;
-    internal Random AttackAccuracyRandom { get; set; } = Random.Shared;
+    public Random CriticalRandom { get; init; } = Random.Shared;
+    public Random AttackAccuracyRandom { get; set; } = Random.Shared;
     // The player's mana as the server keeps it: spent by gem skills (mana_cost), regenerated by RunPlayerTick.
     public uint PlayerMana;
     // When the server last sent the pool back after an attack-move, whose use the client pays for but the server only walks.
@@ -1126,7 +1128,7 @@ sealed partial class ClientState(AreaLayout layout, uint ticket, uint seed)
 
 /// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it
 /// keeps (+1 or −1) and where it was last sent.</summary>
-sealed class SpawnedPet(WalkEstimator walk, int side)
+public sealed class SpawnedPet(WalkEstimator walk, int side)
 {
     public WalkEstimator Walk { get; } = walk;
     public int Side { get; } = side;

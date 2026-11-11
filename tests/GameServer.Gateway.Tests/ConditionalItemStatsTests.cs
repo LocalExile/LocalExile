@@ -337,7 +337,7 @@ public class ConditionalItemStatsTests
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };
-            Assert.True(CommandsRules.TryDevEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
+            Assert.True(Game.TrySyntheticEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
                 block: false, spell: false, suppress: false, out _));
             double now = conn.Clock.Elapsed.TotalSeconds;
             Assert.Equal(1, conn.RecentEnemyHits.Count(now));

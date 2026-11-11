@@ -17,11 +17,11 @@ public sealed class ChatModule : IModule
         var chat = new ChatService(module.Log);
         module.Lifetime.Own(chat);
         module.Lifetime.Own(ChatRoutes.Follow(chat.RouteChanged));
-        module.OnPacket(InstanceChat.LinkItemId, p => chat.Linked(ConnOf(p.Player), InstanceChat.ReadLinkItem(p.Bytes.Span)));
-        module.OnPacket(InstanceChat.ChatId, p => chat.Typed(ConnOf(p.Player), InstanceChat.ReadChat(p.Bytes.Span)));
-        module.OnPacket(InstanceChat.JoinChannelId, p => chat.Join(ConnOf(p.Player), p.Bytes));
-        module.OnAreaGenerated(player => chat.Entered(ConnOf(player)));
-        module.OnPlayerLeaving((player, why) => chat.Leaving(ConnOf(player), why));
+        GameEvents.Packet(InstanceChat.LinkItemId).Add(module.Manifest.Id, (conn, bytes) => chat.Linked(conn, InstanceChat.ReadLinkItem(bytes.AsSpan())));
+        GameEvents.Packet(InstanceChat.ChatId).Add(module.Manifest.Id, (conn, bytes) => chat.Typed(conn, InstanceChat.ReadChat(bytes.AsSpan())));
+        GameEvents.Packet(InstanceChat.JoinChannelId).Add(module.Manifest.Id, (conn, bytes) => chat.Join(conn, bytes));
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => chat.Entered(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => chat.Leaving(conn, why));
         _ = chat.Rejoin();
     }
 }

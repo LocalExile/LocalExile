@@ -4,27 +4,27 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using ControlledIntent = ControlledPlayerIntent;
 
-static partial class Game
+public static partial class Game
 {
-    internal sealed record ControlledReceipt(string Id, string State, string Detail, double At);
+    public sealed record ControlledReceipt(string Id, string State, string Detail, double At);
     sealed class ControlledBrain
     {
-        internal ControlledIntent? Intent;
-        internal ControlledReceipt? Receipt;
+        public ControlledIntent? Intent;
+        public ControlledReceipt? Receipt;
     }
     static readonly ConditionalWeakTable<ClientState, ControlledBrain> ControlledBrains = new();
 
-    internal static void ClearControlledIntent(ClientState conn)
+    public static void ClearControlledIntent(ClientState conn)
     {
         lock (conn.Monsters) ControlledBrains.Remove(conn);
     }
 
-    internal static ControlledReceipt? ControlledIntentReceipt(ClientState conn)
+    public static ControlledReceipt? ControlledIntentReceipt(ClientState conn)
     {
         lock (conn.Monsters) return ControlledBrains.TryGetValue(conn, out var brain) ? brain.Receipt : null;
     }
 
-    internal static void QueueControlledIntent(ClientState conn, ControlledIntent intent)
+    public static void QueueControlledIntent(ClientState conn, ControlledIntent intent)
     {
         lock (conn.Monsters)
         {
@@ -41,7 +41,7 @@ static partial class Game
         }
     }
 
-    internal static ControlledIntent? CurrentControlledIntent(ClientState conn, double now)
+    public static ControlledIntent? CurrentControlledIntent(ClientState conn, double now)
     {
         lock (conn.Monsters)
         {
@@ -65,7 +65,7 @@ static partial class Game
         }
     }
 
-    internal static bool ControlledMoveFits(ClientState conn, ClientState leader, int x, int y, double now)
+    public static bool ControlledMoveFits(ClientState conn, ClientState leader, int x, int y, double now)
     {
         var at = (X: x, Y: y);
         var origin = leader.Walk.Position(now);
@@ -218,7 +218,7 @@ static partial class Game
         return true;
     }
 
-    internal static object ObserveControlledPlayer(ClientState conn, ClientState leader)
+    public static object ObserveControlledPlayer(ClientState conn, ClientState leader)
     {
         lock (conn.Monsters)
         {

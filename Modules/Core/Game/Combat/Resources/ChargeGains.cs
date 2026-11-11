@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 
 /// <summary>Something that can grant charges (issue #237): a hit, a kill, being hit, a block, a skill's own grant, or
 /// the /charges command.</summary>
-abstract record ChargeEvent
+public abstract record ChargeEvent
 {
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
@@ -43,7 +43,7 @@ abstract record ChargeEvent
 /// "or soon after the hit" part is not modelled). Gains that need mechanics the server does not have (freeze,
 /// bleed, poison, curses, traps, mines, Vaal souls, support gems) are not here; 11-skills.md §15 lists them.
 /// </summary>
-static class ChargeGains
+public static class ChargeGains
 {
     /// <summary>One stat that grants charges: the stat, the charge type (null: a random one of the three), and when it
     /// applies.</summary>

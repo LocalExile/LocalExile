@@ -2,11 +2,11 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     static FlaskAutomationState Automation(ClientState conn) => conn.FlaskAutomation;
 
-    internal static void QueueFlaskTrigger(ClientState conn, FlaskEnchantments.Trigger trigger, uint item = 0, byte slot = 0)
+    public static void QueueFlaskTrigger(ClientState conn, FlaskEnchantments.Trigger trigger, uint item = 0, byte slot = 0)
     {
         lock (conn.Monsters)
         {
@@ -15,7 +15,7 @@ static partial class Game
         }
     }
 
-    internal static Task<bool> UseUtilityFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static Task<bool> UseUtilityFlask(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint slot, InventoryItem flask, ItemCatalog.BaseType type, UtilityFlasks.Utility utility)
         => UseUtilityFlaskForSignal(remote, stream, ciphers, conn, slot, flask, type, utility, null);
 
@@ -38,7 +38,7 @@ static partial class Game
 
     // Runs from the existing pause-aware flask ticker, outside combat/inventory locks. Each flask is used at most
     // once per event chain, preventing adjacent enchanted flasks from recursively emptying one another.
-    internal static async Task DrainFlaskTriggers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task DrainFlaskTriggers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var state = Automation(conn);
         if (!CurrentGameWork || conn.Paused || conn.LeavingArea) return;
@@ -82,7 +82,7 @@ static partial class Game
             && FlaskEnchantments.Matches(ItemModStats.Local(flask.Item, ItemsFor(conn).Mods), end.Trigger,
                 flask.X, end.Slot, active: false);
 
-    internal static void QueueFlaskAilmentChanges(ClientState conn,
+    public static void QueueFlaskAilmentChanges(ClientState conn,
         (bool Ignite, int Chill, bool Freeze, int Shock) before, (bool Ignite, int Chill, bool Freeze, int Shock) after)
     {
         if (!before.Ignite && after.Ignite) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Ignite);

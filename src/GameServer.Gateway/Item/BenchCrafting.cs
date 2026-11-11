@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
 /// <summary>The ordinary bench's live client recipes, costs, class filters and guaranteed modifiers.</summary>
-sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
+public sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string folder = "data")
 {
     public sealed record Recipe(int Row, string Name, ModCatalog.Mod? Mod, ModCatalog.Mod? Enchant,
         int Action, int Sockets, int Links, string Colours, IReadOnlySet<int> Classes,

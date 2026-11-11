@@ -6,13 +6,13 @@ using System.Diagnostics;
 /// any is loaded. The compiler leaves a module as it is when the Gateway's API did not change, so its date stays old:
 /// the checked file (written here and by live.ps1) records the last time they all built against the server. Mods use
 /// only GameServer.Modding, and the Gateway compiles leagues itself.</summary>
-static class StaleModules
+public static class StaleModules
 {
     const int Concurrent = 4;
     static readonly string[] ServerAssemblies = ["GameServer.Gateway.dll", "GameServer.Core.dll", "GameServer.Modding.dll"];
     static string CheckedFile => Path.Combine(AppContext.BaseDirectory, "modules-checked");
 
-    internal static void Rebuild(string folder)
+    public static void Rebuild(string folder)
     {
         if (Environment.GetEnvironmentVariable("DOTNET_WATCH") != "1" || !Directory.Exists(folder)) return;
         DateTime server = ServerAssemblies.Max(name => File.GetLastWriteTimeUtc(Path.Combine(AppContext.BaseDirectory, name)));

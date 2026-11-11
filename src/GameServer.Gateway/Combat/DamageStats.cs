@@ -7,7 +7,7 @@ using DamageType = GameServer.Core.World.DamageType;
 /// <c>attack_physical_damage_%_to_add_as_lightning</c>, and so on. Skill, base and global conversion stack; the
 /// resulting percentages are normalised by <see cref="DamageConversion"/>.
 /// </summary>
-static class DamageStats
+public static class DamageStats
 {
     public const string SpellDamageIncreasesApplyToAttacks150 = ArcaneMight.Fixed150;
 
@@ -70,7 +70,7 @@ static class DamageStats
     /// ids: the Replica Alberon's Warpath pair is named <c>_per_50_strength</c>, but its description (and PoB's and
     /// RePoE's text, "Adds 1 to 80 Chaos Damage to Attacks per 80 Strength") applies it per 80. Weapon-local "with this
     /// Weapon" and spell per-attribute stats are not these.</summary>
-    internal static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
+    public static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
         AttackAddedPerAttribute =
     [
         (DamageType.Physical, "attack_minimum_added_physical_damage_per_25_strength",

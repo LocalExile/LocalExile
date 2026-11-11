@@ -2,7 +2,7 @@ using GameServer.Core.Projectiles;
 
 
 /// <summary>Binds resolved stats to source-neutral projectile profiles and their child stages.</summary>
-static class GatewayProjectileModifiers
+public static class GatewayProjectileModifiers
 {
     public static ProjectileProfile Resolve(ProjectileProfile profile, Func<string, int> get, bool attack,
         bool arrows = false, bool chainInputConsumed = false, bool intrinsicSplitCount = false)
@@ -80,6 +80,8 @@ static class GatewayProjectileModifiers
         if (p.TravelEmission is { } travelEmission)
             p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
+        if (get("projectiles_can_shotgun") != 0)
+            p = p with { HitRule = new(ProjectileHitScope.Projectile) };
         return p;
     }
 

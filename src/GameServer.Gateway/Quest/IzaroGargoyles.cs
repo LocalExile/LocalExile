@@ -15,7 +15,7 @@
 /// gargoyle awakens; the ones still fighting when he leaves keep fighting; a statue gargoyle takes little damage until
 /// its beam starts. The speed buff's attack and movement speed are not applied by the server.
 /// </summary>
-static class IzaroGargoyles
+public static class IzaroGargoyles
 {
     public const string Mechanic = "Gargoyles";
 

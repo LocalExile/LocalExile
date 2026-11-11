@@ -436,7 +436,9 @@ special case each. A gate or exit the game enables later is sent enabled (no Tra
 
 A `telepadN` no node's `teleportN` leads to is where the game moves the player when a fight ends (The Harvest's and
 The Rotting Core's organ rooms, telepad11–14). The Rotting Core's weylam.arm ("telepad16" "zone=7" "entrance2") is
-reached only that way, after the Depraved Trinity dies; its exit to Oriath is created, the move there is not.
+reached that way after the Depraved Trinity dies: its `UnholyTrioLootLocator` supplies the blood passage's landing.
+The organ portals reuse their art at both ends, so their direction must also use the placed boss room.
+`BloodVortex.ot` plays rig clip 0 to cover the arena and clip 1 on arrival; Lilly's NPCTalk 1395 then sails to Oriath.
 
 **The audit** (`scripts/re/exits`, from the repository root):
 

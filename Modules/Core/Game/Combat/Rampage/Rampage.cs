@@ -2,16 +2,16 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static GameServer.Modding.IModuleLifetime? CombatLifetime;
-    internal static bool CurrentGameRules => CombatLifetime is { IsActive: true }
+    public static GameServer.Modding.IModuleLifetime? CombatLifetime;
+    public static bool CurrentGameRules => CombatLifetime is { IsActive: true }
         && Program.GameLogicOrNull is GameServer.Modules.Game.GameLogic logic
         && ReferenceEquals(logic.Lifetime, CombatLifetime);
-    internal static bool CurrentRampageWork => CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
-    internal static readonly RampageWorld RetiredRampageWorld = new();
+    public static bool CurrentRampageWork => CurrentGameRules && (Program.ProjectileOutputGuard.Value?.Invoke() ?? true);
+    public static readonly RampageWorld RetiredRampageWorld = new();
 
-    internal static void EnsureRampageWorker(ClientState conn, RampageWorld runtime)
+    public static void EnsureRampageWorker(ClientState conn, RampageWorld runtime)
     {
         // Called under Monsters, from current-runtime activation, not from a retained module callback.
         if (!CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || !conn.PlayerSent
@@ -39,7 +39,7 @@ static partial class Game
     }
 
     // Smoke and Rampage apply the same Blind; overlapping sources do not multiply its penalty twice.
-    internal static int RampageBlindedValue(SpawnedMonster target, double now, int value, int groundValue) =>
+    public static int RampageBlindedValue(SpawnedMonster target, double now, int value, int groundValue) =>
         target.RampageBlindUntil > now ? Math.Min(groundValue, FlaskGrounds.Blinded(value)) : groundValue;
 
     static bool RampageActive(ClientState conn) =>
@@ -185,16 +185,16 @@ static partial class Game
         }
     }
 
-    internal static int RampageMovement(ClientState conn)
+    public static int RampageMovement(ClientState conn)
     {
         lock (conn.Monsters) return conn.Rampage.Current.MovementPercent;
     }
 
     /// <summary>"1% increased Rarity of Items found per X Rampage Kills": the streak's whole groups of X kills.</summary>
-    internal static int RampageRarity(int stacks, int perKills) =>
+    public static int RampageRarity(int stacks, int perKills) =>
         perKills > 0 ? Math.Max(0, stacks) / perKills : 0;
 
-    internal static byte[]? RampagePresentation(ClientState conn)
+    public static byte[]? RampagePresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {

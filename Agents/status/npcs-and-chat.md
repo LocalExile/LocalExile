@@ -14,7 +14,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [10](../docs/protocol/10-chat-and-commands.md).
 - Chat lines and channels (the `Chat` module): local lines go to the players of the instance, `#` global, `$` trade and
   `@Name` whispers go through a chat server, so players of separate Gateways can talk.
-  Each Gateway runs a local chat server; a mod (`UseChatServer`: `globalchat` in LocalExile-Mods) moves its players to another server, and
+  Each Gateway runs a local chat server; a mod (`ChatRoutes.Use`: `globalchat` in LocalExile-Mods) moves its players to another server, and
   disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
   `src/GameServer.Chat` is the server to host; it stores nothing.
   An item linked with Ctrl+Alt+click from an inventory or the stash shows as a link in the line (C→S 0x12, S→C 0x17).
@@ -71,6 +71,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
+
 - Faustus's Currency Exchange at official prices works through `/exchange` (orders, claims, cancelling; live 2026-11-08).
   Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written and not yet played.
   Faustus stands in every hideout; his dialogue option there is not yet played.
@@ -117,7 +119,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
-  Optional [MCP control](../../Modules/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
+  Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
   Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
   trade, chat, ascendancy builds and advanced tactical AI remain open.
   See [player bots](../docs/dev/player-bots.md).

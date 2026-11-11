@@ -4,12 +4,12 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 
-static partial class Game
+public static partial class Game
 {
-    internal static bool PlayerAlwaysHits(ClientState conn) => Stats.Key("global_always_hit") is uint key
+    public static bool PlayerAlwaysHits(ClientState conn) => Stats.Key("global_always_hit") is uint key
         && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
 
-    internal static Dictionary<uint, int> WithAntiquarian(ClientState conn, Dictionary<uint, int> sources)
+    public static Dictionary<uint, int> WithAntiquarian(ClientState conn, Dictionary<uint, int> sources)
     {
         lock (conn.Monsters)
         {
@@ -25,7 +25,7 @@ static partial class Game
         }
     }
 
-    internal static void EnsureAntiquarianPools(ClientState conn)
+    public static void EnsureAntiquarianPools(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -41,16 +41,16 @@ static partial class Game
 
     // Called under the combat lock after block/mitigation. Ward absorbs once, before ES, and never absorbs DoT; mana takes
     // its share of what is left before Life. types: the hit's damage by type (only its proportions count).
-    internal static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
+    public static int DamagePlayerHit(ClientState conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats, DamagePacket types) => DamagePlayerHitTyped(conn, 0, nonChaos, chaos, now, stats, types);
 
-    internal static void ClearAntiquarianOnDeath(ClientState conn)
+    public static void ClearAntiquarianOnDeath(ClientState conn)
     {
         if (conn.PlayerLife != 0) return;
         conn.Antiquarian.Clear(); conn.EnduringCryRecovery.Clear(); conn.Ward.SetMaximum(0);
     }
 
-    internal static byte[]? AntiquarianPresentation(ClientState conn)
+    public static byte[]? AntiquarianPresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -96,14 +96,14 @@ static partial class Game
         }
     }
 
-    internal static Task SendAntiquarian(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendAntiquarian(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () => AntiquarianPresentation(conn));
 
-    internal sealed record AntiquarianTransfer(string Character, DateTime At, AntiquarianCombatState.Carried Buffs,
+    public sealed record AntiquarianTransfer(string Character, DateTime At, AntiquarianCombatState.Carried Buffs,
         bool Broken, double WardSeconds, TimedLifeRecovery.Carried Cry);
-    internal static readonly ConcurrentDictionary<uint, AntiquarianTransfer> CarriedAntiquarian = new();
+    public static readonly ConcurrentDictionary<uint, AntiquarianTransfer> CarriedAntiquarian = new();
 
-    internal static void CarryAntiquarian(ClientState conn, uint ticket)
+    public static void CarryAntiquarian(ClientState conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -119,7 +119,7 @@ static partial class Game
         }
     }
 
-    internal static void RestoreAntiquarian(ClientState conn)
+    public static void RestoreAntiquarian(ClientState conn)
     {
         lock (conn.Monsters)
         {

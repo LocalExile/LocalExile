@@ -3,7 +3,7 @@
 
 /// <summary>The unique art of every unique jewel the stash layout lists, by name: the ItemVisualIdentity
 /// HASH16 the client draws for the item. A jewel whose name is missing has no art of its own.</summary>
-static class UniqueJewelVisuals
+public static class UniqueJewelVisuals
 {
     public static IReadOnlyDictionary<string, ushort> ByName => GameDataCatalog.JewelVisuals;
 

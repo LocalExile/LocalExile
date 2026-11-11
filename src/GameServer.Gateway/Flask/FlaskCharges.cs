@@ -7,7 +7,7 @@ using GameServer.Core.Protocol.Instance;
 /// local_extra_max_charges. Gains follow poewiki (Flask, "Flask charges"): kills by rarity, increased flask charges
 /// gained and the flask's increased charge recovery multiplying, partial charges kept, crits with one shared cooldown.
 /// </summary>
-static class FlaskCharges
+public static class FlaskCharges
 {
     /// <summary>Game_FLASK_CHARGES=full: the old shortcut for local play, every kill fills every flask and a flask put on
     /// the bar keeps its charges. Otherwise (default) the game's rules.</summary>

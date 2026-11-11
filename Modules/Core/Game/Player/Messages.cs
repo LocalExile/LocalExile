@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Handles the framed messages of one read, ticks taken out (OnClientData):
     // 0x7d (area generated) → the local player id (0x22), the player object (0x2bb), inventories, passive slots, the area transitions,
@@ -33,7 +33,7 @@ static partial class Game
     static long ThreadCpuMilliseconds() =>
         GetThreadTimes(GetCurrentThread(), out _, out _, out long kernel, out long user) ? (kernel + user) / 10_000 : 0;
 
-    internal static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt = 0)
     {
         foreach (var (id, bytes) in messages)
@@ -56,7 +56,7 @@ static partial class Game
             // A terminal Hardcore owner may only leave for character selection.
             if (HardcoreProgressBlocked(conn) && id != 0x0153) continue;
             // A mod may take the message (Program.Mods.cs): then the Gateway's own handler below does not run.
-            if (Program.ServerHooks.WantsPacket(id) && await Program.ServerHooks.Packet(PlayerOf(conn), id, bytes)) continue;
+            if (GameEvents.WantsPacket(id) && await GameEvents.AnyPacket(conn, id, bytes)) continue;
             // Immediate transfer ingress cuts the old epoch off instead of replaying overdue old-world damage.
             // Movement/combat handlers also advance atomically inside their mutation boundaries.
             bool transferIngress = id is InstanceTransfer.ChooseInstanceId or InstanceTransfer.LeaveAreaAckId
@@ -205,6 +205,10 @@ static partial class Game
                 // A lockstep client's forced stationary default attack swings where the player stands. Ordinary ground
                 // melee uses take StartLockstepGroundMelee's frame-stepped walk-up before reaching this handler.
                 bool inPlace = cast || conn.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
+                // Flicker Strike on the ground goes to the monster in range nearest to the point (FlickerStrike), else
+                // strikes where the player stands; the server teleports the player, which the client does not.
+                bool flicker = cast && gem.Name is not null && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action;
+                (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 void StartAction()
                 {
                     at = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
@@ -214,6 +218,11 @@ static partial class Game
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
+                    else if (flicker)
+                    {
+                        flickerTo = FlickerDestination(conn, gem.Effect, use.SkillId, (px, py), (use.X, use.Y), 0, at);
+                        if (flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
+                    }
                     else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     {
                         var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
@@ -260,7 +269,14 @@ static partial class Game
                 Mark("echo");
                 if (!projectileRuntime && !acknowledged) continue;
                 if (cooldownUse?.Current(conn) == false) continue;
-                if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, (px, py), (use.X, use.Y), sequence: use.Slot,
+                if (flickerTo is { } flickerDestination)
+                    await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, flickerDestination.Landing.X, flickerDestination.Landing.Y),
+                        $"0x01b7 {gem.Name} to ({flickerDestination.Landing.X}, {flickerDestination.Landing.Y}) for monster 0x{flickerDestination.Id:x} "
+                        + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
+                if (flicker) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
+                // Flicker Strike strikes from where it lands, at the monster it went to (or the point, when none was in range).
+                var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
+                if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
                 // often does neither, live 2026-11-01): the resync settles which, once the action is over.
@@ -446,6 +462,8 @@ static partial class Game
                 await SocketGem(remote, stream, ciphers, conn, InstanceItems.ReadSocketGem(bytes));
             else if (id == InstanceItems.LevelUpGemId)
                 await LevelUpGem(remote, stream, ciphers, conn, InstanceItems.ReadLevelUpGem(bytes));
+            else if (id == InstanceItems.LevelUpAllGemsId)
+                await LevelUpAllGems(remote, stream, ciphers, conn);
             else if (id == InstanceItems.LockGemId)
                 await LockGem(remote, stream, ciphers, conn, InstanceItems.ReadLockGem(bytes));
             else if (id == InstanceItems.PlaceItemId)
@@ -601,8 +619,10 @@ static partial class Game
                 {
                     // A preceding slash command can finish a Game + Commands reload in this same batch.
                     // Resolve the current league's builders after that wave, retaining Gateway sinks/mod fallback.
-                    conn.Commands = Program.Commands(remote, stream, ciphers, conn);
-                    await conn.Commands.RunAsync(chat.Text);
+                    // Run this table: an unload while the command runs empties conn.Commands (Program.ForgetCommands).
+                    var commands = Program.Commands(remote, stream, ciphers, conn);
+                    conn.Commands = commands;
+                    await commands.RunAsync(chat.Text);
                 }
             }
             else if (id == InstanceTransfer.ChooseInstanceId)
@@ -686,7 +706,7 @@ static partial class Game
                     // An area the Gateway does not generate itself (ServerLevels) runs on the client's layout alone.
                     if (!ServerLevels.IsSupported(conn.Layout.Id) && !CaptureTour.Active(CharacterName(conn)))
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
-                    await Program.ServerHooks.AreaGenerated(PlayerOf(conn));
+                    await GameEvents.RunAreaGenerated(conn);
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
                     _ = RunLockstepFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
@@ -729,7 +749,7 @@ static partial class Game
                     $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
             }
             // Unframed messages have the hooks too.
-            if (Program.ServerHooks.WantsPacket(uid)) await Program.ServerHooks.Packet(PlayerOf(conn), uid, unknown);
+            if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(conn, uid, unknown);
         }
     }
 }

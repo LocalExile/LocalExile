@@ -1,13 +1,13 @@
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly GemSupports Supports = new();
-    internal sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
+    public static readonly GemSupports Supports = new();
+    public sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
         Dictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false,
         uint Host = 0, int Group = -1);
 
-    internal static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
+    public static SupportedGem SupportedSkill(ClientState conn, ushort skillId)
     {
         if (BuildScopeOf(conn) is not { } scope)
             lock (conn.Monsters) return SupportedSkillAt(conn, skillId, null);
@@ -17,7 +17,7 @@ static partial class Game
         return gem with { Stats = new(gem.Stats) };
     }
 
-    internal static SupportedGem SupportedSkillAt(ClientState conn, ushort skillId, GemRequirementSnapshot? requirements)
+    public static SupportedGem SupportedSkillAt(ClientState conn, ushort skillId, GemRequirementSnapshot? requirements)
     {
         using var rawSources = new GemSourceScope(conn);
         rawSources.Enter();
@@ -62,7 +62,8 @@ static partial class Game
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(conn).Mods));
         var weapon = equipment.Where(e => e.Row == PlayerInventories.Weapon1).Select(e => e.Item).FirstOrDefault();
         int? weaponClass = weapon is null ? null : ItemsFor(conn).ByHash(weapon.Item.TypeHash)?.ClassRow;
-        var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass);
+        var supports = Supports.Resolve(selected.Effect, candidates, SkillsFor(conn), weaponClass,
+            ItemsFor(conn).GemLevel(selected.Place.Gem));
         int Value(string stat) => Stats.Key(stat) is uint k ? supports.Sum(s => s.Stats.Where(v => v.Key == k).Sum(v => v.Value)) : 0;
         // "+1 to Supported <type> Skill Gems" (Awakened supports): every supported_*_skill_gem_level_+ counts, the
         // generic active-gem one included.
@@ -133,7 +134,7 @@ static partial class Game
                 && GemRequirementsUnmetAt(conn, selected.Place.Gem, requirements) is null, Host: selected.Place.ItemId, Group: group);
     }
 
-    internal static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
+    public static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         return MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
@@ -141,14 +142,14 @@ static partial class Game
 
     // Generosity: the increased effect a support gives the aura it supports, and whether the aura may affect the player
     // ("Supported Auras do not affect you", aura_cannot_affect_self).
-    internal static (int EffectPct, bool AffectsSelf) AuraSupport(ClientState conn, ushort skillId)
+    public static (int EffectPct, bool AffectsSelf) AuraSupport(ClientState conn, ushort skillId)
     {
         var stats = SupportedSkill(conn, skillId).Stats;
         int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         return (Stat("non_curse_aura_effect_+%") + Stat("aura_effect_+%"), Stat("aura_cannot_affect_self") == 0);
     }
 
-    internal static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+    public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
     {
         var result = new Dictionary<uint, int>(player);
         foreach (var (key, value) in own)
@@ -165,12 +166,12 @@ static partial class Game
         return result;
     }
 
-    internal static double SupportedAttackSeconds(ClientState conn, ushort skillId) => SupportedAttackSecondsFor(conn, skillId, null);
+    public static double SupportedAttackSeconds(ClientState conn, ushort skillId) => SupportedAttackSecondsFor(conn, skillId, null);
 
     // Multistrike: "Supported Skills Repeat an additional X times" (base_melee_attack_repeat_count). The repeats are
     // hits of the same use, so the skill's attack time is split between them and the support's per-repeat more damage
     // applies to each one after the first.
-    internal static int MeleeAttackRepeats(ClientState conn, ushort skillId)
+    public static int MeleeAttackRepeats(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
         if (!SkillsFor(conn).IsAttack(gem.Effect)) return 0;
@@ -178,7 +179,7 @@ static partial class Game
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
     }
 
-    internal static double MeleeRepeatDamageMore(ClientState conn, ushort skillId, int repeat)
+    public static double MeleeRepeatDamageMore(ClientState conn, ushort skillId, int repeat)
     {
         if (repeat <= 0) return 1;
         var gem = SupportedSkill(conn, skillId);
@@ -193,7 +194,7 @@ static partial class Game
 
     // Hallow Support: a melee hit inflicts Hallowing Flame, and the next attack against that enemy gains its share of
     // the attack's physical damage as extra fire (the sweep applies and removes it per target).
-    internal static void HallowOnMeleeHit(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skill, double now)
+    public static void HallowOnMeleeHit(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skill, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         if (Get("support_hallow_inflict_hallowing_flame_on_melee_hit") == 0) return;
@@ -205,7 +206,7 @@ static partial class Game
 
     // Excommunicate Support: melee hits excommunicate the enemy for its listed duration; an excommunicated monster's
     // chaos damage is suppressed (the support's physical-as-extra gains already use the conversion stats).
-    internal static void ExcommunicateOnMeleeHit(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skill, double now)
+    public static void ExcommunicateOnMeleeHit(ClientState conn, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skill, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         double milliseconds = Math.Max(0, Get("support_excommunicate_on_melee_attack_hit_for_X_ms"));
@@ -213,7 +214,7 @@ static partial class Game
     }
 
     // Devour Support: a killing blow recovers its flat life/mana (the corpse itself is not removed by this server yet).
-    internal static void DevourOnKill(ClientState conn, IReadOnlyDictionary<uint, int>? skill)
+    public static void DevourOnKill(ClientState conn, IReadOnlyDictionary<uint, int>? skill)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int life = Get("killing_blow_consumes_corpse_restore_x_life");
@@ -231,11 +232,11 @@ static partial class Game
 
     // The supported attack's swing time with the off-hand weapon of a dual-wielded pair: its own duration at the
     // off-hand increased speed (the main weapon's local speed taken back out), with the same supports.
-    internal static double SupportedOffHandAttackSeconds(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand) =>
+    public static double SupportedOffHandAttackSeconds(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand) =>
         SupportedAttackSecondsFor(conn, skillId, offHand);
 
-    internal static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick = true)
+    public static double SupportedAttackSecondsFor(ClientState conn, ushort skillId, SkillCatalog.Unarmed? offHand,
+        bool clampToTick = true, bool proxy = false)
     {
         var stats = SupportedStats(conn, skillId);
         int Get(string stat) => Stats.Key(stat) is uint k ? stats.GetValueOrDefault(k) : 0;
@@ -253,16 +254,32 @@ static partial class Game
                 && stats.GetValueOrDefault(rampageSpeed) is int perTen and > 0)
                 stats[final] += conn.Rampage.Current.Stacks / 10 * perTen;
         }
+        if (proxy && Stats.Key("main_hand_attack_speed_+%") is uint proxySpeed)
+            stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get("totem_skill_attack_speed_+%")
+                + Get("totems_attack_speed_+%_per_active_totem") * conn.Totems.Living(conn.Clock.Elapsed.TotalSeconds).Count()
+                + Get("attack_speed_+%_per_maximum_totem") * TotemLimit(conn, skillId);
         double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get("support_melee_physical_damage_attack_speed_+%_final") / 100.0)
             * Math.Max(.01, 1 + Get("support_multiple_attacks_melee_attack_speed_+%_final") / 100.0)
             // Pulverise: "15% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_pulverise_attack_speed_+%_final") / 100.0)
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
+        if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)
             stats[rageBucket] += rageSpeed;
+        // A skill's own increased Attack Speed per Frenzy Charge (Flicker Strike's 10%): the character's per-charge stats
+        // are in its stats already (ChargeEffects), this one only on the skill. Without it the client swung faster than
+        // the server's timer allowed and some uses were ignored (live 2026-11-09, 5-6 charges).
+        if (Stats.Key("base_attack_speed_+%_per_frenzy_charge") is uint perFrenzy
+            && gem.Stats.GetValueOrDefault(perFrenzy) is int skillPerFrenzy and not 0
+            && Stats.Key("main_hand_attack_speed_+%") is uint frenzyBucket)
+        {
+            int frenzy;
+            lock (conn.Monsters) frenzy = ChargesOf(conn).Effective(ChargeType.Frenzy);
+            stats[frenzyBucket] = stats.GetValueOrDefault(frenzyBucket) + skillPerFrenzy * frenzy;
+        }
         // Close Combat's Combat Rush: more Attack Speed for a travel skill it does not support.
         more *= CombatRushMore(conn, skillId, gem, conn.Clock.Elapsed.TotalSeconds);
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
@@ -273,11 +290,11 @@ static partial class Game
         double seconds = offHand is null ? WeaponFor(conn).AttackSeconds(stats) : DualWieldPanel.OffHandSeconds(offHand, baseSpeed);
         // Preserve the weapon timing's existing minimum, but compose MORE through the native integer final percent.
         double paced = seconds * Math.Max(.01, 1 + baseSpeed / 100.0)
-            / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / PlayerActionFactor(conn);
+            / (1 + SkillAttackTiming.FinalSpeedPercent(baseSpeed, more) / 100.0) / (proxy ? 1 : PlayerActionFactor(conn));
         return clampToTick ? Math.Max(TickSeconds, paced) : Math.Max(.001, paced);
     }
 
-    internal static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)
+    public static GameServer.Core.World.DamagePacket SupportedHit(ClientState conn, ushort skillId)
         => SupportedHitFor(conn, skillId, suppress: true);
 
     // The allocated keystones a "per Keystone" stat counts: the character's own, and the ones a tattoo turns a node
@@ -295,7 +312,7 @@ static partial class Game
 
     // Close Combat: a supported melee hit grants Combat Rush, which speeds up travel skills the support does not
     // support. A paid travel use consumes it, retaining the speed only for that use's action.
-    internal static void CombatRushOnHit(ClientState conn, IReadOnlyDictionary<uint, int>? skill, double now)
+    public static void CombatRushOnHit(ClientState conn, IReadOnlyDictionary<uint, int>? skill, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
         if (Get("supported_by_slashing") == 0) return;
@@ -306,7 +323,7 @@ static partial class Game
         conn.CombatRushAttackSpeed = Math.Max(conn.CombatRushAttackSpeed, speed);
     }
 
-    internal static double CombatRushMore(ClientState conn, ushort skillId, SupportedGem gem, double now)
+    public static double CombatRushMore(ClientState conn, ushort skillId, SupportedGem gem, double now)
     {
         if (!SkillsFor(conn).IsTravel(gem.Effect) || gem.Supports.Any(s => s.Effect.Id == "SupportCloseCombat")) return 1;
         int speed = conn.CombatRushUse is { } use && use.Action == conn.ActionCount && use.Skill == skillId
@@ -314,7 +331,7 @@ static partial class Game
         return Math.Max(.01, 1 + speed / 100.0);
     }
 
-    internal static void ConsumeCombatRush(ClientState conn, ushort skillId, SupportedGem gem, double now)
+    public static void ConsumeCombatRush(ClientState conn, ushort skillId, SupportedGem gem, double now)
     {
         if (!SkillsFor(conn).IsTravel(gem.Effect) || conn.CombatRushUntil <= now) return;
         conn.CombatRushUse = (conn.ActionCount, skillId,
@@ -323,21 +340,21 @@ static partial class Game
         conn.CombatRushAttackSpeed = 0;
     }
 
-    internal static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
+    public static GameServer.Core.World.DamagePacket SupportedProjectileHit(ClientState conn, ushort skillId, bool area)
         => SupportedHitFor(conn, skillId, suppress: false, area);
 
     // The same supported attack swung with the off-hand weapon of a dual-wielded attack (the Offence tab's Off Hand rows).
-    internal static GameServer.Core.World.DamagePacket SupportedOffHandHit(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand)
+    public static GameServer.Core.World.DamagePacket SupportedOffHandHit(ClientState conn, ushort skillId, SkillCatalog.Unarmed offHand)
         => SupportedHitFor(conn, skillId, suppress: true, weapon: offHand);
 
     // A supported skill's hit inputs before conversion and modifiers, shared by the hit itself and the panel's ailment
     // rows, which apply their own buckets to the same raw packet and conversion. Null when the skill cannot hit.
-    internal sealed record SupportedHitInputs(GameServer.Core.World.DamagePacket Raw, Func<string, int> Get,
+    public sealed record SupportedHitInputs(GameServer.Core.World.DamagePacket Raw, Func<string, int> Get,
         GameServer.Core.World.DamageConversion Conversion, bool Attack, bool Melee, bool Area, bool Projectile,
         List<(string Name, int Value)> Modifiers, HashSet<int> Types, SkillHitPlan Plan, Dictionary<uint, int> Caster,
         bool WieldingWand = false);
 
-    internal static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
+    public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null)
     {
         var gem = SupportedSkill(conn, skillId);
@@ -373,12 +390,12 @@ static partial class Game
             WieldingWand: attack && (weapon ?? WeaponFor(conn)).WieldingWand);
     }
 
-    internal static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
+    public static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
         SkillCatalog.Unarmed? weapon = null)
         => SupportedHitInputsFor(conn, skillId, area, weapon) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
-    internal static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)
+    public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)
     {
         var hit = PlayerHitDamage.Resolve(inputs.Raw, inputs.Get, inputs.Conversion, spell: !inputs.Attack,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
@@ -390,17 +407,17 @@ static partial class Game
 
     // The damaging-ailment rows of a supported skill's hit in one context (AilmentPanelStats): the main or off hand of
     // an attack with that hand's weapon, or a spell's / secondary-damage skill's hit.
-    internal static List<(string Stat, int Value)> SupportedAilmentRows(ClientState conn, ushort skillId, string hand,
+    public static List<(string Stat, int Value)> SupportedAilmentRows(ClientState conn, ushort skillId, string hand,
         SkillCatalog.Unarmed? weapon = null)
         => SupportedHitInputsFor(conn, skillId, weapon: weapon) is { } inputs ? SupportedAilmentRowsFrom(inputs, hand) : [];
 
-    internal static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand)
+    public static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand)
     {
         var context = new AilmentPanelStats.Context(hand, Spell: !inputs.Attack, inputs.Melee);
         return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get);
     }
 
-    internal static AttackAccuracyProfile SupportedAccuracy(ClientState conn, ushort skillId)
+    public static AttackAccuracyProfile SupportedAccuracy(ClientState conn, ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;
         long Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
@@ -409,13 +426,13 @@ static partial class Game
             with { Rating = PlayerBlindAccuracy(conn, AccuracyRating.Selected(conn.Pools, WeaponProfileFor(conn, activeSet: true), Own), player) };
     }
 
-    internal static int SupportedCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, false);
+    public static int SupportedCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, false);
 
     // A release retains the unprohibited offensive chance; the hit evaluates current owner prohibitions separately.
-    internal static int SupportedReleaseCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, true);
+    public static int SupportedReleaseCriticalChance(ClientState conn, ushort skillId) => SupportedCriticalChanceFor(conn, skillId, true);
 
     // extraIncrease: a target condition's increase (critical_strike_chance_+%_vs_blinded_enemies, Game's Blind.cs).
-    internal static int SupportedCriticalChanceFor(ClientState conn, ushort skillId, bool release, long extraIncrease = 0)
+    public static int SupportedCriticalChanceFor(ClientState conn, ushort skillId, bool release, long extraIncrease = 0)
     {
         var gem = SupportedSkill(conn, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -444,7 +461,7 @@ static partial class Game
             Player, Own, conn.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 
-    internal static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
+    public static (int Flat, int Percent)? SupportedReservation(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
         var sourceReservation = SkillsFor(conn).Reservation(gem.Effect, gem.Level);
@@ -462,7 +479,7 @@ static partial class Game
         return ((int)Math.Floor(reservation.Flat * factor), (int)Math.Floor(reservation.Percent * factor));
     }
 
-    internal static int SupportedCriticalMultiplier(ClientState conn, ushort skillId)
+    public static int SupportedCriticalMultiplier(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
         int extra = Stats.Key("base_critical_strike_multiplier_+") is uint k ? gem.Stats.GetValueOrDefault(k) : 0;

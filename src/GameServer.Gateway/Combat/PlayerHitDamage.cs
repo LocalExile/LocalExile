@@ -5,7 +5,7 @@ using GameServer.Core.World;
 /// visited damage type, so its increased bucket and typed more modifiers cannot be reconstructed from merged totals.
 /// Pinned PoB CalcOffence.lua (16de4b82), calcDamage:35-140, uses the same visited-type set.
 /// </summary>
-static class PlayerHitDamage
+public static class PlayerHitDamage
 {
     public static DamagePacket Resolve(DamagePacket raw, Func<string, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,

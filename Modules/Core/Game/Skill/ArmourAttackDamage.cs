@@ -1,7 +1,7 @@
 
 
 /// <summary>Steel Willed and Forest Tracking: increased attack damage from complete groups of final defences.</summary>
-static class ArmourAttackDamage
+public static class ArmourAttackDamage
 {
     // 3.29.3b Stats.dat row 13018; Behemoth graph node 2103 grants 2.
     public const string Per450Armour = "attack_damage_+%_per_450_physical_damage_reduction_rating";
