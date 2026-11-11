@@ -350,3 +350,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   session. 34 rows remain not implemented; next are the six rows that need new consumers (corpse consumption,
   Fortify-on-stun, knockback, guard duration, hinder and herald effect), Loyalty and the seven Forbidden
   ascendancy tattoos.
+  map is saved independently of allocation. **69 rows are client-verified**: the ten pilot, 22 plain stats, the
+  nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the three Herald/guard/Fortify
+  rows, the corpse-consumption, Hinder and knockback rows, nine Makanga gates, three Journey tattoos and Journey
+  Makanui; Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava Makanga are inert.
+  Firewalker also survived relog and was removed with an Orb of Scouring. The Makanga gate, Journey counting and
+  the five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its random keystone in
+  `TattooKeystones`. The whole current (drop-enabled) group now works. 28 rows remain: the Honoured rows (nine
+  attribute notables the apply path refuses, plus Flock and Hatungo), the ten Loyalty summons and the seven
+  Forbidden ascendancy tattoos.

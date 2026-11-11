@@ -149,6 +149,7 @@ public static partial class Game
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
+        KnockbackOnHitLocked(conn, m, player, now, random);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
@@ -225,6 +226,13 @@ public static partial class Game
         ProliferateIgnitesLocked(conn, now, packets);
         foreach (var (id, m) in conn.Monsters)
         {
+            // A knockback is presented before the ailment-idle skip: an idle monster still moves.
+            if (m.KnockbackPending is (int kx, int ky))
+            {
+                m.KnockbackPending = null;
+                packets.Add((InstanceProtocol.Teleport(id, kx, ky),
+                    $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
+            }
             var a = m.Ailments;
             if (a.Idle && now >= m.ReceivedActionUntil) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))

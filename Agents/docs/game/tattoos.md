@@ -358,7 +358,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Tattoo of the Tukohama Brawler** | 10% chance to Knock Enemies Back on hit | Small Strength | Ngakanu | not implemented | needs knockback on hit |
+| **Tattoo of the Tukohama Brawler** | 10% chance to Knock Enemies Back on hit | Small Strength | Ngakanu | works | live /stat base_global_chance_to_knockback_% = 10; a landed hit pushes the monster 2 cells away from the player (unit test) |
 | **Tattoo of the Tukohama Shaman** | Regenerate 0.3% of Life per second | Small Strength | Ngakanu | works | client apply; 0.3%/s life regeneration |
 | **Tattoo of the Tukohama Warcaller** | 8% increased Warcry Cooldown Recovery Rate | Small Strength | Ngakanu | works | live /stat warcry_cooldown_speed_+% = 8; SingleUseCooldown reads it |
 | **Tattoo of the Tukohama Warmonger** | 5% increased Melee Damage | Small Strength | Ngakanu | works | client apply; +5% melee damage |
@@ -615,6 +615,19 @@ Plain skill/minion/flask rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` d
 - `TattooPlainStatsTests` covers the nine catalogue rows and the replacement path into the character stat map; the
   gameplay consumers already existed (GolemSkills/PlayerMinions, LeechSources, Totems, HitDebuffs, Curses, the flask
   recovery and SingleUseCooldown).
+
+Knockback row 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** Tukohama Brawler on 21301 (Strength). `/stat` read base_global_chance_to_knockback_% 10;
+  `/tattoo_remove` restored it to 0.
+- **Consumer:** every player hit that lands rolls `base_global_chance_to_knockback_%`
+  (`Game.KnockbackOnHitLocked`, called from `AilmentsOnHitLocked`, so melee, spells and projectiles all count). A
+  success pushes the monster 2 cells away from the player along the hit direction (scaled by
+  `knockback_distance_+%`, the farthest walkable cell, blocked cells fall back a step), interrupts its action and
+  queues the cell; the AI tick presents it with `InstanceProtocol.Teleport` (0x0f8, the same state the resync and
+  boss teleports use). Monsters with the client's `ImmuneToKnockback` component are exempt.
+  `TattooKnockbackTests` covers the destination rules and the push/teleport queue.
+- The current (drop-enabled) group is complete: all 53 rows work.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.
