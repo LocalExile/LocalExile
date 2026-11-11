@@ -150,6 +150,10 @@ public static partial class Game
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         KnockbackOnHitLocked(conn, m, player, now, random);
+        // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
+        // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
+        OnslaughtOnHitLocked(conn, now);
+        if (spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);

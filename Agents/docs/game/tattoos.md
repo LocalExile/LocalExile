@@ -24,7 +24,7 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
 | Current (drop-enabled) | 53 | 47 | 0 | 0 | 6 |
-| Drop-disabled | 40 | 16 | 1 | 2 | 21 |
+| Drop-disabled | 40 | 27 | 1 | 2 | 10 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
 | **Total** | **100** | **63** | **1** | **2** | **34** |
 
@@ -389,24 +389,24 @@ tattoos do not. All are drop-disabled in 3.29.
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Honoured Tattoo of the Barbarian** | +1% to maximum Cold Resistance<br>+1 to Maximum Frenzy Charges | Notable (+30 Dex) | drop-disabled | not implemented | needs max cold res + frenzy charge cap |
-| **Honoured Tattoo of the Berserker** | You gain Onslaught for 4 seconds on Hit | Notable (+30 Dex) | drop-disabled | not implemented | needs Onslaught-on-hit buff |
+| **Honoured Tattoo of the Barbarian** | +1% to maximum Cold Resistance<br>+1 to Maximum Frenzy Charges | Notable (+30 Dex) | drop-disabled | works | live /stat base_maximum_cold_damage_resistance_% 1 and max_frenzy_charges 1 |
+| **Honoured Tattoo of the Berserker** | You gain Onslaught for 4 seconds on Hit | Notable (+30 Dex) | drop-disabled | works | live /stat gain_onslaught_on_hit_duration_ms 4000; a hit starts the Onslaught buff (unit test) |
 | **Honoured Tattoo of the Dove** | +4% to Chaos Resistance | Small Attribute | drop-disabled | works | client apply; chaos 0% -> 4% |
-| **Honoured Tattoo of the Flock** | 1% increased effect of Non-Curse Auras from your Skills | Small Attribute | drop-disabled | not implemented | needs non-curse aura effect |
-| **Honoured Tattoo of the Flood** | Gain Arcane Surge on Hit with Spells | Notable (+30 Int) | drop-disabled | not implemented | needs Arcane Surge on spell hit |
-| **Honoured Tattoo of the Hatungo** | 1% increased Reservation Efficiency of Skills | Small Attribute | drop-disabled | not implemented | needs reservation efficiency |
-| **Honoured Tattoo of the Hunter** | +1 to Level of all Dexterity Skill Gems | Notable (+30 Dex) | drop-disabled | not implemented | needs Dexterity gem levels |
+| **Honoured Tattoo of the Flock** | 1% increased effect of Non-Curse Auras from your Skills | Small Attribute | drop-disabled | works | live /stat non_curse_aura_effect_+% 1; non-curse aura effect has its readers |
+| **Honoured Tattoo of the Flood** | Gain Arcane Surge on Hit with Spells | Notable (+30 Int) | drop-disabled | works | live /stat gain_arcane_surge_on_hit_%_chance 100; a spell hit grants the 4 s Arcane Surge (unit test) |
+| **Honoured Tattoo of the Hatungo** | 1% increased Reservation Efficiency of Skills | Small Attribute | drop-disabled | works | live /stat base_reservation_efficiency_+% 1; reservation efficiency has its readers |
+| **Honoured Tattoo of the Hunter** | +1 to Level of all Dexterity Skill Gems | Notable (+30 Dex) | drop-disabled | works | live /stat dexterity_skill_gem_level_+ 1; effective gem level reads it (unit test) |
 | **Honoured Tattoo of the Makanga** | +2% to all maximum Resistances | Small Attribute | drop-disabled | works | live 8-neighbour gate; max res 86 -> 84 after refunding one neighbour |
-| **Honoured Tattoo of the Mountain** | +1% to maximum Fire Resistance<br>+1 to Maximum Endurance Charges | Notable (+30 Str) | drop-disabled | not implemented | needs max fire res + endurance charge cap |
+| **Honoured Tattoo of the Mountain** | +1% to maximum Fire Resistance<br>+1 to Maximum Endurance Charges | Notable (+30 Str) | drop-disabled | works | live /stat base_maximum_fire_damage_resistance_% 1 and max_endurance_charges 1 |
 | **Honoured Tattoo of the Oak** | 2% increased maximum Life | Small Attribute | drop-disabled | works | client apply; max life +2% |
-| **Honoured Tattoo of the Pa** | Melee Hits Fortify | Notable (+30 Str) | drop-disabled | not implemented | needs melee-hit fortify |
+| **Honoured Tattoo of the Pa** | Melee Hits Fortify | Notable (+30 Str) | drop-disabled | works | live /stat fortify_on_hit 1; FortificationOnHitLocked grants the stack |
 | **Honoured Tattoo of the Pillager** | 3% increased Rarity of Items found | Small Attribute | drop-disabled | works | client apply; +3% rarity of items found |
 | **Honoured Tattoo of the Sky** | +3% to all Elemental Resistances | Small Attribute | drop-disabled | works | client apply; fire/cold/lightning +3% |
-| **Honoured Tattoo of the Storm** | +1% to maximum Lightning Resistance<br>+1 to Maximum Power Charges | Notable (+30 Int) | drop-disabled | not implemented | needs max lightning res + power charge cap |
+| **Honoured Tattoo of the Storm** | +1% to maximum Lightning Resistance<br>+1 to Maximum Power Charges | Notable (+30 Int) | drop-disabled | works | live /stat base_maximum_lightning_damage_resistance_% 1 and max_power_charges 1 |
 | **Honoured Tattoo of the Tuatara** | +4 to all Attributes | Small Attribute | drop-disabled | works | client apply; +4 all attributes |
 | **Honoured Tattoo of the Turtle** | 3% increased Global Defences | Small Attribute | drop-disabled | works | client apply; +3% global defences |
-| **Honoured Tattoo of the Warlord** | +1 to Level of all Strength Skill Gems | Notable (+30 Str) | drop-disabled | not implemented | needs Strength gem levels |
-| **Honoured Tattoo of the Wise** | +1 to Level of all Intelligence Skill Gems | Notable (+30 Int) | drop-disabled | not implemented | needs Intelligence gem levels |
+| **Honoured Tattoo of the Warlord** | +1 to Level of all Strength Skill Gems | Notable (+30 Str) | drop-disabled | works | live /stat strength_skill_gem_level_+ 1; effective gem level reads it (unit test) |
+| **Honoured Tattoo of the Wise** | +1 to Level of all Intelligence Skill Gems | Notable (+30 Int) | drop-disabled | works | live /stat intelligence_skill_gem_level_+ 1; effective gem level reads it (unit test) |
 
 ### Journey Makanui (1)
 
@@ -628,6 +628,25 @@ Knockback row 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Wit
   boss teleports use). Monsters with the client's `ImmuneToKnockback` component are exempt.
   `TattooKnockbackTests` covers the destination rules and the push/teleport queue.
 - The current (drop-enabled) group is complete: all 53 rows work.
+
+Honoured rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Attribute notables:** the nine Honoured notable tattoos were applied to the +30 notables Prowess (52714,
+  Strength), Agility (56029, Dexterity) and Ancestral Knowledge (50197, Intelligence), which the apply path now
+  accepts. `/stat` read each row's stats (Warlord `strength_skill_gem_level_+` 1, Mountain
+  `base_maximum_fire_damage_resistance_%` 1 + `max_endurance_charges` 1, Storm
+  `base_maximum_lightning_damage_resistance_%` 1 + `max_power_charges` 1, Flood
+  `gain_arcane_surge_on_hit_%_chance` 100, Berserker `gain_onslaught_on_hit_duration_ms` 4000, and the rest);
+  replacing a tattoo on the same node works, `/tattoo_remove` restored the node's own +30 stat, and the Limit 4
+  group refused a second notable while one was applied ("only one Attribute Notable Tattoo can be applied"). The
+  Storm tattoo survived the client's relog and read back on the next session.
+- **Small attributes:** Flock and Hatungo on Intelligence small passives read `non_curse_aura_effect_+%` 1 and
+  `base_reservation_efficiency_+%` 1.
+- **Consumers:** the new game-side readers are `Game.OnslaughtOnHitLocked` (a hit starts Onslaught),
+  `Game.ArcaneSurgeOnSpellHitLocked`/`GainArcaneSurgeLocked` (a spell hit grants Arcane Surge for four seconds) and
+  `GemLevels.EffectiveGemLevel` (the attribute gem-level stats on active gems); the other rows read stats that
+  already had consumers (charge caps, the resistance cap, `fortify_on_hit` in `FortificationOnHitLocked`, aura
+  effect and reservation efficiency). `TattooHonouredTests` covers the eleven rows and the three new consumers.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.

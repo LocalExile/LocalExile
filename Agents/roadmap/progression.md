@@ -32,6 +32,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   keystone. Next: the Honoured rows (nine attribute notables the apply path refuses, plus Flock and Hatungo), the ten
   Loyalty summons and the seven Forbidden ascendancy tattoos (separate client flow). Also still open:
   replace/reallocation and the 50-tattoo cap.
+  [tattoos.md](../docs/game/tattoos.md). The client flow and 80 of the 100 rows are client-verified, including the
+  whole drop-enabled group, the Honoured attribute notables and the skill/ailment consumers: C->S `0x77`, `0x33`'s
+  fifth list, item consumption, relog and Orb of Scouring removal (Hinekora/Kitava Makanga are inert; Ancestral
+  Bloodlines is partial). The five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its
+  random keystone. Next: the ten Loyalty summons (the Summon Spirit skills and their triggers) and the seven
+  Forbidden ascendancy tattoos (separate client flow). Also still open: replace/reallocation and the 50-tattoo cap.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
   [11](../docs/protocol/11-skills.md) §4–5): Accuracy = Intelligence, +3 per Dexterity instead of +2, +500 / -2 per

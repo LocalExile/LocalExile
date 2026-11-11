@@ -359,3 +359,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   `TattooKeystones`. The whole current (drop-enabled) group now works. 28 rows remain: the Honoured rows (nine
   attribute notables the apply path refuses, plus Flock and Hatungo), the ten Loyalty summons and the seven
   Forbidden ascendancy tattoos.
+  map is saved independently of allocation. **80 rows are client-verified**: the ten pilot, 22 plain stats, the
+  ailment/avoidance and skill/minion/flask rows, the Herald/guard/Fortify, corpse-consumption, Hinder and knockback
+  consumers, the eleven Honoured rows (attribute notables included), nine Makanga gates, three Journey tattoos and
+  Journey Makanui; Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava Makanga are
+  inert. Firewalker also survived relog and was removed with an Orb of Scouring. The Makanga gate, Journey counting
+  and the five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its random keystone in
+  `TattooKeystones`. The whole drop-enabled group works. 17 rows remain: the ten Loyalty summons (they need the
+  Summon Spirit skills and their triggers) and the seven event-only Forbidden ascendancy tattoos.
