@@ -2,42 +2,42 @@
 # GitHub reads this file from the branch a pull request merges into, so a pull request cannot remove its own owner.
 
 # Instructions agents obey, at any depth
-AGENTS.md @Wrathen @evrydayjunglist
-CLAUDE.md @Wrathen @evrydayjunglist
-GEMINI.md @Wrathen @evrydayjunglist
-.cursorrules @Wrathen @evrydayjunglist
-.claude/ @Wrathen @evrydayjunglist
-.cursor/ @Wrathen @evrydayjunglist
-.mcp.json @Wrathen @evrydayjunglist
+AGENTS.md @Wrathen
+CLAUDE.md @Wrathen
+GEMINI.md @Wrathen
+.cursorrules @Wrathen
+.claude/ @Wrathen
+.cursor/ @Wrathen
+.mcp.json @Wrathen
 
 # Guides with the commands and workflows agents follow
-/README.md @Wrathen @evrydayjunglist
-/CONTRIBUTING.md @Wrathen @evrydayjunglist
+/README.md @Wrathen
+/CONTRIBUTING.md @Wrathen
 /Agents/GettingStarted.md @Wrathen @evrydayjunglist
 /Agents/docs/README.md @Wrathen @evrydayjunglist
 
 # The repository's own controls
-/.github/ @Wrathen @evrydayjunglist
-/.gitattributes @Wrathen @evrydayjunglist
-/.gitignore @Wrathen @evrydayjunglist
+/.github/ @Wrathen
+/.gitattributes @Wrathen
+/.gitignore @Wrathen
 
 # What runs during a build, or adds a dependency
-Directory.Build.props @Wrathen @evrydayjunglist
-Directory.Build.targets @Wrathen @evrydayjunglist
-Directory.Packages.props @Wrathen @evrydayjunglist
-*.csproj @Wrathen @evrydayjunglist
-*.slnx @Wrathen @evrydayjunglist
-*.targets @Wrathen @evrydayjunglist
-nuget.config @Wrathen @evrydayjunglist
-NuGet.Config @Wrathen @evrydayjunglist
-global.json @Wrathen @evrydayjunglist
+Directory.Build.props @Wrathen
+Directory.Build.targets @Wrathen
+Directory.Packages.props @Wrathen
+*.csproj @Wrathen
+*.slnx @Wrathen
+*.targets @Wrathen
+nuget.config @Wrathen
+NuGet.Config @Wrathen
+global.json @Wrathen
 
 # What ships to players, starts processes, or could make the client contact the official servers
 /src/LocalExile/ @Wrathen @evrydayjunglist
 /src/GameServer.Patch/ @Wrathen @evrydayjunglist
 
 # What every player's server runs on their accounts and saves at its next start (game content updates stay open)
-/sql/base/ @Wrathen @evrydayjunglist
+/sql/base/ @Wrathen
 /sql/updates/auth/ @Wrathen @evrydayjunglist
 /sql/updates/pending_auth/ @Wrathen @evrydayjunglist
 /sql/updates/characters/ @Wrathen @evrydayjunglist
@@ -47,5 +47,5 @@ global.json @Wrathen @evrydayjunglist
 /src/GameServer.Gateway/Modding/ @Wrathen @evrydayjunglist
 
 # Legal
-/LICENSE @Wrathen @evrydayjunglist
-/THIRD-PARTY-NOTICES.md @Wrathen @evrydayjunglist
+/LICENSE @Wrathen
+/THIRD-PARTY-NOTICES.md @Wrathen
