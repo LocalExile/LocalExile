@@ -196,6 +196,7 @@ public static partial class Game
     public static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
         if (DepravedTrinity.GateShown(conn, id, transition) is bool shown) return shown;
+        if (KitavaActFive.GateShown(conn, transition) is bool kitavaShown) return kitavaShown;
         // The Reverie Device's six consumable portals replace the old permanent quest exit.
         if (QuestsOf(conn).Includes("QuestObjects") && conn.Layout.Id == MapDevice.CampaignDeviceArea
             && transition.DestinationHash16 == AreaTransitionCatalog.HashOf(MapDevice.CampaignMapArea)) return false;
