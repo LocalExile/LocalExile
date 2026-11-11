@@ -16,7 +16,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   instead of around the aimed monster (live 2026-11-08); other melee area attacks still land on the target.
   Code: `MeleeAreaCentre.cs`, `AreaSkillHit`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Flicker Strike (live 2026-11-09): the server teleports the player (S→C 0x1b7), which the client's action never does,
-  to the clicked monster in range or else the one nearest the aim; with none in range it strikes in place.
+  to the clicked monster in range or else the one nearest the aim. With none in range the server refuses the use
+  (no cost, cooldown use or charge) and gives the client its mana back, as in PoE; the client's action itself would
+  strike in place, and sends such uses for monsters it has not yet seen die.
   Its 10% attack speed per Frenzy Charge counts, and each use gives its buff (20% movement speed for the skill's 3 s).
   Code: `FlickerStrike.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Cooldown bypass (live 2026-11-09: Flicker Strike with Frenzy Charges): the skill record carries GEPL

@@ -35,15 +35,17 @@ public static partial class Game
         => TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, null);
 
+    // admit: a use-specific condition checked in the same critical section, before any cost, cooldown use or charge is
+    // spent (Flicker Strike needs a monster in range).
     public static bool TryBeginSkillCooldownUse(ClientState conn, ushort skillId, int effect,
         SingleUseCooldown? plan, bool instant, Action sideEffects, out CooldownUseTicket? ticket,
-        int? actionToken = null, bool reserve = true, double? requestedAt = null) =>
+        int? actionToken = null, bool reserve = true, double? requestedAt = null, Func<bool>? admit = null) =>
         TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
-            actionToken, reserve, requestedAt, skillId);
+            actionToken, reserve, requestedAt, skillId, admit);
 
     public static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId)
+        ushort? skillId, Func<bool>? admit = null)
     {
         using (ProjectileMutation(conn))
         {
@@ -74,6 +76,7 @@ public static partial class Game
                     vaal.WorkGeneration = generation;
                 }
             }
+            if (admit is not null && !admit()) return false;
             bool bypassed = false;
             if (plan is { } cooldown)
             {

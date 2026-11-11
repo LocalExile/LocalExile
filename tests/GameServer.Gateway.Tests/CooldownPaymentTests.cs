@@ -43,8 +43,14 @@ public sealed class CooldownPaymentTests
                 () => throw new Exception("An underfunded use must not move the player"), out _));
             Assert.Empty(c.SingleUseCooldowns);
 
-            // Funded: the cost is paid with the accepted use, and the ticket carries it so the cast does not pay twice.
+            // Funded but not admitted (Flicker Strike with no monster in range): nothing is paid or spent.
             c.PlayerMana = 1000;
+            Assert.False(Game.TryBeginSkillCooldownUse(c, skill.Id, skill.Effect, plan, false,
+                () => throw new Exception("A use with no target must not move the player"), out _, admit: () => false));
+            Assert.Equal(1000u, c.PlayerMana);
+            Assert.Empty(c.SingleUseCooldowns);
+
+            // Funded: the cost is paid with the accepted use, and the ticket carries it so the cast does not pay twice.
             int moved = 0;
             Assert.True(Game.TryBeginSkillCooldownUse(c, skill.Id, skill.Effect, plan, false, () => moved++, out var ticket));
             Assert.Equal(1, moved);
