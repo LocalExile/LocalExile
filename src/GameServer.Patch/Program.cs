@@ -167,7 +167,7 @@ static async Task ServePatchProtocol(int port, string webRoot, string backupWebR
             byte[] hash = ClientConstants.Load().GgpkRootHashBytes;
             Console.WriteLine($"[patch] {peer} hello v{version}{(version == PatchProtocol.ExpectedVersion ? "" : " (unexpected)")}; root hash {Convert.ToHexString(hash).ToLowerInvariant()}");
             if (!hash.AsSpan().ContainsAnyExcept((byte)0))
-                Console.WriteLine($"[patch] the client's Content.ggpk has a zero root hash, so it will try to patch and time out at \"Checking resources\"; close the client and run GameServer.Patch root-hash <Content.ggpk> --repair --save (LocalExile does this on start)");
+                Console.WriteLine($"[patch] zero root hash: expected for a Steam install (no Content.ggpk). A standalone client's Content.ggpk with a zero root hash makes it try to patch and time out at \"Checking resources\"; close the client and run GameServer.Patch root-hash <Content.ggpk> --repair --save (LocalExile does this on start)");
             await stream.WriteAsync(PatchProtocol.EncodeWelcome(hash, webRoot, backupWebRoot));
             // A client that still wants to patch sends more requests; log them (not implemented).
             while (true)
