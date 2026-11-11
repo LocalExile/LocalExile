@@ -1,15 +1,16 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 45 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 69 tattoo rows client-verified).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Forty-five rows are `works` (the ten pilot,
-22 plain stats, nine Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral
-Bloodlines: ES recovery works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga)
-and 52 are `not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable,
-Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue,
-the client mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is
-per row; `Reason` names the missing layer.
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Sixty-nine rows are `works` (the ten pilot,
+22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the three
+Herald/guard/Fortify rows, the corpse-consumption and Hinder rows, the knockback row, nine Makanga gates, three
+Journey tattoos and Journey Makanui), one is `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery
+stats are unread), two are `inert` (Hinekora and Kitava Makanga) and 28 are `not implemented`. The server enforces
+the client's per-group limits (Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the
+client tooltip. This page records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules
+and the implementation groups. The `Status` column is per row; `Reason` names the missing layer.
 
 This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`, `PassiveSkillTattoos`,
 `PassiveSkillTattooTargetSets` and `PassiveSkillOverrides`, cross-checked with the poewiki
@@ -22,10 +23,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 29 | 0 | 0 | 24 |
+| Current (drop-enabled) | 53 | 53 | 0 | 0 | 0 |
 | Drop-disabled | 40 | 16 | 1 | 2 | 21 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **45** | **1** | **2** | **52** |
+| **Total** | **100** | **69** | **1** | **2** | **28** |
 
 | Status | Meaning |
 |---|---|
@@ -42,7 +43,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | Not implemented. |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | Complete for the current rows: the nine ailment and avoidance rows, the nine plain skill/minion/flask rows, the three Herald/guard/Fortify rows, the corpse-consumption and Hinder rows and the knockback row all work. The drop-disabled Honoured and Loyalty rows and the event-only Forbidden tattoos remain (groups 3-5). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
@@ -357,7 +358,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Tattoo of the Tukohama Brawler** | 10% chance to Knock Enemies Back on hit | Small Strength | Ngakanu | not implemented | needs knockback on hit |
+| **Tattoo of the Tukohama Brawler** | 10% chance to Knock Enemies Back on hit | Small Strength | Ngakanu | works | live /stat base_global_chance_to_knockback_% = 10; a landed hit pushes the monster 2 cells away from the player (unit test) |
 | **Tattoo of the Tukohama Shaman** | Regenerate 0.3% of Life per second | Small Strength | Ngakanu | works | client apply; 0.3%/s life regeneration |
 | **Tattoo of the Tukohama Warcaller** | 8% increased Warcry Cooldown Recovery Rate | Small Strength | Ngakanu | not implemented | needs warcry cooldown recovery |
 | **Tattoo of the Tukohama Warmonger** | 5% increased Melee Damage | Small Strength | Ngakanu | works | client apply; +5% melee damage |
@@ -600,6 +601,19 @@ Journey Makanui and limit checks 2026-10-30 (client/server):
 - Unit tests cover all five `LimitName` groups (0/4/5/6/40) and the same-node replacement rule.
 - The test tattoos were removed; the tree is back to 530 passives, the user's 12 tattoos and baseline keystones
   (Roiling Tempest on 40351, Versatile Combatant on 50679).
+
+Knockback row 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** Tukohama Brawler on 21301 (Strength). `/stat` read base_global_chance_to_knockback_% 10;
+  `/tattoo_remove` restored it to 0.
+- **Consumer:** every player hit that lands rolls `base_global_chance_to_knockback_%`
+  (`Game.KnockbackOnHitLocked`, called from `AilmentsOnHitLocked`, so melee, spells and projectiles all count). A
+  success pushes the monster 2 cells away from the player along the hit direction (scaled by
+  `knockback_distance_+%`, the farthest walkable cell, blocked cells fall back a step), interrupts its action and
+  queues the cell; the AI tick presents it with `InstanceProtocol.Teleport` (0x0f8, the same state the resync and
+  boss teleports use). Monsters with the client's `ImmuneToKnockback` component are exempt.
+  `TattooKnockbackTests` covers the destination rules and the push/teleport queue.
+- The current (drop-enabled) group is complete: all 53 rows work.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.
