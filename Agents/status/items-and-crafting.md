@@ -187,7 +187,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   entry; every league has its own stash and gold, Standard keeps the account's stash from before (`AccountStash.Key`);
   monsters drop piles of gold (normal 40%, magic 75%, rare and unique always;
   (3 + 1.2 × level) × 1/2/5/15, our own numbers, `ItemDrops.Gold`), and picking one up adds it to the gold;
-  gold within 15 cells of the player is picked up by itself (player tick, `GoldAutoLootRange`);
+  gold within the configured radius (default 20 cells) is picked up in full without late-drop ghosts;
   older per-character gold moves into the account at login; `/gold <±amount>`.
   Code: `InstanceEntities.Gold`, `AccountStash`, Gateway.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
