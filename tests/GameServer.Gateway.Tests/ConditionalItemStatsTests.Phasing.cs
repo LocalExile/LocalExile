@@ -162,6 +162,7 @@ public partial class ConditionalItemStatsTests
             Read(); Assert.False(conn.IsPhasing);
             Existing_resource_conditions_reach_ailment_consumers(conn, Wear, Minimum);
             Qualified_attribute_and_level_damage_sources_reach_attack_and_spell_consumers(conn, Wear);
+            Her_embrace_uses_accepted_ignites_and_qualified_source_lifetimes(conn, Wear);
             Qualified_avatar_rotation_and_permanent_sources_reach_final_consumers(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);

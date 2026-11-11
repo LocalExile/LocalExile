@@ -120,7 +120,7 @@ public static partial class Game
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
                 charges.Converted(type), alive);
         }
-        var avatarFlags = RequalifyAvatarOfFire(conn, flags, lowLifeSources, conn.PlayerStats, activeItems);
+        var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyHerEmbrace(conn, flags, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
         return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
@@ -214,12 +214,14 @@ public static partial class Game
                     && (s.Id.Contains("_if_", StringComparison.Ordinal)
                         || s.Id.Contains("_while_", StringComparison.Ordinal)
                         || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id))) == true));
-            if (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
+            bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
+                == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
+            if (sameHerEmbrace && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)
                 && before.Key.PoisonStacks == current.Key.PoisonStacks
                 && before.Sources.Count == current.Sources.Count
-                && before.Sources.All(p => current.Sources.TryGetValue(p.Key, out int value) && value == p.Value)) return false;
+                && before.Sources.All(p => current.Sources.TryGetValue(p.Key, out int value) && value == p.Value))) return false;
             conn.Pools = PoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
             conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));

@@ -166,6 +166,7 @@ public static partial class Game
             target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
         }
         conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+        HerEmbraceOnIgniteLocked(conn, now);
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
