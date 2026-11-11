@@ -109,7 +109,7 @@ public sealed partial class ReservationCurseSummonTests
             schedule.At += 3.401;
             Assert.Equal(0, Game.IntimidatingCryMovement(conn));
             Assert.Equal(0, Game.IntimidatingCryMovement(peer));
-            Assert.Equal(0, Game.MinionAuraStats(conn, golem)["base_movement_velocity_+%"]);
+            Assert.Equal(0, Game.MinionAuraStats(conn, golem).GetValueOrDefault("base_movement_velocity_+%"));
             // A retained loss cannot adopt boots removed and then reinserted.
             schedule.At = conn.Reservations.CatPhaseDeadline;
             Game.CatAspectReconcileLocked(conn, schedule.At);

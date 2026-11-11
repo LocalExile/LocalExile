@@ -63,8 +63,9 @@ public static partial class Game
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => Stats.Name(p.Key)!, p => p.Value);
-        values["base_movement_velocity_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("base_movement_velocity_+%")
-            + MinionIntimidatingCryMovement(conn, minion.Monster));
+        if (MinionIntimidatingCryMovement(conn, minion.Monster) is > 0 and var cryMovement)
+            values["base_movement_velocity_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("base_movement_velocity_+%")
+                + cryMovement);
         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
             if (values.GetValueOrDefault($"base_immune_to_{ailment}") != 0) values[$"immune_to_{ailment}"] = 1;
         var bonus = AuraCatalog.Bonus(auras, 0, skills, Stats);
