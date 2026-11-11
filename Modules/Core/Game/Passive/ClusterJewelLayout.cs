@@ -24,7 +24,7 @@ using GameServer.Core;
 /// </summary>
 public static class ClusterJewelLayout
 {
-    public enum Kind { None, Small, Notable, Socket }
+    public enum Kind { None, Small, Notable, Socket, Keystone }
 
     public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders);
 
@@ -95,6 +95,13 @@ public static class ClusterJewelLayout
             int offset = compressed ? position / 2 : position;
             kinds[offset] = kind;
             if (order >= 0) orders[offset] = order;
+        }
+
+        // A single-keystone small cluster creates its only node at template index 0, rotated by the cell start.
+        if (size == 0 && keystones == 1 && nodes == 1)
+        {
+            Put(0, Kind.Keystone);
+            return new Layout(block, compressed ? total / 2 : total, kinds, orders);
         }
 
         if (treeSocket)
