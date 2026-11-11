@@ -390,9 +390,13 @@ drops. Found with a hardware watchpoint on the field and the dispatcher's disass
 Gateway keeps gold per account, as in the real game where every character of an account (and league) shares it:
 `AccountStash.Gold`, saved in the account's stash row of `data/characters.db` ([18](18-stash.md) §6). It sends that amount on every area
 entry, on `/gold` and after a gold respec. A character save from before this still holding `Gold` gives it to the
-account at the character's next login (`CharacterSaves.TakeGold`). Leagues are not kept apart yet. Gold coins on the ground are the item
-`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound); picking them up is
-not done yet.
+account at the character's next login (`CharacterSaves.TakeGold`). Gold coins on the ground are the item
+`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound).
+Monsters drop gold piles (`ItemDrops.Gold`, our own numbers): normal 40%, magic 75%, rare and unique always, each
+(3 + 1.2 × level) × 1/2/5/15 by rarity. Gold within the `gold_auto_loot_radius` setting (default 20 cells) is
+picked up
+by itself on the player tick, in full and without late-drop ghosts. Every league has its own stash and gold; Standard
+keeps the account's stash from before (`AccountStash.Key`).
 
 ## Open
 
