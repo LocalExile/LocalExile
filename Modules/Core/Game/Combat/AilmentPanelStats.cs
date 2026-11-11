@@ -26,7 +26,7 @@ public static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
     /// secondary), whether it is a spell and whether it is a melee hit.</summary>
-    public readonly record struct Context(string Hand, bool Spell, bool Melee = false, bool Bow = false)
+    public readonly record struct Context(string Hand, bool Spell, bool Melee = false)
     {
         public bool Attack => Hand is "main_hand" or "off_hand";
     }
@@ -115,7 +115,8 @@ public static class AilmentPanelStats
                 DamageType.Fire => get("burn_damage_+%") + get("ignite_damage_+%") + get("elemental_damage_+%"),
                 _ => get("base_poison_damage_+%"),
             };
-        bool bowAttack = context.Attack && context.Bow && !context.Spell;
+        bool bowAttack = context.Attack && !context.Spell
+            && get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type") == WeaponTypeStats.Bow;
         if (bowAttack) common += (double)get("bow_damage_+%") + get("bow_ailment_damage_+%") + get("bow_hit_and_ailment_damage_+%");
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();

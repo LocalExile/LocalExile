@@ -241,6 +241,11 @@ public static partial class Game
         }
         if (stage == StatSnapshotStage.Offence)
         {
+            // Release calculations and the panel use the same active-hand types, including after weapon swaps.
+            if (Stats.Key("main_hand_weapon_type") is uint mainType)
+                stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
+            if (Stats.Key("off_hand_weapon_type") is uint offType)
+                stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
             if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))
@@ -265,7 +270,7 @@ public static partial class Game
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
-            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack(), Bow: Profile().Bow);
+            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext, SupportedAttackDamage.Raw(WeaponFor(), Get), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },

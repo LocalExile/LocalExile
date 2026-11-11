@@ -431,7 +431,7 @@ public static partial class Game
 
     public static List<(string Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand)
     {
-        var context = new AilmentPanelStats.Context(hand, Spell: !inputs.Attack, inputs.Melee, inputs.WieldingBow);
+        var context = new AilmentPanelStats.Context(hand, Spell: !inputs.Attack, inputs.Melee);
         return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get);
     }
 
