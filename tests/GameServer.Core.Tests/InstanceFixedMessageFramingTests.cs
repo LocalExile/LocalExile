@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Core.Tests;
@@ -11,6 +11,8 @@ public class InstanceFixedMessageFramingTests
         { "020A01", 0x020a, 3 },
         { "005900150001001B001500000001020A", 0x0059, 16 },
         { "00990100", 0x0099, 4 },
+        // The standing channel update, seen as an unregistered 10-byte message while Winter Orb was held.
+        { "01980000000400000000", 0x0198, 10 },
     };
 
     [Theory]

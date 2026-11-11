@@ -189,7 +189,7 @@ static partial class SurvivorsRewards
         foreach (var (id, _) in conn.Instance.Ground.All())
         {
             if (!ownership.Commit(() => conn.Instance.Ground.Take(id))) return;
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id,
                 $"0x02bd survivors hide world item 0x{id:x}", still: () => ownership.Current);
         }
     }
@@ -381,7 +381,7 @@ static partial class SurvivorsRewards
         if (chosen.Kind == SurvivorsChoiceKind.Heal)
         {
             if (!ownership.Commit(() => conn.PlayerLife = conn.PlayerMaxLife)) return false;
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife),
                 "survivors healthstone restores life", still: () => ownership.Current);
         }
         if (!ownership.Current) return false;

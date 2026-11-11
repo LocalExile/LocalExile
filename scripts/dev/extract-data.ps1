@@ -41,22 +41,23 @@ $manifest = @(
        UsedBy = 'unique bosses and named packs (14-monster-packs.md), quest room objects (12-quests.md)' }
     # After area-transitions and room-points: --all also takes the object types those files name.
     @{ Name = 'object-types'; Outputs = @('data\object-types.json'); Runner = 'python'
-       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 8; Needs = @('tables', 'area-transitions', 'room-points')
+       Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json'); Version = 9; Needs = @('tables', 'area-transitions', 'room-points')
        UsedBy = 'monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client/Content.ggpk', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
-       Args = @('scripts/re/anim_contacts.py'); Version = 6; Needs = @('tables')
+       Args = @('scripts/re/anim_contacts.py'); Version = 7; Needs = @('tables')
        UsedBy = 'class spell contacts, rig animation indices, the default attack''s stance clips (their contact and lock_cancelling keyframes as the client plays them, the ACT-selected wand variant), ACT-selected ordinary wand release timing and the contact keyframes'' positions: where an arrow or wand bolt leaves (11-skills.md)' }
     # monster-contacts: the clips a variety plays for its projectile attacks, with their contact keyframe's time and position:
     # when and from where a Sand Spitter mortar leaves (the skill's own animation key, the native clip selector).
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json'); Runner = 'python'
        Args = @('scripts/re/monster_contacts.py'); Version = 4; Needs = @('tables')
        UsedBy = 'monster projectile release timing/points and Throw-stage contacts (11-skills.md, 12-quests.md)' }
-    # monster-takehit also gives each variety's Emerge clip and its length: how long an emerge monster takes to rise.
+    # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
+    # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'
-       Args = @('scripts/re/monster_takehit.py'); Version = 4; Needs = @('tables')
+       Args = @('scripts/re/monster_takehit.py'); Version = 5; Needs = @('tables')
        UsedBy = 'monster hit reaction: each variety''s TakeHit clip indexes in its rig and their lengths (11-skills.md, 0x1b2)' }
     # projectile-clips: a server-created projectile object plays nothing by itself; the Gateway starts its rig's flight
     # clip at spawn and its impact clip where it stops (the Sand Spitter mortar is invisible otherwise).

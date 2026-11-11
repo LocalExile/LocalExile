@@ -225,10 +225,22 @@ public static partial class Game
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
     }
 
-    // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
-    // speed-only interval so a very fast channel can hit more than 30 times a second.
-    static double SupportedChannelSeconds(ClientState conn, ushort skillId) =>
-        SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
+    // FireBeam's duration slot (0x1419ea070) uses base cast time / cast speed, including fractional milliseconds.
+    // Channel repeats do not start new actions, so neither spell nor attack channels use the new-action frame cap.
+    // A channelled attack swings on its weapon's attack time (Cyclone); a channelled spell pays and stages on its cast
+    // time (Winter Orb's 0.25 s, not the caster's weapon).
+    public static double? SupportedChannelSeconds(ClientState conn, ushort skillId)
+    {
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
+        {
+            if (SpellTimingFor(conn, gem.Effect, skillId)?.DurationSeconds is not double duration || duration <= 0)
+                return null;
+            double seconds = duration / PlayerActionFactor(conn);
+            return double.IsFinite(seconds) && seconds > 0 ? seconds : null;
+        }
+        return SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
+    }
 
     // The supported attack's swing time with the off-hand weapon of a dual-wielded pair: its own duration at the
     // off-hand increased speed (the main weapon's local speed taken back out), with the same supports.
@@ -352,14 +364,18 @@ public static partial class Game
     public sealed record SupportedHitInputs(GameServer.Core.World.DamagePacket Raw, Func<string, int> Get,
         GameServer.Core.World.DamageConversion Conversion, bool Attack, bool Melee, bool Area, bool Projectile,
         List<(string Name, int Value)> Modifiers, HashSet<int> Types, SkillHitPlan Plan, Dictionary<uint, int> Caster,
-        bool WieldingWand = false);
+        bool WieldingWand = false, bool WieldingBow = false);
 
+    // charges: the removable charge counts a charge-spending use counted (Discharge), instead of the ones held now.
     public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null, bool totem = false)
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, bool totem = false)
     {
         var gem = SupportedSkill(conn, skillId);
         var caster = FinalPlayerStats(conn).ToDictionary(v => v.Item1, v => v.Item2);
         var stats = MergeSkillStats(caster, gem.Stats);
+        if (charges is not null)
+            foreach (var (type, count) in charges)
+                if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
         if (totem && Stats.Key("damage_+%") is uint damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, "totem_damage_+%");
         int Get(string name) => name == "is_area_damage" && area is bool isArea ? isArea ? 1 : 0
@@ -370,9 +386,10 @@ public static partial class Game
         else if (area is false) types.Remove(7);
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!plan.CanHit) return null;
-        var raw = attack
-            ? SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(weapon ?? WeaponFor(conn), Get), SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level))
-            : DamageStats.RawAdded(plan.SpellBase, Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
+        var attackWeapon = attack ? weapon ?? WeaponFor(conn) : null;
+        var raw = attackWeapon is not null
+            ? SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(attackWeapon, Get), SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level))
+            : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.
         if (!attack && Get("support_spell_weapon_damage_gain_%_of_one_hand_melee_weapon_damage_as_added_spell_damage") is int bladeGain and > 0)
@@ -389,12 +406,13 @@ public static partial class Game
         return new(raw, Get, DamageStats.Conversion(stats, Stats, attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
             Projectile: attack ? types.Contains(2) : Get("base_is_projectile") != 0, modifiers, types, plan, caster,
-            WieldingWand: attack && (weapon ?? WeaponFor(conn)).WieldingWand);
+            WieldingWand: attackWeapon?.WieldingWand == true,
+            WieldingBow: attackWeapon?.Bow == true);
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
-        SkillCatalog.Unarmed? weapon = null)
-        => SupportedHitInputsFor(conn, skillId, area, weapon) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
+        SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null)
+        => SupportedHitInputsFor(conn, skillId, area, weapon, charges) is { } inputs ? SupportedHitFrom(inputs, suppress) : GameServer.Core.World.DamagePacket.Empty;
 
     // The supported hit from inputs already worked out (GemSkills reads one gem's inputs once for its hit and ailment rows).
     public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress)
@@ -402,7 +420,7 @@ public static partial class Game
         var hit = PlayerHitDamage.Resolve(inputs.Raw, inputs.Get, inputs.Conversion, spell: !inputs.Attack,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
-            wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120));
+            wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120));
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }

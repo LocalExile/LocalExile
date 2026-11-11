@@ -173,7 +173,7 @@ public static partial class Game
             return CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterPlacementBlockers(objectId),
                 moverSize: bodySize) ?? place;
         }
-        void Activate(uint objectId, List<byte> bytes)
+        void Activate(uint objectId, WorldRecordBuilder bytes)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
             var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
@@ -188,38 +188,38 @@ public static partial class Game
             if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
             // A totem blocks paths on the client as any body does.
             if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
-            bytes.AddRange(TotemPresentation(conn) ?? []);
+            TotemRecords(conn, bytes);
             Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
                 + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
                 + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}"));
         }
 
         uint? created = null;
-        // The client can start Emerge at cast contact. The slot, blocker, lifetime and proxy become active at full placement.
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        // Registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
+        await SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
                 if (!Valid()) return null;
                 uint objectId = conn.NextObjectId++;
                 place = ClearPosition(objectId);
-                var bytes = new List<byte>();
+                var bytes = new WorldRecordBuilder(conn, admission);
                 if (conn.MonsterTypes.Add((variety.Row, level)))
-                    bytes.AddRange(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
+                    bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
                 var objectStats = new List<(uint, int)>();
                 if (life != baseLife) objectStats.Add((StatKeys.MaximumLife, (int)life));
                 if (spellTotem && Stats.Key("uses_no_mana") is uint noMana) objectStats.Add((noMana, 1));
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: proxy is null ? null : [proxy],
                     Stats: objectStats) { LifeData = variety.LifeData };
-                bytes.AddRange(InstanceEntities.CreateObject(objectId,
+                bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
-                bytes.AddRange(InstanceProtocol.EnterWakeZone(objectId));
+                bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
                 if (finishPlacement is null) Activate(objectId, bytes);
                 created = objectId;
-                return [.. bytes];
+                return bytes.Build();
             }
-        });
+        }, transport: (remote, stream, ciphers));
         if (created is not uint pendingId || finishPlacement is null) return created;
         bool active = false;
         try
@@ -227,7 +227,7 @@ public static partial class Game
             while (await finishPlacement())
             {
                 bool paused = false;
-                await Send(remote, stream, ciphers, [], null, atGate: () =>
+                await SendWorldBatch(conn, [conn.WorldOutput.PublishedObject(pendingId)], admission =>
                 {
                     lock (conn.Monsters)
                     {
@@ -236,18 +236,18 @@ public static partial class Game
                         limit = TotemLimit(conn, skillId);
                         if (limit < 1) return null;
                         playerStats = CharacterPlayerStats(conn);
-                        var bytes = new List<byte>();
+                        var bytes = new WorldRecordBuilder(conn, admission);
                         var clear = ClearPosition(pendingId);
                         if (clear != place)
                         {
                             place = clear;
-                            bytes.AddRange(InstanceProtocol.Teleport(pendingId, place.X, place.Y));
+                            bytes.World(pendingId, InstanceProtocol.Teleport(pendingId, place.X, place.Y));
                         }
                         Activate(pendingId, bytes);
                         active = true;
-                        return [.. bytes];
+                        return bytes.Build();
                     }
-                });
+                }, transport: (remote, stream, ciphers));
                 if (!paused) break;
             }
             return active ? pendingId : null;
@@ -255,7 +255,7 @@ public static partial class Game
         finally
         {
             if (!active && !conn.Closed && !conn.LeavingArea)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(pendingId), "cancelled totem placement");
+                await SendWorldRemoval(remote, stream, ciphers, conn, pendingId, "cancelled totem placement");
         }
     }
 
@@ -308,7 +308,10 @@ public static partial class Game
 
     // The totems as the client should see them, from the player tick and after a placement: expired ones die, their Life
     // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
-    public static byte[]? TotemPresentation(ClientState conn)
+    public static byte[]? TotemPresentation(ClientState conn) => TotemRecords(conn, new(conn, null)) is { } batch
+        ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
+
+    static OutputBatch? TotemRecords(ClientState conn, WorldRecordBuilder bytes)
     {
         lock (conn.Monsters)
         {
@@ -316,45 +319,43 @@ public static partial class Game
             var totems = conn.Totems;
             double now = conn.Clock.Elapsed.TotalSeconds;
             if (totems.Expire(now).Count > 0) TotemsDiedLocked(conn, now, CharacterPlayerStats(conn));
-            var bytes = new List<byte>();
             foreach (var t in totems.All)
             {
                 uint life = t.DiedAt is null ? t.Life : 0;
                 if (t.SentDeath || life == t.SentLife && life > 0) continue;
-                bytes.AddRange(InstanceProtocol.LifeUpdate(t.Id, life));
+                bytes.Presentation(t.Id, InstanceProtocol.LifeUpdate(t.Id, life));
                 (t.SentLife, t.SentDeath) = (life, life == 0);
             }
             foreach (var t in totems.Remove(now))
             {
                 conn.RemoveBlocker(t.Id);
-                bytes.AddRange(InstanceProtocol.RemoveObject(t.Id));
+                bytes.Remove(t.Id);
             }
             uint source = conn.PlayerLife > 0 ? totems.AuraAt(conn.Walk.Position(now), now)?.Id ?? 0 : 0;
             if (source != totems.SentAuraTotem)
             {
-                if (totems.SentAuraInstance != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, totems.SentAuraInstance));
+                if (totems.SentAuraInstance != 0) bytes.World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, totems.SentAuraInstance));
                 totems.SentAuraInstance = 0;
                 // shortcut: the buff names the player as its source (the shape every server buff uses), not the totem and its
                 // skill; send the totem once a live check shows the client takes a monster source for a player buff.
                 if (totems.All.FirstOrDefault(t => t.Id == source) is { Aura: { } aura })
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, totems.SentAuraInstance = conn.NextBuff++, aura.Row, PlayerId));
+                    bytes.World(PlayerId, InstanceEntities.AddBuff(PlayerId, totems.SentAuraInstance = conn.NextBuff++, aura.Row, PlayerId));
                 totems.SentAuraTotem = source;
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.World(PlayerId, PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
             }
-            return bytes.Count == 0 ? null : [.. bytes];
+            return bytes.Count == 0 ? null : bytes.Build();
         }
     }
 
     static Task SendTotems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
+        SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Paused || conn.Closed || conn.LeavingArea) return null;
-                var bytes = new List<byte>();
+                var bytes = new WorldRecordBuilder(conn, admission);
                 TickSpellTotemsLocked(remote, stream, ciphers, conn, bytes);
-                bytes.AddRange(TotemPresentation(conn) ?? []);
-                return bytes.Count == 0 ? null : [.. bytes];
+                return TotemRecords(conn, bytes);
             }
-        });
+        }, transport: (remote, stream, ciphers));
 }

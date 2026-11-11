@@ -5,6 +5,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Character selection reads the saved main ascendancy for its class byte and preserves portrait cosmetics;
+  the native client shows the correct portraits and names for all 21 normal ascendancies across seven base classes.
+
 - Remember Password now returns and verifies the official client's 32-byte saved-login credential in account login
   0x03 / result 0x04.
   It survives server restarts, is device/account-bound and is invalidated by changing the password.
@@ -46,6 +49,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [09](../docs/protocol/09-area-change.md) §6.
 
 ## Partly working
+
 
 - Selected league modes have server rules with automated coverage and native entry, exit and migration checks.
   Ordinary Hardcore death migrates to the matching softcore base while preserving SSF; Hardcore Ruthless stays dead.

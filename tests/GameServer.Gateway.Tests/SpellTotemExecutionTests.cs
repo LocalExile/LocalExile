@@ -381,7 +381,7 @@ public sealed class SpellTotemExecutionTests
             Assert.Equal(1, ReadFragment("projectiles_can_shotgun"));
             Assert.Equal(ProjectileHitScope.Projectile,
                 GatewayProjectileModifiers.Resolve(new("fragment-check"), ReadFragment, attack: true).HitRule.Scope);
-            Assert.False(Game.ProjectilePathAvailable("test", conn, fragments.Id, fragments.Effect)); // No adopted recipe yet.
+            Assert.True(Game.ProjectilePathAvailable("test", conn, fragments.Id, fragments.Effect));
             items.Change(PlayerInventories.BodyArmour, host.Id, _ => body with
             { Sockets = [new(SocketColour.White, Gem("SkillGemArtilleryBallista"))], Links = [1] });
             var artillery = Game.GemSkillEffects(conn).Single();
