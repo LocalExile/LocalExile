@@ -42,8 +42,12 @@ static partial class Game
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint k ? skill.GetValueOrDefault(k) : 0;
+        bool fullLife = attack && Get("support_damage_while_on_full_life_+%_final") != 0
+            && conn.PlayerLife > 0 && conn.PlayerMaxLife > 0
+            && (conn.PlayerLife >= conn.PlayerMaxLife
+                || CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, SelfCurseConditionInputs(conn)));
         double more = ConditionalSupportMore(skill, attack, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
-            FlaskRecovery.LowLife(target.Life, target.MaxLife), CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, SelfCurseConditionInputs(conn)),
+            FlaskRecovery.LowLife(target.Life, target.MaxLife), fullLife,
             Lifetap.ActiveAt(conn, now), target.Poisons.Stacks(now), target.Bleeds.Burning,
             ChargesOf(conn).Effective(ChargeType.Power), ArcaneSurgeActive(conn, now), RecentlyIgnitedCount(conn, now));
         var packet = more == 1 ? rolled : rolled.Scale(more);
