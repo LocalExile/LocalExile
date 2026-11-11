@@ -29,6 +29,9 @@ public sealed class GameModule : IModule
         GameEvents.Tick.Add(id, (conn, _) => global::KitavaActFive.Tick(conn));
         module.Lifetime.Own(global::KitavaActFive.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActFive.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::KitavaActTen.Tick(conn));
+        module.Lifetime.Own(global::KitavaActTen.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActTen.Leaving(conn));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
@@ -68,6 +71,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.RefuseInterruptedHardcoreDeath(conn);
         level = Rules.PrepareCharacterForArea(remote, conn, level);
+        global::KitavaActTen.ConfigurePortal(conn);
         // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
         Rules.InitializeCharacterVitals(conn);
         return level;
