@@ -9,6 +9,9 @@ public sealed class SupportGemState
     public int ArcaneSurgeCastSpeedPct;
     public int ArcaneSurgeManaRegenPct;
 
+    /// <summary>The deadline the client's Arcane Surge buff was last shown with.</summary>
+    public double ArcaneSurgeShownUntil;
+
     /// <summary>Mana spent on each supported spell since its last Arcane Surge trigger.</summary>
     public readonly Dictionary<ushort, long> ArcaneSurgeSpent = [];
 

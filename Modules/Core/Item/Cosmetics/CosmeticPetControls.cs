@@ -42,7 +42,7 @@ internal sealed class CosmeticPetControls(ClientState conn, IModuleLifetime life
             message = InstanceProtocol.ActionStarted(id, from.X, from.Y, x, y, 0x2909, 0xffff, 0x0408);
         }
         if (conn.Wire.Stream is not null)
-            await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, [], null,
+            await global::Game.SendWorldRecord(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, [], null,
                 atGate: () => ControlsTarget(id, x, y, owner) ? message : null);
         return true;
     }
@@ -103,7 +103,7 @@ internal sealed class CosmeticPetControls(ClientState conn, IModuleLifetime life
         }
         foreach (var (id, to, message) in messages)
             if (conn.Wire.Stream is not null)
-                await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, [], null,
+                await global::Game.SendWorldRecord(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, [], null,
                     atGate: () => FollowsTarget(id, to) ? message : null);
     }
 }

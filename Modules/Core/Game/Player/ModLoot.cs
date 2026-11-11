@@ -36,7 +36,7 @@ static partial class Game
 
         public async Task<bool> PickUp(uint id, IModuleLifetime owner, uint? petId = null)
         {
-            var messages = new List<(byte[] Data, string Log)>();
+            GroundPickup? pickup;
             lock (conn.Monsters)
             {
                 if (!Current(owner) || conn.Instance.Ground.Get(id) is not { } ground || !Visible(id)
@@ -54,11 +54,11 @@ static partial class Game
                 }
                 if (Dist(player, (ground.GridX, ground.GridY)) > 80 || Dist(collector, (ground.GridX, ground.GridY)) > 2)
                     return false;
-                if (!TryTakeGroundStack(conn, id, ground, messages)) return false;
+                if ((pickup = TakeGroundStack(conn, id, ground)) is null) return false;
             }
             // A committed save must still reach the client if the mod is stopped while its output is queued.
-            foreach (var (data, log) in messages)
-                if (conn.Wire.Stream is not null) await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, data, log);
+            if (conn.Wire.Stream is not null)
+                await SendPickup(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, id, pickup);
             return true;
         }
     }

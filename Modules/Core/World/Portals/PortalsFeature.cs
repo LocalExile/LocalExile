@@ -16,10 +16,10 @@ static class PortalsFeature
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         uint id = conn.NextObjectId++;
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
             $"0x02bb create the return portal 0x{id:x} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = 0;
         string owner = CharacterName(conn);
@@ -49,11 +49,11 @@ static class PortalsFeature
         if (MapDevice.TakePortal(character, at.Index) is not var (map, left))
         {
             Console.WriteLine($"[gateway] {remote} map portal 0x{use.TargetId:x}: no open map");
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(use.TargetId), $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x}");
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, use.TargetId, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x}");
             return;
         }
         if (deviceId != 0) await SendMapPortals(remote, stream, ciphers, conn, deviceId, map.Area.Hash16, closed: use.TargetId);
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(use.TargetId), $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x} (used)");
+        await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, use.TargetId, $"0x{InstanceProtocol.RemoveObjectId:x4} remove map portal 0x{use.TargetId:x} (used)");
         Console.WriteLine($"[gateway] {remote} map portal at place {at.Index} taken: {left} left, into {(map.Instance == 0 ? "a new instance" : $"instance {map.Instance}")} of {map.Area.Name}");
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(map.Area.Hash16, map.Instance, map.Instance == 0)
         {
@@ -188,15 +188,15 @@ static class PortalsFeature
         if (open.LeadsTo != conn.Layout.Hash) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX + 4, conn.Layout.SpawnY));
         uint id = conn.NextObjectId++;
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.BackPortal = (id, x, y);
         string owner = CharacterName(conn);
         _ = Task.Delay(MapPortalListMs).ContinueWith(async _ =>
         {
             if (!conn.Closed && conn.BackPortal?.Id == id)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, open.Area, owner)]),
+                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, open.Area, owner, Variation: conn.CosmeticPortalVariation)]),
                     $"0x008f the portal back 0x{id:x} leads to 0x{open.Area:x4}");
         });
     }
@@ -241,14 +241,14 @@ static class PortalsFeature
         if (conn.ReturnPortal is { } old)
         {
             await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(old.Id, 0)]), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(old.Id), $"0x{InstanceProtocol.RemoveObjectId:x4} remove the old portal 0x{old.Id:x}");
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, old.Id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove the old portal 0x{old.Id:x}");
         }
         // Beside the player, so the click that opens it is not on the player (a reopened portal stands where it stood).
         var (x, y) = !replace || conn.Layout.Walkable is not { } walkable || !walkable(px + 3, py) ? (px, py) : (px + 3, py);
         uint id = conn.NextObjectId++;
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         conn.ReturnPortal = (id, x, y);
         conn.ReturnPortalTo = toHideout ? (ushort)0 : town;
         ushort leadsTo = toHideout ? home!.AreaHash16 : town;
@@ -259,7 +259,7 @@ static class PortalsFeature
         _ = Task.Delay(MapPortalListMs).ContinueWith(async _ =>
         {
             if (!conn.Closed && conn.ReturnPortal?.Id == id)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, leadsTo, owner)]),
+                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, leadsTo, owner, Variation: conn.CosmeticPortalVariation)]),
                     $"0x008f the Portal Scroll's portal 0x{id:x} leads to 0x{leadsTo:x4} ({(toHideout ? "the hideout" : "the last town")})");
         });
     }
@@ -292,9 +292,9 @@ static class PortalsFeature
             // "active" 1: the map device stands open and idle (its .ot: per-player quest flag MapDeviceActive).
             var obj = new HideoutObject(d.X, d.Y, d.Rotation, components, new HideoutDoodad(d.Hash, (byte)d.Variation),
                 [.. states.Select(s => s == "active" ? 1 : 0)]);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(d.Type!), obj.Blob()),
+            await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(d.Type!), obj.Blob()),
                 $"0x02bb create hideout doodad 0x{id:x} {d.Name} ({d.Type}) at ({d.X}, {d.Y}), components {string.Join(", ", components)}");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 hideout doodad 0x{id:x} enters wake zone");
             lock (conn.HideoutDoodads) conn.HideoutDoodads[id] = d;
             await RegisterStationaryCollision(remote, stream, ciphers, conn, id, d.Type!, d.X, d.Y, d.Rotation, "map-device", d.Model);
         }

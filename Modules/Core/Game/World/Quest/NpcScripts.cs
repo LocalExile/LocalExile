@@ -35,7 +35,7 @@ public static partial class Game
         byte last = NpcTransitionStates(npc.Npc);
         if (npc.State >= last) return;
         npc.State++;
-        await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(npcId, (byte)component, npc.State),
+        await SendWorldRecord(remote, stream, ciphers, conn, npcId, InstanceEntities.TransitionableUpdate(npcId, (byte)component, npc.State),
             $"0x02bc npc 0x{npcId:x} {npc.Npc.Name} transitions to state {npc.State} ({why})");
     }
 
@@ -124,7 +124,7 @@ public static partial class Game
         lock (conn.QuestObjects) objects = [.. conn.QuestObjects.Where(o => o.Value.Rule.ObjectType == type).Select(o => (o.Key, o.Value.Info))];
         foreach (var (id, info) in objects)
             if (GameServer.Core.Protocol.Instance.QuestObject.TransitionableIndex(info.Components) is int index and >= 0)
-                await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(id, (byte)index, (byte)info.States),
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, (byte)index, (byte)info.States),
                     $"0x02bc quest object 0x{id:x} {type.Split('/')[^1]} Transitionable → {info.States} ({why})");
     }
 }

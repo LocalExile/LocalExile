@@ -77,7 +77,7 @@ public static partial class Game
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
-        if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
@@ -217,7 +217,7 @@ public static partial class Game
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
-        if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
@@ -234,7 +234,7 @@ public static partial class Game
 
     // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
     // socket; cluster jewels use the expansion cells (see IsLargeClusterJewel).
-    public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" } type
+    public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" or "AbyssJewel" } type
         && !type.Id.StartsWith("Metadata/Items/Jewels/JewelPassiveTreeExpansion", StringComparison.Ordinal);
 
     /// <summary>The Large Cluster Jewel base type: the only cluster jewel the tree sockets take so far (Voices).</summary>
@@ -378,8 +378,12 @@ public static partial class Game
         }
         if (item is null) return "no held item";
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return "unknown item type";
-        if (type.Class != "Jewel") return $"{type.Class} does not go in a passive jewel socket";
+        if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
         if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
+        var jewelMods = ItemsFor(conn).Mods;
+        if (GrandSpectrum.IsSpectrum(item, jewelMods) && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+            .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= 3)
+            return "only three Grand Spectrum jewels can be socketed";
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {
             if (expansion) return "timeless jewels go in an ordinary passive tree socket";
@@ -394,6 +398,14 @@ public static partial class Game
                     : $"only {limit} Historic timeless jewels can be socketed";
             }
         }
+        if (item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
+        {
+            var uniques = UniquesFor(conn);
+            var limitedJewel = uniques.All.FirstOrDefault(d => d.JewelLimit > 0 && uniques.NameWord(d) == nameWord);
+            if (limitedJewel is not null && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+                .Count(j => j.X != x && j.Item.Rarity == ItemRarity.Unique && j.Item.NameWords.Contains(nameWord)) >= limitedJewel.JewelLimit)
+                return $"only {limitedJewel.JewelLimit} {limitedJewel.Name} can be socketed";
+        }
         if (ImpossibleEscapeCatalogue.Read(item, ItemsFor(conn).Mods) is not null)
         {
             int limit = ItemsFor(conn).Limits.Get("impossible_escape", SystemSettings.Default.ImpossibleEscapeLimit);
@@ -407,7 +419,11 @@ public static partial class Game
                     : $"only {limit} Impossible Escape can be socketed";
             }
         }
-        if (expansion && RadiusJewelCatalogue.IsRadius(item, ItemsFor(conn).Mods))
+        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
+        if (radius is { TattooEffectPct: > 0 } && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Any(placed =>
+            placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }))
+            return "only one Warrior's Tale can be socketed";
+        if (expansion && radius is not null)
             return "radius unique jewels go in an ordinary passive tree socket";
         if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)
         {
@@ -437,6 +453,7 @@ public static partial class Game
         var local = ItemModStats.Local(item, Items.Mods);
         int empty = local.GetValueOrDefault("local_unique_jewel_grants_x_empty_passives");
         if (empty > 0) return empty + ClusterSocketCount(item);
+        if (ClusterSize(item) == 0 && ClusterJewelStats.Keystone(item) is not null) return 1;
         return Math.Max(0, local.GetValueOrDefault("local_jewel_expansion_passive_node_count"));
     }
 
@@ -456,6 +473,8 @@ public static partial class Game
         if (size < 0) return 0;
         int over = ItemModStats.Local(item, Items.Mods).GetValueOrDefault("local_jewel_expansion_jewels_count_override");
         if (over > 0) return over;
+        if (size == 1 && ClusterJewelStats.Entries(item).Any(e => e.Stat == "local_affliction_jewel_display_small_nodes_grant_nothing" && e.Value != 0))
+            return 0; // Megalomaniac: one empty small and three notables.
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
 
@@ -505,7 +524,7 @@ public static partial class Game
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
@@ -596,9 +615,9 @@ public static partial class Game
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             conn.SeenGround.Add(id);
-            await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+            await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
                 $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
-            await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
         }
     }
 
@@ -666,7 +685,7 @@ public static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)
@@ -701,9 +720,9 @@ public static partial class Game
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
         if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob()),
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null);
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
     }
 
     // C→S 0x29: drop the held item where the player stands, as a WorldItem object (0x2bb + wake zone 0x1a9).
@@ -717,9 +736,9 @@ public static partial class Game
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
         var ground = new WorldItemObject(x, y, held.Item) { PlayerDropped = true };
         uint id = conn.Instance.Ground.Add(ground, conn);
-        await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
             $"0x02bb create world item 0x{id:x} at ({x}, {y})");
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 world item 0x{id:x} enters wake zone");
     }
 
     // C→S 0x24 on a world item: walk there, then put it in the main inventory (first free cell) and remove the object (0x2bd).
@@ -738,18 +757,17 @@ public static partial class Game
                 removed = conn.Instance.Ground.Take(id) is not null;
             }
             if (removed)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
+                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove quest item 0x{id:x}: {questFlags.Remove} is set");
             return;
         }
-        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupTolerance)) return;
+        if (!TryBeginObjectWalk(conn, requestedAt, ground.GridX, ground.GridY, PickupReach, out var objectWalk, centreRange: true, tolerance: PickupToleranceOf(conn, ground.Item))) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {remote} <= 0x0024 pick up world item 0x{id:x} at ({ground.GridX}, {ground.GridY}) {use} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         // Echo the interaction at once, from where the player is now (as a move's echo does): the client then walks to its
         // own pickup range itself. An echo sent on arrival carried the server's estimated stop, and the client snapped to it.
         // A lockstep client got its start from the frame pass already (use.Started).
         if (!use.Started)
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, ground.GridX, ground.GridY, use.SkillId, use.Sequence, use.Flags, targetObjectId: id),
                 $"0x01ab player picks up world item 0x{id:x}", still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         lock (conn.Monsters)
@@ -774,12 +792,12 @@ public static partial class Game
         byte row = toCursor ? PlayerInventories.Cursor : PlayerInventories.MainInventory;
         if (!toCursor && shape.MaxStack > 1)
         {
-            var messages = new List<(byte[] Data, string Log)>();
+            GroundPickup? pickup;
             lock (conn.Monsters)
             {
-                if (HardcoreProgressBlocked(conn) || !TryTakeGroundStack(conn, id, ground, messages)) return;
+                if (HardcoreProgressBlocked(conn) || (pickup = TakeGroundStack(conn, id, ground)) is null) return;
             }
-            foreach (var (data, log) in messages) await Send(remote, stream, ciphers, data, log);
+            await SendPickup(remote, stream, ciphers, conn, id, pickup);
             return;
         }
         InventoryItem? placed;
@@ -814,7 +832,7 @@ public static partial class Game
                 return questFlags is not null ? QuestItems.Claim(CharacterName(conn), questFlags, Put) : Put();
             }, id);
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
+        await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
         if (placed is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [placed]),
             toCursor ? $"0x00bf cursor: hold item {placed.Id}" : $"0x00bf inventory 1: add item {placed.Id} at ({cell.X}, {cell.Y})");
@@ -827,44 +845,53 @@ public static partial class Game
     // Gold goes to the stash's gold of the character's league (S→C 0x2aa), not into the inventory.
     public static async Task PickUpGold(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, WorldItemObject ground, string how)
     {
-        var messages = new List<(byte[] Data, string Log)>();
+        GroundPickup? pickup;
         lock (conn.Monsters)
         {
-            if (HardcoreProgressBlocked(conn) || !TryTakeGroundStack(conn, id, ground, messages)) return;
+            if (HardcoreProgressBlocked(conn) || (pickup = TakeGroundStack(conn, id, ground)) is null) return;
         }
-        foreach (var (data, log) in messages) await Send(remote, stream, ciphers, data, log);
+        await SendPickup(remote, stream, ciphers, conn, id, pickup);
     }
 
-    // Called inside the pickup commit, after collector/policy validation. Manual and mod pickup share saves and output.
-    internal static bool TryTakeGroundStack(ClientState conn, uint id, WorldItemObject ground,
-        List<(byte[] Data, string Log)> messages)
+    sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
+
+    static async Task SendPickup(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, GroundPickup pickup)
+    {
+        if (pickup.Rest is { } rest)
+            await SendWorldCreate(remote, stream, ciphers, conn, pickup.RestId,
+                InstanceEntities.CreateObject(pickup.RestId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
+                $"0x02bb create remainder 0x{pickup.RestId:x} from 0x{id:x}");
+        await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (pickup)");
+        await Send(remote, stream, ciphers, pickup.Update, pickup.Log);
+    }
+
+    // Manual and mod pickup share the same commit. Capture the inventory revision before releasing the lock.
+    static GroundPickup? TakeGroundStack(ClientState conn, uint id, WorldItemObject ground)
     {
         if (IsGold(ground))
         {
-            if (conn.Instance.Ground.Take(id, ground) is null) return false;
+            if (conn.Instance.Ground.Take(id, ground) is null) return null;
             uint total = KeepOnGroundIfNotSaved(conn, ground,
                 () => PersonalStashOf(conn).AddGold(ground.Item.StackSize), originalId: id);
-            messages.Add((InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (gold pickup)"));
-            messages.Add((InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize})"));
-            return true;
+            return new(InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize})");
         }
         var items = ItemsOf(conn);
         if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf)
-            || conn.Instance.Ground.Take(id, ground) is null) return false;
+            || conn.Instance.Ground.Take(id, ground) is null) return null;
         var stacked = KeepOnGroundIfNotSaved(conn, ground,
             () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf), originalId: id);
+        WorldItemObject? rest = null;
+        uint restId = 0;
         if (stacked.Left > 0)
         {
-            var rest = new WorldItemObject(ground.GridX, ground.GridY,
+            rest = new WorldItemObject(ground.GridX, ground.GridY,
                 ground.Item with { StackSize = (ushort)stacked.Left }) { PlayerDropped = ground.PlayerDropped };
-            uint restId = conn.Instance.Ground.Add(rest, conn, shared: true, justDropped: false);
-            messages.Add((InstanceEntities.CreateObject(restId,
-                InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()), "pickup remainder"));
+            restId = conn.Instance.Ground.Add(rest, conn, shared: true, justDropped: false);
         }
-        messages.Add((InstanceProtocol.RemoveObject(id), $"0x02bd remove world item 0x{id:x} (pickup)"));
-        messages.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
-            items.NextRevision(PlayerInventories.MainInventory), stacked.RemovedIds, stacked.AddedItems), "pickup inventory"));
-        return true;
+        return new(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+            items.NextRevision(PlayerInventories.MainInventory), stacked.RemovedIds, stacked.AddedItems),
+            "pickup inventory", restId, rest);
     }
 
     // A pickup whose save fails puts the item back on the ground before the error closes the connection: it left the ground
