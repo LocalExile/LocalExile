@@ -361,5 +361,19 @@ displacement, because `.rdata` and `.data` moved by a few bytes (mostly -0x30, +
 message ids are unchanged; addresses of globals, vtables and strings are not, so a script that uses one needs the
 hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The patch changed only
 `Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
-(`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`). Check a future hotfix the same way: if the `.pdata`
-tables are equal, only data addresses need the new values.
+(`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
+
+**A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
+LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
+Auth's `keygen` and `patch` and the constants extraction refuse any other. To add one:
+
+1. `python -I scripts/re/port/compare_builds.py <allowed exe> <new exe> <the allowed build's mask VA>` (needs capstone)
+   must end in "same code": equal sections and `.pdata` functions, and every changed instruction a reference to data
+   that moved. It prints the new build's mask address and lists whatever a person has to judge.
+2. Decode both clients' tables (`PoEDataExtractor decode`) and run `compare_tables.py`: no difference. Compare the
+   other files the servers read too (`game-pack pack` on each client), and look at each one that differs.
+3. `SteamIndexSha256` is the hash of `Bundles2/_.index.bin`. The standalone client holds the same file inside
+   `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 it is byte-identical to Steam's loose one.
+4. Add the row, then play the live checklist on that build.
+
+A moved function or a changed table is a port: the five steps above.
