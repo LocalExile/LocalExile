@@ -120,7 +120,7 @@ public static partial class Game
         Stats.Key("maximum_energy_shield") is uint key
             ? (uint)Math.Max(0, monster.Stats?.FirstOrDefault(stat => stat.Key == key).Value ?? 0) : 0;
 
-    static void PublishEnergyShieldLocked(ClientState conn, GolemState.Golem golem)
+    internal static void PublishEnergyShieldLocked(ClientState conn, GolemState.Golem golem)
     {
         if (!conn.MinionOrigins.TryGetValue(golem.Id, out var origin)) return;
         var current = golem.Shield;

@@ -19,7 +19,7 @@ public static partial class Game
         public long MadnessRevision;
         public long Slayer, Hierophant;
         public bool ArcaneSurge;
-        public int Overrides, Auras;
+        public int Overrides, Auras, ResistancePenalty;
         public bool Moving, GolemSummonedRecently;
         public StatSourcesResult? StatSources;
         public Dictionary<uint, int>? Stats;
@@ -57,6 +57,7 @@ public static partial class Game
             MadnessRevision = conn.Madness.Revision,
             Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
+            ResistancePenalty = Game.ResistancePenalty(conn),
         };
     }
 
@@ -67,6 +68,7 @@ public static partial class Game
         && a.AspectRevision == b.AspectRevision
         && a.MadnessRevision == b.MadnessRevision
         && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
+        && a.ResistancePenalty == b.ResistancePenalty
         && ReferenceEquals(a.StatSources, b.StatSources);
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)

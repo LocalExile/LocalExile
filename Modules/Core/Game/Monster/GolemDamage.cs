@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -151,7 +151,7 @@ public static partial class Game
         return true;
     }
 
-    static void GolemDieLocked(ClientState conn, GolemState.Golem g, double now, bool emitLife = true)
+    internal static void GolemDieLocked(ClientState conn, GolemState.Golem g, double now, bool emitLife = true)
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
