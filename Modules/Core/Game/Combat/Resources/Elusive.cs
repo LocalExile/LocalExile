@@ -130,7 +130,7 @@ public static partial class Game
             double now = ResourceEffectsTime(conn); bool active = state.Effect(now) > 0 && !conn.LeavingArea;
             if (!active && state.Buff != 0) { packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.Buff)); state.Buff = 0; }
             if (active && state.Buff == 0) packets.Add(InstanceEntities.AddBuff(PlayerId, state.Buff = conn.NextBuff++, ElusiveBuffRow,
-                PlayerId, u68: BitConverter.SingleToUInt32Bits((float)state.Remaining(now))));
+                PlayerId, u68: BitConverter.SingleToUInt32Bits((float)state.Remaining(now)), u82: 0));
             return packets.Count == 0 ? null : [.. packets];
         }
     }

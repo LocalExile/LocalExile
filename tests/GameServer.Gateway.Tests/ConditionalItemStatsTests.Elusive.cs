@@ -61,7 +61,11 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(0, ailments.Snapshot(now).Shock);
         ailments.Inflict(PlayerElementalAilments.Kind.Shock, 20, 2, now, Get, new PhasingRoll(20));
         Assert.Equal(20, ailments.Snapshot(now).Shock);
-        Assert.Equal(31, Assert.Single(Game.ElusivePresentation(conn)!, p => p[0] == 1 && p[1] == 0xc1).Length);
+        Assert.True(ClientTables.Table("BuffDefinitions")[Game.ElusiveBuffRow].Bool("__col44"));
+        Assert.False(ClientTables.Table("BuffDefinitions")[Game.ElusiveBuffRow].Bool("IsRecovery"));
+        var packet = Assert.Single(Game.ElusivePresentation(conn)!, p => p[0] == 1 && p[1] == 0xc1);
+        Assert.Equal(33, packet.Length); // Mandatory u16 before the empty additional-data list.
+        Assert.Equal(new byte[6], packet[^6..]);
         Game.RestoreElusive(conn, carried with { Age = 1 }, now);
         Assert.True(Game.EnsureConditionalItemPools(conn)); stats = Game.CharacterPlayerStats(conn);
         Assert.Equal(move + (int)Math.Floor((state.Initial - 20) * .3), Get("base_movement_velocity_+%"));
