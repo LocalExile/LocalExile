@@ -217,6 +217,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - The mod SDK validates native character-build previews and commits confirmed imports after session drain; the optional POB mod and converter are external.
+- Native skin-transfer donors persist and reclaim independently; attachment stat contributions require a user mod.
+  Global modifiers, completed damage, defences and accuracy are separately opt-in; weapon speed, critical chance and donor skills stay unchanged.
+  Fresh native checks of the mod lifecycle are pending.
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the
   official client 2026-11-05, server live check pending):** "Enemies you Kill Explode, dealing X% of their Life as

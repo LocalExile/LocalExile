@@ -19,16 +19,13 @@ public static partial class Game
         var catalog = ItemsFor(conn);
         foreach (byte row in new[] { PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Gloves, PlayerInventories.Boots, PlayerInventories.Offhand1 })
             if (items.Items(row) is [var equipped, ..] && !IsInactive(conn, equipped.Id)
-                && catalog.ByHash(equipped.Item.TypeHash) is { } type && catalog.Defences(type) is { } defences)
+                && catalog.ByHash(equipped.Item.TypeHash) is { } type && catalog.Defences(type) is not null)
             {
-                var (a, e, s) = ItemDefences.Calculate(equipped.Item, defences, catalog.Mods);
+                var (a, e, s, localWard) = SkinTransferStats.Defences(equipped.Item, catalog);
                 int percent = row == PlayerInventories.BodyArmour
                     ? Math.Clamp(get?.Invoke("ward_instead_of_%_body_armour_and_evasion") ?? 0, 0, 100) : 0;
                 decimal armourWard = a * percent / 100m, evasionWard = e * percent / 100m;
-                var local = ItemModStats.Local(equipped.Item, catalog.Mods);
-                decimal ward = armourWard + evasionWard
-                    + (long)WardState.Max((decimal)defences.WardMin + local.GetValueOrDefault("local_ward"), local.GetValueOrDefault("local_ward_+%"))
-                        * (100 + Math.Clamp((int)equipped.Item.Quality, 0, 100)) / 100;
+                decimal ward = armourWard + evasionWard + localWard;
                 yield return (row, (a - armourWard, e - evasionWard, s, ward));
             }
     }
@@ -98,12 +95,14 @@ public static partial class Game
     {
         var unarmed = skills.UnarmedFor(classRow);
         if (hand is not var (item, type) || type is null || skills.WeaponBase(type.Row) is not var (ms, min, max, range)) return null;
-        var local = ItemWeaponStats.Calculate(item, (ms, min, max, range), catalog.Mods);
+        var local = SkinTransferStats.Weapon(item, (ms, min, max, range), skills, catalog);
         var physical = local.Damage[GameServer.Core.World.DamageType.Physical];
         // The weapon's class decides Arcane Might's wand-only grant and the melee context of its own components.
-        return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
+        return new SkillCatalog.Unarmed(local.AttackMs, (int)Math.Clamp(physical.Min, 0, int.MaxValue),
+            (int)Math.Clamp(physical.Max, 0, int.MaxValue), Math.Max(range, unarmed.Range))
         {
-            LocalDamage = local.Damage, LocalSources = ItemModStats.Local(item, catalog.Mods).ToFrozenDictionary(),
+            LocalDamage = local.Damage, ExactAttackMs = local.ExactAttackMs,
+            LocalSources = SkinTransferStats.Local(item, catalog.Mods).ToFrozenDictionary(),
             WieldingWand = type.Class == "Wand", Bow = type.Class == "Bow", Melee = type.Class is not ("Wand" or "Bow"),
         };
     }
@@ -116,7 +115,7 @@ public static partial class Game
     public static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(ClientState conn)
     {
         Dictionary<string, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
-            ? ItemModStats.Local(active.Item, ItemsFor(conn).Mods) : [];
+            ? SkinTransferStats.Local(active.Item, ItemsFor(conn).Mods) : [];
         // Weapon swaps exchange the equipment rows; rows 14/15 remain inactive even when an active hand is empty.
         return (Local(ActiveMainHand(conn)), Local(ActiveOffHand(conn)));
     }
@@ -158,7 +157,7 @@ public static partial class Game
         var claws = (main1?.Class == "Claw" && off1?.Class == "Claw") || (main2?.Class == "Claw" && off2?.Class == "Claw");
         var unarmed = main1 is null && main2 is null;
         var mainItem = rowItems(2).Concat(activeSet ? [] : rowItems(14)).Where(i => !inactive(i.Id)).Select(i => i.Item).FirstOrDefault();
-        var local = mainItem is null ? [] : ItemModStats.Local(mainItem, catalog.Mods);
+        var local = mainItem is null ? [] : SkinTransferStats.Local(mainItem, catalog.Mods);
         return new WeaponProfile(
             Shield: activeSet ? off1?.Class == "Shield" : hasShield(),
             DualWield: dual,
@@ -179,8 +178,7 @@ public static partial class Game
             Wand: all.Any(t => t.Class == "Wand"),
             // The main hand's local critical chance and accuracy feed its character calculations. Local attack speed
             // is item metadata here; ItemWeaponStats already includes it in that hand's duration.
-            Critical: (main1 ?? main2) is { } main ? AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(main),
-                local.GetValueOrDefault("local_critical_strike_chance"), local.GetValueOrDefault("local_critical_strike_chance_+%")) : 0,
+            Critical: mainItem is not null ? SkinTransferStats.Critical(mainItem, catalog) : 0,
             LocalAttackSpeedPct: local.GetValueOrDefault("local_attack_speed_+%"),
             LocalAccuracy: local.GetValueOrDefault("local_accuracy_rating"));
     }
@@ -189,8 +187,9 @@ public static partial class Game
     public static bool HasShield(ClientState conn) => OffhandTypes(conn).Any(t => t.Class == "Shield");
 
     // Base block comes from the active, requirement-enabled shield, like its local defences and global modifiers.
-    public static int ShieldBaseBlock(ClientState conn) => ActiveOffHand(conn)?.Type is { Class: "Shield" } shield
-        ? ItemsFor(conn).ShieldBlock(shield) : 0;
+    public static int ShieldBaseBlock(ClientState conn) => ActiveOffHand(conn) is { Type: { Class: "Shield" }, Item: var shield }
+        ? (int)Math.Min(int.MaxValue, SkinTransferStats.Items(shield).Sum(i => (long)(ItemsFor(conn).ByHash(i.TypeHash) is { } t
+            ? ItemsFor(conn).ShieldBlock(t) : 0))) : 0;
 
     public static IEnumerable<ItemCatalog.BaseType> OffhandTypes(ClientState conn)
     {
@@ -235,6 +234,11 @@ public static partial class Game
             ushort quiverArt = quiver >= 0 ? looks[quiver].VisualIdentity : ItemsFor(conn).Visual("DefaultQuiver") ?? 0x328b;
             looks.RemoveAll(l => l.Slot is 0 or 1 or 7);
             looks.AddRange(BowSetup.Entries(bow, ItemsFor(conn).Visual("DefaultArrow") ?? 0xb2f6, quiverArt));
+            if (ActiveMainHand(conn)?.Item.SkinTransferSource is { } source)
+            {
+                int at = looks.FindIndex(l => l.Slot == 1);
+                if (at >= 0) looks[at] = looks[at] with { SkinVisual = source.VisualIdentity };
+            }
         }
         var cosmeticSlots = CosmeticEffects.CosmeticOnlySlots.ToDictionary(s => s, VisibleItem.Empty);
         foreach (var worn in WornCosmetics(conn))

@@ -30,7 +30,8 @@ public static class CharacterSaves
         int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
         byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false,
         bool Foreseeing = false, uint ForeseeSeed = 0, byte? AlternateQualityType = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? OriginalItem = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? OriginalItem = null,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? SkinTransferSource = null);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
@@ -519,7 +520,8 @@ public static class CharacterSaves
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
-        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods));
+        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods),
+        i.SkinTransferSource is { } source ? ToSaved(source, mods) : null);
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -540,6 +542,8 @@ public static class CharacterSaves
             OriginalItem = s.OriginalItem is null ? null : FromSaved(s.OriginalItem, catalog),
             Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
+            SkinTransferSource = s.SkinTransferSource is { } source ? source.SkinTransferSource is null
+                ? FromSaved(source, catalog) : throw new InvalidDataException("Nested skin transfers are not supported") : null,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);

@@ -41,8 +41,10 @@ public static partial class Game
         rating = TimedBlind.Apply(rating, blindLess);
         var accuracy = AttackAccuracyProfile.From(pools, player, Stats, own, offLocal) with { Rating = rating };
         // Critical chance: the off-hand weapon's base with its local mods, the same override and global increases.
-        int weaponBase = AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),
-            offLocal.GetValueOrDefault("local_critical_strike_chance"), offLocal.GetValueOrDefault("local_critical_strike_chance_+%"));
+        int weaponBase = activeOffHand() is { Item.SkinTransferSource: not null } off
+            ? SkinTransferStats.Critical(off.Item, catalog)
+            : AddedBaseCriticalStrike.LocalWeaponChance(catalog.WeaponCritical(offType),
+                offLocal.GetValueOrDefault("local_critical_strike_chance"), offLocal.GetValueOrDefault("local_critical_strike_chance_+%"));
         int chance = AttackBaseCriticalStrike.Chance(true, weaponBase,
             pools.CriticalStrikeChancePct + (own is null ? 0 : AttackBaseCriticalStrike.IncreasedSum(profile, n => Own(n))),
             Player, own is null ? null : Own);
