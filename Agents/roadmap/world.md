@@ -53,13 +53,14 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   - Delve (82): the mine cells and biomes (`Delve_*`); the client needs the server's cell data.
     An initial Delve_Main block, hub entrance and mine return gate now work with native generation and captured movement.
     The initial Crawler has attached wheels, engine idle and a torch; the hub's native equipment console is placed.
-    Equipment purchases/upgrades have account/league persistence. The first quest trip has a bounded authored-rail
-    implementation with gradual exact-total debit, escort pacing and tutorial pack reveals. Native checks confirmed movement/light/combat and exact debit using assisted escort.
-    Remaining: validate/price general routes against a persistent mine graph, original biome population and encounter
-    wave scripts, darkness stacks/resistance and flare/dynamite use. Initial victory rewards and highest completed
-    depth now persist; general node-specific rewards and the mine graph still need implementation. Finish chart continuity inside the mine
-    restore laid lamp/cable trails on re-entry, and verify a continuous walking escort without debug teleports.
-    Also finish shared sulphite migration, equipment cable visual tiers and other biome sections.
+    Equipment and completed chart points/edges persist per account/league; each trip saves one destination and parks
+    for manual selection. Unfinished trips reset on interruption/death.
+    Escort pacing, depth levels/packs/rewards, exact gradual
+    sulphite debit, native walking/combat and the full chart inside the mine are implemented.
+    Directional checkpoint connections now replace the entrance layout after the first trip.
+    Remaining: native topology validation and diverse physical biomes beyond the captured Mines checkpoint rooms,
+    original biome populations, node-specific rewards/waves, darkness stacks/resistance and consumable use.
+    Restore laid trails on reentry, finish shared sulphite migration and equipment cable visual tiers.
     This does not add Delve to the server level generator's supported areas.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
@@ -148,14 +149,25 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
+  It works locally when selected by the client; Predictive remains preferred, and network parity is not verified
+  ([status](../status/world.md)).
   - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
-    Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
-    follow the client.
-    Held-walk crowd accuracy still trails; predictive drift and standing-start discrepancies remain unresolved
-    ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  - **Start:** close the remaining held-walk gap, then finish frame record ordering, action ownership and ranged
-    chase behavior before the remaining skills, world interactions and network validation.
+    The player's walk, attacks, spells, pick-ups and object uses, monsters' orders, hit recoveries, emerges and
+    corpses, and other players' copies follow the client's frame rules, and world messages are explicit records in
+    the client's key order ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+    On the 3.29.3b client held walks and pack fights (wand, bow, sword) stayed on the client's cells within GGG's
+    margin, and single probes followed natural packs, a dense area, pick-ups, spells after a Move, a reconnect and
+    two players.
+    Left: the same measurements on 3.29.3c; steps that fall exactly on a frame's end (the client decides them with
+    its float accumulator); two places where the generated walk grid is not the client's; the King in the Mists,
+    which moves during its skills on the client; monsters' and minions' hits, still written at the frame's start;
+    a held skill's repeat, one frame later than the client would take it; attack in place for a predictive client.
+  - **Start:** measure on 3.29.3c. Then move the encounters and skills added since (Izaro's arena, Doedre's
+    sewers, the Depraved Trinity, the Vaal Oversoul; Bladefall of Trarthus, Winter Orb, Storm Call, Discharge, Dark
+    Bargain, Flicker Strike's effects) and the gm-commands mod to world records (`Game.SendWorldCreate`,
+    `SendWorldRecord`, `SendWorldRemoval`): their own objects' messages still go out outside the frame's records.
+    Then special action producers, sequence wrap, ranged chase behavior and the remaining skills and world
+    interactions.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
     walking per speed, the player standing and walking, and snap episodes.

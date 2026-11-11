@@ -20,6 +20,9 @@ public sealed class KillOnslaught
     public double Until = double.NegativeInfinity;
     public double SentUntil = double.NegativeInfinity;
     public ushort Buff;
+    // A refresh that moves the shown deadline by less than this keeps the client's buff: a hit every tick would
+    // otherwise remove and re-add it every tick (#849 review follow-up).
+    const double RepresentSeconds = 1;
     public bool Applied => double.IsFinite(SentUntil);
 
     public static IReadOnlyList<(int Chance, double Seconds)> From(Func<string, int> get)
@@ -57,16 +60,20 @@ public sealed class KillOnslaught
     /// <summary>What the client is told at <paramref name="now"/>, marked as told: the buff to remove (0 for none), the
     /// seconds of a new one (null for none; the caller numbers it into <see cref="Buff"/>), whether the stats change.
     /// Null when nothing changed. Death ends it; <paramref name="hidden"/> (a flask shows its own Onslaught) hides the
-    /// buff but not the stats.</summary>
+    /// buff but not the stats. A running buff is re-added only when the shown deadline is extended by at least
+    /// <see cref="RepresentSeconds"/>, so a hit every tick does not re-send it every tick.</summary>
     public (ushort Removed, double? Seconds, bool Stats)? Present(double now, bool alive, bool hidden)
     {
         if (!alive) Until = double.NegativeInfinity;
         double until = now < Until ? Until : double.NegativeInfinity;
         bool show = double.IsFinite(until) && !hidden;
-        if (until == SentUntil && show == (Buff != 0)) return null;
-        var change = (Buff, show ? until - now : (double?)null, double.IsFinite(until) != Applied);
+        bool applied = double.IsFinite(until);
+        bool remove = Buff != 0 && !show;
+        bool add = show && (Buff == 0 || until - SentUntil >= RepresentSeconds);
+        if (!remove && !add && applied == Applied) return null;
+        var change = (Buff, add ? until - now : (double?)null, applied != Applied);
         Buff = 0;
-        SentUntil = until;
+        SentUntil = applied ? until : double.NegativeInfinity;
         return change;
     }
 }

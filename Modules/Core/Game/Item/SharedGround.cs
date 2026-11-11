@@ -8,35 +8,58 @@ using GameServer.Core.Protocol.Login;
 // player's own (InstanceGround.Add shared: false).
 public static partial class Game
 {
+    // Evaluate at the cipher gate: a kill's delayed output may outlive the item's auto-pickup.
+    // Creation and wake must stay together, before any competing pickup's removal can be sent.
+    public static byte[]? GroundItemPresentation(ClientState conn, uint id, bool justDropped,
+        WorldItemObject? expected = null, bool includeWake = true)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !GameEvents.AllowsLoot(conn)) return null;
+            if (conn.Instance.Ground.Get(id) is not { } item || expected is not null && !ReferenceEquals(item, expected)) return null;
+            var (by, shared) = conn.Instance.Ground.Origin(id);
+            if (!shared && !ReferenceEquals(by, conn)) return null;
+            conn.SeenGround.Add(id);
+            var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), item.Blob(justDropped: justDropped));
+            return includeWake ? [.. create, .. InstanceProtocol.EnterWakeZone(id)] : create;
+        }
+    }
+
+    public static Task SendGroundItem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, WorldItemObject item, string? log, bool justDropped = false) =>
+        SendWorldCreate(conn, id, () => GroundItemPresentation(conn, id, justDropped, item, includeWake: false),
+            log, wake: true, transport: (remote, stream, ciphers));
+
     public static async Task SyncSharedGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!GameEvents.AllowsLoot(conn)) return;
         var ground = conn.Instance.Ground;
-        await Send(remote, stream, ciphers, [], null, atGate: () =>
+        await SendWorldBatch(conn, [], admission =>
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || !conn.PlayerSent) return null;
             var all = ground.All();
             var now = new HashSet<uint>(all.Select(e => e.Id));
-            var packets = new List<byte[]>();
+            var packets = new WorldRecordBuilder(conn, admission);
             // Picked up by someone else (this client's own pickups have removed theirs already; a second remove of an
             // object it no longer has is ignored).
             foreach (uint gone in conn.SeenGround.Where(id => !now.Contains(id)).ToList())
             {
                 conn.SeenGround.Remove(gone);
-                packets.Add(InstanceProtocol.RemoveObject(gone));
+                packets.Remove(gone);
             }
             foreach (var (id, item) in all)
             {
                 if (conn.SeenGround.Contains(id)) continue;
                 var (by, shared) = ground.Origin(id);
-                if (!shared && !ReferenceEquals(by, conn)) continue; // another player's own
+                if (!shared && !ReferenceEquals(by, conn)
+                    && (QuestFlagsOf(conn, item.Item) is null || !QuestDropVisibleTo(conn, id))) continue;
                 conn.SeenGround.Add(id);
                 if (ReferenceEquals(by, conn)) continue; // shown where it was put down
-                packets.Add(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
+                packets.Create(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
                     item.Blob(justDropped: ground.IsNewFor(conn, id))));
-                packets.Add(InstanceProtocol.EnterWakeZone(id));
+                packets.Presentation(id, InstanceProtocol.EnterWakeZone(id));
             }
-            return packets.Count == 0 ? null : packets.SelectMany(p => p).ToArray();
-        });
+            return packets.Build();
+        }, transport: (remote, stream, ciphers));
     }
 }

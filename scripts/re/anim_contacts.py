@@ -15,6 +15,10 @@
 # budgeted view over the budget and stretches it to a longer attack time, so the contact is not a fraction of the attack
 # (11-skills.md §4). Only plain names with attack_time and the with_main_hand / item_animation flags are accepted;
 # anything else fails extraction instead of inventing a native choice.
+# The "contacts" key lists every contact event of a clip in time order, not only the earliest: skills that strike more
+# than once land on each of them (Double Strike's doublestrike_sword: 300 and 666 of 1000 ms), and the moment differs
+# per class rig, so the Gateway reads the frame it needs instead of a constant. "animations" keeps its [length, earliest
+# contact] pairs, which projectiles and default attacks rely on.
 #
 # .amd text (UTF-16 without a BOM): a version line, a count line, then per animation:
 #   "<name>" / once|loop / <length ms> / <event count> / per event: "<event>" / <time ms> / <x y z>, then two lines.
@@ -23,7 +27,7 @@
 import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from ot_components import REPO, amd_of, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
+from ot_components import REPO, all_contacts, amd_of, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
 
 
 def contacts(animations):
@@ -32,6 +36,16 @@ def contacts(animations):
     for a in animations:
         if (contact := first_contact(a["events"])) is not None:
             out[a["name"]] = [a["length"], contact[0]]
+    return out
+
+
+def every_contact(animations):
+    """{animation: [[ms, position or None], ...]}: all of a clip's contact events, not only the earliest, for skills
+    that strike more than once (Double Strike's doublestrike_sword: 300 and 666 of 1000 ms)."""
+    out = {}
+    for a in animations:
+        if hits := all_contacts(a["events"]):
+            out[a["name"]] = [[ms, pos] for ms, pos in hits]
     return out
 
 
@@ -215,6 +229,9 @@ def main():
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
         result[ao] = {"amd": amd, "act": act, "animations": contacts(animations), "positions": positions(animations),
+                      "cancels": {a["name"]: next((t for e, t, _ in a["events"] if e == "lock_cancelling"), None)
+                                  for a in animations if first_contact(a["events"]) is not None},
+                      "contacts": every_contact(animations),
                       "indices": {a["name"]: i for i, a in enumerate(animations)},
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "

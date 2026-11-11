@@ -15,7 +15,7 @@ public static partial class Game
     {
         var state = conn.Minions;
         if (hit.Life == 0) state.OutputQueue.Add(new(InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]),
-            $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1", id, monster));
+            $"0x01b3 monster 0x{id:x} hide_mini_life_bar = 1", id, monster, WorldId: id));
         if (HitReaction.TryFlinch(monster, stun ?? new(damage), now, Random.Shared))
             state.OutputQueue.Add(new([], $"0x01d1 monster 0x{id:x} TakeHit recovery", id, monster,
                 PlayerMinions.OutputKind.Flinch, monster.FlinchUntil, monster.ActionGeneration));
@@ -111,9 +111,8 @@ public static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})"));
-            state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
+            state.OutputQueue.Add(new([], $"world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})",
+                TargetId: id, Kind: PlayerMinions.OutputKind.GroundItem));
         }
     }
 
@@ -136,20 +135,35 @@ public static partial class Game
             }
             if (output.Kind == PlayerMinions.OutputKind.QuestKill)
             {
-                await conn.QuestGate.WaitAsync();
-                try
-                {
-                    await Send(remote, stream, ciphers, [], "accepted quest kill effects", atGate: () =>
+                if (conn.LockstepClient)
+                    await SendWorldBatch(conn, [], admission =>
                     {
                         using var mutation = ProjectileMutation(conn);
                         if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
                             || !ReferenceEquals(state.OutputQueue[0], output)) return null;
-                        var packets = CommitQuestKillOperation(remote, stream, ciphers, conn, output);
+                        var packets = CommitQuestKillOperation(remote, stream, ciphers, conn, output, admission);
                         state.OutputQueue.RemoveAt(0);
                         return packets;
-                    });
+                    }, quest: true, transport: (remote, stream, ciphers));
+                else
+                {
+                    await conn.QuestGate.WaitAsync();
+                    try
+                    {
+                        await Send(remote, stream, ciphers, [], "accepted quest kill effects", atGate: () =>
+                        {
+                            using var mutation = ProjectileMutation(conn);
+                            if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
+                                || !ReferenceEquals(state.OutputQueue[0], output)) return null;
+                            var admission = new WorldAdmission(conn.WorldOutput, []);
+                            var packets = CommitQuestKillOperation(remote, stream, ciphers, conn, output, admission);
+                            admission.Finish(true);
+                            state.OutputQueue.RemoveAt(0);
+                            return [.. packets.Records.SelectMany(r => r.CopyBytes())];
+                        });
+                    }
+                    finally { conn.QuestGate.Release(); }
                 }
-                finally { conn.QuestGate.Release(); }
                 continue;
             }
             if (output.Kind == PlayerMinions.OutputKind.PlayerKill)
@@ -166,7 +180,23 @@ public static partial class Game
                 await notification;
                 continue;
             }
-            await Send(remote, stream, ciphers, [], output.Log, atGate: () =>
+            if (output.Kind == PlayerMinions.OutputKind.GroundItem)
+            {
+                uint groundId = output.TargetId!.Value;
+                await SendWorldCreate(conn, groundId, () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
+                            || !ReferenceEquals(state.OutputQueue[0], output)) return null;
+                        state.OutputQueue.RemoveAt(0);
+                        return GroundItemPresentation(conn, groundId, conn.Instance.Ground.IsNewFor(conn, groundId), includeWake: false);
+                    }
+                }, output.Log, wake: true, transport: (remote, stream, ciphers));
+                continue;
+            }
+            byte[][]? actionRecords = null;
+            byte[]? Project()
             {
                 lock (conn.Monsters)
                 {
@@ -182,7 +212,7 @@ public static partial class Game
                     }
                     if (output.Kind == PlayerMinions.OutputKind.QuestFlags) return QuestFlagPresentation(conn);
                     if (output.Kind == PlayerMinions.OutputKind.QuestTransition)
-                        return QuestTransitionPresentation(conn, output.TargetId!.Value, output.Transition!);
+                        return []; // The declared transition records are built in the same admission below.
                     if (output.Kind == PlayerMinions.OutputKind.QuestRoomRemove)
                         return conn.QuestRoomObjects.ContainsKey(output.TargetId!.Value) ? null : InstanceProtocol.RemoveObject(output.TargetId.Value);
                     if (output.Kind == PlayerMinions.OutputKind.Passives) return PassivesMessage(conn).Bytes;
@@ -193,8 +223,12 @@ public static partial class Game
                             [.. items.Items(row).Where(item => output.ItemIds!.Contains(item.Id))]);
                     }
                     if (output.Kind == PlayerMinions.OutputKind.Charges) return AcceptedChargePresentationLocked(conn, remote);
-                    if (output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
-                    if (output.Kind == PlayerMinions.OutputKind.GolemAction) return GolemActionPresentation(conn, output);
+                    if (output.Target is not null && output.TargetId is uint id && !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), output.Target)) return null;
+                    if (output.Kind == PlayerMinions.OutputKind.GolemAction)
+                    {
+                        actionRecords = GolemActionRecords(conn, output);
+                        return actionRecords is null ? null : [.. actionRecords.SelectMany(p => p)];
+                    }
                     if (output.Kind == PlayerMinions.OutputKind.GolemIncoming) return GolemIncomingPresentation(conn, output);
                     if (output.Action != 0 && output.Target?.ActionGeneration != output.Action) return null;
                     return output.Kind switch
@@ -208,7 +242,27 @@ public static partial class Game
                         _ => output.Packet,
                     };
                 }
+            }
+            uint? worldId = output.WorldId ?? (output.Kind switch
+            {
+                PlayerMinions.OutputKind.Life or PlayerMinions.OutputKind.Flinch or PlayerMinions.OutputKind.GolemIncoming => output.TargetId,
+                PlayerMinions.OutputKind.Experience or PlayerMinions.OutputKind.Vaal or PlayerMinions.OutputKind.QuestFlags => PlayerId,
+                _ => null,
             });
+            if (output.Kind == PlayerMinions.OutputKind.QuestTransition)
+                await SendWorldBatch(conn, [], admission => Project() is null ? null
+                    : QuestTransitionRecords(conn, admission, output.TargetId!.Value, output.Transition!), transport: (remote, stream, ciphers));
+            else if (output.CreatesObject)
+                await SendWorldCreate(conn, output.WorldId!.Value, Project, output.Log, transport: (remote, stream, ciphers));
+            else if (output.RemovesObject || output.Kind is PlayerMinions.OutputKind.Remove or PlayerMinions.OutputKind.QuestRoomRemove)
+                await SendWorldRemoval(remote, stream, ciphers, conn, output.WorldId ?? output.TargetId!.Value, output.Log, atGate: Project);
+            else if (output.Kind == PlayerMinions.OutputKind.GolemAction)
+                await SendWorldRecords(remote, stream, ciphers, conn, output.TargetId!.Value,
+                    () => Project() is null ? null : actionRecords, output.Log);
+            else if (worldId is uint targetId)
+                await SendWorldRecord(remote, stream, ciphers, conn, targetId, [], output.Log, atGate: Project);
+            else await Send(remote, stream, ciphers, [], output.Log, atGate: Project);
+
         }
         while (true)
         {

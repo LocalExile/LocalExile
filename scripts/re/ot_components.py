@@ -275,6 +275,11 @@ def first_contact(events):
     return min(hits, key=lambda h: h[0]) if hits else None
 
 
+def all_contacts(events):
+    """Every "contact" event of a clip in time order, as [(ms, position or None), ...]."""
+    return sorted([(ms, pos) for name, ms, pos in events if name == "contact"], key=lambda h: h[0])
+
+
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|[{}=]|[^\s{}=]+')
 
 
@@ -307,7 +312,8 @@ def parse(text):
     toks = TOKEN.findall(re.sub(r"//[^\n]*", "", text))
     r = {"extends": [], "abstract": False, "sections": [], "client": [], "server": [], "version": None,
          "shared_states": [], "shared_timers": [], "transitionable": {}, "tags": [], "basic_actions": [],
-         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {}}
+         "client_transitionable": {}, "client_targetable": None, "life": {}, "positioned": {}, "animated": {}, "quest": {},
+         "stats": {}, "pathfinding": {}}
     i = 0
 
     def block(i):  # i at '{' -> index after matching '}', plus the names of sections directly inside
@@ -351,6 +357,10 @@ def parse(text):
                     r["life"].update({k: {"true": True, "false": False}.get(v.lower()) for k, v in keys.items()})
                 elif t == "Positioned":
                     top_level_keys(toks[i + 2:j - 1], r["positioned"], ("object_size", "blocking", "static", "block_league_flag"))
+                elif t == "Stats":
+                    top_level_keys(toks[i + 2:j - 1], r["stats"], ("set_phase_through_objects",))
+                elif t == "Pathfinding":
+                    top_level_keys(toks[i + 2:j - 1], r["pathfinding"], ("immobile",))
                 elif t == "Animated":
                     top_level_keys(toks[i + 2:j - 1], r["animated"], ("animated_object",))
                 elif t == "Actor":  # basic actions (ActionTypes Ids): basic_action = "Emerge"
@@ -496,6 +506,19 @@ def merge(type_path, files, otc, first=("Positioned",)):
                                        if f and f.get("client_targetable") is not None), None),
             "transitionable": {"num_states": num_states,
                                "no_serialise": str(trans.get("no_serialise", "false")).lower() == "true"}}
+    # Stats { set_phase_through_objects = 1 } along the chain (later files override): the object's Pathfinding phases, so
+    # it neither blocks other walkers nor is stopped by them (Maven's orbs, volatile orbs, daemons: about a hundred
+    # monster types). Written only when set, as "phases".
+    phases = next((f["stats"]["set_phase_through_objects"] for _, f in reversed(ch)
+                   if f and "set_phase_through_objects" in f.get("stats", {})), None)
+    if phases is not None and phases != "0":
+        result["phases"] = True
+    # Pathfinding { immobile = true } along the chain (later files override): the client never walks the object, whatever
+    # its MonsterVarieties MovementSpeed (a unique Maven's orb has 20). Written only when set, as "immobile".
+    immobile = next((f["pathfinding"]["immobile"] for _, f in reversed(ch)
+                     if f and "immobile" in f.get("pathfinding", {})), None)
+    if immobile is not None and immobile.lower() == "true":
+        result["immobile"] = True
     if "Life" in comps[:read]:
         # Life type constructor 0x141e28b50, store 0x141e28ca5: e4..e7 = 00 00 00 01.
         # A missing parent can override these defaults; only subsequent explicit keys resolve that uncertainty.
