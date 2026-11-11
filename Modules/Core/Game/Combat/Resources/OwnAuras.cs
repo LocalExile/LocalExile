@@ -61,6 +61,23 @@ public static partial class Game
         }
     }
 
+    static readonly Lazy<(string Family, uint Key)[]> SublimeRestrictions = new(() =>
+        (from family in new[] { "Anger", "Clarity", "Determination", "Discipline", "Grace", "Haste", "Hatred",
+            "Malevolence", "Precision", "Pride", "PurityOfElements", "PurityOfFire", "PurityOfIce",
+            "PurityOfLightning", "Vitality", "Wrath", "Zealotry" }
+         let name = ReservationStatName(family)
+         let key = Stats.Key($"your_auras_except_{name}_are_disabled")
+         where key.HasValue
+         select (family, key.Value)).ToArray());
+
+    static bool SublimeDisables(ClientState conn, int effect, IReadOnlyDictionary<uint, int> sources)
+    {
+        string family = AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? "");
+        lock (conn.Monsters)
+            return SublimeRestrictions.Value.Any(rule => rule.Family != family &&
+                conn.PlayerStats.GetValueOrDefault(rule.Key, sources.GetValueOrDefault(rule.Key)) != 0);
+    }
+
     // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources; a developer value replaces them.
     // The client greys such a skill itself: skill_disabled_by_stat is 0x1520 AND casting_spell (FUN_1428d6330).
     static bool SpellsDisabled(ClientState conn, Dictionary<uint, int>? sources = null)
@@ -83,7 +100,7 @@ public static partial class Game
         if (conn.Auras.Count == 0) return false;
         lock (conn.Monsters) sources ??= CharacterStatSources(conn).Stats;
         bool all = OwnAuraRestrictionValue(conn, sources) != 0, spells = SpellsDisabled(conn, sources);
-        var gone = conn.Auras.Values.Where(a => all && SkillsFor(conn).IsAura(a.Effect)
+        var gone = conn.Auras.Values.Where(a => (all || SublimeDisables(conn, a.Effect, sources!)) && SkillsFor(conn).IsAura(a.Effect)
             || spells && CastingSpell(conn, a.Effect)).ToArray();
         if (gone.Length == 0) return false;
         foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }

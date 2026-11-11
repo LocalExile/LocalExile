@@ -196,7 +196,7 @@ static class PortalsFeature
         _ = Task.Delay(MapPortalListMs).ContinueWith(async _ =>
         {
             if (!conn.Closed && conn.BackPortal?.Id == id)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, open.Area, owner)]),
+                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, open.Area, owner, Variation: conn.CosmeticPortalVariation)]),
                     $"0x008f the portal back 0x{id:x} leads to 0x{open.Area:x4}");
         });
     }
@@ -259,7 +259,7 @@ static class PortalsFeature
         _ = Task.Delay(MapPortalListMs).ContinueWith(async _ =>
         {
             if (!conn.Closed && conn.ReturnPortal?.Id == id)
-                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, leadsTo, owner)]),
+                await Send(remote, stream, ciphers, InstanceMapDevice.Portals(0, [new(id, leadsTo, owner, Variation: conn.CosmeticPortalVariation)]),
                     $"0x008f the Portal Scroll's portal 0x{id:x} leads to 0x{leadsTo:x4} ({(toHideout ? "the hideout" : "the last town")})");
         });
     }

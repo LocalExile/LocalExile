@@ -162,7 +162,15 @@ public static partial class Game
             LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
             ClearRageOnDeath(conn);
             conn.Rampage.Clear();
+            // Before RetireOwnedCombat drops the orb: its stage icon must be queued for removal with it, and the channel
+            // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely
+            // returns on the zero life, so nothing else clears ChannelSkill).
+            WinterOrbRetire(conn);
             conn.RetireOwnedCombat();
+            conn.ChannelSkill = 0;
+            conn.ChannelGeneration++;
+            conn.PaidChannel = null;
+            conn.ChannelMovement = default;
             ChargesOnDeath(conn);
             ClearBloodChargesOnDeath(conn);
             ClearAntiquarianOnDeath(conn);

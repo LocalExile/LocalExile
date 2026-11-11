@@ -46,7 +46,9 @@ public static partial class Game
     public static void RageWhenHitLocked(ClientState conn)
     {
         if (conn.RageRetired || conn.Closed || conn.LeavingArea || conn.Paused) return;
-        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); conn.RetireOwnedCombat(); return; }
+        // The lethal hit retires combat here, before PlayerDiedAtEpoch: the orb's stage icon must be queued for removal
+        // first, or RetireOwnedCombat drops the runtime and the icon keeps the charges the player died with.
+        if (conn.PlayerLife == 0) { conn.Rage.Clear(); conn.Rampage.Clear(); WinterOrbRetire(conn); conn.RetireOwnedCombat(); return; }
         if (conn.Character is null) return;
         var stats = CharacterPlayerStats(conn);
         conn.Rage.EnemyHit(ProjectileWorldTime(conn), RageStats.Inputs(name => RageStat(stats, name)),

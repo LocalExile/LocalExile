@@ -77,7 +77,7 @@ public static partial class Game
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
-        if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
@@ -217,7 +217,7 @@ public static partial class Game
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
-        if (PlayerInventories.ShowsOnModel(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
@@ -234,7 +234,7 @@ public static partial class Game
 
     // A normal (non-cluster) jewel. The PassiveJewels1 pane (Inventories.dat row 23) holds one per allocated passive tree
     // socket; cluster jewels use the expansion cells (see IsLargeClusterJewel).
-    public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" } type
+    public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" or "AbyssJewel" } type
         && !type.Id.StartsWith("Metadata/Items/Jewels/JewelPassiveTreeExpansion", StringComparison.Ordinal);
 
     /// <summary>The Large Cluster Jewel base type: the only cluster jewel the tree sockets take so far (Voices).</summary>
@@ -378,8 +378,12 @@ public static partial class Game
         }
         if (item is null) return "no held item";
         if (ItemsFor(conn).ByHash(item.TypeHash) is not { } type) return "unknown item type";
-        if (type.Class != "Jewel") return $"{type.Class} does not go in a passive jewel socket";
+        if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
         if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
+        var jewelMods = ItemsFor(conn).Mods;
+        if (GrandSpectrum.IsSpectrum(item, jewelMods) && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+            .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= 3)
+            return "only three Grand Spectrum jewels can be socketed";
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {
             if (expansion) return "timeless jewels go in an ordinary passive tree socket";
@@ -394,6 +398,14 @@ public static partial class Game
                     : $"only {limit} Historic timeless jewels can be socketed";
             }
         }
+        if (item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
+        {
+            var uniques = UniquesFor(conn);
+            var limitedJewel = uniques.All.FirstOrDefault(d => d.JewelLimit > 0 && uniques.NameWord(d) == nameWord);
+            if (limitedJewel is not null && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+                .Count(j => j.X != x && j.Item.Rarity == ItemRarity.Unique && j.Item.NameWords.Contains(nameWord)) >= limitedJewel.JewelLimit)
+                return $"only {limitedJewel.JewelLimit} {limitedJewel.Name} can be socketed";
+        }
         if (ImpossibleEscapeCatalogue.Read(item, ItemsFor(conn).Mods) is not null)
         {
             int limit = ItemsFor(conn).Limits.Get("impossible_escape", SystemSettings.Default.ImpossibleEscapeLimit);
@@ -407,7 +419,11 @@ public static partial class Game
                     : $"only {limit} Impossible Escape can be socketed";
             }
         }
-        if (expansion && RadiusJewelCatalogue.IsRadius(item, ItemsFor(conn).Mods))
+        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
+        if (radius is { TattooEffectPct: > 0 } && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Any(placed =>
+            placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }))
+            return "only one Warrior's Tale can be socketed";
+        if (expansion && radius is not null)
             return "radius unique jewels go in an ordinary passive tree socket";
         if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)
         {
@@ -437,6 +453,7 @@ public static partial class Game
         var local = ItemModStats.Local(item, Items.Mods);
         int empty = local.GetValueOrDefault("local_unique_jewel_grants_x_empty_passives");
         if (empty > 0) return empty + ClusterSocketCount(item);
+        if (ClusterSize(item) == 0 && ClusterJewelStats.Keystone(item) is not null) return 1;
         return Math.Max(0, local.GetValueOrDefault("local_jewel_expansion_passive_node_count"));
     }
 
@@ -456,6 +473,8 @@ public static partial class Game
         if (size < 0) return 0;
         int over = ItemModStats.Local(item, Items.Mods).GetValueOrDefault("local_jewel_expansion_jewels_count_override");
         if (over > 0) return over;
+        if (size == 1 && ClusterJewelStats.Entries(item).Any(e => e.Stat == "local_affliction_jewel_display_small_nodes_grant_nothing" && e.Value != 0))
+            return 0; // Megalomaniac: one empty small and three notables.
         return size switch { 2 => 2, 1 => 1, _ => 0 };
     }
 
