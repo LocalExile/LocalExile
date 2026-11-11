@@ -332,6 +332,7 @@ public static partial class Game
             if (hit is null) return ProjectileHitResult.Miss;
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
+            else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);

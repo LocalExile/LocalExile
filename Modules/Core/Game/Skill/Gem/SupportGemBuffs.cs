@@ -10,6 +10,46 @@ public static partial class Game
     // BuffDefinitions rows: arcane_surge (895) and righteous_charge (1378).
     const ushort ArcaneSurgeBuffRow = 895, RighteousChargeBuffRow = 1378;
 
+    /// <summary>Arcane Surge without the support: "Arcane Surge grants 20% increased Cast Speed and 30% increased Mana
+    /// Regeneration rate, for 4 seconds" (ReminderTextArcaneSurge; SupportArcaneSurge's constant stats are the same).</summary>
+    public const int ArcaneSurgeCastSpeedPct = 20, ArcaneSurgeManaRegenPct = 30, ArcaneSurgeDurationMs = 4000;
+
+    // A refresh that moves the shown deadline by less than this keeps the client's buff (a hit per target would
+    // otherwise send a remove and an add for each).
+    const double ArcaneSurgeRepresentSeconds = .25;
+
+    /// <summary>Gain or refresh the one Arcane Surge buff (under the Monsters lock). Its values are captured at the gain,
+    /// at least those already running.</summary>
+    public static void GainArcaneSurgeLocked(ClientState conn, double now, int durationMs, int castSpeedPct, int manaRegenPct)
+    {
+        var state = conn.SupportGems;
+        bool running = state.ArcaneSurgeActiveAt(now);
+        double until = now + durationMs / 1000.0;
+        bool stronger = !running || castSpeedPct > state.ArcaneSurgeCastSpeedPct || manaRegenPct > state.ArcaneSurgeManaRegenPct;
+        if (!stronger && until <= state.ArcaneSurgeUntil) return;
+        if (stronger) state.PendingStats = true;
+        state.ArcaneSurgeCastSpeedPct = running ? Math.Max(state.ArcaneSurgeCastSpeedPct, castSpeedPct) : castSpeedPct;
+        state.ArcaneSurgeManaRegenPct = running ? Math.Max(state.ArcaneSurgeManaRegenPct, manaRegenPct) : manaRegenPct;
+        state.ArcaneSurgeUntil = running ? Math.Max(state.ArcaneSurgeUntil, until) : until;
+        if (stronger || state.ArcaneSurgeUntil - state.ArcaneSurgeShownUntil >= ArcaneSurgeRepresentSeconds)
+        {
+            state.ArcaneSurgeRefresh = true;
+            state.ArcaneSurgeShownUntil = state.ArcaneSurgeUntil;
+        }
+    }
+
+    /// <summary>Arcane Blessing, "Gain Arcane Surge when you or your Totems Hit an Enemy with a Spell": a spell hit that
+    /// landed on a hostile monster (the area and projectile executors, a totem's shots included; under the Monsters
+    /// lock). <paramref name="player"/> is the hit's caster stats (a totem's are its owner's).</summary>
+    public static void ArcaneSurgeOnSpellHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> player, SpawnedMonster target)
+    {
+        if (!target.Hostile || conn.LeavingArea || conn.PlayerLife == 0
+            || Stats.Key("gain_arcane_surge_on_spell_hit_by_you_or_your_totems") is not uint key
+            || player.GetValueOrDefault(key) == 0) return;
+        GainArcaneSurgeLocked(conn, conn.Clock.Elapsed.TotalSeconds, ArcaneSurgeDurationMs, ArcaneSurgeCastSpeedPct,
+            ArcaneSurgeManaRegenPct);
+    }
+
     /// <summary>Arcane Surge and Inspiration bookkeeping for one paid supported skill. Called under the Monsters lock,
     /// after the skill's cost has been paid and before the cast starts.</summary>
     public static void SupportManaSpentLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> stats,
@@ -29,11 +69,8 @@ public static partial class Game
             if (spent >= threshold)
             {
                 int durationMs = Get("support_arcane_surge_base_duration_ms");
-                conn.SupportGems.ArcaneSurgeUntil = now + (durationMs > 0 ? durationMs : 4000) / 1000.0;
-                conn.SupportGems.ArcaneSurgeCastSpeedPct = Get("support_arcane_surge_cast_speed_+%");
-                conn.SupportGems.ArcaneSurgeManaRegenPct = Get("support_arcane_surge_mana_regeneration_rate_+%");
-                conn.SupportGems.ArcaneSurgeRefresh = true;
-                conn.SupportGems.PendingStats = true;
+                GainArcaneSurgeLocked(conn, now, durationMs > 0 ? durationMs : ArcaneSurgeDurationMs,
+                    Get("support_arcane_surge_cast_speed_+%"), Get("support_arcane_surge_mana_regeneration_rate_+%"));
                 spent = 0;
             }
             conn.SupportGems.ArcaneSurgeSpent[skillId] = spent;
@@ -71,24 +108,39 @@ public static partial class Game
         }
     }
 
-    /// <summary>The Arcane Surge buff's cast speed and mana regeneration, added to the character's stat sources while
-    /// it runs (its more Spell Damage is applied per supported hit in ConditionalSupportDamage).</summary>
+    /// <summary>The Arcane Surge buff's stats (BuffDefinitions arcane_surge: arcane_surge_cast_speed_+%,
+    /// mana_regeneration_rate_+%, spell_damage_+%_final_from_arcane_surge), raised by <c>arcane_surge_effect_+%</c> and
+    /// truncated, and the "while you have Arcane Surge" stats moved to their plain forms, added to the character's stat
+    /// sources while it runs. The support's own more Spell Damage is applied per supported hit in
+    /// ConditionalSupportDamage; the buff's spell_damage_+%_final_from_arcane_surge is Arcane Blessing's "Arcane Surge
+    /// also grants 20% more Spell Damage to you".</summary>
     public static Dictionary<uint, int> WithSupportGemBuffs(ClientState conn, Dictionary<uint, int> stats)
     {
         lock (conn.Monsters)
         {
             stats = WithTriggeredGuard(conn, stats);
             if (!conn.SupportGems.ArcaneSurgeActiveAt(conn.Clock.Elapsed.TotalSeconds)) return stats;
-            void Add(string name, int value)
+            int Get(string name) => Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0;
+            void Add(string name, long value)
             {
                 if (value != 0 && Stats.Key(name) is uint key)
-                    stats[key] = (int)Math.Clamp((long)stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
+                    stats[key] = (int)Math.Clamp(stats.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
             }
-            Add("arcane_surge_cast_speed_+%", conn.SupportGems.ArcaneSurgeCastSpeedPct);
-            Add("mana_regeneration_rate_+%", conn.SupportGems.ArcaneSurgeManaRegenPct);
+            long effect = Math.Max(0, 100L + Get("arcane_surge_effect_+%"));
+            long Buff(int value) => value * effect / 100;
+            Add("has_arcane_surge", 1);
+            Add("arcane_surge_cast_speed_+%", Buff(conn.SupportGems.ArcaneSurgeCastSpeedPct));
+            Add("mana_regeneration_rate_+%", Buff(conn.SupportGems.ArcaneSurgeManaRegenPct));
+            Add(ArcaneSurgeSpellMore, Buff(Get("arcane_surge_on_you_spell_damage_+%_final_from_hierophant")));
+            Add(SkillArea.BaseIncreased, Get("area_of_effect_+%_while_you_have_arcane_surge"));
+            Add("base_life_leech_from_spell_damage_permyriad", Get("life_leech_from_spell_damage_permyriad_while_you_have_arcane_surge"));
+            Add("non_damaging_ailment_effect_+%_on_self", Get("non_damaging_ailment_effect_+%_on_self_while_you_have_arcane_surge"));
         }
         return stats;
     }
+
+    /// <summary>The Arcane Surge buff's more Spell Damage on the player (PlayerHitDamage's spell more).</summary>
+    public const string ArcaneSurgeSpellMore = "spell_damage_+%_final_from_arcane_surge";
 
     public static bool ArcaneSurgeActive(ClientState conn, double now) => conn.SupportGems.ArcaneSurgeActiveAt(now);
 
