@@ -201,8 +201,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary Juggernaut selection after a full refund restores the Default graph.
   Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
 - Juggernaut: all 14 ordinary nodes apply and passed native acceptance, [node by node](../docs/game/juggernaut.md).
-- Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech
-  and the while-leeching defences, [node by node](../docs/game/slayer.md).
+- Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech,
+  [node by node](../docs/game/slayer.md).
 
 - Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
   Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.
