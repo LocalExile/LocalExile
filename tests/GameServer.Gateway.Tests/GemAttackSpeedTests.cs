@@ -9,7 +9,7 @@ public sealed class GemAttackSpeedTests
     // Tornado Shot's GEPL AttackSpeedMultiplier is -20; the supported attack pace must apply it, and the character's
     // increased attack speed must still scale that pace. A Crude Bow's base attack time is 714 ms.
     [Fact]
-    public void Tornado_shot_supported_pace_includes_inherent_and_player_attack_speed()
+    public async Task Tornado_shot_supported_pace_includes_inherent_and_player_attack_speed()
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-attack-speed-{Guid.NewGuid():N}.db");
         var previousLogic = Program.GameLogicOrNull;
@@ -39,6 +39,39 @@ public sealed class GemAttackSpeedTests
 
             conn.Pools = conn.Pools with { AttackSpeedPct = 20 };
             Assert.Equal(0.74375, Game.SupportedAttackSeconds(conn, gem.Id), 5);
+
+            // A message's stat snapshot ends with the message: what runs on after it (a background action) reads the
+            // current stats, in both network modes, also under a later message's own snapshot.
+            conn.Pools = conn.Pools with { AttackSpeedPct = 0 };
+            uint speed = Program.Stats.Key("attack_speed_+%")!.Value;
+            conn.PlayerStats[speed] = 0;
+            double normalAttack = Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+            foreach (bool lockstep in new[] { false, true })
+            foreach (bool nestedMessage in new[] { false, true })
+            {
+                conn.LockstepClient = lockstep;
+                using var message = new Game.PlayerStatScope(conn);
+                conn.PlayerStats[speed] = 1000;
+                double fastAttack = Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+                Assert.Equal(normalAttack / 11, fastAttack, 8);
+                conn.PlayerStats[speed] = 0;
+                Assert.Equal(fastAttack, Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn)));
+                var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var continuation = Task.Run(async () =>
+                {
+                    await resume.Task;
+                    if (nestedMessage)
+                    {
+                        using var nextMessage = new Game.PlayerStatScope(conn);
+                        return Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+                    }
+                    return Game.WeaponFor(conn).AttackSeconds(Game.CharacterPlayerStats(conn));
+                });
+                message.Dispose();
+                resume.SetResult();
+                Assert.Equal(normalAttack, await continuation, 8);
+            }
+            conn.LockstepClient = false;
         }
         finally
         {

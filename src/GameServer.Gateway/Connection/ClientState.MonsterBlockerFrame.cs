@@ -31,10 +31,21 @@ public sealed partial class ClientState
             long startedAt = Stopwatch.GetTimestamp();
             this.owner = owner; this.outer = outer;
             var fixedBodies = new List<ClientPathfinder.Blocker>(owner.StationaryBlockers);
+            // Another player stands where its published pose has it, unless this client runs a copy of it (PeerWalks):
+            // then the copy's own cell is its body, and it moves with the copy's steps.
             foreach (var peer in owner.Instance?.PlayersExcept(owner.PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null) fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null && (placement || !owner.PeerWalks.ContainsKey(peer.Id)))
+                    fixedBodies.Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
             FixedBlockers = new BlockerSet(fixedBodies);
             current = new(fixedBodies);
+            if (!placement)
+                foreach (var (id, copy) in owner.PeerWalks)
+                {
+                    if (owner.Instance?.Player(id) is { Life: 0 }) continue;
+                    var p = copy.Position(now);
+                    indices.Add(id, (Bodies.Count, current.Add(new(p.X, p.Y, LivingCollision.PlayerSize))));
+                    Bodies.Add((id, p.X, p.Y, LivingCollision.PlayerSize));
+                }
             if (owner.PlayerSent && owner.PlayerLife > 0 && !owner.IsPhasing)
             {
                 var player = owner.Walk.Position(now);
@@ -68,6 +79,8 @@ public sealed partial class ClientState
 
         public IReadOnlyList<ClientPathfinder.Blocker> For(uint self)
         {
+            // A monster that phases through objects is stopped by no living body (LivingCollision.Phases).
+            if (owner.Monsters.TryGetValue(self, out var mover) && LivingCollision.Phases(mover)) return owner.StationaryBlockers;
             if (!indices.TryGetValue(self, out var index)) return current;
             if (!views.TryGetValue(self, out var view)) views[self] = view = current.Without(index.Current, -1);
             return view;
@@ -80,6 +93,14 @@ public sealed partial class ClientState
             var before = Bodies[index.Body];
             current.Replace(index.Current, new(x, y, before.Size));
             Bodies[index.Body] = (id, x, y, before.Size);
+        }
+
+        /// <summary>The body is gone from here on (a corpse cleared in its own turn of a frame).</summary>
+        public void Remove(uint id)
+        {
+            if (!indices.Remove(id, out var index)) return;
+            current.Remove(index.Current);
+            Bodies[index.Body] = (id, current[index.Current].X, current[index.Current].Y, -1);
         }
 
         public void Dispose() => owner.monsterFrame = outer;

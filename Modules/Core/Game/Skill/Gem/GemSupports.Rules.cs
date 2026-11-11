@@ -225,16 +225,21 @@ public static partial class Game
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
     }
 
-    // Channelling repeats are not limited by the one-new-action-per-frame cap (Action speed, PoE Wiki): they use the
-    // speed-only interval so a very fast channel can hit more than 30 times a second. A channelled attack swings on its
-    // weapon's attack time (Cyclone); a channelled spell pays and stages on its cast time (Winter Orb's 0.25 s, not the
-    // caster's weapon), so the two must not share the weapon timer.
-    static double SupportedChannelSeconds(ClientState conn, ushort skillId)
+    // FireBeam's duration slot (0x1419ea070) uses base cast time / cast speed, including fractional milliseconds.
+    // Channel repeats do not start new actions, so neither spell nor attack channels use the new-action frame cap.
+    // A channelled attack swings on its weapon's attack time (Cyclone); a channelled spell pays and stages on its cast
+    // time (Winter Orb's 0.25 s, not the caster's weapon).
+    public static double? SupportedChannelSeconds(ClientState conn, ushort skillId)
     {
-        var gem = SupportedSkill(conn, skillId);
-        return SkillsFor(conn).IsAttack(gem.Effect)
-            ? SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false)
-            : Math.Max(TickSeconds, (CastMs(conn, gem.Effect, skillId) ?? 0) / 1000.0);
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
+        if (gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
+        {
+            if (SpellTimingFor(conn, gem.Effect, skillId)?.DurationSeconds is not double duration || duration <= 0)
+                return null;
+            double seconds = duration / PlayerActionFactor(conn);
+            return double.IsFinite(seconds) && seconds > 0 ? seconds : null;
+        }
+        return SupportedAttackSecondsFor(conn, skillId, null, clampToTick: false);
     }
 
     // The supported attack's swing time with the off-hand weapon of a dual-wielded pair: its own duration at the
