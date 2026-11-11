@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.World;
 using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -409,7 +410,12 @@ public static partial class Game
     public static IEnumerable<(uint, int)> BaseStats(ClientState conn)
     {
         var seen = new HashSet<uint>();
-        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
+        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with
+        {
+            Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn),
+            FireResistance = Resistance(conn, DamageType.Fire), ColdResistance = Resistance(conn, DamageType.Cold),
+            LightningResistance = Resistance(conn, DamageType.Lightning), ChaosResistance = Resistance(conn, DamageType.Chaos),
+        })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);

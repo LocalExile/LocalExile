@@ -161,7 +161,7 @@ public static partial class Game
         return true;
     }
 
-    static void GolemDieLocked(ClientState conn, GolemState.Golem g, double now)
+    internal static void GolemDieLocked(ClientState conn, GolemState.Golem g, double now)
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
