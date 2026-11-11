@@ -64,13 +64,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
   [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 941 tables, 97 MB of
-  SQL, and the 14 generated files the servers read, 70 MB) and `world.db` (game content) are built and updated from
+  SQL, and the 14 generated files the servers read as 45 snake_case tables) and `world.db` (game content, its item and
+  jewel catalogues as typed tables) are built and updated from
   `sql/` by each server at startup, one transaction per
   file, a changed merged file refused. `Config/localexile.conf` (written with the defaults on the first start) holds the addresses, ports and client folder. CI builds every
   database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
   databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
-  migrated and played on. Not yet: the generated files
-  served from `client.db` in a real-client session.
+  migrated and played on. Not yet: the generated tables
+  read from `client.db` in a real-client session.
   Every reader takes the client tables by name as typed rows (`ClientTable`), the servers, the tools and the Python
   scripts (`scripts/dev/clientdb.py`) alike; no `data/tables/` path is read. Not yet checked in a real-client session.
   Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Tables/ClientTable.cs`, `GameServer.Core/Config/ServerConfig.cs`.

@@ -13,16 +13,23 @@ to start ([databases](dev/databases.md)).
 
 | What | Table | Code |
 |---|---|---|
-| A character's items (every inventory row and the cursor), skill bar, experience, passives and mastery effects, refund and extra passive points, main ascendancy identity/nodes/tier awards, waypoints, visited areas, quest flags, the start weapon still on the ground | `characters`, one row per character | `CharacterSaves`, `PlayerInventories` (Gateway) |
-| An account stash's header: its tabs (name, type, colour), last tab, next stash item id, gold, the league quest flags its characters set (a Trial of Ascendancy's) | `stashes`, one row per account and league | `AccountStash` (Gateway) |
-| The items of one stash tab | `stash_tabs`, one row per account and tab | `AccountStash` (Gateway) |
+| A character's progress: experience, passives, refund and extra passive points, waypoints, visited areas, quest flags, vitals, the selected hideout, Pantheon, stance | `character_saves`, one row per character | `CharacterSaves` (Gateway) |
+| Its maps: inventories it has, skill bar, mastery effects, cosmetics, hideout placements and monster statues, tattoos, module data, the opening tutorial, the main ascendancy (identity, nodes, tier awards) | `character_inventories`, `character_skill_bar`, `character_masteries`, `character_cosmetics`, `character_skill_cosmetics`, `character_hideout_placements`, `character_monster_statues`, `character_tattoos`, `character_tattoo_keystones`, `character_module_data`, `character_tutorials`, `character_ascendancies` | `CharacterSaves` (Gateway) |
+| An account stash's header: last tab, next stash item id, gold, the league quest flags its characters set (a Trial of Ascendancy's); its tabs (name, type, colour); module data | `stash_saves`, one row per account and league; `stash_tab_headers`; `stash_module_data` | `AccountStash` (Gateway) |
+| Every saved item: a character's (every inventory row, the cursor, the start weapon still on the ground, the tutorial gems) and a stash tab's, with the gems in its sockets and its mods | `items` (`character` or `stash`, `inventory`, `role`, `parent`), `item_mods` | `SaveRows`, `PlayerInventories`, `AccountStash` (Gateway) |
 | Accounts (`auth.db`) | `accounts` | `SqliteAccountStore` (Auth, Host) |
-| Characters of an account: class, league, level (a copy for the character list), last town | `account_characters` | `SqliteAccountStore` (Auth, Host) |
-| Deleted characters' saves, for recovery by hand | `deleted_characters` | `SqliteAccountStore.DeleteCharacter` |
+| Characters of an account: class, league, level (a copy for the character list), last town, portrait, a Hardcore death | `account_characters` | `SqliteAccountStore` (Auth, Host) |
+| Deleted characters' saves, for recovery by hand | `character_saves` rows with `deleted_utc` | `SqliteAccountStore.DeleteCharacter` |
 
-Each row holds its record as JSON, readable with any SQLite browser. A save field this build doesn't know (a newer
-build wrote it) is kept as it is by the next write, at the top level of a record: an older build drops an item field it
-doesn't know, such as `Influences`, when it saves that item. Nothing is cached across processes: Auth and the host read and write
+A save is rows and columns, readable with any SQLite browser; `SaveRows` (Gateway) maps them to the records the code
+uses. A list of plain values (passive ids, quest flags, an item's links) is a JSON array column. A save field this build
+doesn't know (a newer build wrote it) is kept as it is by the next write, in the `unknown` column of its record: an older
+build drops an item field it doesn't know, such as `Influences`, when it saves that item.
+
+Before the save tables, each save was one JSON row (`characters`, `stashes` with `stash_tabs`, `deleted_characters`,
+the character list in what is now `account_characters_json`). The first Gateway start with them copies the database
+(`characters.db.backup-<time>`), moves every save over, reads each one back and stops with nothing changed if one does
+not come back the same (`SaveRows.Migrate`, meta key `relational_saves`). The JSON tables are kept as they were, unread. Nothing is cached across processes: Auth and the host read and write
 the database directly, and a write waits for another process's transaction to end.
 
 Game data (settings, catalogues, drop tables, client tables) is not in these files: it is in `world.db` and

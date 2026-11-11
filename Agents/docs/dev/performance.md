@@ -188,10 +188,9 @@ allocation, not JIT code quality).
 
 ## Where the remaining cost is
 
-- **Generated files.** The client tables are read as columnar rows (`ClientTable`, straight from client.db, cached per
-  version of the database); the generated files in `client_files` are still rebuilt as JSON and parsed with
-  `JsonDocument` (object-types.json, room-points.json, ...). Several `JsonDocument`s open at once keep their pooled
-  buffers: parse one at a time.
+- **Generated tables.** The client tables and the generated ones (object types, room points, ...) are read as columnar
+  rows (`ClientTable`, straight from client.db, cached per version of the database); no generated file is parsed as JSON
+  at run time any more.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
   free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.
 - **An idle player's loops** (58 ms CPU and 13 MB allocated per second in town): the player stat snapshot

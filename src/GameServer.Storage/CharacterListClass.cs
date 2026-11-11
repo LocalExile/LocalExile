@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GameServer.Core;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
@@ -19,13 +18,7 @@ public sealed class CharacterListClass(SaveDatabase db)
     public byte For(Character character)
     {
         byte baseClass = (byte)character.Class;
-        string? saved = db.Get(SaveDatabase.Table.Characters, character.Name);
-        if (saved is null) return baseClass;
-        using var save = JsonDocument.Parse(saved);
-        if (!save.RootElement.TryGetProperty("MainAscendancy", out var progress) || progress.ValueKind == JsonValueKind.Null
-            || !progress.TryGetProperty("Selection", out var selection) || selection.ValueKind == JsonValueKind.Null)
-            return baseClass;
-        string id = selection.GetProperty("Id").GetString()!;
+        if (db.Ascendancy(character.Name) is not { } id) return baseClass;
         return _classes.Value.TryGetValue(id, out var choice) && choice.BaseClass == baseClass
             ? CharacterClassByte.Encode(baseClass, choice.Number) : baseClass;
     }

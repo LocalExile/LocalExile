@@ -10,7 +10,7 @@ Every database is a SQLite file under `data/` (git-ignored), created and brought
 | File | Holds | Opened by | Override |
 |---|---|---|---|
 | `auth.db` | accounts | Auth, Host, Gateway (attached to `characters.db`) | `Game_AUTH_DB` |
-| `characters.db` | character saves, stashes, the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
+| `characters.db` | character saves, stashes and their items as tables ([saves](../saves.md)), the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
 | `client.db` | the client's 941 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
 | `world.db` | the game content: settings, unique weights, catalogues, drop tables, roll range and limit overrides | Gateway | `Game_WORLD_DB` |
 
@@ -39,10 +39,8 @@ areas = db.execute('SELECT Id, AreaLevel, TopologiesKeys FROM "WorldAreas" ORDER
 topologies = json.loads(areas[1][2])   # JSON columns (lists) are text
 ```
 
-The generated files (`object-types.json`, `room-points.json`, ...) are rows of client.db's `client_files`: in C#,
-`ClientTables.ReadAllText("data/object-types.json")`; elsewhere, `SELECT part, value FROM client_files WHERE file = ?
-ORDER BY ord`, where `part` is the JSON key path of each top-level entry (or of an entry one level down) and `value` its
-JSON; a `.txt` file is its `value` strings in order.
+What our generators make from the client (`object-types.json`, `room-points.json`, ...) is client.db tables too, named in
+lower case (`object_types`, `room_points`, ...: "Generated tables" below), read the same way.
 
 ## SQL in git
 
@@ -117,15 +115,20 @@ tables`, `client-sql.ps1 diff`, start the servers once so client.db takes the ne
 generators and `diff` again for their files. `live.ps1` and a release run only its `-Servers` entries (`game-files.zip`
 and the local root hash).
 
-The files those generators write that the servers read are in client.db too, in `client_files` (`file`, `part`, `ord`,
-`value`): `area-transitions`, `room-points`, `object-types`, `item-types`, `monster-contacts`, `monster-takehit`,
-`animation-contacts`, `projectile-clips`, `hideouts`, `vendor-stock`, `passive-skill-graphs`, `delve-paths`, the HNC mask
-of `client-constants.json` and `stat-descriptions.txt` (`FILES` in `scripts/dev/client_sql.py`). A JSON file is one
-row per top-level entry, and one per entry of a top-level list or object of more than 64 (`part`: the keys leading to
-it, as a JSON array; `value`: its JSON); `stat-descriptions.txt` is one row per description block. `ClientTables`
-serves `data/<file>` from them (same data and key order as the generator wrote, without the indentation), so a server
-reads none of these from disk. `client-sql.ps1 diff` writes their changed rows (`<stamp>_file_<name>.sql`) alongside
-the tables'; a rebuilt file is kept compressed in client.db's `client_json_cache` for the current set of updates; after a generator change, run `extract-data.ps1`, then `diff`, and commit both. The GGPK root hash stays
+### Generated tables
+
+The files those generators write that the servers read are client.db tables, flattened by
+`scripts/dev/generated_tables.py` (`FILES` there): `area-transitions`, `room-points`, `object-types`, `item-types`,
+`monster-contacts`, `monster-takehit`, `animation-contacts`, `projectile-clips`, `hideouts` (`hideout_layouts`, ...),
+`vendor-stock`, `passive-skill-graphs`, `delve-paths`, the HNC mask of `client-constants.json` (`client_constants`) and
+`stat-descriptions.txt` (`stat_descriptions`, one block per row). Their names are snake_case, so they never meet a client
+table's PascalCase name (SQLite ignores case in table names; `client_sql.py` stops on a clash). A map's key is a column;
+a list of records is a child table whose link column holds the parent's `_row`, with `ord` for the order
+(`ClientTable.By("room")` groups one); a nested record is `<field>_<key>` columns; a list of plain values is a JSON
+column; what is left at a file's top level is a one-row `<name>_info` table. `client-sql.ps1 diff` writes a changed table's
+rows alongside the client tables', and drops a lower-case table no generator makes any more; after a generator change,
+run `extract-data.ps1`, then `diff`, and commit both. The `client_files` and `client_json_cache` tables of older builds are
+gone (`client_json_cache` may linger in an existing client.db, unused). The GGPK root hash stays
 in the local `data/client-constants.json` (the Patch server's, refreshed by `live.ps1`): it describes the local
 `Content.ggpk`. `data/game-files.zip`, the client's own level and object files, still comes only from the client.
 

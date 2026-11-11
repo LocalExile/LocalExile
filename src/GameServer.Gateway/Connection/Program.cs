@@ -107,6 +107,7 @@ try
 {
     Saves.Open(Saves.DefaultPath);
     Saves.ImportJson(Saves.Db, "data", CharacterSaves.Opts);
+    SaveRows.Migrate(Saves.Db);
     // The short-lived parsing thread releases its pooled buffers after startup.
     GameTables.Isolated(() => GameData.Open(GameData.DefaultPath));
     Console.WriteLine($"[gateway] saves: {Saves.Db.Path} (accounts: {Saves.Db.AuthPath})");

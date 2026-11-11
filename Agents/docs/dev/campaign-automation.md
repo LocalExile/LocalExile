@@ -75,7 +75,7 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
 - A copied save database: set `$env:Game_CHARACTERS_DB` before starting (required unless `-AllowDefaultSaves`). The
   scripts never set or change it.
 - An account has 24 character slots; each fresh run creates one. Delete old campaign characters, or reuse a name with
-  `-Name <name> --replace` (the old one goes to `deleted_characters` in the save database).
+  `-Name <name> --replace` (the old one is set aside in the save database: `character_saves.deleted_utc`).
 
 ## Running
 
