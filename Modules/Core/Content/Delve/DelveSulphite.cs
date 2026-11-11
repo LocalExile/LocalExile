@@ -54,7 +54,7 @@ public sealed partial class DelveModule
                         && m.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) >= MapSulphite.FumesQuantity
                         && encounter.Enraged.Add(id)) shown.Add((id, conn.NextBuff++));
             foreach (var (id, buff) in shown)
-                await p.Send(InstanceEntities.AddBuff(id, buff, 2420), "Sulphite Madness");
+                await global::Game.SendWorldRecord(p, id, InstanceEntities.AddBuff(id, buff, 2420), "Sulphite Madness");
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, (conn, use, at) => MineSulphite(module, conn, use.TargetId, at));
         module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, json) =>
@@ -110,12 +110,12 @@ public sealed partial class DelveModule
     static async Task ShowDeposit(IModuleContext module, IPlayer player, SulphiteEncounter encounter, Deposit deposit, bool replace)
     {
         var conn = ConnOf(player); var world = WorldOf(player);
-        if (replace) await player.Send(InstanceProtocol.RemoveObject(deposit.Id));
+        if (replace) await RemoveSceneObject(player, deposit.Id);
         bool mined = conn.Instance.HasState(MinedKey(deposit.Index));
-        await player.Send(InstanceEntities.CreateObject(deposit.Id, InstanceEntities.ObjectTypeHash(deposit.Type),
+        await global::Game.SendWorldCreate(player, deposit.Id, InstanceEntities.CreateObject(deposit.Id, InstanceEntities.ObjectTypeHash(deposit.Type),
             MapSulphite.Blob(deposit.X, deposit.Y, conn.Layout.GroundHeight(deposit.X, deposit.Y), mined, MapSulphite.Fumes(encounter.Map.Mods))),
             $"Sulphite deposit {deposit.Index + 1} ({deposit.X}, {deposit.Y}), mined={mined}");
-        await player.Send(InstanceProtocol.EnterWakeZone(deposit.Id));
+        await global::Game.SendWorldRecord(player, deposit.Id, InstanceProtocol.EnterWakeZone(deposit.Id));
         world.SetBlocker(deposit.Id, deposit.X, deposit.Y, 4);
     }
 
@@ -127,12 +127,12 @@ public sealed partial class DelveModule
         if (Npcs.Value.Find(type) is not { Supported: true } npc) return;
         var at = conn.Layout.Near((deposit.X + 9, deposit.Y));
         float rotation = MathF.Atan2(deposit.X - at.X, -(deposit.Y - at.Y));
-        await player.Send(InstanceProtocol.RemoveObject(WildNikoId));
+        await RemoveSceneObject(player, WildNikoId);
         world.RemoveBlocker(WildNikoId);
         // Let Positioned follow the client's ground, as town NPCs do; a fixed Z pins Wild Niko above uneven terrain.
         var obj = new NpcObject(at.X, at.Y, npc.Components!, rotation, npc.StateMachine, npc.TransitionState, npc.Model);
-        await player.Send(InstanceEntities.CreateObject(WildNikoId, InstanceEntities.ObjectTypeHash(type), obj.Blob()), "Niko at sulphite deposit");
-        await player.Send(InstanceProtocol.EnterWakeZone(WildNikoId));
+        await global::Game.SendWorldCreate(player, WildNikoId, InstanceEntities.CreateObject(WildNikoId, InstanceEntities.ObjectTypeHash(type), obj.Blob()), "Niko at sulphite deposit");
+        await global::Game.SendWorldRecord(player, WildNikoId, InstanceProtocol.EnterWakeZone(WildNikoId));
         lock (conn.Npcs) conn.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
         world.SetBlocker(WildNikoId, at.X, at.Y, 2);
         encounter.NikoAt = deposit.Index;
@@ -186,9 +186,9 @@ public sealed partial class DelveModule
             var wire = recipient.Wire;
             await SetQuestFlags(wire.Remote, wire.Stream, wire.Ciphers, recipient, ["NikoHaveMinedSulphite"]);
         }
-        await PlayerOf(conn).Send(InstanceEntities.StateMachineUpdate(deposit.Id, 5, MapSulphite.States(true, MapSulphite.Fumes(encounter.Map.Mods))), "Mine sulphite deposit");
+        await global::Game.SendWorldRecord(PlayerOf(conn), deposit.Id, InstanceEntities.StateMachineUpdate(deposit.Id, 5, MapSulphite.States(true, MapSulphite.Fumes(encounter.Map.Mods))), "Mine sulphite deposit");
         await MoveNiko(module, PlayerOf(conn), encounter, deposit);
-        await PlayerOf(conn).Send(InstanceProtocol.AnimationUpdate(WildNikoId, 0, deposit.Type == MapSulphite.Chest ? 7u : 2u, 1), "Niko mines the sulphite");
+        await global::Game.SendWorldRecord(PlayerOf(conn), WildNikoId, InstanceProtocol.AnimationUpdate(WildNikoId, 0, deposit.Type == MapSulphite.Chest ? 7u : 2u, 1), "Niko mines the sulphite");
         return true;
     }
 

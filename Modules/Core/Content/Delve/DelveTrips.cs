@@ -230,7 +230,7 @@ public sealed partial class DelveModule
                                             if (conn.Monsters.Remove(monster, out var retired)) { retired.Life = 0; retired.Dead = true; retired.ActionGeneration++; }
                                             conn.Instance.World.MonsterOrigins.TryRemove(monster, out _);
                                         }
-                                        if (!conn.Closed && !conn.LeavingArea) await player.Send(InstanceProtocol.RemoveObject(monster));
+                                        if (!conn.Closed && !conn.LeavingArea) await RemoveSceneObject(player, monster);
                                         return created;
                                     }
                                 }
@@ -331,7 +331,7 @@ public sealed partial class DelveModule
                 groundItems.Add((conn.Instance.Ground.Add(ground, conn), ground));
             }
         }
-        await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(state.Crawler + 4, 3, 2),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler + 4, InstanceEntities.TransitionableUpdate(state.Crawler + 4, 3, 2),
             "Activate completed Delve checkpoint", valid);
         // The roaming native type has no Targetable. Once parked, give the same cart its stationary chart interaction.
         await CreateCrawlerBody(player, state, state.CrawlerCell.X, state.CrawlerCell.Y, trip.Heading(trip.Length), roaming: false);
