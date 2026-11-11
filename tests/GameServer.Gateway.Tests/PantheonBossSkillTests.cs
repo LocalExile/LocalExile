@@ -67,6 +67,24 @@ public class PantheonBossSkillTests
             // None of them is a boss of its own: the AI drives them, the controllers do not.
             Assert.False(CampaignBosses.IsBoss(variety), raised);
         }
+        // The invaders' pinnacles are not generated: their kits are picked row by row, so this is what keeps a picked
+        // row from naming a skill the variety was never granted (the client would own no clip for it).
+        foreach (string id in new[] { CampaignBosses.SearingExarch, CampaignBosses.EaterOfWorlds,
+            CampaignBosses.BlackStar, CampaignBosses.InfiniteHunger })
+        {
+            var variety = monsters.Find(id);
+            Assert.NotNull(variety);
+            Assert.True(CampaignBosses.IsBoss(variety), id);
+            // A hand-picked kit means the generated path no longer has a say: the rows are the ones named above.
+            Assert.False(CampaignBosses.IsEndgame(variety), id);
+            var kit = CampaignBosses.EffectsFor(variety!);
+            Assert.NotEmpty(kit);
+            Assert.Contains(CampaignBosses.BasicEffect(variety!), kit);
+            foreach (int effect in kit) Assert.Contains(effect, variety!.GrantedEffects!);
+            // Every row that lands damage is a row the variety granted, and the kit is small enough to stay readable:
+            // a hand-picked fight is a rotation, not the whole row list.
+            Assert.True(kit.Length <= 8, $"{id}: {kit.Length} rows");
+        }
         // The endgame bosses' kits are generated from their own rows (there is no per-boss list), so this is what keeps
         // one of them from playing a row its variety was never granted: every bar-boss this controller scripts has a
         // kit, the swing inside it, and nothing outside its granted rows.

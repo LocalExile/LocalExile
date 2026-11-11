@@ -354,3 +354,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   their own are the Atlas pinnacles, the Depraved Trinity, Doedre, the Vaal Oversoul, the King in the Mists, the Brine
   King, Hillock, Izaro, Atziri and the campaign bosses above. A bar-boss whose variety grants no skill at all stays a
   plain mobile boss (there is nothing to play).
+  The four Atlas invaders' pinnacles — the Searing Exarch (Absence of Patience and Wisdom), the Eater of Worlds (Absence
+  of Symmetry and Harmony), the Black Star (Polaric Void) and the Infinite Hunger (Seething Chyme) — are the exceptions
+  with a picked kit, played live 2026-11-11: each rotated four to five distinct windups (the Exarch 1.00/2.00/2.20/2.50 s,
+  the Eater 1.00/1.20/2.50/4.00 s, the Black Star 1.00/2.00/2.20 s plus its melee, the Hunger 1.00/1.50/4.53 s) and
+  landed both its slams and its area skills for 1.2k–3.6k a hit at level 83–84. Their rows are mostly spawners and
+  triggers, so the pick is the rows with an area or a projectile of their own. Two things the client taught that the
+  data cannot: a boss stops acting when the player dies (the step loop only sees living watchers, so a `/god` that
+  refills life is what keeps a test going), and a row with a long cast time is picked last while the cooldowns are equal,
+  so its order in the kit is what gets its signature skill onto the field.

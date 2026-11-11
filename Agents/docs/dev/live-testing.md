@@ -274,6 +274,18 @@ Counting a boss's actions from the log has the same shape: `attacks the player` 
 only ever show as `player hit by monster 0x…`. Count `player hit by monster <id>` and `uses area skill` instead, or a boss
 that deals damage every second reads as idle.
 
+**A dead player stops the fight.** A controller's step loop only sees living watchers
+(`AtlasBossFight.Watchers` filters `PlayerLife > 0`), so the moment a boss kills you it has nobody to act at and every
+later reading says "idle, no aggro" — which reads exactly like a boss whose kit never fires. Re-apply the dev god mode
+after each death *and* after each area change: `/god` sets the flag on the connection and refills life, but a new area
+rebuilds the pools, so a god applied before `/goto` is gone by the time you arrive.
+
+**A kit's order is its rotation.** The step loop takes the *first* row whose cooldown has passed and whose reach fits, so
+putting a short-cast filler row first means it is picked almost every time its six seconds are up and a slow signature
+row is never reached. Two fixes, both needed: give the slow rows a longer cooldown than the fillers, and put the slow
+rows *before* the fillers in the kit array. The same rotation is why "attack time 4.53 s" appearing three times in
+seventy seconds is the check that a reorder worked.
+
 ## Env vars
 
 | Var | Default | Used by |

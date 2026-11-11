@@ -227,6 +227,12 @@ static class CampaignBosses
         [811] = 12, [4386] = 14, [4362] = 16, [5535] = 10,
         // Atziri's storm calls, flameblasts and spear throws, empowered slower, and her two spawns.
         [3387] = 8, [3389] = 10, [3392] = 9, [3393] = 11, [3397] = 6, [3398] = 7, [3386] = 20, [3401] = 25, [3402] = 25,
+        // The invaders' pinnacles. Each keeps its named attacks on the long end and its filler rows short, so the kit
+        // reads as a rotation instead of one row being picked again every time its six seconds are up.
+        [12177] = 12, [12182] = 16, [12183] = 10, [4563] = 9, [7396] = 8, [7372] = 7, [12178] = 14,
+        [7381] = 9, [7383] = 10, [7392] = 16, [12193] = 12, [7402] = 8, [7403] = 7,
+        [12185] = 14, [12186] = 11, [7364] = 7, [7365] = 12, [7379] = 8, [7389] = 9,
+        [7373] = 8, [1887] = 16, [4564] = 9, [4353] = 14, [7386] = 10, [7387] = 7, [7388] = 20,
     };
 
     // Ground art of the kit's skills (checked against the client's metadata; where a skill has none, its cast
@@ -352,6 +358,29 @@ static class CampaignBosses
     internal const string Atziri = "Metadata/Monsters/Atziri/Atziri";
     internal const string Atziri2 = "Metadata/Monsters/Atziri/Atziri2";
 
+    // The four Atlas invaders' pinnacles. They are the first endgame fights with a hand-picked kit: each is a body whose
+    // granted rows are mostly spawners and triggers (the damage lives in the objects and projectiles those raise), so the
+    // rows with an area or a projectile of their own are the ones that land a hit, and the rest stay markers.
+    internal const string SearingExarch = "Metadata/Monsters/AtlasInvaders/CleansingMonsters/CleansingBoss";   // Absence of Patience and Wisdom
+    internal const string EaterOfWorlds = "Metadata/Monsters/AtlasInvaders/ConsumeMonsters/ConsumeBoss";       // Absence of Symmetry and Harmony
+    internal const string BlackStar = "Metadata/Monsters/AtlasInvaders/BlackStarMonsters/BlackStarBoss";         // Polaric Void
+    internal const string InfiniteHunger = "Metadata/Monsters/AtlasInvaders/DoomMonsters/DoomBoss_";            // Seething Chyme
+
+    // The Searing Exarch (Absence of Patience and Wisdom): the flame wall that walks across the arena and applies ruin,
+    // the moving wall it pushes, the mortar volley, and the two area rows behind them. The empty actions, the dash and
+    // the summon stay markers, so the body never plays one of them as a hit.
+    internal static readonly int[] SearingExarchEffects = [422, 12177, 12182, 12183, 4563, 7396, 7372, 12178];
+    // The Eater of Worlds (Absence of Symmetry and Harmony): the dash that closes the gap, its geometry rows (the area
+    // hits), the ground laser and two more area rows. The spawn, trigger and empty-action rows stay markers, so the
+    // body never plays one of them as a physical slam.
+    internal static readonly int[] EaterOfWorldsEffects = [420, 10554, 7381, 7383, 7392, 12193, 7402, 7403];
+    // The Black Star (Polaric Void): the comet barrage and the laser spears are its two named attacks, then the area
+    // rows either side of them. The two empty actions and the dash stay markers.
+    internal static readonly int[] BlackStarEffects = [420, 12185, 12186, 7364, 7365, 7379, 7389];
+    // The Infinite Hunger (Seething Chyme): it alternates between two stances (both markers, and the rows they gate are
+    // the ones that hit), so the kit is the area rows, the two mortar spells and the shield charge.
+    internal static readonly int[] InfiniteHungerEffects = [420, 7388, 1887, 4353, 7373, 4564, 7386, 7387];
+
     // Brutus: his plain swing is row 491 (his own Default Attack, not 406), then the hook that pulls the player in,
     // the ground slam and the spiked ground it leaves.
     internal static readonly int[] BrutusEffects = [491, 2395, 4003, 3971];
@@ -432,8 +461,13 @@ static class CampaignBosses
     // The Apex of Sacrifice's Atziri, both forms.
     internal static bool IsApex(MonsterCatalog.Variety? v) => v?.Id is Atziri or Atziri2;
 
-    /// <summary>Whether this controller scripts the boss: the acts', Izaro, Atziri, the Pantheon's twelve.</summary>
+    // The four Atlas invaders' pinnacles: the first endgame fights whose kits are picked row by row.
+    internal static bool IsPinacle(MonsterCatalog.Variety? v) =>
+        v?.Id is SearingExarch or EaterOfWorlds or BlackStar or InfiniteHunger;
+
+    /// <summary>Whether this controller scripts the boss: the acts', Izaro, Atziri, the invaders' pinnacles, the Pantheon's twelve.</summary>
     internal static bool IsOwned(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsLabyrinth(v) || IsApex(v)
+        || IsPinacle(v)
         || IsTukohama(v)
         || IsAbberath(v) || IsRyslatha(v) || IsGreust(v) || IsGruthkul(v) || IsArakaali(v) || IsYugul(v)
         || IsSolaris(v) || IsLunaris(v) || IsShakari(v) || IsGarukhan(v));
@@ -523,6 +557,10 @@ static class CampaignBosses
         IzaroDualWield => IzaroDualWieldEffects,
         Atziri => AtziriEffects,
         Atziri2 => Atziri2Effects,
+        SearingExarch => SearingExarchEffects,
+        EaterOfWorlds => EaterOfWorldsEffects,
+        BlackStar => BlackStarEffects,
+        InfiniteHunger => InfiniteHungerEffects,
         Merveil => MerveilEffects,
         MerveilTwisted => MerveilTwistedEffects,
         Weaver => WeaverEffects,
