@@ -167,15 +167,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   The bosses that warp move themselves instead of having a hit played: Merveil, Dominus' death teleport and
   Shavronne blink away from the player, Piety's Lightning Warp and Malachai's teleport land on it, and the Weaver's
   hide repositions it (only Shakari's emerge keeps its tail sweep).
-  There is no life gate: a campaign boss does not stop taking damage at a threshold, and the two-variety
-  phases the data describes (Abberath 6008 then 6012, Shakari 6275 then 6278) are a second monster in a second room
-  that `WorldAreas` already places, so each kit's gate is created empty (`LifePhaseGate` with no thresholds never
-  arms, and `Step` still has one to read); Tukohama's shield is his own totem's. All twelve were played live
+  None of these tables gates life — the Brine King's own controller is the one boss that does — and the two-variety
+  phases the data describes (Abberath 6008 then 6012, Shakari 6275 then 6278) are the first form's death raising the
+  second where it fell (live: "its second form … appears", then the new monster gets its own fight and the drop), not a
+  monster `WorldAreas` places — it lists row 6008 and 6275 only — and the soul flags sit on the second variety, so a
+  kill that stops at the first form sets nothing. Each kit's gate is created empty (`LifePhaseGate` with no thresholds
+  never arms, and `Step` still has one to read); Tukohama's shield is his own totem's. All twelve were played live
   (2026-11-11, `/goto` each area and stand beside the boss): each wakes, deals damage and cycles three to six windups
   plus its slams — except Solaris and Lunaris, whom the Harbour Bridge leaves out of its population until the two orbs
   are handed to `GoddessFightStarter` (`On.UsedWith` then `On.Spawns`); `/spawn_mob` them and they fight like the rest.
   A boss does nothing while the player stands inside it (the teleport dev command does that), so a check has to stand
-  eight to ten cells off. A later form the data does not place
+  eight to ten cells off. The Brine King's floods (75, 50 and 25% life) only begin with the player inside his arena
+  (radius 69 around its centre) — standing at the entrance leaves him clamped at 75% with no phase running and no way
+  to kill him. All eleven souls were then taken the same way (`/mob_life <id> 0` through the phases, the second form
+  where there is one): a6q1, a6q3, a6q6, a6q7, a7q1, a7q4, a7q9, a8q4, a9q2, a9q5 and a8q23-KilledBosses, the last one
+  opening the bridge's exit into The Blood Aqueduct as it lands. A later form the data does not place
   is the quest engine's: Merveil's `BossMerveil2`, Dominus' `Dominusdemon` and Malachai's `MalachaiBoss2` appear
   where the first one falls (`QuestEngine` SecondForm), and each gets its own controller from this same table. Damage
   comes from each effect's own stat set at the area's level (the variety's physical damage when the stat set names
