@@ -785,13 +785,13 @@ public static partial class Game
                 {
                     lifeCarry = manaCarry = burnCarry = trapCarry = flaskCarry = 0;
                     conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = 0;
-                    periodicRegenStart = null;
                     FortificationOf(conn).Clear();
                     leech.Clear(now);
                     conn.LifeRecoup.Clear();
                     PreventedDamageOf(conn).Clear();
                     conn.EnergyShield.Empty();
                     ClearAntiquarianOnDeath(conn);
+                    periodicRegenStart = null;
                     lifeAfter = lifeBefore;
                     manaAfter = manaBefore;
                 }
