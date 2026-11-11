@@ -13,7 +13,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     readonly HashSet<(uint Actor, ushort Buff)> retired = [];
     public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
         PhysicalAegisState.Carried? Aegis, Game.CarriedSiphoning? Siphoning, Game.CarriedAvatar? Avatar = null,
-        Game.CarriedHerEmbrace? HerEmbrace = null);
+        Game.CarriedHerEmbrace? HerEmbrace = null, Game.CarriedElusive? Elusive = null);
     public Snapshot? TransferCheckpoint;
     public bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
@@ -27,7 +27,8 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public Snapshot Capture(double at) => new(Mana.Capture(at), PlayerBlind.Capture(at),
         connection?.PhysicalAegis.Capture(at), connection is null ? null : Game.CaptureSiphoning(connection, at),
         connection is null ? null : Game.CaptureAvatarOfFire(connection, at),
-        connection is null ? null : Game.CaptureHerEmbrace(connection, at));
+        connection is null ? null : Game.CaptureHerEmbrace(connection, at),
+        connection is null ? null : Game.CaptureElusive(connection, at));
     public void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
@@ -48,6 +49,8 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
             Game.RestoreAvatarOfFire(connection, avatar, at);
         if (connection is not null && TransferCheckpoint?.HerEmbrace is { } embrace)
             Game.RestoreHerEmbrace(connection, embrace, at);
+        if (connection is not null && TransferCheckpoint?.Elusive is { } elusive)
+            Game.RestoreElusive(connection, elusive, at);
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
     public void Restore(Snapshot value, double at)
@@ -57,6 +60,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         if (connection is not null && value.Siphoning is { } siphoning) Game.RestoreSiphoning(connection, siphoning, at);
         if (connection is not null && value.Avatar is { } avatar) Game.RestoreAvatarOfFire(connection, avatar, at);
         if (connection is not null && value.HerEmbrace is { } embrace) Game.RestoreHerEmbrace(connection, embrace, at);
+        if (connection is not null && value.Elusive is { } elusive) Game.RestoreElusive(connection, elusive, at);
     }
     public void Clear()
     {
@@ -64,6 +68,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         {
             Game.RetireAvatarOfFire(connection);
             Game.RetireHerEmbrace(connection);
+            Game.RetireElusive(connection);
             connection.RetiredPhysicalAegisBuffs.UnionWith(connection.PhysicalAegis.Retire());
             if (connection.Unhinged.Retire() is ushort unhingedBuff and not 0)
                 connection.RetiredUnhingedBuffs.Add(unhingedBuff);

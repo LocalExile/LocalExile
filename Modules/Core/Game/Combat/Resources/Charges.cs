@@ -31,6 +31,8 @@ public static partial class Game
     public static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
+        if (m.Hostile && critical)
+            lock (conn.Monsters) TryGainElusiveLocked(conn, critical: true, kill: false, ProjectileWorldTime(conn));
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
         Func<string, int>? skill = null;
@@ -61,6 +63,7 @@ public static partial class Game
             double now = ProjectileWorldTime(conn);
             frozen = m.Ailments.FrozenAtDeath(now);
             conn.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            TryGainElusiveLocked(conn, critical: false, kill: true, now);
         }
         ChargesOf(conn).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen));
         CurseCharges(conn, m, true);

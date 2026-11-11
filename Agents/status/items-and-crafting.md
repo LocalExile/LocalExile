@@ -45,7 +45,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The explosion consumes the corpse (0x2bd at once) and plays the native `HolyExplosion` art (MiscAnimated 2877,
   `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two seconds; its corpse was removed 0-6 ms after the
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
-- Conditional item gates, attribute/level added damage, Phasing and Avatar of Fire reach live pools and hits.
+- Conditional item gates, attribute/level damage, Phasing, Avatar and Her Embrace reach live pools and hits.
   Weapon/aura, tracked-event, strict thresholds and qualified equipment/charge-state gates have coverage;
   Arborix's worn Dash, travel lock and four recent consumers have deterministic transaction, lifetime and boundary
   coverage in the Gateway; the native check remains pending. Yriel's Fostering's actual worn Ursa grant now owns one

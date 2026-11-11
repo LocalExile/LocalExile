@@ -13,7 +13,7 @@ using GameServer.Core.Protocol.Instance;
 /// </para>
 /// <para>
 /// The scope is the conditions the server can already answer from state it keeps: the character's weapons and shield and
-/// the auras it runs. A condition whose subject the server does not model yet (<c>while affected by elusive</c>, a shrine,
+/// the auras it runs. A condition whose subject the server does not model yet (a shrine or
 /// a league buff) is reported as <see cref="State.NotModelled"/> rather than as false, so those stats keep their previous
 /// behaviour and can be listed instead of silently changing.
 /// </para>
@@ -113,6 +113,7 @@ public static class StatConditions
         "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
         "_while_unhinged", "_while_not_unhinged",
         "_while_you_have_avatar_of_fire", "_while_you_do_not_have_avatar_of_fire",
+        "_while_affected_by_elusive",
         "_if_you_have_beast_minion",
         "_if_golem_summoned_in_past_8_seconds",
         "_while_in_blood_stance", "_in_blood_stance", "_while_in_sand_stance", "_in_sand_stance",
@@ -544,7 +545,7 @@ public static class StatConditions
                 ? stateActive ? State.Holds : State.Fails : State.NotModelled;
 
         // "while affected by X": X is a buff the character may carry. Only an ordinary aura the server already runs can
-        // be answered; a shrine, elusive or a league buff is a subject it does not model yet, so those stats keep their
+        // be answered; a shrine or a league buff is a subject it does not model yet, so those stats keep their
         // previous behaviour rather than being treated as "the condition is false".
         if (TryAuraName(statId, out string family))
         {

@@ -120,7 +120,8 @@ public static partial class Game
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
                 charges.Converted(type), alive);
         }
-        var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyHerEmbrace(conn, flags, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
+        var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
+            RequalifyHerEmbrace(conn, flags, activeItems), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
         return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }
@@ -189,6 +190,7 @@ public static partial class Game
         public StatSourcesResult? Applied;
         public bool Building;
         public long Revision, Presented;
+        public (int Movement, int Avoid) AppliedElusive;
     }
 
     static readonly ConditionalWeakTable<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
@@ -205,8 +207,11 @@ public static partial class Game
             ReconcileBeastCompanionsLocked(conn);
             var current = conn.StatSourcesCache;
             var before = state.Applied;
-            if (current is null || ReferenceEquals(before, current)) return false;
+            var elusive = ElusivePanelState(conn);
+            bool sameElusive = state.AppliedElusive == elusive;
+            if (current is null || ReferenceEquals(before, current) && sameElusive) return false;
             state.Applied = current;
+            state.AppliedElusive = elusive;
             // After a Game-module reload the source marker is new but the connection's old final pools survive.
             // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
             bool conditionalEquipment = before is null && current.Worn.Any(w => w.Item.Mods.Any(m =>
@@ -216,7 +221,7 @@ public static partial class Game
                         || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id))) == true));
             bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
                 == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
-            if (sameHerEmbrace && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
+            if (sameElusive && sameHerEmbrace && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)
                 && before.Key.PoisonStacks == current.Key.PoisonStacks
