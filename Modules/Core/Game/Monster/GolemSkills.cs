@@ -64,11 +64,23 @@ public static partial class Game
         : Math.Max(0, GolemStat(player, "minion_maximum_life_%_to_add_as_maximum_energy_shield") / 100.0 * golem.Monster.MaxLife
             + golem.Auras.GetValueOrDefault("base_maximum_energy_shield"));
 
+    static int SkeletonShieldChaos(ClientState conn, GolemState.Golem fighter, IReadOnlyDictionary<uint, int> player)
+    {
+        if (fighter.Definition.Kind != "Skeleton") return 0;
+        int percent = GolemStat(player, "your_skeletons_gain_added_chaos_damage_equal_to_%_of_energy_shield_on_shield");
+        if (percent <= 0 || ActiveOffHand(conn) is not { Type: { Class: "Shield" } shield } hand) return 0;
+        var items = ItemsFor(conn);
+        if (items.Defences(shield) is not { } defences) return 0;
+        int localShield = ItemDefences.Calculate(hand.Item, defences, items.Mods).EnergyShield;
+        return (int)Math.Min(int.MaxValue, (long)localShield * percent / 100);
+    }
+
     public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
     {
         var catalog = SkillsFor(conn); var result = new List<GolemState.Ability>();
         var mods = GolemModifiers(golem, player).Effects;
+        int shieldChaos = SkeletonShieldChaos(conn, golem, player);
         int Own(string name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
@@ -99,6 +111,11 @@ public static partial class Game
             {
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(multiplier);
+            }
+            if (shieldChaos > 0 && damage.MaxTotal > 0 && Raw("base_deal_no_damage") == 0)
+            {
+                double added = shieldChaos * AddedEffectiveness(conn, effect, skillLevel);
+                damage = damage.Add(DamageType.Chaos, new(added, added));
             }
             foreach (var type in DamageTypes.ConversionOrder)
             {
@@ -219,6 +236,7 @@ public static partial class Game
         golem.Auras = MinionAuraStats(conn, golem);
         var hash = new HashCode();
         hash.Add(CombatLifetime);
+        hash.Add(SkeletonShieldChaos(conn, golem, player));
         foreach (var p in player.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Own.OrderBy(p => p.Key)) hash.Add(p);
@@ -233,16 +251,16 @@ public static partial class Game
         if (maximum != m.MaxLife)
         {
             m.Life = (uint)Math.Clamp(m.Life / (double)m.MaxLife * maximum, 1, maximum); m.MaxLife = maximum;
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id, [(StatKeys.MaximumLife, (int)maximum)]), "golem maximum life", golem.Id, m));
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id, [(StatKeys.MaximumLife, (int)maximum)]), "golem maximum life", golem.Id, m, WorldId: golem.Id));
             conn.Minions.OutputQueue.Add(new([], "golem life", golem.Id, m, PlayerMinions.OutputKind.Life));
         }
         m.Mods = GolemModifiers(golem, player);
         golem.MaximumShield = GolemShield(golem, player); golem.Shield = Math.Min(golem.Shield, golem.MaximumShield);
         golem.Abilities = GolemAbilities(conn, m.Variety!, m.Level, golem, player);
         golem.Skills = GolemNativeSkills(conn, m.Level, golem.Abilities);
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m));
+        conn.Minions.OutputQueue.Add(new(InstanceEntities.PlayerSkillsChange(golem.Id, golem.Skills, []), "golem abilities updated", golem.Id, m, WorldId: golem.Id));
         conn.Minions.OutputQueue.Add(new(InstanceEntities.StatsUpdate(golem.Id,
-            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m));
+            [(StatKeys.MovementVelocityPct, m.Mods.Effects.MovementPct)]), "golem speed", golem.Id, m, WorldId: golem.Id));
         if (conn.MinionOrigins.TryGetValue(golem.Id, out var origin))
             conn.MinionOrigins[golem.Id] = origin with { Object = origin.Object with { Skills = golem.Skills } };
     }

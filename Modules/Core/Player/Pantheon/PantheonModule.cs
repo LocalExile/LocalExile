@@ -96,7 +96,7 @@ static class PantheonRules
         var catalog = PantheonCatalog.Default.Value;
         byte major, minor;
         lock (conn.Monsters) (major, minor) = (catalog.Wire(conn.PantheonMajor), catalog.Wire(conn.PantheonMinor));
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
             $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 

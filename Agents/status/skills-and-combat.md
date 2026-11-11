@@ -5,6 +5,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Storm Call (live on 3.29.3c): each landing (aim, Spell Cascade area, Spell Echo repeat) sets a marker that strikes
+  its area when the skill duration ends, and that strike also calls down every other marker out; quality's chance
+  strikes a new marker on cast. Marker and impact are server art from the worn skin (all six skins checked).
+  Code: `StormCall.cs`, `StormCallMarkers.cs`.
 - Holy Sweep's art: the skill sends its base `skill_art_variation` 2 and a worn effect's value adds to it, so hits no
   longer crash the client drawing the hammers (live 2026-11-08 in a map: none, Originator's, Awakener's, Abyssal).
   Code: `SkillArtBase.cs`. Docs: [23](../docs/protocol/23-microtransactions.md) §3.
@@ -38,7 +42,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md) "Client weapon-type stats".
 - Antiquarian's real selected nodes now drive Ward absorption/restoration and Runic Tablet's pausable Adrenaline.
   Goliath's zero Intelligence reaches requirements and pools; Whaletooth extends actual Enduring Cry recovery.
-  Turtle Shell integrates 8% Life over one second after accepted melee stun, with native Life correction at expiry.
+  Turtle Shell integrates 8% Life over one second after accepted melee stun; Bloodnotch restores a share of hit damage
+  immediately on that stun. Melding of the Flesh shares the highest elemental resistance cap in pools and mitigation.
   Lioneye's Hair bypasses supported attack accuracy, Bow scales actual travelled projectiles, and Shield replaces
   usable-shield base block and reduces physical ranged hits after armour.
   Three native builds cover all nodes, combat controls, paid refunds and effect/save lifecycles.
@@ -469,6 +474,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Charges.cs`, `ChargeGains.cs`, `ChargeEffects.cs`, `ChargeSession.cs`, `ChargeBuffs.cs`,
   `Program.Charges.cs`, `ChargePanelStats.cs`, `BloodCharges.cs`, `Program.BloodCharges.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §15.
+- Discharge and Discharge of Misery: per removable charge, lightning (Power), fire (Endurance) and cold (Frenzy)
+  base damage and the gem's more area per charge; a use spends the charges above the minimum once, shared by its
+  Spell Echo repeat, kept by the quality chance; no removable charges deals nothing.
+  Skins are drawn by the client (`skill_art_variation`).
+  Code: `SkillHitPlan.cs`, `SkillArea.cs`, `Discharge.cs`.
 - Character panel sums: about 150 panel stats that sum base forms are computed from passives, items and auras with
   their unconditional combined stats: stun, ailment avoidance, durations and effects (ignite, chill, freeze, shock,
   scorch, brittle, sap), ailment chances, penetration, leech, life/mana/ES on kill, rarity and quantity, cooldown,
@@ -752,6 +762,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `GatewayProjectileSkillProfiles.cs`, `ProjectileStages.cs`, `ProjectileTypes.cs`, `Projectiles.cs`;
   wiki [Tornado Shot](https://www.poewiki.net/wiki/Tornado_Shot),
   [RE terminal geometry](../docs/re/projectiles/tornado-geometry.md).
+- Kinetic Bolt (`ZigZagProjectile`): fires `Metadata/Projectiles/ZigZagWandProjectile` (`SkillCatalog.ProjectileFallbacks`),
+  converts theoretical forks into zig-zags (`virtual_projectiles_cannot_fork = 1`) and publishes
+  `kinetic_bolt_number_of_zig_zags` in the skill record.
+  Primary bolts travel 15 cells, then alternate +-45 deg (10 cells) and +-90 deg (20 cells) on leg end, non-evaded
+  enemy hit or wall hit without spending Pierce/Chain/Return, emitting `ZigZagSecondaryWandProjectile` with shared hit
+  history (`HidePredictedVisual = true` when client-predicted); remaining Pierce/Chain/Return resume afterward.
+  Live checks verified casting, multi-turn monster hits and wall shots in Predictive mode; Fork, Returning, AltX,
+  Ballista Totems and Volley parallel geometry remain unverified live.
+  Code: `SkillCatalog.cs`, `KineticBoltLegs.cs`, `GatewayProjectileModifiers.cs`, `GatewayProjectileSkillProfiles.cs`,
+  `ProjectilePanel.cs`, `ProjectileRelease.cs`, `ProjectileRuntime.cs`.
 - Petrified Blood: the 35% Mana reservation buff, its hit-only Life-loss split at half Life, the four-second deferred
   loss, the non-flask recovery cap at Low Life and the Life cost above it are implemented. Life leech instances and
   the client's leech display keep the full maximum-unreserved-Life cap; they are not removed at Low Life, but their
@@ -1238,7 +1258,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   the hex lifecycle. Skitterbots apply scaled chill/shock and trigger placed traps/mines, rearming a mine once;
   full trap/mine skill-specific payloads, banner/Vaal executors and Agony's retail Virulence decay remain partial.
   ([11](../docs/protocol/11-skills.md) 13).
-- Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
+- Animated equipment admission respects melee/ranged variants, identification, item level and six-socket weapon exclusion.
+  Summon/mine/trap input and cleanup work; special payloads remain partial ([11](../docs/protocol/11-skills.md) 10h).
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
 - Totems: Rejuvenation, adopted projectile spells and bow/wand ballistas execute ([11](../docs/protocol/11-skills.md) §10g).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the
@@ -1707,7 +1728,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - **Self-targeted spells (2026-10-29).** Self-targeted spells (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
   Shock Nova) hit around the caster wherever they are aimed, as the client draws them; before, an Ice Nova cast on a
   monster went off around the monster.
-  Totem, mine and trap skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the
+  Totem, mine and trap skills and Novas without a self target (Shockwave Totem, Stormblast Mine) keep the
   aimed point.
   With `nova_spells_cast_at_target_location` (Devout of Lunaris) self-targeted Novas hit around the aimed point, and
   Nova skill records carry `skill_is_nova_skill` and, with the stat, the derived
@@ -1716,6 +1737,53 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Ice Nova drew nothing (live 2026-10-30).
   Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- **Winter Orb (2026-11-09).** The channel is admitted again: its orb fires `Metadata/Projectiles/FrostFuryMortar`,
+  while the effect's own name has no Projectiles row, so every use was refused and the skill dealt no damage.
+  While channelling, each volley lands the skill's cold-damage area hit on nearby enemies every
+  `frost_fury_base_fire_interval_ms` (1200 ms), scaled by the 80% more while channelling and by cast speed (additive,
+  as the data's `display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed` says), with
+  `base_number_of_projectiles` impacts spread along a line across the nearest enemy, so a volley lands its whole spread
+  on one target instead of scattering over three. Stages are counted per channel cast tick up to
+  `frost_fury_max_number_of_stages` (8) plus the quality's `frost_fury_additional_max_number_of_stages`, and add their
+  `frost_fury_fire_speed_+%_per_stage` (20, the first stage adds none) to the frequency. The stages show in the buff
+  bar as the game's own `frost_fury_stage` row (BuffDefinitions 1216, ShowCount), the count the orb's (bit2) and, after
+  the release, the time the stages leave (bit1), which the client draws as a countdown clock under the count (`8` over
+  `0:05`, running down with each stage that goes, live 2026-11-09). Both ride the same 0x1c1 instance, updated in place
+  as the stages build or go and removed with the orb: a new instance for each change (0x1c2 then a fresh 0x1c1) restarts
+  the client's clock, so it never had time to be seen before. A held channel has no clock (no bit1); it runs only while
+  the stages decay. A held channel lives off the client's 10-byte aim updates, which a standing channel sends as 0x198
+  rather than Cyclone's 0x197: unregistered, they were dropped, so the one-second silence ended a held Winter Orb after
+  about five stages and its orb released while the button was still down (live 2026-11-09). The client sends a 0x198 only
+  when the aimed cell changes, so a held channel with a still cursor leaves none: the orb now ignores the aim silence
+  while it is channelling, and a still hold charges to the maximum and releases on the button alone (live 2026-11-10).
+  Its stages build at the channel cast tick (`hundred_times_casts_per_second` 400 with the player's cast speed), which is
+  the rate the client's own count charges at: with the channel kept alive the bar read 7 where the server's seventh stage
+  went and 10/10 once capped, so the one-stage lead seen while channelling is the client's prediction, not a cadence
+  difference. Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
+  row's buff visual starts the client's Winter Orb channelling art (`0x1415d17d0` → `0x1417b6030`), which reads entries
+  1 and 2 of the buff's list (buff +0x80) without a length check, so an empty list dereferenced null (`0xc0000005` at
+  fault offset `0x17b6067`, the same for all three shapes). Three entries (first form, not a totem) are all it needs.
+  The orb is its own runtime, not the channel's: releasing the button does not
+  stop it. It keeps firing at the released frequency (no 80% more) while its stages decay one at a time, each over the
+  remaining duration divided by the stages held; the duration is `base_skill_effect_duration` (1600 ms) grown by
+  `frost_fury_duration_+%_per_stage` (30 a stage) through `SkillDurationModifiers`, so 8 stages last 5.44 s at gem
+  level 1. The sphere is removed when the last stage goes, and re-channelling inside that window keeps the orb and the
+  stages it already built rather than creating a second one; death, an area change and a reload retire it. The visuals
+  are the client's own art: the buff plays the skill's channelling effect, which draws the orb and its swirl at the
+  caster, so no effect object is created for the orb — one was, at the player's cell, and showed as a second orb under
+  the player's feet (live 2026-11-09). Each impact is MiscAnimated `FrostFuryExplode`, an effect object at its cell
+  removed after its 250 ms clip. Each projectile is a real object of the row's own metadata (`Metadata/Projectiles/FrostFuryMortar`, whose
+  Projectiles.dat AOFiles are `FrostFury/projectile.ao`, so the client animates the shot), created at the player and
+  glided to its landing cell for the distance over the row's 1500 units/s through `ProjectileSpeed` (projectile speed
+  modifiers change the flight, 0.27–0.45 s measured live 2026-11-09). The object is removed on arrival, when the
+  explosion art plays and the area hit lands there, so damage lands when the mortar does, not when the button is
+  pressed. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09). Damage, crits and kills were
+  checked with the real client the same day.
+
+- **Dark Bargain.** At the cast's contact it explodes at the player's skeleton nearest the aim (else the player), paying
+  12% of its maximum life (never the last point) as added base chaos damage, then chains to the nearest unused
+  skeletons; with none in reach the player pays 12% of maximum life for 56% more damage. Radius 26, default art scaled
+  to it. Only the self-cast is verified live: Summon Skeletons does not work yet; seek and chain range are estimates.
 
 ## Not working yet
 

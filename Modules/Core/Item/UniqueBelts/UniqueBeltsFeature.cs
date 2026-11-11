@@ -10,8 +10,13 @@ static class UniqueBeltsFeature
     internal static void StealMonsterMods(ClientState conn, SpawnedMonster m)
     {
         if (m.Rarity != MonsterRarity.Rare || !m.Mods.Affixes.Any() || conn.PlayerLife == 0) return;
-        if (Stats.Key(StolenMods.SourceStat) is not uint key || CharacterPlayerStats(conn).GetValueOrDefault(key) <= 0) return;
-        conn.StolenMods.Steal(m.Mods, ItemsFor(conn).Mods, conn.Clock.Elapsed.TotalSeconds);
+        var stats = CharacterPlayerStats(conn);
+        var catalog = ItemsFor(conn).Mods;
+        double now = conn.Clock.Elapsed.TotalSeconds;
+        if (Stats.Key(StolenMods.SourceStat) is uint belt && stats.GetValueOrDefault(belt) > 0)
+            conn.StolenMods.Steal(m.Mods, catalog, now);
+        else if (Stats.Key(StolenMods.RandomSourceStat) is uint jewel)
+            conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(jewel), now, Random.Shared);
     }
 
     /// <summary>The character's stat sources with the modifiers it stole (CharacterStatSources).</summary>
@@ -57,9 +62,9 @@ static class UniqueBeltsFeature
                     conn.StolenModsBuff = stacks > 0 ? buff = conn.NextBuff++ : (ushort)0;
                 }
                 // As charges: a change of count or time is the old buff off and a new one on.
-                if (old != 0) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old), "0x01c2 player buff: Headhunter");
+                if (old != 0) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old), "0x01c2 player buff: Headhunter");
                 if (buff != 0)
-                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, StolenMods.BuffRow, PlayerId,
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, StolenMods.BuffRow, PlayerId,
                             u68: BitConverter.SingleToUInt32Bits((float)remaining), stacks: (ushort)stacks),
                         $"0x01c1 player buff: Headhunter x {stacks}, {remaining:0.#} s");
                 await SendCharacterStats(remote, stream, ciphers, conn, $"Headhunter: {stacks} modifier(s)");

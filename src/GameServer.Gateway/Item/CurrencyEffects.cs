@@ -445,9 +445,10 @@ public static class CurrencyEffects
     /// </summary>
     public static Item? Chromatic(Item item, (int Str, int Dex, int Int) requirements, Random random)
     {
-        if (item.Sockets.Count == 0) return null;
-        int forced = random.Next(item.Sockets.Count);
-        var sockets = item.Sockets.Select((socket, i) => socket with
+        var ordinary = Enumerable.Range(0, item.Sockets.Count).Where(i => item.Sockets[i].Colour != SocketColour.Abyss).ToArray();
+        if (ordinary.Length == 0) return null;
+        int forced = ordinary[random.Next(ordinary.Length)];
+        var sockets = item.Sockets.Select((socket, i) => socket.Colour == SocketColour.Abyss ? socket : socket with
         {
             Colour = i == forced ? SocketColours.Colour(requirements, random)
                 : SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, chromatic: true),

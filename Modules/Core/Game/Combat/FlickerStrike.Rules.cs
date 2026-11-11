@@ -5,6 +5,39 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    // The client's Flicker Strike action selects these MiscAnimated resources by skill_art_variation.
+    // In is the departure effect and Out is the arrival effect (their sound events confirm the direction).
+    internal static async Task FlickerArt(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint gem, (int X, int Y) from, (int X, int Y) to)
+    {
+        int variation = SkillArtVariation(conn, gem);
+        var (departure, arrival) = variation switch
+        {
+            1 => ("Metadata/Effects/Microtransactions/Spells/flicker_strike/ninja_smoke/rig_in.ao", "Metadata/Effects/Microtransactions/Spells/flicker_strike/ninja_smoke/rig_out.ao"),
+            2 => ("Metadata/Effects/Microtransactions/Spells/flicker_strike/necro_smoke/rig_in.ao", "Metadata/Effects/Microtransactions/Spells/flicker_strike/necro_smoke/rig_out.ao"),
+            4 => ("Metadata/Effects/Spells/monsters_effects/act10/Kitava/unique_minion/flicker_strike/disappear.ao", "Metadata/Effects/Spells/monsters_effects/act10/Kitava/unique_minion/flicker_strike/appear.ao"),
+            _ => ("Metadata/Effects/Spells/flicker_strike_new/Flicker_In.ao", "Metadata/Effects/Spells/flicker_strike_new/Flicker_Out.ao")
+        };
+        uint first, second;
+        lock (conn.Monsters)
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            first = conn.NextObjectId++;
+            second = conn.NextObjectId++;
+        }
+        await Send(remote, stream, ciphers,
+            [.. InstanceEntities.CreateObject(first, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(from.X, from.Y, departure).Blob()),
+             .. InstanceProtocol.EnterWakeZone(first),
+             .. InstanceEntities.CreateObject(second, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(to.X, to.Y, arrival).Blob()),
+             .. InstanceProtocol.EnterWakeZone(second)],
+            $"Flicker Strike art variation {variation}: departure ({from.X}, {from.Y}), arrival ({to.X}, {to.Y})");
+        SendAfter(2, async () =>
+        {
+            if (conn.Closed || conn.LeavingArea) return;
+            await Send(remote, stream, ciphers, [.. InstanceProtocol.RemoveObject(first), .. InstanceProtocol.RemoveObject(second)], null);
+        });
+    }
+
     /// <summary>Where Flicker Strike takes the player: the monster the client's action picks (FlickerStrike) and the
     /// landing next to it. Null when no monster is in range: the client then strikes where the player stands.</summary>
     public static (uint Id, (int X, int Y) At, (int X, int Y) Landing)? FlickerDestination(ClientState conn, int effect,
