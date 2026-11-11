@@ -140,12 +140,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceItems.cs`, Gateway (`ItemStates.cs`, `ItemRolls.cs`, `CharacterSaves.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2f.
 - Game content in world.db (2026-11-09, [#734](https://github.com/LocalExile/LocalExile/issues/734)): `mod_stat_overrides`,
-  `limit_overrides`, `catalog_entries`, `system_settings`, `unique_weights` and the drop tables are world.db content
+  `limit_overrides`, the item and jewel catalogues, `system_settings`, `unique_weights` and the drop tables are world.db content
   built from `sql/` (Agents/docs/dev/databases.md); a change is an update file. The Gateway loads the rows at startup
   and atomically republishes them on `/reload`, so no restart is needed; a bad row keeps the previous snapshot.
   Limits currently cover the Historic timeless jewel, Impossible Escape, radius unique jewels and the tattoo total/group
-  caps. `catalog_entries` holds the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
-  catalogues (1,299 / 76 / 43 / 6 / 48 / 190 rows; the unique rows are the generated PoB catalogue with the 3.29
+  caps. Typed tables hold the unique-item, radius/threshold/unique/timeless jewel, tattoo-effect and jewel-art
+  catalogues (`unique_items`, `radius_jewels`, `unique_jewels`, `timeless_jewels`, `tattoo_effects`, `jewel_visuals`;
+  1,304 / 76 / 43 / 6 / 78 / 190 rows; the unique rows are the generated PoB catalogue with the 3.29
   corrections). `system_settings` holds 53 numeric knobs, checked on load: 21 socket caps by item class (wand 3, body 6, helmet/gloves/boots 4,
   shield 3, belt 0, two-handed 6), rare prefix/suffix caps (3/3 ordinary, 2/2 jewels), passive points per level, gold
   chance/amount/auto-loot, the 150-cell projectile maximum range, six drop multipliers, pack density/size, experience

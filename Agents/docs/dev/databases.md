@@ -132,7 +132,8 @@ in the local `data/client-constants.json` (the Patch server's, refreshed by `liv
 ## world.db
 
 The game content that is ours rather than the client's: `system_settings`, `unique_weights` (+ `_overrides`),
-`catalog_entries` (the unique, jewel, tattoo and jewel-art catalogues as one JSON payload per row), the `drop_*` tables,
+the item and jewel catalogues (`unique_items`, `radius_jewels`, `unique_jewels`, `timeless_jewels`, `tattoo_effects`,
+`jewel_visuals`; a list is a child table such as `unique_item_mods`, keyed by its entry and `ord`), the `drop_*` tables,
 `mod_stat_overrides`, `limit_overrides` and `item_templates` ([editable game data](editable-game-data.md),
 [drop data](drop-data-schema.md)). The first updates hold what used to be seed arrays in code. The Gateway reads it at
 startup and on `/reload`, which publishes new in-memory snapshots without a restart; a bad row (a payload that does not
