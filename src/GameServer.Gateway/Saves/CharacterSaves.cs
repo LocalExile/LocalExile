@@ -542,6 +542,14 @@ public static class CharacterSaves
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
+        // Older Stygian Vises could be saved with missing or ordinary sockets. Preserve every occupied layout.
+        if (t.Id == AbyssJewels.StygianVise && item.Sockets.All(socket => socket.Gem is null)
+            && !item.Sockets.Any(socket => socket.Colour == SocketColour.Abyss))
+        {
+            var local = ItemModStats.Local(item, catalog.Mods);
+            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+                item = AbyssJewels.StygianSockets(item, local);
+        }
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
     }
 

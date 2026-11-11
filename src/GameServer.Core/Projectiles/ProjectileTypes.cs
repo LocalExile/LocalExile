@@ -98,8 +98,18 @@ public interface IProjectileLegs
     ProjectileLeg First(ProjectileVector from, ProjectileVector aim);
     /// <summary>The leg after the last one ended (<paramref name="blocked"/> false) or terrain stopped it.</summary>
     ProjectileLeg Next(ProjectileVector from, bool blocked);
+    /// <summary>Whether an enemy hit triggers the next leg before Pierce/Fork/Chain/Return.</summary>
+    bool TurnsOnEnemy => false;
+    /// <summary>When <see cref="NextTurn"/> returns null, end the flight instead of continuing infinitely.</summary>
+    bool EndsAfterLegs => false;
+    /// <summary>Optional turn step with an optional secondary projectile emitted at the turn.</summary>
+    ProjectileLegTurn? NextTurn(ProjectileVector from, bool blocked) => new ProjectileLegTurn(Next(from, blocked));
+    /// <summary>Clone remaining leg state for a continuation child (such as Split).</summary>
+    IProjectileLegs? Continue(ProjectileVector direction) => null;
 }
 public readonly record struct ProjectileLeg(ProjectileVector Target, double Speed);
+public readonly record struct ProjectileLegTurn(ProjectileLeg Leg, ProjectileProfile? SecondaryProfile = null,
+    ProjectileVector SecondaryDirection = default);
 
 /// <summary>Resolved stage parameters. Counts and restrictions are resolved before a use is released.</summary>
 public sealed record ProjectileProfile(string Id)
@@ -194,9 +204,14 @@ public sealed record ProjectileProfile(string Id)
     public Func<int, IProjectileLegs>? Legs { get; init; }
     /// <summary>A legged flight ends this far from where it started; zero has no limit.</summary>
     public double LegLeash { get; init; }
+    /// <summary>Total zig-zag direction changes before normal continuation/termination.</summary>
+    public int ZigZags { get; init; }
     /// <summary>The server simulates this flight for damage but sends no object: the client draws it itself (Tornado
     /// Shot's terminal secondary arrows).</summary>
     public bool HideVisual { get; init; }
+    /// <summary>Hide this child flight's object when its owner use is <c>ClientPredicted</c> (client-spawned Kinetic Bolt
+    /// secondaries).</summary>
+    public bool HidePredictedVisual { get; init; }
 }
 
 public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey Owner, ProjectileActorKey Emitter,

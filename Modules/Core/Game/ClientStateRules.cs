@@ -34,6 +34,12 @@ public static class ClientStateRules
             set => conn.VaalUseState = value;
         }
 
+        internal Game.WinterOrbRuntime? OrbRuntime
+        {
+            get => conn.WinterOrbState as Game.WinterOrbRuntime;
+            set => conn.WinterOrbState = value;
+        }
+
         public Game.ProjectileSession? ProjectileRuntime
         {
             get => conn.ProjectileRuntimeState as Game.ProjectileSession;

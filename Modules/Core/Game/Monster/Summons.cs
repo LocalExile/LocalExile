@@ -144,7 +144,7 @@ public static partial class Game
             owned: (id, monster) =>
             {
                 if (consumed is not null) consumed.CorpseConsumed = true;
-                if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed"));
+                if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
                 while (conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == definition.Family && !g.Monster.Dead) >= limit)
                     RemoveSummonLocked(conn, conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead)
@@ -202,7 +202,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
             if (state.HolyBuff != 0 && now >= state.HolyRegenerationUntil)
             {
-                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, state.HolyBuff), null));
+                conn.Minions.OutputQueue.Add(new(InstanceEntities.RemoveBuff(PlayerId, state.HolyBuff), null, WorldId: PlayerId));
                 state.HolyBuff = 0; state.HolyRegenerationPerMinute = 0; conn.Minions.StatRevision++;
             }
             var player = now >= state.RefreshAt && state.Fighters.Count > 0 ? CharacterPlayerStats(conn) : null;

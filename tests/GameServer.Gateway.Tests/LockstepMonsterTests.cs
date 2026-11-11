@@ -1,4 +1,7 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Buffers.Binary;
+using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using GameServer.Core.Projectiles;
 using GameServer.Modding;
@@ -150,6 +153,41 @@ public class LockstepMonsterTests : IDisposable
         Assert.Equal(((93, 102), (101, 101)), Game.PlaceLockstepChase(hurtConn, hurt, recovered, 2.079));
         Assert.Null(hurt.ClientSwingAt);
         Assert.Equal(recovered, hurt.ClientChase);
+        // A type the client never walks (Pathfinding immobile: a unique Maven's orb, MovementSpeed 20) gets no chase and
+        // no Move, like a variety with MovementSpeed 0; the small orb, whose type is not immobile, is chased with.
+        var orbs = new MonsterCatalog();
+        foreach (var (type, walks) in new[] { ("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrb", false), ("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrbSmall", true) })
+        {
+            var arena = Connection(lockstep: true);
+            arena.LockstepFrame = (1.023, 1.056);
+            arena.Monsters[0x3010] = new SpawnedMonster("orb", new PlayerWalk(130, 100, 20), aggroRange: 60, stopRange: 2, maxLife: 23)
+            {
+                Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, Variety = orbs.Find(type),
+            };
+            var orders = Game.PlanMonsterAi(arena, new MonsterAiCadence(), now: 1.03);
+            Assert.Equal(walks, orders.Chases.Count + orders.Moves.Count + orders.MoveLegs.Count + orders.Legs.Count > 0);
+        }
+        // The recovery cancels the walk with the client's own stop, which waits for the tick (0x141e38420, 0x141e35a50):
+        // a walker hit in the frame from 1.0 to 1.033 still takes its step due at 1.025 and stands a cell further on, with
+        // the 8 ms since that step kept for its next walk. Without frames it stands where the hit finds it. The frame is
+        // the one the 0x1d1 is written in: a hit committed a frame earlier (a projectile's, whose output follows its
+        // commit) leaves the walker walking until then, as the client's does.
+        foreach (bool frames in new[] { true, false })
+        {
+            (double Start, double End) sending = (0.967, 1.0);
+            var walk = frames ? new PlayerWalk(100, 100, 8) { FrameOf = at => (Math.Min(at, sending.Start), sending.End) } : new PlayerWalk(100, 100, 8);
+            walk.Order(110, 100, now: 0.9);
+            var struck = new SpawnedMonster("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23) { HitAnimations = [new(0, 1.0)] };
+            Assert.True(HitReaction.TryFlinch(struck, new(100), 0.999, new Random(1)));
+            Assert.Equal(frames, walk.Moving(1.001));
+            hurtConn.LockstepFrame = sending = (1.0, 1.033);
+            lock (hurtConn.Monsters) Game.TakeHitPacket(hurtConn, 0x3002, struck, struck.FlinchUntil, 1.001);   // its send gate
+            sending = (1.033, 1.066);
+            Assert.Equal(frames ? (101, 100) : (100, 100), walk.Position(1.04));
+            Assert.False(walk.Moving(1.04));
+            walk.Order(110, 100, now: 1.04);
+            Assert.Equal(frames ? 1.033 + 0.125 - 0.008 : 1.04 + 0.125, walk.Steps(1.04, 2)[0].At, 3);
+        }
         // A Rampage stun's 0x1d1 is held in the same frames, and the stun's hold on the AI with it: 0.35 s from 10.0,
         // written at 10.001 in the frame from 9.990 with 0.349 s left, ends in the frame 11 later.
         var stunned = Drowned(new PlayerWalk(93, 102, 8));
@@ -239,13 +277,45 @@ public class LockstepMonsterTests : IDisposable
         shooting.Monsters[0x3001] = spitter;
         lock (shooting.Monsters)
         {
+            spitter.Sequence = 0x8070;
             var shot = Game.MonsterSwingOrderLocked(shooting, spitter, spitter.Attack!, 7, generic: true, 0, 0.14);
+            Assert.Equal(0x8071, spitter.Sequence);
+            Assert.Equal(0x8071, shot!.Value.Sequence);
             Assert.Equal((0.132, 1.0, (50, 56)), (Math.Round(shot!.Value.StartedAt, 9), shot.Value.Seconds, shot.Value.From));
             Assert.Equal(0.132 + 1.0 + 0.066, spitter.BusyUntil, 9);
             Assert.NotNull(spitter.Ailments.Freeze(2, 0.15, _ => 0, _ => 0));
             Assert.Null(Game.MonsterSwingOrderLocked(shooting, spitter, spitter.Attack!, 8, generic: true, 0, 0.16));
+            Assert.Equal(0x8071, spitter.Sequence);
         }
         Assert.Equal(0.14, Game.LockstepOrderStart(Connection(lockstep: false), 0.14));
+
+        // Scripted dashes and ordinary casts belong to one actor. A cast chooses its sequence only at admission;
+        // asking for a sequence before that must not spend one, or interleaved King actions go backwards or skip.
+        var scripted = Connection(lockstep: true);
+        var king = Drowned(new PlayerWalk(100, 100, 8));
+        king.Sequence = 0xfffd;
+        Assert.Equal((ushort)0xfffe, KingInMists.SequenceForAction(scripted, king, swing: false));
+        Assert.Null(KingInMists.SequenceForAction(scripted, king, swing: true));
+        Assert.Equal((ushort)0xfffe, king.Sequence);
+        var cast = Game.MonsterSwingOrderLocked(scripted, king, king.Attack!, 1, generic: false, 1, 0);
+        Assert.Equal((ushort)0xffff, cast!.Value.Sequence);
+        Assert.Equal((ushort)0x8000, KingInMists.SequenceForAction(scripted, king, swing: false));
+        var scriptedPredictive = Connection(lockstep: false);
+        var predictiveKing = Drowned(new PlayerWalk(100, 100, 8));
+        ushort predictiveSequence = predictiveKing.Sequence;
+        ushort direct = KingInMists.SequenceForAction(scriptedPredictive, predictiveKing, swing: false)!.Value;
+        ushort explicitCast = KingInMists.SequenceForAction(scriptedPredictive, predictiveKing, swing: true)!.Value;
+        Assert.Equal((ushort)(direct + 1), explicitCast);
+        Assert.Equal(predictiveSequence, predictiveKing.Sequence);
+
+        // A scripted dash's first pair is the actor's origin, then its aim. The native action start places the actor
+        // on that origin (always in lockstep; beyond the correction threshold in predictive), even with a target id.
+        // Keep the object header, player target, skill and sequence while encoding the two distinct cells in order.
+        Assert.Equal(new byte[]
+        {
+            0x01, 0xab, 0x08, 0, 0, 1, 0, 0, 0, 0, 0x70, 0x01, 0, 0x80, 0, 0, 0x10, 0,
+            0x80, 0xf3, 0x82, 0x63, 0x80, 0xfd, 0x82, 0x72, 0x40, 0x0c, 0x80, 0x05,
+        }, KingInMists.MovementAction(0x08000001, (243, 611), (253, 626), 0x400c, 0x8005, Program.PlayerId, 0x7001));
 
         var predictive = Connection(lockstep: false);
         var monster = Drowned(new PlayerWalk(104, 100, 8));
@@ -305,13 +375,9 @@ public class LockstepMonsterTests : IDisposable
         Assert.DoesNotContain(0x3003u, plan.Legs.Select(l => l.Id).Concat(plan.Chases.Select(c => c.Id)).Concat(plan.MoveLegs.Select(l => l.Id)));
         Assert.False(asleep.Walk.Moving(3.5));
 
-        // A predictive connection keeps the estimate it had before the lockstep rules: only the leg, walked as an order to
-        // its cell alone, from a stand a whole step after the order and under way with the step in progress carried over,
-        // also on a Gateway whose lockstep frames run for this connection (RunLockstepFrames, any served one). The estimate
-        // keeps no time after a stop there by design: PlayerWalk.FrameOf is null off lockstep (LockstepFrameOf and the
-        // plan's FrameStart ask conn.LockstepClient), as the server cannot place a predictive client's stop among that
-        // client's own ticks. Whether the predictive client keeps it is not traced; the stop and the tick (0x141e38420,
-        // 0x141e35a50) read no network mode, so it likely does (07 §5).
+        // Predictive uses its continuous clock, not another connection's lockstep frame. Its stop still keeps elapsed
+        // step time: 0x141e38420/0x141e35a50/0x141e50880 share this rule in both modes. The next leg starts with that
+        // time unscaled, including when the temporary walk used to select the leg has a different step duration.
         var served = Connection(lockstep: false);
         SpawnedMonster Spitter(uint id, int x, int y) => new("Spitter", served.NewMonsterWalk(id, x, y, 8, 2, false), aggroRange: 120,
             stopRange: 2, maxLife: 10)
@@ -333,9 +399,22 @@ public class LockstepMonsterTests : IDisposable
         var steps = walking.Walk.Steps(2.03, 3);
         Assert.Equal(2.03 + (1 - 0.24) * (steps[1].At - steps[0].At), steps[0].At, 9);   // 0.03 s into a 0.125 s step
         steps = stopped.Walk.Steps(2.03, 3);
-        Assert.Equal(2.03 + (steps[1].At - steps[0].At), steps[0].At, 9);   // the estimate keeps none of the 0.085 s (lockstep: 0.105)
+        Assert.Equal(2.03 - 0.085 + (steps[1].At - steps[0].At), steps[0].At, 9);   // predictive stop at1.96; not the lockstep frame end1.98
         Assert.Equal((193, 140), stopped.Walk.Position(2.03));
         Assert.Equal((legs[0].To, legs[1].To), (walking.Walk.Destination, stopped.Walk.Destination));
+
+        // A diagonal stop can keep more time than the next horizontal step needs. Its due step belongs after the new
+        // order, where the collision pass can see it, never retroactively before the order or in its reported origin.
+        var due = new PlayerWalk(100, 100, 8);
+        due.Order(120, 120, 0);
+        due.Order(100, 100, 0.149);
+        Assert.Equal((100, 100), due.Order(120, 100, 1));
+        Assert.Equal((100, 100), due.Position(1));
+        var resumed = due.Steps(1, 1.05);
+        Assert.Single(resumed);
+        Assert.Equal((101, 100), resumed[0].Cell);
+        Assert.True(resumed[0].At > 1);
+        Assert.Equal(1.101, due.Steps(1.05, 1.2).Single().At, 9);
     }
 
     // On a lockstep client a walker's position reads as of the current frame's start, so the leg's end must be read
@@ -454,13 +533,28 @@ public class LockstepMonsterTests : IDisposable
         // takes it: 2 cells from (226, 100) it is not sent, 3 cells away it goes out and ends the walk-up.
         lock (held.Monsters)
         {
+            // An admitted order belongs to this actor, even when other actors have sent more orders.
+            // Refusal spends no sequence; the accepted Move follows this actor's last chase.
+            left.Sequence = 0x8050;
+            held.NextActionSequence();
+            held.NextActionSequence();
             Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (228, 100), "flees"));
+            Assert.Equal(0x8050, left.Sequence);
             Assert.Equal((218, 100), left.Walk.Destination);
             Assert.True(Game.WalkUpOpen(held, left));
             var sent = Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (229, 100), "flees");
             Assert.NotNull(sent);
+            Assert.Equal(0x8051, BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(sent.Length - 2)));
+            Assert.Equal(0x8051, left.Sequence);
             Assert.Equal((229, 100), left.Walk.Destination);
             Assert.False(Game.WalkUpOpen(held, left));
+            // A monster that left the wake zone after the plan gets no order: its copy no longer ticks, and the estimate
+            // stays where the leave left it.
+            held.AsleepMonsters.Add(0x3000);
+            Assert.Null(Game.PlanMoveAtGate(held, plan, 0x3000, left, Game.NextPlannedAction(left), (226, 100), (240, 100), "flees"));
+            Assert.Equal(0x8051, left.Sequence);
+            Assert.Equal((229, 100), left.Walk.Destination);
+            held.AsleepMonsters.Remove(0x3000);
             // It carries GGG's monster flags, 0 (none of its 56 175 monster orders has 0x400 or 0x8): without 0x400 the
             // client refuses it while a non-Move action waits queued (0x141e937b0), as GGG's client does.
             Assert.Equal(0, BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(12)));
@@ -576,12 +670,43 @@ public class LockstepMonsterTests : IDisposable
     // flight, which lands the hit but creates no object; a straight shot (the King's BugSoulrend) has no row, no count on
     // its record and keeps its object.
     [Fact]
-    public void A_mortar_skill_record_carries_the_client_s_count_and_row_and_the_server_draws_no_mortar()
+    public async Task A_mortar_skill_record_carries_the_client_s_count_and_row_and_the_server_draws_no_mortar()
     {
         var skills = new SkillCatalog("data");
         foreach (bool lockstep in new[] { true, false })
         {
-            var conn = Connection(lockstep);
+            var conn = new ClientState(new(1, "mortar-goal", 300, 300, 100, 100, null, []), 1, 1)
+            {
+                Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true,
+                LockstepClient = lockstep, Instance = new(),
+            };
+            // Exercise the real create path: the selected granted record and the AI must describe the same action.
+            using var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            using var writer = new TcpClient();
+            var accepting = listener.AcceptTcpClientAsync();
+            await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+            using var reader = await accepting;
+            var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+            string database = Path.Combine(Path.GetTempPath(), $"localexile-mortar-goal-{Guid.NewGuid():N}.db");
+            Saves.Open(database);
+            try
+            {
+                conn.Wire = ("mortar-goal", writer.GetStream(), ciphers);
+                var nativeVariety = new MonsterCatalog().Find("Metadata/Monsters/SandSpitters/SandSpitter")!;
+                uint id = await Game.SpawnMonster("mortar-goal", writer.GetStream(), ciphers, conn, nativeVariety,
+                    70, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, 140, 100,
+                    log: false, mods: MonsterModSet.None, unrisen: false);
+                // Creates belong to the frame tail (0x14218a650), after established objects have ticked.
+                int typeLength = GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([((ushort)nativeVariety.Row, (byte)70)]).Length;
+                var createHeader = new byte[typeLength + 12];
+                await reader.GetStream().ReadExactlyAsync(createHeader);
+                new ConnectionCiphers(new byte[64], isClient: true).Receive.Process(createHeader);
+                Assert.Equal(0x2bb, BinaryPrimitives.ReadUInt16BigEndian(createHeader.AsSpan(typeLength)));
+                Assert.Equal(lockstep ? uint.MaxValue : 0u,
+                    BinaryPrimitives.ReadUInt32BigEndian(createHeader.AsSpan(typeLength + 6)));
+            }
+            finally { TestEnvironment.ReleaseSaves(database); }
             foreach (var (effectId, row, count) in new[] { ("MMASandSpitterProjectile", 183, 1), ("MMASandSpitterProjectileLightning", 186, 1),
                 ("ScavengerThrowFire", 55, 1), ("MMASandSpitterProjectileSideArea", 183, 3) })
             {
@@ -617,6 +742,23 @@ public class LockstepMonsterTests : IDisposable
             Assert.False(Game.MonsterProjectileProfile(bugs, 5, 10, 30).HideVisual);
         }
         var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;
+        var variety = new MonsterCatalog().Find("Metadata/Monsters/SandSpitters/SandSpitter")!;
+        var orderedSource = new SpawnedMonster("Spitter", new(100, 100, 20), 60, 2, 15) { Variety = variety, Level = 70 };
+        var orderedAttack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty)
+            { Projectile = spitter, ReleaseEffect = skills.EffectRow("MMASandSpitterProjectile") };
+        var selectedClips = new HashSet<string>();
+        foreach (ushort sequence in new ushort[] { 0x8071, 0x8072, 0x8073, 0x8074 })
+        {
+            var clip = skills.MonsterContact(variety.Id, "SpellProjectile", sequence)!;
+            var release = Game.MonsterReleaseFor(Connection(true), variety,
+                skills.EffectRow("MMASandSpitterProjectile"), 70, spitter, sequence)!;
+            Assert.Equal(clip.Animation, release.Clip);
+            Assert.Equal(clip.ContactFraction, release.Fraction);
+            Assert.Equal(release, Game.MonsterAttackForSequence(Connection(true), orderedSource, orderedAttack, sequence).Release);
+            selectedClips.Add(release.Clip);
+        }
+        Assert.Equal(2, selectedClips.Count);
+        Assert.Null(orderedAttack.Release); // Selecting an action never rewrites the reusable attack recipe.
         Assert.False(spitter.Lobbed);
         Assert.Equal((50, 3), (spitter.MinimumRange, spitter.SpreadRadius));
         // Spitter contact occurs on its twelfth 33 ms frame, not between frames at 0.371 s.
@@ -654,6 +796,48 @@ public class LockstepMonsterTests : IDisposable
                 { ProjectileTargets = [new(50, 0)] });
             runtime.AdvanceTo(ProjectileRuntime.Time(1));
             Assert.Equal(dodge ? 0 : 1, world.Hits);
+        }
+    }
+
+    [Fact]
+    public async Task A_projectile_hit_keeps_its_action_sequence_after_the_monster_starts_another_action()
+    {
+        string saves = Path.Combine(Path.GetTempPath(), $"localexile-shot-sequence-{Guid.NewGuid():N}.db");
+        Saves.Open(saves);
+        try
+        {
+            foreach (bool lockstep in new[] { false, true })
+            {
+                var conn = Connection(lockstep, $"ShotSequence{lockstep}");
+                conn.Clock.Stop();
+                conn.Walk.Teleport(880, 548, 0);
+                var source = new SpawnedMonster("Spitter", new(894, 554, 20), 60, 2, 15) { Sequence = 0x8071 };
+                var skills = new SkillCatalog();
+                var spitter = skills.MonsterProjectile(skills.EffectRow("MMASandSpitterProjectile"))!;
+                var attack = new MonsterAttack(0x1535, 1, 30, DamagePacket.Empty) { Projectile = spitter, Spell = true };
+                var session = new Game.ProjectileSession("shot-sequence", null!, null!, conn);
+                try
+                {
+                    var use = Game.MonsterProjectileUse(session, 0x8000032, source, attack, spitter, 0, sequence: 0x8071);
+                    var runtime = new ProjectileRuntime(new MortarContactWorld(false));
+                    runtime.Release(use);
+                    source.NextSequence();
+                    var contact = new ProjectileDamage(Assert.Single(runtime.Projectiles), new(0x1000),
+                        ProjectileRuntime.Time(1), "direct", new(880, 548));
+                    var outcome = Game.CommitHostilePlayerHitLocked(session, contact,
+                        Assert.IsType<HostileProjectileOffense>(use.Payload));
+                    Assert.NotNull(outcome);
+                    Assert.Equal(0x1af, BinaryPrimitives.ReadUInt16BigEndian(outcome.HitPacket));
+                    Assert.Equal(0x8071, BinaryPrimitives.ReadUInt16BigEndian(outcome.HitPacket.AsSpan(12)));
+                }
+                finally { session.Invalidate(); await session.OutputCompleted; }
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget("ShotSequenceFalse");
+            PlayerInventories.Forget("ShotSequenceTrue");
+            TestEnvironment.ReleaseSaves(saves);
         }
     }
 

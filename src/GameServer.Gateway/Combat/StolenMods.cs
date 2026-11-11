@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+
 /// <summary>
 /// Headhunter's "When you Kill a Rare monster, you gain its Modifiers" (Agents/docs/protocol/13-items.md §2e), by the
 /// project's own rule rather than the mod's 20 seconds: the rare's affixes, not its rarity's own mods, become character
@@ -14,7 +16,9 @@ public sealed class StolenMods
     /// <summary>On Headhunter's GainRareMonsterModsOnKillUniqueBelt7_: having it is what steals.</summary>
     public const string SourceStat = "gain_rare_monster_mods_on_kill_ms";
 
-    /// <summary>How long each modifier lasts.</summary>
+    public const string RandomSourceStat = "gain_X_random_rare_monster_mods_on_kill";
+
+    /// <summary>How long each Headhunter modifier lasts.</summary>
     public const double Seconds = 60;
 
     sealed record Stack(IReadOnlyList<(string Stat, int Value)> Stats, double Ends);
@@ -24,13 +28,26 @@ public sealed class StolenMods
     bool _changed;
 
     /// <summary>A slain monster's affixes: each one's stats by Stats.dat Id, by the affix's Mods.dat hash.</summary>
-    public void Steal(MonsterModSet mods, ModCatalog catalog, double now)
+    public void Steal(MonsterModSet mods, ModCatalog catalog, double now) =>
+        Add(mods.Affixes, catalog, now + Seconds);
+
+    public void StealRandom(MonsterModSet mods, ModCatalog catalog, int count, double now, Random random)
+    {
+        if (count <= 0) return;
+        var eligible = mods.Affixes.Where(affix => catalog.ByHash(affix.Hash) is
+            { Name: not ("Fractured" or "Inner Treasure" or "Soul Conduit") }).DistinctBy(affix => affix.Hash).ToArray();
+        random.Shuffle(eligible);
+        Add(eligible.Take(count), catalog, now + 20);
+    }
+
+    void Add(IEnumerable<ItemMod> affixes, ModCatalog catalog, double ends)
     {
         lock (_lock)
-            foreach (var affix in mods.Affixes)
-                if (catalog.ByHash(affix.Hash) is { } mod)
+            foreach (var affix in affixes)
+                if (catalog.ByHash(affix.Hash) is { } mod
+                    && (!_stacks.TryGetValue(affix.Hash, out var old) || old.Ends <= ends))
                 {
-                    _stacks[affix.Hash] = new([.. mod.Stats.Zip(affix.Values, (stat, value) => (stat.Id, value))], now + Seconds);
+                    _stacks[affix.Hash] = new([.. mod.Stats.Zip(affix.Values, (stat, value) => (stat.Id, value))], ends);
                     _changed = true;
                 }
     }

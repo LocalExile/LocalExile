@@ -108,7 +108,7 @@ Mods, kind by kind:
 | **Notables** (301) | Every notable's `affliction_notable_*` row is added once all of the jewel's passives are allocated (the sum does not need their positions). All 301 have a row. The generated list marks 42 with every stat read, 118 partial (condition or unread stat) and 141 with no read stat; a partly allocated cluster has no notable stats yet. | The server applies the row generically, but conditional or minion/trap/totem stats may have no consumer. |
 | **Small-passive grants** (211, 42 stats) | The theme applies per allocated cluster node, up to the small passives of a full cluster (`ClusterJewelStats.ThemeStats` translates the granted stat: `..._grant_str` is `additional_strength`, `..._grant_fire_resistance_%` is `base_fire_damage_resistance_%`…). 20 of the 42 are translated. | Sockets are assumed to be taken last, so a partly allocated cluster may count one as a small passive; the other 22 stats (per-skill-type speeds, minion and totem grants and the like) are not translated or have no consumer. |
 | **Small-passive effect** (2) | **works** for the theme: `local_affliction_jewel_small_nodes_have_effect_+%` scales it on every small passive of a fully allocated cluster. | Not applied to the notables (they are not small passives). |
-| **Keystones** (7) | The item can carry them. | The keystone nodes and their effects are not modelled. |
+| **Keystones** (7) | The item can carry them. | One node at template index zero grants its PassiveSkills stats on allocation. Most individual keystone effects remain partial. |
 | **Structure** (11) | **works**: `/cluster_jewel` writes the count, the sockets and the theme; `/voices` writes its override and empty passives; the socket counts drive which cells open. | The values are fixed by the dev commands, not rolled like a drop. |
 
 How much of the notables' data the server could already use: their 301 rows carry 685 stat entries in 468 distinct
@@ -205,3 +205,7 @@ every expansion node and is the quickest way to check a new shape.
   `passive:allocate`/`passive:refund` send the same 0x34/0x36 the client does. It reads the Gateway's
   `passive jewel stats: life N, mana N, A/B cluster node(s)` line. The theme is flat life, so the panel shows more than
   the tooltip's value when the character has increased maximum life (a 7-life small passive was +21 on a +200% build).
+
+
+A single-keystone small cluster in tree cell 20 constructs node 199 (block 195, start 4, template index 0).
+The returned node ID uses the same slot rotation as other expansion passives.

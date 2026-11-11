@@ -148,14 +148,25 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   swap places between client and server ([07](../docs/protocol/07-latency-visibility-movement.md) §5, "Open").
 - **Lockstep network mode:** the server decides every action and the client plays it back by server frames, each
   action start putting the client on the server's cell, which ends the parted copies of a crowd.
-  It works locally, off by default; over a network it is not verified ([status](../status/world.md)).
+  It works locally when selected by the client; Predictive remains preferred, and network parity is not verified
+  ([status](../status/world.md)).
   - **Known:** M5's dormant-body membership and saved-cell restoration are accepted with open issues.
-    Pickup completion, one-hand mace recovery, corpse collision, ground melee walk-up and tutorial chest approach
-    follow the client.
-    Held-walk crowd accuracy still trails; predictive drift and standing-start discrepancies remain unresolved
-    ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  - **Start:** close the remaining held-walk gap, then finish frame record ordering, action ownership and ranged
-    chase behavior before the remaining skills, world interactions and network validation.
+    The player's walk, attacks, spells, pick-ups and object uses, monsters' orders, hit recoveries, emerges and
+    corpses, and other players' copies follow the client's frame rules, and world messages are explicit records in
+    the client's key order ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+    On the 3.29.3b client held walks and pack fights (wand, bow, sword) stayed on the client's cells within GGG's
+    margin, and single probes followed natural packs, a dense area, pick-ups, spells after a Move, a reconnect and
+    two players.
+    Left: the same measurements on 3.29.3c; steps that fall exactly on a frame's end (the client decides them with
+    its float accumulator); two places where the generated walk grid is not the client's; the King in the Mists,
+    which moves during its skills on the client; monsters' and minions' hits, still written at the frame's start;
+    a held skill's repeat, one frame later than the client would take it; attack in place for a predictive client.
+  - **Start:** measure on 3.29.3c. Then move the encounters and skills added since (Izaro's arena, Doedre's
+    sewers, the Depraved Trinity, the Vaal Oversoul; Bladefall of Trarthus, Winter Orb, Storm Call, Discharge, Dark
+    Bargain, Flicker Strike's effects) and the gm-commands mod to world records (`Game.SendWorldCreate`,
+    `SendWorldRecord`, `SendWorldRemoval`): their own objects' messages still go out outside the frame's records.
+    Then special action producers, sequence wrap, ranged chase behavior and the remaining skills and world
+    interactions.
   - **Done when:** on a fixed bench every sync figure is within GGG's margin. The bench is pack fights per weapon,
     natural packs and a dense area. The figures are monsters standing per order kind, monsters in a pack, monsters
     walking per speed, the player standing and walking, and snap episodes.
