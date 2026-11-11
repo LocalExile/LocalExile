@@ -84,6 +84,10 @@ public static class StatConditions
         "you_count_as_low_life_while_affected_by_vulnerability",
         "you_count_as_full_life_while_affected_by_vulnerability",
         "lose_power_charge_each_second_if_not_detonated_mines_recently",
+        // The source-owned phasing producer gates these before publishing the pathing flag.
+        "gain_phasing_while_you_have_low_life", "gain_phasing_if_enemy_killed_recently",
+        "phasing_if_blocked_recently", "gain_phasing_while_you_have_onslaught",
+        "gain_phasing_while_at_maximum_frenzy_charges", "gain_phasing_while_affected_by_haste",
     };
 
     static readonly string[] StateSuffixes =
@@ -93,7 +97,7 @@ public static class StatConditions
         "_while_not_low_life", "_while_not_on_low_life",
         "_while_on_full_mana", "_while_on_low_mana", "_while_not_on_low_mana",
         "_while_no_life_is_reserved", "_while_no_mana_reserved",
-        "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing",
+        "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing", "_while_you_have_phasing",
         "_while_not_ignited_frozen_shocked", "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
@@ -128,7 +132,7 @@ public static class StatConditions
     static readonly string[] SlotConditionSuffixes =
         ["_while_off_hand_is_empty", "_while_off_hand_empty", MagicRingCondition, MagicItemCondition, NormalItemCondition];
 
-    static readonly string[] TrailingUnits = ["_permyriad", "_+%", "_%", "_+"];
+    static readonly string[] TrailingUnits = ["_permyriad", "_%_chance", "_+%", "_%", "_+"];
 
     static bool EndsWithCondition(string id, string condition) => id.EndsWith(condition, StringComparison.Ordinal)
         || TrailingUnits.Any(unit => id.EndsWith(condition + unit, StringComparison.Ordinal));
@@ -277,6 +281,9 @@ public static class StatConditions
             "minimum_added_fire_damage" => "global_minimum_added_fire_damage",
             "maximum_added_fire_damage" => "global_maximum_added_fire_damage",
             "number_of_additional_chains_for_projectiles" => "number_of_chains",
+            "projectiles_pierce_x_additional_targets" => "projectile_number_of_targets_to_pierce",
+            "avoid_projectiles_%_chance" => "base_avoid_projectiles_%_chance",
+            "avoid_elemental_ailments_%" => "avoid_all_elemental_status_%",
             "area_of_effect_+%" => "base_skill_area_of_effect_+%",
             "chaos_resistance_+" => "base_chaos_damage_resistance_%",
             "spell_block_%" or "chance_to_block_spells_%" => "base_spell_block_%",
@@ -304,6 +311,8 @@ public static class StatConditions
             return [.. new[] { "attack_speed_+%", "base_movement_velocity_+%" }.Where(exists)];
         if (statId == "avoid_freeze_and_chill_%_if_you_have_used_a_fire_skill_recently")
             return [.. new[] { "base_avoid_freeze_%", "base_avoid_chill_%" }.Where(exists)];
+        if (PlainOf(statId) == "avoid_elemental_damage_%")
+            return [.. new[] { "avoid_fire_damage_%", "avoid_cold_damage_%", "avoid_lightning_damage_%" }.Where(exists)];
         if (PlainOf(statId) == "all_resistances_%")
             return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
         if (PlainOf(statId) == "life_and_energy_shield_recovery_rate_+%")

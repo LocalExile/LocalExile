@@ -34,6 +34,7 @@ public partial class ConditionalItemStatsTests
         Per_rage_item_coefficients_reach_existing_final_consumers();
         Ordinary_slot_conditions_reach_existing_consumers();
         Canonical_condition_aliases_reach_defence_recovery_and_spell_consumers();
+        Qualified_phasing_sources_reach_native_pathing_and_projectile_consumers();
         Worn_item_grants_run_real_auras_with_host_identity_and_source_lifecycle();
         Archery_equipment_hardening_owns_dash_travel_and_conditional_consumers();
         Existing_owner_predicates_wire_exact_events_and_final_consumers();

@@ -89,8 +89,15 @@ public static class PlayerDamageTaken
     /// <summary>The hit without the types it avoids, each rolled once in the packet's order (physical, lightning, cold,
     /// fire, chaos), after the shift (the types taken). Avoiding damage does not stop the hit: when-hit effects still
     /// happen (wiki Avoidance). The same packet when nothing is avoided.</summary>
-    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided)
+    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided,
+        bool projectile = false)
     {
+        if (projectile && RandomRolls.Chance((int)Math.Clamp((long)get("base_avoid_projectiles_%_chance")
+            + get("avoid_projectiles_%_chance"), 0, AvoidCap), 100, random))
+        {
+            avoided = [.. hit.Components.Select(c => c.Type)];
+            return DamagePacket.Empty;
+        }
         var kept = DamagePacket.Empty;
         var dropped = new List<DamageType>();
         foreach (var (type, range) in hit.Components)

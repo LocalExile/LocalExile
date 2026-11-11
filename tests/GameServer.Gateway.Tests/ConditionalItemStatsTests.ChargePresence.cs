@@ -168,10 +168,11 @@ public partial class ConditionalItemStatsTests
             session.Enqueue(new ChargeEvent.Set(ChargeType.Frenzy, 3));
             session.Step(gainAt, _ => 0, () => default, true, false, false, new Random(504));
             Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt));
-            session.Admit(gainAt + 1, [new ChargeEvent.Grant(ChargeType.Frenzy, 1, "at-cap grant")],
+            double cappedAt = gainAt + 1;
+            session.Admit(cappedAt, [new ChargeEvent.Grant(ChargeType.Frenzy, 1, "at-cap grant")],
                 _ => 0, () => default, true, new Random(504));
-            Assert.True(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt + 4.999));
-            Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt + 5));
+            Assert.True(conn.RecentEvents.Happened("gained_frenzy_charge", cappedAt + 3.999));
+            Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", cappedAt + 4));
             inventory.Remove(PlayerInventories.Belt, minimum.Id);
             inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Olesya's Delight", new Random(504))!);
             conn.RecentEvents.Clear();

@@ -136,6 +136,13 @@ public static partial class Game
                         string.Join(", ", worn.Where(w => inactive.Contains(w.Id)).Select(w =>
                             $"{w.Id} {ItemsFor(conn).ByHash(w.Item.TypeHash)?.Name} (str {w.Strength}, dex {w.Dexterity}, int {w.Intelligence}, level {w.Level})")));
             }
+        lock (conn.Monsters)
+        {
+            conn.SourcePhasing = conn.StatSourcesCache?.Key.Flags?.GetValueOrDefault("source_phasing") == true;
+            if (conn.SourcePhasing)
+                foreach (string name in new[] { "phase_through_objects", "virtual_phase_through_objects" })
+                    if (Stats.Key(name) is uint key) sources[key] = Math.Max(1, sources.GetValueOrDefault(key));
+        }
         foreach (var (key, value) in MadnessRawStatsLocked(conn, sources))
             sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         sources = WithLinks(conn, GameEvents.WithPlayerStatSources(conn, WithQuestStats(conn, WithAntiquarian(conn, WithFortification(conn, WithCharges(conn, WithSupportGemBuffs(conn, sources)))))));
@@ -679,6 +686,8 @@ public static partial class Game
             ["_while_cursed"] = conn.PlayerLife > 0 && cursed,
             ["_while_not_cursed"] = conn.PlayerLife > 0 && !cursed,
         };
+        var phaseInputs = curseInputs;
+        conditionFlags = RequalifySourcePhasing(conn, conditionFlags, phaseInputs, dev, recentEvents, auraEffects, conditionNow);
         int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
             ? dev.TryGetValue(itemReservationKey, out int replacement) ? replacement
                 : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)
@@ -703,7 +712,8 @@ public static partial class Game
         // ticker observes them. Rebuild the conditional sum from its inputs, never add a second folded contribution.
         for (int pass = 0; pass < 4; pass++)
         {
-            var chargeFlags = RequalifyChargeConditions(conn, conditionFlags, sources, dev);
+            var chargeFlags = RequalifySourcePhasing(conn,
+                RequalifyChargeConditions(conn, conditionFlags, sources, dev), phaseInputs, dev, recentEvents, auraEffects, conditionNow);
             if (chargeFlags.All(p => conditionFlags.TryGetValue(p.Key, out bool prior) && p.Value == prior)) break;
             conditionFlags = chargeFlags;
             sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats,

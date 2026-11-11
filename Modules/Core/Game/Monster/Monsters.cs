@@ -1731,7 +1731,8 @@ public static partial class Game
         bool suppressed = a.Spell && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
         var shifted = PlayerDamageTaken.Shift(rolled, StatOf);
-        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided);
+        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided,
+            projectile: a.Projectile is not null);
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
