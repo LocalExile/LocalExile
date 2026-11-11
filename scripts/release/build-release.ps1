@@ -11,14 +11,11 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location $repo
 
 # Pinned: a new version changes the URL and the hash together. Node's hash is in nodejs.org's SHASUMS256.txt.
-$pythonVersion = '3.12.10'
-$pythonUrl = "https://www.python.org/ftp/python/$pythonVersion/python-$pythonVersion-embed-amd64.zip"
-$pythonSha = '4acbed6dd1c744b0376e3b1cf57ce906f9dc9e95e68824584c8099a63025a3c3'
 $nodeVersion = '24.19.0'
 $nodeUrl = "https://nodejs.org/dist/v$nodeVersion/node-v$nodeVersion-win-x64.zip"
 $nodeSha = '57f71ab3652e797d84acddc79c81cc9ff1c6ddb2a1974cdb83f00fee9bff4c73'
-# Run under pwsh on Linux this builds the linux-x64 package: native servers, Node from its own archive and the system's
-# Python, with the client under Proton (src/LocalExile/ClientLaunch.cs). Windows PowerShell has no $IsLinux.
+# Run under pwsh on Linux this builds the linux-x64 package: native servers and Node from its own archive, with the client
+# under Proton (src/LocalExile/ClientLaunch.cs). Windows PowerShell has no $IsLinux.
 $runtime = if ($IsLinux) { 'linux-x64' } else { 'win-x64' }
 $shell = if ($IsLinux) { 'pwsh' } else { 'powershell' }
 if ($IsLinux) {
@@ -56,17 +53,17 @@ function Get-Pinned([string]$url, [string]$sha, [string]$file) {
 
 $commit = (git rev-parse HEAD).Trim()
 Check-Exit 'git rev-parse'
-$properties = @('-c', 'Release', "-p:Version=$Version", "-p:InformationalVersion=$Version+$commit", '-v', 'q', '-nologo')
+# English only: no folders of translated compiler messages (Roslyn's satellite assemblies) in app\.
+$properties = @('-c', 'Release', "-p:Version=$Version", "-p:InformationalVersion=$Version+$commit", '-p:SatelliteResourceLanguages=en', '-v', 'q', '-nologo')
 
 # Modules compile against the Gateway, and copy nothing of it. Each goes into its own bin\.
 Step 'building the solution in Release ...'
 dotnet build GameServer.slnx @properties
 Check-Exit 'dotnet build'
 
-# One shared folder, one runtime: the servers and the extraction tools. The tools find Tools\ooz above their own folder.
+# One shared folder, one runtime: the servers and GamePack, the release's extraction. It finds Tools\ooz above its folder.
 $app = Join-Path $package 'app'
-foreach ($project in 'src\GameServer.Patch', 'src\GameServer.Auth', 'src\GameServer.Gateway',
-    'Tools\PoEDataExtractor', 'scripts\re\atlas', 'scripts\re\passive-graphs', 'scripts\re\game-pack', 'scripts\re\ggdump') {
+foreach ($project in 'src\GameServer.Patch', 'src\GameServer.Auth', 'src\GameServer.Gateway', 'scripts\re\game-pack') {
     Step "publishing $project ..."
     dotnet publish $project.Replace('\', [IO.Path]::DirectorySeparatorChar) @properties -r $runtime --self-contained true -o $app
     Check-Exit "dotnet publish $project"
@@ -88,18 +85,11 @@ New-Item -ItemType Directory -Force (Join-Path $package 'Mods\Binaries') | Out-N
 Copy-Into 'Leagues' 'Leagues'
 Get-ChildItem (Join-Path $package 'Leagues') -Recurse -Directory -Filter Binaries | Remove-Item -Recurse -Force
 
-# Paths the servers and tools read from their working directory, as in a checkout.
-Copy-Into 'data\schema' 'data\schema'
 # The servers build data\*.db from sql\ (Agents\docs\dev\databases.md).
 Copy-Into 'sql' 'sql'
-Copy-Into 'scripts\re\vendor-stock\community-stock.json' 'scripts\re\vendor-stock\community-stock.json'
-Copy-Into 'scripts\re\vendor-stock\gem-layout.json' 'scripts\re\vendor-stock\gem-layout.json'
-Copy-Into 'scripts\re\vendor-stock\ids.json' 'scripts\re\vendor-stock\ids.json'
-Copy-Into 'scripts\re\levelgen\gate-baseline.json' 'scripts\re\levelgen\gate-baseline.json'
-Copy-Into 'Agents\docs\re\components.json' 'Agents\docs\re\components.json'
 
-# The bundled runtimes of the extraction, and the manifest with each entry's program.
-Step 'bundling Python and Node ...'
+# The bundled runtime of the extraction (Node, for GamePack's Oodle decoder), and the manifest with each entry's program.
+Step 'bundling Node ...'
 if ($IsLinux) {
     $unpacked = Join-Path $downloads 'node'
     if (Test-Path $unpacked) { Remove-Item $unpacked -Recurse -Force }
@@ -107,15 +97,14 @@ if ($IsLinux) {
     & tar -xJf (Get-Pinned $nodeUrl $nodeSha "node-$nodeVersion-linux-x64.tar.xz") -C $unpacked --strip-components=1
     Check-Exit 'tar'
     Copy-Into (Join-Path $unpacked 'bin/node') 'Tools/node/node'
-    Copy-Into (Join-Path $unpacked 'LICENSE') 'licenses/node-LICENSE.txt'
+    Copy-Into (Join-Path $unpacked 'LICENSE') 'app/licenses/node-LICENSE.txt'
 }
 else {
-Expand-Archive (Get-Pinned $pythonUrl $pythonSha "python-$pythonVersion.zip") (Join-Path $package 'Tools\python')
 # Only these two: the rest is npm, with paths too long for Expand-Archive in Windows PowerShell.
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $nodeZip = [IO.Compression.ZipFile]::OpenRead((Get-Pinned $nodeUrl $nodeSha "node-$nodeVersion.zip"))
 try {
-    foreach ($item in @(@('node.exe', 'Tools\node\node.exe'), @('LICENSE', 'licenses\node-LICENSE.txt'))) {
+    foreach ($item in @(@('node.exe', 'Tools\node\node.exe'), @('LICENSE', 'app\licenses\node-LICENSE.txt'))) {
         $target = Join-Path $package $item[1]
         New-Item -ItemType Directory -Force (Split-Path $target) | Out-Null
         [IO.Compression.ZipFileExtensions]::ExtractToFile($nodeZip.GetEntry("node-v$nodeVersion-win-x64/$($item[0])"), $target, $true)
@@ -132,7 +121,7 @@ Copy-Into 'Tools\ooz\package.json' 'Tools\ooz\package.json'
 Copy-Into 'Tools\ooz\node_modules' 'Tools\ooz\node_modules'
 
 $exported = Join-Path $out 'extract-manifest.exported.json'
-# Only what the servers read: the client tables and generated files are in client.db, built from sql\.
+# Only what the servers read: the client tables and the generated ones are in client.db, built from sql\.
 & $shell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'scripts\dev\extract-data.ps1') -ExportManifest $exported -Servers
 Check-Exit 'extract-data.ps1 -ExportManifest'
 # Parsed first: Windows PowerShell's ConvertFrom-Json passes a whole array down a pipeline as one object.
@@ -149,23 +138,17 @@ $entries = @(foreach ($entry in $parsed) {
         if (-not (Test-Path (Join-Path $package $exe))) { throw "$($entry.Name): $exe was not published" }
         $arguments = @($arguments | Select-Object -Skip 4)
     }
-    else {
-        foreach ($script in $arguments | Where-Object { $_ -like 'scripts/*.py' }) { Copy-Into $script $script }
-    }
+    else { throw "$($entry.Name): a release ships no Python; a Servers entry of extract-data.ps1 must be a published program" }
     [ordered]@{ Name = $entry.Name; Outputs = @($entry.Outputs); Runner = $entry.Runner; Exe = $exe; Args = $arguments; Version = $entry.Version; Needs = @($entry.Needs) }
 })
 ConvertTo-Json -Depth 4 -InputObject $entries | Set-Content (Join-Path $package 'Tools\extract-manifest.json') -Encoding ascii
 Remove-Item $exported
-Copy-Into 'scripts\re\ot_components.py' 'scripts\re\ot_components.py'
-Copy-Into 'scripts\re\anim_contacts.py' 'scripts\re\anim_contacts.py'
 
 # Licenses, and what GPL-2.0 asks: where this exact source is.
-Copy-Into 'LICENSE' 'licenses\LICENSE.txt'
-Copy-Into 'THIRD-PARTY-NOTICES.md' 'licenses\THIRD-PARTY-NOTICES.md'
-Copy-Into 'data\schema\LICENSE' 'licenses\dat-schema-LICENSE.txt'
-Copy-Into 'Tools\ooz\node_modules\ooz-wasm\LICENSE' 'licenses\ooz-wasm-LICENSE.txt'
-if (-not $IsLinux) { Copy-Item (Join-Path $package 'Tools\python\LICENSE.txt') (Join-Path $package 'licenses\python-LICENSE.txt') }
-Set-Content (Join-Path $package 'licenses\SOURCE.txt') "LocalExile $Version is built from https://github.com/LocalExile/LocalExile/tree/$commit" -Encoding ascii
+Copy-Into 'LICENSE' 'app\licenses\LICENSE.txt'
+Copy-Into 'THIRD-PARTY-NOTICES.md' 'app\licenses\THIRD-PARTY-NOTICES.md'
+Copy-Into 'Tools\ooz\node_modules\ooz-wasm\LICENSE' 'app\licenses\ooz-wasm-LICENSE.txt'
+Set-Content (Join-Path $package 'app\licenses\SOURCE.txt') "LocalExile $Version is built from https://github.com/LocalExile/LocalExile/tree/$commit" -Encoding ascii
 Copy-Into $(if ($IsLinux) { 'scripts\release\README-player-linux.txt' } else { 'scripts\release\README-player.txt' }) 'README.txt'
 [ordered]@{ version = $Version; commit = $commit; client = '3.29.3c'; runtime = $runtime } | ConvertTo-Json |
     Set-Content (Join-Path $package 'release.json') -Encoding ascii
@@ -181,12 +164,11 @@ $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
     $relative = $_.FullName.Substring($package.Length + 1).Replace('/', '\')
     $_.Extension -in '.ggpk', '.bin', '.dat', '.dat64', '.datc64', '.pfx', '.key', '.pem', '.db' -or
     $_.Name -like 'PathOfExile*.exe' -or $_.Name -in 'Game.exe', 'Game.patched.exe', 'Game_x64.exe' -or ($_.Name -like '*secret*' -and $_.Extension -ne '.dll') -or $_.Name -like 'login-keys*' -or
-    ($relative -like 'data\*' -and $relative -notlike 'data\schema\*') -or $relative -like 'Client\*'
+    $relative -like 'data\*' -or $relative -like 'Client\*'
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
-foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GgDump.exe', 'Tools\python\python.exe',
-    'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'scripts\re\levelgen\gate-baseline.json', 'data\schema\schema.min.json', 'sql\base\auth\accounts.sql') {
-    if ($IsLinux -and $required -eq 'Tools\python\python.exe') { continue }
+foreach ($required in 'app\GameServer.Gateway.exe', 'app\GameServer.Auth.exe', 'app\GameServer.Patch.exe', 'app\GamePack.exe',
+    'Tools\node\node.exe', 'Tools\ooz\node_modules\ooz-wasm\package.json', 'Modules\Core\Game\bin\game.dll', 'sql\base\auth\accounts.sql', 'sql\base\world\server_level_areas.sql') {
     $relative = if ($IsLinux) { $required -replace '\.exe$', '' } else { $required }
     if (-not (Test-Path (Join-Path $package $relative))) { throw "the package misses $required" }
 }

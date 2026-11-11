@@ -45,7 +45,7 @@ static partial class Game
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
         int radius = SkillRadius(conn, own, spell: true, effect);
-        return new(dps, seconds, radius, id == "ContagionAltX" ? 0.75 : 1, skillId);
+        return new(dps, seconds, radius, id == "ContagionAltX" ? 0.75 : 1, skillId, Caster: conn);
     }
 
     /// <summary>A Contagion cast: once the area cast clip reaches its contact (as AreaSkillHit times a spell), every live
@@ -162,6 +162,13 @@ static partial class Game
         return (at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo);
     }
 
+    /// <summary>The player who owns a damage over time's kill: its caster while present in the runner's instance (connected,
+    /// not leaving); null when gone. Never the runner merely for running the world.</summary>
+    internal static ClientState? DotOwner(ClientState runner, ClientState? caster) =>
+        caster is null || caster.Closed || caster.LeavingArea ? null
+            : ReferenceEquals(caster, runner) || (caster.Instance is not null && ReferenceEquals(caster.Instance, runner.Instance))
+                ? caster : null;
+
     /// <summary>Plays the Contagion circle (<paramref name="ao"/>: the caster's skin's, else the default) at a spread, sized
     /// to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
     internal static async Task ShowContagionSpread(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -192,7 +199,7 @@ static partial class Game
 
     internal static async Task TickContagions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage)>();
+        var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, ClientState? Owner)>();
         var ended = new List<(uint Id, ushort Buff)>();
         var updated = new List<(uint Id, ushort Buff, ushort Skill, double Remaining)>();
         using (ProjectileMutation(conn))
@@ -208,17 +215,22 @@ static partial class Game
                 if (damage > 0)
                 {
                     uint lifeBefore = m.Life;
-                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
+                    double fraction = Math.Min(1.0, (double)lifeBefore / damage);
+                    // The kill and its owner-only gains (Rampage, Vaal soul, the kill itself) go to the owner of the
+                    // application whose damage landed it, never to this connection for running the world.
+                    var owner = DotOwner(conn, m.Contagion.WinnerAt(fraction)?.Caster);
+                    (m.Life, bool stageStarts) = owner is null ? TakeDamageLocked(m, damage) : TakeOwnerDamageLocked(owner, m, damage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
-                        CollectVaalSoulAtDeathLocked(conn, m);
+                        m.LastHitBy = owner;
+                        if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
                         // Its own damage killed it partway through the tick: what affected it then spreads, with the
                         // time it had left then (also when this tick ended it).
-                        m.Contagion.Died(Math.Min(1.0, (double)lifeBefore / damage));
+                        m.Contagion.Died(fraction);
                     }
-                    hits.Add((id, m, m.Life, damage));
+                    hits.Add((id, m, m.Life, damage, owner));
                     if (stageStarts) CommitBossStage(remote, stream, ciphers, conn, id, m, now);
                 }
                 if (m.Dead || m.Life == 0 || m.Contagion.Active is null)
@@ -248,13 +260,16 @@ static partial class Game
                 InstanceEntities.AddBuff(id, buff, ContagionBuffRow, PlayerId, skill,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining))),
                 $"0x01c1 monster 0x{id:x} contagion buff 0x{buff:x} from skill 0x{skill:x4}, {remaining:0.##} s");
-        foreach (var (id, m, life, damage) in hits)
+        foreach (var (id, m, life, damage, owner) in hits)
         {
             if (life == 0)
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of contagion" : null);
-            if (life == 0) await DotKilled(remote, stream, ciphers, conn, id, m);
+            // The owner's kill (on its own frame when it is another player); with the owner gone, the death without any
+            // player's on-kill effects.
+            if (life == 0 && owner is not null) await DotKilled(remote, stream, ciphers, conn, id, m);
+            else if (life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m, byMinion: true);
         }
     }
 }

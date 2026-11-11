@@ -5,14 +5,8 @@ namespace GameServer.Gateway.Tests;
 // of 1000 ms on the Str rig but 299 and 899 of 1133 on the Dex one, so AnimationContacts.SkillAttackContactAt reads the
 // frame instead of a constant. Data extracted before the "contacts" key existed has only the earliest frame, and the
 // caller then models the gap (Game.GemAttackStrikeGap) — that fallback must stay reachable, not throw.
-public sealed class SkillMultiStrikeContactTests : IDisposable
+public sealed class SkillMultiStrikeContactTests
 {
-    private readonly string _folder = Path.Combine(Path.GetTempPath(), $"skill-multi-strike-{Guid.NewGuid():N}");
-
-    public SkillMultiStrikeContactTests() => Directory.CreateDirectory(_folder);
-
-    public void Dispose() => Directory.Delete(_folder, recursive: true);
-
     const string Str = "Metadata/Characters/Str/Str.ao";
     const string Dex = "Metadata/Characters/Dex/Dex.ao";
     const string Old = "Metadata/Characters/Old/Old.ao";
@@ -20,8 +14,6 @@ public sealed class SkillMultiStrikeContactTests : IDisposable
     // A one-hand sword, the weapon Double Strike's own doublestrike_sword clip is named for.
     static WeaponProfile Sword => new(Shield: false, DualWield: false, Staff: false, Bow: false, DualClaws: false,
         TwoHand: false, Melee: true, TwoHandMelee: false, Sword: true);
-
-    private void Write(string json) => File.WriteAllText(Path.Combine(_folder, "animation-contacts.json"), json);
 
     [Fact]
     public void Only_double_strike_gem_variants_replay_the_base_additional_hit_stat()
@@ -60,14 +52,13 @@ public sealed class SkillMultiStrikeContactTests : IDisposable
     public void Each_strike_reads_its_own_keyframe_and_an_older_extract_falls_back_to_null()
     {
         // As data/animation-contacts.json has it: two contact frames per clip, the second one later on the Dex rig.
-        Write("""
+        var contacts = AnimationContactsTables.From("""
             { "Metadata/Characters/Str/Str.ao": { "animations": { "doublestrike_sword": [1000, 300] },
                 "contacts": { "doublestrike_sword": [[300, null], [666, null]] } },
               "Metadata/Characters/Dex/Dex.ao": { "animations": { "doublestrike_sword": [1133, 299] },
                 "contacts": { "doublestrike_sword": [[299, null], [899, null]] } },
               "Metadata/Characters/Old/Old.ao": { "animations": { "doublestrike_sword": [1000, 300] } } }
             """);
-        var contacts = new AnimationContacts(_folder);
 
         // The first strike is the clip's earliest contact, the second its next frame — 0.366 later on the Str rig.
         var first = contacts.SkillAttackContactAt(Str, Sword, "doublestrike", 0);

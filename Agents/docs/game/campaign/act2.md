@@ -32,7 +32,7 @@ Quest passive points in Act 2:
 - Book of Skill from a2q5 (QSR 7).
 - Eramir's point for killing all three bandits (QSR 8).
 
-Sources: client tables (`data/tables`, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1), room text
+Sources: client tables (client.db, 3.29.3b), the generated layouts (`lg.ps1 questobjects`, seed 1), room text
 (`lg.ps1 cat`), the unpacked `.ot`/`.it` text, the campaign's boss placement findings
 ([status](../../../status/quests.md)), and the wiki (Fandom mirror, 2026-10-30). The sections after the status are the
 research done before the act was built: their "Risks" are what was expected then, the status says how it went.
@@ -42,8 +42,7 @@ research done before the act was built: their "Risks" are what was expected then
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act2.cs`,
 [12](../../protocol/12-quests.md) §11) and was played unattended by the campaign runner
 (`scripts/dev/campaign/quests/a2q*.py`) from `/quest_preset Act1Complete` (seed 1), before the game moved into modules;
-on the modules the oracle (`QuestEngineTests`) plays it after Act 1 to `Act2CompleteEramir`, and the offline exit audit
-(`scripts/re/exits --quests`) has every Act 2 exit at seed 1, the tree's into The Vaal Ruins included.
+on the modules the offline exit audit (`scripts/re/exits --quests`) has every Act 2 exit at seed 1, the tree's into The Vaal Ruins included.
 What the risks below predicted and how it went: Arteri, the bandit lords and the other bosses are placed (boss
 workstream, and the monster blob's InteractionAction); the Thaumetic Seal, the tree, the Ancient Seal, the Apex door and
 the Dark Altar are engine quest objects; books set their `use_flag` and give their points; Eramir's row 95 takes the
@@ -169,7 +168,7 @@ STEPS = [
   order.
 - The Thaumetic Seal and the spike objects are not in `object-types.json`. Their components come from the `.ot` text
   above: no component outside the supported set.
-- Book use (`UseSkillBook`, `Program.Items.cs`) gives +1 passive point. It does not set the `.it` `use_flag`
+- Book use (`UseSkillBook`, `Modules/Core/Game/Item/Items.cs`) gives +1 passive point. It does not set the `.it` `use_flag`
   (`a1q9-UsedRewardBook`), so the quest log and DONE never complete. Whether the Gateway can build a Book of Skill
   as an offer item is unverified.
 

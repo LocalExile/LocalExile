@@ -2,13 +2,13 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Core;
 
 public static partial class Game
 {
     static readonly Lazy<IReadOnlyDictionary<int, string>> TrapVisuals = new(() =>
     {
-        using var rows = GameTables.Open(Path.Combine("data", "tables", "SkillTrapVariations.json"));
-        return rows.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("Id").GetInt32(), r => r.GetProperty("Metadata").GetString()!);
+        return ClientTables.Table("SkillTrapVariations").ToDictionary(r => r.Int("Id"), r => r.Text("Metadata")!);
     });
     public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
     {

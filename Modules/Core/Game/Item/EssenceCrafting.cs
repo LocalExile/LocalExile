@@ -58,20 +58,19 @@ public sealed class EssenceCrafting(ItemCatalog catalog, ItemRolls rolls, string
 
     static IReadOnlyList<Essence> Load(ItemCatalog catalog, string folder)
     {
-        string path = Path.Combine(folder, "tables", "Essences.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("Essences")) return [];
+        var doc = ClientTables.Table("Essences");
         var result = new List<Essence>();
-        foreach (var row in doc.RootElement.EnumerateArray())
+        foreach (var row in doc)
         {
-            if (catalog.Row(row.GetProperty("BaseItemTypesKey").GetInt32()) is not { } currency) continue;
+            if (catalog.Row(row.Int("BaseItemTypesKey")) is not { } currency) continue;
             var mods = new Dictionary<string, int>();
             foreach (var (itemClass, column) in Columns)
-                if (row.TryGetProperty(column, out var key) && key.ValueKind == JsonValueKind.Number)
-                    mods.Add(itemClass, key.GetInt32());
+                if (row.IntOrNull(column) is int key)
+                    mods.Add(itemClass, key);
             if (mods.Count == 0) continue; // Remnants target imprisoned monsters, not equipment.
-            result.Add(new(currency.Hash, currency.Id, row.GetProperty("Level").GetInt32(),
-                row.GetProperty("ItemLevelRestriction").GetInt32(), mods));
+            result.Add(new(currency.Hash, currency.Id, row.Int("Level"),
+                row.Int("ItemLevelRestriction"), mods));
         }
         return result;
     }

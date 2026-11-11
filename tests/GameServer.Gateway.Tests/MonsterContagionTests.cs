@@ -34,7 +34,20 @@ public sealed class MonsterContagionTests
         Assert.Equal(100 + 1, recast.Advance(2.01, 1));
         Assert.Equal(1, recast.Active!.DamagePerSecond);
         Assert.Equal(6.01, recast.Until, 6);
+
+        // Two owners: the winning application at the moment of death owns the kill, not the later or weaker one.
+        var a = Player("a");
+        var b = Player("b");
+        var owned = new MonsterContagion();
+        owned.Apply(0, new(300, 1, 18, Caster: a));
+        owned.Apply(0, new(100, 4, 18, Caster: b));
+        Assert.Equal(400, owned.Advance(2, 1));
+        Assert.Same(a, owned.WinnerAt(0.25)?.Caster);
+        Assert.Same(a, owned.WinnerAt(0.45)?.Caster);
+        Assert.Same(b, owned.WinnerAt(0.55)?.Caster);
     }
+
+    static ClientState Player(string name) => new(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1);
 
     [Fact]
     public void Contagion_spreads_the_time_it_had_left_once()
@@ -70,6 +83,18 @@ public sealed class MonsterContagionTests
         expired.Advance(1, 1);
         expired.Clear();
         Assert.Null(expired.TakeSpread(3));
+
+        // The spread keeps the winning application's owner, through a kill by its own tick.
+        var a = Player("a");
+        var b = Player("b");
+        var shared = new MonsterContagion();
+        shared.Apply(0, new(300, 1, 18, Caster: a));
+        shared.Apply(0, new(100, 4, 18, Caster: b));
+        shared.Advance(2, 1);
+        shared.Died(0.25);
+        var spread = shared.TakeSpread(2)!;
+        Assert.Same(a, spread.Caster);
+        Assert.Equal(0.5, spread.Seconds, 6);
 
         // A spread chain ends: each spread carries less time, so a dense pack runs out.
         var chain = new MonsterContagion();

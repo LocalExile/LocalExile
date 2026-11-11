@@ -105,7 +105,7 @@ public static partial class Game
         {
             if (AreaTransitionCatalog.HashOf(area) is not { } hash)
             {
-                Console.WriteLine($"[gateway] {remote} NPCTalk {talk.Row}: AreaTransitionTo({area}) is not in data/area-transitions.json");
+                Console.WriteLine($"[gateway] {remote} NPCTalk {talk.Row}: AreaTransitionTo({area}) is not in client.db's area_transitions");
                 return true;
             }
             // The fade (Script2 FadeToBlack) is the client's; the move follows after the script's delay.

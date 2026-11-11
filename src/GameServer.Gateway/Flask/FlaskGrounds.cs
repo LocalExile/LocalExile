@@ -98,19 +98,17 @@ public static class FlaskGrounds
     public static Dictionary<Kind, (string Ao, int ArtRadius)> LoadArt(string folder)
     {
         var art = new Dictionary<Kind, (string, int)>();
-        string types = Path.Combine(folder, "tables", "GroundEffectTypes.json"), effects = Path.Combine(folder, "tables", "GroundEffects.json");
-        if (!ClientTables.Exists(types) || !ClientTables.Exists(effects)) return art;
-        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(types));
-        var ids = t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString()).ToList();
-        using var e = JsonDocument.Parse(ClientTables.ReadAllBytes(effects));
+        if (!ClientTables.Has("GroundEffectTypes") || !ClientTables.Has("GroundEffects")) return art;
+        var ids = ClientTables.Table("GroundEffectTypes").Select(r => r.Text("Id")).ToList();
+        var e = ClientTables.Table("GroundEffects");
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
             (Kind.ProfaneGround, "Profane") })
-            foreach (var r in e.RootElement.EnumerateArray())
-                if (r.GetProperty("GroundEffectTypesKey") is { ValueKind: JsonValueKind.Number } k && ids.ElementAtOrDefault(k.GetInt32()) == id
-                    && r.GetProperty("__col1").GetInt32() == 0 && r.GetProperty("__col2").GetInt32() == 2
-                    && r.GetProperty("AOFile").EnumerateArray().FirstOrDefault().GetString() is { Length: > 0 } ao)
+            foreach (var r in e)
+                if (r.IntOrNull("GroundEffectTypesKey") is int k && ids.ElementAtOrDefault(k) == id
+                    && r.Int("__col1") == 0 && r.Int("__col2") == 2
+                    && r.Texts("AOFile").FirstOrDefault() is { Length: > 0 } ao)
                 {
-                    art[kind] = (ao, r.GetProperty("__col4").GetInt32());
+                    art[kind] = (ao, r.Int("__col4"));
                     break;
                 }
         return art;
