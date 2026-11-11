@@ -156,6 +156,12 @@ public static class StatConditions
             string prefix = statId[..ring.Index];
             return PlainOf(prefix) ?? prefix;
         }
+        var difference = ResourceDifferenceId.Match(statId);
+        if (difference.Success)
+        {
+            string prefix = statId[..difference.Index];
+            return PlainOf(prefix) ?? prefix;
+        }
         var below = BelowThresholdId.Match(statId);
         if (below.Success)
         {
@@ -317,6 +323,8 @@ public static class StatConditions
             return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
         if (PlainOf(statId) == "life_and_energy_shield_recovery_rate_+%")
             return [.. new[] { "life_recovery_rate_+%", "energy_shield_recovery_rate_+%" }.Where(exists)];
+        if (PlainOf(statId) == "unaffected_by_ignite_and_shock")
+            return [.. new[] { "unaffected_by_ignite", "unaffected_by_shock" }.Where(exists)];
         if (PlainOf(statId) == "immune_to_freeze_and_chill")
             return [.. new[] { "base_immune_to_freeze", "base_immune_to_chill" }.Where(exists)];
         return Fold(statId, exists) is { } plain ? [plain] : [];
@@ -427,6 +435,16 @@ public static class StatConditions
             string prefix = statId[..ring.Index];
             return subject => And(Of(prefix, subject), subject.Value?.Invoke(ringKey) is int value
                 ? value != 0 ? State.Holds : State.Fails : State.NotModelled);
+        }
+        var difference = ResourceDifferenceId.Match(statId);
+        if (difference.Success)
+        {
+            string leftResource = difference.Groups["left"].Value, rightResource = difference.Groups["right"].Value;
+            string prefix = statId[..difference.Index];
+            bool valid = long.TryParse(difference.Groups["n"].Value, out long limit);
+            return subject => And(Of(prefix, subject), valid
+                && subject.Value?.Invoke(leftResource) is int left && subject.Value?.Invoke(rightResource) is int right
+                    ? Math.Abs((long)left - right) <= limit ? State.Holds : State.Fails : State.NotModelled);
         }
         var below = BelowThresholdId.Match(statId);
         if (below.Success)
@@ -673,6 +691,9 @@ public static class StatConditions
 
     static readonly System.Text.RegularExpressions.Regex ThresholdId =
         new(@"_(?:if_you_have|while(?:_you_have)?)_at_least_(?<n>\d+)_(?<attr>maximum_energy_shield|strength|dexterity|intelligence|rage|mana|life)(?=$|_final$|_\+%$|_%$)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static readonly System.Text.RegularExpressions.Regex ResourceDifferenceId =
+        new(@"_while_max_(?<left>life|mana|energy_shield)_(?<right>life|mana|energy_shield)_within_(?<n>\d+)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     static readonly System.Text.RegularExpressions.Regex BelowThresholdId =
         new(@"_if_below_(?<n>\d+)_(?<attr>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);

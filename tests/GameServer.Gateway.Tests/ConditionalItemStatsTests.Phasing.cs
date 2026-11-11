@@ -160,6 +160,7 @@ public partial class ConditionalItemStatsTests
             Read(); Assert.True(conn.IsPhasing);
             conn.RecentEvents.Clear();
             Read(); Assert.False(conn.IsPhasing);
+            Existing_resource_conditions_reach_ailment_consumers(conn, Wear, Minimum);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);
