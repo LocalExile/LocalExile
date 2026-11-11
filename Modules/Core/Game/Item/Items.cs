@@ -717,7 +717,7 @@ public static partial class Game
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
-        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
+        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground, conn) is not { } id) return;
         await SendGroundItem(remote, stream, ciphers, conn, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
     }

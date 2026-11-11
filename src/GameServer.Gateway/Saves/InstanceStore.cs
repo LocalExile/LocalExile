@@ -56,13 +56,14 @@ public sealed partial class InstanceState
 
     /// <summary>Puts a character's start weapon (<see cref="PlayerInventories.StartWeapon"/>) on this instance's ground
     /// once: its ground id, or null when this weapon was put here before (it is still on the ground, or was picked up).
-    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too.</summary>
-    public uint? PlaceStartWeapon(string character, WorldItemObject weapon)
+    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too. <paramref name="by"/> is the
+    /// connection it is for: an unshared ground item is shown only to the one that owns it.</summary>
+    public uint? PlaceStartWeapon(string character, WorldItemObject weapon, object? by = null)
     {
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(character, out var placed) && ReferenceEquals(placed.Weapon, weapon.Item)) return null;
-            uint id = Ground.Add(weapon, null, shared: false, justDropped: false);
+            uint id = Ground.Add(weapon, by, shared: false, justDropped: false);
             _startWeapons[character] = (id, weapon.Item);
             return id;
         }
