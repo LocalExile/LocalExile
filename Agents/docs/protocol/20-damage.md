@@ -723,6 +723,13 @@ average range. The caller applies the target's resistance. The player's chill, f
 modelled ([below](#outgoing-chill-freeze-and-shock-on-monsters)), and so are his ignites and bleeds (below). Righteous
 Fire still uses its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
 
+Elementalist's Shaper of Flames: `always_ignite` adds 100% ignite chance; `all_damage_can_ignite` lets any hit ignite
+and puts every damage type into the ignite's base (fire scaling plus the types the portion visited, as poison's
+physical part), and the panel's ignite rows follow;
+`enemies_ignited_by_you_have_physical_damage_%_converted_to_fire` (40%) converts a burning monster's hits on the player
+through the Born under Fire hook (`EnemyAuraConversionLocked`), hits only. The golem and Abberath ignites still need
+fire damage.
+
 **The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
 ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `chance_to_ignite_%` and
 `chance_to_freeze_shock_ignite_%` give the chance, and the ignite prohibitions (`CannotInflict`, below) stop it. The base is the hit's flat fire damage
@@ -925,6 +932,7 @@ mechanics remain open; source IDs, support lifecycle and parsed contact tests ar
 - Critical elemental hits with `critical_strikes_ignore_elemental_resistances` use effective resistance zero,
   including when the target's resistance or maximum is negative; ignore overrides penetration.
   `attack_critical_strikes_ignore_elemental_resistances` covers attacks only.
+  Inevitable Judgement (graph node 48214) grants the generic ignore and 10 non-critical penetration.
   Non-critical elemental hits add `non_critical_strikes_penetrate_elemental_resistances_%` to general penetration.
   Player and skill contributions to the same key sum; the prohibition suppresses all elemental penetration and ignore.
   Physical, chaos and DoT keep their separate rules.
