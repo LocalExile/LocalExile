@@ -30,9 +30,9 @@ static partial class Game
         WornGrantedSkillOwner(conn).For(equipment ?? ItemsOf(conn).EquipmentSnapshot());
 
     /// <summary>
-    /// Item-granted active skills whose real executor exists and which the game marks manually cast. Trigger-only rows
-    /// remain available from <see cref="AllWornGrantedSkillsOf"/> for their future trigger owner, but never enter this
-    /// manually published list. Unsupported grants are likewise not presented as usable Actor skills.
+    /// Item-granted active skills with an executor. Twister's exported manual flag is true even though its intrinsic
+    /// trigger owns admission; its Actor row is needed to receive the triggered action. Unsupported grants remain
+    /// available from <see cref="AllWornGrantedSkillsOf"/> but are not presented as usable Actor skills.
     /// </summary>
     internal static IReadOnlyList<WornGrantedSkills.Grant> WornGrantedSkillsOf(ClientState conn,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
@@ -41,7 +41,7 @@ static partial class Game
         return [.. AllWornGrantedSkillsOf(conn, equipment).Where(g => !g.Support && g.ManuallyCast
             && LeagueFor(conn).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
-                || IsSummonBeastialCompanionEffect(g.EffectId)
+                || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect
                 || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(conn).Any(accept => accept(conn, g.EffectId))))];
     }

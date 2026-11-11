@@ -309,6 +309,7 @@ static partial class Game
             MadnessExplosionsLocked(conn, now);
         }
         if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
+        await DrainTwisterGains(remote, stream, ciphers, conn);
         foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");
         await ReservationFightersTick(remote, stream, ciphers, conn, now);
         await TickStrongestDots(remote, stream, ciphers, conn, m => m.HeraldBurns,

@@ -104,8 +104,8 @@ static partial class Game
                         if (!Active || !valid()) return;
                         try
                         {
-                            var use = release() with { Seed = ++seed };
-                            long useId = Runtime.Release(use);
+                            var use = release();
+                            long useId = Release(use);
                             if (ServerTrace.Projectiles && !Quiet(use.Payload))
                                 Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                                     + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
@@ -117,6 +117,7 @@ static partial class Game
         }
 
         public double NowTicks => Runtime.Now;
+        internal long Release(ProjectileUse use) => Runtime.Release(use with { Seed = ++seed });
 
         public void Invalidate()
         {

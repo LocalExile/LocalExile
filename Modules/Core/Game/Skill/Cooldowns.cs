@@ -19,7 +19,8 @@ static partial class Game
 
     // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
     internal static int CooldownKey(ClientState conn, int effect, int level) =>
-        (IsDashEffect(SkillsFor(conn).EffectId(effect)) || IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(effect)))
+        (IsDashEffect(SkillsFor(conn).EffectId(effect)) || IsSummonBeastialCompanionEffect(SkillsFor(conn).EffectId(effect))
+            || SkillsFor(conn).EffectId(effect) == TwisterEffect)
             && SkillsFor(conn).CooldownGroup(effect, level) is >= 0 and var group ? -1 - group : effect;
 
     internal static int CooldownKey(ClientState conn, int effect, ushort skillId)
@@ -63,6 +64,7 @@ static partial class Game
         {
             using var sourceAdmission = AscendancyPolicies.Enter(conn, conn.MainAscendancy.Selection);
             ticket = null;
+            if (SkillsFor(conn).EffectId(effect) == TwisterEffect) return false;
             SingleUseCooldownState? state = null;
             StanceAdmissionPlan? stancePlan = null;
             int key = skillId is ushort requestedKey ? CooldownKey(conn, effect, requestedKey) : effect;

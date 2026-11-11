@@ -15,6 +15,7 @@ static partial class Game
                 .Select(a => (Key: (p.Id, a.Aura.SkillId), Aura: a.Aura with { SourceBuff = null,
                     AffectsSelf = true, ExternalEffectPct = a.Effect }))).ToDictionary(p => p.Key, p => p.Aura);
         var packets = new List<byte>();
+        var previousAvian = conn.ReceivedAuras.Values.Select(a => a.EffectId).ToHashSet();
         bool changed = false;
         foreach (var (key, old) in conn.ReceivedAuras.ToArray())
         {
@@ -32,6 +33,9 @@ static partial class Game
         }
         if (changed)
         {
+            foreach (string gained in conn.ReceivedAuras.Values.Select(a => a.EffectId).Distinct()
+                         .Where(id => id is "AvianMightShared" or "AvianFlightShared" && !previousAvian.Contains(id)))
+                QueueTwisterGainLocked(conn);
             conn.AuraStatsDirty = true;
             conn.Pools = BuildPoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();

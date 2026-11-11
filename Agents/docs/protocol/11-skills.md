@@ -1724,6 +1724,12 @@ The life is set once, at `0x141b35b7a`: `skill_effect_duration` (0x168) / 1000 s
 `base_skill_effect_duration`: before the Gateway sent it (`GemSkills`, `SkillDurationModifiers.Seconds`) every client
 spark died on its first tick and none was drawn (live 2026-10-30: sparks drawn).
 
+Twister (`avian_tornado`, ActiveSkills row 1292) also uses Spark's ActionType 57.
+SkillArtVariations `spark` selects ProjectilesArtVariations `spark_tornado` and Projectiles row 369,
+`Metadata/Projectiles/SandTornadoSpark` (speed 250), rather than TriggeredSupportTornado.
+Its 2,500 ms lifetime, nova, always-pierce and Avian-gain trigger come from the Twister stat set.
+Native tornado motion and repeat timing still require a dedicated trace; ordinary Spark evidence does not establish them.
+
 **Spark's wander (live 2026-10-31, Frida `scripts/re/frida/trace-spark-legs.js`, 1,084 sparks).** Each spark is its own
 copy of the Spark action. Its first leg seeds the client's small generator (`0x14146d8f0`, the TinyMT32 key
 initializer with this client's constants, as `AnimationVariantSelector.NativeRandom`) from four words: the use's

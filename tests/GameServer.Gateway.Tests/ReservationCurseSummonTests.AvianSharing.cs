@@ -42,6 +42,7 @@ public sealed partial class ReservationCurseSummonTests
             if (nest) items.Add(PlayerInventories.BodyArmour, 0, 0, uniques.Create("Saqawal's Nest", new Random(504))!);
             else
             {
+                items.Add(PlayerInventories.Helmet, 0, 0, uniques.Create("Saqawal's Flock", new Random(504))!);
                 items.Add(PlayerInventories.Gloves, 0, 0, uniques.Create("Saqawal's Winds", new Random(504))!);
                 items.Add(PlayerInventories.Weapon1, 0, 0, uniques.Create("Dying Breath", new Random(504))!);
             }
@@ -82,6 +83,10 @@ public sealed partial class ReservationCurseSummonTests
             int baseCold = Stat(receiver, "spell_minimum_added_cold_damage");
             await Toggle(source, sourceWire);
             Publish();
+            Assert.Single(receiver.Twister.Pending);
+            receiver.Twister.Pending.Clear();
+            Publish();
+            Assert.Empty(receiver.Twister.Pending);
             Assert.Equal(20, Stat(source, "chance_to_deal_double_damage_%"));
             Assert.Equal(40, Minion(source, "chance_to_deal_double_damage_%"));
             Assert.Equal(20, Stat(receiver, "chance_to_deal_double_damage_%"));
@@ -98,8 +103,10 @@ public sealed partial class ReservationCurseSummonTests
             await Toggle(receiver, receiverWire);
             Assert.Equal(20, Stat(receiver, "chance_to_deal_double_damage_%"));
             schedule.At = source.Reservations.AvianDeadline;
+            receiver.Twister.Pending.Clear();
             Game.ReconcileOwnAuras(source, validateSkills: true);
             Publish();
+            Assert.Single(receiver.Twister.Pending);
             Assert.Equal(0, Stat(receiver, "chance_to_deal_double_damage_%"));
             Assert.Equal(0, Stat(receiver, "has_avians_might"));
             Assert.Equal(1, Stat(receiver, "has_avians_flight"));

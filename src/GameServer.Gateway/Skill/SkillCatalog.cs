@@ -774,6 +774,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SparkAltX"] = "Metadata/Projectiles/Spark",
         ["SparkAltY"] = "Metadata/Projectiles/Spark",
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
+        ["Twister"] = "Metadata/Projectiles/SandTornadoSpark",
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",

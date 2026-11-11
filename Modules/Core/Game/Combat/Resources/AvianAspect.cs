@@ -56,6 +56,7 @@ static partial class Game
     {
         var state = conn.Reservations;
         var root = AvianRoot(conn);
+        ReconcileTwisterSourcesLocked(conn);
         if (root is null)
         {
             if (state.AvianOwner is not { } owner) return false;
@@ -71,6 +72,9 @@ static partial class Game
         double might = Duration("base_skill_effect_duration", "avians_might_duration_ms_+");
         double flight = Duration("base_secondary_skill_effect_duration", "avians_flight_duration_ms_+");
         bool changed = false;
+        var previousOwner = state.AvianOwner;
+        double previousStart = state.AvianStartedAt;
+        var previousPhase = state.Avian;
         var wanted = new ReservationState.CatAspectOwner(root.SkillId, root.Buff);
         if (state.AvianOwner != wanted || state.Avian == ReservationState.AvianPhase.None)
         {
@@ -90,6 +94,8 @@ static partial class Game
         state.Avian = phase;
         state.AvianStartedAt = settled.Started;
         state.AvianDeadline = settled.Deadline;
+        if (previousOwner != wanted || previousPhase != phase || Math.Abs(previousStart - settled.Started) > 1e-9)
+            QueueTwisterGainLocked(conn);
         if (changed)
         {
             state.AvianBuff = conn.NextBuff++;

@@ -13,7 +13,7 @@ static class GatewayProjectileSkillProfiles
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
-        "Spark", "SparkAltX", "SparkAltY", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
+        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
         "WinterOrb", "ForbiddenRite", "Cremation", "RollingMagma", "ToxicRain", "PoisonousConcoction"
     };
     static readonly IReadOnlySet<ProjectileEndReason> TerminalStops = new HashSet<ProjectileEndReason>
@@ -58,6 +58,10 @@ static class GatewayProjectileSkillProfiles
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
         else if (effect is "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")
             p = p with { HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(0.66)) };
+        // Twister uses the Spark action's tornado branch, with a per-projectile repeat interval.
+        // The 100 ms repeat policy still needs an official contact trace; do not inherit Spark's emission-wide lock.
+        else if (effect == "Twister")
+            p = p with { HitRule = new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(.1)) };
 
         // Rolling Magma lobs its orb onto the aim, where it explodes, then chains along the ground: each of its chains
         // (number_of_chains, 2 at level 1) is a bounce forward and another explosion, which may hit the same monsters.
@@ -85,6 +89,7 @@ static class GatewayProjectileSkillProfiles
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };

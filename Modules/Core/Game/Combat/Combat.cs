@@ -884,6 +884,7 @@ static partial class Game
         PlacedCastAdmission? placedAdmission = null;
         lock (conn.Monsters)
         {
+            if (SkillsFor(conn).EffectId(SupportedSkill(conn, skillId).Effect) == TwisterEffect) return false;
             if (actionToken is not null && (conn.ActionCount != action || conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) == 0 || conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds))) return false;
             if (!TryCapturePlacedCastAdmissionLocked(conn, skillId, out placedAdmission)) return false;
         }

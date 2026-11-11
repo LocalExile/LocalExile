@@ -448,7 +448,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Spider webs/Hinder, Shroud and hit rewards have runtime consumers and limited native recipient/expiry checks.
   Avian sharing now has immutable peer snapshots and strongest-family/player/minion lifecycle coverage.
   Weave target-relative hit/ailment profiles have automated equipment and frozen-projectile coverage.
-  Spider/Avian retail ranges, Weave native damage, Twister and multiparty native checks remain open.
+  Twister has source-owned gain receipts and Spark tornado flights, with automated lifecycle/cooldown coverage.
+  Spider/Avian retail ranges, Weave/Twister native damage, Twister repeat timing and multiparty native checks remain open.
   Ordinary generic/typed added BASE now follows intrinsic-base replacement and precedes increased chance, including
   native weapon-local flat-before-increase ordering and linked Increased Critical Strikes once.
   Mode-specific passive/item, source-removal, zero, prohibition and hitless controls have automated cases;

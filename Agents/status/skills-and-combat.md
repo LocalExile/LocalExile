@@ -1261,7 +1261,8 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Avian shares sender-scaled phases with nearby players/minions using immutable peer snapshots.
   Sharing stacking and cleanup have automated checks; retail ranges and multiparty visuals remain unverified.
   Weave selects target-relative raw hit/ailment profiles; native damage acceptance is pending.
-  Spider range is a local fallback; Twister remains open.
+  Twister has source-owned Avian-gain admission and Spark tornado flights; native acceptance is pending.
+  Spider range is a local fallback; Twister repeat timing awaits an official contact trace.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation, with pre-hit Blind damage profiles.
