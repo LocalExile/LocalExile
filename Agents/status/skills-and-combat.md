@@ -1327,7 +1327,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Crab gains half-second barriers, mitigates physical damage and loses barriers on accepted physical hit damage.
   Crab equipment thresholds and loss protection have automated coverage.
   Native checks verify phases, pools, timed barriers, physical-hit loss and unequip cleanup; visuals remain unverified.
-  Equipment self-Vulnerability supplies curse effects and Coward's Life predicates, with limited native verification.
+  Equipment self-Vulnerability supplies curse effects, Coward Life and Mirror block predicates; native coverage is partial.
   Madness has qualified toggles, Touch penalties, three Beacon profiles and earned chaos explosions.
   Native checks cover Beacon stats, Touches, cooldown, cleanup and earned explosions; retail geometry/art remain open.
   Spider applies timed webs, damage taken, Hinder, Shroud effects and webbed-hit recovery/charge rewards.

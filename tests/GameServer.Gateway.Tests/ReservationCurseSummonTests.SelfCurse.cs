@@ -37,9 +37,19 @@ public sealed partial class ReservationCurseSummonTests
             conn.PlayerLife = conn.Pools.Life;
             int Stat(string name) => Program.Stats.Key(name) is uint key
                 ? Game.CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+            var mirror = inventory.Add(PlayerInventories.Offhand1, 0, 0, uniques.Create("Atziri's Mirror", new Random(504))!);
+            conn.Pools = Game.PoolsFor(conn, 100);
+            Assert.Equal(10, Stat("additional_block_%"));
+            Assert.Equal(0, Stat("additional_spell_block_%"));
+            int uncursedBlock = conn.Pools.BlockChance;
             var belt = inventory.Add(10, 0, 0, uniques.Create("Coward's Legacy", new Random(504))!);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Game.WithOwnAuraChanges(conn, () => []);
+            conn.Pools = Game.PoolsFor(conn, 100);
+            Assert.Equal(0, Stat("additional_block_%"));
+            Assert.Equal(20, Stat("additional_spell_block_%"));
+            Assert.Equal(uncursedBlock - 10, conn.Pools.BlockChance);
+            Assert.Equal(20, conn.Pools.SpellBlockChance);
             Assert.NotEqual(0, conn.Reservations.SelfVulnerabilityBuff);
             Assert.Equal(1, Stat("cursed_by_vulnerability"));
             Assert.Equal(1, Stat("you_are_cursed_with_vulnerability"));
@@ -70,6 +80,7 @@ public sealed partial class ReservationCurseSummonTests
                 DamagePacket.Of(DamageType.Physical, 100, 100), true, schedule.At);
             Assert.False(conn.IncomingAilments.Bleeding(schedule.At));
             // Atziri's Reflection removes the penalty but preserves the cursed predicate and its low-Life benefit.
+            inventory.Remove(PlayerInventories.Offhand1, mirror.Id);
             var shield = inventory.Add(PlayerInventories.Offhand1, 0, 0, uniques.Create("Atziri's Reflection", new Random(504))!);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Assert.False(Game.IsInactive(conn, shield.Id));

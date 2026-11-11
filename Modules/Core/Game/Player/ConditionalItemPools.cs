@@ -96,6 +96,8 @@ public static partial class Game
         flags["has_cat_aspect"] = catAspect;
         flags["cursed_by_vulnerability"] = Stats.Key("cursed_by_vulnerability") is uint curseKey
             && lowLifeSources.GetValueOrDefault(curseKey) != 0;
+        flags["_while_cursed"] = alive && flags["cursed_by_vulnerability"];
+        flags["_while_not_cursed"] = alive && !flags["_while_cursed"];
         flags["has_cats_stealth"] = catsStealth;
         flags["has_cats_agility"] = catsAgility;
         flags["_while_you_have_cat_aspect"] = catAspect;

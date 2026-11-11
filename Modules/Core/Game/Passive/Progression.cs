@@ -685,6 +685,8 @@ public static partial class Game
             ["_while_not_on_low_life"] = conn.PlayerLife > 0 && !lowLife,
             ["_while_on_full_life"] = CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, curseInputs),
             ["cursed_by_vulnerability"] = cursed,
+            ["_while_cursed"] = conn.PlayerLife > 0 && cursed,
+            ["_while_not_cursed"] = conn.PlayerLife > 0 && !cursed,
         };
         int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
             ? dev.TryGetValue(itemReservationKey, out int replacement) ? replacement

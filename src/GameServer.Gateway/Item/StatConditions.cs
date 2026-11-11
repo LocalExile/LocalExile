@@ -99,6 +99,7 @@ public static class StatConditions
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
         "_while_using_flask", "_if_affected_by_no_flasks",
         "_while_bleeding", "_while_poisoned", "_while_on_consecrated_ground",
+        "_while_cursed", "_while_not_cursed",
         "_while_onslaught_is_active", "_while_have_onslaught", "_while_channelling", "_while_not_channelling",
         "_while_you_have_active_physical_aegis", "_while_you_have_depleted_physical_aegis",
         "_while_unhinged", "_while_not_unhinged",
