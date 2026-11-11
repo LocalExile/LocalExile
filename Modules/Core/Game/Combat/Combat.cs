@@ -1203,8 +1203,15 @@ public static partial class Game
         var jobs = new List<Task>();
         // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
         var discharge = DischargeUseFor(conn, gem.Effect, gem.Level, gem.Quality);
+        bool darkBargain = IsDarkBargain(conn, gem.Effect);
         for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
         {
+            // Dark Bargain explodes at skeletons (or the player), not at the aim: each repeat pays and chains again.
+            if (darkBargain)
+            {
+                jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, addedChaos));
+                continue;
+            }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,

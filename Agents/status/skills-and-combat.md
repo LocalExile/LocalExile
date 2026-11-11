@@ -1719,7 +1719,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - **Self-targeted spells (2026-10-29).** Self-targeted spells (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge,
   Shock Nova) hit around the caster wherever they are aimed, as the client draws them; before, an Ice Nova cast on a
   monster went off around the monster.
-  Totem, mine and trap skills and Novas without a self target (Shockwave Totem, Stormblast Mine, Dark Pact) keep the
+  Totem, mine and trap skills and Novas without a self target (Shockwave Totem, Stormblast Mine) keep the
   aimed point.
   With `nova_spells_cast_at_target_location` (Devout of Lunaris) self-targeted Novas hit around the aimed point, and
   Nova skill records carry `skill_is_nova_skill` and, with the stat, the derived
@@ -1770,6 +1770,11 @@ This is a research baseline, not new live skill acceptance or complete native/se
   explosion art plays and the area hit lands there, so damage lands when the mortar does, not when the button is
   pressed. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09). Damage, crits and kills were
   checked with the real client the same day.
+
+- **Dark Bargain.** At the cast's contact it explodes at the player's skeleton nearest the aim (else the player), paying
+  12% of its maximum life (never the last point) as added base chaos damage, then chains to the nearest unused
+  skeletons; with none in reach the player pays 12% of maximum life for 56% more damage. Radius 26, default art scaled
+  to it. Only the self-cast is verified live: Summon Skeletons does not work yet; seek and chain range are estimates.
 
 ## Not working yet
 
