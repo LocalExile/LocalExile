@@ -4,7 +4,7 @@ using GameServer.Core.World;
 /// <summary>A hit's stun inputs: its stunning damage (<see cref="HitReaction.StunningDamage"/>), the attacker's stun
 /// threshold reduction and stun duration increases, whether it is melee (the duration), and the player whose "when you
 /// stun" gains it feeds. Minions, explosions and /kill pass their plain damage and no owner.</summary>
-readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
+public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
     ClientState? Owner = null);
 
 /// <summary>
@@ -14,7 +14,7 @@ readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int
 /// stunned for 4 s after a stun. Damage over time and reflect do not get here. An accepted stun stops the server's walk,
 /// invalidates its ordinary attack and holds AI for that same recovery; the native ACT selects the TakeHit animation.
 /// </summary>
-static class HitReaction
+public static class HitReaction
 {
     const double BaseSeconds = .35;
     const double BossImmunitySeconds = 4;
@@ -64,13 +64,13 @@ static class HitReaction
     }
 }
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>The stun of the player's own hit that dealt <paramref name="damage"/>. A critical strike with cold damage
     /// taken cannot stun (wiki Stun). shortcut: not the wiki's exception for attackers whose critical strikes cannot
     /// inherently freeze, and only the main hand's local reduction, until those sources are in play. Call under the
     /// Monsters lock.</summary>
-    internal static StunHit OwnerStun(ClientState conn, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
+    public static StunHit OwnerStun(ClientState conn, SpawnedMonster m, int damage, DamagePacket mitigated, bool melee, bool spell,
         bool critical, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0) : 0;

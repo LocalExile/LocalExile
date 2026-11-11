@@ -16,30 +16,20 @@ namespace GameServer.Modules.Pantheon;
 /// the campaign driver. The gods unlock by the act tables' kills (QuestObjects), and Sin's god rows open the panel and set
 /// <c>CanChangePantheon</c> (NPCTalk scripts).
 /// </summary>
-public sealed class PantheonModule : IModule, IDisposable
+public sealed class PantheonModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Pantheon", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        module.OnPacket(InstancePantheon.ChooseGodId, async p =>
+        GameEvents.Packet(InstancePantheon.ChooseGodId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
             var (remote, stream, ciphers) = conn.Wire;
-            await PantheonRules.ChooseGod(remote, stream, ciphers, conn, InstancePantheon.ReadChooseGod(p.Bytes.Span));
+            await PantheonRules.ChooseGod(remote, stream, ciphers, conn, InstancePantheon.ReadChooseGod(bytes.AsSpan()));
             return true;
         });
-        On(GameEvents.PlayerStatSources, PantheonRules.WithGods);
-        On(GameEvents.StateBuilding, (conn, state) => state["pantheon"] = PantheonRules.Json(conn));
-        On(GameEvents.CommandsBuilding, (commands, remote, stream, ciphers, conn) => commands
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, PantheonRules.WithGods);
+        GameEvents.StateBuilding.Add(module.Manifest.Id, (conn, state) => state["pantheon"] = PantheonRules.Json(conn));
+        GameEvents.CommandsBuilding.Add(module.Manifest.Id, (commands, remote, stream, ciphers, conn) => commands
             .Add("pantheon", "/pantheon [<god> ...] (dev: list the Pantheon gods, or choose them as C→S 0x1ee does: an Id, name or panel row, e.g. /pantheon TheBrineKing Tukohama)", async args =>
             {
                 var catalog = PantheonCatalog.Default.Value;
@@ -67,7 +57,7 @@ static class PantheonRules
     static readonly HashSet<ushort> Hubs = [0xb5be, 0x3064];
 
     /// <summary>Where a god may be chosen: a town, a hideout, the Rogue Harbour, or with CanChangePantheon set (the
-    /// client's own gate before it sends 0x1ee, 0x14097e000).</summary>
+    /// client's own gate before it sends 0x1ee, 0x14097fb60).</summary>
     internal static bool CanChoose(ClientState conn) =>
         InTown(conn) || HideoutCatalog.ByArea(conn.Layout.Hash) is not null || Hubs.Contains(conn.Layout.Hash)
         || ClientHasQuestFlag(conn, CanChangePantheon);
@@ -107,7 +97,7 @@ static class PantheonRules
         byte major, minor;
         lock (conn.Monsters) (major, minor) = (catalog.Wire(conn.PantheonMajor), catalog.Wire(conn.PantheonMinor));
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerPantheonUpdate(PlayerId, major, minor),
-            $"0x02ba player Pantheon: major {major}, minor {minor} ({why})");
+            $"0x02bc player Pantheon: major {major}, minor {minor} ({why})");
     }
 
     /// <summary>The chosen gods' stats on top of the character's other sources (PantheonCatalog.ChosenStats): a god whose

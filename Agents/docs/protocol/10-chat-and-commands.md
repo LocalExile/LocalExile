@@ -21,10 +21,10 @@ rows with `SendsGenericCommandPacket` never arrive as chat: the client sends C�
 The prefixes are `#` global, `$` trade, `%` party, `&` guild and `@` whisper; local has none (live 2026-10-25, typed in
 the chat box: `hello local`, `#hello global`, `$hello trade`).
 After a trade line the chat box opens with `$` already typed, so the next line goes to trade too.
-The client's sender is `0x14215ddd0` (instance, text, linked items): it runs the client's own slash commands
-(`0x14215c3b0`, Commands.dat), then sends the rest as 0x15: wstr, u8 n, n × u32.
+The client's sender is `0x142164740` (instance, text, linked items): it runs the client's own slash commands
+(`0x142162d20`, Commands.dat), then sends the rest as 0x15: wstr, u8 n, n × u32.
 Those u32s are items linked with Ctrl+Alt+click: each is the place of the `_` the client writes for one in the text, counting
-the prefix (`#_` is 1). Before the 0x15 the client sends one message per link (`0x14018f700`, n the index in the line):
+the prefix (`#_` is 1). Before the 0x15 the client sends one message per link (`0x14018faa0`, n the index in the line):
 0x12 for an item in an inventory (u8 index, u32 inventory, u32 item, u8; `Chat` keeps the item for the line), 0x13
 (u32, u8 index, u8) and 0x14 (u32, u8 index) for two other kinds, framed but not mapped, so their `_` stays text.
 A plain line reaches its listeners, the player too, as a 0x17 chat line (the Chat module): sender
@@ -33,27 +33,31 @@ Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
 Party and guild lines are not sent. A whisper is typed `@Name text`.
 
+The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
+Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
+inbox filename instead. Raising only the server's packet limit does not change these client limits.
+
 ## 2. Server → client text
 
 Candidates that read a wide string were found by mapping every S→C factory case to its class and read function (slot
-2) and keeping those that call the wstr reader `0x140e0cbe0`. Each was then sent live with `/raw`:
+2) and keeping those that call the wstr reader `0x140e0b480`. Each was then sent live with `/raw`:
 
 | Id | Layout | What the client did |
 |---|---|---|
-| **0x0d** | wstr | **Message box with the text and an OK button.** Class `0x1435bf650`, dispatcher case 0 → listeners at +0xa1f0. Used for replies. |
-| 0x12d | u16 code, wstr | Shows `BackendErrors.dat` row `code - 1` (1 → "An account with this name already exists."). The UI listener `0x140be6ef0` prints the row text as is and uses the wstr only to compare a name, so `{0}` is not filled in. |
-| 0x26 | u16, wstr | Disconnect with a reason (handler `0x142149ca0` closes the socket). Do not send it. |
+| **0x0d** | wstr | **Message box with the text and an OK button.** Class `0x1435ca068`, dispatcher case 0 → listeners at +0xa1f0. Used for replies. |
+| 0x12d | u16 code, wstr | Shows `BackendErrors.dat` row `code - 1` (1 → "An account with this name already exists."). The UI listener `0x140bfd810` prints the row text as is and uses the wstr only to compare a name, so `{0}` is not filled in. |
+| 0x26 | u16, wstr | Disconnect with a reason (handler `0x1421505f0` closes the socket). Do not send it. |
 | 0x157 | wstr, u8 | "System challenges you to PvP" popup (duel request). |
 | 0x10 | u32, wstr | Nothing visible (no dispatcher case). |
 | 0x188 | wstr, u16 | Nothing visible. |
 | 0xa9 | party info | Not chat. |
 | 0xc9 | u8 flags, wstr account, wstr note | Friend relation: accepted bit 0, remove bit 2; see [28](28-player-trade.md) §6. |
 
-**S→C 0x17: chat line** (class `0x1435dcec0`, read `0x140e0c710`, dispatcher case 2 → listeners at instance +0xb78 →
-chat panel `0x140179f20` / `0x14017a300`; verified 2026-10-20 with `/raw`): wstr sender (its first character picks the
+**S→C 0x17: chat line** (class `0x1435e6908`, read `0x140e0afb0`, dispatcher case 2 → listeners at instance +0xb78 →
+chat panel `0x14017a270` / `0x14017a670`; verified 2026-10-20 with `/raw`): wstr sender (its first character picks the
 channel), wstr text, wstr guild tag, u16 flags (raw; bit 8 sends the message to the +0xd78 listeners instead, bit 3 adds a
-field read by `0x1408402a0`, bit 7 sets a mode 5), u8, u8, 8 bytes, u8, u8 n + n × (u32, item) linked items: the panel
-(`0x14017a300`) replaces the character at the u32, in the text without a sender, by a link to the item (read `0x1421ec2c0`,
+field read by `0x14083f460`, bit 7 sets a mode 5), u8, u8, 8 bytes, u8, u8 n + n × (u32, item) linked items: the panel
+(`0x14017a670`) replaces the character at the u32, in the text without a sender, by a link to the item (read `0x1421f2c30`,
 the u16-length item of [13](13-items.md) §2), in order. An empty
 sender with every other field 0 prints the text alone (`InstanceChat.ChatLine`). The client's `<green>{text}` markup
 in the text does not colour the line (live 2026-10-21). But with an empty sender, the text up to the first `: ` is drawn
@@ -61,19 +65,19 @@ green like a local speaker's name and the rest white (live 2026-10-21: `/com acc
 `/commands` header ends with `:` for that. Sender prefixes (live 2026-10-21, `/raw`): `#Test` shows `#Test: line` in
 the global colour (red), `$Test` `$Test: line` in trade orange, `@Test` `@From Test: line` in whisper purple, the whole
 line coloured; bit 2 of the flags' first byte (u16 0x0400) turns the `@` line into the sender's copy (ClientStrings `ChatBoxTo` for `ChatBoxFrom`, no
-`WhisperArrived` sound or window flash; `0x14017a300`), bit 6 adds the `AutoReplyPrefix`; u16 0x0004 reddens the text. `0x14017a300` takes the prefix off the sender and writes it back before the name, so `#` and `$` always show; only flag bit 7 keeps it off, and that makes the line local. `%` and `&` show nothing without a party or guild. A sender of the prefix alone (`$`, `#`) prints the
-text white with no name, like an empty sender. So a coloured line always shows its sender and a colon. With an empty sender, `0x14017a300` wraps the text in a colour
-looked up by `0x142426ea0(byte & 0x1f)` (the byte at +0x158 of the object at instance +0xc810) and runs it through the
-markup parser `0x14018fb50`; `ChatColours.dat` has rows Default, Red, Green, Blue, ChayulaMessage. Per-line colour: open.
+`WhisperArrived` sound or window flash; `0x14017a670`), bit 6 adds the `AutoReplyPrefix`; u16 0x0004 reddens the text. `0x14017a670` takes the prefix off the sender and writes it back before the name, so `#` and `$` always show; only flag bit 7 keeps it off, and that makes the line local. `%` and `&` show nothing without a party or guild. A sender of the prefix alone (`$`, `#`) prints the
+text white with no name, like an empty sender. So a coloured line always shows its sender and a colon. With an empty sender, `0x14017a670` wraps the text in a colour
+looked up by `0x14242d9d0(byte & 0x1f)` (the byte at +0x158 of the object at instance +0xc810) and runs it through the
+markup parser `0x14018fef0`; `ChatColours.dat` has rows Default, Red, Green, Blue, ChayulaMessage. Per-line colour: open.
 
 **Chat channels: C→S 0x134 and S→C 0x135** (on the instance connection; live 2026-10-25).
-After entering an area the client joins a global and a trade channel by itself: the in-game listener `0x140d5bf60`
-(instance +0x240 listeners, once per game state, flag +0xa08) calls `0x142169250` twice with the channel from the
-`join_global_channel` / `join_trade_channel` settings (0 → 0xffff, "any"; `0x14190f7d0` / `0x14190f8a0`) and the
-language (`0x141912640`).
-`/global N` and `/trade N` (Commands.dat rows 41 and 42) are handled by the client (`0x14215c3b0`) and call the same
+After entering an area the client joins a global and a trade channel by itself: the in-game listener `0x140d59480`
+(instance +0x240 listeners, once per game state, flag +0xa08) calls `0x14216fc00` twice with the channel from the
+`join_global_channel` / `join_trade_channel` settings (0 → 0xffff, "any"; `0x141914fe0` / `0x1419150b0`) and the
+language (`0x141917e50`).
+`/global N` and `/trade N` (Commands.dat rows 41 and 42) are handled by the client (`0x142162d20`) and call the same
 function with N.
-`0x142169250` sends **C→S 0x134** (class `0x1435bf730`, write `0x141f9ae30`, 7 bytes):
+`0x14216fc00` sends **C→S 0x134** (class `0x1435ca148`, write `0x141fa1860`, 7 bytes):
 
 ```
 u16 0x0134, u16 channel (0xffff = any), u8 kind (0 global, 1 trade), u8 automatic (1 after entering, 0 for a command),
@@ -81,10 +85,10 @@ u8 language
 ```
 
 Then it sets a 5 s deadline (instance +0xcf18 for global, +0xcf08 for trade; the channel at +0xcf10 / +0xcf00).
-A 0xffff request takes the channel the client remembers (`0x143a60ce8` global, `0x143a60c98` trade; 0xffff until a
+A 0xffff request takes the channel the client remembers (`0x143a6bce8` global, `0x143a6bc98` trade; 0xffff until a
 command names one).
-When the deadline passes, the network update `0x142148880` fires the instance +0xe78 listeners, and the chat panel's
-`0x14017dd10` prints "Timeout while joining global chat channel N" (ClientStrings row 207) or, for 0xffff,
+When the deadline passes, the network update `0x14214f1d0` fires the instance +0xe78 listeners, and the chat panel's
+`0x14017e0b0` prints "Timeout while joining global chat channel N" (ClientStrings row 207) or, for 0xffff,
 "Timeout while joining global chat." (row 206).
 Live 2026-10-25 the two requests were `0134 FFFF 00 01 00` and `0134 FFFF 01 01 00`; `/global 821` sent
 `0134 0335 00 00 00`.
@@ -92,12 +96,12 @@ An older capture had `0134 0334 00 01 00` (global, channel 820, the number in th
 `0134 0001 01 01 00` (trade, channel 1).
 A kind other than 0 or 1 is ignored (logged).
 The language is 0 English, 1 French, 2 German, 3 Portuguese, 4 Russian, 5 Thai, 6 Traditional Chinese, 7 Simplified Chinese,
-8 Spanish, 9 Korean, 10 Japanese (`0x1422ed4f0`): the Chat Language option, or `/global N ru` (live 2026-11-07: 4; `Data/Languages.dat` rows
+8 Spanish, 9 Korean, 10 Japanese (`0x1422f3e80`): the Chat Language option, or `/global N ru` (live 2026-11-07: 4; `Data/Languages.dat` rows
 decide what is accepted, else the client prints "That realm does not exist." and sends nothing).
-The Gateway took 20 bytes for 0x99 then: 0x99 is 4 bytes (class `0x1435c0258`, write `0x141f95200`: two u8), and the
+The Gateway took 20 bytes for 0x99 then: 0x99 is 4 bytes (class `0x1435cac90`, write `0x141f9bc30`: two u8), and the
 same chunk held the two joins and 0x129 (id only).
 
-**S→C 0x135** (class `0x1435dc240`, ctor `0x1421a6c00`, read `0x1421a6cd0`; dispatcher case 0x56) answers it:
+**S→C 0x135** (class `0x1435e7160`, ctor `0x1421ad570`, read `0x1421ad640`; dispatcher case 0x56) answers it:
 
 ```
 u16 0x0135, u16 channel, u8 kind (0 global, 1 trade), u8 language
@@ -122,8 +126,8 @@ Live, the global and trade channels were 821 and 822 again after `/goto`, and `#
 
 ## 3. S→C 0x1b3: stats update
 
-World group; class `0x1435dda98`, read `0x141fe1350`. The world handler (`0x142187480`, case 0x1b3) looks up the
-object's Stats component and calls `0x1424cfaf0(stats, key, value)` for each pair.
+World group; class `0x1435e83b8`, read `0x141fe7b70`. The world handler (`0x14218ddf0`, case 0x1b3) looks up the
+object's Stats component and calls `0x1424d65c0(stats, key, value)` for each pair.
 
 ```
 u16 0x1b3, u32 object id, u32 0, u16 0,
@@ -131,21 +135,21 @@ compact uint n, n × (compact uint stat key, compact int value)
 ```
 
 The zeros above are the current server's header values, not reader-enforced constants.
-Shared reader `0x141f92000` stores them as network-order u32/u16 at decoded message `+0x14/+0x18`.
+Shared reader `0x141f988f0` stores them as network-order u32/u16 at decoded message `+0x14/+0x18`.
 The selected Stats pair loop uses component `+0x40` and does not read those two fields or explicitly replace
 the separate entropy/timer/reset creation trailer; see [local hit prediction](../re/projectiles/local-hit-prediction.md#31-property-updates-are-not-an-explicit-entropy-state-payload).
 Other header consumers and indirect notification effects are separate questions.
 
-- Unsigned compact (`0x14089cad0`): < 0x80 is 1 byte; then 0x80 + 14 bits, 0xc0 + 21 bits, 0xe0 + 28 bits; else 0xf0 +
-  u32. Signed compact is `0x141fa3d60` (`InstanceProtocol.CompactInt`).
-- The stat key is the client's own stat id: the int its getter `0x1424cfa40(stats, key)` binary-searches in the sorted
-  (key, value) vector at stats+0xf0, which `0x1424cfaf0` fills. With the vendored schema it is **the Stats.dat row + 1**
+- Unsigned compact (`0x14089dc40`): < 0x80 is 1 byte; then 0x80 + 14 bits, 0xc0 + 21 bits, 0xe0 + 28 bits; else 0xf0 +
+  u32. Signed compact is `0x141faa790` (`InstanceProtocol.CompactInt`).
+- The stat key is the client's own stat id: the int its getter `0x1424d6510(stats, key)` binary-searches in the sorted
+  (key, value) vector at stats+0xf0, which `0x1424d65c0` fills. With the vendored schema it is **the Stats.dat row + 1**
   (key 0xf5 = row 244 `movement_velocity_+%`; checked on every key an attack reads, [11](11-skills.md) §8). `StatKeys`
   in the Gateway lists the ones in use.
-- Walk speed (`0x141e7c0b0`): base (`+0x548`) × (1 + key **0xf5** / 100, at least −100). With a flag it is also
+- Walk speed (`0x141e827a0`): base (`+0x548`) × (1 + key **0xf5** / 100, at least −100). With a flag it is also
   multiplied by (1 + key 0xce6 / 100). It is capped by key **0x44f** (`movement_velocity_cap`) when that is positive.
   Measured live: sending 0xf5 = 200 makes the getter return 200 and the walk visibly faster.
-- The Stats component has no 0x2ba (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
+- The Stats component has no 0x2bc (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
   change stats.
 
 ## 4. Commands (Gateway, `Program.Commands.cs` `Commands`)
@@ -171,14 +175,14 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/atlas_complete <map name or AtlasNode id \| all>`, `/atlas_reset` | Atlas module: marks Atlas maps completed or clears them, saved ([21](21-hideouts.md) §4); one map sends 0x1a4, `all` only saves, reset sends an empty 0x1a3 |
 | `/set_speed <percent>` | 0x1b3 `movement_velocity_+%` = percent − 100 on the player; the server's walk estimate uses 37 × percent / 100 cells/s |
 | `/set_stat <stat name or client key> <value\|off>` | replaces a raw stat or removes its development replacement |
-| `/spawn_mob <row, Id or name>[@level] [friendly] [normal\|magic\|rare\|unique] [name]` | 0x20 + 0x2b9 + 0x1a9 for a MonsterVarieties row at a level (default 1), hostile unless `friendly`, with a rarity and an optional name, a few cells from the player (§5) |
-| `/set_level <1 to 100>` | sets the character's level in the account store (Auth control op `set_level`) and sends it in place: the level's experience to the Player component (0x2ba, [04](04-player-entity.md) §4.6; the client derives the level from it), the level's stats (0x1b3: level, life, mana, accuracy, …, [11](11-skills.md) §4), the skills again (0x2ba Actor) and full life (0x1b1) |
+| `/spawn_mob <row, Id or name>[@level] [friendly] [normal\|magic\|rare\|unique] [name]` | 0x20 + 0x2bb + 0x1a9 for a MonsterVarieties row at a level (default 1), hostile unless `friendly`, with a rarity and an optional name, a few cells from the player (§5) |
+| `/set_level <1 to 100>` | sets the character's level in the account store (Auth control op `set_level`) and sends it in place: the level's experience to the Player component (0x2bc, [04](04-player-entity.md) §4.6; the client derives the level from it), the level's stats (0x1b3: level, life, mana, accuracy, …, [11](11-skills.md) §4), the skills again (0x2bc Actor) and full life (0x1b1) |
 | `/heal` | full life and mana for the player (0x1b1); from 0 it also revives |
 | `/add_xp <amount>` | experience as from a kill: levels up, saved ([15](15-progression.md) §1) |
 | `/passives` | the passive and refund skill points and the allocated passives |
 | `/add_passive_points <n>` | adds n extra passive skill points (the 0x33 `extra_skill_points` field), saved with the character; sends the tree (0x33) |
 | `/add_refund_points <n>` | dev shortcut: adds n refund points (0x33's first u16), saved with the character; sends the tree (0x33). Orbs of Regret also add them (right-click) |
-| `/gold <amount>` | adds gold, or takes it with a negative amount (not below 0); the account's gold (every character of the account shares it), saved and sent as S→C 0x2a9 ([04](04-player-entity.md)); every area entry sends the saved amount too |
+| `/gold <amount>` | adds gold, or takes it with a negative amount (not below 0); the account's gold (every character of the account shares it), saved and sent as S→C 0x2aa ([04](04-player-entity.md)); every area entry sends the saved amount too |
 | `/add_passive <PassiveSkillGraphId>` | allocates one passive node through the same checks as C→S 0x34, saved and sent back (0x33) |
 | `/reset_passives` | refunds every passive, saved, and sends the tree (0x33) |
 | `/resistances` | the character's uncapped and capped fire/cold/lightning/chaos resistance |
@@ -205,7 +209,7 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/tp <x> <y> \| <+dx> <+dy> \| <id> \| <name> [n] \| list [filter]` | dev: 0x1b7 teleports the player within the area, for testing without walking. A cell lands on itself when walkable, else on the nearest walkable cell; a value with + or - is relative to the player on that axis. A name (whole, else a part, any case) or id lands next to a monster, NPC, area transition (`transition to <area>`), the `waypoint`, the `arrival` point or an object of the area's walk-map capture (`RhoaChest`, `GlyphWall`: the last part of its object type); `n` picks the n-th of equal names. An NPC also by its type (the NPCs Id's last part: `DiallaRapture`, `SinTukohama`), and the ids `/state` reports for interactive objects (the tutorial chest, Rhoa Nests, Glyph Wall, quest chests and objects) and ground items work too, as do the room objects quest rules watch (`PietyBlockage`), all listed after the others. `/tp list` shows them. The current action ends and the server's position estimate moves with the player (`TeleportTargets.cs`) |
 | `/transition [pos … \| rot <deg> \| z <z \| none> \| model <path \| none> \| index <n>]` | show or change the first area transition (re-created), [08](08-area-transitions.md) §5 |
 | `/mobs` | lists the monsters spawned on this connection; emerge monsters that have not risen are marked "(buried)" or "(lurking)" |
-| `/despawn [all \| <id>]` | S→C 0x2bb (remove object, header only) for the last spawned monster, all of them (buried ones too), or one id |
+| `/despawn [all \| <id>]` | S→C 0x2bd (remove object, header only) for the last spawned monster, all of them (buried ones too), or one id |
 | `/mob_walk [0x<id>] [skill hex]` | 0x1ab: the monster starts its Move action (skill 0x2909) toward the player; it walks, animated, along the client's path |
 | `/mob_move [0x<id>] [cells/s]` | 0x1ba: slides the monster in a straight line (probe; no animation or pathing) |
 | `/mob_tp [0x<id>]` | 0x1b7: teleports the monster next to the player |
@@ -216,7 +220,7 @@ Both run before `ServerLog`, so their output is JSON lines only.
 | `/cosmetic portal <name, number or part of a name>`, `/cosmetic list [filter]`, `/cosmetic off` | the shop's portal effects, as game data ([21](21-hideouts.md) §5). Several effects containing what was typed are listed with their numbers rather than the first being picked |
 
 `/set_stat` names are Stats.dat Ids (client key = row + 1).
-It sends player stats through 0x1b3 with recomputed attack stats, then skills through 0x2ba ([11](11-skills.md)).
+It sends player stats through 0x1b3 with recomputed attack stats, then skills through 0x2bc ([11](11-skills.md)).
 An attribute (`strength`, `dexterity`, `intelligence`) also sets its `virtual_*_for_requirements` value.
 The client's gear and gem checks read that value ([13](13-items.md) section 2d).
 `off` removes the development replacement, including that requirement alias for an attribute name.
@@ -248,45 +252,46 @@ idle (first with an "Unidentified" tag, gone once the identified bit was set). `
 `MonsterCatalog.cs` and the `spawn_mob` command in the Gateway. Tests: `InstanceEntitiesTests.Minimal_monster_blob_layout`,
 `Monster_types_message_and_type_path`.
 
-Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**, **0x1a9**.
+Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**, **0x1a9**.
 
 - **Type.** The object-type register ([04](04-player-entity.md) §1) files every row of the 0x31a-byte table, which is
   **MonsterVarieties.dat** (10 691 rows × 0x31a in 3.29.3b), under the row's `Id` with `BaseMonsterTypeIndex` (row
   +0x48) as its .ot, e.g. `Metadata/Monsters/Zombies/ZombieBite` (Hungry Corpse) on
   `Metadata/Monsters/Zombies/Drowned/BiteZombie`. The variety Ids have no .ot of their own.
-- **Level: S→C 0x20.** A monster type needs a level. The Monster component's factory (`0x141e6fd00`) throws
-  **"Creating monster with no level"** when its type's `+0x20` is 0. The Monster type (vtable `0x1435a5a28`, parser
-  slot 9 `0x141e701d0`) parses the number after the last **`@`** of the type path into `+0x20` (1..100; otherwise
+- **Level: S→C 0x20.** A monster type needs a level. The Monster component's factory (`0x141e76390`) throws
+  **"Creating monster with no level"** when its type's `+0x20` is 0. The Monster type (vtable `0x1435b31a8`, parser
+  slot 9 `0x141e76860`) parses the number after the last **`@`** of the type path into `+0x20` (1..100; otherwise
   "Unable to parse monster level of …" / "Unable to create a monster type at level …"). The register files the plain Id
-  only; the server registers the levelled path with **0x20** (instance group, dispatcher case 9, class `0x1435dc320`,
-  read `0x1421a4f30`):
+  only; the server registers the levelled path with **0x20** (instance group, dispatcher case 9, class `0x1435e7200`,
+  read `0x1421ab8a0`):
   ```
   u16 0x0020, u16 n (BE), u16 preload (BE, +0x10), n × u16 MonsterVarieties row (raw, little-endian), n × u8 level
   ```
-  Per pair the handler looks the row up (`0x142288c90`, a row index into Data/MonsterVarieties.dat) and registers
-  `"<Id>@<level>"` extending the plain Id (`0x141ec2540`; level 0 → the plain Id through `0x141ec28e0`), appending the
-  type to instance `+0xc828`; then it loads the first `preload` new types (`0x140685030`). The 0x2b9 type is then
+  Per pair the handler looks the row up (`0x14228f620`, a row index into Data/MonsterVarieties.dat) and registers
+  `"<Id>@<level>"` extending the plain Id (`0x141ec8df0`; level 0 → the plain Id through `0x141ec9190`), appending the
+  type to instance `+0xc828`; then it loads the first `preload` new types (`0x1406855f0`). The 0x2bb type is then
   `ObjectTypeHash("<Id>@<level>")`.
-  - Without 0x20 (the first live try) the exception is thrown while the components are built (`0x142427510`, before
+  - Without 0x20 (the first live try) the exception is thrown while the components are built (`0x14242dfe0`, before
     the blob is read), and the cleanup then frees a Targetable component that was never created: an access violation
-    in its deleter `0x14161d160`. So the client hangs and crashes instead of showing a message.
+    in its deleter `0x14161d160` (3.29.3b; not found in 3.29.3c). So the client hangs and crashes instead of showing
+    a message.
 - **Components.** `Metadata/Monsters/Monster.ot`: Positioned, Stats, ObjectMagicProperties, BaseEvents, Pathfinding,
   Buffs, Life, Animated, Inventories, Actor, Monster ([../re/object-types.md](../re/object-types.md)). Every one that
-  reads is already known from the player or the exit; Monster (`0x1435a6778`), BaseEvents and Pathfinding read nothing.
+  reads is already known from the player or the exit; Monster (`0x1435b33d8`), BaseEvents and Pathfinding read nothing.
   - Positioned: 16 bytes. Its 8-byte prefix (`param_1[0x2b] + 0x21`) is written into the object's **Sector** component,
-    so it is for types with one; the .ot keys (`0x141e2d860`) set +0x14..+0x20, +0x22, +0x23 but not +0x21.
+    so it is for types with one; the .ot keys (`0x141e30ba0`) set +0x14..+0x20, +0x22, +0x23 but not +0x21.
     `serialise_collidable` (Monster.ot) sets +0x1b.
   - Actor: the two conditional u8 are read when `components[type+0xbc] + 0x1a8 < 1`. +0x1a8 is the Life component's
     first pool `+0x178 + 0x30`, the **current life** just read from the blob, so a living monster has 17 bytes.
-  - ObjectMagicProperties (base part `0x142201d70`): u16 flags, u8 `+0x7a`, then the component's own u8 flags.
+  - ObjectMagicProperties (base part `0x142208700`): u16 flags, u8 `+0x7a`, then the component's own u8 flags.
     Flags bits 0–2 = **rarity** (`+0x7c`: 0 normal, 1 magic, 2 rare, 3 unique); bit 3 = **identified** (`+0x78`;
     without it the client tags the monster "Unidentified"). Only when identified: bit 7 (0x80) → u32 UTF-16 unit count +
     units, a **custom name** (`+0x18`, shown instead of the variety name); else bit 8 → u8 n + n × u32 keys (name parts,
-    looked up by `0x14225a4d0`, not mapped); then bit 5 → mod list. Before them: bit 9 → 2 × u8, bits 0x10/0x40/0x400/0x800 →
-    u8 n + n mod records (`0x142430380`). Live 2026-10-17: flags 0x08/0x09/0x0a/0x0b showed normal, magic, rare and
+    looked up by `0x142260e60`, not mapped); then bit 5 → mod list. Before them: bit 9 → 2 × u8, bits 0x10/0x40/0x400/0x800 →
+    u8 n + n mod records (`0x142436e50`). Live 2026-10-17: flags 0x08/0x09/0x0a/0x0b showed normal, magic, rare and
     unique monsters; 0x8b with "Headhunt" showed a unique named Headhunt (ObjectMagicProperties 24 bytes, 0 left).
   - Life: (current, 0, …) for life; mana and energy shield 0. The **maximum is the client's own**: its Monster type
-    (`0x141e701d0`) sets stat 0x7d (and other default stats: 0x142–0x147, 0x75, 0x78, 0x87, …) from DefaultMonsterStats
+    (`0x141e76860`) sets stat 0x7d (and other default stats: 0x142–0x147, 0x75, 0x78, 0x87, …) from DefaultMonsterStats
     row `level − 1` (0x48-byte rows) and the variety: life = max(1, column × LifeMultiplier / 100), the column being
     AltLife1 (`+0x2c`) if the MonsterTypes row has AltLife1, else AltLife2 (`+0x38`), else MinionLife (`+0x1c`) for
     IsPlayerMinion, else MonsterLife (`+0x14`). The Gateway computes the same (`MonsterCatalog.BaseLife`) and sends it as
@@ -295,9 +300,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   - Blob: 112 bytes with the base list, plus the Animated path (198 bytes for Hungry Corpse).
 - **Other component lists.** Of the 10 691 varieties, 4 513 have exactly the base list; most others append
   DiesAfterTime, StateMachine or Transitionable. The blob also writes MinimapIcon (u8), DiesAfterTime (no data: its
-  live vtable is the factory's `0x14359f478`, slot 17 `ret`), Preload, Functions, PlayerClass (no data), Transitionable
-  and StateMachine (below), NPC (`00 ff`, [17](17-npcs.md)), InteractionAction (u8 flags 0, `0x141e1e240`: Act 2's
-  bandit lords Kraityn, Alira and Oak) and Timer (no data: its only vtable `0x1435a10a0` has slot 17 `ret`; Solaris and
+  live vtable is the factory's `0x1435a7888`, slot 17 `ret`), Preload, Functions, PlayerClass (no data), Transitionable
+  and StateMachine (below), NPC (`00 ff`, [17](17-npcs.md)), InteractionAction (u8 flags 0, `0x141e218a0`: Act 2's
+  bandit lords Kraityn, Alira and Oak) and Timer (no data: its only vtable `0x1435ab790` has slot 17 `ret`; Solaris and
   Lunaris on The Harbour Bridge). The rest have ControlZone, BlightTower, Mercenary, LimitedLifespan … components and
   are refused with a message box. The type is the variety's own Id when an
   `.ot` exists under it, else its `BaseMonsterTypeIndex`: `KitavaBoss/KitavaFinal`'s base column names `Kitava1`, but
@@ -306,13 +311,13 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   that serialises differently (Kitava2/3/Final, BlackDeathMaligaro, Atziri2 …). The Gateway knows each type's list and
   data from `data/object-types.json` (`python -I scripts/re/ot_components.py --all --json data/object-types.json`,
   about 2 minutes); without it, it assumes the base list and refuses StateMachine types.
-- **Transitionable** (`ClientInternalTransitionable` `0x1435dd290`, slot 17 `0x1421c24b0`): u8 = state (low 7 bits,
+- **Transitionable** (`ClientInternalTransitionable` `0x1435e7d30`, slot 17 `0x1421c8e20`): u8 = state (low 7 bits,
   `+0x120`) | bit 7 (`+0x122`, transition in progress). States run **1..num_states** (.ot `Transitionable { num_states
   = N }`, the type's `+0xb0`); `num_states` = fully transitioned (`create_transitioned`), lower =
-  untransitioned (`create_untransitioned`). Without the key `num_states` is **2** (the type constructor `0x141e42d50`
-  writes 2; the key itself only takes 2..127, `0x141e42a80`). The post-create slot `0x1421c26f0` always runs the event
+  untransitioned (`create_untransitioned`). Without the key `num_states` is **2** (the type constructor `0x141e46340`
+  writes 2; the key itself only takes 2..127, `0x141e46070`). The post-create slot `0x1421c9060` always runs the event
   at index `(state − 1)` of a 0x18-byte array, so **state 0 is invalid**: it read a garbage script pointer and crashed
-  in the animation-event interpreter (`0x141ded7b9`, live 2026-10-17, Alira and Gravel Eater). The Gateway sends
+  in the animation-event interpreter (`0x141df0e19`, live 2026-10-17, Alira and Gravel Eater). The Gateway sends
   `num_states` as `ot_components.py` extracts it (`transitionable.num_states`), which is 1 when the .ot has no key: for
   those types that is the untransitioned state.
   - **Emerge monsters** (Gravel Eater, Dripping Dead, the Twilight Strand's Drowned, Tide Strider …). 2 571 types
@@ -335,13 +340,13 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
 
     The server raises one:
     In one tick, in GGG's order:
-    1. S→C **0x2ba** to its Transitionable with state 2: `on_transition` makes it targetable.
+    1. S→C **0x2bc** to its Transitionable with state 2: `on_transition` makes it targetable.
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
     3. S→C **0x1ac**: predictive mode waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
-       (`0x141e94720`, otherwise checked every 0.25 s). Lockstep starts directly. Both modes end Emerge with its clip
-       (`0x141e934b0`), with no additional recovery tail; the monster then becomes eligible to chase and attack.
+       (`0x141e9afc0`, otherwise checked every 0.25 s). Lockstep starts directly. Both modes end Emerge with its clip
+       (`0x141e99d50`), with no additional recovery tail; the monster then becomes eligible to chase and attack.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
     one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to
@@ -357,11 +362,11 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
     cells (beyond the 24) hit one, it rose at once, chased and attacked.
 - **Animated path.** Not sent (flags 0): the type supplies the animated object. `Game_MONSTER_AO=1` sends the variety's
   first `AOFiles` path instead (bit 0), which also works for plain monsters but is not needed.
-- **StateMachine** (live vtable `ClientInternalStateMachine` `0x1435da8b8`, slot 17 `0x142191f10` → base
-  `0x141e3ee40`):
+- **StateMachine** (live vtable `ClientInternalStateMachine` `0x1435e5358`, slot 17 `0x142198880` → base
+  `0x141e42430`):
   ```
   u8 shared-state count, u8 shared-timer count       (the client throws unless both match the type)
-  per shared state, in definition order:  compact int value (0x141e490e0), u8 flags (0x02 keeps the sent value)
+  per shared state, in definition order:  compact int value (0x141e4c7e0), u8 flags (0x02 keeps the sent value)
   per shared timer:                       u32, u8
   ```
   Only states declared with `define_shared_state` and timers with `define_shared_timer` in the type's .ot chain
@@ -371,14 +376,14 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   defaults. Live 2026-10-17: Frost Bishop (1 state, 4 bytes), Arakaali (4 states, 10 bytes) and Haku (8 states, one
   defaulting to 1, and 2 timers: 28 bytes) all consumed exactly. Arakaali showed no hover nameplate: bosses carry
   `boss_life_bar` / `disable_life_bar` / `global_first_aggro` states, probably the top-of-screen boss bar on aggro.
-- **Removal.** S→C **0x2bb** (world group, header only: `u16 id, u32 object id, u32 0, u16 0`) removes the object;
+- **Removal.** S→C **0x2bd** (world group, header only: `u16 id, u32 object id, u32 0, u16 0`) removes the object;
   live 2026-10-17 `/despawn` and `/despawn all` removed spawned monsters.
 - **Movement** (live 2026-10-17). **S→C 0x1ab "action started"** on the monster, with the Move skill **0x2909**
   (the same id as the player's Move: a basic action every Actor has, Monster.ot `basic_action = "Move"`), sequence
   0xffff (not client-predicted), flags 0x0408, the monster's position and the target: the monster **walks with its
   animation, along the client's own path around walls, on the terrain height**. Alternatives: **0x1ba** (Positioned
   move) only slides it in a straight line through walls, at `duration = cell distance / value` (value ≈ cells per
-  second; `0x141e30c90` → `0x141e34120`), keeping the old height; **0x1b7** teleports it.
+  second; `0x141e33fd0` → `0x141e37460`), keeping the old height; **0x1b7** teleports it.
 - **AI** (Gateway, `RunMonsterAi`; live 2026-10-17). Every 50 ms of game time (`MonsterAiCadence`) per connection: a monster within
   its MonsterVarieties `MaxAgroRange` (taken as grid cells: 60 for Hungry Corpse, 105 for most) of the server's estimate
   of the player starts chasing: a Move action (0x1ab, 0x2909) to its own cell around the player, re-sent when that cell
@@ -402,15 +407,15 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2b9**
   bars). The Gateway sends 1, or 0 with `/spawn_mob … friendly` (both verified live: red and green outlines).
 - **Combat** (live 2026-10-17, [11](11-skills.md)). The player has the default attack (skill 0x0102); a click on a
   monster sends C→S 0x24 with it, which is answered with 0x1ab aimed at it (flags | 0x80 + u32 target id after the flags, write
-  `0x141fdd990`), then **S→C 0x1b1** lowers its life: `header, u32 current, u32 reserved, u8 pool (0 life, 1 mana,
-  2 ES), u16 (+0x2a), u8 (+0x2c)`, big-endian (read `0x141fe0790`); the world handler (case 0x1b1) applies it to the
-  pool (`0x141e69fb0`) and calls the Life component's death slot (vtable +0xe8) when life goes from ≥ 1 to < 1, revive
+  `0x141fe41b0`), then **S→C 0x1b1** lowers its life: `header, u32 current, u32 reserved, u8 pool (0 life, 1 mana,
+  2 ES), u16 (+0x2a), u8 (+0x2c)`, big-endian (read `0x141fe6fb0`); the world handler (case 0x1b1) applies it to the
+  pool (`0x141e70550`) and calls the Life component's death slot (vtable +0xe8) when life goes from ≥ 1 to < 1, revive
   (+0x100) the other way. Each hit takes the unarmed damage (2–5 for the Witch) at the swing's contact point, after the
   player has walked into range; the timing is in [11](11-skills.md) §5. A dead monster's life bar is hidden
-  (`hide_mini_life_bar`) and the monster is removed (0x2bb) 10 s later. Monsters hit back with
+  (`hide_mini_life_bar`) and the monster is removed (0x2bd) 10 s later. Monsters hit back with
   their own skill ([11](11-skills.md) §6).
 - **Placement.** The nearest walkable cell 6–20 cells from the server's estimate of the player; ids from 0x3000. The
-  world is active, so 0x2b9 is created at once; 0x1a9 puts it in the wake zone.
+  world is active, so 0x2bb is created at once; 0x1a9 puts it in the wake zone.
 
 ## 6. Chat servers
 
@@ -418,14 +423,15 @@ Global, trade and whisper lines leave the Gateway for a chat server, GGG's split
 it across its areas, so players of separate Gateways can talk. Local lines stay in the Gateway.
 
 The Chat module runs a chat server on a free loopback port, so each Gateway has chat alone. A mod moves the players to
-another server with `UseChatServer(host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
+another server with `ChatRoutes.Use(id, host, port)`, at once and until it unloads ([modding](../dev/modding.md)). A character says
 `Failed to connect to host:port chat channel, switching back to local chat server.` in chat when that server fails or the
 connection drops, each reason once, and tries again at an area change after 60 s.
 
 To host one: `dotnet run -c Release --project src/GameServer.Chat` (solution `GameServer.Chat.slnx`), with
-`Game_CHAT_BIND` and `Game_CHAT_PORT` (default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
+`Chat.BindAddress` and `Chat.Port` in `localexile.conf` (or `Game_CHAT_BIND`, `Game_CHAT_PORT`; default 0.0.0.0:6113). It needs an open TCP port, so a VM, not an HTTP-only host.
 Nothing is encrypted, stored or authenticated. Separate Gateways can have characters of one name, so a later one gets the
-first free `Name[n]` for that connection; `@Name[n]` whispers to it.
+first free `Name_n` for that connection; `@Name_n` whispers to it. Not `Name[n]`: the client drew `#Build[1]: hey` all
+white, without the global colour (live 2026-11-07).
 
 Each frame is a big-endian u16 length and that many bytes of JSON, at most 8192 (`ChatWire`):
 

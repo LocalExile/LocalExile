@@ -4,15 +4,15 @@
 /// A Strike skill's extra targets (Agents/docs/protocol/11-skills.md §10d): its spirit strikes
 /// (<c>melee_attack_number_of_spirit_strikes</c>: Ancestral Reach) and its strike at the previous location it was used
 /// (<c>melee_strike_skill_strike_previous_location</c>: Ancestral Echo). The client picks both itself when its melee
-/// action starts (<c>0x141c9c070</c> → <c>0x141c9ad30</c>) and draws them; the server mirrors the choice, so the damage
+/// action starts (<c>0x141c9eb00</c> → <c>0x141c9d7c0</c>) and draws them; the server mirrors the choice, so the damage
 /// lands on the monsters the client strikes.
 /// </summary>
-static class StrikeTargets
+public static class StrikeTargets
 {
-    /// <summary>The client caps the candidates at 20 (<c>0x141c9ad30</c>'s list, filled by <c>0x141ca3f30</c>).</summary>
+    /// <summary>The client caps the candidates at 20 (<c>0x141c9d7c0</c>'s list, filled by <c>0x141ca69c0</c>).</summary>
     public const int MaxCandidates = 20;
 
-    /// <summary>The client's <c>virtual_number_of_spirit_strikes</c> (<c>0x1428b12d0</c>): none with
+    /// <summary>The client's <c>virtual_number_of_spirit_strikes</c> (<c>0x1428b7e90</c>): none with
     /// <c>no_spirit_strikes</c>, for a non-melee attack, a non-Strike or a Vaal skill, else
     /// <c>melee_attack_number_of_spirit_strikes</c>. Shortcut: its unarmed term
     /// (<c>unarmed_attack_number_of_spirit_strikes</c>) is left out, no item the server rolls has it.</summary>
@@ -20,18 +20,18 @@ static class StrikeTargets
         stat("no_spirit_strikes") != 0 || !melee || !strike || vaal ? 0 : Math.Max(0, stat("melee_attack_number_of_spirit_strikes"));
 
     /// <summary>The scan radius in cells: (100 + <c>extra_target_targeting_distance_+%</c>) / 100 × 30, truncated
-    /// (<c>0x141c9ad30</c>, f32 arithmetic): 30, or 45 with Ancestral Reach's 50%.</summary>
+    /// (<c>0x141c9d7c0</c>, f32 arithmetic): 30, or 45 with Ancestral Reach's 50%.</summary>
     public static int Range(int extraDistancePct) => (int)((extraDistancePct + 100) / 100f * 30f);
 
     public readonly record struct Candidate(uint Id, (int X, int Y) At, int Size);
 
     /// <summary>
-    /// The spirit strike targets, as the client picks them (<c>0x141c9ad30</c>, <c>0x141ca6010</c>, <c>0x141ca3f30</c>):
+    /// The spirit strike targets, as the client picks them (<c>0x141c9d7c0</c>, <c>0x141ca8aa0</c>, <c>0x141ca69c0</c>):
     /// the living hostile candidates within the range plus their own size of the player's cell, more than 9.95 cells
-    /// from it (squared distance over 99), not already the action's target; sorted by object id (<c>0x141a300b0</c>),
+    /// from it (squared distance over 99), not already the action's target; sorted by object id (<c>0x141a32ac0</c>),
     /// shuffled front to back with the client's TinyMT32 seeded by the action's sequence and the player's object id
-    /// (<c>0x1413cbe50</c>, a draw per place with <c>0x1404d03d0</c>), and the first <paramref name="count"/> taken.
-    /// Not mirrored: the client's line-of-sight test (<c>0x141d87160</c>), and which 20 it keeps when more qualify
+    /// (<c>0x1413ce240</c>, a draw per place with <c>0x1404d0990</c>), and the first <paramref name="count"/> taken.
+    /// Not mirrored: the client's line-of-sight test (<c>0x141d8a7f0</c>), and which 20 it keeps when more qualify
     /// (its grid order; the server keeps the 20 lowest ids).
     /// </summary>
     public static List<uint> Pick(IEnumerable<Candidate> living, (int X, int Y) player, int range, int count,
@@ -55,7 +55,7 @@ static class StrikeTargets
         return d2 <= reach * reach && d2 > 99;
     }
 
-    /// <summary>The client's <c>melee_strike_skill_number_of_previous_locations_to_strike</c> (<c>0x142896310</c>):
+    /// <summary>The client's <c>melee_strike_skill_number_of_previous_locations_to_strike</c> (<c>0x14289ced0</c>):
     /// a melee main hand (its <c>main_hand_weapon_type</c> table), a Strike and the stat.</summary>
     public static bool StrikesPreviousLocation(Func<string, int> stat, bool strike, bool meleeWeapon) =>
         meleeWeapon && strike && stat("melee_strike_skill_strike_previous_location") != 0;
@@ -70,7 +70,7 @@ static class StrikeTargets
 
         /// <summary>Stores this use and returns the previous use's centre to strike again, unless the player stood
         /// within 5 cells of where it stands now (the client skips a location whose squared distance is under 25,
-        /// <c>0x141ca6eb0</c>).</summary>
+        /// <c>0x141ca9940</c>).</summary>
         public (int X, int Y)? Use(ushort skill, (int X, int Y) player, (int X, int Y) centre)
         {
             bool had = last.TryGetValue(skill, out var previous);
@@ -91,8 +91,8 @@ static class StrikeTargets
         public void Clear() { last.Clear(); buffs.Clear(); }
     }
 
-    /// <summary>The client's small generator seeded from a key (TinyMT32's <c>init_by_array</c>, <c>0x1413cbe50</c>,
-    /// checked against its folded first step), with <c>0x140484fa0</c>'s uniform pick. The step is the client's, as in
+    /// <summary>The client's small generator seeded from a key (TinyMT32's <c>init_by_array</c>, <c>0x1413ce240</c>,
+    /// checked against its folded first step), with <c>0x140485560</c>'s uniform pick. The step is the client's, as in
     /// GameServer.Data's LabyrinthPass.TinyMt (seeded from one word there).</summary>
     struct ClientRandom
     {

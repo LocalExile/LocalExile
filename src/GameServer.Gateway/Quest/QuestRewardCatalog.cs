@@ -1,8 +1,9 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>QuestRewardOffers and class-filtered QuestRewards. Row zero is a real offer/flag.</summary>
-sealed class QuestRewardCatalog
+public sealed class QuestRewardCatalog
 {
     /// <summary>One choice of an offer (a QuestRewards row). <paramref name="Level"/> is a gem's level and other items' item
     /// level; <see cref="Rarity"/> is the row's rarity column (0 normal, 1 magic; none for gems).</summary>
@@ -23,7 +24,7 @@ sealed class QuestRewardCatalog
     public static QuestRewardCatalog Load(string folder = "data", bool hardMode = false, bool supportGems = true)
     {
         var result = new QuestRewardCatalog();
-        string Table(string name) => File.ReadAllText(Path.Combine(folder, "tables", name + ".json"));
+        string Table(string name) => ClientTables.ReadAllText(Path.Combine(folder, "tables", name + ".json"));
         using var flags = JsonDocument.Parse(Table("QuestFlags"));
         var names = flags.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString()!).ToArray();
         using var choices = JsonDocument.Parse(Table("QuestRewards"));

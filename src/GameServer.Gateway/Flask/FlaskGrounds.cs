@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Ground effects the player creates. Utility flasks leave them on use, from their implicit mods (Agents/docs/
@@ -8,7 +9,7 @@ using System.Text.Json;
 /// Doctrine adds the stationary consecrated ground and the profane ground created on a critical strike. Radii are in
 /// cells. A flask ground lasts as long as the flask's effect: the tables do not give its own duration.
 /// </summary>
-static class FlaskGrounds
+public static class FlaskGrounds
 {
     public enum Kind { SmokeCloud, ConsecratedGround, ProfaneGround, Taunt }
 
@@ -48,7 +49,7 @@ static class FlaskGrounds
         : [.. ConsecratedStats.Select(s => (s.Stat, (int)((long)s.Value * (100 + effectPct) / 100)))];
 
     /// <summary>The radius of the consecrated ground around a stationary player, as the client derives
-    /// virtual_consecrated_ground_while_stationary_radius (0x1428d43a0): the plain stat, the Strength variant while Strength
+    /// virtual_consecrated_ground_while_stationary_radius (0x1428db1d0): the plain stat, the Strength variant while Strength
     /// is the highest attribute (ties count), the Crusader variant with 2 or more Crusader items; the largest wins.</summary>
     public static int StationaryRadius(Func<string, int> get)
     {
@@ -98,10 +99,10 @@ static class FlaskGrounds
     {
         var art = new Dictionary<Kind, (string, int)>();
         string types = Path.Combine(folder, "tables", "GroundEffectTypes.json"), effects = Path.Combine(folder, "tables", "GroundEffects.json");
-        if (!File.Exists(types) || !File.Exists(effects)) return art;
-        using var t = JsonDocument.Parse(File.ReadAllBytes(types));
+        if (!ClientTables.Exists(types) || !ClientTables.Exists(effects)) return art;
+        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(types));
         var ids = t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString()).ToList();
-        using var e = JsonDocument.Parse(File.ReadAllBytes(effects));
+        using var e = JsonDocument.Parse(ClientTables.ReadAllBytes(effects));
         foreach (var (kind, id) in new[] { (Kind.SmokeCloud, "Smoke"), (Kind.ConsecratedGround, "Consecration"),
             (Kind.ProfaneGround, "Profane") })
             foreach (var r in e.RootElement.EnumerateArray())

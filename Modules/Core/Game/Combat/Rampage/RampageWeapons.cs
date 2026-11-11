@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static void ReleaseRampageProjectiles(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, RampageWorld.Job job)

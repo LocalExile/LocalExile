@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The quest engine (Agents/docs/protocol/12-quests.md §5, Agents/docs/game/campaign-quests.md). A character's quest progress
@@ -29,7 +30,7 @@ using System.Text.Json;
 /// with its oracle step in <see cref="QuestSimulator.ObjectHandlers"/>). Then the act's event sequence goes through the
 /// oracle (<see cref="QuestSimulator"/>): the flags after the act must contain CharacterStartQuestState's preset for it.</para>
 /// </summary>
-static partial class Quests
+public static partial class Quests
 {
     /// <summary>A rule of a quest's table. Area and object/variety Ids are WorldAreas, MonsterVarieties, NPCs, Chests or
     /// .ot type Ids, as the data names them.</summary>
@@ -150,7 +151,7 @@ static partial class Quests
     /// then. Using it is a <see cref="UsedRule"/>.</summary>
     public sealed record ObjectRule(string Area, string ObjectType, string? TransitionedBy) : Rule
     {
-        /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e61540) stops at
+        /// <summary>Removed once transitioned instead of shown open: the client's step check (0x141e65ae0) stops at
         /// every Positioned body with a size, open or not (the Apex door, object_size 6, live 2026-11-04).</summary>
         public bool GoneWhenTransitioned { get; init; }
     }
@@ -332,7 +333,7 @@ static partial class Quests
         readonly HashSet<string> sources = new(StringComparer.Ordinal);
         readonly System.Collections.Concurrent.ConcurrentDictionary<string, IReadOnlySet<string>> watched = new(StringComparer.Ordinal);
 
-        internal RuleSet(IReadOnlyList<Quest> quests, IReadOnlyDictionary<Rule, string> sourceOf)
+        public RuleSet(IReadOnlyList<Quest> quests, IReadOnlyDictionary<Rule, string> sourceOf)
         {
             Quests = quests;
             this.sourceOf = sourceOf;
@@ -592,7 +593,7 @@ static partial class Quests
 
     /// <summary>Flags every character has from the start (added on login, not a quest's), all for the hideout
     /// (21-hideouts.md §1): HideoutUnlocked; HASH32 0x2f1b9c25 (row 718, the schema's "HideoutJukeboxEnabled"), which the
-    /// HUD's hideout panel checks (0x14216c840); CanEditHideout, tested before the Edit button shows (live trace
+    /// HUD's hideout panel checks (0x1421731f0); CanEditHideout, tested before the Edit button shows (live trace
     /// 2026-10-20); MapDeviceActive, the map device's per-player "active" state (its .ot:
     /// per_player_quest_flag_state_active_1). ThisIsMyHideout (row 717): hideout NPCs' own options need it in NPCTalk
     /// QuestFlag1 (Niko's View Subterranean Chart and Visit Mine Encampment); without it the client lists their
@@ -637,8 +638,8 @@ static partial class Quests
 
     /// <summary>
     /// League quest flags: a set of their own, kept in the Player component's second flag set (+0x1d0). They are not a
-    /// table: the client has the names built in, sorted, with their ids (0x142fca900, 0x776 entries; lookup
-    /// 0x1423f1fb0). Ids start at 1: the client tests bit id − 1 (0x14155cdf0, and the map device's Targetable, live
+    /// table: the client has the names built in, sorted, with their ids (0x142fcb390, 0x776 entries; lookup
+    /// 0x1423f8a70). Ids start at 1: the client tests bit id − 1 (0x14155f120, and the map device's Targetable, live
     /// 2026-10-20). Every character has the hideout ones (21-hideouts.md §1).
     /// </summary>
     public static class League
@@ -656,7 +657,7 @@ static partial class Quests
         /// <summary>The World panel's special pins (SpecialMapPins.dat column 2 is the league quest flag id that shows each):
         /// HaveGuildHideout, MenagerieUnlocked, NikoHaveMinedSulphite (the Mine Encampment), SanctumIntroNewGivenTexts,
         /// VillageKingsmarchUnlocked, HeistVisitedHub, ChayulaLeagueAreaUnlocked, AncestralHallsOfDeadUnlocked,
-        /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140a9bd50).</summary>
+        /// NecropolisAreaUnlocked, DeepwaterBoatUnlocked (0x140aa7530).</summary>
         public static readonly int[] WorldPanelPins = [1033, 409, 9, 414, 608, 736, 636, 677, 419, 1834];
 
         public static readonly int[] EveryCharacter = [UnlockedHideouts, HaveHideout, AtlasUnlocked, UsedMapDevice, UnlockedMapDevice,
@@ -684,7 +685,7 @@ static partial class Quests
     static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
     {
         const string file = "data/tables/QuestFlags.json";
-        try { return File.Exists(file) ? ParseRows(File.ReadAllText(file)) : []; }
+        try { return ClientTables.Exists(file) ? ParseRows(ClientTables.ReadAllText(file)) : []; }
         catch (Exception ex) when (ex is IOException or JsonException) { Console.WriteLine($"[gateway] {file}: {ex.Message}"); return []; }
     });
 

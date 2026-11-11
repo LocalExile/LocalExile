@@ -13,7 +13,7 @@ using GameServer.Core.World;
 /// movement and attack speed, crit) are not here: <see cref="CharacterStats"/> computes those, and
 /// <see cref="FromPools"/> adds the rows that combine them with a stat.
 /// </summary>
-static class PanelStats
+public static class PanelStats
 {
     /// <summary>A source stat, scaled: × <paramref name="Mul"/> ÷ <paramref name="Div"/> (a "-%" stat counts negative;
     /// a 1/100 000 leech counts ÷ 10 as permyriad). Player-level sources multiply before integer division.</summary>
@@ -454,7 +454,7 @@ static class PanelStats
     /// (<see cref="LifePerMinute"/>) and mana (<see cref="ManaPerMinute"/>). The same formulas feed the player tick, so
     /// the panel shows the regeneration the server actually applies. A character with no life regeneration gets no life
     /// row; mana always has its base rate. The client also needs life_recovery_per_minute / mana_recovery_per_minute
-    /// for its own pool stepping: the Life constructor (0x141e678d0) binds these keys to the pools, and 0x141e6b320
+    /// for its own pool stepping: the Life constructor (0x141e6de70) binds these keys to the pools, and 0x141e718c0
     /// applies the rate / 60 times the client tick duration. The display totals alone do not drive that stepping.
     /// </summary>
     public static List<(string Stat, int Value)> Recovery(Func<string, int> get, uint maxLife, uint maxMana)

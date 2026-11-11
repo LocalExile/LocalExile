@@ -1,7 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // An admitted quest kill completes under QuestGate -> cipher -> level -> Monsters.
     // Captured factories run now; only owned bytes and host incarnation tickets leave this bounded scope.
@@ -9,12 +9,12 @@ static partial class Game
 
     sealed class QuestOutputCapture(ClientState connection, WorldAdmission admission)
     {
-        internal ClientState Connection => connection;
-        internal WorldAdmission Admission => admission;
+        public ClientState Connection => connection;
+        public WorldAdmission Admission => admission;
         readonly List<(PlayerMinions.Output? Legacy, OutputBatch? Typed)> entries = [];
         public void Add(PlayerMinions.Output output) => entries.Add((output, null));
-        internal void AddTyped(OutputBatch batch) => entries.Add((null, batch));
-        internal OutputBatch Project()
+        public void AddTyped(OutputBatch batch) => entries.Add((null, batch));
+        public OutputBatch Project()
         {
             List<OutputRecord> records = [];
             foreach (var (legacy, typed) in entries)
@@ -58,7 +58,7 @@ static partial class Game
         }
     }
 
-    internal static OutputBatch CaptureQuestWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit)
+    public static OutputBatch CaptureQuestWorldOutput(ClientState conn, WorldAdmission admission, Func<Task> commit)
     {
         if (QuestKillCommitOutput is not null) throw new InvalidOperationException("Nested quest kill transaction");
         var capture = new QuestOutputCapture(conn, admission);
@@ -83,7 +83,7 @@ static partial class Game
 
     // The outer admission owns the gate and all accepted birth reservations. Nested typed sends cannot await it
     // again or wait for a future frame. Pure post-birth presentation is represented explicitly in the returned batch.
-    internal static Task<bool> SendWorldBatch(ClientState conn, IReadOnlyList<WorldObject> requires,
+    public static Task<bool> SendWorldBatch(ClientState conn, IReadOnlyList<WorldObject> requires,
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, bool quest = false,
         (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null,
         IReadOnlyList<WorldObject>? creates = null)

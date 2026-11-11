@@ -3,11 +3,11 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // The node stats that name a Spirit chieftain trigger with an event the server has. Spirit of Rakiata's
     // has_trigger_on_crit_vs_marked_unique needs Marks, which the server does not have.
-    internal const string CritByUniqueTrigger = "has_trigger_on_crit_by_unique_enemy",
+    public const string CritByUniqueTrigger = "has_trigger_on_crit_by_unique_enemy",
         SavageHitFromUniqueTrigger = "has_trigger_on_taking_savage_hit_from_unique",
         BlockFromUniqueTrigger = "has_trigger_on_block_hit_from_unique",
         TotemDeathInPresenceOfUniqueTrigger = "has_trigger_on_totem_death_in_presence_of_unique";
@@ -18,7 +18,7 @@ static partial class Game
     /// defender's when-hit effects), and taking it as a Savage Hit (it removed at least 15% of maximum Life; Energy
     /// Shield, Ward and Mana do not count, wiki Savage hit) Spirit of Utula. True when one triggered.
     /// </summary>
-    internal static bool SpiritChieftainsWhenHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, bool blocked,
+    public static bool SpiritChieftainsWhenHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, bool blocked,
         bool critical, long lifeLost)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0) return false;
@@ -64,7 +64,7 @@ static partial class Game
 
     // "Recover X% of Life / Mana / Energy Shield when you Block" (Kiloava's Leadership): a percent of each maximum
     // (PoB LifeOnBlock, ManaOnBlock and EnergyShieldOnBlock PercentStat), rounded down.
-    internal static (int Life, int Mana, uint EnergyShield) BlockRecovery(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    public static (int Life, int Mana, uint EnergyShield) BlockRecovery(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
         long Pct(string name, long maximum) => Stats.Key(name) is uint key ? maximum * Math.Max(0, stats.GetValueOrDefault(key)) / 100 : 0;
         return ((int)Pct("recover_%_of_maximum_life_on_block", conn.PlayerMaxLife), (int)Pct("mana_%_gained_on_block", conn.Pools.Mana),
@@ -73,7 +73,7 @@ static partial class Game
 
     // The Leadership buff on the player (S→C 0x1c1 with its remaining seconds, 0x1c2 when it ends or the player dies) and
     // the player's stats with or without its stats. Sent after a trigger and from the player tick.
-    internal static byte[]? SpiritChieftainPresentation(ClientState conn)
+    public static byte[]? SpiritChieftainPresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -105,12 +105,12 @@ static partial class Game
 
     /// <summary>
     /// The chieftain minions, after a trigger and from the player tick. One whose time is up, or whose owner died, dies (0x1b1
-    /// at 0) and its body goes a second later (0x2bb); a queued summon then rises next to the living player: the chieftain's
+    /// at 0) and its body goes a second later (0x2bd); a queued summon then rises next to the living player: the chieftain's
     /// MonsterVarieties row (AncestralEmbraceVariations) at its level, on his team, as his minion (is_player_minion), with
     /// his minion modifiers (minion_damage_+%, minion_attack_speed_+%, minion_attack_and_cast_speed_+%,
     /// minion_movement_speed_+%) as its own, until its Leadership ends. It is immortal: nothing on the server damages it.
     /// </summary>
-    internal static async Task SpiritChieftainMinion(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SpiritChieftainMinion(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var bytes = new List<byte>();
         SpiritChieftains.Summon? summon;
@@ -139,7 +139,7 @@ static partial class Game
                 Console.WriteLine($"[gateway] {CharacterName(conn)}: chieftain 0x{minion.Id:x} ({m.Label}) ends");
             }
         }
-        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b1/0x02bb chieftain minion ends");
+        if (bytes.Count > 0) await Send(remote, stream, ciphers, [.. bytes], "0x01b1/0x02bd chieftain minion ends");
         if (!CurrentGameWork || summon is null || now >= summon.Until) return;
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {

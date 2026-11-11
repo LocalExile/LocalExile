@@ -2,22 +2,22 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // The taunted buff (BuffDefinitions 408) is IsRecovery (+0x7c), so 0x1c1 carries one u32 per GrantedStats entry
-    // (taunt_target_id, is_taunted; reader 0x141fdf870): the taunter and 1.
+    // (taunt_target_id, is_taunted; reader 0x141fe6090): the taunter and 1.
     static readonly IReadOnlyList<uint> TauntedBuffValues = [PlayerId, 1];
 
     /// <summary>How long the player's taunts last: 3 s (wiki Taunt; the Basalt Flask's reminder text), raised by
     /// taunt_duration_+%.</summary>
-    internal static double TauntSeconds(Func<string, int> get) =>
+    public static double TauntSeconds(Func<string, int> get) =>
         FlaskGrounds.TauntSeconds * Math.Max(0, 1 + get("taunt_duration_+%") / 100.0);
 
     /// <summary>Taunts the hostile living monsters within <paramref name="radius"/> cells of <paramref name="at"/> for
     /// <paramref name="seconds"/> (a warcry, a Basalt Flask); a new taunt replaces the player's old one on a monster (wiki
     /// Taunt: "you can replace your own taunts"). The enemy-debuff step shows it and takes it off. Under the Monsters lock;
     /// the number taunted.</summary>
-    internal static int TauntLocked(ClientState conn, (int X, int Y) at, int radius, double now, double seconds)
+    public static int TauntLocked(ClientState conn, (int X, int Y) at, int radius, double now, double seconds)
     {
         if (!CurrentGameWork || conn.PlayerLife == 0 || seconds <= 0) return 0;
         int taunted = 0;
@@ -32,7 +32,7 @@ static partial class Game
     }
 
     // The player tick (RunPlayerTick, 250 ms, not while paused) steps the player's debuffs on monsters.
-    internal static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task TickPassiveAuras(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         EnemyDebuffsTick(remote, stream, ciphers, conn, AreaTime(conn));
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
@@ -44,7 +44,7 @@ static partial class Game
     // Each monster then keeps the increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and
     // burns read. A refund or a death takes the auras off; a new area is a new connection.
 
-    internal static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
+    public static async Task EnemyDebuffsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         ushort[] nodes;
         lock (conn.Monsters)

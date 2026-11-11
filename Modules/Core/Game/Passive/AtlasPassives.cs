@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -6,7 +7,7 @@ using System.Text.Json;
 /// start with <c>atlas_</c>. The client supplies the tree's geometry and connectivity, so the server needs the node ids
 /// (PassiveSkillGraphId) for the S→C 0x3d preset lists and the C→S 0x3e/0x3f allocation requests.
 /// </summary>
-sealed class AtlasPassives(string folder = "data")
+public sealed class AtlasPassives(string folder = "data")
 {
     public sealed record Node(ushort GraphId, string Id, string Name, bool IsNotable, bool IsKeystone,
         IReadOnlyList<(uint Key, int Value)> Stats);
@@ -27,7 +28,7 @@ sealed class AtlasPassives(string folder = "data")
     {
         var nodes = new Dictionary<ushort, Node>();
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!File.Exists(path)) return nodes;
+        if (!ClientTables.Exists(path)) return nodes;
         using var doc = GameTables.Open(path);
         foreach (var row in doc.RootElement.EnumerateArray())
         {

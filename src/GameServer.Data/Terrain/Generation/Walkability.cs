@@ -15,17 +15,17 @@ public sealed record SubTileWalk(byte F, byte G, byte[]? Hull)
     public int HullHeight => 23 + ((F & 0x20) != 0 ? 4 : 0) + ((F & 0x80) != 0 ? 4 : 0);
 
     /// <summary>A tile made of sub-tiles (flags word 0x200): which of the tile's meshes (the ';' list of header u32 4)
-    /// fills this slot (tile entry +0x36 bits 2–7, the first of the record's three extra bytes, <c>0x141d7d860</c>).
+    /// fills this slot (tile entry +0x36 bits 2–7, the first of the record's three extra bytes, <c>0x141d80ef0</c>).
     /// G bit 2 / 4 then say the slot continues the sub-tile on its left / above, bit 8 that it is empty.</summary>
     public int Mesh { get; init; }
     /// <summary>The sub-tile's placement code in the tile (+0x37 bits 5–7, the second extra byte).</summary>
     public int Code { get; init; }
 
-    /// <summary>The sub-tile's height byte map as the client keeps it (<c>0x1429f59a0</c>): empty (all 0), one value,
+    /// <summary>The sub-tile's height byte map as the client keeps it (<c>0x1429fed00</c>): empty (all 0), one value,
     /// or 23 × 23 cells packed against a palette (<see cref="HeightAt"/>).</summary>
     public byte[] Heights { get; init; } = [];
 
-    /// <summary><c>0x141d8fc40</c>: the height of cell <paramref name="i"/> (y × 23 + x in the sub-tile's own frame).
+    /// <summary><c>0x141d932d0</c>: the height of cell <paramref name="i"/> (y × 23 + x in the sub-tile's own frame).
     /// 0x45 bytes: a palette of 2 and 1 bit per cell; 0x89: 4 and 2 bits; 0x119: 16 and 4 bits; 0x211: one byte each.</summary>
     public sbyte HeightAt(int i) => (sbyte)(Heights.Length switch
     {
@@ -38,12 +38,12 @@ public sealed record SubTileWalk(byte F, byte G, byte[]? Hull)
     });
 }
 
-/// <summary>A tile's walkability data (<c>0x1429f31a0</c>): the hull plane masks (tile data +0x172 count − 1, +0x173
+/// <summary>A tile's walkability data (<c>0x1429fc500</c>): the hull plane masks (tile data +0x172 count − 1, +0x173
 /// masks: a plane is taken by the orientation codes in its mask, or by all when the mask is 0) and the sub-tiles in the
 /// tile's own frame, row by row.</summary>
 public sealed record TileWalk(byte[] PlaneMasks, SubTileWalk[] SubTiles)
 {
-    /// <summary>The offset of a .tdt's u16 flags word (<c>0x1429f31a0</c>), with the base tile's path when it names one
+    /// <summary>The offset of a .tdt's u16 flags word (<c>0x1429fc500</c>), with the base tile's path when it names one
     /// (u32 0) and the flags byte of its own field groups: without a base tile after the 58-byte key; with one after the
     /// flags byte (offset 4) and its own groups, bit 3 a tag and key (50 bytes), else bit 4 a size (2 bytes).</summary>
     public static int FlagsAt(byte[] data, out string? baseTile, out byte own)
@@ -69,7 +69,7 @@ public sealed record TileWalk(byte[] PlaneMasks, SubTileWalk[] SubTiles)
     /// and the restriction byte only with its bit 5): u16 flags (bit 0x100 from version 14, 0x200 from 13), from version 10 the orientation
     /// restriction byte and a hull plane count (0 … 4, then one mask per plane when 2 or more), with flag 0x200 a byte,
     /// then u16 sub-tile count and per sub-tile: u16 F | G &lt;&lt; 8 (u8 F before version 10), u8, with flag 0x200 three
-    /// bytes, a byte map unless F has bit 4 (<c>0x1429f59a0</c>), and unless F has bits 1 and 2 a u16 length and the
+    /// bytes, a byte map unless F has bit 4 (<c>0x1429fed00</c>), and unless F has bits 1 and 2 a u16 length and the
     /// compressed hull.</summary>
     public static TileWalk? Parse(byte[] data)
     {
@@ -106,7 +106,7 @@ public sealed record TileWalk(byte[] PlaneMasks, SubTileWalk[] SubTiles)
                     if (version < 10) { heights = data[p..(p + 0x211)]; p += 0x211; }
                     else
                     {
-                        // 0x1429f59a0: bits 0-2 compression (0: one value), bits 3-4 extra length bytes, bits 5-7 the
+                        // 0x1429fed00: bits 0-2 compression (0: one value), bits 3-4 extra length bytes, bits 5-7 the
                         // low bits of the value (mode 0: the value itself, none when 0; else the compressed length,
                         // LZ4 into 0x45 / 0x89 / 0x119 / 0x211 bytes for modes 1 … 4).
                         byte head = data[p++];
@@ -152,7 +152,7 @@ public sealed record TileWalk(byte[] PlaneMasks, SubTileWalk[] SubTiles)
     }
 }
 
-/// <summary>The terrain walkability and projectile grids (<c>0x141d85970</c>, map +0xd0 / +0xe8 as nibbles): one value
+/// <summary>The terrain walkability and projectile grids (<c>0x141d89000</c>, map +0xd0 / +0xe8 as nibbles): one value
 /// per cell, 23 cells per tile, 5 far from anything that blocks, falling to 1 next to it, 0 blocked. The client walks
 /// on 2 and up. Each tile entry lays its sub-tile's hull plane (turned by the entry's code) over the grid, keeping the
 /// lower value; an empty entry, or a tile whose flags or four unwalkable vertices (flag 8) block it, lays a blocked
@@ -189,7 +189,7 @@ public sealed partial class Walkability
             return null;
         }
 
-        // 0x141d883c0: how many of the entry's four vertices are unwalkable (outside the map counts).
+        // 0x141d8ba50: how many of the entry's four vertices are unwalkable (outside the map counts).
         int Unwalkable(int x, int y)
         {
             int n = 0;
@@ -238,7 +238,7 @@ public sealed partial class Walkability
         }
     }
 
-    /// <summary><c>0x141d7c840</c> and the lay-over loops of <c>0x141d85970</c>: the hull plane's cells, turned by the
+    /// <summary><c>0x141d7fed0</c> and the lay-over loops of <c>0x141d89000</c>: the hull plane's cells, turned by the
     /// code around the 23 × 23 slot, at entry (x, y), clamped into the map, each layer kept at the lower value.</summary>
     void Stamp(SubTileWalk sub, byte[] hull, int plane, int code, int x, int y, bool walk, bool projectile)
     {
@@ -258,9 +258,9 @@ public sealed partial class Walkability
             }
     }
 
-    /// <summary><c>0x141d867d0</c>: a blocked patch at entry (x, y), mask bit 8 for walking and 0x10 for projectiles.
+    /// <summary><c>0x141d89e60</c>: a blocked patch at entry (x, y), mask bit 8 for walking and 0x10 for projectiles.
     /// Toward each neighbour (up, right, down, left: bits 0x20, 0x40, 0x80, 0x100) that is a tile not blocked the same
-    /// way it reaches 4 cells further, rising 1 … 4 away from the slot (<c>0x1429f53b0</c>); cells outside the map are
+    /// way it reaches 4 cells further, rising 1 … 4 away from the slot (<c>0x1429fe710</c>); cells outside the map are
     /// left out.</summary>
     void Blocked(TileGrid grid, Func<int, int, SubTileWalk?> sub, int x, int y, int mask)
     {
@@ -312,7 +312,7 @@ public sealed partial class Walkability
     }
 }
 
-/// <summary>An LZ4 block decoder (the client's <c>0x140e42cd0</c>, LZ4_decompress_safe).</summary>
+/// <summary>An LZ4 block decoder (the client's <c>0x140e44ff0</c>, LZ4_decompress_safe).</summary>
 public static class Lz4
 {
     /// <summary>Decodes <paramref name="input"/> into <paramref name="output"/>; the decoded length, or −1 when the

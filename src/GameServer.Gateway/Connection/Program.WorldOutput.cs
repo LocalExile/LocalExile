@@ -2,11 +2,11 @@ using System.Diagnostics;
 using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 
-partial class Program
+public partial class Program
 {
     // Birth waits precede gameplay/send gates. Projection runs once at the existing gate; only neutral records wait
     // for a frame. The existing module lifetime check is retained, without introducing a new reload contract.
-    internal static async Task<bool> SendRecords(ClientState conn, IReadOnlyList<WorldObject> requires,
+    public static async Task<bool> SendRecords(ClientState conn, IReadOnlyList<WorldObject> requires,
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still = null, IReadOnlyList<WorldObject>? creates = null,
         IWorldAdmissionRules? rules = null, bool quest = false,
         (string Remote, System.Net.Sockets.NetworkStream Stream, GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers)? transport = null)
@@ -54,15 +54,15 @@ partial class Program
         finally { if (!admitted) admission.Finish(false); }
     }
 
-    internal static Task<bool> SendRecords(ClientState conn, OutputBatch batch, Func<bool>? still = null) =>
+    public static Task<bool> SendRecords(ClientState conn, OutputBatch batch, Func<bool>? still = null) =>
         SendRecords(conn, batch.Records.Where(r => r.Kind == OutputRecord.RecordKind.World).Select(r => r.Object!).Distinct().ToArray(),
             _ => batch, still, batch.Records.Where(r => r.Kind == OutputRecord.RecordKind.Create).Select(r => r.Object!).ToArray());
 
-    internal static Task<bool> SendWorld(ClientState conn, WorldObject target, WorldOrder order,
+    public static Task<bool> SendWorld(ClientState conn, WorldObject target, WorldOrder order,
         Func<byte[]?> atGate, string? log = null, Func<bool>? still = null) =>
         SendRecords(conn, [target], _ => atGate() is { } bytes ? new(OutputRecord.World(target, order, bytes, log)) : null, still);
 
-    internal static async Task<double> BeginWorldFrames(ClientState conn, double frameSeconds)
+    public static async Task<double> BeginWorldFrames(ClientState conn, double frameSeconds)
     {
         var gate = SendGates.GetValue(conn.Wire.Ciphers, _ => new(1, 1));
         await gate.WaitAsync();
@@ -83,7 +83,7 @@ partial class Program
         finally { gate.Release(); }
     }
 
-    internal static async Task<long?> EndWorldFramesThrough(ClientState conn, double first, double frameSeconds,
+    public static async Task<long?> EndWorldFramesThrough(ClientState conn, double first, double frameSeconds,
         long ended, double now)
     {
         if (conn.Closed || conn.WorldOutput.Closed) return null;
@@ -93,7 +93,7 @@ partial class Program
         return ended;
     }
 
-    internal static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
+    public static async Task<bool> EndWorldFrame(ClientState conn, (double Start, double End) next)
     {
         var wire = conn.Wire;
         var gate = SendGates.GetValue(wire.Ciphers, _ => new(1, 1));

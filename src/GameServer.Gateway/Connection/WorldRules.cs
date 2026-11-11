@@ -1,5 +1,5 @@
 /// <summary>Current rules eligibility, checked at the existing send gate before synchronous projection.</summary>
-interface IWorldAdmissionRules
+public interface IWorldAdmissionRules
 {
     bool WorldAdmissionActive { get; }
 }

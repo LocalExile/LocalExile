@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly Lazy<Dictionary<FlaskGrounds.Kind, (string Ao, int ArtRadius)>> FlaskGroundArt = new(() => FlaskGrounds.LoadArt("data"));
+    public static readonly Lazy<Dictionary<FlaskGrounds.Kind, (string Ao, int ArtRadius)>> FlaskGroundArt = new(() => FlaskGrounds.LoadArt("data"));
 
     // Ground creation belongs to the accepted charge transaction. Its art receipts and deadline survive
     // replacement, while taunt uses the same accepted character snapshot as the utility effect.
@@ -25,7 +25,7 @@ static partial class Game
         }
     }
 
-    internal static Task MaybeCreateProfaneGround(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static Task MaybeCreateProfaneGround(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, (int X, int Y) at)
     {
         lock (conn.Monsters)
@@ -53,14 +53,14 @@ static partial class Game
         var effect = new EffectObject(at.X, at.Y, art.Ao) { Flags0 = EffectObject.FixedRotation, Scale = scale };
         var packets = Automation(conn).Packets;
         packets.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),
-            $"0x02b9 create effect 0x{obj:x} {art.Ao} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}", WorldId: obj, CreatesObject: true));
+            $"0x02bb create effect 0x{obj:x} {art.Ao} at ({at.X}, {at.Y}), scale {scale:0.###} for radius {radius}", WorldId: obj, CreatesObject: true));
         packets.Add(new(InstanceProtocol.EnterWakeZone(obj), WorldId: obj));
         return obj;
     }
 
     // The current area claim advances flask and stationary grounds together: expiry, smoke, linger and
     // presentation cannot be stranded in an old timer when Game is replaced.
-    internal static void AdvanceFlaskGrounds(ClientState conn, PlayerUpdatesState updates)
+    public static void AdvanceFlaskGrounds(ClientState conn, PlayerUpdatesState updates)
     {
         if (conn.FlaskGrounds.Any) _ = FlaskGroundArt.Value;
         lock (conn.Monsters)
@@ -71,7 +71,7 @@ static partial class Game
             var pending = Automation(conn);
             foreach (var ground in state.Expire(now))
                 if (ground.Object is uint obj) pending.Packets.Add(new(InstanceProtocol.RemoveObject(obj),
-                    $"0x02bb remove effect 0x{obj:x} ({ground.Kind} ends)", WorldId: obj, RemovesObject: true));
+                    $"0x02bd remove effect 0x{obj:x} ({ground.Kind} ends)", WorldId: obj, RemovesObject: true));
             foreach (uint gone in state.BlindedMonsters().Except(conn.Monsters.Keys)) state.SetBlinded(gone, false, () => 0);
             foreach (uint gone in state.ProfaneMonsters().Except(conn.Monsters.Keys))
                 state.SetProfane(gone, false, false, now, () => 0);
@@ -96,7 +96,7 @@ static partial class Game
             var here = conn.Walk.Position(now);
             var (stale, make) = state.Stationary(alive && !conn.Walk.Moving(now) && !InTown(conn), here);
             if (stale?.Object is uint old) pending.Packets.Add(new(InstanceProtocol.RemoveObject(old),
-                $"0x02bb remove effect 0x{old:x} (stationary consecrated ground)", WorldId: old, RemovesObject: true));
+                $"0x02bd remove effect 0x{old:x} (stationary consecrated ground)", WorldId: old, RemovesObject: true));
             if (make > 0) state.PlaceStationary(new(FlaskGrounds.Kind.ConsecratedGround, here.X, here.Y, make,
                 double.PositiveInfinity, QueueGroundArtLocked(conn, FlaskGrounds.Kind.ConsecratedGround, here, make)));
             if (state.SetConsecrated(state.OnConsecrated(alive, here, now), () => conn.NextBuff++) is { } consecrated)
@@ -111,7 +111,7 @@ static partial class Game
         }
     }
 
-    internal static async Task RunFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task RunFlaskGrounds(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, PlayerUpdatesState updates)
     {
         while (PlayerUpdatesCurrent(conn, updates))

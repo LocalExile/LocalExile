@@ -4,7 +4,7 @@ using GameServer.Core.World;
 /// The player's poisons on one monster. Multiple poisons can stack indefinitely; each deals chaos damage concurrently
 /// and maintains its own duration (default 2 s). Guarded by the connection's Monsters lock.
 /// </summary>
-sealed class MonsterPoisons
+public sealed class MonsterPoisons
 {
     double expiryRate = 1;
     public void SetExpiryRate(double now, double rate)

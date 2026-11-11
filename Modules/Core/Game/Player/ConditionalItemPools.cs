@@ -2,9 +2,9 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
-    internal static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now)
+    public static IReadOnlyDictionary<string, bool> ItemConditionFlags(ClientState conn, double now)
     {
         var ailments = conn.ElementalAilments.Snapshot(now);
         var leech = LeechOf(conn).Active(now);
@@ -30,6 +30,9 @@ static partial class Game
             ["_while_leeching"] = alive && (leech.Life || leech.Mana || leech.EnergyShield),
         };
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
+        // The uniques spell the life/mana states with "when"; the same state answers both keys.
+        foreach (string state in new[] { "_on_full_life", "_on_low_life", "_on_full_mana", "_on_low_mana" })
+            flags["_when" + state] = flags["_while" + state];
         var weapons = WeaponProfileFor(conn);
         flags["_while_unarmed"] = weapons.Unarmed;
         flags["_while_wielding_staff"] = weapons.Staff;
@@ -46,7 +49,7 @@ static partial class Game
 
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
-    internal static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
+    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
     {
         StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
@@ -57,16 +60,16 @@ static partial class Game
     };
     sealed class ConditionalItemPoolState
     {
-        internal StatSourcesResult? Applied;
-        internal bool Building;
-        internal long Revision, Presented;
+        public StatSourcesResult? Applied;
+        public bool Building;
+        public long Revision, Presented;
     }
 
     static readonly ConditionalWeakTable<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
 
     // A changed condition must reach the final pools as well as the raw stat dictionary. Compare effective sources:
     // another hit can extend the same four-second window without requiring another pool build.
-    internal static bool EnsureConditionalItemPools(ClientState conn)
+    public static bool EnsureConditionalItemPools(ClientState conn)
     {
         lock (conn.Monsters)
         {

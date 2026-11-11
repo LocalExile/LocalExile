@@ -1,10 +1,10 @@
 
-static partial class Game
+public static partial class Game
 {
-    internal static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
+    public static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
         or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
 
-    internal static (bool LowLife, bool Focused, int ExtraRolls) CriticalContext(ClientState conn)
+    public static (bool LowLife, bool Focused, int ExtraRolls) CriticalContext(ClientState conn)
     {
         var player = CharacterPlayerStats(conn);
         bool focused = Stats.Key("has_focus") is uint key && player.GetValueOrDefault(key) != 0;
@@ -14,11 +14,11 @@ static partial class Game
     // Compute the native virtual_on_low_life input from current pools. Actions capture its luck contribution at use;
     // the panel continues to show the owner's current state.
     // Focus and Vulnerability use their current raw state inputs; their skill/curse lifecycles are separate mechanics.
-    internal static bool CriticalOnLowLife(ClientState conn, IReadOnlyDictionary<uint, int> player) =>
+    public static bool CriticalOnLowLife(ClientState conn, IReadOnlyDictionary<uint, int> player) =>
         CriticalOnLowLife(() => conn.PlayerLife, () => conn.PlayerMaxLife, player);
 
     // From the life and maximum life as read once (the stat snapshot's tail inputs), or as they are now.
-    internal static bool CriticalOnLowLife(uint life, uint maximumLife, IReadOnlyDictionary<uint, int> player) =>
+    public static bool CriticalOnLowLife(uint life, uint maximumLife, IReadOnlyDictionary<uint, int> player) =>
         CriticalOnLowLife(() => life, () => maximumLife, player);
 
     static bool CriticalOnLowLife(Func<uint> life, Func<uint> maximumLife, IReadOnlyDictionary<uint, int> player)
@@ -31,17 +31,17 @@ static partial class Game
             Get("low_life_threshold_%_override"), Get("low_life_threshold_%"), counts);
     }
 
-    internal static int CriticalExtraRolls(ClientState conn, IReadOnlyDictionary<uint, int>? own = null)
+    public static int CriticalExtraRolls(ClientState conn, IReadOnlyDictionary<uint, int>? own = null)
     {
         lock (conn.Monsters)
             return CriticalExtraRollsFor(conn, CharacterPlayerStats(conn), own);
     }
 
-    internal static int CriticalExtraRollsFor(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static int CriticalExtraRollsFor(ClientState conn, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null) =>
         CriticalExtraRollsFor(CriticalOnLowLife(conn, player), player, own);
 
-    internal static int CriticalExtraRollsFor(bool onLowLife, IReadOnlyDictionary<uint, int> player,
+    public static int CriticalExtraRollsFor(bool onLowLife, IReadOnlyDictionary<uint, int> player,
         IReadOnlyDictionary<uint, int>? own = null)
     {
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
@@ -53,10 +53,10 @@ static partial class Game
             Player("keystone_sharp_and_brittle") != 0 || Own("keystone_sharp_and_brittle") != 0);
     }
 
-    internal static bool CriticalProhibited(ClientState conn, bool attack, IReadOnlyDictionary<uint, int>? own = null)
+    public static bool CriticalProhibited(ClientState conn, bool attack, IReadOnlyDictionary<uint, int>? own = null)
         => CriticalProhibitedBy(CharacterPlayerStats(conn), attack, own);
 
-    internal static bool CriticalProhibitedBy(IReadOnlyDictionary<uint, int> player, bool attack,
+    public static bool CriticalProhibitedBy(IReadOnlyDictionary<uint, int> player, bool attack,
         IReadOnlyDictionary<uint, int>? own)
     {
         bool Flag(string name) => Stats.Key(name) is uint key
@@ -67,7 +67,7 @@ static partial class Game
 
     // The original per-type damage draws still precede the original critical Next(10000). Conditional luck adds
     // at most one following draw. This RNG order is a local policy, not evidence of the official server's sequence.
-    internal static bool RollCriticalStrike(ClientState conn, int chance, IReadOnlyDictionary<uint, int>? own = null,
+    public static bool RollCriticalStrike(ClientState conn, int chance, IReadOnlyDictionary<uint, int>? own = null,
         bool attack = true, SkillCriticalRoll? skillRoll = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         if (chance <= 0 && !HoldingFishingRod(conn)) return false;
@@ -83,7 +83,7 @@ static partial class Game
         }
     }
 
-    internal static SkillCriticalRoll CaptureSkillCriticalRoll(ClientState conn, ushort skillId)
+    public static SkillCriticalRoll CaptureSkillCriticalRoll(ClientState conn, ushort skillId)
     {
         lock (conn.Monsters)
         {
@@ -97,7 +97,7 @@ static partial class Game
 
     // Baited Breath (always_crit_while_holding_fishing_rod): while holding a Fishing Rod every hit is a critical strike
     // without a roll, whatever its base chance; a cannot-crit prohibition still wins (wiki). The client's
-    // virtual_always_crit calculator (0x14275ba00) reads the stat only for main_hand_weapon_type 15; PoB: CritChance
+    // virtual_always_crit calculator (0x1427625b0) reads the stat only for main_hand_weapon_type 15; PoB: CritChance
     // OVERRIDE 100.
     static bool AlwaysCritical(ClientState conn, Func<string, int> get) =>
         get("always_crit_while_holding_fishing_rod") != 0 && HoldingFishingRod(conn);
@@ -107,13 +107,13 @@ static partial class Game
     static int DisplayedCriticalChance(ClientState conn, int chance, Func<string, int> get) =>
         chance > 0 && AlwaysCritical(conn, get) ? 10_000 : chance;
 
-    internal static int AttackCriticalMultiplier(ClientState conn, IReadOnlyDictionary<uint, int> player,
+    public static int AttackCriticalMultiplier(ClientState conn, IReadOnlyDictionary<uint, int> player,
         int effect = -1, IReadOnlyDictionary<uint, int>? own = null) =>
         AttackCriticalMultiplier(conn.Pools, WeaponProfileFor(conn, activeSet: true).Unarmed, MeleeAttack(conn, effect),
             effect >= 0 && SkillsFor(conn).IsSpell(effect), player, own);
 
     // The default attack's (no gem effect) from the stat snapshot's tail inputs: the active set's profile decides both.
-    internal static int AttackCriticalMultiplier(CharacterStats.Pools pools, bool unarmed, bool melee, bool spell,
+    public static int AttackCriticalMultiplier(CharacterStats.Pools pools, bool unarmed, bool melee, bool spell,
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null)
     {
         uint? key = Stats.Key(CriticalStrikePolicy.UnarmedMeleeMultiplierStat);

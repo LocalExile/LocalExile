@@ -15,11 +15,11 @@ how to pick up an item). The protocol reference and the notes are in
 **Full guide: [Agents/GettingStarted.md](Agents/GettingStarted.md).** It covers every step with its expected output, the edge cases
 and a troubleshooting table. It is written for people and for AI agents setting this up.
 
-In short (Windows, .NET 10 SDK, a standalone Path of Exile **3.29.3b** client; Linux is covered in the full guide):
+In short (Windows, .NET 10 SDK, a standalone Path of Exile **3.29.3c** client; Linux is covered in the full guide):
 
 ```powershell
 dotnet build GameServer.slnx
-robocopy "<your PoE 3.29.3b folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
+robocopy "<your PoE 3.29.3c folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
 dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493
@@ -42,8 +42,10 @@ and may update itself.
 | `GameServer.Core` | protocol, crypto, accounts, instance registry | |
 | `GameServer.Data` | GGPK / bundle / `.dat` readers | |
 | `GameServer.Storage` | account and save storage | |
-| `GameServer.Modding` | the API that mods and modules build on | |
+| `GameServer.Modding` | the loader contract mods and modules build on: `IMod`, `IModule`, `League`, the context | |
 | `LocalExile` | the player launcher (command line) shipped in releases | |
-| `Modules/` | game systems (NPC dialogue, Delve, Heist, Pantheon, ...), loaded by the Gateway | |
+| `Modules/` | game systems, loaded for the leagues that list them: `Core/` (the current game), `Legacy/` (GGG's past leagues), `Custom/` (custom leagues) | |
 | `Leagues/` | leagues, each a set of modules | |
-| `Mods/` | small user tweaks, reloaded while the Gateway runs | |
+| `Mods/` | the user's opt-in mods ([LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)), reloaded while the Gateway runs | |
+
+Which of these a change belongs in: [AGENTS.md](AGENTS.md) ("What goes where").

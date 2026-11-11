@@ -16,7 +16,7 @@ static class HideoutEditingFeature
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
                 InstanceMonsterStatue.Blob(s.X, s.Y, s.MonsterHash16, s.Scale, s.Variation, s.Rotation)),
-                $"0x02b9 saved monster statue at ({s.X}, {s.Y})");
+                $"0x02bb saved monster statue at ({s.X}, {s.Y})");
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),
                 $"0x01a9 saved monster statue 0x{id:x} enters wake zone");
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
@@ -49,13 +49,13 @@ static class HideoutEditingFeature
         uint id = conn.NextObjectId++;
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
-            InstanceMonsterStatue.Blob(x, y, variety.Hash16)), $"0x02b9 monster statue of {variety} at ({x}, {y})");
+            InstanceMonsterStatue.Blob(x, y, variety.Hash16)), $"0x02bb monster statue of {variety} at ({x}, {y})");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),
             $"0x01a9 monster statue 0x{id:x} enters wake zone");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 1),
             $"0x1b2 monster statue 0x{id:x} idle");
         await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, create.Target,
-            $"0x02bb remove the monster 0x{create.Target:x} turned into a statue");
+            $"0x02bd remove the monster 0x{create.Target:x} turned into a statue");
         lock (conn.Monsters) conn.Monsters.Remove(create.Target);
         if (CharacterName(conn) is { } character)
             CharacterSaves.AddMonsterStatue(character, conn.Layout.Id,

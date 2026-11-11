@@ -3,7 +3,7 @@
 // Every native exception the client raises (first chance; a crash is the one it does not survive) is sent with the
 // local time in the servers' log format (HH:mm:ss.fff, ServerLog), the faulting instruction and memory access as Ghidra
 // VAs, the registers, an image-relative backtrace and the last S→C messages the client read: the id of each message a
-// handler group took in 0x14299e300(group, id, stream) (02-instance-connection.md §5). The pump offers every id to each
+// handler group took in 0x1429a7660(group, id, stream) (02-instance-connection.md §5). The pump offers every id to each
 // group in turn (the world group first) and the first one that accepts it wins, so an id is recorded when the call
 // returns non-zero, once. Not verified live yet: if lastReceived stays empty, that return value is not the acceptance.
 // Line the time up with logs\live-gateway.log and the Gateway's packet dump (logs\packets, PacketHistory) to find the
@@ -29,10 +29,10 @@
   // The last S→C message ids, oldest first.
   const Kept = 64;
   const received = [];
-  // The clock messages, several a second, would push the rest out: the 0x1c tick answers and the 0x2b5 frame ends
+  // The clock messages, several a second, would push the rest out: the 0x1c tick answers and the 0x2b7 frame ends
   // (the Gateway's PacketHistory leaves out the same ones). Id 0 is the pump's call without a message.
-  const skipped = new Set([0, 0x1c, 0x2b5]);
-  Interceptor.attach(rebase('0x14299e300'), {
+  const skipped = new Set([0, 0x1c, 0x2b7]);
+  Interceptor.attach(rebase('0x1429a7660'), {
     onEnter(args) { this.id = args[1].toUInt32() & 0xffff; },
     onLeave(accepted) {
       if (skipped.has(this.id) || (accepted.toUInt32() & 0xff) === 0) return;   // a C++ bool: only al is set

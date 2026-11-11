@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 /// <summary>
@@ -6,7 +7,7 @@ using System.Text.Json;
 /// engineered by Vilsol/timeless-jewels and used to build Path of Building's LUTs; the data comes from the target
 /// client's AlternateTreeVersions, AlternatePassiveSkills and AlternatePassiveAdditions tables.
 /// </summary>
-sealed class TimelessJewelEngine(string folder = "data")
+public sealed class TimelessJewelEngine(string folder = "data")
 {
     public sealed record AlternateNode(bool Replaces, IReadOnlyList<(uint Key, int Value)> Stats, string Name);
 
@@ -164,7 +165,7 @@ sealed class TimelessJewelEngine(string folder = "data")
         string versionsPath = Path.Combine(folder, "tables", "AlternateTreeVersions.json");
         string skillsPath = Path.Combine(folder, "tables", "AlternatePassiveSkills.json");
         string additionsPath = Path.Combine(folder, "tables", "AlternatePassiveAdditions.json");
-        if (!new[] { versionsPath, skillsPath, additionsPath }.All(File.Exists)) return null;
+        if (!new[] { versionsPath, skillsPath, additionsPath }.All(ClientTables.Exists)) return null;
 
         var versions = new Dictionary<int, TreeVersion>();
         using (var d = GameTables.Open(versionsPath))
@@ -182,7 +183,7 @@ sealed class TimelessJewelEngine(string folder = "data")
 
         var skills = new Dictionary<(int, int), List<AltSkill>>();
         var keystones = new Dictionary<(int, int, int), AltSkill>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(skillsPath)))
+        using (var d = JsonDocument.Parse(ClientTables.ReadAllBytes(skillsPath)))
         {
             int row = 0;
             foreach (var r in d.RootElement.EnumerateArray())
@@ -204,7 +205,7 @@ sealed class TimelessJewelEngine(string folder = "data")
         }
 
         var additions = new Dictionary<(int, int), List<AltAddition>>();
-        using (var d = JsonDocument.Parse(File.ReadAllBytes(additionsPath)))
+        using (var d = JsonDocument.Parse(ClientTables.ReadAllBytes(additionsPath)))
         {
             int row = 0;
             foreach (var r in d.RootElement.EnumerateArray())
@@ -245,7 +246,7 @@ sealed class TimelessJewelEngine(string folder = "data")
 
 /// <summary>The client's TinyMT32 generator, ported from Vilsol/timeless-jewels' random/main.go. Legion jewels use the
 /// plain modulo draw (not the Abyss MSVC rejection draw).</summary>
-sealed class TinyMt32
+public sealed class TinyMt32
 {
     const uint InitialStateConstant0 = 0x40336050, InitialStateConstant1 = 0xCFA3723C,
         InitialStateConstant2 = 0x3CAC5F6F, InitialStateConstant3 = 0x3793FDFF;

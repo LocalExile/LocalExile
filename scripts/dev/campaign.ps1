@@ -16,9 +16,9 @@
 #   -Session S          the client session the run drives (default 'campaign'; live.ps1 -Session): its own working folder,
 #                       settings and PID record, so the bridge never attaches to another session's or checkout's client
 #   -Nullifier          that session's client without a GPU (live.ps1 -Nullifier: the Null renderer, about 1.6 GB commit)
-#   -AllowDefaultSaves  run without Game_SAVES_DB, on data\saves.db (the run creates characters and fills the stash there)
+#   -AllowDefaultSaves  run without Game_CHARACTERS_DB, on data\characters.db (the run creates characters and fills the stash there)
 #   Any other arguments go to runner.py unchanged (e.g. --replace, --dry-run, --stop-on-fail, --retries 1).
-# Set $env:Game_SAVES_DB to a copied save database before running; this script never changes it, refuses to run without
+# Set $env:Game_CHARACTERS_DB to a copied save database before running; this script never changes it, refuses to run without
 # it (unless -AllowDefaultSaves), and refuses running servers whose Gateway logged another save database. Servers on this
 # stack's ports that are not this checkout's (another checkout or program) stop the run: give this checkout its own
 # -PortBase. The variables it sets for the servers and the client (Game_RANDOM_SEEDS, Game_CLIENT_SESSION,
@@ -53,15 +53,15 @@ if (-not $Session -or $Session -eq 'default') {
 elseif ($Session -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]{0,23}$') { throw "session name '$Session': up to 24 letters, digits, - and _" }
 
 # The save database the run must play on (the servers resolve a relative path from the repository root, their working
-# folder). Without Game_SAVES_DB that is data\saves.db, the user's own saves: only with -AllowDefaultSaves.
-if ($env:Game_SAVES_DB) { $saves = [IO.Path]::GetFullPath([IO.Path]::Combine($repo, $env:Game_SAVES_DB)) }
-elseif ($AllowDefaultSaves) { $saves = Join-Path $repo 'data\saves.db' }
+# folder). Without Game_CHARACTERS_DB that is data\characters.db, the user's own saves: only with -AllowDefaultSaves.
+if ($env:Game_CHARACTERS_DB) { $saves = [IO.Path]::GetFullPath([IO.Path]::Combine($repo, $env:Game_CHARACTERS_DB)) }
+elseif ($AllowDefaultSaves) { $saves = Join-Path $repo 'data\characters.db' }
 else {
-    throw ('Game_SAVES_DB is not set: the run would create its characters, stash its items and (--replace) delete ' +
-        'characters in data\saves.db. Set it to a copied database ($env:Game_SAVES_DB = "$PWD\data\campaign-saves.db"), ' +
-        'or give -AllowDefaultSaves to play on data\saves.db')
+    throw ('Game_CHARACTERS_DB is not set: the run would create its characters, stash its items and (--replace) delete ' +
+        'characters in data\characters.db. Set it to a copied database ($env:Game_CHARACTERS_DB = "$PWD\data\campaign-characters.db"), ' +
+        'or give -AllowDefaultSaves to play on data\characters.db')
 }
-Write-Output "save database: $saves$(if (-not $env:Game_SAVES_DB) { ' (Game_SAVES_DB is not set: -AllowDefaultSaves)' })"
+Write-Output "save database: $saves$(if (-not $env:Game_CHARACTERS_DB) { ' (Game_CHARACTERS_DB is not set: -AllowDefaultSaves)' })"
 
 # The save database this checkout's Gateway opened: the last "[gateway] saves: <path>" line of its log (Program.cs), as
 # a full path; null without one.
@@ -82,7 +82,7 @@ function Assert-GatewaySaves([string]$when) {
     Write-Output "the Gateway's save database: $actual"
     if (-not [string]::Equals($actual, $saves, [StringComparison]::OrdinalIgnoreCase)) {
         throw ("this checkout's Gateway plays on $actual, not on $saves. Stop its servers (.\scripts\dev\live.ps1 -Stop) " +
-            'and run again: this script starts them with Game_SAVES_DB')
+            'and run again: this script starts them with Game_CHARACTERS_DB')
     }
 }
 

@@ -3,7 +3,7 @@
 /// <c>ReminderTextLowLife</c> text), replaced by a positive <c>low_life_threshold_%_override</c>, then by
 /// <c>low_life_threshold_%</c>. The critical policy and Petrified Blood share this rule.
 /// </summary>
-static class LowLife
+public static class LowLife
 {
     public const int DefaultThresholdPct = 50;
 

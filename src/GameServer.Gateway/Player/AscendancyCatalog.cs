@@ -1,12 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using GameServer.Core;
 
 /// <summary>The ordinary and Legacy of Phrecia trees are separate choices, even when they share a table row/start.</summary>
 [JsonConverter(typeof(JsonStringEnumConverter<AscendancyFamily>))]
-enum AscendancyFamily { Normal, Phrecia }
+public enum AscendancyFamily { Normal, Phrecia }
 
 /// <summary>A durable choice. Table rows and the client's packed class byte are deliberately not save identifiers.</summary>
-sealed record AscendancyIdentity(AscendancyFamily Family, string Id, string Revision)
+public sealed record AscendancyIdentity(AscendancyFamily Family, string Id, string Revision)
 {
     [JsonExtensionData] public Dictionary<string, JsonElement>? Unknown { get; init; }
 }
@@ -15,10 +16,23 @@ sealed record AscendancyIdentity(AscendancyFamily Family, string Id, string Revi
 /// Main ascendancies in the exact extracted client. Membership and links come from its two PSG files; the table alone
 /// contains both families and is insufficient to authorise an allocation. Scavenger is one choice, not three Scion aliases.
 /// </summary>
-sealed class AscendancyCatalog(string folder = "data")
+public sealed class AscendancyCatalog(string folder = "data")
 {
-    public const string Revision = "3.29.3b";
+    public const string Revision = "3.29.3c";
     public const string GraphFile = "passive-skill-graphs.json";
+
+    /// <summary>Revisions whose reviewed passive graph is byte-identical to <see cref="Revision"/>. A save written by
+    /// one of them keeps its ascendancy choice; add a revision only after its graph has been compared and reviewed.</summary>
+    static readonly string[] EquivalentRevisions = ["3.29.3b"];
+
+    public static bool IsKnownRevision(string? revision) =>
+        revision == Revision || EquivalentRevisions.Contains(revision);
+
+    /// <summary>Same family and id on a known equivalent graph revision. Used by saved selections and by the select
+    /// transition, so a 3.29.3b save does not have to refund an unchanged ascendancy after the 3.29.3c move.</summary>
+    public static bool SameChoice(AscendancyIdentity? a, AscendancyIdentity? b) =>
+        a is not null && b is not null && a.Family == b.Family && a.Id == b.Id
+        && IsKnownRevision(a.Revision) && IsKnownRevision(b.Revision);
 
     public sealed record Node(ushort Id, string PassiveId, string Name, IReadOnlyList<ushort> Adjacent,
         bool IsStart, int PointsGranted, bool IsChoice, bool IsChoiceOption,
@@ -27,7 +41,7 @@ sealed class AscendancyCatalog(string folder = "data")
         // A multiple-choice option is the effect of the paid parent, not a second ascendancy point.
         public int PointCost => IsStart || IsChoiceOption ? 0 : 1;
 
-        // Refund currency is a different calculation (client 0x141efb0e0): the choice shell is free to remove;
+        // Refund currency is a different calculation (client 0x141f01950): the choice shell is free to remove;
         // changing its selected effect costs five regrets, although that effect consumes no extra ascendancy point.
         public int RefundCost => IsStart || IsChoice ? 0 : AscendancyRules.RefundPointsPerAscendancyPoint;
     }
@@ -57,7 +71,7 @@ sealed class AscendancyCatalog(string folder = "data")
     static IReadOnlyDictionary<AscendancyFamily, HashSet<ushort>> LoadGraphMembership(string folder)
     {
         string path = Path.Combine(folder, GraphFile);
-        if (!File.Exists(path)) return new Dictionary<AscendancyFamily, HashSet<ushort>>();
+        if (!ClientTables.Exists(path)) return new Dictionary<AscendancyFamily, HashSet<ushort>>();
         using var graph = GameTables.Open(path);
         if (graph.RootElement.GetProperty("revision").GetString() != Revision)
             throw new InvalidDataException($"{path}: expected ascendancy data revision {Revision}");
@@ -66,8 +80,7 @@ sealed class AscendancyCatalog(string folder = "data")
                 .EnumerateArray().Select(n => checked((ushort)n.GetProperty("id").GetInt32())).ToHashSet());
     }
 
-    public Definition? Find(AscendancyIdentity identity) => Definitions.FirstOrDefault(d =>
-        d.Identity.Family == identity.Family && d.Identity.Id == identity.Id && d.Identity.Revision == identity.Revision);
+    public Definition? Find(AscendancyIdentity identity) => Definitions.FirstOrDefault(d => SameChoice(d.Identity, identity));
 
     /// <summary>Names (including spaces) and stable table Ids accepted by the local selection command.</summary>
     public Definition? Find(byte baseClass, AscendancyFamily family, string name) => Choices(baseClass).FirstOrDefault(d =>
@@ -80,7 +93,7 @@ sealed class AscendancyCatalog(string folder = "data")
         string characterPath = Path.Combine(folder, "tables", "Characters.json");
         string ascendancyPath = Path.Combine(folder, "tables", "Ascendancy.json");
         string passivePath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!new[] { graphPath, characterPath, ascendancyPath, passivePath }.All(File.Exists)) return [];
+        if (!new[] { graphPath, characterPath, ascendancyPath, passivePath }.All(ClientTables.Exists)) return [];
 
         using var graphs = GameTables.Open(graphPath);
         if (graphs.RootElement.GetProperty("revision").GetString() != Revision)

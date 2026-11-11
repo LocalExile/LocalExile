@@ -68,9 +68,9 @@ Shock increases subsequent incoming hit damage, ignite ticks and RF self-burn.
 All timers use the pauseable connection clock.
 Immunity flasks remove their ordinary ailment during recomputation, and death/connection teardown clears all effects.
 Native status stats are projected; dedicated ailment buff icons and their art are not implemented by this path.
-The projection includes the final `virtual_action_speed_+%` (key 0xce6), which the native walk (`0x141e7c0b0`),
-action clip (`0x1419fad20`) and animation rate (`0x141e9deb0`) read; network stats do not derive it from the
-intermediary (calculator `0x14281c2d0`). It is not sent while frozen, where −100 would divide the native clip by zero.
+The projection includes the final `virtual_action_speed_+%` (key 0xce6), which the native walk (`0x141e827a0`),
+action clip (`0x1419fd730`) and animation rate (`0x141ea4760`) read; network stats do not derive it from the
+intermediary (calculator `0x142822e80`). It is not sent while frozen, where −100 would divide the native clip by zero.
 Whether the native walk and clips now follow a chill is not checked live.
 
 This scope does not add hostile projectile/spell adapters, enemy chance-to-ailment mods, special ailment thresholds,
@@ -130,7 +130,7 @@ checkpoint resurrection and ordinary Gladiator fallback.
 The client parsed the show message once (`0x55`, flags `0x04`: checkpoint, hide bit clear) and the hide message
 (`0x02`) after resurrection. An independent actual-window capture showed "You have died!" and
 "Resurrect at Checkpoint"; a subsequent capture showed the panel cleared and Life restored.
-The `0x140d86180` HUD hook counted zero and is not evidence of that visual result.
+The `0x140d838f0` HUD hook counted zero and is not evidence of that visual result.
 The failed strict-hook attempt and diagnostic retry remain preserved, with an explicit acceptance correction.
 Evidence is local and ignored: `logs/native-gambler-reviewed-20261028-191355/` contains the final results,
 `native-HUD-acceptance.json`, `visible-death-panel.png` and `visible-after-resurrection.png`.

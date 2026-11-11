@@ -1,16 +1,17 @@
 using System.Collections.Frozen;
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Read-only 3.29.3b Rampage execution plans, not an effect executor. Thresholds join their actual daemon variety,
 /// granted effect, GEPL and stat-set level rows. Animated weapons retain their own variety/mod/skill records.
 /// Production data always defaults to the repository's data/; a fixture may supply a different folder explicitly.
 /// </summary>
-sealed class RampageCatalog(string folder = "data")
+public sealed class RampageCatalog(string folder = "data")
 {
     public const ushort BuffDefinitionRow = 328;
-    // Native Game.exe: HUD constructor 0x14024b480, row328 observer 0x14024c320 (ID 0x149),
-    // count/threshold selector 0x14024ce60 (Buff+0x40), HUD update 0x14024c760 (duration +0x1c/+0x18).
+    // Native Game.exe: HUD constructor 0x14024b810, row328 observer 0x14024c6c0 (ID 0x149),
+    // count/threshold selector 0x14024d3f0 (Buff+0x40), HUD update 0x14024cb00 (duration +0x1c/+0x18).
     // Existing 0x1c1's stacks and duration fields feed that HUD; this catalog sends no packets.
     public static readonly IReadOnlyList<string> RequiredTables = Array.AsReadOnly(new[]
     {
@@ -81,8 +82,8 @@ sealed class RampageCatalog(string folder = "data")
             foreach (string table in RequiredTables)
             {
                 string path = Path.Combine(folder, "tables", table + ".json");
-                if (!File.Exists(path)) return Empty($"Rampage requires {path}.");
-                documents.Add(table, JsonDocument.Parse(File.ReadAllBytes(path)));
+                if (!ClientTables.Exists(path)) return Empty($"Rampage requires {path}.");
+                documents.Add(table, JsonDocument.Parse(ClientTables.ReadAllBytes(path)));
                 Require(documents[table].RootElement.ValueKind == JsonValueKind.Array, $"{table} is not a row array.");
             }
             JsonElement Rows(string table) => documents[table].RootElement;

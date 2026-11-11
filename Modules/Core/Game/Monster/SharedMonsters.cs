@@ -6,7 +6,7 @@ using GameServer.Core.Protocol.Login;
 // instance's lock, on the instance's clock. One connection's loops step them (the runner: AI, collisions, wake zone)
 // until the instance runs them itself; every client is shown them (SyncInstanceMonsters) under the same ids: a client
 // that comes later gets them where they are, with the life they have, and whoever leaves takes nothing with them.
-static partial class Game
+public static partial class Game
 {
     // Per recipient, not per killer: a virtual bot transport is not the player's view.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, DeadMonsterBars> DeadBars = new();
@@ -20,7 +20,7 @@ static partial class Game
     const uint SharedMonsterIds = 0x08000000;
 
     // A connection outside any instance (a test's) runs its own monsters; in an instance, the world's runner does.
-    internal static bool IsMonsterRunner(ClientState conn) =>
+    public static bool IsMonsterRunner(ClientState conn) =>
         conn.Instance is not { } instance || instance.World.Runner is null || ReferenceEquals(instance.World.Runner, conn);
 
     static bool RunnerLive(InstanceWorld world) =>
@@ -28,7 +28,7 @@ static partial class Game
 
     // At PopulateArea: this connection runs the monsters when nobody live does; true when the area's packs are still to
     // be placed (the first connection in, or one after a restart, from the instance's save).
-    internal static bool ClaimMonsterHost(string remote, ClientState conn)
+    public static bool ClaimMonsterHost(string remote, ClientState conn)
     {
         var world = conn.Instance.World;
         lock (world.Monsters)
@@ -69,7 +69,7 @@ static partial class Game
     // live target takes this player when in its reach; another player's takes this one only when nearer by
     // TargetMargin and in its reach, so it does not flip between two standing side by side. A dead, gone or other-area
     // target leaves it to whoever is near.
-    internal static bool MonsterTargetsLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
+    public static bool MonsterTargetsLocked(ClientState conn, uint id, SpawnedMonster m, (int X, int Y) at, double d, double now)
     {
         // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
         if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
@@ -109,7 +109,7 @@ static partial class Game
 
     // Every frame: the living monsters in this client's wake zone (sorted) and those its loops act for, for the mirror of
     // their messages to the other clients; and this player's minions, for theirs.
-    internal static void PublishAwakeMonsters(ClientState conn)
+    public static void PublishAwakeMonsters(ClientState conn)
     {
         var world = conn.Instance.World;
         bool runner = IsMonsterRunner(conn);
@@ -143,7 +143,7 @@ static partial class Game
     }
 
     // At disconnect: this player's minions leave the instance with them.
-    internal static void RemoveLeavingMinionsLocked(ClientState left)
+    public static void RemoveLeavingMinionsLocked(ClientState left)
     {
         foreach (uint id in left.MinionOrigins.Keys) left.Instance.World.Monsters.Remove(id);
     }
@@ -172,7 +172,7 @@ static partial class Game
         return SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, other, id, bytes, null);
     }
 
-    internal static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
+    public static void MirrorSharedMonsters(ConnectionCiphers ciphers, byte[] bytes)
     {
         if (Mirroring.Value || Program.WritingWorldRecord is { SharedView: true } || bytes.Length < 12) return;
         ushort message = (ushort)(bytes[0] << 8 | bytes[1]);
@@ -205,7 +205,7 @@ static partial class Game
     // An instance monster's action (a swing, an area skill, a summon's clip, not a walk: SyncInstanceMonsters sends
     // those) or hit reaction, made for this connection's client: to every other client in the instance that has it awake.
     // Its target, the local player there (PlayerId), is this player as the others know them (PeerId).
-    internal static void BroadcastMonsterMessage(ClientState conn, uint id, byte[] bytes)
+    public static void BroadcastMonsterMessage(ClientState conn, uint id, byte[] bytes)
     {
         if (conn.Instance is null || !conn.Instance.World.MonsterOrigins.ContainsKey(id) || !Mirrorable(conn, bytes, id)) return;
         var others = conn.Instance.Presence.PlayersExcept(conn.PeerId);
@@ -350,7 +350,7 @@ static partial class Game
     // Not modelled: the walk-up of another player's attack on a monster (the copy stands until its next order).
     // A client that showed itself a lockstep one only after it was sent the player has no copy yet: the first order
     // makes it on the order's own cell, where that order puts the client's.
-    internal static byte[] PeerRecordAtGate(ClientState other, uint id, byte[] record, double speed)
+    public static byte[] PeerRecordAtGate(ClientState other, uint id, byte[] record, double speed)
     {
         ushort message = (ushort)(record[0] << 8 | record[1]);
         if (message != InstanceProtocol.ActionStartedId && message != InstanceProtocol.ActorAnimationId) return record;
@@ -519,7 +519,7 @@ static partial class Game
     }
 
     // Another client's frame: the other players' minions created, moved, hurt and removed here, under ids of this client.
-    internal static async Task SyncPeerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncPeerMinions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var shown = new Dictionary<(uint, uint), (ClientState Owner, SharedMonster M)>();
         foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
@@ -589,7 +589,7 @@ static partial class Game
     // on every other client in the instance, under an id of that client's own: created, woken, gliding, stopped, playing
     // its clips and removed with it. The messages are split by their fixed layouts; a blob with anything else is left.
     // True when the bytes were a projectile's.
-    internal static bool MirrorProjectiles(ConnectionCiphers ciphers, byte[] bytes)
+    public static bool MirrorProjectiles(ConnectionCiphers ciphers, byte[] bytes)
     {
         var parts = new List<(int At, int Length, uint Id, ushort Message)>();
         for (int at = 0; at < bytes.Length;)
@@ -653,7 +653,7 @@ static partial class Game
     // others' walks reach it (the runner's AI sends its own orders), every client gets the life the others' hits left,
     // and the ones gone from the instance go. A monster out of the runner's wake zone gets no order (an order wakes a
     // sleeping object and the next 0x1a9 crashed the client); the others never put one to sleep.
-    internal static async Task SyncInstanceMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncInstanceMonsters(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var world = conn.Instance.World;
         bool watch;

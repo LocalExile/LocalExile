@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// A character's level-based pools and attribute bonuses, from its class, level and allocated passives: what the server
@@ -13,7 +14,7 @@ using GameServer.Core.World;
 /// increased evasion; 1% increased maximum energy shield per 10 intelligence and 1% increased melee physical damage per 5
 /// strength. Without these stats the client falls back to the base for level 1 (the Witch's 50 life and 40 mana).
 /// </summary>
-static class CharacterStats
+public static class CharacterStats
 {
     public sealed record Pools(int Level, uint Life, uint Mana, int Accuracy, uint Experience,
         int Armour = 0, int ArmourPct = 0, int Evasion = BaseEvasion, int EvasionPct = 0,
@@ -51,17 +52,17 @@ static class CharacterStats
         int? EvasionWhileMoving = null)
     {
         // Identifies the transient source snapshot used by this immutable pool calculation, including with-clones.
-        internal long FortificationRevision { get; init; }
+        public long FortificationRevision { get; init; }
         // Calculated zero attributes are valid; legacy partial pool records may still need class defaults.
-        internal bool AttributesResolved { get; init; }
+        public bool AttributesResolved { get; init; }
         // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
         // once per pool build (BuildPoolsFor), never a full stat build on those paths. 0/false: the character has none.
-        internal int AttackerSlowPct { get; init; }
-        internal int EnemyRegenerationOnHitPct { get; init; }
-        internal int VsBlindedCriticalPct { get; init; }
-        internal bool WhileMovingStats { get; init; }
+        public int AttackerSlowPct { get; init; }
+        public int EnemyRegenerationOnHitPct { get; init; }
+        public int VsBlindedCriticalPct { get; init; }
+        public bool WhileMovingStats { get; init; }
         // Real pool builds retain the signed base before the one final floor; legacy partial pools use their rating.
-        internal long AccuracyBase { get; init; } = Accuracy;
+        public long AccuracyBase { get; init; } = Accuracy;
     }
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,
@@ -200,7 +201,7 @@ static class CharacterStats
         // Iron Reflexes' converted evasion keeps it, as PoB's converted branch reads the same Evasion INC bucket).
         int armourPct = b.ArmourPct;
         // Native slot calculations add slot-specific increases to the applicable global bucket. Sum fractional
-        // contributions before rounding the final rating (AR 0x142732ee7, EV 0x14272a59b, ES 0x14252c6e7).
+        // contributions before rounding the final rating (AR 0x142739a97, EV 0x14273114b, ES 0x142533297).
         decimal Increased(decimal total, decimal shield, decimal body, long increase, long shieldIncrease,
             long bodyIncrease = 0, bool bodyAsArmour = false)
         {
@@ -238,7 +239,7 @@ static class CharacterStats
             // Iron Reflexes converts all evasion rating to armour and removes dexterity's evasion bonus. The converted
             // evasion keeps the armour, evasion and shared defence increases (each once), but not dexterity.
             long convertedPct = armourPct + ordinaryEvasionPct - b.SharedDefencesPct;
-            // Native 0x142731a7b also doubles converted body EV, or suppresses it with the no-body-AR flag.
+            // Native 0x14273862b also doubles converted body EV, or suppresses it with the no-body-AR flag.
             decimal converted = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, convertedPct,
                 (long)b.ShieldArmourPct + b.ShieldEvasionPct + b.SharedShieldDefencesPct, bodyAsArmour: true),
                 b.EvasionMorePct), b.ArmourMorePct);
@@ -274,7 +275,7 @@ static class CharacterStats
         // PoB CalcOffence: rate = base rate * (1 + increased / 100) * more. The client takes one integer
         // main_hand_attack_speed_+%, so send the equivalent increased value (93 for 75% increased and 10% more).
         // attack_speed_+%_per_200_accuracy_rating is per 150 in its own text and in the client: floor(accuracy / 150) x value
-        // joins increased (0x142701d20). shortcut: the off hand uses this accuracy and a gem's own accuracy does not count,
+        // joins increased (0x1427088d0). shortcut: the off hand uses this accuracy and a gem's own accuracy does not count,
         // until a weapon's local accuracy feeds the pools per hand.
         int attackSpeedPct = (int)Math.Round(
             ((1 + (b.AttackSpeedPct + accuracy / 150 * b.AttackSpeedPer150Accuracy) / 100.0) * (1 + b.AttackSpeedMorePct / 100.0) - 1) * 100,
@@ -341,8 +342,8 @@ static class CharacterStats
     private static uint[] LoadExperience(string folder)
     {
         string path = Path.Combine(folder, "tables", "ExperienceLevels.json");
-        if (!File.Exists(path)) return [0];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [0];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Level").GetInt32()).Select(r => (uint)r.GetProperty("Experience").GetInt64())];
     }
 }

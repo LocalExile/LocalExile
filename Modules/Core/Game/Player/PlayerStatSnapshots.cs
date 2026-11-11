@@ -2,11 +2,11 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Only call while constructing an accepted player-stat packet inside the send gate. Pure stat
     // construction must not acknowledge anything: remember exactly the pair this packet encodes.
-    internal static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
+    public static byte[] PlayerStatsUpdateAtGate(ClientState conn, IReadOnlyList<(uint Key, int Value)> stats)
     {
         // Under a trap's degeneration the pools only fall: the client steps them up by these rates between updates.
         if (conn.TrapDegenPerSecond > 0 && Stats.Key("life_recovery_per_minute") is uint lifeKey
@@ -24,7 +24,7 @@ static partial class Game
         return packet;
     }
 
-    // The stats whose arrival makes the client lay a walking actor's piece again (0x141e9cf90): movement_velocity_+%
+    // The stats whose arrival makes the client lay a walking actor's piece again (0x141ea3840): movement_velocity_+%
     // and the two the client's speed and stop tests read beside it.
     static readonly uint[] WalkRelayStats = [StatKeys.MovementVelocityPct, 0xce6, 0x7b5];
 
@@ -34,7 +34,7 @@ static partial class Game
     // way, at the start of the frame being sent, after the steps of the frames before it (tick trace 2026-11-10: four
     // setups of one segment in the frame a full snapshot arrived, three of them at an unchanged step time, and the walk
     // a cell to the side of the estimate's for the next eight frames).
-    internal static void RelayWalkForStats(ClientState conn, byte[] bytes)
+    public static void RelayWalkForStats(ClientState conn, byte[] bytes)
     {
         if (!conn.LockstepClient || conn.LockstepFrame is not { } frame || bytes.Length < 13
             || (bytes[0] << 8 | bytes[1]) != InstanceEntities.StatsUpdateId
@@ -72,7 +72,7 @@ static partial class Game
 
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
-    internal static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task SendPlayerStatSnapshot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         Func<byte[]> packet, string? label) => SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>
         {
             using (conn.Performance.Lock(conn.Monsters, "stats"))

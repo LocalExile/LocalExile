@@ -1,8 +1,8 @@
-static partial class Game
+public static partial class Game
 {
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
-    internal static int DamagePlayerHitTyped(ClientState conn, int physical, int other, int chaos, double at,
+    public static int DamagePlayerHitTyped(ClientState conn, int physical, int other, int chaos, double at,
         IReadOnlyDictionary<uint, int> player, GameServer.Core.World.DamagePacket types)
     {
         if (conn.Immune) return 0;
@@ -19,6 +19,8 @@ static partial class Game
         physical = IncomingResourceDefences.Taken(physical, Get, less);
         other = IncomingResourceDefences.Taken(other, Get, less);
         chaos = IncomingResourceDefences.Taken(chaos, Get, less);
+        (physical, other, chaos) = TriggeredGuardHit(conn, physical, other, chaos, at);
+        RecordDamageTakenTriggers(conn, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
         int bypass = Get(IncomingResourceDefences.BypassStat);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at)
@@ -31,7 +33,7 @@ static partial class Game
         // Petrified Blood sees the life loss after Ward, Energy Shield and Mana: it protects Life, not the other pools.
         return PetrifiedBlood.PreventHitLifeLoss(conn, (int)Math.Min(int.MaxValue, (long)nonChaosLife + chaosLife - fromMana), at);
     }
-    internal static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
+    public static (int Physical, int Other, int Chaos) AbsorbPlayerWard(ClientState conn,
         int physical, int other, int chaos, double now, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;

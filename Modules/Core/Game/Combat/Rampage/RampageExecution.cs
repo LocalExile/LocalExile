@@ -1,6 +1,6 @@
 /// <summary>Explicit LocalExile v1 scheduling of the target's thirteen tier plans. Metadata supplies damage,
 /// summon counts, duration, repeat counts and radius changes. Repeat channels are independent, never multiplied.</summary>
-static class RampageExecution
+public static class RampageExecution
 {
     public const double RippleInterval = 0.1;
     public const double RepeatInterval = 0.25;
@@ -25,7 +25,7 @@ static class RampageExecution
     }
 }
 
-sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner = null) : ITransientCombatState
+public sealed class RampageWorld(GameServer.Modding.IModuleLifetime? sourceOwner = null) : ITransientCombatState
 {
     public GameServer.Modding.IModuleLifetime? SourceOwner { get; } = sourceOwner;
     public sealed record Job(double At, long Epoch, uint Actor, RampageCatalog.Tier Tier,

@@ -10,7 +10,7 @@ public class HideoutTests
     {
         // Lush Hideout: Hideouts.dat HASH16 0xff63 (21-hideouts.md §1).
         string hex = Convert.ToHexString(InstanceEntities.PlayerHideoutsUpdate(0x1000, 0xff63, 0));
-        Assert.Equal("02BA" + "00001000" + "00000000" + "0000" + "0007" + "06" + "1000" + "63FF" + "0000", hex);
+        Assert.Equal("02BC" + "00001000" + "00000000" + "0000" + "0007" + "06" + "1000" + "63FF" + "0000", hex);
     }
 
     static string? FindUp(string relative)

@@ -8,7 +8,7 @@ const ptrAt = (p, o) => { try { return p.add(o).readPointer(); } catch (e) { ret
 
 // The Actor's S->C 0x1ab handler (trace-actions.js hooks the same function for skill/seq/target). Log the raw fields a
 // channel skill may need: flags, target object, start/target coordinates, skill and sequence.
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(args) {
     const m = args[1];
     if (u16(m, 8) !== 0x1ab) return;
@@ -21,7 +21,7 @@ Interceptor.attach(at('0x1421940a0'), {
 
 // GeometryChannelBase::StartChannelling. The crash is the CMP [RAX+0x28],R12 with RAX = [this+8]; the action pointer
 // is what we need to see set on the official client.
-Interceptor.attach(at('0x1419e0c70'), {
+Interceptor.attach(at('0x1419e3680'), {
   onEnter(args) {
     const self = args[0], action = ptrAt(self, 8);
     send({ts: Date.now(), kind: 'start-channelling', self: self.toString(), action: action ? action.toString() : null,
@@ -35,7 +35,7 @@ Interceptor.attach(at('0x1419e0c70'), {
 
 // The object's Buffs component AddBuff (S->C 0x1c1). Log the message object and a bounded raw view: the buff row,
 // source id, source skill, flags and duration are what the server sends for the hex.
-Interceptor.attach(at('0x141e11720'), {
+Interceptor.attach(at('0x141e14d80'), {
   onEnter(args) {
     const m = args[1];
     const raw = {};

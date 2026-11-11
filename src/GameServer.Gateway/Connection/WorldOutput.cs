@@ -1,7 +1,7 @@
 using System.Buffers.Binary;
 
 /// <summary>The native common header's scheduling fields, independent of its update target.</summary>
-readonly record struct WorldOrder(uint Key, ushort Checkpoint = 0) : IComparable<WorldOrder>
+public readonly record struct WorldOrder(uint Key, ushort Checkpoint = 0) : IComparable<WorldOrder>
 {
     public static readonly WorldOrder First = new(0), Last = new(uint.MaxValue);
     // 142183ce0 consumes the first and last phases without comparing checkpoints; 142184680 compares them unsigned.
@@ -13,22 +13,22 @@ readonly record struct WorldOrder(uint Key, ushort Checkpoint = 0) : IComparable
 }
 
 /// <summary>One object's incarnation, never resolved again by numeric ID. The producer retires it with the object.</summary>
-sealed class WorldObject
+public sealed class WorldObject
 {
-    internal enum BirthState { Reserved, Admitted, Ready, Retired }
-    internal readonly WorldOutput Owner;
-    internal BirthState State;
-    internal bool RemovalRequested;
-    internal readonly TaskCompletionSource<bool> Invalidated = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal readonly TaskCompletionSource<bool> Removal = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal readonly TaskCompletionSource<bool> Birth = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    internal WorldObject(WorldOutput owner, uint id, bool ready)
+    public enum BirthState { Reserved, Admitted, Ready, Retired }
+    public readonly WorldOutput Owner;
+    public BirthState State;
+    public bool RemovalRequested;
+    public readonly TaskCompletionSource<bool> Invalidated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public readonly TaskCompletionSource<bool> Removal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public readonly TaskCompletionSource<bool> Birth = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public WorldObject(WorldOutput owner, uint id, bool ready)
     {
         Owner = owner; Id = id; State = ready ? BirthState.Ready : BirthState.Reserved;
         if (ready) Birth.SetResult(true);
     }
     public uint Id { get; }
-    public long? CreationFrame { get; internal set; }
+    public long? CreationFrame { get; set; }
     public bool IsReady => Owner.IsReady(this);
     /// <summary>Cancel an unadmitted reservation. Published/admitted objects require an explicit Remove record.</summary>
     public void Retire() => Owner.Retire(this);
@@ -37,14 +37,14 @@ sealed class WorldObject
 }
 
 /// <summary>One explicitly framed record. Construction owns a copy; transmission never mutates the producer's bytes.</summary>
-sealed class OutputRecord
+public sealed class OutputRecord
 {
-    internal enum RecordKind { Immediate, World, Create, AfterBirth, Remove }
-    internal RecordKind Kind { get; }
-    internal WorldObject? Object { get; }
-    internal WorldOrder Order { get; }
-    internal string? Log { get; }
-    internal bool SharedView { get; }
+    public enum RecordKind { Immediate, World, Create, AfterBirth, Remove }
+    public RecordKind Kind { get; }
+    public WorldObject? Object { get; }
+    public WorldOrder Order { get; }
+    public string? Log { get; }
+    public bool SharedView { get; }
     readonly byte[] bytes;
     OutputRecord(RecordKind kind, byte[] bytes, string? log, WorldObject? target = null, WorldOrder order = default, bool sharedView = false)
     {
@@ -55,18 +55,18 @@ sealed class OutputRecord
             || BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6)) != order.Key
             || BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(10)) != order.Checkpoint)
             throw new ArgumentException("The single World record does not match its declared target/order.", nameof(bytes));
-        if ((BinaryPrimitives.ReadUInt16BigEndian(bytes) == 0x2b9) != (kind == RecordKind.Create))
+        if ((BinaryPrimitives.ReadUInt16BigEndian(bytes) == 0x2bb) != (kind == RecordKind.Create))
             throw new ArgumentException("Creates require an explicit birth record.", nameof(bytes));
-        if ((BinaryPrimitives.ReadUInt16BigEndian(bytes) == 0x2bb) != (kind == RecordKind.Remove))
+        if ((BinaryPrimitives.ReadUInt16BigEndian(bytes) == 0x2bd) != (kind == RecordKind.Remove))
             throw new ArgumentException("Removals require an explicit lifecycle record.", nameof(bytes));
     }
-    internal byte[] CopyBytes() => bytes.ToArray();
+    public byte[] CopyBytes() => bytes.ToArray();
     /// <summary>The life this record gives its object's life pool (S→C 0x1b1 with pool 0); null for any other record.
     /// 0 is the object's death on a client whose copy lived.</summary>
-    internal uint? LifeWritten => Kind is RecordKind.World or RecordKind.AfterBirth && bytes.Length >= 21
+    public uint? LifeWritten => Kind is RecordKind.World or RecordKind.AfterBirth && bytes.Length >= 21
         && BinaryPrimitives.ReadUInt16BigEndian(bytes) == 0x1b1 && bytes[20] == 0
         ? BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(12)) : null;
-    internal OutputRecord AsSharedView() => new(Kind, bytes, Log, Object, Order, sharedView: true);
+    public OutputRecord AsSharedView() => new(Kind, bytes, Log, Object, Order, sharedView: true);
     public static OutputRecord Immediate(byte[] bytes, string? log = null) => new(RecordKind.Immediate, bytes, log);
     public static OutputRecord World(WorldObject target, WorldOrder order, byte[] bytes, string? log = null) =>
         new(RecordKind.World, bytes, log, target, order);
@@ -83,19 +83,19 @@ sealed class OutputRecord
         new(RecordKind.Remove, bytes, log, target, order);
 }
 
-sealed class OutputBatch(params OutputRecord[] records)
+public sealed class OutputBatch(params OutputRecord[] records)
 {
-    internal IReadOnlyList<OutputRecord> Records { get; } = Array.AsReadOnly(records.ToArray());
+    public IReadOnlyList<OutputRecord> Records { get; } = Array.AsReadOnly(records.ToArray());
     public static readonly OutputBatch Empty = new();
 }
 
 /// <summary>Synchronous admission scope. Tracks even dynamic birth reservations if its factory fails or is suppressed.</summary>
-sealed class WorldAdmission
+public sealed class WorldAdmission
 {
     readonly WorldOutput owner;
     readonly List<WorldObject> births;
     bool finished;
-    internal WorldAdmission(WorldOutput owner, IReadOnlyList<WorldObject> creates)
+    public WorldAdmission(WorldOutput owner, IReadOnlyList<WorldObject> creates)
     {
         this.owner = owner; births = [.. creates];
     }
@@ -120,8 +120,8 @@ sealed class WorldAdmission
         }
         finally { if (!accepted) child.Finish(false); }
     }
-    internal IReadOnlyList<WorldObject> Births => births;
-    internal void Finish(bool accepted)
+    public IReadOnlyList<WorldObject> Births => births;
+    public void Finish(bool accepted)
     {
         finished = true;
         if (!accepted) foreach (var birth in births) owner.CancelReservation(birth);
@@ -129,10 +129,10 @@ sealed class WorldAdmission
 }
 
 /// <summary>Connection-owned output and birth lifetimes. Queued state contains bytes/metadata, never module delegates.</summary>
-sealed class WorldOutput
+public sealed class WorldOutput
 {
-    internal sealed record Packet(byte[] Bytes, string? Log, WorldOrder Order, WorldObject? Creates = null, WorldObject? Removes = null, bool IsWorld = true, bool SharedView = false);
-    internal sealed record Frame(IReadOnlyList<Packet> Packets, IReadOnlyList<WorldObject> Births, IReadOnlyList<WorldObject> Removals);
+    public sealed record Packet(byte[] Bytes, string? Log, WorldOrder Order, WorldObject? Creates = null, WorldObject? Removes = null, bool IsWorld = true, bool SharedView = false);
+    public sealed record Frame(IReadOnlyList<Packet> Packets, IReadOnlyList<WorldObject> Births, IReadOnlyList<WorldObject> Removals);
     readonly object sync = new();
     readonly Dictionary<uint, WorldObject> objects = [];
     readonly TaskCompletionSource<bool> closedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -140,9 +140,9 @@ sealed class WorldOutput
     readonly List<OutputRecord> prepared = [];
     bool closed, started;
     long number;
-    internal bool Started { get { lock (sync) return started; } }
-    internal bool Closed { get { lock (sync) return closed; } }
-    internal Task ClosedTask => closedSignal.Task;
+    public bool Started { get { lock (sync) return started; } }
+    public bool Closed { get { lock (sync) return closed; } }
+    public Task ClosedTask => closedSignal.Task;
 
     public WorldObject NewObject(uint id)
     {
@@ -173,14 +173,14 @@ sealed class WorldOutput
         }
     }
 
-    internal bool IsReady(WorldObject target)
+    public bool IsReady(WorldObject target)
     {
         lock (sync) return Published(target) && !target.RemovalRequested;
     }
     bool Published(WorldObject target) => !closed && ReferenceEquals(target.Owner, this)
         && target.State == WorldObject.BirthState.Ready;
 
-    internal async Task<bool> AwaitBirths(IReadOnlyList<WorldObject> targets)
+    public async Task<bool> AwaitBirths(IReadOnlyList<WorldObject> targets)
     {
         var pending = targets.Select(t => t.Birth.Task).Where(t => !t.IsCompleted).Distinct().ToList();
         bool Invalid() { lock (sync) return closed || targets.Any(t => t.State == WorldObject.BirthState.Retired || t.RemovalRequested); }
@@ -200,11 +200,11 @@ sealed class WorldOutput
         }
         return targets.All(IsReady);
     }
-    internal void CheckOwner(WorldObject target)
+    public void CheckOwner(WorldObject target)
     {
         if (!ReferenceEquals(target.Owner, this)) throw new ArgumentException("A World incarnation belongs to another connection.");
     }
-    internal void CancelReservation(WorldObject target)
+    public void CancelReservation(WorldObject target)
     {
         lock (sync)
         {
@@ -212,7 +212,7 @@ sealed class WorldOutput
             if (target.State == WorldObject.BirthState.Reserved) Retire(target);
         }
     }
-    internal void Retire(WorldObject target)
+    public void Retire(WorldObject target)
     {
         lock (sync)
         {
@@ -226,7 +226,7 @@ sealed class WorldOutput
             target.Removal.TrySetResult(false);
         }
     }
-    internal void Close()
+    public void Close()
     {
         lock (sync)
         {
@@ -241,7 +241,7 @@ sealed class WorldOutput
             objects.Clear(); frame.Clear(); prepared.Clear();
         }
     }
-    internal void Begin(long frameNumber)
+    public void Begin(long frameNumber)
     {
         lock (sync)
         {
@@ -252,7 +252,7 @@ sealed class WorldOutput
     }
 
     // Called under SendGate. Validate the complete batch before admitting any of it.
-    internal IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed)
+    public IReadOnlyList<Packet> Admit(OutputBatch batch, WorldAdmission admission, bool framed)
     {
         lock (sync)
         {
@@ -323,7 +323,7 @@ sealed class WorldOutput
         record.Kind == OutputRecord.RecordKind.Remove ? record.Object : null,
         record.Kind != OutputRecord.RecordKind.Immediate, record.SharedView);
 
-    internal Frame TakeFrame()
+    public Frame TakeFrame()
     {
         lock (sync)
         {
@@ -334,7 +334,7 @@ sealed class WorldOutput
                 packets.Select(p => p.Removes).OfType<WorldObject>().ToArray());
         }
     }
-    internal void Written(IReadOnlyList<WorldObject> births, IReadOnlyList<WorldObject> removals, bool frameEnded)
+    public void Written(IReadOnlyList<WorldObject> births, IReadOnlyList<WorldObject> removals, bool frameEnded)
     {
         lock (sync)
         {

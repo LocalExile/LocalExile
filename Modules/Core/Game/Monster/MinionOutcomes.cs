@@ -4,7 +4,7 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 using Progression = GameServer.Core.World.Progression;
 
-static partial class Game
+public static partial class Game
 {
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(ClientState conn, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
@@ -24,14 +24,15 @@ static partial class Game
         if (hit.Life == 0 && !deferKill) CommitAcceptedKillLocked(conn, id, monster, now, playerKill);
     }
 
-    internal static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
+    public static void CommitAcceptedKillLocked(ClientState conn, uint victimId, SpawnedMonster monster, double now, bool playerKill, List<PlayerMinions.AcceptedCharges>? chargeBatch = null)
     {
         var state = conn.Minions;
         if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
             state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
-        ShareKill(conn, victimId, monster, variety, at);
+        var partyShares = PartyExperienceShares(conn, at);
+        ShareKill(conn, victimId, monster, variety, at, partyShares);
         SoulEaterSoul(conn, victimId, at);
         var killer = PlayerOf(conn); var modMonster = ModMonster(monster, at);
         // An admitted player kill retains its mod notification and charge event; owned kills do not acquire either.
@@ -46,7 +47,7 @@ static partial class Game
         var packets = new List<(byte[] Packet, string? Log)>();
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
         {
-            if (conn.PlayerSent) state.OutputQueue.Add(new([], "0x02ba player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
+            if (conn.PlayerSent) state.OutputQueue.Add(new([], "0x02bc player quest flags (accepted kill)", Kind: PlayerMinions.OutputKind.QuestFlags));
             foreach (var (id, transition) in conn.Layout.AreaTransitions)
             {
                 if (TransitionFlag(conn, transition) is not { } flag || !quest.Effective.Contains(flag)) continue;
@@ -59,13 +60,13 @@ static partial class Game
         var kill = new KillContext(conn, monster, variety.Id, at) { PlayerKill = playerKill, CommittedOutput = packets };
         foreach (var run in GameEvents.Kill.For(conn)) run(kill);
         foreach (var (packet, log) in packets) state.OutputQueue.Add(new(packet, log));
-        uint xp = 0;
+        uint xp = 0, gemXp = 0;
         if (!monster.NoRewards && conn.PlayerLife > 0 && Dist(at, conn.Walk.Position(now)) <= ExperienceRange
             && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            xp = Program.ServerHooks.Experience(killer, modMonster,
-                Progression.MonsterExperience(baseXp, variety.ExperienceMultiplier, monster.Rarity, conn.Pools.Level, monster.Level));
+            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
+                conn.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, conn));
         var gemRows = new List<(byte Row, uint[] Items)>();
-        var (_, leveled) = CommitGemExperience(conn, xp, gemRows);
+        var (_, leveled) = CommitGemExperience(conn, gemXp, gemRows);
         foreach (var (row, ids) in gemRows)
             state.OutputQueue.Add(new([], "gem experience (current)", Kind: PlayerMinions.OutputKind.GemInventory, InventoryRow: row, ItemIds: ids));
         if (leveled) state.StatRevision++;
@@ -73,7 +74,7 @@ static partial class Game
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - conn.Experience));
         if (xp > 0 && RecordExperienceGain(conn, xp) is { } change)
         {
-            state.OutputQueue.Add(new([], $"0x02ba current player experience ({monster.Rarity} {monster.Label} 0x{victimId:x})", Kind: PlayerMinions.OutputKind.Experience));
+            state.OutputQueue.Add(new([], $"0x02bc current player experience ({monster.Rarity} {monster.Label} 0x{victimId:x})", Kind: PlayerMinions.OutputKind.Experience));
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             if (level != conn.Pools.Level)
             {
@@ -87,15 +88,15 @@ static partial class Game
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var balance = LeagueFor(conn).Rules;
-        var modded = Program.ServerHooks.Drops(killer, modMonster);
+        var modded = GameEvents.RunDrops(ConnOf(killer), modMonster);
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
+            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
             drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
-                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1)));
+                balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
-            int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
             if (DropsFor(conn).Map(monster.Level, monster.Rarity, mapTier, Random.Shared) is { } map) drops.Add(map);
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, Random.Shared,
                 balance.GoldMultiplier * SystemSettings.Default.GoldDropMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
@@ -111,13 +112,13 @@ static partial class Game
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
             state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02b9 create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})", WorldId: id, CreatesObject: true));
+                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})", WorldId: id, CreatesObject: true));
             state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
         }
     }
 
     // Only the existing current minion role/caller drains. Selection, validation and consumption share the real send gate.
-    internal static Task PublishMinionOutcomes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task PublishMinionOutcomes(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         PublishMinionOutcomesFor(remote, stream, ciphers, conn, CombatLifetime);
 
     static async Task PublishMinionOutcomesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -175,7 +176,7 @@ static partial class Game
                         || !ReferenceEquals(state.OutputQueue[0], output)) return;
                     state.OutputQueue.RemoveAt(0);
                     // Start exactly once while claimed by the current owner. No Game callback is stored in the receipt.
-                    notification = Program.ServerHooks.MonsterKilled(new(PlayerOf(conn), output.Kill!));
+                    notification = GameEvents.RunMonsterKilled(new(conn, output.Kill!));
                 }
                 await notification;
                 continue;

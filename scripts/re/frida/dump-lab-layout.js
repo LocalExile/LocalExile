@@ -1,10 +1,10 @@
-// The Labyrinth's day layout as the client builds it (0x1424e5ca0 → 0x1424e30f0), for comparing the server's port
+// The Labyrinth's day layout as the client builds it (0x1424ec930 → 0x1424e9d80), for comparing the server's port
 // (LabyrinthLayout.cs). Load after common.js; the rpc export `layout(seed, difficulty)` builds one in the client and
 // returns its nodes: the LabyrinthSection Id and the layout row's index in it (+0x10), the connections (node indexes,
 // -1 for an exit), the two secrets' Ids and numbers, and the last-node-of-section mark.
 //   python scripts/re/frida/run.py Game.patched.exe scripts/re/frida/common.js scripts/re/frida/dump-lab-layout.js
 // then call it from a REPL, or use scripts/re/frida/lab-layout.py.
-const build = new NativeFunction(at('0x1424e5ca0'), 'pointer', ['pointer', 'uint32', 'uint8', 'uint32']);
+const build = new NativeFunction(at('0x1424ec930'), 'pointer', ['pointer', 'uint32', 'uint8', 'uint32']);
 
 function wide(p) {
   try { return p.isNull() ? null : p.readUtf16String(); } catch (e) { return null; }

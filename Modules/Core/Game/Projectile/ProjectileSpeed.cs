@@ -2,7 +2,7 @@ using System.Globalization;
 
 
 /// <summary>Ordinary additive projectile speed, resolved once when the projectile leaves the caster.</summary>
-static class ProjectileSpeed
+public static class ProjectileSpeed
 {
     // Task.Delay(TimeSpan) accepts at most 0xfffffffe milliseconds on .NET 6 and later.
     const double MaximumFlightSeconds = (uint.MaxValue - 1L) / 1000.0;

@@ -1,7 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     static MonsterModSet GolemModifiers(GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
     {
@@ -64,7 +64,7 @@ static partial class Game
         : Math.Max(0, GolemStat(player, "minion_maximum_life_%_to_add_as_maximum_energy_shield") / 100.0 * golem.Monster.MaxLife
             + golem.Auras.GetValueOrDefault("base_maximum_energy_shield"));
 
-    internal static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
+    public static IReadOnlyList<GolemState.Ability> GolemAbilities(ClientState conn, MonsterCatalog.Variety variety, byte level,
         GolemState.Golem golem, IReadOnlyDictionary<uint, int> player)
     {
         var catalog = SkillsFor(conn); var result = new List<GolemState.Ability>();
@@ -194,7 +194,7 @@ static partial class Game
         _ => null,
     };
 
-    internal static IReadOnlyList<GrantedSkill> GolemNativeSkills(ClientState conn, byte level, IReadOnlyList<GolemState.Ability> abilities)
+    public static IReadOnlyList<GrantedSkill> GolemNativeSkills(ClientState conn, byte level, IReadOnlyList<GolemState.Ability> abilities)
     {
         var result = new List<GrantedSkill>();
         foreach (var ability in abilities)

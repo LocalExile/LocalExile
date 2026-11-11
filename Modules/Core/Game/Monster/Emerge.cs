@@ -2,14 +2,14 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Monsters that rise from the ground (MonsterEmerge.cs); loaded with the first monster spawned.
-    internal static readonly MonsterEmerge Emerges = new();
+    public static readonly MonsterEmerge Emerges = new();
 
     // Starts the connection's emerge watch for a monster just created waiting to rise (SpawnMonster), unless it already
     // runs.
-    internal static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static void WatchBuried(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         bool start;
         lock (conn.Monsters) start = MonsterEmerge.StartWatch(conn);
@@ -17,12 +17,12 @@ static partial class Game
     }
 
     // Every 250 ms: the monsters waiting near the player, and lurking ones that were hit, rise (MonsterEmerge.RiseLocked).
-    // For each, 0x2ba steps its Transitionable to the transitioned state (on_transition: EnableTargetable), S→C 0x1ab gives
+    // For each, 0x2bc steps its Transitionable to the transitioned state (on_transition: EnableTargetable), S→C 0x1ab gives
     // it its Emerge basic action in place, and 0x1ac at once lets the action play: the .act's Emerge clip, from the paused
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
     // while the game is paused or the player is dead.
-    internal static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
@@ -66,13 +66,13 @@ static partial class Game
     // first order goes out in the next one. Tick trace 2026-11-10: a 3.333 s Emerge ordered in frame n took a chase
     // sent in n + 101 only after its walker's tick, as did a 3.533 s one for n + 107, and one sent in n + 108 at once;
     // a Sand Spitter's 0.99 s attack ended in n + 30 (LockstepCountdownFrames less the order's own frame, each time).
-    internal static void EmergeStartsLocked(ClientState conn, SpawnedMonster m, double seconds)
+    public static void EmergeStartsLocked(ClientState conn, SpawnedMonster m, double seconds)
     {
         if (conn.LockstepClient && conn.LockstepFrame is { } frame && LockstepCountdownFrames((float)seconds) is { } frames)
             m.BusyUntil = Math.Max(m.BusyUntil, frame.Start + frames * (frame.End - frame.Start));
     }
 
-    internal static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+    public static async Task Emerge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster m, (int X, int Y) at, double seconds)
     {
         if (Emerges.SkillId is not ushort skill || m.Variety is not { } v) return;
@@ -81,11 +81,11 @@ static partial class Game
             int index = v.ComponentsOrBase.ToList().IndexOf("Transitionable");
             byte state = MonsterEmerge.RisenState(v);
             var messages = MonsterEmerge.RiseMessages(id, at, skill, m.NextSequence(), (byte)index, state);
-            await Send(remote, stream, ciphers, messages[0], $"0x02ba monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
+            await Send(remote, stream, ciphers, messages[0], $"0x02bc monster 0x{id:x} ({m.Label}) Transitionable → {state} (targetable)");
             // The others in the instance see it rise too (it is theirs to hit as well).
             ToOthers(conn, id, [.. messages[0], .. messages[1]]);
-            // Predictive mode waits for 0x1ac in the pending-action gate (0x141e94720); lockstep starts directly.
-            // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e934b0).
+            // Predictive mode waits for 0x1ac in the pending-action gate (0x141e9afc0); lockstep starts directly.
+            // Both modes complete Emerge with its clip, without an additional recovery tail (0x141e99d50).
             bool Still() { lock (conn.Monsters) return !conn.Closed && !m.Dead && conn.Monsters.GetValueOrDefault(id) == m; }
             await Send(remote, stream, ciphers, [],
                 $"0x01ab monster 0x{id:x} ({m.Label}) emerges at ({at.X}, {at.Y}): Emerge action 0x{skill:x4}, {seconds:0.00} s",

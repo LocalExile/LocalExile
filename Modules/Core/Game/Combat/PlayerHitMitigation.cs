@@ -3,7 +3,7 @@ using GameServer.Core.World;
 
 /// <summary>Incoming player hits only, after resistance and per-type rounding, before Fortification and Energy Shield.
 /// Callers retain immunity, suppression and block ordering. DoT uses resistance directly and never enters this pass.</summary>
-static class PlayerHitMitigation
+public static class PlayerHitMitigation
 {
     public const string ArmourAppliesToChaos = "base_armour_applies_to_chaos_damage";
 

@@ -7,7 +7,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 ## 5. Project
 
 - Define native graph integration separately from the [read-only analysis exporter](../docs/dev/passive-graph-data.md).
-  Standard startup must preserve the installed 3.29.3b client archive.
+  Standard startup must preserve the installed 3.29.3c client archive.
   Any client archive mutation requires separate maintainer agreement; automatic graph installation is not approved.
   Analysis artifacts alone provide no installed gameplay support or native proof.
 - Generate the Gateway's C→S length table from [c2s.md](../docs/protocol/c2s.md) (285 ids with an exact length;
@@ -16,7 +16,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - Mods: the rest after the [mod host](../status/setup-and-tooling.md) ([modding](../docs/dev/modding.md)).
   Catalog overrides (a mod replacing rows of the Gateway's catalogs) are the hook the host does not have yet.
   League migration: the client's Migrate and Migrate All buttons, and the differences they show, for ended leagues. Send 0x1a with the account's ended
-  leagues, log a live click for the C→S message (not found statically: `0x140cc7aa0` dispatches through vtable `0x1431e8660`), then move characters, stash tabs, gold and
+  leagues, log a live click for the C→S message (not found statically: `0x140cc85f0` dispatches through vtable `0x1431f2cb0`), then move characters, stash tabs, gold and
   modules' saved data to the parent in one transaction.
   New systems start as modules in `Modules/Core/`. The `Game` module's parts call one another, so they are one assembly; to let a league turn one off, a part needs hooks in place of the calls into it, and then becomes its own module.
   start as a module.

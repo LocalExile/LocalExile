@@ -1,7 +1,7 @@
 
 
 /// <summary>Serialized by the owner's combat lock. All deadlines and recovery use that owner's game clock.</summary>
-sealed class FortificationSession
+public sealed class FortificationSession
 {
     public const string OnMeleeHit = "fortify_on_hit";
     public const string ChanceOnMeleeHit = "chance_to_fortify_on_melee_hit_+%";

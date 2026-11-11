@@ -3,7 +3,7 @@
 /// state it starts in, and its object id while created (0: not). Only data: the Game module's QuestNpcs.cs creates,
 /// removes and transitions them as the character's flags change, asking <see cref="Present"/> with the player's tables,
 /// so a reload of the rules leaves nothing of the old ones here.</summary>
-sealed class QuestNpc(NpcCatalog.Npc npc, int x, int y, float angle, string area, string npcType, Quests.AppearsRule? appears, bool roomState)
+public sealed class QuestNpc(NpcCatalog.Npc npc, int x, int y, float angle, string area, string npcType, Quests.AppearsRule? appears, bool roomState)
 {
     public NpcCatalog.Npc Npc { get; } = npc;
     public int X { get; } = x;

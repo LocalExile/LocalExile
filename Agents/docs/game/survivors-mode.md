@@ -8,7 +8,7 @@ Ordinary exits and waypoint travel are refused during a run, so they cannot bypa
 Carry is bound to Auth's destination ticket, not the character name; a failed transfer retains the current run.
 Run progress is not saved across server restarts.
 
-The three modules under `Modules/Survivors/` separate automatic skills, rewards and the run's lifecycle.
+The three modules under `Modules/Custom/Survivors/` separate automatic skills, rewards and the run's lifecycle.
 The existing `/survivors` diagnostics and restart controls are available only to characters in this league.
 A run keeps the uniques it has collected: the equipment and bag carry over from run to run, and only the life flask is
 replaced with a fresh full one. Starting a run removes nothing else; stopping a run removes its transient skills.
@@ -123,7 +123,7 @@ An expired run cannot finish an old reward or launch another projectile into a r
 Run skills use Actor ids from `0x0300`, outside the socketed-gem band and basic-action ids.
 Their records carry one stored use and a cooldown duration; both are needed for the native cooldown sweep.
 S→C `0x53` binds them to free slots from Q onward without saving them to the character's skill bar.
-The `0x1ce` instant action and `0x2ba` single-use cooldown trailer update the sweep.
+The `0x1ce` instant action and `0x2bc` single-use cooldown trailer update the sweep.
 Manual input for a run skill is consumed: otherwise a client action can duplicate the server-created projectile.
 
 Cast animation uses **`0x1b2` kind 0**, not `0x1d1`.

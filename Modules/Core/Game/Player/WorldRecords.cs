@@ -3,7 +3,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
 
-static partial class Game
+public static partial class Game
 {
     // Producers retain packet boundaries while committing a multi-object projection at the send gate.
     // Presentation is already committed data; stateful actions must await the target before entering this scope.
@@ -53,22 +53,22 @@ static partial class Game
             : new(OutputRecord.Immediate([.. records.SelectMany(r => r.CopyBytes())]));
     }
 
-    internal static Task<bool> SendWorldCreate(GameServer.Modding.IPlayer player, uint id, byte[] bytes, string? log = null) =>
+    public static Task<bool> SendWorldCreate(IPlayer player, uint id, byte[] bytes, string? log = null) =>
         SendWorldCreate(ConnOf(player), id, () => bytes, log);
 
-    internal static Task SendWorldRecord(GameServer.Modding.IPlayer player, uint id, byte[] bytes, string? log = null)
+    public static Task SendWorldRecord(IPlayer player, uint id, byte[] bytes, string? log = null)
     {
         var conn = ConnOf(player); var wire = conn.Wire;
         return SendWorldRecord(wire.Remote, wire.Stream, wire.Ciphers, conn, id, bytes, log);
     }
 
-    internal static Task SendWorldRemoval(GameServer.Modding.IPlayer player, uint id, string? log = null)
+    public static Task SendWorldRemoval(IPlayer player, uint id, string? log = null)
     {
         var conn = ConnOf(player); var wire = conn.Wire;
         return SendWorldRemoval(wire.Remote, wire.Stream, wire.Ciphers, conn, id, log);
     }
 
-    internal static async Task SendWorldReceipt(ClientState conn, PlayerMinions.Output output,
+    public static async Task SendWorldReceipt(ClientState conn, PlayerMinions.Output output,
         (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers) wire)
     {
         if (output.CreatesObject)
@@ -81,7 +81,7 @@ static partial class Game
     }
 
     // A declared single create; its common header is not inferred from an opaque concatenated send.
-    internal static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
+    public static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
         string? log = null, Func<bool>? still = null, bool wake = false,
         (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null)
     {
@@ -118,7 +118,7 @@ static partial class Game
         return admitted && (QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));
     }
 
-    internal static Task<bool> SendWorldCreate(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static Task<bool> SendWorldCreate(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, byte[] bytes, string? log = null, Func<bool>? still = null) =>
         SendWorldCreate(conn, id, () => bytes, log, still, transport: (remote, stream, ciphers));
 
@@ -129,7 +129,7 @@ static partial class Game
             : Program.SendBatched(remote, stream, ciphers, body);
 
     // The caller declares one complete World record and its target. Opaque sends retain their original path.
-    internal static Task SendWorldRecord(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static Task SendWorldRecord(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, byte[] bytes, string? log, Func<bool>? still = null,
         Func<byte[]?>? atGate = null, string? sync = null)
     {
@@ -144,7 +144,7 @@ static partial class Game
         }, still, transport: (remote, stream, ciphers));
     }
 
-    internal static Task SendWorldRecords(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static Task SendWorldRecords(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, Func<byte[][]?> records, string? log = null, Func<bool>? still = null, string? sync = null)
     {
         if (!conn.LockstepClient)
@@ -157,7 +157,7 @@ static partial class Game
             still, transport: (remote, stream, ciphers));
     }
 
-    internal static async Task SendWorldRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task SendWorldRemoval(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, string? log = null, Func<bool>? still = null, Func<byte[]?>? atGate = null)
     {
         if (!conn.LockstepClient) { await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), log, still, atGate); return; }
@@ -187,7 +187,7 @@ static partial class Game
     }
 
     // Explicit convenience used by producers that already own their connection's transport.
-    internal static Task<bool> SendWorldRecord(ClientState conn, uint id, Func<byte[]?> record,
+    public static Task<bool> SendWorldRecord(ClientState conn, uint id, Func<byte[]?> record,
         string? log = null, Func<bool>? still = null)
     {
         if (!conn.LockstepClient) return Predictive();

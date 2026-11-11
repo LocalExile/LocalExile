@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// Shared parses of the big game tables (data/tables/*.json) that several catalogues read: Stats.json (the stat and mod
@@ -9,12 +10,12 @@ using System.Text.Json;
 /// disposed when nobody has used it for <see cref="Keep"/>, or by <see cref="Release"/>. A file written since is parsed
 /// again (the key holds its size and write time).
 /// </summary>
-static class GameTables
+public static class GameTables
 {
     /// <summary>How long an unused parse is kept for the next catalogue of the burst.</summary>
     public static readonly TimeSpan Keep = TimeSpan.FromSeconds(2);
 
-    internal sealed class Entry(JsonDocument document)
+    public sealed class Entry(JsonDocument document)
     {
         public readonly JsonDocument Document = document;
         public int Users;
@@ -34,7 +35,7 @@ static class GameTables
         readonly (string, long, DateTime) key;
         Entry? entry;
 
-        internal Lease((string, long, DateTime) key, Entry entry) { this.key = key; this.entry = entry; }
+        public Lease((string, long, DateTime) key, Entry entry) { this.key = key; this.entry = entry; }
 
         public JsonElement RootElement => (entry ?? throw new ObjectDisposedException(nameof(Lease))).Document.RootElement;
 
@@ -50,8 +51,10 @@ static class GameTables
     /// <summary>The table at <paramref name="path"/>, parsed now or shared with another user of the same file.</summary>
     public static Lease Open(string path)
     {
+        // A client table or generated file (ClientTables) is keyed by client.db's write time; another file by its own size and time.
         var file = new FileInfo(path);
-        var key = (file.FullName, file.Length, file.LastWriteTimeUtc);
+        var key = ClientTables.TryTable(path, out _) || ClientTables.TryFile(path, out _)
+            ? (file.FullName, -1L, ClientTables.Written) : (file.FullName, file.Length, file.LastWriteTimeUtc);
         lock (Gate)
             if (Entries.TryGetValue(key, out var shared))
             {
@@ -63,7 +66,7 @@ static class GameTables
             }
         // Parsed outside the lock, on a thread of its own (its pool buffers go with it); a concurrent parse of the same
         // file keeps the first one.
-        byte[] bytes = File.ReadAllBytes(path);
+        byte[] bytes = ClientTables.ReadAllBytes(path);
         var document = Isolated(() => JsonDocument.Parse(bytes));
         Interlocked.Increment(ref _parses);
         lock (Gate)

@@ -4,7 +4,7 @@
 # its Emerge clip ("emerge": index and length), for monsters that rise from the ground; and its death clips ("death":
 # their names and "unblock", the time in ms of their remove_collidability event, null without one). The client's Actor
 # clears a corpse's body from its paths at that event of the death clip it plays, or at once when the clip has none
-# (07-latency-visibility-movement.md "Corpses"). "unblock" is the Death animation's (3.29.3b: 150 ms for most
+# (07-latency-visibility-movement.md "Corpses"). "unblock" is the Death animation's (3.29.3c: 150 ms for most
 # varieties, none for about 1900, 166 ms and 1833 ms for a few); "unblockByKind" lists the other death animations of
 # the .act whose clips differ from it (DeathFromDegen and the like, a handful of varieties). The clips of one
 # animation always agree; if they ever do not, the extraction fails instead of writing a guess.

@@ -30,7 +30,7 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
 
     public bool IsMain => EntryOf is null;
 
-    /// <summary>The card text. It must not be empty: the create screen's card (0x140cc8820) throws "invalid string
+    /// <summary>The card text. It must not be empty: the create screen's card (0x140cc9370) throws "invalid string
     /// position" on an empty one and the client crashes (live 2026-10-18). A leading '#' makes it a lookup key.</summary>
     public string Description => CardText is { Length: > 0 } text ? text : $"The {Name} league.";
 

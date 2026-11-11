@@ -20,7 +20,7 @@ $State = "$Root\state"; $Logs = "$Root\logs"
 $Headless = "$Repo\Tools\ghidra_12.1.4_PUBLIC_20260921\ghidra_12.1.4_PUBLIC\support\analyzeHeadless.bat"
 $Scripts = "$Repo\scripts\re\ghidra"
 $Client = "$Repo\Client"
-$GameHash = '78A0E227189C263658A7F65A02F086428B859BFC114AE8E7CE8AAB721EBD48D5'
+$GameHash = 'CC8AA38345BE2A837575215D2CE142EBECF7B007345843265B335EBB8AC5964C'
 $Limit = if ($Smoke) { 300 } else { 0 }
 $env:JAVA_HOME = "$Repo\Tools\jdk-21"
 
@@ -55,7 +55,7 @@ if (-not $Track) {
     $running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -match 'overnight\.ps1.*-Track' }
     if ($running) { throw "already running (pid $(@($running.ProcessId) -join ', ')); use -Status or -Stop" }
     $hash = (Get-FileHash "$Client\Game.exe" -Algorithm SHA256).Hash
-    if ($hash -ne $GameHash) { throw "Client/Game.exe is not the 3.29.3b build the Ghidra project was made from ($hash)" }
+    if ($hash -ne $GameHash) { throw "Client/Game.exe is not the 3.29.3c build the Ghidra project was made from ($hash)" }
     foreach ($t in 'code', 'content') {
         $a = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Track $t -ParamIdHours $ParamIdHours -MinFreeGB $MinFreeGB -ContentFloorGB $ContentFloorGB -FinalFloorGB $FinalFloorGB" + $(if ($Smoke) { ' -Smoke' } else { '' })
         # Created by WMI so the tracks outlive the session that started them.

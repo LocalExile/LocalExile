@@ -1,7 +1,7 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>A tile graph (.tgr) subgraph: <c>0x14203f890</c> prepares the graph (tag choices, exist rolls, removals),
-/// then <c>0x142116600</c> lays it out (Voronoi jitter first) on a view of the tile map: the primary subgraph on a map
+/// <summary>A tile graph (.tgr) subgraph: <c>0x1420460e0</c> prepares the graph (tag choices, exist rolls, removals),
+/// then <c>0x14211cf00</c> lays it out (Voronoi jitter first) on a view of the tile map: the primary subgraph on a map
 /// of its own, a dungeon's subgraph at its record's corner on the shared map. Ported in client order, stage by stage;
 /// the next stage that is not ported throws <see cref="NotSupportedException"/>.</summary>
 sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string> notes, bool vaalSideArea,
@@ -28,7 +28,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     /// graph subgraph, whose later stages do not take the pool's rows).</summary>
     public ExtraRoomPool? PreparePool { get; init; }
 
-    /// <summary>The graph kept a Vaal side area entrance (<c>0x142032320</c> returned true): the generator's +0xa is
+    /// <summary>The graph kept a Vaal side area entrance (<c>0x142038b70</c> returned true): the generator's +0xa is
     /// cleared for the graphs after it.</summary>
     public bool SideAreaKept { get; private set; }
 
@@ -44,7 +44,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     /// <summary>The subgraph's TileSet store (master +0x228), for the stages after the layout.</summary>
     public TileStore Store { get; private set; } = null!;
 
-    /// <summary>The ground <c>0x1420289a0</c> floods the unwalkable border with (the string at 0x1435c4c50).</summary>
+    /// <summary>The ground <c>0x14202f1f0</c> floods the unwalkable border with (the string at 0x1435cf5a0).</summary>
     internal const string ImpassableGround = "Metadata/Terrain/impassable_ground.gt";
 
     /// <summary>The finished grid. A stage that is not ported throws <see cref="PartialGenerationException"/> with the
@@ -68,13 +68,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         var (masterPath, master, fills) = Stages(graphPath, orientation, null, 0, 0, primary: true);
         var grid = _grid!;
         int buffer = _ox;
-        // 0x14203ece0: the TileSet's post-unique tiles.
+        // 0x142045530: the TileSet's post-unique tiles.
         PostUniqueTiles.Run(rng, grid, buffer, buffer, Graph.Width, Graph.Height, Store, notes);
-        // 0x142049d10 → 0x142044f30: per subgraph the outer ground (0x14201db80, needs the master's OuterGroundType) and
-        // the outer buffer (0x14201ffa0).
+        // 0x142050560 → 0x14204b780: per subgraph the outer ground (0x1420243d0, needs the master's OuterGroundType) and
+        // the outer buffer (0x1420267f0).
         if (master.TryGetValue("OuterGroundType", out var outerGround))
         {
-            // 0x14201db80 over the subgraph's view, the layout inside the buffer: a tile graph passes param_3 = 0, so
+            // 0x1420243d0 over the subgraph's view, the layout inside the buffer: a tile graph passes param_3 = 0, so
             // no height fixing.
             var ground = files.Ground(TerrainText.Resolve(masterPath, outerGround)) ?? throw new FileNotFoundException(outerGround);
             DungeonTiler.OuterGroundStart(grid, DungeonTiler.OuterTile(files, fills, ground),
@@ -82,27 +82,27 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         }
         if (buffer != 0)
             new OuterBuffer(files, rng, new OuterBuffer.View(grid), buffer, buffer, buffer + Graph.Width, buffer + Graph.Height, Store, fills, notes).Run();
-        // 0x142044f30 then runs the walkability pass (0x1420289a0) again for the primary record, over its whole
-        // rectangle (the buffer included), and 0x142028870 flags the map's border vertices (the pass's border flags).
+        // 0x14204b780 then runs the walkability pass (0x14202f1f0) again for the primary record, over its whole
+        // rectangle (the buffer included), and 0x14202f0c0 flags the map's border vertices (the pass's border flags).
         // Only grounds and vertex flags change: the walkability grids read flag 8.
         new GroundStages(grid, 0, 0, grid.Width, grid.Height, files).Walkability(ImpassableGround, files.HasTransition, Town);
-        // 0x14204cbd0 (after the layout 0x142049d10): every tile origin with a height offset has it multiplied by the
-        // master's StoreyHeight (+0x14a, default 0), row by row (0x141d83060). Levels become the client's units here.
+        // 0x142053420 (after the layout 0x142050560): every tile origin with a height offset has it multiplied by the
+        // master's StoreyHeight (+0x14a, default 0), row by row (0x141d866f0). Levels become the client's units here.
         int storey = int.Parse(master.GetValueOrDefault("StoreyHeight", "0"));
         for (int y = 0; y < grid.Height; y++)
             for (int x = 0; x < grid.Width; x++)
                 if (grid[x, y] is { IsOrigin: true, HeightOffset: not 0 }) grid.ScaleHeight(x, y, storey);
-        // The tile grid is final here (0x1420289a0 / 0x142028870 set grounds and entry flags only); the doodads
-        // (0x1420425d0) run over the record afterwards (DoodadStage).
+        // The tile grid is final here (0x14202f1f0 / 0x14202f0c0 set grounds and entry flags only); the doodads
+        // (0x142048e20) run over the record afterwards (DoodadStage).
         Records = [new DoodadRecord(0, 0, grid.Width, grid.Height, master, masterPath, Rooms)];
         return grid;
     }
 
-    /// <summary><c>0x14203f890</c> for a subgraph on a shared tile map (a dungeon's graph node, <c>0x14204f030</c>): the
+    /// <summary><c>0x1420460e0</c> for a subgraph on a shared tile map (a dungeon's graph node, <c>0x142055880</c>): the
     /// layout on the view at (<paramref name="x"/>, <paramref name="y"/>) of the graph's size. Map +0x10 (ground checks)
     /// goes on first. The walkability pass runs for the primary subgraphs and for a master that sets CountAsPrimary
     /// (taken to be +0x164). The post-unique tiles, outer ground and buffer and StoreyHeight are the caller's
-    /// (<c>0x1420452e0</c>, <c>0x142044f30</c>, <c>0x14204cbd0</c>).</summary>
+    /// (<c>0x14204bb30</c>, <c>0x14204b780</c>, <c>0x142053420</c>).</summary>
     internal (string MasterPath, Dictionary<string, string> Master, Dictionary<string, List<(int Weight, string Path, int Orientation)>> Fills) Subgraph(
         string graphPath, int orientation, TileGrid grid, int x, int y, bool primary)
     {
@@ -117,7 +117,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         }
     }
 
-    /// <summary><c>0x14203f890</c> → <c>0x142116600</c> on the view at (<paramref name="x"/>, <paramref name="y"/>) of
+    /// <summary><c>0x1420460e0</c> → <c>0x14211cf00</c> on the view at (<paramref name="x"/>, <paramref name="y"/>) of
     /// <paramref name="shared"/>, or on a grid of its own (the view at the outer buffer) when null.</summary>
     (string MasterPath, Dictionary<string, string> Master, Dictionary<string, List<(int Weight, string Path, int Orientation)>> Fills) Stages(
         string graphPath, int orientation, TileGrid? shared, int x, int y, bool primary)
@@ -155,10 +155,10 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         special.Run();
         Rooms = special.Rooms;
         onStage?.Invoke("special", Graph);
-        // Edges whose type is a wildcard leave the graph (0x141f4f130).
+        // Edges whose type is a wildcard leave the graph (0x141f55a20).
         foreach (var e in Graph.Edges.Where(e => files.Edge(e.Type)?.Wildcard == true).ToList()) Graph.RemoveEdge(e);
         var router = new EdgeRouter(Graph, grid, _ox, _oy, rng, e => files.Edge(e.Type) ?? throw new FileNotFoundException(e.Type));
-        // 0x142122d90: the special stage's failed nodes, then plain nodes with more than two edges, are exploded.
+        // 0x142129690: the special stage's failed nodes, then plain nodes with more than two edges, are exploded.
         foreach (var n in special.Failed) special.Explode(n);
         foreach (var n in special.Plain.Where(n => n.Degree > 2)) special.Explode(n);
         onStage?.Invoke("beforeRoute", Graph);
@@ -176,13 +176,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         onStage?.Invoke("split", Graph);
         new LinkMerge(Graph, special.Plain).Run();
         onStage?.Invoke("merge", Graph);
-        // 0x142003bc0, then another corner rounding (0x14210aeb0, up to five rounds), then the plain nodes.
+        // 0x14200a410, then another corner rounding (0x1421117b0, up to five rounds), then the plain nodes.
         Graph.Nodes = [.. Graph.Nodes.OrderByDescending(n => n.Priority)];
         var shaping = new EdgeShaping(Graph, e => files.Edge(e.Type) ?? throw new FileNotFoundException(e.Type));
         shaping.RoundAll();
         special.RunPlain();
         onStage?.Invoke("plain", Graph);
-        // 0x142114ea0: every node's edge slots move to the front, in order; then another corner rounding.
+        // 0x14211b7a0: every node's edge slots move to the front, in order; then another corner rounding.
         foreach (var n in Graph.Nodes)
         {
             var edges = n.Slots.Where(e => e is not null).ToArray();
@@ -190,22 +190,22 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         }
         shaping.RoundAll();
         onStage?.Invoke("beforeTiling", Graph);
-        // The edge types whose tiles get their open sides filled (0x141feed20) are listed in the FillTiles object
+        // The edge types whose tiles get their open sides filled (0x141ff5540) are listed in the FillTiles object
         // (master +0x218, +0x140).
         string? gftPath = master.TryGetValue("FillTiles", out var gft) ? TerrainText.Resolve(masterPath, gft) : null;
         var edgePoints = gftPath is null ? [] : files.FillEdgeTypes(gftPath);
         var tiling = new EdgeTiling(Graph, grid, _ox, _oy, rng, e => files.Edge(e.Type) ?? throw new FileNotFoundException(e.Type), files, store, notes, edgePoints);
         tiling.Run();
         special.RunLonely();
-        // The vertex grounds (0x142110a20, 0x142118470 heights, 0x142110d60, 0x141feed20).
+        // The vertex grounds (0x142117320, 0x14211ed70 heights, 0x142117660, 0x141ff5540).
         var grounds = new GroundStages(grid, _ox, _oy, Graph.Width, Graph.Height, files);
         grounds.Lock();
         grounds.Flood();
         var heights = new HeightLevels(grid, _ox, _oy, Graph.Width, Graph.Height, files);
         heights.Run();
-        // 0x1420289a0: the primary subgraphs (generator +0x30 +9) and those whose master has +0x164.
+        // 0x14202f1f0: the primary subgraphs (generator +0x30 +9) and those whose master has +0x164.
         if (primary || master.ContainsKey("CountAsPrimary")) grounds.Walkability(ImpassableGround, files.HasTransition, Town);
-        // 0x142110d60's levels: the master's +0x146 / +0x144 when set (not ported: no ported master sets them), else
+        // 0x142117660's levels: the master's +0x146 / +0x144 when set (not ported: no ported master sets them), else
         // the view's highest and lowest vertex heights, 0 without heights.
         var levels = grid.HasHeights ? heights.Range() : (0, 0);
         string? GraphGround(string g) => g.Length == 0 ? null : TerrainText.Resolve(graphPath, g);
@@ -219,9 +219,9 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
             grounds.EdgePoints(tiling.EdgePointTiles, edgePoints, sideFill.FillSide);
         }
         grounds.Unlock();
-        // The pool's area unique rooms (0x142115390, master +0x92 taken to be off), the shrines (0x142115cc0) and the
-        // pre-unique rooms (0x1421162d0), each tilised as a fill room (0x141fe89e0). The fill object's listener
-        // (0x141fef240) is still idle: the levels are not stored yet (2_6_2 seed 1814151108's shrine keeps trims1).
+        // The pool's area unique rooms (0x14211bc90, master +0x92 taken to be off), the shrines (0x14211c5c0) and the
+        // pre-unique rooms (0x14211cbd0), each tilised as a fill room (0x141fef200). The fill object's listener
+        // (0x141ff5a60) is still idle: the levels are not stored yet (2_6_2 seed 1814151108's shrine keeps trims1).
         var roomSet = new DungeonRoomSet(files, TerrainText.Resolve(masterPath, master["RoomSet"]));
         var placer = new Fill(files, rng, grid, _ox, _oy, Graph.Width, Graph.Height, store,
             gftPath is null ? new Dictionary<string, List<(int Weight, string Path, int Orientation)>>() : files.FillTiles(gftPath), special.Rooms, notes);
@@ -232,13 +232,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         // tilising and the fill place.
         var painter = grounds.LevelPainter(GraphGround(Graph.TopGround), GraphGround(Graph.BottomGround), levels);
         special.TilePlaced = painter;
-        // 0x141ffe240, then the first overlay pass (0x141fff1a0 with bit 1).
+        // 0x142004a90, then the first overlay pass (0x1420059f0 with bit 1).
         var passes = master.TryGetValue("Overlays", out var toy) ? Overlays.Parse(files, TerrainText.Resolve(masterPath, toy)) : [];
         var overlays = new Overlays(files, rng, notes, grid, _ox, _oy, Graph.Width, Graph.Height, special.Tiler, [.. special.Rooms],
             int.Parse(master.GetValueOrDefault("RoomOverlap", "1")), Pool?.Placed);
         foreach (var pass in passes.Where(p => (p.Passes & 1) != 0)) overlays.Run(pass, saveTiles: false);
         onStage?.Invoke("overlays", Graph);
-        // 0x141fef070, then the second overlay pass (bit 2, after the fill).
+        // 0x141ff5890, then the second overlay pass (bit 2, after the fill).
         if (gftPath is null) throw new InvalidOperationException("Cannot tilise blank: Fill tile list is not specified");
         LevelGenerator.FillStarting?.Invoke(grid, _ox, _oy, Graph.Width, Graph.Height);
         var fills = files.FillTiles(gftPath);
@@ -246,16 +246,16 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         fill.Run();
         overlays.FillEntry = (x, y, g, open) => fill.FillEntry(x, y, g, open);
         foreach (var pass in passes.Where(p => (p.Passes & 2) != 0)) overlays.Run(pass, saveTiles: true);
-        // 0x1421193d0 (storeys: plain tiles take their neighbours' heights), then the mirror seams (0x142025440).
+        // 0x14211fcd0 (storeys: plain tiles take their neighbours' heights), then the mirror seams (0x14202bc90).
         new Storeys(grid, _ox, _oy, Graph.Width, Graph.Height, files).Run();
         new Seams(files, rng, grid, _ox, _oy, Graph.Width, Graph.Height, store, special.Rooms, special.RoomVertices,
             (GraphGround(Graph.TopGround), GraphGround(Graph.BottomGround), GraphGround(Graph.DefaultGround)), notes).Run();
         return (masterPath, master, fills);
     }
 
-    /// <summary><c>0x142115140</c>: the view's entries, row by row, that are empty, whose vertex has no ground or one
+    /// <summary><c>0x14211ba40</c>: the view's entries, row by row, that are empty, whose vertex has no ground or one
     /// with .gt flags 4 and 8, and that is not unwalkable (vertex flag 8); <c>Next(count)</c> (its value unused), then
-    /// shuffled (<c>0x14212d7f0</c>).</summary>
+    /// shuffled (<c>0x1421340f0</c>).</summary>
     List<(int X, int Y)> Openings()
     {
         var grid = _grid!;
@@ -275,7 +275,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         return list;
     }
 
-    /// <summary>The turned w × h lies inside the view on empty entries (<c>0x141d84e10</c>).</summary>
+    /// <summary>The turned w × h lies inside the view on empty entries (<c>0x141d884a0</c>).</summary>
     bool Fits(int x, int y, int w, int h)
     {
         if (x >= Graph.Width || x + w > Graph.Width || y >= Graph.Height || y + h > Graph.Height) return false;
@@ -285,13 +285,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         return true;
     }
 
-    /// <summary><c>0x142115390</c>: with rows in the pool, the openings once; the rows in order, while the share (+0x144)
-    /// lasts, each place a room (<c>0x142115680</c>): its only room, else its rooms shuffled (<c>Next(count)</c>, then
-    /// the shuffle) until one is placed. The rows placed leave the pool, counted (<c>0x141d8b2c0</c>).</summary>
+    /// <summary><c>0x14211bc90</c>: with rows in the pool, the openings once; the rows in order, while the share (+0x144)
+    /// lasts, each place a room (<c>0x14211bf80</c>): its only room, else its rooms shuffled (<c>Next(count)</c>, then
+    /// the shuffle) until one is placed. The rows placed leave the pool, counted (<c>0x141d8e950</c>).</summary>
     void AreaUniqueRooms(Fill placer)
     {
         if (Pool is not { } pool || pool.Rows.Count == 0) return;
-        // 0x14203f890: the primary tile graph takes its share (all the rows: no subgraph weight to share by).
+        // 0x1420460e0: the primary tile graph takes its share (all the rows: no subgraph weight to share by).
         pool.Spread(0, rng);
         var openings = Openings();
         var placed = new List<ExtraFeatureRow>();
@@ -316,7 +316,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         foreach (var row in placed) pool.Remove(row, true);
     }
 
-    /// <summary><c>0x142115680</c>: a room whose own key has no edges and one ground on its corners turns by
+    /// <summary><c>0x14211bf80</c>: a room whose own key has no edges and one ground on its corners turns by
     /// <c>Next(8)</c> (the row allows any) or one of the row's orientations (<c>Next(count)</c>), and goes on the first
     /// opening whose vertex ground is none or flags 4 and 8 where it fits; the vertices it covers that have no ground
     /// or a flag-8 one take the opening's ground, when that has none or flag 8. Tilised at the vertex height (open);
@@ -346,11 +346,11 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         return false;
     }
 
-    /// <summary><c>0x142115cc0</c>: with shrine rooms in the RoomSet (+0x118, tag "shrine") and shrines rolled (pool
+    /// <summary><c>0x14211c5c0</c>: with shrine rooms in the RoomSet (+0x118, tag "shrine") and shrines rolled (pool
     /// +0x148), the openings in order while shrines are left: one whose vertex ground is none or flags 4 and 8, not
     /// within 5 entries of a shrine placed here, takes a shrine room that fits it (0x55 as it is, 0xaa turned):
     /// <c>Next(count)</c> among them, the orientation <c>Next(840)</c> from its mask, tilised at the vertex height with
-    /// the vertex ground (open); a shrine placed (<c>0x141d8b9a0</c>).</summary>
+    /// the vertex ground (open); a shrine placed (<c>0x141d8f030</c>).</summary>
     void Shrines(DungeonRoomSet roomSet, Fill placer)
     {
         var rooms = roomSet.All.Where(r => r.Tag == "shrine" && r.Def is not null).Select(r => r.Def!).ToList();
@@ -380,7 +380,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         }
     }
 
-    /// <summary><c>0x142116600</c> → <c>0x1421162d0</c>: with "preunique" rooms in the RoomSet (+0x148, with their line's
+    /// <summary><c>0x14211cf00</c> → <c>0x14211cbd0</c>: with "preunique" rooms in the RoomSet (+0x148, with their line's
     /// orientation mask), each in list order takes the first opening where it fits, an orientation drawn for every
     /// opening tried (<c>Next(840)</c> from the mask); tilised at the vertex height with the vertex ground, open when
     /// that has none or flag 4. One that fits nowhere is fatal.</summary>
@@ -409,7 +409,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         }
     }
 
-    /// <summary><c>0x14203f890</c> up to the layout (the dungeon graphs' <c>0x14203c900</c> makes the same draws), for
+    /// <summary><c>0x1420460e0</c> up to the layout (the dungeon graphs' <c>0x142043150</c> makes the same draws), for
     /// the subgraph record <paramref name="primary"/> says is the first (the passes that take the record index). True
     /// when a Vaal side area entrance was kept (the generator's +0xa is then cleared).</summary>
     internal static bool Prepare(TileGraph graph, LevelRandom rng, bool vaalSideArea, bool hideout, bool primary, ExtraRoomPool? pool,
@@ -417,8 +417,8 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
     {
         foreach (var n in graph.Nodes)
         {
-            // 0x14203a600: a random offset inside the node's rectangle (x1..x2, y1..y2), each axis drawn inclusively
-            // (0x141ff97f0) when its range is not empty (MapWorldsTheatreOfLies, 2026-10-27).
+            // 0x142040e50: a random offset inside the node's rectangle (x1..x2, y1..y2), each axis drawn inclusively
+            // (0x142000040) when its range is not empty (MapWorldsTheatreOfLies, 2026-10-27).
             if (n.OffsetX1 != n.OffsetX2 || n.OffsetY1 != n.OffsetY2 || n.OffsetX1 != 0 || n.OffsetY1 != 0)
             {
                 int dx = n.OffsetX1 < n.OffsetX2 ? n.OffsetX1 + rng.Range(0, n.OffsetX2 - n.OffsetX1) : n.OffsetX1;
@@ -426,14 +426,14 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                 n.X += dx;
                 n.Y += dy;
             }
-            // 0x14203a180 → 0x142036490: a node whose "league=" names another league than the instance's (world
+            // 0x1420409d0 → 0x14203cce0: a node whose "league=" names another league than the instance's (world
             // +0xd0) is dropped; the port has no instance league. "shuffle…" and "unique…" are read after the exist
             // rolls (ShuffleGroups, UniqueGroups), "subarea=…" when the record is added (LevelGenerator.SubAreas).
             if (n.Descriptions.Any(d => d.StartsWith("league=", StringComparison.OrdinalIgnoreCase)))
-                throw new NotSupportedException($"{n}: league= nodes (0x142036490, the instance's league) are not ported");
+                throw new NotSupportedException($"{n}: league= nodes (0x14203cce0, the instance's league) are not ported");
             if (n.Tag == "league") n.Exist = 0;
         }
-        // 0x14203a480: a tag listing alternatives "a,b,c" keeps one of them.
+        // 0x142040cd0: a tag listing alternatives "a,b,c" keeps one of them.
         foreach (var n in graph.Nodes)
         {
             if (!n.Tag.Contains(',')) continue;
@@ -444,9 +444,9 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         // Without side area nodes the rolled Vaal side area becomes the VaalSideArea extra terrain feature (its room
         // `vaal_side_area.arm`) and +0xa stays set, so every later graph without nodes adds it again.
         if (sideArea is null && vaalSideArea) (pool ?? throw new InvalidOperationException("no extra room pool")).Add("VaalSideArea", 1);
-        // 0x142032760 / 0x142033e30: the Labyrinth's pass (secret nodes, the gold door, boss overrides).
+        // 0x142038fb0 / 0x14203a680: the Labyrinth's pass (secret nodes, the gold door, boss overrides).
         labyrinth?.Run(graph, rng);
-        // 0x142035350 / 0x142034e60, for the first record only: a node with "subarea=hideout…" or
+        // 0x14203bba0 / 0x14203b6b0, for the first record only: a node with "subarea=hideout…" or
         // "subareatype=Hideout…" is dropped (exist 0, no descriptions) when no discoverable hideout rolled; with one,
         // that description names the hideout's claim subarea instead (Hideouts.dat; no draw or tile reads it, left as
         // it is).
@@ -457,7 +457,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
                     n.Exist = 0;
                     n.Descriptions.Clear();
                 }
-        // 0x141f29730, the Betrayal plugin (generator plugin vtable +0x40) for a record after the first: the
+        // 0x141f30020, the Betrayal plugin (generator plugin vtable +0x40) for a record after the first: the
         // "targetroom2" nodes take a Next(count) draw and a shuffle, "targetroom1" goes in front, and each takes the
         // server's next Betrayal target (BetrayalTargets.dat +0x59, its room) or exist 0 when none is left. The server
         // sends no targets, so all of them drop (the Betrayal safe houses).
@@ -468,7 +468,7 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
             rng.Shuffle(targets);
             foreach (var n in graph.Nodes.Where(n => n.Tag == "targetroom1").Take(1).Concat(targets)) n.Exist = 0;
         }
-        // 0x142031390: exist rolls, nodes then edges; failed edges go first, then failed nodes.
+        // 0x142037be0: exist rolls, nodes then edges; failed edges go first, then failed nodes.
         var nodesOut = new List<GraphNode>();
         foreach (var n in graph.Nodes)
         {
@@ -486,12 +486,12 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         foreach (var n in nodesOut) graph.RemoveNode(n);
         ShuffleGroups(graph, rng);
         UniqueGroups(graph, rng);
-        // 0x142003bc0: stable sort by priority, highest first.
+        // 0x14200a410: stable sort by priority, highest first.
         graph.Nodes = [.. graph.Nodes.OrderByDescending(n => n.Priority)];
         return sideArea == true;
     }
 
-    /// <summary><c>0x142030790</c> after the exist rolls, with <c>0x14203a720</c>: a node's first description starting
+    /// <summary><c>0x142036fe0</c> after the exist rolls, with <c>0x142040f70</c>: a node's first description starting
     /// "shuffle" puts it in group N (the number after it, none = 0; not a number or below 0: no group). Per group in
     /// order of N, while it holds two or more: <c>Next(size)</c> twice, both nodes leave the group, and two different
     /// nodes swap tags (+0x20) and descriptions (+8).</summary>
@@ -520,13 +520,13 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
             }
     }
 
-    /// <summary><c>0x142030790</c> after the shuffle groups, with <c>0x142031100</c> / <c>0x142035c70</c>: a node's first
+    /// <summary><c>0x142036fe0</c> after the shuffle groups, with <c>0x142037950</c> / <c>0x14203c4c0</c>: a node's first
     /// description starting "unique" reads "unique[letter][N][#count]" (none = group 0, count 1; N not a number: no
     /// group; a count that is not a number: 1). Per group in order of N, keeping the largest count: with more nodes than
     /// the count, <c>Next(size)</c> takes one to keep, count times, and the nodes left are removed
-    /// (<c>0x142035f10</c>, as a failed node). Then the lettered groups ("uniqueA1#2", the letter upper-cased), in order of
+    /// (<c>0x14203c760</c>, as a failed node). Then the lettered groups ("uniqueA1#2", the letter upper-cased), in order of
     /// first appearance: the first record with the letter draws which of its numbered groups stay (their indices,
-    /// <c>Next(count)</c>, a partial shuffle of count steps, <c>0x142037ea0</c>, then cut to count); a group not among them
+    /// <c>Next(count)</c>, a partial shuffle of count steps, <c>0x14203e6f0</c>, then cut to count); a group not among them
     /// loses its nodes, in every record of the level (1_3_17_2's recipe entrances, 2026-10-27).</summary>
     static void UniqueGroups(TileGraph graph, LevelRandom rng)
     {
@@ -603,12 +603,12 @@ sealed class TileGraphGenerator(TerrainCache files, LevelRandom rng, List<string
         return i > digits && int.TryParse(s[start..i], out int v) ? v : null;
     }
 
-    /// <summary><c>0x142032320</c>: nodes with a description "sidearea&lt;N&gt;" (the first such, N from '1'; none = 1) are
+    /// <summary><c>0x142038b70</c>: nodes with a description "sidearea&lt;N&gt;" (the first such, N from '1'; none = 1) are
     /// Vaal side area entrances, grouped by N. When the area rolled a Vaal side area (generator +0xa), one node of a
     /// random group keeps its entrance: <c>Next(groups)</c>, <c>Next(group size)</c> (unused), the group shuffled, its
     /// first node loses its "unique…" descriptions, gets exist 100 and "accessible". Every other grouped node gets exist
     /// 0 with its descriptions cleared, so the exist rolls remove it (a tagged one stays as a plain node). The
-    /// dungeon graphs' copy (<c>0x142031d10</c>, from <c>0x14203c900</c>) groups through the same <c>0x14203a410</c>.
+    /// dungeon graphs' copy (<c>0x142038560</c>, from <c>0x142043150</c>) groups through the same <c>0x142040c60</c>.
     /// True when an entrance was kept, null when the graph has no side area nodes.</summary>
     static bool? SideAreas(TileGraph graph, LevelRandom rng, bool vaalSideArea)
     {

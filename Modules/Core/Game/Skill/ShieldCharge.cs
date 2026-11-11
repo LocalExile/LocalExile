@@ -2,10 +2,10 @@ using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     // Shield Charge's movement (11-skills.md "Shield Charge"). The client moves the charge at the player's own movement
-    // speed: 0x141e7c0b0 reads movement_velocity_+% from the player's Stats, not the skill's. The game adds the gem's
+    // speed: 0x141e827a0 reads movement_velocity_+% from the player's Stats, not the skill's. The game adds the gem's
     // base_movement_velocity_+% through the invisible buff shield_charge_movement_speed_while_charging (BuffDefinitions
     // 1352) for as long as the charge runs, and network stats run no calculators, so the server puts that bonus into the
     // movement_velocity_+% it sends (the pools) from the use until its own walk arrives, and walks its estimate to the aimed
@@ -14,26 +14,26 @@ static partial class Game
     static readonly ConditionalWeakTable<ClientState, ShieldChargeRun> ShieldChargeRuns = new();
 
     // The running charge's movement bonus, for the pools (PoolsFor); 0 when none runs.
-    internal static int ShieldChargeMovementPct(ClientState conn) => ShieldChargeRuns.TryGetValue(conn, out var run) ? run.Percent : 0;
+    public static int ShieldChargeMovementPct(ClientState conn) => ShieldChargeRuns.TryGetValue(conn, out var run) ? run.Percent : 0;
 
     // A movement skill that needs a shield and carries its own movement bonus: it walks there faster, it does not blink.
-    internal static int ShieldChargeBonusPct(ClientState conn, ushort skillId, int effect) =>
+    public static int ShieldChargeBonusPct(ClientState conn, ushort skillId, int effect) =>
         SkillsFor(conn).IsMovement(effect) && SkillsFor(conn).RequiresShield(effect)
             && Stats.Key("base_movement_velocity_+%") is uint key ? SupportedSkill(conn, skillId).Stats.GetValueOrDefault(key) : 0;
 
-    // The client's setup 0x141a6bae0 stops a charge aimed further away at 75 cells × (1 + shield_charge_range_+% / 100)
+    // The client's setup 0x141a6e4f0 stops a charge aimed further away at 75 cells × (1 + shield_charge_range_+% / 100)
     // from where it starts (integer, (100 + range) * 75 / 100), along the aim: the "Maximum Charge Distance" of the gem's
     // damage line. shortcut: the setup also adds shield_charge_extra_distance past the aim and uses 14 cells while an
     // action counter (+0x2d0 below +0x2d4) is short; neither is modelled.
     const int ShieldChargeBaseDistance = 75;
 
-    internal static int ShieldChargeMaxDistance(ClientState conn, ushort skillId) =>
+    public static int ShieldChargeMaxDistance(ClientState conn, ushort skillId) =>
         (100 + (Stats.Key("shield_charge_range_+%") is uint k ? SupportedStats(conn, skillId).GetValueOrDefault(k) : 0))
             * ShieldChargeBaseDistance / 100;
 
     // In the use's StartAction: the bonus on, the pools and walk speed with it, and the walk to the aimed cell, no further
     // than the charge's maximum distance. Returns the run's token, which only the latest charge's end may clear.
-    internal static int BeginShieldCharge(ClientState conn, ushort skillId, int percent, int x, int y, double at)
+    public static int BeginShieldCharge(ClientState conn, ushort skillId, int percent, int x, int y, double at)
     {
         var run = ShieldChargeRuns.GetOrCreateValue(conn);
         int max = ShieldChargeMaxDistance(conn, skillId);
@@ -53,7 +53,7 @@ static partial class Game
     // off_hand_local_minimum/maximum_added_physical_damage plus its added damage per 15 of the shield's armour and evasion
     // rating (the item's own, local values: "per 15 Armour or Evasion Rating on Shield"), at the gem's AttackTime. Null
     // for other skills and without a shield, whose attacks use the main hand's weapon.
-    internal static SkillCatalog.Unarmed? ShieldWeapon(ClientState conn, ushort skillId)
+    public static SkillCatalog.Unarmed? ShieldWeapon(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
         if (!SkillsFor(conn).IsAttack(gem.Effect) || !SkillsFor(conn).RequiresShield(gem.Effect)
@@ -78,7 +78,7 @@ static partial class Game
 
     // After the use's echo: the faster movement speed to the client, the path hits while the server's walk runs, the final
     // hit and the speed back where it arrives (a later charge takes over the run, its hits and its end).
-    internal static async Task RunShieldCharge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task RunShieldCharge(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         int token, double arrivesAt, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse)
     {
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn, () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),

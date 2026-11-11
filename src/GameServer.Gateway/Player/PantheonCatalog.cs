@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>
 /// The Pantheon's gods (Agents/docs/game/campaign/pantheon.md): PantheonPanelLayout rows (one per panel slot: major or
@@ -7,7 +8,7 @@ using System.Text.Json;
 /// placeholders (QuestFlag NEVER_SET). The data the Pantheon module (Modules/Core/Player/Pantheon) chooses and applies the
 /// gods by; the choice itself is the character's (ClientState and the save: PantheonMajor, PantheonMinor).
 /// </summary>
-sealed class PantheonCatalog
+public sealed class PantheonCatalog
 {
     /// <summary>A panel row: its Id (TheBrineKing …), whether it is a major god, the flag that unlocks it, the god's name
     /// (GodName1), its power (Effect1: Stats keys = row + 1, values) and its upgrades (Effect2–4, each with the PantheonSouls
@@ -58,17 +59,17 @@ sealed class PantheonCatalog
     {
         string layout = Path.Combine(folder, "tables", "PantheonPanelLayout.json"), souls = Path.Combine(folder, "tables", "PantheonSouls.json"),
             flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
-        if (!File.Exists(layout) || !File.Exists(flagsFile)) return new([]);
+        if (!ClientTables.Exists(layout) || !ClientTables.Exists(flagsFile)) return new([]);
         try
         {
             List<string> flags;
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(flagsFile)))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(flagsFile)))
                 flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
             string? Flag(JsonElement v) => v.ValueKind == JsonValueKind.Number && v.GetInt32() is var i && i >= 0 && i < flags.Count
                 && flags[i] != "NEVER_SET" ? flags[i] : null;
             var upgradeFlags = new Dictionary<int, List<string?>>();
-            if (File.Exists(souls))
-                using (var doc = JsonDocument.Parse(File.ReadAllBytes(souls)))
+            if (ClientTables.Exists(souls))
+                using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(souls)))
                     foreach (var s in doc.RootElement.EnumerateArray())
                         if (s.GetProperty("PanelLayout") is { ValueKind: JsonValueKind.Number } p)
                         {
@@ -76,7 +77,7 @@ sealed class PantheonCatalog
                             list.Add(Flag(s.GetProperty("QuestFlagUpgrade")));
                         }
             var gods = new List<God>();
-            using (var doc = JsonDocument.Parse(File.ReadAllBytes(layout)))
+            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(layout)))
                 foreach (var r in doc.RootElement.EnumerateArray())
                 {
                     IReadOnlyList<(uint, int)> Effect(int n) => r.TryGetProperty($"Effect{n}_StatsKeys", out var keys) && r.TryGetProperty($"Effect{n}_Values", out var values)

@@ -2,12 +2,12 @@ using GameServer.Core.World;
 
 /// <summary>Incoming ordinary monster-hit ailments. Connection-local, guarded by Monsters, on its pauseable clock.
 /// Alternative ailments require an explicit source and are not substituted for the ordinary ailments here.</summary>
-sealed class PlayerElementalAilments
+public sealed class PlayerElementalAilments
 {
     // Target Metadata/Monsters/Monster.ot: critical_ailment_dot_multiplier_+ = 30.
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
-    internal const double MonsterCriticalAilmentMultiplier = 1.3;
-    internal enum Kind { Ignite, Chill, Freeze, Shock }
+    public const double MonsterCriticalAilmentMultiplier = 1.3;
+    public enum Kind { Ignite, Chill, Freeze, Shock }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];

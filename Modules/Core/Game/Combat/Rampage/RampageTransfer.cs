@@ -1,11 +1,11 @@
 using System.Collections.Concurrent;
 
-static partial class Game
+public static partial class Game
 {
     sealed record RampageTransfer(string Character, DateTime At, RampageState.Carried State);
     static readonly ConcurrentDictionary<uint, RampageTransfer> CarriedRampage = new();
 
-    internal static void CarryRampage(ClientState conn, uint ticket)
+    public static void CarryRampage(ClientState conn, uint ticket)
     {
         lock (conn.Monsters)
         {
@@ -20,7 +20,7 @@ static partial class Game
         }
     }
 
-    internal static void RestoreRampage(ClientState conn)
+    public static void RestoreRampage(ClientState conn)
     {
         lock (conn.Monsters)
         {

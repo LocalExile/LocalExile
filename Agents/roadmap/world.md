@@ -44,7 +44,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   ([re/011](../docs/re/011-level-generation.md), [status/world.md](../status/world.md)).
   `/tour <file>` with `live.ps1 -Walkmaps` records new (area, seed) loads; `levelgen tourlist` writes the lists.
 - **Start:** the supported areas get random seeds, and a 5-seed tour of them found 4 loads the port gets wrong
-  (1_2_15 at `0x14211532d`, 1_2_14_2 at `0x142031e88`, [re/011](../docs/re/011-level-generation.md) §8 Random seeds)
+  (1_2_15 at `0x14211bc2d`, 1_2_14_2 at `0x1420386d8`, [re/011](../docs/re/011-level-generation.md) §8 Random seeds)
   and 202 seeds it cannot generate (the Gateway plays a new instance at such a seed at a replacement seed it can,
   `ServerLevels.PlayableSeed`; fixing the generator errors gives those seeds back).
 - **To be implemented with their leagues (out of scope for now):** the 202 areas whose level the client builds from
@@ -76,7 +76,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ### The game's start and resurrection
 
-- **Known:** items, equipment, the skill bar, experience and passives are saved per character in `data/saves.db`
+- **Known:** items, equipment, the skill bar, experience and passives are saved per character in `data/characters.db`
   ([saves](../docs/saves.md)) ([13](../docs/protocol/13-items.md) §7, [11](../docs/protocol/11-skills.md) §11,
   [15](../docs/protocol/15-progression.md)), and every login starts at the last town's spawn point
   ([09](../docs/protocol/09-area-change.md) §4).
@@ -111,8 +111,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The day's layout is sent with each room in it, and a Normal run works ([status](../status/world.md), "A Labyrinth run").
   The Aspirants' Plaza (`Labyrinth_Airlock`, `WaypointCatalog.LabyrinthPlaza`) is a waypoint the World panel's
   Labyrinth pin always shows.
-  The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points without Izaro's fight
-  ([status](../status/world.md), "A Labyrinth run").
+  The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
+  fought ([status](../status/world.md), "A Labyrinth run";
+  [labyrinth-trials](../docs/game/labyrinth-trials.md), "Izaro's arenas").
   The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
@@ -126,11 +127,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro: three Aspirant's Trials, each ending when he loses a third of his life (the boss stages of
-     `BossFights.cs`); the third opens the Ascendancy Chamber and its Izaro chests (LabyrinthIzaroChests).
-  2. The Ascendancy Chamber: the font (`QuestobjectsRules.UseAscendancyFont`) waits for Izaro's third trial and sets the
-     tier's quest flag (Labyrinths `QuestFlag`, `LabyrinthComplete1` …: it also moves the quest tracker on and unlocks
-     the next tier's row).
+  1. Izaro's arenas' other mechanics (Toggle Statues and Gargoyles are done: `Rules.IzaroArena.cs` places them and
+     what they leave), one at a time, and the Goddess of Justice.
+  2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type

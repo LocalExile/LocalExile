@@ -1,6 +1,6 @@
 // Self-contained. Measures how far the server's walk estimate is from where the client really is (movement drift).
 //   python scripts/re/frida/run.py Game.patched.exe --log logs/drift.jsonl scripts/re/frida/trace-player-drift.js
-// - echo: at each S→C 0x1ab for the local, predicted player (Actor handler 0x1421940a0, sequence >= 0), the position the
+// - echo: at each S→C 0x1ab for the local, predicted player (Actor handler 0x14219aa10, sequence >= 0), the position the
 //   server reports (msg +0x2c/+0x30), the click target (+0x24/+0x28) and the client's own grid cell (Positioned +0x294/+0x298,
 //   via entity +0x98), with |d| = their distance in cells. The client snaps to the server's position only when |d|² >= 0x2110.
 // - stop: the cell where the player came to rest (no change for 150 ms), sampled every 20 ms after the last echo.
@@ -10,7 +10,7 @@ let positioned = null, lastMove = 0, last = null, resting = true, seq = -1;
 const t0 = Date.now();
 const now = () => (Date.now() - t0) / 1000;
 
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(args) {
     const actor = args[0], msg = args[1];
     if (msg.add(8).readU16() !== 0x1ab) return;

@@ -5,9 +5,9 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
-    internal static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
+    public static async Task RunLivingCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
     {
         if (!PlayerUpdatesCurrent(conn, updates)) return;
         int frames = 0;
@@ -50,7 +50,7 @@ static partial class Game
     // divides its action clips by zero. A hit's recovery for as long as the freeze lasts stops it where it stands. A
     // predictive client goes on with its walk after, as the server's walk does; a lockstep one stands until its next order
     // (PlayerHitRecoveryRecordLocked: the same message and handler; the freeze itself is not traced).
-    internal static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ShowFreeze(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -72,7 +72,7 @@ static partial class Game
     }
 
     // A click that came during a hit's recovery or a freeze: the walk starts when that ends, as the client's does.
-    internal static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task ReleaseHeldMove(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
             if (!CurrentGameWork || conn.HeldMove is null) return;
@@ -96,7 +96,7 @@ static partial class Game
 
     // Game_TRACE=sync: where the server has the player and the monsters now, on the QPC clock of
     // scripts/re/frida/trace-sync.js. scripts/re/sync_report.py compares the two.
-    internal static void TraceSync(ClientState conn)
+    public static void TraceSync(ClientState conn)
     {
         if (!conn.PlayerSent) return;
         var line = new System.Text.StringBuilder();
@@ -116,7 +116,7 @@ static partial class Game
         Console.WriteLine(line);
     }
 
-    internal static void PublishPlayerPose(ClientState conn)
+    public static void PublishPlayerPose(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -129,7 +129,7 @@ static partial class Game
 
     // Called under the owner's lock. Publish experience and final scale in an immutable template, retaining other creation stats,
     // equipment and skills. Observers read published snapshots and never lock another connection's simulation.
-    internal static void RefreshPeerScale(ClientState conn, int scale)
+    public static void RefreshPeerScale(ClientState conn, int scale)
     {
         if (conn.PeerTemplate is not { } template) return;
         if (template.Experience != conn.Experience)
@@ -156,7 +156,7 @@ static partial class Game
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).
     const uint TownStanceStat = 21141;
 
-    internal static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task SyncInstancePlayers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         var ids = conn.Instance.PlayersExcept(conn.PeerId).Select(p => p.Id)
             .Concat(conn.SeenPlayers.Keys).Distinct().ToArray();
@@ -206,9 +206,9 @@ static partial class Game
                         lock (conn.Monsters)
                             conn.PeerWalks[peer.Id] = conn.NewPeerWalk(peer.Id, peer.X, peer.Y, peer.Owner?.Walk.Speed ?? Program.WalkSpeed);
                     packets.Presentation(peer.Id, InstanceProtocol.EnterWakeZone(peer.Id));
-                    // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e97190)
+                    // The client picks an actor's stance (animation set: "Town" in a town, else the weapon's; 0x141e9da30)
                     // when its equipment changes, not when it is created: without this every other player stood in the
-                    // combat stance (Frida 2026-11-01: the pick ran only for the local player, on its own 0x2ba).
+                    // combat stance (Frida 2026-11-01: the pick ran only for the local player, on its own 0x2bc).
                     packets.Presentation(peer.Id, InstanceEntities.PlayerEquipmentUpdate(peer.Id, player.Equipped ?? []));
                 }
                 else
@@ -269,7 +269,7 @@ static partial class Game
         }
     }
 
-    internal static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static Task CorrectMonsterCollisions(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         using (ProjectileMutation(conn, phase: "collision"))
         {
@@ -279,20 +279,20 @@ static partial class Game
         return Task.CompletedTask;
     }
 
-    // The client steps every walker a cell at a time and checks each step (0x141e32710): the cell's walk value must be at
-    // least the walker's size + 1, and no other body may be within reach (0x141e47a40 → 0x141e47ca0: the Chebyshev distance
+    // The client steps every walker a cell at a time and checks each step (0x141e35a50): the cell's walk value must be at
+    // least the walker's size + 1, and no other body may be within reach (0x141e4b140 → 0x141e4b3a0: the Chebyshev distance
     // less that body's size below the walker's size + 1). A blocked step ends the walk where it stands, with no new path
-    // (0x141e7bc20); a chaser's next order paths it again. A walk whose path began on a blocked cell steps through bodies
+    // (0x141e82310); a chaser's next order paths it again. A walk whose path began on a blocked cell steps through bodies
     // until its first free step; terrain still stops it. A path cut short by the search is walked to its end and then paths
-    // again from there at once (0x141e7bec0 → 0x141e7b920). The client moves nobody for any other reason, so this replays
+    // again from there at once (0x141e825b0 → 0x141e82010). The client moves nobody for any other reason, so this replays
     // the steps taken since the last pass, the player's and every monster's, each against the cells the others hold at
     // that moment: on a predictive client in time order; on a lockstep client frame by frame as its world ticks
     // (StepFrames). Called under conn.Monsters.
-    internal static void StepWalkers(ClientState conn, double now)
+    public static void StepWalkers(ClientState conn, double now)
     {
         double from = conn.WalkersSteppedTo;
         // A lockstep client's walkers move only in its frames, so whole frames are replayed, up to the start of the frame
-        // being sent (its 0x2b5 is on the wire: the frame advances in that send's gate under this lock); the frame's own
+        // being sent (its 0x2b7 is on the wire: the frame advances in that send's gate under this lock); the frame's own
         // steps wait for its end (PlayerWalk.Position reads the frame's start as well).
         (double Start, double End)? frame = conn.LockstepClient ? conn.LockstepFrame : null;
         if (frame is { } lockstep) now = lockstep.Start;
@@ -341,15 +341,15 @@ static partial class Game
     }
 
     // A lockstep client's world ticks each server frame with every object in turn, in ascending object id (the object
-    // tree of 0x142183ce0, 0x142184680 per object; the player, 0x1000, before every monster, 0x3000 and up), and a walker's
-    // Positioned (its vtable slot +0x40 = 0x141e32710) takes all of its steps due in the frame before the next object
+    // tree of 0x14218a650, 0x14218aff0 per object; the player, 0x1000, before every monster, 0x3000 and up), and a walker's
+    // Positioned (its vtable slot +0x40 = 0x141e35a50) takes all of its steps due in the frame before the next object
     // ticks: its accumulator (+0x244) gains the frame's length (33 ms as float seconds, nothing rounded) and steps while
-    // it holds a step time, each step checked against the other objects' current cells (0x141e47ca0 reads +0x294/+0x298),
+    // it holds a step time, each step checked against the other objects' current cells (0x141e4b3a0 reads +0x294/+0x298),
     // so a walker ticked earlier in the frame is seen where this frame's steps put it and a later one where the frame
     // before left it (live 2026-11-03, scripts/re/frida/trace-lockstep-tick.js; 07 §5). The frame a step falls in is the
     // one the walk's times give (the
     // accumulator carries the remainder between steps and segments, and a new order mid-step keeps the step's fraction:
-    // 0x141e4d180 rescales it by the new step time), so the same steps are taken here, grouped by frame and ordered by
+    // 0x141e50880 rescales it by the new step time), so the same steps are taken here, grouped by frame and ordered by
     // object within it. A path the search cut short paths again at its end within the tick. A walk-up the client runs
     // (a monster's chase, the player's attack on a monster) also tests its goal in its own turn of each frame
     // (StepWalkUp), whether its body blocks or not.
@@ -429,14 +429,14 @@ static partial class Game
     // order carries it to its own generation until the gate places it, and a give-up or a freeze, which send nothing,
     // keep it (NextPlannedAction); a swing order, a flinch, a stage and a transfer move the action generation on and end
     // it. Out of the wake zone its copy does not tick.
-    internal static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
+    public static bool WalkUpOpen(ClientState conn, SpawnedMonster m) =>
         conn.LockstepClient && m.ClientChase == m.ActionGeneration && !m.Dead && m.Life > 0 && !m.Asleep;
 
     // A lockstep client's attack on a monster that is walking up (placed at its gate, goal not met) while it is still the
     // player's action: an order the client takes ends it (a Move within two cells is none: PlaceLockstepPlayerMove places
     // nothing), as do a hit's recovery and a transfer; a target gone from the area ends it too (not traced). A closed one
     // is failed here, so the attack's task wakes. Under conn.Monsters.
-    internal static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
+    public static LockstepAttack? PlayerWalkUpOpen(ClientState conn)
     {
         if (!conn.LockstepClient || conn.LockstepAttack is not { Open: true } attack) return null;
         if (conn.ActionCount == attack.Action && conn.PlayerSent && conn.PlayerLife > 0 && !conn.Closed && !conn.LeavingArea
@@ -452,19 +452,19 @@ static partial class Game
     enum WalkUpResult { Walking, Swings, Fails }
 
     // A walk-up's turn in a lockstep frame (07 §5). Its steps are checked as any walker's (none for a body that blocks
-    // nothing), and its MoveTo's goal (0x141e7b260: within the reach less one, widened by the target's size, with the line
-    // to it) is tested against the target object's own cell (0x14123d600) as the tick order leaves it: a target with a
+    // nothing), and its MoveTo's goal (0x141e81950: within the reach less one, widened by the target's size, with the line
+    // to it) is tested against the target object's own cell (0x14123f9c0) as the tick order leaves it: a target with a
     // lower id has ticked this frame, one with a higher id stands where the frame before left it (objects tick in
     // ascending id: 2 951 of 2 951 traced monster tests used the player's cell after his steps,
     // 181 of 181 of the player's on the monster's before its own). It is tested at each waypoint the walker steps into
-    // (0x141e7bec0) and after the frame's steps (the Pathfinding tick, 0x141e7bfb0). Met, the swing starts in this frame
-    // (0x141e7bc20 → 0x141e942f0 → 0x141e94720, which waits for no 0x1ac in lockstep): at a waypoint or the path's end the
-    // walker stands there at once; mid-piece its stop (0x141e350e0) waits for the next tick's steps. A blocked step tests
-    // the goal at the cell it stopped on (its callback is 0x141e7bc20 too): met, it swings; else the action ends. Out of
+    // (0x141e825b0) and after the frame's steps (the Pathfinding tick, 0x141e826a0). Met, the swing starts in this frame
+    // (0x141e82310 → 0x141e9ab90 → 0x141e9afc0, which waits for no 0x1ac in lockstep): at a waypoint or the path's end the
+    // walker stands there at once; mid-piece its stop (0x141e38420) waits for the next tick's steps. A blocked step tests
+    // the goal at the cell it stopped on (its callback is 0x141e82310 too): met, it swings; else the action ends. Out of
     // reach at the path's end, cut short by the search or not, it searches again from there toward the target's cell in
-    // the same tick (0x141e7b920); no path ends the action. Mid-path, out of goal, it searches again only toward a target
+    // the same tick (0x141e82010); no path ends the action. Mid-path, out of goal, it searches again only toward a target
     // that has left the cell it last searched toward, 2.0 s after that search, or 0.7 s after it once the target is 64
-    // cells from that cell (0x141e7bfb0: each tick adds its frame to +0x55c before the test, and 0x141e7b920 zeroes it;
+    // cells from that cell (0x141e826a0: each tick adds its frame to +0x55c before the test, and 0x141e82010 zeroes it;
     // decompiled, not reached live). Returns the turn's outcome and when the search timer last started.
     static (WalkUpResult Result, double TimerFrom) StepWalkUp(ClientState.MonsterBlockerFrame bodies, WalkUpTurn up,
         double start, double end, double length)
@@ -502,7 +502,7 @@ static partial class Game
                 walk.Approach(target.X, target.Y, up.Reach, end, up.Tolerance, walk.Precision);
                 // Searched after this tick's add: the timer counts again from the frame's end.
                 if (walk.ArrivesAt > end) return (WalkUpResult.Walking, end);
-                // No step to take (no path, or the goal at precision 1 where he stands): 0x141e7b920 → 0x141e7bc20, a stop
+                // No step to take (no path, or the goal at precision 1 where he stands): 0x141e82010 → 0x141e82310, a stop
                 // after the next tick's steps in this replayed frame (the order's own stop would wait for the end of the
                 // frame being sent).
                 bool met = walk.ReachedGoal;

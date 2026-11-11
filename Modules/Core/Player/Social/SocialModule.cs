@@ -12,92 +12,89 @@ public sealed class SocialModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        static (ClientState Conn, string Remote) Of(Packet p) => (ConnOf(p.Player), ConnOf(p.Player).Wire.Remote);
-        module.OnEnterMessages(player => FriendsFeature.Enter(ConnOf(player)));
+        GameEvents.EnterMessages.Add(module.Manifest.Id, conn => FriendsFeature.Enter(conn));
         // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
-        module.OnTick(async (player, _) =>
+        GameEvents.Tick.Add(module.Manifest.Id, async (conn, _) =>
         {
-            if (ConnOf(player) is not { PlayerSent: true } c || !SocialFeature.Rebound.TryAdd(c, null)) return;
+            if (conn is not { PlayerSent: true } c || !SocialFeature.Rebound.TryAdd(c, null)) return;
             await SocialFeature.RebindParty(c);
             await FriendsFeature.AfterEntry(c);
         });
-        module.Lifetime.Own(InstanceEvents.TransferInstance.Add("Social", SocialFeature.PartyInstance));
-        module.OnPlayerLeaving((player, why) => FriendsFeature.Leaving(ConnOf(player)));
-        module.OnPacket(InstanceSocial.FriendAddId, async p =>
+        InstanceEvents.TransferInstance.Add(module.Manifest.Id, SocialFeature.PartyInstance);
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => FriendsFeature.Leaving(conn));
+        GameEvents.Packet(InstanceSocial.FriendAddId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            await FriendsFeature.Change(ConnOf(p.Player), InstanceSocial.ReadFriendAdd(p.Bytes.ToArray()));
+            await FriendsFeature.Change(conn, InstanceSocial.ReadFriendAdd(bytes));
             return true;
         });
-        module.OnPlayerLeaving((player, why) => SocialFeature.CancelPlayerTrade(ConnOf(player), why));
-        module.OnPacket(InstanceNpcs.TradeOfferId, async p =>
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => SocialFeature.CancelPlayerTrade(conn, why));
+        GameEvents.Packet(InstanceNpcs.TradeOfferId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
+            var remote = conn.Wire.Remote;
             if (conn.Trade is not { } trade) return false;
-            var offer = InstanceNpcs.ReadTradeOffer(p.Bytes.ToArray());
+            var offer = InstanceNpcs.ReadTradeOffer(bytes);
             await SocialFeature.PlayerTradeOffer(remote, conn, trade, offer.InventoryId, offer.ItemId, offer.X, offer.Y);
             return true;
         });
         foreach (ushort id in new[] { InstanceNpcs.TradeTakeBackId, InstanceNpcs.TradeMoveAllId })
-            module.OnPacket(id, async p =>
+            GameEvents.Packet(id).Add(module.Manifest.Id, async (conn, bytes) =>
             {
-                var (conn, remote) = Of(p);
+                var remote = conn.Wire.Remote;
                 if (conn.Trade is not { } trade) return false;
-                var (item, inventory) = InstanceNpcs.ReadTradeMove(p.Bytes.ToArray());
+                var (item, inventory) = InstanceNpcs.ReadTradeMove(bytes);
                 await SocialFeature.PlayerTradeOffer(remote, conn, trade, inventory, item);
                 return true;
             });
-        module.OnPacket(InstanceNpcs.TradeAcceptId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
+            var remote = conn.Wire.Remote;
             if (conn.Trade is not { } trade) return false;
-            await SocialFeature.PlayerTradeAccept(remote, conn, trade, InstanceNpcs.ReadTradeAccept(p.Bytes.ToArray()));
+            await SocialFeature.PlayerTradeAccept(remote, conn, trade, InstanceNpcs.ReadTradeAccept(bytes));
             return true;
         });
-        module.OnPacket(InstanceNpcs.TradeUnacceptId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeUnacceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, _) = Of(p);
             if (conn.Trade is not { } trade) return false;
             await SocialFeature.PlayerTradeUnaccept(conn, trade);
             return true;
         });
-        module.OnPacket(InstanceNpcs.TradeAnswerId, async p =>
+        GameEvents.Packet(InstanceNpcs.TradeAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, _) = Of(p);
             if (conn.Trade is not null) await SocialFeature.CancelPlayerTrade(conn, "cancelled");
             else if (conn.TradeRequestTo != 0) await SocialFeature.CancelTradeRequest(conn);
-            else if (InstanceNpcs.ReadTradeAnswer(p.Bytes.ToArray()).Other != 0 && conn.Sale is null)
-                await SocialFeature.DeclineTradeRequest(conn, InstanceNpcs.ReadTradeAnswer(p.Bytes.ToArray()).Other);
+            else if (InstanceNpcs.ReadTradeAnswer(bytes).Other != 0 && conn.Sale is null)
+                await SocialFeature.DeclineTradeRequest(conn, InstanceNpcs.ReadTradeAnswer(bytes).Other);
             else return false;
             return true;
         });
-        module.OnPacket(InstanceSocial.TradeRequestAcceptId, async p =>
+        GameEvents.Packet(InstanceSocial.TradeRequestAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            await SocialFeature.AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            await SocialFeature.AcceptTradeRequest(remote, conn, InstanceSocial.ReadTradeRequestAccept(bytes));
             return true;
         });
-        module.OnPacket(InstanceSocial.TradeRequestId, async p =>
+        GameEvents.Packet(InstanceSocial.TradeRequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            await SocialFeature.RequestTrade(remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceSocial.ReadTradeRequest(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            await SocialFeature.RequestTrade(remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, InstanceSocial.ReadTradeRequest(bytes));
             return true;
         });
-        module.OnPacket(InstanceSocial.PartyInviteId, async p =>
+        GameEvents.Packet(InstanceSocial.PartyInviteId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
+            var remote = conn.Wire.Remote;
             // Not a player here: another module may own the name (the PlayerBots module's bots).
-            return await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(p.Bytes.ToArray()));
+            return await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(bytes));
         });
-        module.OnPacket(InstanceSocial.PartyAcceptId, async p =>
+        GameEvents.Packet(InstanceSocial.PartyAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            await SocialFeature.AcceptParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            await SocialFeature.AcceptParty(remote, conn, InstanceSocial.ReadPartyAccept(bytes));
             return true;
         });
-        module.OnPacket(InstanceSocial.PartyLeaveId, async p =>
+        GameEvents.Packet(InstanceSocial.PartyLeaveId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var (conn, remote) = Of(p);
-            return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(p.Bytes.ToArray()));
+            var remote = conn.Wire.Remote;
+            return await SocialFeature.LeaveParty(remote, conn, InstanceSocial.ReadPartyAccept(bytes));
         });
     }
 }
@@ -107,9 +104,9 @@ static class SocialFeature
     /// <summary>The two offer inventories of a player trade (manager 1): the NPC sale's (OpenNpcSale), as a player is never
     /// in both. The grid stayed empty with 0x7e0 / 0x7e1 although the item's 0xbf was the sale's (live 2026-10-28).</summary>
 
-    /// <summary>0xb8 flags for a player (0x140dccdf0): bit 1 alone is the request notification for the other player, bit 0
+    /// <summary>0xb8 flags for a player (0x140dca680): bit 1 alone is the request notification for the other player, bit 0
     /// alone the requester's "Waiting for player to accept trade request..." box (with Cancel), both bits the trade window
-    /// (and bit 0 the active trade for Ctrl + click, 0x140d62ec0); 0x10 lets Accept send 0xb6 without hovering each item.
+    /// (and bit 0 the active trade for Ctrl + click, 0x140d60630); 0x10 lets Accept send 0xb6 without hovering each item.
     /// Neither bit shows nothing (live 2026-10-28).</summary>
 
     internal static Task SendTo(ClientState c, byte[] bytes, string? log) => c.Outbox is { } outbox ? outbox(bytes, log) : Task.CompletedTask;
@@ -129,7 +126,7 @@ static class SocialFeature
             PackedClass(about), about.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
-    // inventories must exist (inventory 0 crashed both clients at 0x1402d0a99 through the grid 0x1403174b4). A fresh
+    // inventories must exist (inventory 0 crashed both clients at 0x1402d1029 through the grid 0x140317a44). A fresh
     // pair also empties what an earlier trade left in them.
     internal static async Task FreshOffers(ClientState c)
     {
@@ -137,7 +134,7 @@ static class SocialFeature
             await SendTo(c, InstanceInventories.AddInventory(inv, NpcShops.Offer, NpcShops.Manager), $"0x00c0 trade offer {inv}");
     }
 
-    /// <summary>0xa9 member bytes (0x142149d80 maps them: 0 → invited, 1 → member, 2 → leader as the handler uses
+    /// <summary>0xa9 member bytes (0x1421506d0 maps them: 0 → invited, 1 → member, 2 → leader as the handler uses
     /// them, anything else → none), as live 2026-10-29.</summary>
     internal static int _nextPartyId = 0x100;
 
@@ -154,8 +151,8 @@ static class SocialFeature
         await Introduce(conn, other);
         await Introduce(other, conn);
         // The client keeps the parties it knows by id (+0xc668): only an id it doesn't know yet shows the invite. It finds
-        // the inviter by the second string (an account name, 0x142166a50) among the known players, and shows the notice
-        // (0x140dd0ad0) only with +0x6c clear and +0x6d set.
+        // the inviter by the second string (an account name, 0x14216d400) among the known players, and shows the notice
+        // (0x140dce360) only with +0x6c clear and +0x6d set.
         uint party = unchecked((uint)Interlocked.Increment(ref _nextPartyId));
         var info = InstanceSocial.PartyInfo(party, me, conn.Account ?? me, 0, 0, 1, 0, [(me, PartyInvited), (them, PartyInvited)]);
         Console.WriteLine($"[gateway] {remote} <= 0x0093 party invite: {me} -> {them} (party 0x{party:x})");
@@ -323,7 +320,7 @@ static class SocialFeature
         foreach (var c in new[] { other, conn })
         {
             var them = trade.Other(c);
-            // The window is the request's own panel, found again by the other party's id (0x140c38d70), still bound to the
+            // The window is the request's own panel, found again by the other party's id (0x140c38ef0), still bound to the
             // offer inventories created with the request: new ones here left its grids pointing at the old ones and every
             // offered item invisible (live 2026-10-28).
             await SendTo(c, InstanceNpcs.TradeOpen(them.PeerId, PlayerTradeMine, PlayerTradeTheirs, PlayerTradeOpenFlags, CharacterName(them), -1),
@@ -435,10 +432,10 @@ static class SocialFeature
 
     /// <summary>0xb8 flags bit 2 (0x04): this player accepted, its own offer grid is greyed and Accept turns into Cancel
     /// Accept (C→S 0xb7); bit 3 (0x08): the other player accepted, their offer grid is greyed. The trade window copies
-    /// the struct (0x140c32800) and sets the grids' +0x33b from +0x378 bits 2 and 3 (0x140c37140).</summary>
+    /// the struct (0x140c32980) and sets the grids' +0x33b from +0x378 bits 2 and 3 (0x140c372c0).</summary>
 
     // The open window again with each side's acceptance: 0xb8 for the same other party updates the existing window
-    // (found by that id, 0x140c38d70) and keeps its grids.
+    // (found by that id, 0x140c38ef0) and keeps its grids.
     internal static async Task SendTradeState(PlayerTrade trade)
     {
         foreach (var c in new[] { trade.A, trade.B })

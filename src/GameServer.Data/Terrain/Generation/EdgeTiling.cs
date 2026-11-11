@@ -1,11 +1,11 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>Edge tiling (<c>0x14210de80</c> and below): every edge of the tile graph is laid as a chain of edge tiles.
-/// A cost grid of one cell per map tile (<c>0x141f247e0</c>: cells under placed tiles are blocked) is raised along every
-/// edge (<c>0x141f25c90</c>); each chain of edges through nodes with two edges becomes a path record
-/// (<c>0x14210b950</c>), its cells are found by a best-first search from the path's later points back to its current
-/// one (<c>0x14210c600</c> → <c>0x141f24d60</c>, with backtracking), and one tile is picked per cell for the key the
-/// path asks there (<c>0x14210f470</c>).</summary>
+/// <summary>Edge tiling (<c>0x142114780</c> and below): every edge of the tile graph is laid as a chain of edge tiles.
+/// A cost grid of one cell per map tile (<c>0x141f2b0d0</c>: cells under placed tiles are blocked) is raised along every
+/// edge (<c>0x141f2c580</c>); each chain of edges through nodes with two edges becomes a path record
+/// (<c>0x142112250</c>), its cells are found by a best-first search from the path's later points back to its current
+/// one (<c>0x142112f00</c> → <c>0x141f2b650</c>, with backtracking), and one tile is picked per cell for the key the
+/// path asks there (<c>0x142115d70</c>).</summary>
 sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY, LevelRandom rng, Func<GraphEdge, EdgeType> type,
     TerrainCache files, TileStore store, List<string> notes, IReadOnlyList<EdgePoint> edgePoints)
 {
@@ -51,7 +51,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         _h = new uint[count];
         _closed = new bool[count];
         _open = new bool[count];
-        // 0x141f247e0.
+        // 0x141f2b0d0.
         for (int y = 0; y < H; y++)
             for (int x = 0; x < W; x++)
                 if (Entry(x, y) is { IsOrigin: true } e)
@@ -75,7 +75,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
 
     static (int X, int Y) Aligned((int X, int Y) p, int s) => (p.X / 23 - p.X / 23 % s, p.Y / 23 - p.Y / 23 % s);
 
-    // 0x141f24b10: a cell under a placed tile becomes the tile's origin.
+    // 0x141f2b400: a cell under a placed tile becomes the tile's origin.
     (int X, int Y) ToOrigin((int X, int Y) c) => Entry(c.X, c.Y) is { } e ? (c.X - e.OffsetX, c.Y - e.OffsetY) : c;
 
     static (int X, int Y) Get(GraphEdge e, int i) =>
@@ -87,7 +87,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return e.Points.Count == 0 ? (e.A.X, e.A.Y) : e.Points[^1];
     }
 
-    /// <summary><c>0x14210db90</c>: an end offset becomes a point one step outside the end; the edge raises the cost
+    /// <summary><c>0x142114490</c>: an end offset becomes a point one step outside the end; the edge raises the cost
     /// grid; an edge with a placed end is tiled from it (its end cells are blocked), else from its end with one edge.</summary>
     void Prepare(GraphEdge e)
     {
@@ -146,7 +146,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
                 each((c.Y + v) * W + c.X + u);
     }
 
-    /// <summary><c>0x141f25c90</c> / <c>0x141f4f5a0</c>: every block the edge's segments cross costs 80 more.</summary>
+    /// <summary><c>0x141f2c580</c> / <c>0x141f55e90</c>: every block the edge's segments cross costs 80 more.</summary>
     void MarkEdge(GraphEdge e)
     {
         int s = type(e).Size;
@@ -155,7 +155,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
             WalkCells(Get(e, k), Get(e, k + 1), s, ref last, c => Block(c, s, i => _cost[i] += 0x50));
     }
 
-    /// <summary><c>0x141f25dc0</c> / <c>0x141f26060</c>: the edge's own raise comes off (60 per block, where above 79).</summary>
+    /// <summary><c>0x141f2c6b0</c> / <c>0x141f2c950</c>: the edge's own raise comes off (60 per block, where above 79).</summary>
     void UnmarkEdge(GraphEdge e)
     {
         int s = type(e).Size;
@@ -164,7 +164,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
             WalkCells(Get(e, k), Get(e, k + 1), s, ref last, c => Block(c, s, i => { if (_cost[i] > 0x4f) _cost[i] -= 0x3c; }));
     }
 
-    /// <summary><c>0x141f261a0</c> / <c>0x141f26350</c>: a path segment's blocks get 20 cheaper (walked in the path's
+    /// <summary><c>0x141f2ca90</c> / <c>0x141f2cc40</c>: a path segment's blocks get 20 cheaper (walked in the path's
     /// direction).</summary>
     void EaseSegment((int X, int Y) a, (int X, int Y) b, int s, bool reverse)
     {
@@ -173,7 +173,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         WalkCells(from, to, s, ref last, c => Block(c, s, i => { if (_cost[i] > 0x13) _cost[i] -= 0x14; }));
     }
 
-    /// <summary><c>0x141f25970</c>: the block of the edge's first point next to a placed end is blocked and dearer.</summary>
+    /// <summary><c>0x141f2c260</c>: the block of the edge's first point next to a placed end is blocked and dearer.</summary>
     void BlockEnd(GraphEdge e, int end)
     {
         int s = type(e).Size;
@@ -188,7 +188,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         });
     }
 
-    /// <summary><c>0x14210de80</c>.</summary>
+    /// <summary><c>0x142114780</c>.</summary>
     void Distribute()
     {
         rng.Next((uint)_placedEnds.Count);
@@ -238,8 +238,8 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         notes.Add($"edge tiling: {_done.Count} paths, {_done.Sum(r => r.Cells.Count)} cells");
     }
 
-    /// <summary><c>0x14210d2e0</c>: the chain from this end (through nodes with two edges) is tiled unless it lies
-    /// within two neighbouring placed tiles (<c>0x14210b530</c>).</summary>
+    /// <summary><c>0x142113be0</c>: the chain from this end (through nodes with two edges) is tiled unless it lies
+    /// within two neighbouring placed tiles (<c>0x142111e30</c>).</summary>
     void Process(GraphEdge edge, int end)
     {
         if (edge.Done) return;
@@ -276,7 +276,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         for (int k = 1; k < rec.Cells.Count - 1; k++) _cost[rec.Cells[k].Y * W + rec.Cells[k].X] += 0x50;
     }
 
-    /// <summary><c>0x14210d2e0</c> for a closed chain: the record splits at its middle point. The first half keeps
+    /// <summary><c>0x142113be0</c> for a closed chain: the record splits at its middle point. The first half keeps
     /// points [0, n / 2] and the bits before n / 2; the second takes the points and bits from n / 2 on, the edge's node
     /// at this end as its last node, and the far node's first other edge (with its end at that node). Both are pathed
     /// ("Could not tilise loop edge"); the second's cells but its first and last follow the first's, a last cell equal
@@ -303,7 +303,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         Place(rec);
     }
 
-    /// <summary><c>0x14210b530</c> with <c>0x14210b340</c>: both ends' cells hold neighbouring placed tiles and every
+    /// <summary><c>0x142111e30</c> with <c>0x142111c40</c>: both ends' cells hold neighbouring placed tiles and every
     /// point of the chain lies in one of the two.</summary>
     bool WithinRooms(GraphEdge edge, int end, GraphNode far, int s)
     {
@@ -345,7 +345,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return ay <= by + hb && by <= ha + ay;
     }
 
-    /// <summary><c>0x14210b7f0</c>: a free inner node with one edge doubles itself as the edge's end point.</summary>
+    /// <summary><c>0x1421120f0</c>: a free inner node with one edge doubles itself as the edge's end point.</summary>
     void ExtraPoint(GraphNode n)
     {
         if (n.Placed || n.OnVirtual || n.Degree != 1) return;
@@ -356,7 +356,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         else e.Points.Add((n.X, n.Y));
     }
 
-    /// <summary><c>0x14210b950</c>: the chain's positions from this end (walker <c>0x14211c690</c>; the chain's edges are
+    /// <summary><c>0x142112250</c>: the chain's positions from this end (walker <c>0x142122f90</c>; the chain's edges are
     /// marked done), cut back where it comes again into a cell it passed; a bit per step for its direction. Ends off the
     /// map are clamped, remembering their cells.</summary>
     PathRecord Record(GraphEdge edge, int end, GraphNode last)
@@ -400,7 +400,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
             rec.Bits.Add(stepRev);
             cur = Get(stepEdge, stepIdx);
             if (!rec.Edges.Contains(stepEdge)) rec.Edges.Add(stepEdge);
-            // 0x14211c690.
+            // 0x142122f90.
             bool advanced;
             if ((wIdx != wEdge.Points.Count + 1 || wRev) && (wIdx != 0 || !wRev))
             {
@@ -466,7 +466,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return ToOrigin((x / 23 - x / 23 % s, y / 23 - y / 23 % s));
     }
 
-    /// <summary><c>0x14210c600</c>: the path's cells, segment by segment (<see cref="Search"/>), backing up when a
+    /// <summary><c>0x142112f00</c>: the path's cells, segment by segment (<see cref="Search"/>), backing up when a
     /// segment finds no way (up to the last ten steps).</summary>
     bool Tilise(PathRecord r)
     {
@@ -578,7 +578,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return true;
     }
 
-    // 0x141f24b90.
+    // 0x141f2b480.
     uint BlockCost(int index, int s)
     {
         uint total = 1;
@@ -588,10 +588,10 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return total / (uint)(s * s);
     }
 
-    /// <summary><c>0x141f24d60</c>: from the path's points [first, stop) (seeds, g = 100 × block cost + points left;
+    /// <summary><c>0x141f2b650</c>: from the path's points [first, stop) (seeds, g = 100 × block cost + points left;
     /// the first free) back to the start cell; a step costs 100 × (block cost + a pseudo-random 0..6 from two random
     /// weights + size), the estimate is the distance (100 × at the seeds). The path found is appended from the start
-    /// (<c>0x141f25ae0</c>), its blocks blocked and 80 dearer.</summary>
+    /// (<c>0x141f2c3d0</c>), its blocks blocked and 80 dearer.</summary>
     bool Search(PathRecord r, (int X, int Y) from, int first, int stop)
     {
         int s = _size;
@@ -649,7 +649,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return false;
     }
 
-    // 0x141f256c0.
+    // 0x141f2bfb0.
     List<(int X, int Y)> Neighbours((int X, int Y) c, int s)
     {
         var (w, h) = grid[c.X + offsetX, c.Y + offsetY] is { } e ? Dims(e) : (s, s);
@@ -668,7 +668,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return list;
     }
 
-    // 0x141f25420.
+    // 0x141f2bd10.
     void Relax(int cur, (int X, int Y) nb, int startIndex, (int X, int Y) start, ulong wa, ulong wb, SortedSet<(uint F, int Index)> open)
     {
         int s = _size;
@@ -719,9 +719,9 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         }
     }
 
-    /// <summary><c>0x14210f470</c>: one tile per cell: the key has the edge type on the sides toward the previous and next
-    /// cell (<c>0x14210ee30</c>), edge points matching a tile already there (<c>0x141ffbf40</c>) or from the path's
-    /// smoothed curve (<c>0x14210e9f0</c>, <c>0x14210f0f0</c>), corner grounds from the type (<c>0x14210f2b0</c>), size
+    /// <summary><c>0x142115d70</c>: one tile per cell: the key has the edge type on the sides toward the previous and next
+    /// cell (<c>0x142115730</c>), edge points matching a tile already there (<c>0x142002790</c>) or from the path's
+    /// smoothed curve (<c>0x1421152f0</c>, <c>0x1421159f0</c>), corner grounds from the type (<c>0x142115bb0</c>), size
     /// × size; <c>Next(total weight)</c> among the TileSet's untagged tiles for it.</summary>
     void Place(PathRecord r)
     {
@@ -731,7 +731,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         List<(float X, float Y)>? curve = null;
         if (!fixedPoints)
         {
-            if (et.Wiggle != 0) throw new NotSupportedException($"edge wiggle ({et.Path}, 0x140df93f0) is not ported");
+            if (et.Wiggle != 0) throw new NotSupportedException($"edge wiggle ({et.Path}, 0x140df7c90) is not ported");
             curve = r.Loop ? LoopCurve(r.Cells, s) : Curve(r.Cells, s);
         }
         int pointIndex = -1;
@@ -771,7 +771,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         }
     }
 
-    /// <summary><c>0x14210ee30</c>: which side of the tile at a the cell b lies on.</summary>
+    /// <summary><c>0x142115730</c>: which side of the tile at a the cell b lies on.</summary>
     int Side((int X, int Y) a, (int X, int Y) b, int s)
     {
         var (wa, ha) = Entry(a.X, a.Y) is { } ea ? Dims(ea) : (s, s);
@@ -789,7 +789,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return 3;
     }
 
-    /// <summary><c>0x14210e9f0</c>: per step between cells, where a 10-point Bézier (t = ½) through the cell centres (the
+    /// <summary><c>0x1421152f0</c>: per step between cells, where a 10-point Bézier (t = ½) through the cell centres (the
     /// first and last repeated four times) passes, relative to the step's middle.</summary>
     static List<(float X, float Y)> Curve(List<(int X, int Y)> cells, int s)
     {
@@ -820,7 +820,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return result;
     }
 
-    /// <summary><c>0x14210e640</c>: as <see cref="Curve"/> for a closed chain: per cell, the 10-point window around it
+    /// <summary><c>0x142114f40</c>: as <see cref="Curve"/> for a closed chain: per cell, the 10-point window around it
     /// wraps around the cell list (cell i − 4 + k, modulo the count).</summary>
     static List<(float X, float Y)> LoopCurve(List<(int X, int Y)> cells, int s)
     {
@@ -841,7 +841,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return result;
     }
 
-    /// <summary><c>0x14210f0f0</c>: the edge point on a side from the curve's lean: one of three positions.</summary>
+    /// <summary><c>0x1421159f0</c>: the edge point on a side from the curve's lean: one of three positions.</summary>
     static int CurvePoint(int side, (float X, float Y) d, int s)
     {
         float f = (float)(ulong)(s * 23) / 6.0f;
@@ -871,7 +871,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
     static readonly byte[] TurnBack = [0, 3, 2, 1, 4, 5, 6, 7, 8];
     static readonly byte[] SideShiftW = [0, 0, 1, 1, 1, 1, 2, 2, 0], SideShiftH = [0, 1, 1, 2, 0, 1, 1, 2, 0];
 
-    // 0x141d75a50 (1, 1, side, code): a world side in a turned tile's own frame.
+    // 0x141d790e0 (1, 1, side, code): a world side in a turned tile's own frame.
     static int LocalSide(int side, int code)
     {
         code = Math.Min(code, 8);
@@ -879,7 +879,7 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         return (side + SideShiftW[code] + SideShiftH[code]) % 4;
     }
 
-    /// <summary><c>0x141ffbf40</c>: the edge point on our side that meets the neighbouring tile's edge point (read on the
+    /// <summary><c>0x142002790</c>: the edge point on our side that meets the neighbouring tile's edge point (read on the
     /// neighbour's facing side, in its own frame).</summary>
     int Match((int X, int Y) cell, (int X, int Y) nb, int side, int s)
     {
@@ -942,10 +942,10 @@ sealed class EdgeTiling(TileGraph graph, TileGrid grid, int offsetX, int offsetY
         }
     }
 
-    // 0x142fc00b0: the corner left between two sides that are not opposite (4 = none).
+    // 0x142fca1a0: the corner left between two sides that are not opposite (4 = none).
     static readonly int[] MissingCorner = [4, 3, 4, 2, 3, 4, 0, 4, 4, 0, 4, 1, 2, 4, 1, 4];
 
-    /// <summary><c>0x14210f2b0</c> / <c>0x14210f1b0</c>: the corners along each edge side take the type's two grounds
+    /// <summary><c>0x142115bb0</c> / <c>0x142115ab0</c>: the corners along each edge side take the type's two grounds
     /// (heights 0 and the type's rise) by the edge's chirality; at a turn the remaining corner copies its neighbour.</summary>
     void Grounds(TileKey key, int sPrev, int sNext, GraphEdge e, bool fromB)
     {

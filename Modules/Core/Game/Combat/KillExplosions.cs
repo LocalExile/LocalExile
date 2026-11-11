@@ -4,17 +4,17 @@ using GameServer.Core.Protocol.Login;
 using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageType = GameServer.Core.World.DamageType;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>An on-kill explosion's fixed radius in cells, from the official 3.29.3b client (2026-11-05: a kill
     /// exploded monsters 22.85 and 24.35 cells away). The native radius does not follow the character's increased area
     /// of effect; scaling our 25 by a 85% AoE build produced 37 cells and hit roughly twice the native crowd, which
     /// flooded kills, loot and packets and stalled the input handlers.</summary>
-    internal const int KillExplosionRadius = 25;
+    public const int KillExplosionRadius = 25;
 
     /// <summary>The explosion's art: the server effect's MiscAnimated row 2877, `HolyExplosion` (official 3.29.3b,
     /// 2026-11-05). It plays for about two seconds at the corpse.</summary>
-    internal const string KillExplosionAo = "Metadata/Effects/Spells/holy_explode/holy_explode.ao";
+    public const string KillExplosionAo = "Metadata/Effects/Spells/holy_explode/holy_explode.ao";
     const int KillExplosionArtMs = 2000;
 
     /// <summary>"Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour
@@ -24,7 +24,7 @@ static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
-    internal static async Task ExplodeOnKill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task ExplodeOnKill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
         var player = CharacterPlayerStats(conn);
@@ -49,7 +49,7 @@ static partial class Game
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));
             }
-            // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bb), and a
+            // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bd), and a
             // warcry may not use a corpse that an explosion already took.
             corpse.CorpseConsumed = true;
             conn.Monsters.Remove(corpseId);
@@ -59,10 +59,10 @@ static partial class Game
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
         await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, KillExplosionAo).Blob()),
-            $"0x02b9 create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
+            $"0x02bb create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
         await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
         await Game.SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
-            $"0x02bb corpse 0x{corpseId:x} ({corpse.Label}) explodes");
+            $"0x02bd corpse 0x{corpseId:x} ({corpse.Label}) explodes");
         SendAfter(KillExplosionArtMs / 1000.0, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;

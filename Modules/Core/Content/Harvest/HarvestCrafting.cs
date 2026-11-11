@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Harvest;
 
@@ -65,8 +66,8 @@ public sealed class HarvestCrafting(IItemCrafting items, string folder = "data")
     static IReadOnlyList<Recipe> Load(IItemCrafting catalog, string folder)
     {
         string path = Path.Combine(folder, "tables", "HarvestCraftOptions.json");
-        if (!File.Exists(path)) return [];
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [];
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         var rows = doc.RootElement.EnumerateArray().ToList();
         var lifeforce = new[]
         {

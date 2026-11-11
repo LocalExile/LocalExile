@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Skills the server grants: a GrantedEffects Id at a level becomes the GrantedEffectsPerLevel row and the
@@ -9,11 +10,11 @@ using GameServer.Core.World;
 /// (Agents/docs/protocol/11-skills.md). Reads data/tables (game data, loaded on first use). Without the tables it
 /// knows only the default attack, PlayerMelee at level 1 (GEPL 4474, GESSPL 4430 in 3.29.3b).
 /// </summary>
-sealed class SkillCatalog(string folder = "data", bool hardMode = false)
+public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 {
     /// <summary>The ids the server gives its skills (+0x40). Basic actions use their ActionTypes HASH16 instead, so these
     /// must not collide with the type's basic actions (Character.ot: Move 0x2909, Interaction 0x0266 …). 0x0101 did: a
-    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b.</summary>
+    /// Monster.ot basic action masks to it. 0x0102 is no ActionType's id in 3.29.3b or 3.29.3c.</summary>
     public const ushort FirstSkillId = 0x0102;
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
@@ -25,8 +26,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         var result = new Dictionary<int, int>();
         string path = Path.Combine(folder, "tables", "GemEffects.json");
-        if (!hardMode || !File.Exists(path)) return result;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!hardMode || !ClientTables.Exists(path)) return result;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in doc.RootElement.EnumerateArray())
             foreach (string name in new[] { "GrantedEffect", "GrantedEffect2" })
                 if (r.TryGetProperty(name, out var regular) && regular.ValueKind == JsonValueKind.Number
@@ -41,7 +42,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         var result = new Dictionary<int, int[]>();
         string path = Path.Combine(folder, "tables", "GrantedEffects.json");
-        if (!File.Exists(path)) return result;
+        if (!ClientTables.Exists(path)) return result;
         using var d = GameTables.Open(path);
         int row = 0;
         foreach (var r in d.RootElement.EnumerateArray())
@@ -79,7 +80,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     }
 
     /// <summary>Skill ids for the server's skills from <see cref="FirstSkillId"/> on, skipping every id an ActionType's
-    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3b, and a gem skill numbered after
+    /// HASH16 masks to (0x3fff): 0x0106, 0x010a and 0x0114 are basic actions in 3.29.3c, and a gem skill numbered after
     /// the default attack would replace one.</summary>
     public IEnumerable<ushort> SkillIds()
     {
@@ -95,8 +96,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<HashSet<ushort>> _actionIds = new(() =>
     {
         string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!File.Exists(path)) return [0x0101, 0x0106, 0x010a, 0x0114];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [0x0101, 0x0106, 0x010a, 0x0114];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().Select(r => (ushort)(r.GetProperty("HASH16").GetInt32() & 0x3fff))];
     });
 
@@ -138,6 +139,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
+        // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
+        // ManaPercentPerMinute. Its final mana_cost_per_minute takes the caster's maximum mana (Skills.cs publishes it).
+        if (gepl >= 0 && t.ManaPercentPerMinute[gepl] > 0) Put("base_mana_cost_%_per_minute", t.ManaPercentPerMinute[gepl]);
         // A skill with a cooldown (GEPL Cooldown, e.g. Haste's 1200 ms): the client keeps the cooldown only when the skill
         // has uses (virtual_total_cooldown_count, GEPL StoredUses) and a duration in its record (GrantedSkill.CooldownMs).
         // An instant skill (ActiveSkillType Instant: Haste, Righteous Fire) is one by its stat: the client reads
@@ -155,7 +159,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         // A non-attack is not necessarily a spell (warcries, for example); use the actual ActiveSkillType.
         Put("casting_spell", IsSpell(effectRow) && !IsAttack(effectRow) ? 1 : 0);
         // The Nova type's flag. The client casts a Nova at the cursor only when this, casting_spell and the caster's
-        // nova_spells_cast_at_target_location are all set (FUN_142896650); otherwise it stays around the caster.
+        // nova_spells_cast_at_target_location are all set (FUN_14289d210); otherwise it stays around the caster.
         if (IsNova(effectRow)) Put("skill_is_nova_skill", 1);
         // ActiveSkillType Brand's FlagStat is skill_is_brand_skill. It belongs to this selected skill, not the actor.
         Put("skill_is_brand_skill", IsBrand(effectRow) ? 1 : 0);
@@ -268,7 +272,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         var times = new List<int>();
         string path = Path.Combine(folder, "tables", "GrantedEffectsPerLevel.json");
-        if (!File.Exists(path)) return times;
+        if (!ClientTables.Exists(path)) return times;
         using var doc = GameTables.Open(path);
         foreach (var r in doc.RootElement.EnumerateArray())
             times.Add(r.TryGetProperty("AttackTime", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int ms) ? Math.Max(0, ms) : 0);
@@ -286,7 +290,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return row >= 0 ? t.SpellCritChances[row] : null;
     }
 
-    /// <summary>A gem's requirement for one attribute at a level (0x14246fc40): the level requirement of that level
+    /// <summary>A gem's requirement for one attribute at a level (0x142476710): the level requirement of that level
     /// (PlayerLevelReq) through the client's curve (3 x requirement + 11), the gem's percentage share (SkillGems
     /// Strength/Dexterity/IntelligenceRequirementPercent) raised to the power 0.9, and 0.5 for a support or 0.7 for a
     /// skill, truncated. Below 14 the client hides it and the requirement is 0. Anchors from the client's tooltips:
@@ -305,13 +309,39 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// <summary>The full ActionTypes HASH16 for a GrantedEffects row, used with its server skill id by skill buffs.</summary>
     public ushort? ActionHash(int effectRow) => _effectActions.Value.TryGetValue(effectRow, out ushort hash) ? hash : null;
 
+    /// <summary>
+    /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
+    /// <c>skill_behaviour_variation</c> (0x1921; 0x141eefbe3 loads the row's +0xbe). An action takes its data row from it:
+    /// a mortar its MonsterMortar row, a geometry channel its GeometryAttack row (by Id) and that row's GeometryChannel.
+    /// A record sent over the network does not run that builder, so a record without it reads Id 0, whose GeometryAttack
+    /// row has no GeometryChannel: the King in the Mists' GSVoodooKingRitual (SkillID 1116) then crashed the client in
+    /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
+    /// </summary>
+    public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
+    {
+        string path = Path.Combine(folder, "tables", "GrantedEffects.json");
+        var result = new Dictionary<int, int>();
+        if (!ClientTables.Exists(path)) return result;
+        using var effects = GameTables.Open(path);
+        int row = 0;
+        foreach (var effect in effects.RootElement.EnumerateArray())
+        {
+            int index = row++;
+            if (effect.TryGetProperty("SkillID", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetInt32(out int value) && value > 0)
+                result[index] = value;
+        }
+        return result;
+    });
+
     private readonly Lazy<Dictionary<int, ushort>> _effectActions = new(() =>
     {
         string PathOf(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(PathOf("GrantedEffects")) || !File.Exists(PathOf("ActiveSkills")) || !File.Exists(PathOf("ActionTypes"))) return [];
+        if (!ClientTables.Exists(PathOf("GrantedEffects")) || !ClientTables.Exists(PathOf("ActiveSkills")) || !ClientTables.Exists(PathOf("ActionTypes"))) return [];
         using var effects = GameTables.Open(PathOf("GrantedEffects"));
-        using var active = JsonDocument.Parse(File.ReadAllBytes(PathOf("ActiveSkills")));
-        using var actions = JsonDocument.Parse(File.ReadAllBytes(PathOf("ActionTypes")));
+        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(PathOf("ActiveSkills")));
+        using var actions = JsonDocument.Parse(ClientTables.ReadAllBytes(PathOf("ActionTypes")));
         var result = new Dictionary<int, ushort>();
         int row = 0;
         foreach (var effect in effects.RootElement.EnumerateArray())
@@ -333,14 +363,14 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<List<(ushort Id, string Name)>> _actions = new(() =>
     {
         string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!File.Exists(path)) return [(0x2909, "Move")];
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return [(0x2909, "Move")];
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         return [.. d.RootElement.EnumerateArray().Select(r => ((ushort)(r.GetProperty("HASH16").GetInt32() & 0x3fff), r.GetProperty("Id").GetString() ?? ""))];
     });
 
     /// <summary>A GrantedEffects row's Id, or null.</summary>
     public string? EffectId(int effectRow) =>
-        _tables.Value?.EffectRows.FirstOrDefault(kv => kv.Value.Row == effectRow).Key;
+        _tables.Value?.EffectIds.GetValueOrDefault(effectRow);
 
     /// <summary>A GrantedEffectsPerLevel row's GrantedEffects row and level, or null.</summary>
     public (int Effect, int Level)? EffectsPerLevel(int row) =>
@@ -409,6 +439,10 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public int CooldownUses(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Uses : 0;
 
+    /// <summary>A GrantedEffects row's GEPL CooldownBypassType at a level (<see cref="CooldownBypass"/>), 0 when none.</summary>
+    public int CooldownBypassType(int effectRow, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Bypass : 0;
+
     public bool CooldownPausesWhileActive(int effectRow) =>
         _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
 
@@ -456,8 +490,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private readonly Lazy<Dictionary<int, IReadOnlySet<int>>> _weaponRestrictions = new(() =>
     {
         string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))) return [];
-        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills"))) return [];
+        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills")));
         var restricted = active.RootElement.EnumerateArray().Select(r =>
             r.TryGetProperty("WeaponRestriction_ItemClassesKeys", out var k) && k.ValueKind == JsonValueKind.Array
                 ? k.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32()).ToFrozenSet()
@@ -475,7 +509,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsWarcry(int effectRow) => _warcryEffects.Value.Contains(effectRow);
 
     /// <summary>A Strike skill: ActiveSkillType MeleeSingleTarget, whose FlagStat is <c>skill_is_strike_skill</c>, the
-    /// stat the client's own strike virtuals test (<c>0x142896310</c>, <c>0x1428b12d0</c>). The default attack is one
+    /// stat the client's own strike virtuals test (<c>0x14289ced0</c>, <c>0x1428b7e90</c>). The default attack is one
     /// (PoB's Default Attack has MeleeSingleTarget too).</summary>
     public bool IsStrike(int effectRow) => _strikeEffects.Value.Contains(effectRow);
 
@@ -487,7 +521,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public bool IsNova(int effectRow) => _novaEffects.Value.Contains(effectRow);
 
     /// <summary>A self-targeted skill (ActiveSkillTargetTypes 4 or 10: Ice Nova, Discharge, Vaal Cold Snap), whose use
-    /// the client centres on the caster (FUN_14193e290). Totems, mines and traps are left out: their effect goes off at
+    /// the client centres on the caster (FUN_1419439e0). Totems, mines and traps are left out: their effect goes off at
     /// the object they place.</summary>
     public bool IsSelfTargeted(int effectRow) => _selfTargetedEffects.Value.Contains(effectRow);
 
@@ -606,15 +640,15 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         static Rows? Load(string folder)
         {
             string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
-            if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills")) || !File.Exists(TablePath("ActiveSkillType"))) return null;
+            if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills")) || !ClientTables.Exists(TablePath("ActiveSkillType"))) return null;
             static int[] Ints(JsonElement row, string name) => row.TryGetProperty(name, out var a) && a.ValueKind == JsonValueKind.Array
                 ? [.. a.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32())] : [];
             // One document at a time, so their pooled buffers are reused.
             string?[] typeIds;
-            using (var types = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkillType"))))
+            using (var types = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkillType"))))
                 typeIds = [.. types.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString())];
             int[][] activeTypes;
-            using (var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills"))))
+            using (var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills"))))
                 activeTypes = [.. active.RootElement.EnumerateArray().Select(r => Ints(r, "ActiveSkillTypes"))];
             using var effects = GameTables.Open(TablePath("GrantedEffects"));
             return new(typeIds, activeTypes,
@@ -628,13 +662,13 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     static HashSet<int> EffectsOfTargetType(string folder, params int[] targetTypes)
     {
         string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))) return [];
-        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills"))) return [];
+        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills")));
         var skills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(a => a.r.TryGetProperty("ActiveSkillTargetTypes", out var t) && t.ValueKind == JsonValueKind.Array
                 && t.EnumerateArray().Any(v => v.ValueKind == JsonValueKind.Number && targetTypes.Contains(v.GetInt32())))
             .Select(a => a.i).ToHashSet();
-        using var effects = JsonDocument.Parse(File.ReadAllBytes(TablePath("GrantedEffects")));
+        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("GrantedEffects")));
         return [.. effects.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(e => e.r.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && skills.Contains(a.GetInt32()))
             .Select(e => e.i)];
@@ -647,7 +681,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "WeaponTypes.json");
         var result = new Dictionary<int, (int, int, int, int)>();
-        if (!File.Exists(path)) return result;
+        if (!ClientTables.Exists(path)) return result;
         using var d = GameTables.Open(path);
         foreach (var r in d.RootElement.EnumerateArray())
             result.TryAdd(r.GetProperty("BaseItemTypesKey").GetInt32(), (r.GetProperty("Speed").GetInt32(), r.GetProperty("DamageMin").GetInt32(),
@@ -663,7 +697,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public (string Id, int Speed)? ProjectileFor(int effectRow)
     {
         if (_tables.Value is not { } t) return null;
-        string? effect = t.EffectRows.FirstOrDefault(kv => kv.Value.Row == effectRow).Key;
+        string? effect = t.EffectIds.GetValueOrDefault(effectRow);
         if (effect is null) return null;
         foreach (string id in ProjectileCandidates(effect))
             if (_projectiles.Value.TryGetValue(id, out int speed)) return (id, speed);
@@ -705,6 +739,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["EtherealKnives"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltX"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltY"] = "Metadata/Projectiles/EtherealKnivesProjectile",
+        ["IceShot"] = "Metadata/Projectiles/IceArrow",
         ["RampageDaemonStunNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonBlindNova"] = "Metadata/Projectiles/RampageProjectile",
         ["RampageDaemonSuperRepeatNova"] = "Metadata/Projectiles/RampageProjectile",
@@ -722,6 +757,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
         ["VaalSplitArrow"] = "Metadata/Projectiles/VaalSplitArrowDefault",
+        ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
+        ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
     };
 
     /// <summary>A Projectiles.dat row by its Id (<c>Metadata/Projectiles/DefaultArrow</c> for a bow's ordinary attack).</summary>
@@ -729,7 +767,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         _projectiles.Value.TryGetValue(id, out int speed) ? (id, speed) : null;
 
     /// <summary>A Projectiles.dat row's max(CollisionRadius, CollisionCandidateRadius): the reach of the client's object
-    /// contact for a projectile it draws itself (0x141e32710 → 0x141e47a40, 11-skills.md "Hit").</summary>
+    /// contact for a projectile it draws itself (0x141e35a50 → 0x141e4b140, 11-skills.md "Hit").</summary>
     public int? ProjectileContactCells(string id) => _projectileContacts.Value.TryGetValue(id, out int cells) ? cells : null;
 
     private readonly Lazy<Dictionary<string, int>> _projectileContacts = new(() =>
@@ -748,8 +786,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "Projectiles.json");
         var result = new Dictionary<string, int>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { } id)
                 result.TryAdd(id, r.GetProperty("ProjectileSpeed") is { ValueKind: JsonValueKind.Number } v ? v.GetInt32() : 0);
@@ -765,8 +803,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "Projectiles.json");
         var result = new Dictionary<string, string>();
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
             if (r.GetProperty("Id").GetString() is { } id
                 && r.TryGetProperty("AOFiles", out var files) && files.ValueKind == JsonValueKind.Array)
@@ -781,8 +819,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// elsewhere.</summary>
     static JsonDocument? DataFile(string path)
     {
-        if (!File.Exists(path)) return null;
-        try { return JsonDocument.Parse(File.ReadAllBytes(path)); }
+        if (!ClientTables.Exists(path)) return null;
+        try { return JsonDocument.Parse(ClientTables.ReadAllBytes(path)); }
         catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
         {
             Console.WriteLine($"[gateway] WARNING: {path} is unreadable ({ex.GetType().Name}: {ex.Message}); its feature is off until"
@@ -841,7 +879,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
         /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
         public int Variation { get; init; }
-        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b69ba0; the Spitter's 50).</summary>
+        /// <summary>The skill's <c>projectile_minimum_range</c> in grid cells (0x141b6c630; the Spitter's 50).</summary>
         public int MinimumRange { get; init; }
         public int SpreadRadius { get; init; }
         /// <summary>The spread of a multi-projectile release: a fan by default, a full turn for a ring.</summary>
@@ -928,7 +966,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             MinimumRange = Get("projectile_minimum_range"), SpreadRadius = Get("projectile_spread_radius"),
             Count = Math.Max(1, count),
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
-            // (141b69ba0 -> 141bacf60) selects a straight path unless a ballistic stat requests an arc.
+            // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
             Lobbed = projectile.Variation == 0 || Get("projectile_ballistic_angle_from_reference_event") != 0
                 || Get("projectile_ballistic_angle_from_target_distance") != 0,
         };
@@ -955,8 +993,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         string path = Path.Combine(folder, "tables", "SummonedSpecificMonsters.json");
         var result = new Dictionary<int, int>();
-        if (!File.Exists(path)) return result;
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return result;
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in doc.RootElement.EnumerateArray())
             if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
                 && r.TryGetProperty("MonsterVarietiesKey", out var v) && v.ValueKind == JsonValueKind.Number)
@@ -968,22 +1006,22 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         string TablePath(string name) => Path.Combine(folder, "tables", name + ".json");
         var result = new Dictionary<int, MonsterProjectileInfo>();
-        if (!File.Exists(TablePath("GrantedEffects")) || !File.Exists(TablePath("ActiveSkills"))
-            || !File.Exists(TablePath("MonsterMortar")) || !File.Exists(TablePath("Projectiles"))) return result;
-        using var projectiles = JsonDocument.Parse(File.ReadAllBytes(TablePath("Projectiles")));
+        if (!ClientTables.Exists(TablePath("GrantedEffects")) || !ClientTables.Exists(TablePath("ActiveSkills"))
+            || !ClientTables.Exists(TablePath("MonsterMortar")) || !ClientTables.Exists(TablePath("Projectiles"))) return result;
+        using var projectiles = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("Projectiles")));
         var rows = projectiles.RootElement.EnumerateArray().Select(r => (
             Id: r.TryGetProperty("Id", out var id) ? id.GetString() ?? "" : "",
             Speed: r.TryGetProperty("ProjectileSpeed", out var s) && s.ValueKind == JsonValueKind.Number ? s.GetInt32() : 0,
             Radius: r.TryGetProperty("CollisionRadius", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : 1)).ToList();
         // Animation.dat Ids: a mortar row's Animation names the ACT key of the clips the client plays for the skill.
         var animationIds = new List<string>();
-        if (File.Exists(TablePath("Animation")))
+        if (ClientTables.Exists(TablePath("Animation")))
         {
-            using var animations = JsonDocument.Parse(File.ReadAllBytes(TablePath("Animation")));
+            using var animations = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("Animation")));
             foreach (var r in animations.RootElement.EnumerateArray())
                 animationIds.Add(r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.String ? id.GetString() ?? "" : "");
         }
-        using var mortars = JsonDocument.Parse(File.ReadAllBytes(TablePath("MonsterMortar")));
+        using var mortars = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("MonsterMortar")));
         var mortarRows = new Dictionary<int, (int Projectile, string? AnimationKey)>();
         foreach (var r in mortars.RootElement.EnumerateArray())
             if (r.TryGetProperty("Id", out var id) && id.ValueKind == JsonValueKind.Number
@@ -994,7 +1032,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     ? animationIds[a.GetInt32()] : null;
                 mortarRows.TryAdd(id.GetInt32(), (p.GetInt32(), key));
             }
-        using var active = JsonDocument.Parse(File.ReadAllBytes(TablePath("ActiveSkills")));
+        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(TablePath("ActiveSkills")));
         var mortarSkills = active.RootElement.EnumerateArray().Select((r, i) => (r, i))
             .Where(a => a.r.TryGetProperty("Id", out var id) && id.GetString() is { } name
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
@@ -1010,7 +1048,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 || !mortarRows.TryGetValue(k.GetInt32(), out var mortar) || mortar.Projectile < 0 || mortar.Projectile >= rows.Count) continue;
             var p = rows[mortar.Projectile];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
-            // Only the attack form's action (0x141b69900) is traced and checked live drawing its own; the spell forms
+            // Only the attack form's action (0x141b6c390) is traced and checked live drawing its own; the spell forms
             // (monster_mortar, monster_mortar_around_caster) keep the server's object.
             result[row] = new(p.Id, p.Speed, Lobbed: true, Math.Max(1, p.Radius))
                 { AnimationKey = mortar.AnimationKey, Variation = attackForm ? k.GetInt32() : 0 };
@@ -1054,7 +1092,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (effectRow < 0 || effectRow >= t.StatSets.Count) return null;
         int gepl = t.PerLevel.FindIndex(r => r.Effect == effectRow && r.Level == level);
         int gesspl = t.StatSetsPerLevel.FindIndex(r => r.StatSet == t.StatSets[effectRow] && r.Level == level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms), t, effectRow, level);
+        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
+            { CooldownBypassType = (byte)t.Cooldowns[gepl].Bypass }, t, effectRow, level);
     }
 
     /// <summary>
@@ -1067,7 +1106,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count || t.StatSets[effectRow] < 0) return null;
         int statSet = t.StatSets[effectRow];
         int gepl = PickLevel(t.PerLevel, effectRow, level), gesspl = PickLevel(t.StatSetsPerLevel, statSet, level);
-        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms), t, effectRow, level);
+        return gepl < 0 || gesspl < 0 ? null : WithExtraSets(new GrantedSkill(id, (uint)gepl, (uint)gesspl, stats, (uint)t.Cooldowns[gepl].Ms)
+            { CooldownBypassType = (byte)t.Cooldowns[gepl].Bypass }, t, effectRow, level);
     }
 
     /// <summary>The player's default skills: the default attack, with the class's unarmed weapon stats.</summary>
@@ -1093,6 +1133,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         /// every hit it makes; empty for unarmed and for weapons without such mods.</summary>
         public DamagePacket LocalAdded { get; init; } = DamagePacket.Empty;
         public bool WieldingWand { get; init; }
+        /// <summary>An ordinary bow: its attacks also take the items' "with Bows" added damage stats.</summary>
+        public bool Bow { get; init; }
         public bool Melee { get; init; } = true;
 
         /// <summary>Unarmed attacks alternate hands, i.e. count as dual wielding, and the client adds dual wielding's 10%
@@ -1228,8 +1270,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public int RowOfClass(int integerId)
     {
         string path = Path.Combine(folder, "tables", "Characters.json");
-        if (!File.Exists(path)) return WitchRow;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return WitchRow;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         int i = 0;
         foreach (var r in d.RootElement.EnumerateArray())
         {
@@ -1244,8 +1286,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public ClassInfo ClassFor(int characterRow) => _classes.GetOrAdd(characterRow, row =>
     {
         string path = Path.Combine(folder, "tables", "Characters.json");
-        if (!File.Exists(path)) return ClassInfo.Witch;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return ClassInfo.Witch;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         if (row < 0 || row >= d.RootElement.GetArrayLength()) return ClassInfo.Witch;
         var r = d.RootElement[row];
         return new(r.GetProperty("IntegerId").GetInt32(), r.GetProperty("BaseStrength").GetInt32(),
@@ -1261,8 +1303,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private Unarmed LoadUnarmed(int characterRow)
     {
         string path = Path.Combine(folder, "tables", "Characters.json");
-        if (!File.Exists(path)) return Unarmed.Witch;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return Unarmed.Witch;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         if (characterRow < 0 || characterRow >= d.RootElement.GetArrayLength()) return Unarmed.Witch;
         var r = d.RootElement[characterRow];
         return new Unarmed(r.GetProperty("WeaponSpeed").GetInt32(), r.GetProperty("MinDamage").GetInt32(),
@@ -1273,19 +1315,23 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // StatSetBase: per GrantedEffectStatSets row its ImplicitStats and (ConstantStats, ConstantStatsValues).
     // StatSetLevelStats: per GESSPL row its (FloatStats, BaseResolvedValues) and (AdditionalStats, AdditionalStatsValues).
     // Effectiveness: resolved permyriad, 10000 + the GESSPL DamageEffectiveness offset; 0 for missing data.
-    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7.
+    // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; ManaPerMinute the same of CostTypes 7,
+    // ManaPercentPerMinute of CostTypes 9.
     // Reservations: per GEPL row the ManaReservationFlat and ManaReservationPercent (permyriad), parallel to PerLevel.
-    // Cooldowns: per GEPL row its Cooldown (ms) and StoredUses, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
+    // Cooldowns: per GEPL row its Cooldown (ms), StoredUses and CooldownBypassType, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
         List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
-        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses)> Cooldowns,
+        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
-        List<int> ManaPerMinute)
+        List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
     {
+        public FrozenDictionary<int, string> EffectIds { get; } = EffectRows
+            .GroupBy(p => p.Value.Row).ToFrozenDictionary(g => g.Key, g => g.First().Key);
+
         // GemLevelReqs by stat set: every gem's requirement check (twice per linked gem per skill build) scanned the whole
         // table before.
         Dictionary<int, (int GemLevel, int PlayerLevelReq)[]>? _levelReqsBySet;
@@ -1299,7 +1345,7 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             string Table(string name) => Path.Combine(folder, "tables", name + ".json");
             string ge = Table("GrantedEffects"), gepl = Table("GrantedEffectsPerLevel"), gesspl = Table("GrantedEffectStatSetsPerLevel"),
                 gess = Table("GrantedEffectStatSets");
-            if (!File.Exists(ge) || !File.Exists(gepl) || !File.Exists(gesspl)) return null;
+            if (!ClientTables.Exists(ge) || !ClientTables.Exists(gepl) || !ClientTables.Exists(gesspl)) return null;
             using var g = GameTables.Open(ge);
             using var p = GameTables.Open(gepl);
             using var s = GameTables.Open(gesspl);
@@ -1311,9 +1357,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             var statSets = new List<int>();
             var effectInfo = new List<(int, int, bool)>();
             int activeCount = 0;
-            if (File.Exists(Table("ActiveSkills")))
+            if (ClientTables.Exists(Table("ActiveSkills")))
             {
-                using var active = JsonDocument.Parse(File.ReadAllBytes(Table("ActiveSkills")));
+                using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("ActiveSkills")));
                 activeCount = active.RootElement.GetArrayLength();
             }
             var activeSkills = new List<int?>();
@@ -1331,17 +1377,18 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 row++;
             }
             var baseStats = new List<(int[], (int, int)[])>();
-            if (File.Exists(gess))
+            if (ClientTables.Exists(gess))
             {
-                using var b = JsonDocument.Parse(File.ReadAllBytes(gess));
+                using var b = JsonDocument.Parse(ClientTables.ReadAllBytes(gess));
                 foreach (var r in b.RootElement.EnumerateArray())
                     baseStats.Add((Ints(r, "ImplicitStats"), Pairs(Ints(r, "ConstantStats"), Ints(r, "ConstantStatsValues"))));
             }
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
             var manaPerMinute = new List<int>();
+            var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
-            var cooldowns = new List<(int, int)>();
+            var cooldowns = new List<(int, int, int)>();
             var vaalSouls = new List<int>();
             var vaalStoredUses = new List<int>();
             var soulPrevention = new List<int>();
@@ -1355,9 +1402,11 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
+                int mp = Array.IndexOf(types, 9);
+                manaPercentPerMinute.Add(mp >= 0 && mp < amounts.Length ? amounts[mp] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
-                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses"))));
+                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses")), Math.Max(0, Int(r, "CooldownBypassType"))));
                 vaalSouls.Add(Int(r, "VaalSouls"));
                 vaalStoredUses.Add(Int(r, "VaalStoredUses"));
                 soulPrevention.Add(Math.Max(0, Int(r, "SoulGainPreventionDuration")));
@@ -1367,9 +1416,9 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     && speed.ValueKind == JsonValueKind.Number && speed.TryGetInt32(out int multiplier) ? multiplier : 0);
             }
             var quality = new Dictionary<int, (int, int)[]>();
-            if (File.Exists(Table("GrantedEffectQualityStats")))
+            if (ClientTables.Exists(Table("GrantedEffectQualityStats")))
             {
-                using var q = JsonDocument.Parse(File.ReadAllBytes(Table("GrantedEffectQualityStats")));
+                using var q = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("GrantedEffectQualityStats")));
                 foreach (var r in q.RootElement.EnumerateArray())
                     quality.TryAdd(Int(r, "GrantedEffectsKey"), Pairs(Ints(r, "StatsKeys"), Ints(r, "StatsValuesPermille")));
             }
@@ -1392,7 +1441,8 @@ sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
-                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute);
+                vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
+                manaPercentPerMinute);
         }
     }
 }

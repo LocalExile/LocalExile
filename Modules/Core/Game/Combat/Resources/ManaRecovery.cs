@@ -1,15 +1,15 @@
 /// <summary>Stat-driven Mana costs.</summary>
-static class ManaRecoveryRules
+public static class ManaRecoveryRules
 {
     public const string PerDexterity = "X_mana_per_dexterity";
     public const string RagePer200 = "gain_x_rage_per_200_mana_spent";
     public static int Cost(int supportedBase, Func<string, int> player) => (int)Math.Clamp(decimal.Floor(
         Math.Max(0, supportedBase) * Math.Max(0m, 100m - player("base_mana_cost_-%"))
-        * Math.Max(0m, 100m + player("mana_cost_+%")) / 10000m), 0, int.MaxValue);
+        * Math.Max(0m, 100m + player("mana_cost_+%") + player("base_cost_+%")) / 10000m), 0, int.MaxValue);
 }
 
 /// <summary>Owned mana-spend progress and exact hit recoup. ReminderTextRecoup pins four game seconds.</summary>
-sealed class ManaRecoupState
+public sealed class ManaRecoupState
 {
     public const double RecoupSeconds = 4;
     public int SpentRemainder { get; private set; }

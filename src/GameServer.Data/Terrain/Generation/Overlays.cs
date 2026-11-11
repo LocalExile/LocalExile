@@ -1,6 +1,6 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>A pass of a master's Overlays file (.toy, <c>0x141ffca30</c>): which overlay passes run it (bits 1 and 2,
+/// <summary>A pass of a master's Overlays file (.toy, <c>0x142003280</c>): which overlay passes run it (bits 1 and 2,
 /// default both; leading "0" / "1" words), the order (Random 0, FileOrder 1, SizeOrder 2) and its groups: each
 /// room line in each allowed orientation adds its room's key turned by it to the group with that key and overlay
 /// flags (0x78-byte records: key, flags +0x4e, rooms +0x50, total weight +0x70).</summary>
@@ -13,15 +13,15 @@ sealed record OverlayGroup(TileKey Key, byte Flags, List<OverlayRoom> Rooms)
 
 /// <summary>One room of a group (0x30 bytes): the room, its limit ("limit=", +8), the orientations under which its key
 /// is the group's (+0xa, a mask), the line's weight (+0x28) and the tile tags it requires under it ("!tag" words, +0x10;
-/// <c>0x142000c50</c>).</summary>
+/// <c>0x1420074a0</c>).</summary>
 sealed record OverlayRoom(RoomDef Room, int Limit, byte OrientationMask, int Weight, IReadOnlyList<string> Requires);
 
-/// <summary>The overlays of <c>0x142116600</c> (<c>0x141ffe240</c> sets up, <c>0x141fff1a0</c> runs a pass): rooms
-/// whose one key matches the map at a spot (its corner grounds and heights, <c>0x141ffa7b0</c>) replace the tiles
+/// <summary>The overlays of <c>0x14211cf00</c> (<c>0x142004a90</c> sets up, <c>0x1420059f0</c> runs a pass): rooms
+/// whose one key matches the map at a spot (its corner grounds and heights, <c>0x142001000</c>) replace the tiles
 /// there.</summary>
 sealed class Overlays
 {
-    // 0x142fbfd60: the overlay flag names (bit i). The exclusion grid uses the same bits: a cell with bit i set takes
+    // 0x142fc9d80: the overlay flag names (bit i). The exclusion grid uses the same bits: a cell with bit i set takes
     // only overlays whose flags have bit i.
     static readonly string[] FlagNames =
         ["OverlayTileOverlays", "OverlayFeatureTiles", "OverlayFeatureRooms", "OverlayFeatureRoomOverlap",
@@ -36,7 +36,7 @@ sealed class Overlays
     readonly byte[] _excluded;
     // The graph record's +0x90 bit 0 (a .dgr): every position is a spot, not only every third.
     readonly bool _dungeon;
-    // The rooms placed so far, per room (.arm) across the groups its orientations went to (0x1420041b0).
+    // The rooms placed so far, per room (.arm) across the groups its orientations went to (0x14200aa00).
     readonly Dictionary<RoomDef, int> _placed = [];
 
     public Overlays(TerrainCache files, LevelRandom rng, List<string> notes, TileGrid grid, int offsetX, int offsetY, int width, int height,
@@ -45,7 +45,7 @@ sealed class Overlays
     {
         _dungeon = dungeon;
         (_files, _rng, _notes, _grid, _offsetX, _offsetY, _width, _height, _tiler) = (files, rng, notes, grid, offsetX, offsetY, width, height, tiler);
-        // 0x141ffe240: rooms of nodes with descriptions 0x10; rooms 4 (shrunk by the master's RoomOverlap when the room's
+        // 0x142004a90: rooms of nodes with descriptions 0x10; rooms 4 (shrunk by the master's RoomOverlap when the room's
         // own overlap, room data +1, is the same) and 8; tiles with a tag 2; the pool's placed rooms (unique rooms and
         // shrines, pool +0x60) 0x20.
         _excluded = new byte[width * height];
@@ -79,7 +79,7 @@ sealed class Overlays
 
     int Flags(string? g) => _files.Ground(g)?.Flags ?? 0;
 
-    /// <summary><c>0x141ffe650</c>: a rectangle of map entries, clamped to the view, gets a bit.</summary>
+    /// <summary><c>0x142004ea0</c>: a rectangle of map entries, clamped to the view, gets a bit.</summary>
     void Mark(int x0, int y0, int x1, int y1, byte bit)
     {
         x0 = Math.Clamp(x0 - _offsetX, 0, _width); x1 = Math.Clamp(x1 - _offsetX, 0, _width);
@@ -118,7 +118,7 @@ sealed class Overlays
         return passes;
     }
 
-    /// <summary><c>0x141ffca30</c> for one pass.</summary>
+    /// <summary><c>0x142003280</c> for one pass.</summary>
     static OverlayPass BuildPass(TerrainCache files, List<string> header, List<(int Weight, string Path, List<string> Args)> lines)
     {
         byte passes = 3, flags = 0x18;
@@ -169,13 +169,13 @@ sealed class Overlays
                 else group.Rooms.Add(new OverlayRoom(room, limit, (byte)(1 << o), weight, requires));
             }
         }
-        // SizeOrder (0x141ffca30 → 0x142016290): the groups stably sorted by key area, then width, then height, the
+        // SizeOrder (0x142003280 → 0x14201cae0): the groups stably sorted by key area, then width, then height, the
         // largest first; then group by group as with FileOrder (the Beacon of Salvation hideout, Shipwreck Reef).
         if (order == 2) groups = [.. groups.OrderByDescending(g => g.Key.Width * g.Key.Height).ThenByDescending(g => g.Key.Width).ThenByDescending(g => g.Key.Height)];
         return new OverlayPass(passes, order, groups);
     }
 
-    // 0x141ffc8a0. OverlayExtraFeatures (0x20) is a known name that changes nothing: the client skips that bit for
+    // 0x1420030f0. OverlayExtraFeatures (0x20) is a known name that changes nothing: the client skips that bit for
     // + and -, so the pool's placed rooms (exclusion 0x20) stay closed to every overlay (2_8_7_1_ 29983204's door
     // overlays keep off its shrine; the probe of 2026-10-28 read flags 0x1e for "+OverlayFeatureTiles
     // +OverlayFeatureRooms +OverlayExtraFeatures").
@@ -187,7 +187,7 @@ sealed class Overlays
         return (byte)(word[0] == '-' ? flags & ~(1 << i) : flags | (1 << i));
     }
 
-    /// <summary><c>0x141fff290</c>: a pass: with FileOrder each group's spots are found and placed in turn; with Random all
+    /// <summary><c>0x142005ae0</c>: a pass: with FileOrder each group's spots are found and placed in turn; with Random all
     /// groups' spots together.</summary>
     public void Run(OverlayPass pass, bool saveTiles)
     {
@@ -208,7 +208,7 @@ sealed class Overlays
         }
     }
 
-    /// <summary>The fill (<c>0x141feb970</c>, no height given) for the entries a saving pass leaves empty: view x, y,
+    /// <summary>The fill (<c>0x141ff2190</c>, no height given) for the entries a saving pass leaves empty: view x, y,
     /// ground, open.</summary>
     public Func<int, int, string?, bool, int>? FillEntry { get; set; }
 
@@ -219,8 +219,8 @@ sealed class Overlays
         public readonly List<OverlayGroup> Groups = [];
     }
 
-    /// <summary><c>0x141fff5f0</c>: every view position (every third one, both ways, when the graph record's +0x90 bit 0, a .dgr, is off
-    /// and an edge of the key has size 3) where the group fits, sorted by (x, y) (<c>0x141fff840</c>).</summary>
+    /// <summary><c>0x142005e40</c>: every view position (every third one, both ways, when the graph record's +0x90 bit 0, a .dgr, is off
+    /// and an edge of the key has size 3) where the group fits, sorted by (x, y) (<c>0x142006090</c>).</summary>
     void Spots(OverlayGroup g, List<Spot> spots)
     {
         if (g.Rooms.Count == 0) return;
@@ -243,10 +243,10 @@ sealed class Overlays
             for (int x = 0; x < _width; x++) Add(x, y);
     }
 
-    /// <summary><c>0x141fffb70</c>: spots are drawn by weight until none is left; at each, a group that still fits
+    /// <summary><c>0x1420063c0</c>: spots are drawn by weight until none is left; at each, a group that still fits
     /// (<c>Next(total)</c>), then one of its rooms under its limit, padded with nothing to 100 (<c>Next</c>), and its
-    /// orientation (<c>Next(840)</c>, <c>0x14299da50</c>). The tiles under the spot leave, the spot's vertices lose their
-    /// grounds and the room is tilised (<c>0x141fea780</c>); the spot is closed to later overlays (bit 1) either way.
+    /// orientation (<c>Next(840)</c>, <c>0x1429a6db0</c>). The tiles under the spot leave, the spot's vertices lose their
+    /// grounds and the room is tilised (<c>0x141ff0fa0</c>); the spot is closed to later overlays (bit 1) either way.
     /// A saving pass (param 3: the tile graph's second pass, both dungeon passes) first notes every entry of each tile
     /// it removes and afterwards mends them (<see cref="Restore"/>).</summary>
     void Place(List<Spot> spots, bool saveTiles)
@@ -269,7 +269,7 @@ sealed class Overlays
             {
                 if (room.Limit != 0 && _placed.GetValueOrDefault(room.Room) >= room.Limit) continue;
                 if (room.Requires.Count != 0 && !HasTags(room.Requires, spot.X, spot.Y, kw, kh)) continue;
-                if ((group.Flags & 0x40) != 0) throw new NotSupportedException("MatchAllTileKeys overlays (0x142000f60) are not ported");
+                if ((group.Flags & 0x40) != 0) throw new NotSupportedException("MatchAllTileKeys overlays (0x1420077b0) are not ported");
                 if (room.Weight != 0) rooms.Add(room);
             }
             if (rooms.Count == 0) continue;
@@ -292,7 +292,7 @@ sealed class Overlays
                 {
                     if (saveTiles && Entry(x, y) is { } e)
                     {
-                        // 0x142003c70: every entry the tile covers, in view entries, with its tile, orientation and height,
+                        // 0x14200a4c0: every entry the tile covers, in view entries, with its tile, orientation and height,
                         // kept sorted by x · 0x10000 + y (column by column; 1_1_1's ocean floor refills in that order).
                         int ox = x - e.OffsetX, oy = y - e.OffsetY;
                         var (w, h) = Size(e);
@@ -317,9 +317,9 @@ sealed class Overlays
         }
     }
 
-    /// <summary><c>0x141fffb70</c> after a saving pass's room: each noted entry left empty is filled for its top-left
-    /// vertex's ground (open when none or flag 4); one now holding the blank tile (<c>0x141d80a30</c> 2,
-    /// overlay_blank.tdt) gets its old tile back when that was 1 × 1 without edges (<c>0x141ffb870</c>), else is emptied
+    /// <summary><c>0x1420063c0</c> after a saving pass's room: each noted entry left empty is filled for its top-left
+    /// vertex's ground (open when none or flag 4); one now holding the blank tile (<c>0x141d840c0</c> 2,
+    /// overlay_blank.tdt) gets its old tile back when that was 1 × 1 without edges (<c>0x1420020c0</c>), else is emptied
     /// and filled. Entries holding another tile stay.</summary>
     void Restore(List<(int X, int Y, TileEntry Entry)> saved)
     {
@@ -344,7 +344,7 @@ sealed class Overlays
 
     const string BlankTile = "Metadata/Terrain/overlay_blank.tdt";
 
-    /// <summary><c>0x142000c50</c>: every required tag (a multiset) is on a tile whose origin lies in the w × h area at
+    /// <summary><c>0x1420074a0</c>: every required tag (a multiset) is on a tile whose origin lies in the w × h area at
     /// view position (x, y), one tile per occurrence.</summary>
     bool HasTags(IReadOnlyList<string> tags, int x, int y, int w, int h)
     {
@@ -365,7 +365,7 @@ sealed class Overlays
         return list[^1];
     }
 
-    /// <summary><c>0x141ffe7e0</c>: the room's height offset from the map's vertex heights under its border slots: for
+    /// <summary><c>0x142005030</c>: the room's height offset from the map's vertex heights under its border slots: for
     /// each slot with a key (row by row), each key corner on the room's border whose map vertex has a height (flag 2)
     /// gives map height − corner height − slot height. Corners whose key ground is none or flag 1 must all agree (else
     /// the room is not placed) and give the offset; without them the most common value of the others (ties: the
@@ -398,14 +398,14 @@ sealed class Overlays
                     else votes[d] = votes.GetValueOrDefault(d) + 1;
                 }
             }
-        // 0x14200e820: a stable sort of the (value, count) pairs by count; the last one wins.
+        // 0x142015070: a stable sort of the (value, count) pairs by count; the last one wins.
         offset = open ?? (votes.Count == 0 ? 0 : votes.OrderBy(kv => kv.Value).Last().Key);
         return true;
     }
 
-    /// <summary><c>0x141ffef60</c>: the key fits at view position (x, y): inside the view, no cell closed to the flags,
-    /// the area holds tiles that all lie inside it (<c>0x141d850b0</c>) and the map matches the key there
-    /// (<c>0x141ffa7b0</c>).</summary>
+    /// <summary><c>0x1420057b0</c>: the key fits at view position (x, y): inside the view, no cell closed to the flags,
+    /// the area holds tiles that all lie inside it (<c>0x141d88740</c>) and the map matches the key there
+    /// (<c>0x142001000</c>).</summary>
     bool Fits(OverlayGroup g, int x, int y, byte flags)
     {
         int kw = g.Key.Width, kh = g.Key.Height;
@@ -433,9 +433,9 @@ sealed class Overlays
         return any;
     }
 
-    /// <summary><c>0x141ffa7b0</c> (with param 4 and 9 at 0): 0 when the key fits at map entry (x, y): the four corner
-    /// grounds match (<c>0x141ffa470</c>; not all four only "different"), the height differences at the corners whose
-    /// grounds take heights agree, and every side inside the map matches the edges across it (<c>0x141ffa390</c>).</summary>
+    /// <summary><c>0x142001000</c> (with param 4 and 9 at 0): 0 when the key fits at map entry (x, y): the four corner
+    /// grounds match (<c>0x142000cc0</c>; not all four only "different"), the height differences at the corners whose
+    /// grounds take heights agree, and every side inside the map matches the edges across it (<c>0x142000be0</c>).</summary>
     int KeyMatch(int x, int y, TileKey key)
     {
         int w = key.Width, h = key.Height;
@@ -461,7 +461,7 @@ sealed class Overlays
         return 0;
     }
 
-    /// <summary><c>0x141ffa470</c>: the map's ground at a corner against the key's (grounds with flag 0x10 count as none):
+    /// <summary><c>0x142000cc0</c>: the map's ground at a corner against the key's (grounds with flag 0x10 count as none):
     /// equal, or a flag-8 ground on the map, or one on the key over a map ground, or the map ground has flag 0x100, fit;
     /// two grounds that both lack flags 1 and 4 fit but count as different.</summary>
     bool CornerMatch(string? map, string? key, ref int different)
@@ -480,9 +480,9 @@ sealed class Overlays
         return false;
     }
 
-    /// <summary><c>0x141ffa390</c>: a side without an edge fits when no edge of a tile outside crosses into it
-    /// (<c>0x141ff9cb0</c>); a side with an edge (not a wildcard) fits when the tile outside has a matching edge at the
-    /// key's edge point (<c>0x141ff9ee0</c>, both points of a virtual edge).</summary>
+    /// <summary><c>0x142000be0</c>: a side without an edge fits when no edge of a tile outside crosses into it
+    /// (<c>0x142000500</c>); a side with an edge (not a wildcard) fits when the tile outside has a matching edge at the
+    /// key's edge point (<c>0x142000730</c>, both points of a virtual edge).</summary>
     bool SideMatch(int x, int y, TileKey key, int side)
     {
         if (key.Edges[side] is not { } edge) return !CrossesInto(x, y, key, side);
@@ -501,7 +501,7 @@ sealed class Overlays
         _ => (x - 1, y + i),
     };
 
-    /// <summary><c>0x141ff98c0</c>: the edge on map side s of the tile at entry e, with its points along the side in
+    /// <summary><c>0x142000110</c>: the edge on map side s of the tile at entry e, with its points along the side in
     /// map order (left to right, top to bottom).</summary>
     (EdgeType? Type, int A, int B) EdgeOn(TileEntry e, int s)
     {
@@ -514,7 +514,7 @@ sealed class Overlays
         return (type, a, b);
     }
 
-    /// <summary><c>0x141ff9cb0</c>: an edge (not a wildcard or flag 0x10) of a tile just outside side s crosses into the
+    /// <summary><c>0x142000500</c>: an edge (not a wildcard or flag 0x10) of a tile just outside side s crosses into the
     /// span of the side.</summary>
     bool CrossesInto(int x, int y, TileKey key, int side)
     {
@@ -534,8 +534,8 @@ sealed class Overlays
         return false;
     }
 
-    /// <summary><c>0x141ff9ee0</c>: the tile just outside side s at the key's edge point (A, or B when
-    /// <paramref name="second"/>) has an edge meeting it at the same point, of a matching type (<c>0x141ff9af0</c>), or
+    /// <summary><c>0x142000730</c>: the tile just outside side s at the key's edge point (A, or B when
+    /// <paramref name="second"/>) has an edge meeting it at the same point, of a matching type (<c>0x142000340</c>), or
     /// has no edge there while the key's type has flag 0x10; outside the map only the flag counts. Then no other tile
     /// outside the side (besides the one at the other point of a virtual edge) may have an edge entering its span.</summary>
     bool EdgeMeets(int x, int y, TileKey key, int side, bool second)
@@ -580,7 +580,7 @@ sealed class Overlays
         return true;
     }
 
-    /// <summary><c>0x141ff9af0</c>: two edge types match when equal, or one is virtual and the other is one of its two
+    /// <summary><c>0x142000340</c>: two edge types match when equal, or one is virtual and the other is one of its two
     /// sub-edges, or both are virtual and share a sub-edge.</summary>
     static bool SameType(EdgeType a, EdgeType b)
     {

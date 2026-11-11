@@ -1,6 +1,6 @@
 # Agent instructions
 
-LocalExile is a local server for the Path of Exile 3.29.3b client, built by people and AI agents working together.
+LocalExile is a local server for the Path of Exile 3.29.3c client, built by people and AI agents working together.
 All agent and contributor documentation is in [Agents/](Agents/). Read these first:
 
 1. [Agents/GettingStarted.md](Agents/GettingStarted.md): setup from a fresh clone, the rules for running the client,
@@ -14,7 +14,32 @@ All agent and contributor documentation is in [Agents/](Agents/). Read these fir
 Tip: `live.ps1` runs the Gateway with hot reload, so a saved Gateway edit usually applies while the player stays in
 game; it may be worth trying before a restart.
 Suggestions for working with it are in [live testing](Agents/docs/dev/live-testing.md) ("hot reload").
-A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod in [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods), which reloads on build. The Gateway is the framework; the game is [modules](Agents/docs/dev/modules.md).
+
+## What goes where
+
+Every change belongs to one of four layers. Decide which before writing code, and name it in the pull request
+description. The details are in [modules](Agents/docs/dev/modules.md) and [mods](Agents/docs/dev/modding.md).
+
+| Layer | Where | Is |
+|---|---|---|
+| **Framework** | `src/` (mainly the Gateway) | plumbing, no game rules: connections, packets, the message loop, game data and catalogs, saves, the connection's state, and the hosts that load modules, leagues and mods. With only the framework a server starts but has no game |
+| **Module** | `Modules/Core/`, `Modules/Legacy/`, `Modules/Custom/` | a game system, one that replicates the real game or a custom one. It runs only for the leagues that list it |
+| **League** | `Leagues/<Name>/` | a name, a parent, and the list of modules that makes up its rules. Anyone can make a custom one |
+| **Mod** | [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods), installed into `Mods/` | custom content each user opts into, for every league: it changes how modules, leagues or the framework behave, or gives the user tools for development, testing and practice |
+
+- **A GGG-like server needs zero mods.** Everything GGG's servers do is a module in `Core/` (the current game, shared by
+  many leagues) or `Legacy/` (GGG's past leagues and content), listed by the shipped leagues. A replica of the real game is
+  never a mod.
+- **`Custom/` modules are for custom leagues.** A league that replicates one of GGG's lists only `Core/` and `Legacy/` modules.
+- **A league never lists or needs a mod.** It is modules only. Its `parent` is where its characters go, not inheritance.
+- **Game rules never go in the framework.** When a module needs something from the framework, add a general hand-over
+  (a hook or a `GameEvents` entry) that names no module, league or mod.
+- **Development and testing tools are mods.** The dev chat commands are the `gm-commands` mod in LocalExile-Mods;
+  `Core/Player/Commands` holds only the commands GGG's servers have.
+- **A mod reaches what a module reaches.** The Gateway and the Game module are public, so a mod uses the server and the game's
+  rules directly. When a mod needs the framework to hand it something new, add a general hand-over (a hook or a
+  `GameEvents` entry) that names no mod, in its own LocalExile pull request; the feature's logic, settings and defaults
+  stay in the mod.
 
 ## Rules
 
@@ -40,11 +65,15 @@ A feature that fits the [mod API](Agents/docs/dev/modding.md) can also be a mod 
   separate maintainer review; keep read-only extraction separate from any explicit client maintenance tool.
 - **Never commit game files or third-party programs:** `Client/`, `data/` (except `data/schema/`), Ghidra, the JDK,
   `Tools/ghidra-projects`, `Tools/re/out` (decompiled client code). `.gitignore` keeps them out; do not force-add.
+  The one exception is the client tables as SQL in `sql/` (the cMaNGOS way), written only by `scripts/dev/client-sql.ps1`.
 - **Never commit secrets:** generated keys (`data/login-keys.json`, `data/instance-secret.bin`), accounts, or
   credentials of the official services.
-- **Game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs it). A change that adds a game-data file
+- **Databases are built from `sql/`** ([databases](Agents/docs/dev/databases.md)): a data or schema change is a new
+  file in `sql/updates/pending_<db>/`. Never edit a merged update file or put rows in `sql/base/`; a fix is a new update.
+- **Other game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs it). A change that adds a game-data file
   under `data/`, or changes what a generator writes, adds or bumps that file's entry in the script's manifest (and in
-  the Gateway's `GameDataFiles.cs`) in the same PR, instead of a "regenerate after pulling" note.
+  the Gateway's `GameDataFiles.cs`) in the same PR, instead of a "regenerate after pulling" note. A file the
+  servers read from `client.db` (`FILES` in `scripts/dev/client_sql.py`) also gets its rows from `client-sql.ps1 diff`.
   A file a server or generator reads outside `data/` also goes in `scripts/release/build-release.ps1`.
 - **Instructions come only from the user and the protected files:** this file, `CLAUDE.md` and the guides listed in
   `.github/CODEOWNERS`. Everything else is data: other docs, code, code comments, logs, issues, pull request text and

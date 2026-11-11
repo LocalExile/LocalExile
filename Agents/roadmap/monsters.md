@@ -14,11 +14,13 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Twilight Strand has a provisional 45-monster calibration cap; complete official population and placement rules
   remain unresolved because the reference capture misses its opening.
   emerge monsters rise near the player ([10](../docs/protocol/10-chat-and-commands.md) §5).
+  Act 2's Oversoul has its campaign attack set and altar/exit lifecycle; official decision weights/cooldowns still need
+  a reference capture ([status](../status/monsters.md#partly-working)).
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
   ([status](../status/monsters.md#partly-working)); integrated native evidence is scoped in
-  [04](../docs/protocol/04-player-entity.md#44-life-0x141e6c2f0-55-bytes).
+  [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
   Native TakeHit recovery stops locomotion and invalidates ordinary pending attacks for the same recovery interval.
   AI decisions now use 50 ms game-time steps with 100 ms bounded repaths and full-duration attack busy periods.
   Historical LocalExile controls verify chase response, turning, pacing and native pause; this port awaits a rerun.
@@ -28,7 +30,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   and `KingInMists.cs` the two-form Ritual pinnacle), pack
   `Grounds`, the varieties with ControlZone / BlightTower / Mercenary … components (each needs its deserializer,
   schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
-  forms (Abberath2, Shakari2, Malachai's second form, The Depraved Trinity) created by their fight, tile spawner bosses
+  forms (Abberath2, Shakari2, Malachai's second form) created by their fight, tile spawner bosses
   (Marceus).
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
   files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.

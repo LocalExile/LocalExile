@@ -1,7 +1,7 @@
 namespace GameServer.Data.Terrain.Generation;
 
-/// <summary>The client's small generator (TinyMT32's parameters): <c>0x140e0bec0</c> seeds it (TinyMT32's
-/// initialisation, then eight steps) and <c>0x140484fa0</c> draws a uniform index (32-bit outputs, the last
+/// <summary>The client's small generator (TinyMT32's parameters): <c>0x140e0a760</c> seeds it (TinyMT32's
+/// initialisation, then eight steps) and <c>0x140485560</c> draws a uniform index (32-bit outputs, the last
 /// incomplete bucket rejected). Its step keeps the client's order, which differs from TinyMT32's in which word
 /// gets which shift.</summary>
 struct TinyMt

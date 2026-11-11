@@ -26,7 +26,7 @@ static class QuestObjectsFeature
             if (ClientHasQuestFlag(conn, flag!)) continue;
             var blocker = new BlockerObject(o.X, o.Y, o.Angle, o.Scale);
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(o.Type), blocker.Blob()),
-                $"0x02b9 create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}");
+                $"0x02bb create room object 0x{id:x} {o.Type} at ({o.X}, {o.Y}), angle {o.Angle:0.###}, scale {o.Scale:0.##}, until quest flag {flag}");
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
             // The server's own wall: the walkable cells across the way (QuestBarriers).
             var guarded = conn.Layout.AreaTransitions.Where(t => TransitionFlag(conn, t.Transition) == flag)
@@ -63,7 +63,7 @@ static class QuestObjectsFeature
             {
                 conn.TutorialSceneId = conn.NextObjectId++;
                 await global::Game.SendWorldCreate(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceEntities.CreateObject(conn.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
-                    TutorialObjects.SceneBlob(spawn.X,spawn.Y,spawn.Angle)), "0x02b9 opening bite zombie scene");
+                    TutorialObjects.SceneBlob(spawn.X,spawn.Y,spawn.Angle)), "0x02bb opening bite zombie scene");
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceProtocol.EnterWakeZone(conn.TutorialSceneId), null);
                 await Send(remote, stream, ciphers, TutorialObjects.BiteAnimation(conn.TutorialSceneId,0), "0x01b2 opening zombie paused at bite start");
             }
@@ -114,7 +114,7 @@ static class QuestObjectsFeature
         if(Interlocked.Exchange(ref conn.TutorialChestOpening,1)==1) return false;
         CharacterSaves.ChangeTutorial(CharacterName(conn),t=>t with { ChestOpened=true });
         await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id,null);
-        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02b9 opened support gem chest");
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,InstanceEntities.ObjectTypeHash(chest.Type),TutorialObjects.ChestBlob(chest,true)),"0x02bb opened support gem chest");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id),null);
         await DropTutorialGem(remote,stream,ciphers,conn,true,chest.X,chest.Y);
         return true;
@@ -153,7 +153,7 @@ static class QuestObjectsFeature
         conn.SetBlocker(opened, at.X, at.Y, GlyphQuest.NestSize);
         await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, opened, InstanceEntities.CreateObject(opened, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(at, true)),
-            $"0x02b9 opened Rhoa Nest 0x{opened:x} (was 0x{id:x})");
+            $"0x02bb opened Rhoa Nest 0x{opened:x} (was 0x{id:x})");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, opened, InstanceProtocol.EnterWakeZone(opened), null);
         await DropGlyph(remote, stream, ciphers, conn, nest);
         return true;

@@ -4,6 +4,7 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Storage;
+using GameServer.Core;
 
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
@@ -11,10 +12,12 @@ using GameServer.Storage;
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
 //   accounts                               print how many accounts there are
 //   register <account>                     create an account; its password is the first line of standard input
+//   migrate-saves [saves.db]               split a database from before the split (data/saves.db) into data/auth.db and
+//                                          data/characters.db, after a copy (Agents/docs/dev/databases.md)
 //   [serve] [keys.json]                    accept logins: 0x0002 key exchange, then answer account login 0x03 with 0x04
 //                                          and log every decoded message (Agents/docs/re/009)
-// Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: the save database
-// (Game_SAVES_DB, default data/saves.db, shared with GameServer.Host and the Gateway; register through the Host), with an
+// Port: Game_LOGIN_PORT (default 20493). Keys default to data/login-keys.json. Accounts: data/auth.db (Game_AUTH_DB) with the
+// login character list in data/characters.db (Game_CHARACTERS_DB), shared with GameServer.Host and the Gateway, with an
 // older data/accounts.json (Game_DEV_DB) imported once. Instance keys: data/instance-secret.bin (Game_INSTANCE_SECRET),
 // shared with GameServer.Gateway. Instance control for the Gateway: 127.0.0.1:Game_AUTH_CONTROL_PORT (20495). Play sends
 // the client to the Gateway at Game_GATEWAY_HOST:Game_GATEWAY_PORT (127.0.0.1:6112, GatewayEndpoint).
@@ -43,11 +46,17 @@ switch (cmd)
         Console.WriteLine(r.Ok ? $"[auth] account {args[1]} created" : $"[auth] {args[1]}: {r.Error}");
         return r.Ok ? 0 : 1;
     }
+    case "migrate-saves":
+    {
+        var result = SavesMigration.Migrate(args.Length > 1 ? args[1] : SaveDatabase.LegacyPath, SaveDatabase.DefaultPath, SaveDatabase.DefaultAuthPath);
+        Console.WriteLine($"[auth] migrated; the copy made first is {result.Backup}");
+        return 0;
+    }
     case "keygen" when args.Length >= 2:
     {
         string outPath = args.Length > 2 ? args[2] : DefaultKeys;
-        if (File.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
-        var keys = LoginServerKeys.Generate(new ClientImage(File.ReadAllBytes(args[1])));
+        if (ClientTables.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
+        var keys = LoginServerKeys.Generate(new ClientImage(ClientTables.ReadAllBytes(args[1])));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, keys.ToJson());
         Console.WriteLine($"[auth] wrote {outPath}");
@@ -57,8 +66,8 @@ switch (cmd)
     {
         if (Path.GetFullPath(args[1]).Equals(Path.GetFullPath(args[2]), StringComparison.OrdinalIgnoreCase))
         { Console.Error.WriteLine("[auth] refusing to overwrite the input; give a different output path."); return 1; }
-        var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
-        var image = new ClientImage(File.ReadAllBytes(args[1]));
+        var keys = LoginServerKeys.FromJson(ClientTables.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
+        var image = new ClientImage(ClientTables.ReadAllBytes(args[1]));
         Console.WriteLine($"[auth] login key blobs at file offset 0x{image.Offset:x}");
         image.Patch(keys);
         File.WriteAllBytes(args[2], image.Bytes);
@@ -66,7 +75,7 @@ switch (cmd)
         return 0;
     }
     case "serve":
-        await Serve(LoginServerKeys.FromJson(File.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
+        await Serve(LoginServerKeys.FromJson(ClientTables.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
         return 0;
     default:
         Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | serve [keys.json]");
@@ -75,12 +84,17 @@ switch (cmd)
 }
 catch (FormatException ex)
 {
-    Console.Error.WriteLine($"[auth] {ex.Message}: the file is not the 3.29.3b client executable (PathOfExile.exe copied to Client/Game.exe).");
+    Console.Error.WriteLine($"[auth] {ex.Message}: the file is not the 3.29.3c client executable (PathOfExile.exe copied to Client/Game.exe).");
     return 1;
 }
 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
 {
     Console.Error.WriteLine($"[auth] file not found: {ex.Message} (run from the repository root; see Agents/GettingStarted.md)");
+    return 1;
+}
+catch (Exception ex) when (ex is SqlUpdateException or IOException)
+{
+    Console.Error.WriteLine($"[auth] {ex.Message}");
     return 1;
 }
 
@@ -89,12 +103,16 @@ static async Task Serve(LoginServerKeys keys)
     var accounts = new AccountService(SqliteAccountStore.Open());
     Console.OutputEncoding = System.Text.Encoding.UTF8; // decoded wide strings
     GameServer.Core.Diagnostics.ServerLog.Install("auth");   // after the encoding: it wraps the console writer as it is
-    int port = int.TryParse(Environment.GetEnvironmentVariable("Game_LOGIN_PORT"), out var p) ? p : 20493;
-    // Local play only by default; Game_BIND=0.0.0.0 to accept other machines.
-    var bind = IPAddress.Parse(Environment.GetEnvironmentVariable("Game_BIND") ?? "127.0.0.1");
+    // localexile.conf Login.Port / Login.BindAddress (Game_LOGIN_PORT, Game_BIND): local play only by default;
+    // 0.0.0.0 accepts other machines.
+    int port = ServerConfig.LoginPort;
+    var bind = ServerConfig.LoginBind;
     var listener = new TcpListener(bind, port);
     listener.Start();
     var keyring = InstanceKeyring.LoadOrCreate(Environment.GetEnvironmentVariable("Game_INSTANCE_SECRET") ?? Path.Combine("data", "instance-secret.bin"));
+    // WorldAreas comes from data/client.db (ClientTables): built and updated from sql/ first. The Gateway may be building
+    // it at the same time; the updater applies each file once.
+    SqlUpdater.Update(ClientTables.DefaultPath, "client");
     // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
     // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
     // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
@@ -268,7 +286,7 @@ static void SetSaveAside(string character)
     string folder = Path.Combine("data", "saves");
     string safe = string.Concat(character.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
     string path = Path.Combine(folder, safe + ".json");
-    if (!File.Exists(path)) return;
+    if (!ClientTables.Exists(path)) return;
     string deleted = Path.Combine(folder, "deleted");
     Directory.CreateDirectory(deleted);
     string to = Path.Combine(deleted, $"{safe}-{DateTime.UtcNow:yyyyMMddHHmmss}.json");

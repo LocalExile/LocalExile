@@ -15,6 +15,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
   <ItemGroup>
+    <!-- The player databases are built from sql/ (SqlUpdater); the tests run in their output folder. -->
+    <None Include="..\..\sql\base\auth\*.sql" Link="sql\base\auth\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\sql\base\characters\*.sql" Link="sql\base\characters\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\sql\updates\auth\*.sql" Link="sql\updates\auth\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\sql\updates\characters\*.sql" Link="sql\updates\characters\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Core\GameServer.Core.csproj" />
     <ProjectReference Include="..\..\src\GameServer.Storage\GameServer.Storage.csproj" />
     <ProjectReference Include="..\..\src\GameServer.Host\GameServer.Host.csproj" />

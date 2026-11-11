@@ -3,7 +3,7 @@
 /// The splash base radius is not in the exported stats (PoB's 12 cells, the same default <see cref="SkillArea"/> uses),
 /// grown by the area modifier and the support's melee_splash_area_of_effect_+%_final.
 /// </summary>
-static class MeleeSplash
+public static class MeleeSplash
 {
     public const int BaseRadius = 12;
 

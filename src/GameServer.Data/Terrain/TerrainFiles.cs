@@ -149,7 +149,7 @@ public sealed record TileKey(int Width, int Height, int[] Edges, int[] Points, i
 }
 
 public sealed record RoomSlot(int Column, int Row, TileKey Key);
-/// <summary>A named point of a room; <paramref name="Section"/> is which of the file's point lists holds it (0x142a0ef50's
+/// <summary>A named point of a room; <paramref name="Section"/> is which of the file's point lists holds it (0x142a182b0's
 /// index: 0 = spawn locations, room +0x188).</summary>
 public sealed record NamedPoint(float X, float Y, float Angle, string Name, int Section = 0);
 /// <summary>A doodad or server object of a room: cell, model, object type, angle (radians, as the client's placed doodads
@@ -199,7 +199,7 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
             for (int k = 0; k < n && at < lines.Length; k++, at++) dict.Add(lines[at].Count > 0 ? lines[at][0].Text : "");
         }
         // The room's tag: the first line that is a single quoted string; the room key: the first slot line after it
-        // (0x142a0e2a0 reads any slot: "k" with its values, or a 1 × 1 "s" (nothing) or "f N" (tag N) in fill rooms).
+        // (0x142a17600 reads any slot: "k" with its values, or a 1 × 1 "s" (nothing) or "f N" (tag N) in fill rooms).
         string tag = "";
         for (int k = at; k < lines.Length; k++)
             if (lines[k].Count == 1 && lines[k][0].Quoted) { tag = lines[k][0].Text; at = k + 1; break; }
@@ -235,7 +235,7 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
         }
         if (gridAt < 0) problem = "slot grid not found";
 
-        // Named points before the grid: x y angle "name", in lists (0x142a0ef50): before version 32 each list starts with
+        // Named points before the grid: x y angle "name", in lists (0x142a182b0): before version 32 each list starts with
         // its count on a line of its own, from version 32 each ends with a line "-1".
         var points = new List<NamedPoint>();
         int pointsEnd = gridAt < 0 ? lines.Length : gridAt, section = version >= 32 ? 0 : -1;
@@ -249,7 +249,7 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
             else if (t.Count == 4 && t[0].IsNumber && t[1].IsNumber && t[2].IsNumber && t[3].Quoted)
                 points.Add(new NamedPoint(t[0].Float, t[1].Float, t[2].Float, t[3].Text, Math.Max(0, section)));
         }
-        // Doodads after the grid (0x142a0f3a0): x y, [has position, x y] (version ≥ 34), angle, [quaternion x y z w]
+        // Doodads after the grid (0x142a18700): x y, [has position, x y] (version ≥ 34), angle, [quaternion x y z w]
         // (≥ 17), flip, [wake group] (> 24), has fixed height, [height], [scale] (> 13), "model.ao", "Metadata/…type"
         // (before 13 a type number), then the rest of the line.
         var doodads = new List<RoomDoodad>();

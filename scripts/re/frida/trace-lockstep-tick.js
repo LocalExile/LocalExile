@@ -1,7 +1,7 @@
-// The lockstep client's object tick, per frame (run with scripts/re/frida/run.py --finish-rpc finish; 07 §5): the order the objects update in (0x142183ce0 → 0x142184680/0x142184870
-// per object → each component's slot +0x40; Positioned's is 0x141e32710), each walker's tick (accumulator +0x244, step
-// time +0x240, elapsed +0x238, cell before and after, the body checks 0x141e47a40 made inside it), every segment setup
-// (0x141e4d180: the accumulator before and after, old and new step time) and every forced position set (0x141e31800),
+// The lockstep client's object tick, per frame (run with scripts/re/frida/run.py --finish-rpc finish; 07 §5): the order the objects update in (0x14218a650 → 0x14218aff0/0x14218b1e0
+// per object → each component's slot +0x40; Positioned's is 0x141e35a50), each walker's tick (accumulator +0x244, step
+// time +0x240, elapsed +0x238, cell before and after, the body checks 0x141e4b140 made inside it), every segment setup
+// (0x141e50880: the accumulator before and after, old and new step time) and every forced position set (0x141e34b40),
 // plus each 0x1ab's from cell against the actor's cell. Records carry q (QPC ticks) and n (the frame counter).
 const m = Process.getModuleByName('Game.patched.exe');
 const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
@@ -16,7 +16,7 @@ const flush = () => { if (buffer.length >= 512) { send({r: buffer}); buffer = []
 const idOf = obj => obj.add(0x88).readU32();
 const cell = p => [p.add(0x294).readS32(), p.add(0x298).readS32()];
 // The world's frame step: one call per server frame in lockstep (dt in XMM1, not readable here).
-Interceptor.attach(at('0x142183ce0'), {
+Interceptor.attach(at('0x14218a650'), {
   onEnter(a) {
     frame++; seq = 0;
     mode = a[0].add(0x984).readU8();
@@ -44,11 +44,11 @@ function objectUpdate(helper) {
     },
   };
 }
-Interceptor.attach(at('0x142184680'), objectUpdate(0));
-Interceptor.attach(at('0x142184870'), objectUpdate(1));
+Interceptor.attach(at('0x14218aff0'), objectUpdate(0));
+Interceptor.attach(at('0x14218b1e0'), objectUpdate(1));
 // The Positioned tick of a walker: accumulator, step time, elapsed and cell before and after, and the body checks inside.
 let tick = null;
-Interceptor.attach(at('0x141e32710'), {
+Interceptor.attach(at('0x141e35a50'), {
   onEnter(a) {
     const p = a[0];
     const step = p.add(0x240).readFloat();
@@ -74,7 +74,7 @@ Interceptor.attach(at('0x141e32710'), {
   },
 });
 // The step's body check (map, &cell, threshold, layer) → blocked.
-Interceptor.attach(at('0x141e47a40'), {
+Interceptor.attach(at('0x141e4b140'), {
   onEnter(a) {
     this.t = tick;
     if (this.t === null) return;
@@ -88,7 +88,7 @@ Interceptor.attach(at('0x141e47a40'), {
 });
 // A segment's setup (walker struct = Positioned + 0x1e8): the accumulator is rescaled by new/old when the old step time
 // is above zero.
-Interceptor.attach(at('0x141e4d180'), {
+Interceptor.attach(at('0x141e50880'), {
   onEnter(a) {
     const w = a[0];
     this.w = w;
@@ -104,8 +104,8 @@ Interceptor.attach(at('0x141e4d180'), {
     flush();
   },
 });
-// A forced position set (an action start whose pair differs from the actor's cell, 0x141e8e7e0 in lockstep).
-Interceptor.attach(at('0x141e31800'), {
+// A forced position set (an action start whose pair differs from the actor's cell, 0x141e95080 in lockstep).
+Interceptor.attach(at('0x141e34b40'), {
   onEnter(a) {
     const p = a[0];
     this.p = p;
@@ -123,7 +123,7 @@ Interceptor.attach(at('0x141e31800'), {
   },
 });
 // Every 0x1ab: the server's from cell against the actor's cell as the message is applied.
-Interceptor.attach(at('0x1421940a0'), {
+Interceptor.attach(at('0x14219aa10'), {
   onEnter(a) {
     const actor = a[0], msg = a[1], type = msg.add(8).readU16();
     if (type !== 0x1ab) return;

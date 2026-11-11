@@ -11,7 +11,7 @@ sequenceDiagram
     participant C as Client
     participant G as Gateway
     G->>C: 0x21 enter area (personal stash tab list)
-    G->>C: 0x2b9 Stash object, 0x1a9 wake zone
+    G->>C: 0x2bb Stash object, 0x1a9 wake zone
     C->>G: 0x24 on the Stash (skill 0x0266)
     G->>C: 0x7b kind 1 (Stash object, affinity)
     Note over C: the stash panel opens
@@ -33,22 +33,22 @@ Watch at (319, 272), next to Nessa). A click sends C→S 0x24 with skill `0x0266
 
 ## 2. The tab list
 
-The instance keeps three lists of 0x68-byte tab records (`0x14216cf60`): personal stash `+0xc498`, guild stash
-`+0xc4b0`, trade tabs `+0xc4c8`. The panel (`0x140a87830`) builds one tab button per record.
+The instance keeps three lists of 0x68-byte tab records (`0x142173910`): personal stash `+0xc498`, guild stash
+`+0xc4b0`, trade tabs `+0xc4c8`. The panel (`0x140a87e90`) builds one tab button per record.
 
 - **S→C 0x21** (enter area, dispatcher case 10): its first two vectors are the personal stash list (→ `+0xc498`) and the
   trade tab list (→ `+0xc4c8`). The Gateway sends the account's tabs in the first.
-- **S→C 0x136** (class `0x1435dc7a0`, read `0x1421a3350`, case 0x57): u8 kind (0 personal, 1 guild, 2 trade), u8 (which
+- **S→C 0x136** (class `0x1435e76a0`, read `0x1421a9cc0`, case 0x57): u8 kind (0 personal, 1 guild, 2 trade), u8 (which
   listener: `+0x8478` when set, else `+0x83f8`), then one list. Written (`InstanceStash.TabList`), not sent yet.
 
-A list (`0x1421ba150`) is a u16 BE count and the records. A record (`0x141d4d1f0`):
+A list (`0x1421c0ac0`) is a u16 BE count and the records. A record (`0x141d50880`):
 
 | Wire | Field | Meaning |
 |---|---|---|
 | u32 BE | +0x28 | the tab's inventory id in the player's inventory manager (`+0xc890`) |
 | u32 BE | +0x2c | copied to the panel tab's +0x30; 0 |
 | wstr | +0x08 | name |
-| str (u16 BE + bytes, `0x1408402a0`) | +0x48 | id string |
+| str (u16 BE + bytes, `0x14083f460`) | +0x48 | id string |
 | u16 BE | +0x38 | button position; the panel sends C→S 0xcc when it differs from the order it builds |
 | 2 bytes | +0x3d, +0x3e | flags, below; +0x3e bit 1 = contents loaded (set by S→C 0xc8) |
 | u16 BE | +0x3a | parent folder's index, 0xffff none |
@@ -58,36 +58,36 @@ A list (`0x1421ba150`) is a u16 BE count and the records. A record (`0x141d4d1f0
 | u8 | +0x3c | only with flag 0x10 |
 | 4 bytes (raw) | +0x3f | only with flag 0x40: bitset of StashTabAffinityId rows |
 
-+0x3d flags: 0x01 → panel tab bit 3; 0x02 premium (the tab settings `0x14025b420` can rename and recolour it); 0x08 →
++0x3d flags: 0x01 → panel tab bit 3; 0x02 premium (the tab settings `0x14025b9b0` can rename and recolour it); 0x08 →
 panel tab bit 6; 0x20 the tab is left out of the panel; 0x40 the affinity bitset follows (the client keeps 0x40 set
 while any bit is). Types 0x10 (Folder) and 0x19 get no contents request.
 
 ## 3. Opening the panel
 
-**S→C 0x7b kind 1** (`0x142163420` case 1 → listeners at instance `+0x1178` → `0x140dcd5e0`): u32 a = the Stash
-object (passed to `0x141661860`), u32 b = an affinity, clamped to 0x16. The handler opens the panel; when b ≠ 0x16 it
+**S→C 0x7b kind 1** (`0x142169dd0` case 1 → listeners at instance `+0x1178` → `0x140dcae70`): u32 a = the Stash
+object (passed to `0x141663f40`), u32 b = an affinity, clamped to 0x16. The handler opens the panel; when b ≠ 0x16 it
 selects the first tab whose affinity bitset has bit b (with b = 3, a CurrencyStash tab scores higher), through
-`0x140a83950`. Kind 2 (`+0x12f8` → `0x140dcd780`) is the same for the guild stash (`+0xc4b0`).
+`0x140a83fb0`. Kind 2 (`+0x12f8` → `0x140dcb010`) is the same for the guild stash (`+0xc4b0`).
 
 The client does not tell the server when the player switches tabs, and a second 0x7b while the panel is open closes
-it (`0x140dc4db0` toggles), so the tab is chosen at the moment the panel opens. To open on the account's last tab the
+it (`0x140dc2640` toggles), so the tab is chosen at the moment the panel opens. To open on the account's last tab the
 Gateway sets affinity bit 0 (`UNUSED0`, no item has it) on that tab only and sends b = 0, on the first open of each
 connection. Later opens send b = 0x16: the panel keeps its own tab while the connection lasts (verified live).
 
 ## 4. Tab contents
 
-- **C→S 0xc7** (5 bytes, vtable `0x1435bff20`, write `0x141f95fa0`): u16 BE tab index, u8 kind. `0x142167010` queues
-  it when a tab without a built page is selected (`0x140a85c30`) and when the panel opens on its current tab
-  (`0x140a8d1b0`); the tick `0x142148880` sends one per 200 ms, **newest first** (it takes the back of the deque).
+- **C→S 0xc7** (5 bytes, vtable `0x1435ca958`, write `0x141f9c9d0`): u16 BE tab index, u8 kind. `0x14216d9c0` queues
+  it when a tab without a built page is selected (`0x140a86290`) and when the panel opens on its current tab
+  (`0x140a8d810`); the tick `0x14214f1d0` sends one per 200 ms, **newest first** (it takes the back of the deque).
   So on a forced open the selected tab's request comes before the panel's request for its old tab (live: tab 3, then
   tab 0 twice).
 - The answer: **S→C 0xc0** with manager 0, the tab's inventory id, Inventories.dat row 26 (`StashInventoryId`, kind
-  0x11) and the tab's size (the register `0x141d625f0` files every row but 26 under its row, so any number of tabs share
-  it), then **S→C 0xc8** (class `0x1435dc680`, read `0x1421a45b0`, case 0x3b): u16 BE tab index, u32 BE inventory id
-  (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87740`), which builds the
+  0x11) and the tab's size (the register `0x141d65c80` files every row but 26 under its row, so any number of tabs share
+  it), then **S→C 0xc8** (class `0x1435e7540`, read `0x1421aaf20`, case 0x3b): u16 BE tab index, u32 BE inventory id
+  (→ +0x28), u8 kind. The handler sets the loaded bit and tells the panel (`+0x8378` → `0x140a87da0`), which builds the
   page. The Gateway sends 0xc0 when the client doesn't have the tab, and 0xc8 every time.
 - **Only the shown tab stays loaded.** The client keeps every tab it was sent, and each stash open walks all of them as
-  the panel becomes visible (`0x1418ab220`, the element show/hide). Opening therefore got slower with every loaded item.
+  the panel becomes visible (`0x1418b0a30`, the element show/hide). Opening therefore got slower with every loaded item.
   Live 2026-10-29: about 1.5 s once the currency, essence, fragment, gem and divination tabs were all loaded.
   - When the player picks a tab (a 0xc7 outside the first open's two requests), the Gateway unloads every other loaded
     tab with **S→C 0xc1** (u8 manager, u32 inventory id).
@@ -117,42 +117,42 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 
 ## 5. Other C→S messages
 
-- **0xcc** (vtable `0x1435c0438`, write `0x141f96130`, `0x1421670f0`): the tab buttons' order. u8 kind, u8 n, n × (u16
+- **0xcc** (vtable `0x1435cae70`, write `0x141f9cb60`, `0x14216daa0`): the tab buttons' order. u8 kind, u8 n, n × (u16
   BE tab, u16 BE position). Kept (2026-10-22): `AccountStash.SetPositions` saves each tab's position with the stash
   (kind 1 the guild stash), and the tab lists send it back as the record's +0x38, so the order survives a relog.
-- **0xd1** (7 bytes, vtable `0x1435c0198`, write `0x141f96c50`, `0x142167370`): u16 BE tab, u16 BE folder (0xffff out),
+- **0xd1** (7 bytes, vtable `0x1435cabd0`, write `0x141f9d680`, `0x14216dd20`): u16 BE tab, u16 BE folder (0xffff out),
   u8 kind: a tab into a folder. Logged.
-- **0xcd** (vtable `0x1435c00d8`, write `0x141f962a0`; built by the tab settings `0x14025b420`): a premium tab renamed.
-  u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435bf9a8`, write `0x141f96670`): its colour,
+- **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
+  u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
   send back (the record's second u32). Both are kept with the stash, account-wide (`AccountStash.Rename`, `SetColour`;
   every tab but normal ones and folders is premium, as bought tabs are: the tab settings show the name and colour only
   with the record's premium flag; kind 1 the guild stash). Verified live 2026-10-22: the settings window closes on the tab list (S→C 0x136) sent after each change, and the name and colour survive a relog.
-- **0xd2** (u16 tab, u8 kind; `0x14025c030`): from the tab settings. Not seen yet.
-- **0xd3** (class `0x1435c0338`, write `0x141f96da0`, built by `0x1421674c0`): the tab settings' affinities, sent by the
+- **0xd2** (u16 tab, u8 kind; `0x14025c5c0`): from the tab settings. Not seen yet.
+- **0xd3** (class `0x1435cad70`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
   0x136 is what closes the window is not checked live yet.
-- **0xe0** (20 bytes, vtable `0x1435c0878`, write `0x141f97560`, built by `0x142168ab0`): Ctrl + click on an inventory
+- **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
   item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bits 0, 1), u8 kind (page
   +0x491), u16 token (raw, changes per request), u64 raw (0). The item's inventory is not sent. The Gateway moves the
   item to the tab's first free cell (column by column) from whichever inventory holds it.
-- **0xe3** (12 bytes, vtable `0x1435c0500`, write `0x141f97e40`, built by `0x142168e20`): Ctrl + click on a tab item.
+- **0xe3** (12 bytes, vtable `0x1435caf38`, write `0x141f9e870`, built by `0x14216f7d0`): Ctrl + click on a tab item.
   u16 BE tab, u32 BE item id, u8 stash kind, u16 raw token (low byte first), u8 bulk.
   Live ordinary click suffix: `00 a7 cd 00`; the middle two bytes change per request.
   Static 3.29.3b evidence: the builder copies argument 4 to kind, argument 5 to the token and argument 6 to bulk;
   the writer emits these four bytes in order from message +0x18..+0x1b.
-  The ordinary inventory click (`0x14030e3e0`, call at `0x140310c63`) passes bulk 0 to `0x140312810`;
-  its bulk counterpart (`0x140311440`, call at `0x14031172a`) passes 1.
-  The shared handler forwards that boolean to `0x142168e20` at `0x140313444`.
+  The ordinary inventory click (`0x14030e970`, call at `0x1403111f3`) passes bulk 0 to `0x140312da0`;
+  its bulk counterpart (`0x1403119d0`, call at `0x140311cba`) passes 1.
+  The shared handler forwards that boolean to `0x14216f7d0` at `0x1403139d4`.
   This is a separate boolean from the `0xe1` deposit flags; do not use deposit flag 0x02 for withdrawals.
   The Gateway limits ordinary withdrawals to one normal inventory stack; bulk 1 withdraws as much of the clicked
   stack as fits, topping up existing stacks before using free cells.
   Real-client/Gateway logs confirm both modes: bulk 0 takes 40 from a slot holding 218, leaving 178;
   bulk 1 takes 178 as four stacks of 40 and one of 18.
   Wire-layout, capacity, transaction rollback and transfer/reload tests cover the remaining edge cases.
-- **0xe1** (vtable `0x1435c00f8`, write `0x141f97810`): Ctrl + click on an inventory item that has an affinity tab
+- **0xe1** (vtable `0x1435cab30`, write `0x141f9e240`): Ctrl + click on an inventory item that has an affinity tab
   (currency, maps, gems …) while the stash is open, whatever tab is shown: the client names the tab. Read from live bytes
   (2026-10-20, Scroll of Wisdom, Armourer's Scrap, Orbs of Alteration and Transmutation, the Currency tab at index 5):
   u32 BE item id, u8 flags, u8, u16 token (raw), u8 n, n × (u16 BE tab, u8 affinity); `00E1 00000008 00 00 225E 01 0005
@@ -161,11 +161,11 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   orb: `00E1 000037D5 02 00 6A7D 01 0005 03`; `InstanceStash.MoveAllOfType`): the Gateway moves every stack of that item
   type in the same inventory into the tab, the clicked one first, each as one Ctrl + click (its own transaction and 0xbf
   pair), so a full slot stops only what doesn't fit.
-- **0xe2** (u16, u8; `0x142168d00`, the unique / special pages) is not seen yet.
+- **0xe2** (u16, u8; `0x14216f6b0`, the unique / special pages) is not seen yet.
 
 ## 6. The server's stash
 
-`AccountStash` (Gateway): per account (Auth's resolve now returns `Account`), saved as its row in `data/saves.db` the way
+`AccountStash` (Gateway): per account (Auth's resolve now returns `Account`), saved as its row in `data/characters.db` the way
 character saves are ([saves](../saves.md)): a stash that can't be read stops what needed it instead of becoming the
 starter tabs, and every move between the stash and a character's items is one transaction.
 Tab i's inventory id is 0x800 + i. A new account gets two normal tabs, two premium tabs, a quad tab and Currency,
@@ -211,7 +211,7 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   The Delve (StashType 12, DelveStashTabLayout) and
   Blight (13, BlightStashTabLayout) and Delirium (15, DeliriumStashTabLayout) tabs are slotted the same way; the
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
-  map from each row's card (its BaseItemTypes Id) to the row index (`0x140b31180`), and 470 rows run past the tab's
+  map from each row's card (its BaseItemTypes Id) to the row index (`0x140b306d0`), and 470 rows run past the tab's
   255 cells. So slot n is cell (n mod width, n / width): rows 255–469 go into the second row of its 255 × 2. Every other
   layout fits its first row. The tab shows a card only once its set is complete (stack = the card's stack size).
   Live 2026-10-28: with one card each, only the 1-card sets showed; with two each, exactly the 1- and 2-card sets.
@@ -233,7 +233,7 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   hidden children whose key matches its `StashViewMapsNS::GenerateExpectedSubStashKeys`. That generator returns 191 keys
   of the form `key = (page << 37) | (HASH32 of the map's base type << 5) | group` (read from the running client with a
   hardware breakpoint on the returned vector, 2026-11-06; the binary is not stripped and the generator is at
-  `0x140b59a80`):
+  `0x140b55010`):
 
   | group | id | pages | keys |
   |---|---|---|---|
@@ -330,7 +330,7 @@ Legacy `DelveSocketableCurrency{Upgrade,Reroll}1..4` types lack Stack; empty ins
 and developer item lookup to their `DelveStackableSocketableCurrency` counterparts. Embedded items are never
 removed or migrated. Empty old socket layouts are repaired to exactly 1/2/3/4 independent Delve sockets.
 Socket colour **6** is Delve (yellow/orange); 5 is Abyss. Verified against the client's socket name table at
-0x142fc1230, indexed by Sockets reader 0x1421e2e20 / debug writer 0x1421e3980. Create and DefaultSockets
+0x142fcb2d0, indexed by Sockets reader 0x1421e9790 / debug writer 0x1421ea2f0. Create and DefaultSockets
 both use this resonator-specific layout, including the stackable item creation path.
 Regression coverage uses every stored item in DelveStashTabLayout, 5000-item stacks, merge and save/reload,
 and all eight resonator families/tiers. The user confirmed the correction in the real client.

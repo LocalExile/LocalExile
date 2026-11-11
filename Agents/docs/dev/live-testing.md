@@ -25,7 +25,7 @@ How to run the patched 3.29.3b client against our servers safely and repeatably.
    the connection and Log In works again. In the client the password field needs a click before typing; Enter does not
    submit, click Log In.
 4. The dev account is `devtester` (password in `data/dev-login.txt`, untracked). Its characters live in
-   `data/saves.db` ([saves](../saves.md)).
+   `data/characters.db` ([saves](../saves.md)).
 
 ## One-time setup
 
@@ -85,8 +85,9 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Ports.** `-PortBase N` (or `Game_PORT_BASE`) puts the stack on N (Patch), N+1 (Patch web), N+2 (Auth login), N+3
   (Auth control) and N+4 (Gateway). `live.ps1` remembers the base in `data\stack.json`, so later runs, `-ClientOnly` and
   the bridge in the same checkout use it without being told again; `-PortBase 0` goes back to the default ports
-  (12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses. On the default ports a
-  server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins; with a base the shell's are not used.
+  (`Config\localexile.conf`'s, else 12995, 8080, 20493, 20495, 6112), which are also what a checkout without the file uses.
+  On the default ports a server's own variable (`Game_LOGIN_PORT`, `Game_PATCH_URL`, ...) still wins over the conf; with
+  a base neither is used.
   `data\stack.json` holds every port the servers got, and the bridge reads it. Auth sends the client to its own Gateway (`Game_GATEWAY_PORT` in login 0x14, as
   the Gateway does in 0x27). The levelgen server (`lg.ps1`) needs no port: its named pipe is per checkout.
 - **What is stopped.** `live.ps1` stops only this checkout's processes: servers whose command line, executable or cmd
@@ -108,7 +109,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   saved login, `localexile-<checkout>-NAME_Config.ini` and `..._login.credentials` in `Documents\My Games\Path of Exile`.
   A new settings file starts as a copy of the default client's `poeoffline_Config.ini` without its `[LOGIN]` section, so
   the session sends no saved login anywhere. The client reads `GGG_CONFIG_FILE_NAME`, `GGG_CREDENTIAL_FILE_NAME` and the
-  other `GGG_*` keys from that `config.json` (the key table at `0x140e2cd0d` looks them up in the parsed file; nothing
+  other `GGG_*` keys from that `config.json` (the key table at `0x140e2f027` looks them up in the parsed file; nothing
   reads them from the environment). Live (2026-10-30, a session on ports 21000-21004 beside another checkout's client):
   its `Client.txt` in the session folder logged `Current directory: …\data\clients\a1`, the stack's web root and "No
   patching required" (the linked GGPK); without the junctions it logged `CRIT SoundBank Global Index File does not exist`
@@ -137,7 +138,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
 - **Shared by everyone:** `Client\` (the executable and `Content.ggpk`, which every client opens read-only), the shader,
   pipeline and minimap caches in `%LOCALAPPDATA%\Path of Exile`, crash dumps in `Documents\My Games\Path of
   Exile\release`, and, in worktrees made by linking, whatever they link (`data\tables`, `data\walkability`). **Per
-  checkout:** the ports, `logs\`, the save database (`Game_SAVES_DB`), `data\stack.json`. **Per session:** the working
+  checkout:** the ports, `logs\`, the save database (`Game_CHARACTERS_DB`), `data\stack.json`. **Per session:** the working
   folder, `Client.txt`, settings, saved login and PID record.
 - **Walk maps** (`-Walkmaps`) only on the default ports and client session (elsewhere `live.ps1` warns and starts
   without the recorder): the recorder meets the Gateway in the shared `data\walkability\current.json`. It attaches to
@@ -151,7 +152,7 @@ the same block; a `stack.json` whose base cannot be read stops the search (give 
   bridge ("Multiple patched clients") or attaches it to the wrong client, and its `live.ps1` stops every client and every
   GameServer process on the PC. Start an extra client only when every checkout with a running client has these scripts.
 - **Two clients per PC, unless renamed.** The client takes one of two machine-wide mutexes, `Global\PoERunMutexA` and
-  `Global\PoERunMutexB` (`0x140101d85`), and with both taken it waits on a dialog, "You may only run up to two copies
+  `Global\PoERunMutexB` (`0x1401020d5`), and with both taken it waits on a dialog, "You may only run up to two copies
   of Path of Exile at a time." (seen live 2026-10-31). Nothing else uses those mutexes ([headless
   client](headless-client.md), "The two-copies limit"). Session clients get session-local names instead
   (`Local\LocalExile-<checkout>-<session>-PoERunMutexA`/`B`), so they never take one of the two slots the user's and
@@ -232,7 +233,7 @@ These are suggestions that have worked well, for people and agents alike; use yo
 [gateway] … => 0x001d AreaInstance { InstanceId = 1, AreaHash = 9052, Seed = 1, … }
 [gateway] … <= 10 bytes: 007D43E6886D8EA8DD43
 [gateway] … => 0x0022 local player 0x1000: 002200001000
-[gateway] … => 0x02b9 create PlayerObject { Name = DevWitch, … } type=0x9c41993e: 02B9…
+[gateway] … => 0x02bb create PlayerObject { Name = DevWitch, … } type=0x9c41993e: 02B9…
 [gateway] … => 0x00c0 inventory 1 row 0: …            (× 117)
 [gateway] … => 0x003d passive slots 0-2: 003D00000000 1C0000
 [gateway] … => 0x0021 enter area: 0021…
@@ -248,11 +249,11 @@ Source [Lioneye's Watch]". Then the HUD appears.
 | Symptom | Meaning |
 |---|---|
 | "Checking resources..." for a long time, with "Queue file to download" in `Client.txt` | a client not started by `live.ps1`, or a patch server advertising a real CDN. **Stop the client** |
-| "Buffer Underflow" dialog | the 0x2b9 blob is shorter than what the client reads. Closing the dialog ends the client. Trace with `trace-player-blob.js` |
+| "Buffer Underflow" dialog | the 0x2bb blob is shorter than what the client reads. Closing the dialog ends the client. Trace with `trace-player-blob.js` |
 | `WerFault.exe` appears / window masked in screenshots | client crash. Event log id 1000 has the fault offset (VA − 0x140000000). Attach Frida before Play next time |
 | "Area reported by instance does not exist" | the 0x14 area hash is not a WorldAreas.HASH16 |
 | client back at the login screen, "An unexpected disconnection occurred" | the instance connection closed (Gateway restarted or crashed) |
-| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` unset). The world queues 0x2b9 and waits |
+| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` unset). The world queues 0x2bb and waits |
 | extra map icons with no label (e.g. three area transition icons at the town gate) | the client's **minimap cache** remembers icons of objects it has seen, per area, in `%LOCALAPPDATA%\Path of Exile\Minimap\` (hash-named, encrypted files). Moving an object around (dev commands, changed defaults) leaves its old icons there, across restarts. Close the client and move the files away; seen 2026-10-17 |
 
 Window position and size change between launches; take a screenshot before clicking. At half scale, the password
@@ -264,11 +265,14 @@ field, character row and Play button were near (245, 217), (375, 61) and (455, 2
 |---|---|---|
 | `Game_PORT_BASE` | unset | `live.ps1` (like `-PortBase`): every port below from one base |
 | `Game_CLIENT_SESSION` | unset | `live.ps1 -ClientOnly`, `client_control.py` (like `-Session` / `--session`) |
+| `Game_CONF` | `Config\localexile.conf` | every server, `live.ps1`: addresses, ports and the client folder (written with the defaults on the first start); each variable below wins over its key |
 | `Game_LOGIN_PORT` | 20493 | Auth |
 | `Game_GATEWAY_PORT` | 6112 | Gateway, and Auth (where Play sends the client) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth and Gateway |
 | `Game_GATEWAY_ENTER` | unset | Gateway: `1` sends 0x21 |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | Auth and Gateway (must match) |
-| `Game_SAVES_DB` | `data/saves.db` | Gateway, Auth, Host |
+| `Game_CHARACTERS_DB` | `data/characters.db` | Gateway, Auth, Host |
+| `Game_AUTH_DB` | `data/auth.db` (beside another characters database: `<name>-auth.db`) | Gateway, Auth, Host |
+| `Game_SQL_DIR` | `sql` | Gateway, Auth, Host |
 | `Game_PATCH_TCP_PORT`, `Game_PATCH_URL`, `Game_PATCH_WEB_ROOT` | 12995, http://0.0.0.0:8080, http://127.0.0.1:8080/ | Patch |
 | `Game_CDN_PASSTHROUGH` | unset | Patch: `1` proxies to the real CDN (only to repair data on purpose, with a backup of `Client/`) |

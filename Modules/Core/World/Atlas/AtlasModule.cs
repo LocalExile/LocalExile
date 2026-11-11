@@ -8,17 +8,8 @@ using static Program;
 namespace GameServer.Modules.Atlas;
 
 /// <summary>The Atlas passive tree's choices and the Atlas's completed maps.</summary>
-public sealed class AtlasModule : IModule, IDisposable
+public sealed class AtlasModule : IModule
 {
-    readonly List<IDisposable> _events = [];
-    void On<T>(GameEvent<T> ev, T run) where T : Delegate => _events.Add(ev.Add("Atlas", run));
-
-    /// <inheritdoc/>
-    public void Dispose()
-    {
-        foreach (var e in _events) e.Dispose();
-    }
-
     /// <summary>The points the Atlas's completed maps are worth: one per map, up to the 100 the tree's map half has.
     /// Bonus objectives and the Maven's invitations are not counted yet (#382 item 3).</summary>
     internal const int MapCompletionPoints = 100;
@@ -40,84 +31,80 @@ public sealed class AtlasModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        ExtraPlayerMessages = conn => AtlasFeature.Restore(module, conn);
-        module.OnAreaGenerated(player => AtlasFeature.EnsureUnlocked(ConnOf(player)));
-        module.OnTick((player, _) => AtlasFeature.EnsureUnlocked(ConnOf(player)));
-        module.OnChatCommand("atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async command =>
+        ExtraPlayerMessages = conn => AtlasFeature.Restore(conn);
+        GameEvents.AreaGenerated.Add(module.Manifest.Id, conn => AtlasFeature.EnsureUnlocked(conn));
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
+        GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (conn, args) =>
         {
-            int n = await AtlasFeature.EnsureUnlocked(ConnOf(command.Player));
-            await command.Player.Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
+            int n = await AtlasFeature.EnsureUnlocked(conn);
+            await PlayerOf(conn).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
-        module.OnMonsterKilled(async kill =>
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
         {
             if (AtlasProgress.OfArea(kill.Player.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)
-                || !AtlasProgress.Complete(module.World(kill.Player).CharacterData, [node])) return;
+                || !AtlasProgress.Complete(WorldOf(kill.Player).CharacterData, [node])) return;
             var conn = ConnOf(kill.Player);
             await Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, AtlasProgress.NodeMessage(node),
                 $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
             await kill.Player.Tell($"Atlas: {node.Name} completed.");
             await AwardMapPoints(conn, kill.Player, 1, "Atlas map completed");
         });
-        module.OnChatCommand("atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
-            async command =>
+        GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
+            async (conn, args) =>
             {
-                string what = string.Join(' ', command.Args);
+                string what = string.Join(' ', args);
                 IReadOnlyList<AtlasProgress.Node> nodes = what.Equals("all", StringComparison.OrdinalIgnoreCase) ? AtlasProgress.Maps
                     : AtlasProgress.Find(what) is { } found ? [found] : [];
                 if (nodes.Count == 0)
                 {
-                    await command.Player.Tell($"No Atlas map '{what}'. Usage: /atlas_complete <map name or AtlasNode id | all>");
+                    await PlayerOf(conn).Tell($"No Atlas map '{what}'. Usage: /atlas_complete <map name or AtlasNode id | all>");
                     return;
                 }
-                var data = module.World(command.Player).CharacterData;
+                var data = WorldOf(conn).CharacterData;
                 var before = AtlasProgress.Completed(data);
                 AtlasProgress.Complete(data, nodes);
                 int earned = nodes.Count(n => !before.Contains(n.Id));
                 if (nodes.Count == 1)
-                    await command.Player.Send(AtlasProgress.NodeMessage(nodes[0]),
+                    await PlayerOf(conn).Send(AtlasProgress.NodeMessage(nodes[0]),
                         $"0x01a4 /atlas_complete {nodes[0].Name} ({nodes[0].Id})");
-                await command.Player.Tell(nodes.Count == 1 ? $"Atlas: {nodes[0].Name} completed." : $"Atlas: {nodes.Count} maps completed.");
-                await AwardMapPoints(ConnOf(command.Player), command.Player, earned, "/atlas_complete");
+                await PlayerOf(conn).Tell(nodes.Count == 1 ? $"Atlas: {nodes[0].Name} completed." : $"Atlas: {nodes.Count} maps completed.");
+                await AwardMapPoints(conn, PlayerOf(conn), earned, "/atlas_complete");
             });
-        module.OnChatCommand("atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async command =>
+        GameEvents.Command(module.Manifest.Id, "atlas_reset", "/atlas_reset (dev: clear the Atlas's completed maps)", async (conn, args) =>
         {
-            AtlasProgress.Reset(module.World(command.Player).CharacterData);
-            var slots = AtlasFeature.SlotsOf(command.Player);
-            await command.Player.Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), (byte)slots.Count),
+            AtlasProgress.Reset(WorldOf(conn).CharacterData);
+            var slots = AtlasFeature.SlotsOf(PlayerOf(conn));
+            await PlayerOf(conn).Send(AtlasProgress.EmptyMessage(AtlasProgress.VoidstoneMask(slots), (byte)slots.Count),
                 "0x01a3 /atlas_reset");
-            await command.Player.Tell("Atlas: progress cleared.");
+            await PlayerOf(conn).Tell("Atlas: progress cleared.");
         });
-        module.OnPacket(InstanceEntities.AtlasAllocateId, async p =>
+        GameEvents.Packet(InstanceEntities.AtlasAllocateId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            var (preset, node) = InstanceEntities.ReadAtlasAllocate(p.Bytes.ToArray());
+            var (preset, node) = InstanceEntities.ReadAtlasAllocate(bytes);
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: true);
             return true;
         });
-        module.OnPacket(InstanceEntities.AtlasRefundId, async p =>
+        GameEvents.Packet(InstanceEntities.AtlasRefundId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            var (preset, node, _) = InstanceEntities.ReadAtlasRefund(p.Bytes.ToArray());
+            var (preset, node, _) = InstanceEntities.ReadAtlasRefund(bytes);
             await AtlasFeature.ChangeAtlasPassive(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, preset, node, allocate: false);
             return true;
         });
-        module.OnPacket(InstanceMapDevice.SocketId, async p =>
+        GameEvents.Packet(InstanceMapDevice.SocketId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            await AtlasFeature.SocketVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, module,
-                InstanceMapDevice.ReadSocket(p.Bytes.ToArray()).ItemId);
+            await AtlasFeature.SocketVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
+                InstanceMapDevice.ReadSocket(bytes).ItemId);
             return true;
         });
         // Taking a socketed stone off is C→S 0x28 from inventory 40, not 0xf6. Clicking a Voidstone in the bag
         // (without Ctrl) is also 0x28; the Atlas window does not send 0xf6 unless Ctrl is held, so that click
         // has to socket the stone itself. Dropping onto a socket is C→S 0x2a into inventory 40.
-        module.OnPacket(InstanceItems.PickUpItemId, async p =>
+        GameEvents.Packet(InstanceItems.PickUpItemId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
-            var conn = ConnOf(p.Player);
-            return await AtlasFeature.PickVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn, module,
-                InstanceItems.ReadPickUpItem(p.Bytes.ToArray()));
+            return await AtlasFeature.PickVoidstone(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
+                InstanceItems.ReadPickUpItem(bytes));
         });
-        On(GameEvents.InventoryPlace, async (conn, place) =>
+        GameEvents.InventoryPlace.Add(module.Manifest.Id, async (conn, place) =>
         {
             if (place.InventoryId != PlayerInventories.InventoryId(PlayerInventories.AtlasUpgrades)) return false;
             var held = ItemsOf(conn).Items(PlayerInventories.Cursor).FirstOrDefault();
@@ -125,12 +112,12 @@ public sealed class AtlasModule : IModule, IDisposable
                 || MapBossFights.Current.StoneByItem(type.Id) is null)
                 return false;
             var (remote, stream, ciphers) = conn.Wire;
-            await AtlasFeature.SocketVoidstone(remote, stream, ciphers, conn, module, held.Id);
+            await AtlasFeature.SocketVoidstone(remote, stream, ciphers, conn, held.Id);
             return true;
         });
         // Kirac's invitation rows FinishNPCChat + DispatchRulesetEvent("open_maven_invitation …"). The chat end ran
         // with no item. Hand the matching MavenFights invitation into the bag first; the empty FinishNPCChat still closes.
-        On(GameEvents.NpcOptionPicked, async (conn, talk) =>
+        GameEvents.NpcOptionPicked.Add(module.Manifest.Id, async (conn, talk) =>
         {
             await AtlasFeature.GiveMavenInvitation(conn, talk.Script);
             return true;
@@ -160,7 +147,7 @@ static class AtlasFeature
     ];
 
     /// <summary>Map-device beacons and Maven invitation gates (Player +0x1d0, bit = id − 1). Applied onto
-    /// <see cref="ClientState.LeagueQuestFlags"/> before the player object is built so a later 0x02ba does not toast.
+    /// <see cref="ClientState.LeagueQuestFlags"/> before the player object is built so a later 0x02bc does not toast.
     /// AtlasMavenFightComplete1–4 (979–982) make Kirac's "Invitation: The Atlas" the fifth fight; 885 MavenBossComplete
     /// is omitted so the Nucleus still has its later phases.</summary>
     internal static readonly int[] UnlockLeagueFlags =
@@ -201,7 +188,7 @@ static class AtlasFeature
         if (leagueChanged)
         {
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerLeagueQuestFlagsUpdate(PlayerId, Quests.League.Bits(conn.LeagueQuestFlags)),
-                "0x02ba Atlas league flags");
+                "0x02bc Atlas league flags");
             n++;
         }
         return n;
@@ -209,11 +196,11 @@ static class AtlasFeature
 
     /// <summary>One 0x1a3 before 0x21: the sets replace without a completion event. 0x1a4 is only for a new completion.
     /// League flags are put on the connection here, before <c>PlayerForCreation</c> reads them.</summary>
-    internal static IEnumerable<(string Log, byte[] Message)> Restore(IModuleContext module, ClientState conn)
+    internal static IEnumerable<(string Log, byte[] Message)> Restore(ClientState conn)
     {
         ApplyLeagueFlags(conn);
         var player = PlayerOf(conn);
-        var data = module.World(player).CharacterData;
+        var data = WorldOf(player).CharacterData;
         AtlasProgress.Complete(data, AtlasProgress.Maps);
         var completed = AtlasProgress.Completed(data);
         // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
@@ -334,7 +321,7 @@ static class AtlasFeature
     // C→S 0xf6 / a bag click / a drop onto inventory 40: a Voidstone into AtlasUpgrades1. GrantAtlasUpgrade is set
     // the first time a stone goes in. A filled 0x1a3 then refreshes the quadrant T16 bits while the Atlas is open.
     internal static async Task<bool> SocketVoidstone(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        IModuleContext module, uint itemId)
+        uint itemId)
     {
         var items = ItemsOf(conn);
         InventoryItem? held = items.Items(PlayerInventories.MainInventory).FirstOrDefault(i => i.Id == itemId)
@@ -358,14 +345,14 @@ static class AtlasFeature
             $"0x00f6 Voidstone: item {itemId} into row {move.To} slot {move.Placed.X}");
         if (into && stone.Flag.Length > 0 && !ClientHasQuestFlag(conn, stone.Flag))
             await SetQuestFlags(remote, stream, ciphers, conn, [stone.Flag]);
-        await Refresh(remote, stream, ciphers, conn, module);
+        await Refresh(remote, stream, ciphers, conn);
         return true;
     }
 
     // C→S 0x28: inventory 40 unsockets onto the cursor; a Voidstone in the bag sockets into its Atlas slot (the
     // window only sends 0xf6 on Ctrl + click, so a plain click would otherwise do nothing).
     internal static async Task<bool> PickVoidstone(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, IModuleContext module, InstanceItems.PickUpItem pick)
+        ClientState conn, InstanceItems.PickUpItem pick)
     {
         uint atlas = PlayerInventories.InventoryId(PlayerInventories.AtlasUpgrades);
         uint main = PlayerInventories.InventoryId(PlayerInventories.MainInventory);
@@ -388,7 +375,7 @@ static class AtlasFeature
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(cursor,
                 items.NextRevision(PlayerInventories.Cursor), [], [held]),
                 $"0x00bf cursor: add item {held.Id} (unsocketed Voidstone)");
-            await Refresh(remote, stream, ciphers, conn, module);
+            await Refresh(remote, stream, ciphers, conn);
             return true;
         }
         if (pick.InventoryId != main) return false;
@@ -396,15 +383,14 @@ static class AtlasFeature
         if (bag is null || ItemsFor(conn).ByHash(bag.Item.TypeHash) is not { } bagType
             || MapBossFights.Current.StoneByItem(bagType.Id) is null)
             return false;
-        return await SocketVoidstone(remote, stream, ciphers, conn, module, pick.ItemId);
+        return await SocketVoidstone(remote, stream, ciphers, conn, pick.ItemId);
     }
 
-    internal static async Task Refresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        IModuleContext module)
+    internal static async Task Refresh(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         await EnsureUnlocked(conn);
         var player = PlayerOf(conn);
-        var completed = AtlasProgress.Completed(module.World(player).CharacterData);
+        var completed = AtlasProgress.Completed(WorldOf(player).CharacterData);
         var slots = SlotsOf(player);
         byte stones = AtlasProgress.VoidstoneMask(slots);
         await Send(remote, stream, ciphers, AtlasProgress.FullMessage(completed, stones, (byte)slots.Count),

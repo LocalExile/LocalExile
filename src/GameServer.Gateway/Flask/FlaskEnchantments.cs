@@ -1,7 +1,7 @@
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Native utility-flask orb pools and trigger conditions; all rolls use Mods.dat weights and ranges.</summary>
-static class FlaskEnchantments
+public static class FlaskEnchantments
 {
     public const string Enkindling = "Metadata/Items/Currency/CurrencyEnkindlingOrb";
     public const string Instilling = "Metadata/Items/Currency/CurrencyInstillingOrb";

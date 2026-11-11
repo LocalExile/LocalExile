@@ -9,7 +9,7 @@ public sealed class SpellEchoTests
     static int Speed(int increased, bool fishingRod, params (string Name, int Value)[] stats) =>
         Game.FinalCastSpeedPct(name => stats.FirstOrDefault(s => s.Name == name).Value, () => fishingRod, increased);
 
-    // The client's cast_speed_+% (0x142709610) puts its combined "more" final (0x142708190) on the summed increases.
+    // The client's cast_speed_+% (0x1427101c0) puts its combined "more" final (0x14270ed40) on the summed increases.
     [Fact]
     public void More_cast_speed_multiplies_as_the_clients_combined_final()
     {

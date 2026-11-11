@@ -5,16 +5,7 @@ public sealed class SqliteFriendStore
 {
     readonly SaveDatabase db;
 
-    public SqliteFriendStore(SaveDatabase database)
-    {
-        db = database;
-        db.Atomically(() =>
-        {
-            using var c = db.Command("CREATE TABLE IF NOT EXISTS account_friends " +
-                "(owner TEXT NOT NULL, friend TEXT NOT NULL, PRIMARY KEY(owner, friend), CHECK(owner <> friend)) STRICT");
-            c.ExecuteNonQuery();
-        });
-    }
+    public SqliteFriendStore(SaveDatabase database) => db = database;
 
     public IReadOnlyList<Guid> Friends(Guid owner) => db.Read(() =>
     {

@@ -10,7 +10,7 @@ function save(name, p, n) {
   f.close();
   return n;
 }
-Interceptor.attach(at('0x1410ddcfd'), function () {
+Interceptor.attach(at('0x1410e00bd'), function () {
   const n = dumps++;
   const r = this.context.rax;
   const w = r.readS32(), h = r.add(4).readS32();

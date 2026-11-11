@@ -32,7 +32,7 @@ short: a count or a section byte, then a loop of `raw2` / `raw4` or a fixed 22-b
 list (`schema.md` §0x1a3 / §0x1a4).
 
 Do not send every candidate. Cross them with the instance dispatcher first (`scripts/re/dispatch_ids.py`): id → case
-byte at `0x142154e14` → jump at `0x142154a1c + 4 * case`. A case that writes `r13 + 0xd030` / `+0xd070` is Atlas
+byte at `0x14215b764` → jump at `0x14215b36c + 4 * case`. A case that writes `r13 + 0xd030` / `+0xd070` is Atlas
 state; one that writes `+0xd898` is not.
 
 ## 3. Live probe
@@ -63,25 +63,25 @@ Local helpers (git-ignored `Tools/re/out/`, `pefile` + `capstone` in `.venv`):
 
 Recipe that found the completed flag:
 
-1. **String → drawer.** `AtlasMapCompletedFrame` is texture-set entry 0 of getter `0x1407a1880`. The node drawer
-   `0x14079e680` uses that frame when `byte [node+0x9ce] != 0`. Nearby state bytes: `+0x9ca`, `+0x9cb`, `+0x9cc`,
+1. **String → drawer.** `AtlasMapCompletedFrame` is texture-set entry 0 of getter `0x14079da90`. The node drawer
+   `0x14079a890` uses that frame when `byte [node+0x9ce] != 0`. Nearby state bytes: `+0x9ca`, `+0x9cb`, `+0x9cc`,
    `+0x9d1`, `+0x9d2`.
-2. **Who writes `+0x9ce`.** Only `0x140786d90`. At `0x14078770d` it sets `+0x9cb` and `+0x9ce` from `al` of
-   `0x14078fc90(progressObj = [rsi+0x468] + 0xd070, nodeEntry = r15)`, gated by vcall `[vt+0x378]` and
+2. **Who writes `+0x9ce`.** Only `0x14078c0c0`. At `0x14078ca3d` it sets `+0x9cb` and `+0x9ce` from `al` of
+   `0x14077bc30(progressObj = [rsi+0x468] + 0xd070, nodeEntry = r15)`, gated by vcall `[vt+0x378]` and
    `byte [[r15]+0xea]`.
-3. **What `+0xd070` is.** `0x14078fc90` is an MSVC `unordered_set` lookup: hash `0x140284370`, bucket at
-   `[rcx+0x18]`, compare `[node]+0x10`. Constructor `0x142144b50` builds three neighbour sets on the instance:
+3. **What `+0xd070` is.** `0x14077bc30` is an MSVC `unordered_set` lookup: hash `0x140284900`, bucket at
+   `[rcx+0x18]`, compare `[node]+0x10`. Constructor `0x14214b4a0` builds three neighbour sets on the instance:
    `+0xcff0` (WorldAreas), `+0xd030` and `+0xd070` (AtlasNode rows). The dispatcher’s `r13` is the instance + 8, so
    its `+0xd068` is `+0xd070`.
 4. **Who fills the sets.** Displacement `0xd070` / `0xd030` / `0xcfe8` in the instance dispatcher: case 0x7f
-   (`0x142150ab1`, id **0x1a3**) and case 0x80 (`0x142150d5c`, id **0x1a4**).
-5. **Wire layout from the reader, not the schema sketch alone.** Reader `0x1421a9970`: four `raw1` (`+0x71`, `+0x72`,
-   `+0x70`, sections at `+0xa8`), then always `0x141fa4050` (u8 count of u16 pairs), then 22-byte masks when section
-   bits 0x1 / 0x2 are set (`0x1421560b0`: bit `r` of byte `r / 8` is AtlasNode row `r`; rows from 170 ignored).
-   Writer `0x1421a9750` writes the u16 id first, then those four bytes. 0x1a4 reader `0x141f96560`: u16 HASH16
-   (byteswapped through `0x142f43e50`), three u8s.
+   (`0x142157401`, id **0x1a3**) and case 0x80 (`0x1421576ac`, id **0x1a4**).
+5. **Wire layout from the reader, not the schema sketch alone.** Reader `0x1421b02e0`: four `raw1` (`+0x71`, `+0x72`,
+   `+0x70`, sections at `+0xa8`), then always `0x141faaa80` (u8 count of u16 pairs), then 22-byte masks when section
+   bits 0x1 / 0x2 are set (`0x14215ca00`: bit `r` of byte `r / 8` is AtlasNode row `r`; rows from 170 ignored).
+   Writer `0x1421b00c0` writes the u16 id first, then those four bytes. 0x1a4 reader `0x141f9cf90`: u16 HASH16
+   (byteswapped through `0x142f4de50`), three u8s.
 
-`0x14076c2d0` / `0x14243b5b0` resolve an AtlasNode HASH16 through `Data/AtlasNode.dat`. That is the 0x1a4 key, not
+`0x14076d580` / `0x142442080` resolve an AtlasNode HASH16 through `Data/AtlasNode.dat`. That is the 0x1a4 key, not
 WorldAreas HASH16 (that is C→S 0x00e7, node pick).
 
 ## 5. What the server does
@@ -99,12 +99,12 @@ its Area1/Area2. The AtlasNode Ids are saved per character (module data `complet
 | `/atlas_reset` | empty 0x1a3 | clear the two sets |
 
 `Game.ExtraPlayerMessages` is the early slot (`Player.cs`, after the 0x3d presets, before transitions and 0x21).
-`OnEnterMessages` runs after 0x21 and must not restore Atlas progress.
+`GameEvents.EnterMessages` runs after 0x21 and must not restore Atlas progress.
 
 ## 6. Still open
 
 `+0x70` (instance +0xd0f8) is the Voidstone T16 mask: bits 0–3 the four sockets / quadrants, bit 4 every regular map
-(`AtlasNode.VoidstoneSlot` none → drawer index 4 at `0x1407b357f`, tier 16). Each occupied socket sets its own bit
+(`AtlasNode.VoidstoneSlot` none → drawer index 4 at `0x1407af78f`, tier 16). Each occupied socket sets its own bit
 (and all four also set bit 4). An empty socket's bit stays clear so C→S 0xf6 still works. Putting a stone on or
 taking it off (0xf6 or 0x28 from inventory 40) resends 0x1a3 so the open Atlas rebuilds. `+0x71` is the socketed count.
 The 0x1a3 bits 0x4 / 0x8 / 0x10, and bytes `+0x71` / `+0x72`, are unread (bonus objectives, Memory lines, Atlas

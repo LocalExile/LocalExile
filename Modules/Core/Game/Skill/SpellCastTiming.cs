@@ -2,7 +2,7 @@
 
 /// <summary>Native spell actions apply cast speed to the base milliseconds themselves. Only server waits and
 /// displayed casts per second use the adjusted duration.</summary>
-readonly record struct SpellCastTiming(int BaseMilliseconds, int? DurationMilliseconds, int HundredTimesCastsPerSecond,
+public readonly record struct SpellCastTiming(int BaseMilliseconds, int? DurationMilliseconds, int HundredTimesCastsPerSecond,
     double? DurationSeconds)
 {
     public void ApplyTo(IDictionary<uint, int> stats, StatCatalog catalog)

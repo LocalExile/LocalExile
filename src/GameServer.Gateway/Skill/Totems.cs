@@ -8,10 +8,10 @@ using GameServer.Core.Protocol.Login;
 /// SkillTotemVariations variety, kept here rather than in <see cref="ClientState.Monsters"/>, so area hits, monster AI,
 /// loot, experience and the instance save never see them. A totem dies when its Life reaches 0, its duration ends, a new
 /// one replaces it past the limit, or the player dies (wiki Totem, Soul Mantle); it then plays its death (0x1b1 at 0) and
-/// is removed (0x2bb) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
+/// is removed (0x2bd) <see cref="RemoveSeconds"/> later. An area change starts a new connection without them. Guarded by
 /// the Monsters lock; times are the connection's game seconds.
 /// </summary>
-sealed class TotemState
+public sealed class TotemState
 {
     /// <summary>The death animation's time before the object goes.</summary>
     public const double RemoveSeconds = 1;
@@ -28,6 +28,14 @@ sealed class TotemState
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;
+        public int Effect = -1;
+        public uint SourceGem;
+        public uint SourceHost;
+        public Item? SourceItem;
+        public bool Ballista;
+        public int BonusSlots;
+        public double NextCast;
+        public ushort Sequence;
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
@@ -45,11 +53,24 @@ sealed class TotemState
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
 
     /// <summary>Adds a totem; the oldest living ones die until at most <paramref name="limit"/> live. The ones it replaced.</summary>
-    public List<Totem> Place(Totem totem, int limit, double now)
+    public List<Totem> Place(Totem totem, int limit, double now, int? ordinaryLimit = null)
     {
         var replaced = new List<Totem>();
-        foreach (var old in Living(now).ToList())
-            if (Living(now).Count() >= limit) { old.DiedAt = now; replaced.Add(old); }
+        void Retire(Totem old) { old.DiedAt = now; replaced.Add(old); }
+        if (ordinaryLimit is int ordinary)
+        {
+            // Ballista-only bonus slots do not let ordinary totems exceed their own cap. Placing one ordinary
+            // totem beside two ballistas must not remove both ballistas as the old all-totem limit of one did.
+            if (!totem.Ballista)
+                foreach (var old in Living(now).Where(t => !t.Ballista).ToArray())
+                    if (Living(now).Count(t => !t.Ballista) >= limit) Retire(old);
+            int bonus = Math.Max(totem.BonusSlots, Living(now).Where(t => t.Ballista).Select(t => t.BonusSlots).DefaultIfEmpty(0).Max());
+            int total = Math.Max(limit, (int)Math.Min(int.MaxValue, (long)ordinary + bonus));
+            while (Living(now).Count() >= total && Living(now).FirstOrDefault() is { } oldest) Retire(oldest);
+        }
+        else
+            foreach (var old in Living(now).ToArray())
+                if (Living(now).Count() >= limit) Retire(old);
         _totems.Add(totem);
         return replaced;
     }

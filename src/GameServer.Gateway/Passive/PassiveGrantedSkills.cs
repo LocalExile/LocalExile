@@ -3,6 +3,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
+using GameServer.Core;
 
 /// <summary>
 /// Skills that allocated passives grant or trigger (Agents/docs/protocol/11-skills.md §10f): "Grants Level 30
@@ -15,7 +16,7 @@ using GameServer.Core.World;
 /// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.RunFootstepSkills).
 /// Game data: data/tables/PassiveSkills.json, loaded on first use.
 /// </summary>
-sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", bool ruthless = false)
+public sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", bool ruthless = false)
 {
     /// <summary>One granted skill: the node, its GrantedEffectsPerLevel row, the row's GrantedEffects row (and Id) and
     /// level.</summary>
@@ -39,8 +40,8 @@ sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", b
     {
         var grants = new Dictionary<ushort, Grant>();
         string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!File.Exists(path)) return grants;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!ClientTables.Exists(path)) return grants;
+        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
         foreach (var r in d.RootElement.EnumerateArray())
         {
             int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();
@@ -56,7 +57,7 @@ sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", b
     }
 
     /// <summary>A skill each footstep triggers (its trigger has a runtime: Program.RunFootstepSkills).</summary>
-    internal static bool IsFootstepSkill(string effectId) => effectId == "RepeatingShockwave";
+    public static bool IsFootstepSkill(string effectId) => effectId == "RepeatingShockwave";
 
     // The Templar's run animations (Art/Models/CHARACTERS/Templar/rig.amd, all 18 run_* clips): an 800 ms loop with
     // footstepright at 233 ms and footstepleft at 633 ms.

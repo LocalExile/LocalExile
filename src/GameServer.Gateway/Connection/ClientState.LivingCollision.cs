@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     /// <summary>A killed monster on a lockstep client, from the kill until its body is out of the client's paths. The
     /// client's monster lives until the death reaches it: it walks on, and in the frame the death is written in
@@ -158,7 +158,7 @@ sealed partial class ClientState
         new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
             () => size < 0 ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
-            // The client's budget for this mover (0x141e4d890): 1000 expansions for a unique, 100 for any other monster.
+            // The client's budget for this mover (0x141e50f90): 1000 expansions for a unique, 100 for any other monster.
             limit: unique ? ClientPathfinder.SearchLimit.Expansions1000 : ClientPathfinder.SearchLimit.Expansions100, sight: Layout.Sight)
         { FrameOf = LockstepFrameOf };
 }

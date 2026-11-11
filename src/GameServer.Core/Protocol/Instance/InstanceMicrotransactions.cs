@@ -15,7 +15,7 @@ public static class InstanceMicrotransactions
 
     /// <summary>
     /// One owned microtransaction, in wire order. <paramref name="MtxTypeHash"/> lands at +0x04 and is the key the
-    /// panel's row build resolves in the UI context's catalogue (<c>0x142222170</c>, a <c>MtxTypes</c> HASH32): a value
+    /// panel's row build resolves in the UI context's catalogue (<c>0x142228b00</c>, a <c>MtxTypes</c> HASH32): a value
     /// that is not in it leaves a null and the row layout faults (live 2026-10-22). <paramref name="Id"/> is the
     /// record's own id at +0x00, the key the model upserts and removes by, so it has to be unique per record.
     /// <paramref name="Qword"/> lands at +0x10 (carried into the row's display item) and
@@ -31,7 +31,7 @@ public static class InstanceMicrotransactions
     /// One worn cosmetic: the <c>MicrotransactionSlot</c> Id it fills (1–49; 20 = Portal) and the owned record in it.
     /// The client keeps a 50-entry table at session +0xd118, 24 bytes per slot: <paramref name="Id"/> (+0x00, the
     /// record's id), <paramref name="MtxTypeHash"/> (+0x04, the <c>MTXTypeGameSpecific</c> HASH32 its visuals resolve,
-    /// 0x140ce0b30 and 0x141573790), <paramref name="Qword"/> (+0x08) and <paramref name="Option"/> (+0x10, the last
+    /// 0x140ce16b0 and 0x141575ac0), <paramref name="Qword"/> (+0x08) and <paramref name="Option"/> (+0x10, the last
     /// byte of the 0x1f9 that picked it).
     /// </summary>
     public sealed record Equipped(byte Slot, uint Id, uint MtxTypeHash, ulong Qword = 0, byte Option = 0);
@@ -41,15 +41,15 @@ public static class InstanceMicrotransactions
 
     /// <summary>
     /// A skill slot of the Cosmetics tab (0x1f3's second list, message +0x40 → session +0xd5c8, 40 bytes each, kept
-    /// sorted by <paramref name="Key"/>): the panel makes one slot per entry (0x140cdd530 → 0x140ce0c70). Wire: raw u32
-    /// key, then the target, a variant (0x1424aca00): u8 index 1 = one socketed skill gem (0x1424ada40: u8
+    /// sorted by <paramref name="Key"/>): the panel makes one slot per entry (0x140cde080 → 0x140ce17f0). Wire: raw u32
+    /// key, then the target, a variant (0x1424b34d0): u8 index 1 = one socketed skill gem (0x1424b4510: u8
     /// <paramref name="Inventory"/> → +4, u8 <paramref name="Socket"/> → +8, u8 <paramref name="SlotType"/> → +9, u32 BE
     /// <paramref name="GemHash"/> → +0), then u32 BE the worn record's id, u32 BE its MTXTypeGameSpecific hash (0 = none
-    /// worn; the slot's art, 0x140cde190 → 0x140cdfb60) and a raw u64. The panel finds the gem item itself
-    /// (0x141f8c860): the player's inventory of Inventories.dat row <paramref name="Inventory"/>, the item there whose
+    /// worn; the slot's art, 0x140cded10 → 0x140ce06e0) and a raw u64. The panel finds the gem item itself
+    /// (0x141f93130): the player's inventory of Inventories.dat row <paramref name="Inventory"/>, the item there whose
     /// socket <paramref name="Socket"/> holds a gem of BaseItemTypes HASH32 <paramref name="GemHash"/>; that item gives
-    /// the slot its name, and without it every effect is refused as "type mismatch" (0x1424eb7b0: 0xb27). An effect
-    /// fits (0x1424ac1e0) when its ItemisedVisualEffect row's EffectSlotType is <paramref name="SlotType"/> (a
+    /// the slot its name, and without it every effect is refused as "type mismatch" (0x1424f2440: 0xb27). An effect
+    /// fits (0x1424b2cb0) when its ItemisedVisualEffect row's EffectSlotType is <paramref name="SlotType"/> (a
     /// MicrotransactionSkillGemEffectSlotTypes row, one of the gem's SkillGems MtxSlotTypes) and its BaseItemTypes and
     /// ItemClasses lists hold the gem's (or are empty).
     /// The key is an opaque identity returned by 0x1fa, not a byte-sized list index. The Gateway keeps it only for an
@@ -59,7 +59,7 @@ public static class InstanceMicrotransactions
     public sealed record SkillSlot(uint Key, uint GemHash, byte Inventory, byte Socket, byte SlotType = 0, uint RecordId = 0, uint MtxTypeHash = 0);
 
     /// <summary>
-    /// S→C 0x1f3 (class 0x1435dc3e0, read 0x1421aa830, dispatcher case 0x92 at 0x142150ef2): records the client appends
+    /// S→C 0x1f3 (class 0x1435e72a0, read 0x1421b11a0, dispatcher case 0x92 at 0x142157842): records the client appends
     /// to its owned list, then the worn cosmetics. The handler first resets the whole 50-slot worn table, then fills a
     /// slot per <paramref name="equipped"/> entry (u8 slot, u32 BE id, u32 BE hash, raw u64, u8), so every 0x1f3 carries
     /// all of them: a slot left out is emptied. The skill slots follow (<see cref="SkillSlot"/>); the list after them
@@ -96,7 +96,7 @@ public static class InstanceMicrotransactions
 
     /// <summary>
     /// The 0x1f4 flags byte: which of the hub's three lists the message replaces. Dispatcher case 0x93
-    /// (<c>0x142151a1c</c>) tests bit 0 first, then bit 1, so one message fills one list, and each list has its own
+    /// (<c>0x14215836c</c>) tests bit 0 first, then bit 1, so one message fills one list, and each list has its own
     /// "loaded" flag the panels wait on (session offsets; the dispatcher's r13 is the session + 8):
     /// <see cref="Records"/> (0) → list +0xd600, loaded +0xcd3c: the Microtransactions panel's records;
     /// <see cref="StoreOwned"/> (1) → list +0xd618, loaded +0xcd40: the store's owned list, which is what puts
@@ -108,10 +108,10 @@ public static class InstanceMicrotransactions
     public const byte StoreSecond = 3;
 
     /// <summary>
-    /// C→S 0x1f2 (3 bytes, class vtable 0x1435c0000, write 0x141f9bd10): the client asks for the lists it has not got
+    /// C→S 0x1f2 (3 bytes, class vtable 0x1435caa38, write 0x141fa2740): the client asks for the lists it has not got
     /// yet, one bit each, and shows "Loading…" until the answer sets that list's loaded flag. The Microtransactions panel
-    /// asks for <see cref="Lists.Records"/> when it opens (0x14216d470), the store for its owned lists (0x14216d4d0),
-    /// the hideout picker for <see cref="Lists.Hideouts"/> (0x140bba230). A bit is asked once per session: the client
+    /// asks for <see cref="Lists.Records"/> when it opens (0x142173e20), the store for its owned lists (0x142173e80),
+    /// the hideout picker for <see cref="Lists.Hideouts"/> (0x140bbaec0). A bit is asked once per session: the client
     /// sets its "requested" flag (+0xcd3d/+0xcd41/+0xcd45/+0xcd3f/+0xcd43) and never asks again.
     /// </summary>
     public const ushort RequestId = 0x1f2;
@@ -136,7 +136,7 @@ public static class InstanceMicrotransactions
     public static Lists ReadRequest(ReadOnlySpan<byte> m) => (Lists)(m[2] & 0x1f);
 
     /// <summary>
-    /// S→C 0x1f5 (class 0x1435dc740, read 0x1421aaee0, dispatcher case 0x94 at 0x142151c26): the unlocked hideouts. u8
+    /// S→C 0x1f5 (class 0x1435e7620, read 0x1421b1850, dispatcher case 0x94 at 0x142158576): the unlocked hideouts. u8
     /// flags (bit 0: the guild's list, +0xd648 and loaded flag +0xcd42, else the character's, +0xd660 and +0xcd44; bit 1
     /// is read but not modelled), a compact count, then one byte per hideout: a <c>Hideouts.dat</c> row index. It
     /// replaces the list and sets its loaded flag, which is what takes the hideout picker off "Loading…".
@@ -145,7 +145,7 @@ public static class InstanceMicrotransactions
 
     /// <summary>S→C 0x1f6: fixed 128-bit campaign hideout unlock mask, raw bytes (row 0 is byte 0 bit 0).
     /// The picker reads this separately from the purchased-hideout list. Sending even an empty mask initializes
-    /// the session bitset before FUN_14216d800 indexes it.</summary>
+    /// the session bitset before FUN_1421741b0 indexes it.</summary>
     public static byte[] HideoutUnlocks(IEnumerable<int> rows)
     {
         var bits = new byte[16];
@@ -166,7 +166,7 @@ public static class InstanceMicrotransactions
     }
 
     /// <summary>
-    /// S→C 0x1f4 (class 0x1435dc580, read 0x1421aac00, dispatcher case 0x93): the record list again, but this one
+    /// S→C 0x1f4 (class 0x1435e7460, read 0x1421b1570, dispatcher case 0x93): the record list again, but this one
     /// <b>replaces</b> the list <paramref name="flags"/> selects and then fires that list's event — for
     /// <see cref="Records"/> the panel's reset, which is what makes it rebuild its rows (live 2026-10-22 it is the
     /// message that takes the panel off its "Loading…" placeholder and shows the records as tiles); for
@@ -181,8 +181,8 @@ public static class InstanceMicrotransactions
     }
 
     /// <summary>
-    /// C→S 0x1f9 (class vtable 0x1435c0690, write 0x141f9be90), the Cosmetics tab's pick: the slot flyout sends it when
-    /// an entry is clicked (0x140cdc2b0) and with record 0 when a slot is emptied (0x140cdef80). 8 bytes, no length
+    /// C→S 0x1f9 (class vtable 0x1435cb0c8, write 0x141fa28c0), the Cosmetics tab's pick: the slot flyout sends it when
+    /// an entry is clicked (0x140cdce00) and with record 0 when a slot is emptied (0x140cdfb00). 8 bytes, no length
     /// prefix: the u16 id, u8 the <c>MicrotransactionSlot</c> Id (20 = "Portal"), u32 BE the picked record's
     /// <see cref="Record.Id"/> and a u8 option (0 in every pick seen). The client changes nothing itself: the slot is
     /// worn once a 0x1f3 says so. Live 2026-10-22, a click on Arctic Portal Effect: <c>01F9 14 0000000B 00</c>.
@@ -222,7 +222,7 @@ public static class InstanceMicrotransactions
         return (BinaryPrimitives.ReadUInt32LittleEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
     }
 
-    /// <summary>The skill slots' target variant index for a skill gem (0x1424aca00's table 0x14363abb8: 0 empty, 1 a skill
+    /// <summary>The skill slots' target variant index for a skill gem (0x1424b34d0's table 0x143645770: 0 empty, 1 a skill
     /// gem, 2 two u32s).</summary>
     public const byte SkillGemTarget = 1;
 

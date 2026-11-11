@@ -1,8 +1,8 @@
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>A native, permanently powered Delve path lamp. The client builds its cable to the previous light.
-/// ClientDelveLight 0x1415d88d0 reads radius, link count, powered/follow-robot flags and object ids;
-/// 0x1415d77c0 resolves the links and 0x1415d7b70 creates the native connector beam.</summary>
+/// ClientDelveLight 0x1415dab80 reads radius, link count, powered/follow-robot flags and object ids;
+/// 0x1415d9a70 resolves the links and 0x1415d9e20 creates the native connector beam.</summary>
 public sealed record DelveTrailLightObject(int X, int Y, uint Previous = 0)
 {
     public const string MetadataPath = "Metadata/Terrain/Leagues/Delve/Objects/DelveLight";

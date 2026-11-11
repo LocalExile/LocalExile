@@ -1,5 +1,5 @@
 /// <summary>Connection-owned, pausable combat state. No wall-clock or character-name global lifetime.</summary>
-sealed class AntiquarianCombatState
+public sealed class AntiquarianCombatState
 {
     public double AdrenalineUntil { get; private set; } = double.NegativeInfinity;
     public bool Adrenaline(double now) => now < AdrenalineUntil;

@@ -1,7 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 
-sealed record VaalUseReservation(ushort Skill, int Effect, int Action, int Epoch, int Rage, uint Souls,
+public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, int Epoch, int Rage, uint Souls,
     uint Mana, uint Life, double PreventionSeconds, SkillCriticalRoll? CriticalRoll = null)
 {
     public bool Executed;
@@ -10,10 +10,10 @@ sealed record VaalUseReservation(ushort Skill, int Effect, int Action, int Epoch
     public bool RageConverted;
 }
 
-static partial class Game
+public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    internal static bool VaalExecutor(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "VaalGroundSlam";
+    public static bool VaalExecutor(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "VaalGroundSlam";
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
@@ -129,7 +129,7 @@ static partial class Game
             && conn.PlayerStats.GetValueOrDefault(conversion, CharacterStatSources(conn).Stats.GetValueOrDefault(conversion)) != 0);
 
     // All native action acknowledgements share the same accepted-use guard at their send gate.
-    internal static bool SkillAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
+    public static bool SkillAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
     {
         lock (conn.Monsters)
         {

@@ -2,7 +2,7 @@
 /// PoB CalcDefence: physical hits count 25% extra, chance = 200 * effective damage / threshold, only above 20%.
 /// Monster.ot adds 20% more melee stun duration to the 350 ms base; recovery rounds up to a 33 ms tick.
 /// Special threshold substitutions, conditional immunity and monster-specific modifiers are outside this slice.</summary>
-sealed class PlayerHitRecovery
+public sealed class PlayerHitRecovery
 {
     public const byte TakeHitAnimation = 5;
     public double Until { get; private set; } = double.NegativeInfinity;

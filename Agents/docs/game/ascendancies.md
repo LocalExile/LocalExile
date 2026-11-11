@@ -9,7 +9,7 @@ Descendancy row). It does not implement every special effect of the 19 Phrecia c
 ## What can be used
 
 Ordinary ascendancies keep their normal choices, including the Scion alternatives.
-Their nodes work where a consumer exists; [Juggernaut](juggernaut.md) is audited node by node.
+Their nodes work where a consumer exists; [Juggernaut](juggernaut.md) and [Slayer](slayer.md) are audited node by node.
 The server can list the 21 ordinary and 19 Phrecia definitions from the exact 3.29.3b tables and graph export.
 Each choice is identified by family, stable table Id and revision; two families can share a class number and start node.
 Only one main ascendancy is selected at a time, and it must belong to the character's base class.

@@ -4,7 +4,7 @@ namespace GameServer.Core.World;
 public readonly record struct LockstepCastWindow(double Start, double Duration, double? EarlyUntil, double LateFrom,
     ushort? ActionHash = null)
 {
-    // Different spell actions can replace a cast only in its early window (0x141e8d900).
+    // Different spell actions can replace a cast only in its early window (0x141e941a0).
     public bool AllowsSkill(double at, ushort? nextAction) => ActionHash is ushort current && nextAction is ushort next
         && current != next && at >= Start && EarlyUntil is double early && at - Start <= early;
 

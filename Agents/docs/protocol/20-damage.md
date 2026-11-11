@@ -221,7 +221,7 @@ and socket mutations have full payload acknowledgements. The original account, t
 stash banks and forty tabs retain exact UTF-8 payload hashes; the two fixture inventories persist with their complete
 canonical contents. All 714 frozen source/runtime/helper/oracle inputs match at session end. The supplemental sparse
 policy, verifier and normal-source wrapper have separate recorded freezes and are not included in that 714 count.
-The copied test client is closed and the normal Gateway uses `data/saves.db` again.
+The copied test client is closed and the normal Gateway uses `data/characters.db` again.
 
 The full test run also retained six existing `MonsterKilled` cleanup writes to disposed streams, with no targeted
 conversion fault in the filtered diagnostic capture. The native log retained four remote-host connection closures;
@@ -269,8 +269,10 @@ Evidence: `artifacts/issue75-completion/weapon-native/`, including the preserved
 
 ## 2b. Added damage from stats
 
-Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges and the
-stats below are read.
+Added damage is not fully modelled yet; the flat `attack_/spell_minimum/maximum_added_<type>_damage` ranges, the
+`global_minimum/maximum_added_<type>_damage` ranges (a ring's "Adds # to # Fire Damage", added to attacks and spells
+alike), the bow-conditional `attack_minimum/maximum_added_<type>_damage_with_bow(s)` ranges (an item's quiver or body
+armour bonus, added only while a bow is the weapon) and the stats below are read.
 `DamageStats.RawAdded` adds `attack_skills_have_added_lightning_damage_equal_to_%_of_maximum_mana` (Stats.dat row
 11881, client key 11882) to an attack's added-lightning range.
 The value is the percentage: both the added lightning minimum and maximum become that percent of `maximum_mana`
@@ -290,6 +292,8 @@ This stack does not introduce the separate derived-damage engine from archival P
 Automated production-path cases cover ranged and melee gems, effectiveness and a spell isolation control.
 Native evidence here belongs to original head `378ffde`; supported-skill composition needs a new native check.
 `attack_damage_+%` scales the added range for every attack.
+`elemental_damage_with_attack_skills_+%` joins `elemental_damage_+%` for attacks only (Roth's Reach, Ewar's Mirage,
+Aegis Aurora, Sibyl's Lament, Wilma's Requital); a spell's elemental damage ignores it.
 `melee_damage_+%` applies only in explicit melee context: the default attack uses its active weapon profile,
 and attack gems use `ActiveSkillType Melee` through `SkillCatalog.IsMelee`.
 An inactive weapon set cannot change that context.
@@ -680,7 +684,7 @@ PoB CalcOffence applies `MaxDamage` MORE to each type's own maximum and carries 
 It sits next to Rage's final multiplier at every attack site: the default attack and its panel rows, the native
 physical bounds, attack gems, `AttackSkillHit` and ordinary bow and wand shots (`OrdinaryRangedShot`).
 The client multiplies its three sources (volatility support, ascendancy, graft) into
-`combined_maximum_attack_damage_+%_final` (`FUN_1425d25b0`); only the ascendancy one exists on the server.
+`combined_maximum_attack_damage_+%_final` (`FUN_1425d9160`); only the ascendancy one exists on the server.
 See [Polytheist](../game/polytheist.md).
 
 ## 2j. Melee damage by proximity
@@ -692,8 +696,8 @@ The ramp is PoB `ModStore`'s `MeleeProximity` with `{1,0}`: the whole multiplier
 none at 40. The distance is the centre-to-centre one at the hit, as for close range ([11](11-skills.md),
 `TargetAccuracy`), so a large monster at melee range gets less than a small one. Whether the game subtracts the
 actors' sizes is not verified. The client dump has no ramp: the keys of the three stats (0x26e1, 0x250b, 0x4d70) do
-not appear in it, and `damage_+%_final_from_distance` (0x313) is only tested for being non-zero (`FUN_1428510b0`,
-`FUN_142886820`).
+not appear in it, and `damage_+%_final_from_distance` (0x313) is only tested for being non-zero (`FUN_142857c70`,
+`FUN_14288d3e0`).
 The default melee attack and melee attack gems scale each target's hit before its roll; a melee attack's
 projectiles, minions and the damaging ailments do not take it. Close Combat's increased damage at close range (its
 quality) and its Combat Rush for travel skills, and `melee_damage_+%_at_close_range`, are not read.
@@ -1282,12 +1286,12 @@ This avoids the former intermediate truncation: Simple Robe roll 16, 50% local E
 Character-wide ES retains the local shield as a separate contribution so shield-only increases add to its global
 increase bucket without multiplying increases or scaling independent flat ES.
 The body slot retains the same source identity. `maximum_energy_shield_from_body_armour_+%` adds to its global
-ES increase bucket only (native `0x1425304f9..0x142530506`); it does not scale other gear, auras or converted Life.
+ES increase bucket only (native `0x1425370a9..0x1425370b6`); it does not scale other gear, auras or converted Life.
 `damage_reduction_rating_from_body_armour_doubled` doubles the body Armour contribution and, under Iron Reflexes,
-the body's converted Evasion (`0x142731a7b..0x142731aff`). `gain_no_armour_from_body_armour` suppresses both of
+the body's converted Evasion (`0x14273862b..0x1427386af`). `gain_no_armour_from_body_armour` suppresses both of
 those Armour sources and wins over doubling, while ordinary unconverted body Evasion and ES remain available.
 `shield_armour_+%` increases all shield defences; `shield_maximum_energy_shield_+%` adds only to shield ES.
-The completed fractional total rounds halfway up, matching native `0x14252c6e7` and helper `0x142513810`.
+The completed fractional total rounds halfway up, matching native `0x142533297` and helper `0x14251a3c0`.
 Armour and evasion use the same final rounding rule, including one final armour round after Iron Reflexes.
 Their aura/flask more factors retain the exact decimal product until that final round.
 Determination's 73% more with Basalt's 20% more therefore uses 2.076 rather than a rounded 2.08 factor.
@@ -1360,7 +1364,7 @@ The parent completed with 918 input hashes held; the stopped-child audit checked
 Both canonical inventories, exact item/gem IDs, full charges, empty host, saved bar intent, account, probes, stash and
 metadata payloads were preserved apart from both LastPlayed values and Ruthless current Mana 750→655.
 Its native trace shows a 700→650 clamp, higher capacity without refill, then recovery through 654; the later save is 655,
-without a captured event for that final tick. Only the disposable child was used; normal `data/saves.db` was restored.
+without a captured event for that final tick. Only the disposable child was used; normal `data/characters.db` was restored.
 The three live service stderr files are empty, but the Gateway stdout log retains one remote-closure IOException;
 this is not a fault-free-run claim. Earlier automated diagnostic faults above remain separate and preserved.
 Evidence: `artifacts/issue75-completion/attribute-defence3-native/final-fourteen-controls-summary.json` and the adjacent
@@ -1534,7 +1538,7 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
 - Unstoppable (`action_speed_cannot_be_reduced_below_base`, `movement_speed_cannot_be_reduced_below_base`) keeps both
   at base, as the player's action floor does (forum bug report 3494363: freeze only interrupts channelling there).
 - **Stormy Seas.** `cold_damage_can_shock` lets the cold damage count for the shock's magnitude; the chance is still
-  a critical strike or `chance_to_shock_%`. The client's calculator `0x1426f2660` makes `virtual_cold_damage_can_shock`
+  a critical strike or `chance_to_shock_%`. The client's calculator `0x1426f9210` makes `virtual_cold_damage_can_shock`
   (0x1bc6) from keys 0x451a, 0x1bc9 and 0x1b96, and nothing else in the client reads it.
 - **All Damage can Chill, Freeze or Shock.** `all_damage_can_chill`, `all_damage_can_freeze` and `all_damage_can_shock`
   (Shaper of Storms has the last) make every type of the hit count for that ailment, and one type's
@@ -1607,13 +1611,13 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   modelled either.
 - **Proliferation.** A chill, freeze or shock takes the attacker's `virtual_{kind}_proliferation_radius` when it
   lands, as the client's calculators build them (`ProliferationRadius`), each the largest of its sources. Shock
-  (`0x142828340`): `gloves_shock_proliferation_radius`, `virtual_elemental_status_effect_aura_radius` (the larger of
-  `elemental_status_effect_aura_radius` and `elementalist_...`, `0x142828e10`),
+  (`0x14282eef0`): `gloves_shock_proliferation_radius`, `virtual_elemental_status_effect_aura_radius` (the larger of
+  `elemental_status_effect_aura_radius` and `elementalist_...`, `0x14282f9c0`),
   `unique_vinktars_flask_shock_proliferation_radius`,
   `ascendancy_non_damaging_elemental_ailment_proliferation_radius` and `passive_mastery_shock_proliferation_radius`,
-  and 15 with `shock_proliferation_radius_is_at_least_15`. Freeze (`0x142828810`): the elemental aura radius, 12 with
+  and 15 with `shock_proliferation_radius_is_at_least_15`. Freeze (`0x14282f3c0`): the elemental aura radius, 12 with
   `spread_freeze_to_nearby_enemies`, `gloves_freeze_proliferation_radius` (19 mods), the ascendancy's and
-  `amulet_freeze_proliferation_radius`. Chill (`0x142828c00`): the elemental aura radius and the ascendancy's.
+  `amulet_freeze_proliferation_radius`. Chill (`0x14282f7b0`): the elemental aura radius and the ascendancy's.
   Nothing else in the client reads the three radii. The calculators scale none of them by area of effect; the server
   grows the radius by the area modifier like a skill's area (`SpreadRadius`: × the square root of
   `SkillArea.Modifier`, truncated to two places), because the wiki's Elemental proliferation page says modifiers to
@@ -1627,16 +1631,25 @@ hit that inflicts an elemental ailment counts as killing an affected enemy); it 
   as inflicting, and goes as soon as the monster is out of range or the source ends. The receiving monster's immunity
   to the kind counts; its own `shocked_effect_on_self_+%` or `chill_effectiveness_on_self_+%` does not change the
   copy (not verified). A spread chill keeps Glacial Wave's effects, as the wiki says effects built into an ailment
-  spread with it (not verified for Glacial Wave). Ignite proliferation is not modelled, nor a reflected ailment
-  spreading from the player. A shattered monster spreads nothing.
+  spread with it (not verified for Glacial Wave). A reflected ailment spreading from the player is not modelled.
+  Ignite proliferation (`ProliferateIgnitesLocked`, same AI tick): an ignite takes the largest of
+  `support_ignite_proliferation_radius`, `ignite_proliferation_radius`, `gloves_`, `passive_notable_`, `flask_`,
+  `main_hand_` (attacks in that hand) `ignite_proliferation_radius` and the elemental aura radius
+  (`MonsterIgnites.Settings.Spread`, cells, × area like `SpreadRadius`); the client has no virtual ignite radius, so
+  "largest" follows the shock calculator (not verified). Every living hostile monster that can be ignited, in reach of
+  one (corpses included, `MonsterIgnites.Spreads`), burns with the strongest at its damage per second until it ends
+  (`MonsterIgnites.Proliferated`); the copy competes with its own ignites, does not spread and is not a new ignite.
+  A monster that starts burning from it gets the ignited buff (0x1c1 row 0). A killing hit's ignite is not put on
+  the corpse. A shattered or consumed corpse spreads nothing: its retained ignites retire
+  (`MonsterIgnites.RetireCorpse`) and the copies it gave end at the next AI tick; an intact corpse keeps spreading.
 
 Presentation runs on the AI tick (`MonsterAilmentChangesLocked`), so with `/ai off` the server still applies the
 effects but sends nothing, and nothing spreads. A kind is re-sent only when its strongest magnitude changes: S→C
 0x1c2 for the old buff, then 0x1c1 with BuffDefinitions 1 chilled, 2 frozen or 3 shocked (BuffVisuals 3, 4, 5), the
 player as source. Chill and shock have no duration; freeze carries its remaining time (flag 0x02, f32 +0x68), because
 without a duration or a value the client draws no icon under the monster's life bar (live 2026-10-30). Each kind always uses the same instance on its monster, 0xfffd, 0xfffe or 0xffff
-(`MonsterElementalAilments.Instance`). The client keeps buffs per object by instance (`0x141e11720` looks up a live
-one, `0x141e11fb0` removes by instance, both skip one already being removed), and the connection's `NextBuff` wraps
+(`MonsterElementalAilments.Instance`). The client keeps buffs per object by instance (`0x141e14d80` looks up a live
+one, `0x141e15610` removes by instance, both skip one already being removed), and the connection's `NextBuff` wraps
 back to 1 below that range, so ailment changes take none of its instances and cannot meet another buff's. 0x1c2
 removes a buff at expiry, so a pause cannot desync it. All three rows have the +0xff bool, so 0x1c1 carries a u16 at
 +0x82 ([11](11-skills.md) §12); chilled and shocked are `IsRecovery` and carry their one GrantedStats value
@@ -1644,7 +1657,7 @@ removes a buff at expiry, so a pause cannot desync it. All three rows have the +
 by +0x82 percent (15 with +0x82 15 showed 17%, live 2026-11-03), so the Gateway sends 0 there. The player's own
 chill, freeze and shock use the same rows and instances on the player
 (`PlayerAilmentBuffs`, sent by the player tick when its ailments change), so they show in the buff bar. The chill is also sent as 0x1b3 `virtual_action_speed_+%` (−chill), which the native
-walk `0x141e7c0b0` and the action clips read; network stats run no calculators ([04](04-player-entity.md) §4.1a). A
+walk `0x141e827a0` and the action clips read; network stats run no calculators ([04](04-player-entity.md) §4.1a). A
 freeze is not sent there (−100 would divide the native clip by zero); the server stops the monster instead.
 
 Not modelled: the shatter visual, unique and boss thresholds and their reduced effects, immunities from the monster's

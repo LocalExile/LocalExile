@@ -2,7 +2,7 @@ using GameServer.Core.Projectiles;
 
 
 /// <summary>Named behavior and catalog policies on the common projectile runtime.</summary>
-static class GatewayProjectileSkillProfiles
+public static class GatewayProjectileSkillProfiles
 {
     // User-tuned feel values, not official timings or frame measurements. Keep fractional milliseconds.
     public const double ClusterDelaySeconds = 0;
@@ -134,10 +134,10 @@ static class GatewayProjectileSkillProfiles
         };
     }
 
-    // The client's terminal RNG (0x1419c29b0) seeds [sequence, mother-derived byte, owner, repeats left,
+    // The client's terminal RNG (0x1419c73c0) seeds [sequence, mother-derived byte, owner, repeats left,
     // secondary-release byte, 0, 0, 0]. A fresh mother's derived byte is 2, and each arrow of a volley adds its index.
     // The radial emitter then spaces children around that sampled base ray with no extra phase.
-    internal static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
+    public static ProjectileVector TornadoShotBaseDirection(ushort sequence, uint derived, uint owner, uint repeats)
     {
         var random = new AnimationVariantSelector.NativeRandom([sequence, derived, owner, repeats, 0, 0, 0, 0]);
         uint sample = TornadoBounded(ref random, 7001);
@@ -149,7 +149,7 @@ static class GatewayProjectileSkillProfiles
         TornadoShotBaseDirection(parent.Use.Sequence, (uint)(2 + parent.VolleyIndex), parent.Use.Owner.Id,
             parent.Use.RepeatsLeft);
 
-    // The native bounded draw (0x1404d03d0): reject the incomplete top bucket, then take the remainder.
+    // The native bounded draw (0x1404d0990): reject the incomplete top bucket, then take the remainder.
     static uint TornadoBounded(ref AnimationVariantSelector.NativeRandom random, uint exclusiveMax)
     {
         ulong limit = (1UL << 32) / exclusiveMax * exclusiveMax;

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Hideouts (Agents/docs/protocol/21-hideouts.md): every Hideouts.dat row with its area and default decoration, from
@@ -7,7 +8,7 @@ using GameServer.Core.Protocol.Instance;
 /// HideoutDoodads row of that MtxTypeGameSpecific row gives its object type (InheritsFrom) and models
 /// (Variation_AOFiles, picked by the placement's variation). Every character has the <see cref="Default"/> hideout.
 /// </summary>
-static class HideoutCatalog
+public static class HideoutCatalog
 {
     /// <summary>The first campaign hideout (Hideouts row 0, found in The Dread Thicket): every character's.</summary>
     public const string DefaultArea = "HideoutForest";
@@ -90,7 +91,7 @@ static class HideoutCatalog
     {
         var result = new Dictionary<string, (IReadOnlyList<string>, IReadOnlyList<string>)>(StringComparer.Ordinal);
         const string file = "data/object-types.json";
-        if (!File.Exists(file)) return result;
+        if (!ClientTables.Exists(file)) return result;
         using var doc = GameTables.Open(file);
         foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
         {
@@ -104,9 +105,9 @@ static class HideoutCatalog
 
     public static List<Hideout> Load(string hideoutsJson, string tables)
     {
-        if (!File.Exists(hideoutsJson)) return [];
+        if (!ClientTables.Exists(hideoutsJson)) return [];
         var doodadTypes = DoodadTypes(tables);
-        using var doc = JsonDocument.Parse(File.ReadAllBytes(hideoutsJson));
+        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(hideoutsJson));
         var result = new List<Hideout>();
         foreach (var h in doc.RootElement.GetProperty("hideouts").EnumerateArray())
         {
@@ -138,10 +139,10 @@ static class HideoutCatalog
     {
         var result = new Dictionary<uint, (string?, string[]?)>();
         string mtxFile = Path.Combine(tables, "MtxTypeGameSpecific.json"), doodadFile = Path.Combine(tables, "HideoutDoodads.json");
-        if (!File.Exists(mtxFile) || !File.Exists(doodadFile)) return result;
-        using var mtx = JsonDocument.Parse(File.ReadAllBytes(mtxFile));
+        if (!ClientTables.Exists(mtxFile) || !ClientTables.Exists(doodadFile)) return result;
+        using var mtx = JsonDocument.Parse(ClientTables.ReadAllBytes(mtxFile));
         var hashOfRow = mtx.RootElement.EnumerateArray().Select(r => r.GetProperty("HASH32").GetUInt32()).ToList();
-        using var doodads = JsonDocument.Parse(File.ReadAllBytes(doodadFile));
+        using var doodads = JsonDocument.Parse(ClientTables.ReadAllBytes(doodadFile));
         foreach (var r in doodads.RootElement.EnumerateArray())
         {
             if (r.GetProperty("MtxTypeGameSpecific") is not { ValueKind: JsonValueKind.Number } key || key.GetInt32() is not (>= 0 and var row) || row >= hashOfRow.Count) continue;

@@ -4,7 +4,7 @@ using System.Text.Json;
 /// world units): +X the model's left, −Y its front, −Z up (the Ranger's attack1_bow contact: 59.8 in front, 127.5 up;
 /// its arrow_appear 26.8 behind, at the quiver). Only the forward and vertical parts are used: the grid's lateral
 /// handedness is not established, and the lateral offsets are under a cell.</summary>
-readonly record struct ContactPoint(float X, float Y, float Z)
+public readonly record struct ContactPoint(float X, float Y, float Z)
 {
     public double ForwardUnits => -Y;
     public double UpUnits => -Z;
@@ -16,14 +16,14 @@ readonly record struct ContactPoint(float X, float Y, float Z)
 }
 
 /// <summary>A rig clip's length, its contact keyframe's time (ms) and, when the keyframe carries one, its position.</summary>
-readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
+public readonly record struct AnimationClip(int Length, int Contact, ContactPoint? Point, uint Index = uint.MaxValue,
     bool CancellationKnown = false, int? Cancel = null);
 
 /// <summary>The kind of cast a run skill plays: an attack swing, or a spell projectile / area / buff cast.</summary>
-enum CastAnimationKind { Attack, Projectile, Area, Buff }
+public enum CastAnimationKind { Attack, Projectile, Area, Buff }
 
 /// <summary>A rig animation the client can play with 0x1b2 kind 0: its name, index and natural length.</summary>
-readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
+public readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 
 /// <summary>
 /// The "contact" keyframe of the character classes' animations (data/animation-contacts.json, written by
@@ -36,7 +36,7 @@ readonly record struct CastAnimationClip(string Name, uint Index, int LengthMs);
 /// swings the two halves of doublestrike_sword), with the ACT's attack_time budget; <see cref="DefaultAttackClip"/>
 /// says when its contact plays.
 /// </summary>
-sealed class AnimationContacts(string folder = "data")
+public sealed class AnimationContacts(string folder = "data")
 {
     /// <summary>The Witch's spell_projectile fraction, used when the file or the animation is missing.</summary>
     public const double DefaultSpellRelease = 599.0 / 1066;
@@ -62,7 +62,7 @@ sealed class AnimationContacts(string folder = "data")
         SpellContact(animatedObject, ["spell_aoe_wand", "spellaoe_wand", "spell_aoe_unarmed", "spellaoe_unarmed"],
             ["spell_aoe", "spellaoe"]) ?? SpellRelease(animatedObject);
 
-    /// <summary>The native cast's early and late Move windows (0x14193d400), scaled from its actual clip events.</summary>
+    /// <summary>The native cast's early and late Move windows (0x141942b50), scaled from its actual clip events.</summary>
     public GameServer.Core.World.LockstepCastWindow? SpellMoveWindow(string animatedObject, WeaponProfile weapon,
         CastAnimationKind kind, double start, double duration, bool cannotCancelBeforeContact)
     {
@@ -235,8 +235,8 @@ sealed class AnimationContacts(string folder = "data")
     {
         string path = Path.Combine(folder, "animation-contacts.json");
         var result = new Dictionary<string, ActorAnimations>(StringComparer.OrdinalIgnoreCase);
-        if (!File.Exists(path)) return result;
-        using var d = JsonDocument.Parse(File.ReadAllBytes(path));
+        if (!GameServer.Core.ClientTables.Exists(path)) return result;
+        using var d = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes(path));
         foreach (var ao in d.RootElement.EnumerateObject())
         {
             var positions = new Dictionary<string, ContactPoint>(StringComparer.Ordinal);
@@ -286,7 +286,7 @@ sealed class AnimationContacts(string folder = "data")
 
     /// <summary>A three-number JSON array as a point; anything else is no position, and so is the rig's placeholder for
     /// an event without one ("0 -0 -0" in the .amd), which would otherwise read as a release at the feet.</summary>
-    internal static ContactPoint? Point(JsonElement value)
+    public static ContactPoint? Point(JsonElement value)
     {
         if (value.ValueKind != JsonValueKind.Array || value.GetArrayLength() != 3) return null;
         Span<float> parts = stackalloc float[3];
@@ -306,7 +306,7 @@ sealed class AnimationContacts(string folder = "data")
 /// lock_cancelling keyframe when it has one, and its slow span, all relative to that start, the ACT's attack_time
 /// budget in seconds when it has one, and whether the item's own rig plays it (a bow's attack1_bow).
 /// </summary>
-readonly record struct DefaultAttackClip(string Animation, string Source, int Index, int BeginMs, int LengthMs, int ContactMs,
+public readonly record struct DefaultAttackClip(string Animation, string Source, int Index, int BeginMs, int LengthMs, int ContactMs,
     int? CancelMs, int? SlowBeginMs, int? SlowEndMs, double? BudgetSeconds, string Stance, uint Weight, bool Item, bool Pair,
     ContactPoint? Point)
 {
@@ -334,7 +334,7 @@ readonly record struct DefaultAttackClip(string Animation, string Source, int In
     public double CutInSeconds(double attackSeconds) => PlayedAt(CancelMs ?? ContactMs, attackSeconds);
 
     /// <summary>
-    /// When the client's own shot leaves, on the clip clock it sets up (<c>0x141b0ac20</c> → <c>0x141b0a9b0</c>): a clip
+    /// When the client's own shot leaves, on the clip clock it sets up (<c>0x141b0d690</c> → <c>0x141b0d420</c>): a clip
     /// without a budget that is shorter than the attack plays at its own speed outside its slow span, and the span takes
     /// up the rest, at most 8 times its length (the 600 ms wand clip's contact at 300, span 150–235, leaves 0.367 s into a
     /// 0.667 s attack). A budgeted clip, or one no shorter than the attack, leaves at <see cref="ContactSeconds"/>.

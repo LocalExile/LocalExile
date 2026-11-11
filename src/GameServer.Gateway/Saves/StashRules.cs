@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// What each stash tab type holds (Agents/docs/protocol/18-stash.md §7). An item's affinities (StashTabAffinityId rows)
@@ -9,7 +10,7 @@ using GameServer.Core.Protocol.Instance;
 /// FirstSlotIndex): the client shows a slot as cell (slot, 0), and an item dropped anywhere on the tab goes into its own
 /// slot. Currency slots use CurrencyItems.CurrencyTab_StackSize; other slotted tabs default to <see cref="SlotStack"/>.
 /// </summary>
-sealed class StashRules
+public sealed class StashRules
 {
     public UniqueStashLayout Uniques { get; private set; } = new();
     public const byte Currency = 3, Unique = 4, Map = 5, Divination = 6, Essence = 8, Fragment = 9, Delve = 12, Blight = 13,
@@ -117,12 +118,12 @@ sealed class StashRules
         string[] needed = ["StashTabAffinities", "StashTabAffinityByBaseItemType", "StashtabAffinityByItemClassCategory", "ItemClasses",
             "CurrencyStashTabLayout", "EssenceStashTabLayout", "FragmentStashTabLayout", "DelveStashTabLayout", "BlightStashTabLayout",
             "DeliriumStashTabLayout", "DivinationCardStashTabLayout", "Mods"];
-        if (rows.Count == 0 || needed.Any(n => !File.Exists(Table(n)))) return rules;
+        if (rows.Count == 0 || needed.Any(n => !ClientTables.Exists(Table(n)))) return rules;
         var byId = rows.GroupBy(r => r.Id).ToDictionary(g => g.Key, g => g.First().Hash);
         uint? HashOfRow(int row) => row >= 0 && row < rows.Count ? rows[row].Hash : null;
         void Give(uint hash, int affinity) => (rules._affinities.TryGetValue(hash, out var s) ? s : rules._affinities[hash] = []).Add(affinity);
 
-        if (File.Exists(Table("CurrencyItems")))
+        if (ClientTables.Exists(Table("CurrencyItems")))
         {
             using var d = GameTables.Open(Table("CurrencyItems"));
             foreach (var r in d.RootElement.EnumerateArray())
@@ -133,7 +134,7 @@ sealed class StashRules
                     rules._currencyTabStack[hash] = (ushort)size;
         }
 
-        if (File.Exists(Table("MapKeys")))
+        if (ClientTables.Exists(Table("MapKeys")))
         {
             using var d = GameTables.Open(Table("MapKeys"));
             foreach (var r in d.RootElement.EnumerateArray())
@@ -149,7 +150,7 @@ sealed class StashRules
         }
 
         // The map tab's other group 0 bases: the four special maps of MapStashSpecialSubStashGroup (a "Key" row each).
-        if (File.Exists(Table("MapStashSpecialSubStashGroup")))
+        if (ClientTables.Exists(Table("MapStashSpecialSubStashGroup")))
         {
             using var d = GameTables.Open(Table("MapStashSpecialSubStashGroup"));
             foreach (var r in d.RootElement.EnumerateArray())
@@ -177,7 +178,7 @@ sealed class StashRules
 
         // The legendary maps: one page each, keyed by MapStashUniqueMapInfo.HASH16. Rows for a drop-disabled unique, and
         // repeats of a unique already listed, are not among the keys the client expects (23 of the 33 rows).
-        if (File.Exists(Table("MapStashUniqueMapInfo")) && File.Exists(Table("UniqueMaps")))
+        if (ClientTables.Exists(Table("MapStashUniqueMapInfo")) && ClientTables.Exists(Table("UniqueMaps")))
         {
             var names = new List<string?>();
             var disabled = new HashSet<string?>();
@@ -280,7 +281,7 @@ sealed class StashRules
     }
 
     /// <summary>Rules from given data (tests).</summary>
-    internal static StashRules For(Dictionary<uint, HashSet<int>> affinities, Dictionary<int, HashSet<byte>> heldBy,
+    public static StashRules For(Dictionary<uint, HashSet<int>> affinities, Dictionary<int, HashSet<byte>> heldBy,
         Dictionary<byte, Dictionary<uint, int>> slots, Dictionary<uint, ushort>? currencyTabStack = null,
         Dictionary<byte, HashSet<int>>? anySlots = null, Dictionary<byte, List<int>>? overflowSlots = null)
     {

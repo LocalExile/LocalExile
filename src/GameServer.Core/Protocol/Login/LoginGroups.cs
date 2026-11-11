@@ -3,7 +3,7 @@ using System.Numerics;
 namespace GameServer.Core.Protocol.Login;
 
 /// <summary>
-/// Diffie-Hellman groups hard-coded in the client's login crypto object ("Rhoa", ctor 0x140e02170; see Agents/docs/re/008).
+/// Diffie-Hellman groups hard-coded in the client's login crypto object ("Rhoa", ctor 0x140e00a10; see Agents/docs/re/008).
 /// Both are safe primes p = 2q + 1; g generates the order-q subgroup. Static keys use the 3072-bit group,
 /// per-connection (ephemeral) keys the 1024-bit group, combined like Crypto++ DH2.
 /// </summary>

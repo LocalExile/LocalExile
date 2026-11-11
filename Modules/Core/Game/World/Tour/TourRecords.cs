@@ -10,7 +10,7 @@ using GameServer.Data.Terrain.Generation;
 /// time, the exception in full), each layer of the two compared (walk and projectile grids, cell heights, doodads,
 /// transitions, rooms, quest objects), and the rooms' monster points fitted from the client's doodads against those fitted
 /// from the Gateway's. The draw-by-draw comparison stays with `lg.ps1 loads` (it needs the port's draw log).</summary>
-static class TourRecords
+public static class TourRecords
 {
     public static string File { get; set; } = "data/tour-records/stops.jsonl";
 

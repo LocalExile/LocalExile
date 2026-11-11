@@ -8,7 +8,7 @@ using System.Runtime.CompilerServices;
 /// <see cref="Take"/> with its own step, so scheduling delays change the step, never the rate. Guarded by the Monsters lock.
 /// shortcut: an area change leaves the past 10 s behind, as Life Recoup does, until a capture shows the regeneration
 /// carries over.</summary>
-sealed class PreventedDamageRecovery
+public sealed class PreventedDamageRecovery
 {
     const string Stat = "gain_%_total_phys_damage_prevented_in_the_past_10_sec_as_life_regen_per_sec";
     const double WindowSeconds = 10;
@@ -38,9 +38,9 @@ sealed class PreventedDamageRecovery
     public void Clear() => hits.Clear();
 }
 
-static partial class Game
+public static partial class Game
 {
     static readonly ConditionalWeakTable<ClientState, PreventedDamageRecovery> PreventedDamage = new();
 
-    internal static PreventedDamageRecovery PreventedDamageOf(ClientState conn) => PreventedDamage.GetValue(conn, _ => new());
+    public static PreventedDamageRecovery PreventedDamageOf(ClientState conn) => PreventedDamage.GetValue(conn, _ => new());
 }
