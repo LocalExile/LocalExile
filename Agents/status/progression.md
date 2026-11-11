@@ -504,7 +504,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tattoos: the 100-item 3.29.3b catalogue, protocol and implementation groups are documented in
   [tattoos](../docs/game/tattoos.md). The client flow is implemented: C->S `0x77` names the inventory, item and
   passive; `0x33`'s fifth list carries `node | PassiveSkillOverrides.HASH16 << 16`; the item is consumed and the
-  map is saved independently of allocation. **85 rows are client-verified**: the ten pilot, 22 plain stats, the
+  map is saved independently of allocation. **85 rows are client-verified and 8 partial**: the ten pilot, 22
+  plain stats, the
   nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row, the eleven
   Honoured rows (attribute notables included), the ten Loyalty summons, nine Makanga gates, three Journey
   tattoos and Journey Makanui;
@@ -516,6 +517,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   display total with its `base_*` sources summed in, so the existing ailment, avoidance, stun-recovery and bleed
   readers already see the replacement stat (`TattooAilmentTests`). The ten Loyalty summons share the Ancestral
   Commander Spirit path (`TattooTriggeredGrantsLocked` checks allocation and timeless conquest) and are covered
-  by `TattooLoyaltyTests`. 12 rows remain not implemented: five rows that need new consumers (corpse
-  consumption, Fortify-on-stun, guard duration, hinder and herald effect) and the seven Forbidden ascendancy
-  tattoos.
+  by `TattooLoyaltyTests`. 5 rows remain not implemented: five rows that need new consumers (corpse
+  consumption, Fortify-on-stun, guard duration, hinder and herald effect).
+  The seven event-only Forbidden ascendancy tattoos are server-side complete (random class notable saved in
+  `TattooKeystones`, ascendancy-policy stats, `0x33` HASH16) and partial only on the client's separate
+  ascendancy-tattoo use flow, which still needs a trace.

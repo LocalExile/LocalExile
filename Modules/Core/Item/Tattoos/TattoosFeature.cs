@@ -18,20 +18,23 @@ static class TattoosFeature
         var tree = PassivesFor(conn);
         if (TattooCatalogue.Find(name) is not { } entry) return $"no tattoo \"{name}\"";
         if (tree.Find(node) is not { } passive) return $"unknown passive {node}";
-        if (!conn.Passives.Contains(node)) return $"{passive.Name} ({node}) is not allocated";
+        if (!conn.Passives.Contains(node) && !conn.MainAscendancy.Allocated.Contains(node))
+            return $"{passive.Name} ({node}) is not allocated";
         if (!TargetMatches(passive, entry.Target)) return $"{entry.Name} replaces {entry.Target}, not {passive.Name} ({node})";
         if (conn.Tattoos.GetValueOrDefault(node) == entry.Name) return $"{passive.Name} ({node}) already has {entry.Name}";
-        if (TattooStats.For(entry.Name) is null) return $"{entry.Name} has no server effect yet";
+        bool forbidden = ForbiddenTattoo.IsForbidden(entry.Name);
+        if (!forbidden && TattooStats.For(entry.Name) is null) return $"{entry.Name} has no server effect yet";
         int totalLimit = ItemsFor(conn).Limits.Get("tattoo_total", SystemSettings.Default.TattooTotalLimit);
         if (!conn.Tattoos.ContainsKey(node) && totalLimit > 0 && conn.Tattoos.Count >= totalLimit)
             return $"a character can have at most {totalLimit} tattoos";
-        if (entry.EventOnly) return $"{entry.Name} is event-only and is not supported yet";
+        if (entry.EventOnly && !forbidden) return $"{entry.Name} is event-only and is not supported yet";
 
         var next = new Dictionary<ushort, string>(conn.Tattoos) { [node] = entry.Name };
         if (TattooLimitRefusal(next, node, entry, ItemsFor(conn).Limits) is { } limitError) return limitError;
         var nextKeystones = new Dictionary<ushort, ushort>(conn.TattooKeystones);
         bool journeyMakanui = entry.Name == "Journey Tattoo of Makanui";
         JourneyMakanuiCatalogue.Entry? chosen = null;
+        ushort? grantedNotable = null;
         if (journeyMakanui)
         {
             if (chosenKeystone is ushort requested)
@@ -42,6 +45,15 @@ static class TattoosFeature
             else chosen = JourneyMakanuiCatalogue.Pick(node);
             if (chosen is null) return "no random keystone available";
             nextKeystones[node] = chosen.GraphId;
+        }
+        else if (forbidden)
+        {
+            // "Grants a random <Class> Ascendancy Notable": one of the class's non-multiple-choice notables other than
+            // the replaced one and the character's other allocated notables (a duplicate would count its stats twice);
+            // the pick is saved so a relog cannot reroll it.
+            grantedNotable = ForbiddenTattoo.Pick(entry.Name, node, conn.MainAscendancy.Allocated);
+            if (grantedNotable is not ushort notable) return "no random ascendancy notable available";
+            nextKeystones[node] = notable;
         }
         else nextKeystones.Remove(node);
         var items = ItemsOf(conn);
@@ -76,7 +88,8 @@ static class TattoosFeature
         await SendCharacterStats(remote, stream, ciphers, conn, "tattoo");
         await SendPassives(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} tattoo {entry.Name} on {node} {passive.Name} ({conn.Tattoos.Count} applied" +
-            (chosen is { } chosenEntry ? $", keystone {chosenEntry.Name})" : ")"));
+            (chosen is { } chosenEntry ? $", keystone {chosenEntry.Name})"
+                : grantedNotable is ushort grantedId && tree.Find(grantedId) is { } granted ? $", notable {granted.Name})" : ")"));
         return null;
     }
 

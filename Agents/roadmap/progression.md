@@ -25,7 +25,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   removal. The
   five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. Next:
   the five rows that need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald
-  effect); the seven Forbidden ascendancy tattoos use a separate client flow. Also still open:
+  effect); the seven event-only Forbidden ascendancy tattoos are server-side complete (random class notable
+  saved in `TattooKeystones`, ascendancy-policy stats, `0x33` HASH16) and partial only on the client's separate
+  use flow. Also still open:
   replace/reallocation and the 50-tattoo cap.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),
