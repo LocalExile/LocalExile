@@ -5,17 +5,17 @@ using static Game;
 using static Program;
 
 /// <summary>The campaign Brine King. The map variants have separate encounters.</summary>
-static class BrineKing
+public static class BrineKing
 {
-    internal const string Boss = "Metadata/Monsters/BrineKing/BrineKing";
+    public const string Boss = "Metadata/Monsters/BrineKing/BrineKing";
     const string Wave = "Metadata/Effects/Spells/monsters_effects/act6/Brine_King/tidal_wave/tidal_wave";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act6/Brine_King/";
-    internal const int MeleeEffect = 406;
+    public const int MeleeEffect = 406;
     static readonly int[] Effects = [6354, 6359, 6670, 6668, 6361, MeleeEffect, 4365, 6759, 6761, 6360, 6355];
     static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
     static readonly ConditionalWeakTable<ClientState, Tide> Tides = new();
     // Row 856 is not IsRecovery: its GrantedStats do not travel in 0x1c1 (11-skills.md §12).
-    internal static byte[] TideBuff(uint player, ushort instance) => InstanceEntities.AddBuff(player, instance, 856);
+    public static byte[] TideBuff(uint player, ushort instance) => InstanceEntities.AddBuff(player, instance, 856);
     sealed class Tide
     {
         public bool Active;
@@ -109,7 +109,7 @@ static class BrineKing
     public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
         IsBoss(variety) ? variety.StateMachine?.Set("rock_mode", 1).Set("tide_rush", 0) : null;
 
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack)
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack)
     {
         if (!IsBoss(variety)) return null;
         var catalog = Game.SkillsFor(conn);
@@ -159,9 +159,9 @@ static class BrineKing
         finally { fight.Gate.Release(); }
     }
 
-    internal sealed class Fight
+    public sealed class Fight
     {
-        internal readonly SemaphoreSlim Gate = new(1);
+        public readonly SemaphoreSlim Gate = new(1);
         readonly uint id;
         readonly SpawnedMonster boss;
         readonly List<ClientState> players = [];
@@ -595,7 +595,7 @@ static class BrineKing
                     still: () => !stopped && !conn.Closed && !conn.LeavingArea && (!monster || Awake(conn)));
             }
         }
-        internal void Stop()
+        public void Stop()
         {
             stopped = true;
             Phases.DamageTakenPercent = 100;

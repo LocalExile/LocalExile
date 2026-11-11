@@ -18,7 +18,7 @@ using GameServer.Core;
 /// 5. In a map, the kill also rolls a base card and scarab chance; the card and scarab picks follow the published
 ///    weights (<c>drop_item_weights</c>, poedata MLE) when they cover the monster's level, and are uniform otherwise.
 /// </summary>
-sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool hardMode = false, AtlasCatalog? maps = null,
+public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string folder = "data", bool hardMode = false, AtlasCatalog? maps = null,
     UniqueCatalog? uniques = null, UniqueWeightProvider? uniqueWeights = null, LeagueRules? league = null)
 {
     readonly UniqueWeightProvider _uniqueWeightProvider = uniqueWeights ?? UniqueWeightProvider.Default;
@@ -55,7 +55,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
 
     // (BaseItemTypes Id, weight), each only from its own DropLevel: Scrolls of Wisdom most, then the basic orbs, down to the
     // Exalted and Divine Orbs and the Mirror of Kalandra.
-    internal static readonly (string Id, double Weight)[] Currency =
+    public static readonly (string Id, double Weight)[] Currency =
     [
         ("Metadata/Items/Currency/CurrencyIdentification", 1000), ("Metadata/Items/Currency/CurrencyPortal", 300),
         ("Metadata/Items/Currency/CurrencyUpgradeToMagic", 500), ("Metadata/Items/Currency/CurrencyArmourQuality", 450),
@@ -80,7 +80,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         ("Two Hand Sword", 2), ("Two Hand Axe", 2), ("Two Hand Mace", 2), ("Staff", 2), ("Warstaff", 1), ("Bow", 3), ("Quiver", 2.5),
         ("Ring", 3), ("Amulet", 1.5), ("Belt", 2.5),
     ];
-    internal static readonly HashSet<string> EquipmentClasses = [.. Slots.Select(s => s.Class)];
+    public static readonly HashSet<string> EquipmentClasses = [.. Slots.Select(s => s.Class)];
 
     // Bases that exist in the tables but never drop (event, league and test items) and carry no not_for_sale tag.
     static readonly string[] NotDropped = ["Royale", "Demigod", "Talisman", "Breach", "Synthesis", "Fishing", "Test", "Unarmed", "Atlas",
@@ -324,6 +324,23 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
         ("Metadata/Items/DivinationCards/DivinationCardTheEndlessDarkness", 0.15),
     ];
 
+    public IReadOnlyList<Drop> EncounterJewels(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot data)
+    {
+        if (uniques is null || data.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
+        var result = new List<Drop>();
+        foreach (var row in data.BossItems.Values)
+        {
+            if (row.BossId != bossId || row.ItemKind != "unique" || (row.OverrideChance ?? row.Chance) is not (> 0 and <= 1 and var chance))
+                continue;
+            if (uniques.Find(row.ItemId) is not { EncounterOnly: true } definition || definition.Name != row.ItemId
+                || random.NextDouble() >= chance || uniques.Create(definition, random) is not { } jewel
+                || catalog.ByHash(jewel.TypeHash) is not { } type) continue;
+            byte itemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(MonsterRarity.Unique), 1, 100);
+            result.Add(new(jewel with { Identified = false, ItemLevel = itemLevel }, type));
+        }
+        return result;
+    }
+
     /// <summary>The King in the Mists' guaranteed unique, then its support gems and card. Corpse items (the 50% roll)
     /// are not modelled yet: the item system has no itemised-corpse consumer.</summary>
     public IReadOnlyList<Drop> KingInMists(int level, Random rng)
@@ -433,6 +450,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
             var byBase = new Dictionary<string, List<UniqueCatalog.Definition>>(StringComparer.Ordinal);
             foreach (var definition in all)
             {
+                if (definition.EncounterOnly) continue;
                 if (!byBase.TryGetValue(definition.BaseTypeId, out var list)) byBase[definition.BaseTypeId] = list = [];
                 list.Add(definition);
             }
@@ -444,7 +462,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
 
     /// <summary>One of a base's uniques by weight, or null. The weights are absolute: while a base's add up to less than 1
     /// the rest is no unique, so a base whose only unique is a Mageblood still gives one seldom.</summary>
-    internal UniqueCatalog.Definition? PickUnique(IReadOnlyList<UniqueCatalog.Definition> candidates, Random rng)
+    public UniqueCatalog.Definition? PickUnique(IReadOnlyList<UniqueCatalog.Definition> candidates, Random rng)
     {
         double pick = rng.NextDouble() * Math.Max(1, candidates.Sum(d => UniqueWeight(d.Name)));
         foreach (var definition in candidates)
@@ -461,7 +479,7 @@ sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, string fold
     /// Wanderlust 1.06, Kaom's Heart 43, Mageblood 891. The table leaves out old names and some non-equipment; those do not
     /// drop. The Gateway publishes the seeded/overridden weights through <see cref="UniqueWeightProvider"/>; without a
     /// reference table the extracted JSON is the fallback and every unique weighs 1.</summary>
-    internal double UniqueWeight(string name) =>
+    public double UniqueWeight(string name) =>
         _uniqueWeightProvider.HasTable
             ? _uniqueWeightProvider.Weight(name, hardMode)
             : _uniqueWeightsFile.Value is { Count: > 0 } weights ? weights.GetValueOrDefault(UniqueCatalog.NameKey(name)) : 1;

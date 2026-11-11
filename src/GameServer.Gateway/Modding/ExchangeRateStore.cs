@@ -1,8 +1,8 @@
 using GameServer.Core.Trade;
 
-/// <summary>What a mod gives the Currency Exchange: how it trades (<c>IModContext.UseExchangeOptions</c>) and the rates (<c>PublishExchangeRates</c>), saved in
+/// <summary>What a mod gives the Currency Exchange: how it trades (<see cref="Use(string, ExchangeOptions)"/>) and the rates (<see cref="Publish"/>), saved in
 /// <see cref="File"/> for the module to read. The Gateway itself contacts nothing for them.</summary>
-static class ExchangeRateStore
+public static class ExchangeRateStore
 {
     public const string File = "data/currency-exchange-rates.json";
 
@@ -12,16 +12,19 @@ static class ExchangeRateStore
         public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
     }
 
-    static readonly List<GameServer.Modding.ExchangeOptions> Asked = [];
-    static readonly GameServer.Modding.ExchangeOptions Defaults = new();
+    static readonly List<ExchangeOptions> Asked = [];
+    static readonly ExchangeOptions Defaults = new();
 
     /// <summary>How the exchange trades, as the mod chose; the last one asked wins, so a reloading mod's new choice stands.</summary>
-    public static GameServer.Modding.ExchangeOptions Options
+    public static ExchangeOptions Options
     {
         get { lock (Asked) return Asked.Count == 0 ? Defaults : Asked[^1]; }
     }
 
-    public static IDisposable Use(GameServer.Modding.ExchangeOptions options)
+    /// <summary>The Currency Exchange trades by these options until the handle is disposed or its owner unloads.</summary>
+    public static IDisposable Use(string owner, ExchangeOptions options) => GameEventOwners.Own(owner, Use(options));
+
+    public static IDisposable Use(ExchangeOptions options)
     {
         lock (Asked) Asked.Add(options);
         return new Undo(() =>

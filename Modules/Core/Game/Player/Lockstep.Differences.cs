@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Login;
 
 // Where serving lockstep differs from GGG's server, each on purpose and each with its reason. Lockstep.cs holds what
 // follows GGG; 07 §6 lists these.
-static partial class Game
+public static partial class Game
 {
     // Differs from GGG: its server steps its world in frames, so a frame is a tick of the simulation. Ours walks on the
     // clock, so frames are laid over it: frame n ends n × FrameMs after the first, and a frame missed by a late timer goes
@@ -15,7 +15,7 @@ static partial class Game
     // Differs from GGG: it never sends 0x2b8 (14 236 frames) and relies on the client's default, which is not traced; ours
     // says the length it paces by. Every connection runs these frames: the client alone picks its Network Mode, and a
     // predictive one ignores 0x2b7 (07 §6).
-    internal static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static async Task RunLockstepFrames(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         try
         {
@@ -116,7 +116,7 @@ static partial class Game
     // Differs from GGG: its server steps by frames and so can know the frame the client was on; a lockstep request carries
     // no frame here, so this estimates it. The client runs a round trip and about two frames behind the server (160 to
     // 220 ms at 100 ms, 66 to 100 ms on loopback), and its offsets are from the cell it had then. Called under conn.Monsters.
-    internal static (int X, int Y) LockstepClientCell(ClientState conn, double now)
+    public static (int X, int Y) LockstepClientCell(ClientState conn, double now)
     {
         double lowest = conn.LockstepLatency.Lowest;
         double when = now - ((double.IsNaN(lowest) ? 0 : lowest / 1000) + 2d * FrameMs / 1000);
@@ -153,7 +153,7 @@ static partial class Game
     }
 
     // The client's answer to 0x194: readAt is when its bytes reached the socket, so handlers running late do not count.
-    internal static void AnswerLockstepProbe(string remote, ClientState conn, long readAt)
+    public static void AnswerLockstepProbe(string remote, ClientState conn, long readAt)
     {
         long sent = Interlocked.Exchange(ref conn.LockstepProbeSentAt, 0);
         if (sent != 0) conn.LockstepLatency.Add(Stopwatch.GetElapsedTime(sent, readAt).TotalMilliseconds);

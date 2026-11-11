@@ -3,7 +3,7 @@
 /// unconditional stats (resistances, defences, movement and a few global damage values). The remaining catalogue
 /// entries need their condition/special consumers before they can be listed here.
 /// </summary>
-static class TattooStats
+public static class TattooStats
 {
     public static IReadOnlyDictionary<string, (string Stat, int Value)[]> Entries => GameDataCatalog.TattooEffects;
 

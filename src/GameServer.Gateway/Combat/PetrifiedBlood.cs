@@ -2,7 +2,7 @@
 /// prevents a share of the life loss a hit would deal below half Life, then loses part of that prevented amount over
 /// four seconds. The state keeps each hit's deferred loss as its own four-second segment, so overlapping hits add their
 /// rates instead of refreshing one shared pool.</summary>
-sealed class PetrifiedBloodState
+public sealed class PetrifiedBloodState
 {
     public bool Active { get; private set; }
     public ushort SkillId { get; private set; }
@@ -141,7 +141,7 @@ sealed class PetrifiedBloodState
 /// calculations. The effect prevents 40% of the life loss a hit deals below half Life; the gem's level decides how
 /// much of that prevented amount is lost over four seconds (100% at level 1, 81% at level 20, less with quality). The
 /// rest is permanent mitigation. Hits only: damage over time and life loss already owed are not protected.</summary>
-static class PetrifiedBlood
+public static class PetrifiedBlood
 {
     public const string EffectId = "PetrifiedBlood";
 

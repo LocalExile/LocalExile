@@ -2,7 +2,7 @@ using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
 /// <summary>Native ItemCosts, selected by item level and rarity; explicit prices remain authoritative.</summary>
-sealed class VendorPrices
+public sealed class VendorPrices
 {
     sealed class Modes(ItemCatalog items)
     {

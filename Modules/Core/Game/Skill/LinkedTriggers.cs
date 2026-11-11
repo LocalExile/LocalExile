@@ -1,16 +1,16 @@
 using System.Runtime.CompilerServices;
 
-static partial class Game
+public static partial class Game
 {
-    internal sealed record LinkedSpell(ushort Skill, SupportedGem Gem);
-    internal sealed record LinkedTriggerSource(ushort Skill, SupportedGem Gem, LinkedSpell[] Spells,
+    public sealed record LinkedSpell(ushort Skill, SupportedGem Gem);
+    public sealed record LinkedTriggerSource(ushort Skill, SupportedGem Gem, LinkedSpell[] Spells,
         int Epoch, object? Rules);
     sealed class LinkedTriggerState(int epoch, object? rules)
     {
-        internal readonly int Epoch = epoch;
-        internal readonly object? Rules = rules;
-        internal readonly Dictionary<int, double> ReadyAt = [];
-        internal readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
+        public readonly int Epoch = epoch;
+        public readonly object? Rules = rules;
+        public readonly Dictionary<int, double> ReadyAt = [];
+        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
     }
     static readonly ConditionalWeakTable<ClientState, LinkedTriggerState> LinkedTriggers = new();
     static LinkedTriggerState LinkedTriggersOf(ClientState conn)
@@ -28,7 +28,7 @@ static partial class Game
         && !conn.Closed && !conn.LeavingArea && conn.PendingTransfer is null && !conn.Paused && conn.PlayerLife > 0
         && SameTriggerSource(source.Gem, SupportedSkill(conn, source.Skill));
 
-    internal static LinkedTriggerSource? CaptureCriticalTriggerSource(ClientState conn, ushort skill)
+    public static LinkedTriggerSource? CaptureCriticalTriggerSource(ClientState conn, ushort skill)
     {
         var gem = SupportedSkill(conn, skill);
         if (!SkillsFor(conn).IsAttack(gem.Effect) || gem.SourceGem is null || PlacedKind(gem) is not (false, false)
@@ -44,7 +44,7 @@ static partial class Game
                     && source.Supports.Any(driver => driver.Gem.Socket == trigger.Gem.Socket && SupportHas(driver, sourceFlag))))];
 
     // Called only after attack accuracy, block and critical confirmation, including lethal critical hits.
-    internal static bool ReleaseCriticalTrigger(ClientState conn, ProjectileSession session, LinkedTriggerSource? source,
+    public static bool ReleaseCriticalTrigger(ClientState conn, ProjectileSession session, LinkedTriggerSource? source,
         bool critical, bool hostile, (int X, int Y) aim, double at)
     {
         if (!critical || !hostile || source is null || !LinkedSourceCurrent(conn, source) || !session.Active) return false;

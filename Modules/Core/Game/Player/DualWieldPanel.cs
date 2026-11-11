@@ -7,7 +7,7 @@ using GameServer.Core.World;
 /// two weapon passes (<c>combineStat(..., "AVERAGE")</c>): each hand's own critical-weighted average hit and its own
 /// attack rate, averaged. With one hand the rows are that hand's (<see cref="SkillCatalog.Unarmed.Stats"/>).
 /// </summary>
-static class DualWieldPanel
+public static class DualWieldPanel
 {
     /// <summary><paramref name="damageFactor"/> weights the main hand's hits (critical chance and multiplier, chance to
     /// hit); <paramref name="offDamageFactor"/> the off hand's own, which differ when the weapons' local critical or

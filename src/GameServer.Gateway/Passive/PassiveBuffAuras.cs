@@ -24,7 +24,7 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// pulse, Chieftain's while stationary) and are not applied.</item>
 /// </list>
 /// </summary>
-static class PassiveBuffAuras
+public static class PassiveBuffAuras
 {
     /// <summary>A passive's buff: its BuffTemplates row and Id, BuffDefinitions row, radius (cells, 0 on the player),
     /// whom it affects (<c>__col4</c>) and its stats.</summary>
@@ -46,7 +46,7 @@ static class PassiveBuffAuras
     ];
 
     /// <summary>The passive blind aura: every enemy in it is Blinded (Game.Blinded).</summary>
-    internal const string BlindTemplate = "SaboteurBlind";
+    public const string BlindTemplate = "SaboteurBlind";
 
     // On the player and his allies within the radius.
     static readonly HashSet<string> AllyAuraTemplates =
@@ -69,26 +69,26 @@ static class PassiveBuffAuras
         [.. nodes.SelectMany(n => (ruthless ? ruthlessAuras : normal).Value.GetValueOrDefault(n) ?? []).DistinctBy(a => a.Template)];
 
     /// <summary>The enemy auras of these nodes the server applies.</summary>
-    internal static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
+    public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
         [.. For(nodes, ruthless).Where(acts)];
 
     /// <summary>Whether this enemy aura is applied by name (not by its stats).</summary>
-    internal static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template);
+    public static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template);
 
     /// <summary>The player-and-ally auras of these nodes the server applies.</summary>
-    internal static IReadOnlyList<Aura> AllyAurasFor(IEnumerable<ushort> nodes, bool ruthless) =>
+    public static IReadOnlyList<Aura> AllyAurasFor(IEnumerable<ushort> nodes, bool ruthless) =>
         [.. For(nodes, ruthless).Where(a => a.Radius > 0 && AllyAuraTemplates.Contains(a.Template)
             && a.Targets.SequenceEqual([PlayerTarget, AlliesTarget]))];
 
     /// <summary>The self buffs of these nodes the server applies.</summary>
-    internal static IReadOnlyList<Aura> SelfBuffsFor(IEnumerable<ushort> nodes, bool ruthless) =>
+    public static IReadOnlyList<Aura> SelfBuffsFor(IEnumerable<ushort> nodes, bool ruthless) =>
         [.. For(nodes, ruthless).Where(a => a.Radius == 0 && SelfBuffTemplates.Contains(a.Template))];
 
     /// <summary>The largest blind radius of these auras, or null without one.</summary>
     public static int? BlindRadius(IEnumerable<Aura> auras) =>
         auras.Where(a => a.Template == BlindTemplate && a.Enemies && a.Radius > 0).Select(a => (int?)a.Radius).Max();
 
-    internal static Dictionary<uint, int> WithSelfBuffs(Dictionary<uint, int> stats, IEnumerable<ushort> nodes, bool ruthless)
+    public static Dictionary<uint, int> WithSelfBuffs(Dictionary<uint, int> stats, IEnumerable<ushort> nodes, bool ruthless)
     {
         foreach (var buff in SelfBuffsFor(nodes, ruthless))
             foreach (var (key, value) in buff.Stats)
@@ -98,7 +98,7 @@ static class PassiveBuffAuras
 
     /// <summary>The 0x1c1/0x1c2 that bring the player's published self buffs to the allocated ones, or null. Run at the
     /// send gate; a new area's connection starts with none, so area entry publishes them again.</summary>
-    internal static byte[]? Presentation(ClientState conn)
+    public static byte[]? Presentation(ClientState conn)
     {
         lock (conn.Monsters)
         {

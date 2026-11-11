@@ -206,6 +206,15 @@ level the character does not meet still shows the "+", and the click is answered
 2026-10-23: Fireball at level 9 with the experience one below level 10 on a character set to level 31, level 10 needing
 32; then with 70 Int, level 10 needing 75). A gem lying in the inventory, not in a socket, sent nothing in the captures.
 
+**Level Up All** is C→S 0x32, the id alone (2 bytes, captured 2026-11-09): it names no gem, so the server levels every
+socketed gem in the equipment rows (both weapon sets) whose experience has reached the stall point — the state the client's
+`0x142479880` draws the "+" for — one level, with the same rules as the single click. A locked gem, one at its highest
+level and one whose next level's requirements the character does not meet are skipped without affecting the others. Each
+changed item is replaced (0xbf, one per row) and the skills are re-sent once, so the client derives the levels and drops
+the prompts. Only this message levels the batch: gaining experience, logging in, changing area and opening the inventory
+never do. A gem lying in the main inventory is not covered (its "+" sent nothing in the captures, and the message carries
+no target).
+
 The lock: a right-click on a socketed gem sends C→S 0xd7 (15 bytes): the same three u32s and a u8, 1 to lock and 0 to
 unlock. The client keeps the lock in the SkillGem flags +0x10 bit 2 — its level-up check `0x142479880` returns false
 when the bit is set, so the "+" goes away — and the server writes the bit into the item (`GemFlags`) and saves it, so

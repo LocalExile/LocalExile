@@ -7,7 +7,7 @@ using System.Text;
 /// a handler error or a connection that breaks prints the last ones to the log, Game_PACKET_DUMPS=&lt;folder&gt; (live.ps1
 /// sets logs\packets) writes all of them to a file at every disconnect, and /lastpackets prints them on demand.
 /// </summary>
-sealed class PacketHistory
+public sealed class PacketHistory
 {
     public const int Capacity = 256;
     // Bytes kept per message: the id and the fields after it, enough to tell most messages apart without a full copy.

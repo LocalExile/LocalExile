@@ -6,7 +6,7 @@
 /// <summary>The non-radius unique jewels: base type and mod HASH16s. Global entries are unconditional;
 /// Special entries are item sources whose mechanic remains partial/inert. The unique art of every jewel is
 /// in <see cref="UniqueJewelVisuals"/>.</summary>
-static class UniqueJewelCatalogue
+public static class UniqueJewelCatalogue
 {
     public sealed record Entry(string Name, string Base, bool Corrupted, int Level,
         string[] Mods, int?[] Values);

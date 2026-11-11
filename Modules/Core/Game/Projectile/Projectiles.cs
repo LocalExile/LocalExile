@@ -6,23 +6,23 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
-static partial class Game
+public static partial class Game
 {
     // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
     // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
-    internal static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
+    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
 
-    internal static byte[] CreateEffectObject(uint id, EffectObject effect) =>
+    public static byte[] CreateEffectObject(uint id, EffectObject effect) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
 
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
-    internal sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
+    public sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
-        internal readonly string remote;
-        internal readonly NetworkStream stream;
-        internal readonly ConnectionCiphers ciphers;
-        internal readonly ClientState Conn;
+        public readonly string remote;
+        public readonly NetworkStream stream;
+        public readonly ConnectionCiphers ciphers;
+        public readonly ClientState Conn;
         readonly int epoch;
         readonly Channel<Func<Task>> output = Channel.CreateBounded<Func<Task>>(
             new BoundedChannelOptions(8192) { SingleReader = true, SingleWriter = false, FullMode = BoundedChannelFullMode.Wait });
@@ -135,7 +135,7 @@ static partial class Game
             }
         }
 
-        internal void Enqueue(Func<Task> intent)
+        public void Enqueue(Func<Task> intent)
         {
             lock (Conn.Monsters)
             {
@@ -145,15 +145,15 @@ static partial class Game
                 Conn.Closed = true; Invalidate(); stream.Close();
             }
         }
-        internal void PresentCharges() => Packet(() =>
+        public void PresentCharges() => Packet(() =>
         {
             _ = CharacterPlayerStats(Conn);
             var (packet, changed) = CurrentChargePresentationLocked(Conn, remote);
             if (changed) Conn.Minions.StatRevision++;
             return packet;
         });
-        internal void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
-        internal void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
+        public void Packet(byte[] bytes, string? log = null) => Packet(() => bytes, log);
+        public void Packet(Func<byte[]?> snapshot, string? log = null) => Enqueue(async () =>
         {
             while (Active)
             {
@@ -201,7 +201,7 @@ static partial class Game
 
         /// <summary>The actor key a monster has in this session's world: a monster's own shot names it as owner, so its
         /// flight never contacts the monster itself.</summary>
-        internal ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
+        public ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
 
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
@@ -332,6 +332,7 @@ static partial class Game
             if (hit is null) return ProjectileHitResult.Miss;
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
+            else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -384,11 +385,11 @@ static partial class Game
                     spawn ? presentation.SpawnAnimationValue : 0, spawn ? presentation.SpawnAnimatedId : 0);
             }
             // The client draws its own primary projectiles of a skill use; the server still simulates them (contacts,
-            // areas and continuation children, which do get objects).
+            // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
-            if (value.Kind == ProjectileEventKind.Spawn && p.ParentId == 0
-                && p.Use.Payload is ProjectileOffense primary
-                && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect))) return;
+            if (value.Kind == ProjectileEventKind.Spawn && p.Use.Payload is ProjectileOffense primary
+                && ((p.ParentId == 0 && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Conn).EffectId(primary.Effect)))
+                    || (primary.ClientPredicted && p.Profile.HidePredictedVisual))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
@@ -609,7 +610,7 @@ static partial class Game
                     : [.. startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), .. move];
             });
         }
-        internal static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
+        public static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
         static string? PayloadLabel(object? payload) => payload switch
         {
             ProjectileOffense offense => offense.Label,
@@ -621,7 +622,7 @@ static partial class Game
         static bool Quiet(object? payload) => payload is ObjectProjectileOffense { Quiet: true };
     }
 
-    internal static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    public static ProjectileSession ProjectilesFor(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -634,15 +635,15 @@ static partial class Game
         }
     }
 
-    internal static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
+    public static void AdvanceProjectiles(ClientState conn) => conn.ProjectileRuntime?.Advance();
 
     // Advance and replace actor motion/life in the same critical section. A flush followed by a separate
     // Monsters lock leaves a race in which the pump can consume the replacement as historical movement.
-    internal static IDisposable ProjectileMutation(ClientState conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
-    internal static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
+    public static IDisposable ProjectileMutation(ClientState conn, bool advance = true, string? phase = null) => new ProjectileMutationScope(conn, advance, phase);
+    public static double ProjectileWorldTime(ClientState conn) => conn.ProjectileRuntime is { Active: true } session
         ? session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond : conn.Clock.Elapsed.TotalSeconds;
 
-    internal sealed class ProjectileMutationScope : IDisposable
+    public sealed class ProjectileMutationScope : IDisposable
     {
         readonly System.Threading.Lock experience;
         readonly ConnectionPerformance.LockScope actorLock;

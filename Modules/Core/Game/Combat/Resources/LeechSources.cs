@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>Per-type leech coefficients from raw sources. Panel scopes overlap and are never inputs here.</summary>
-sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
+public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePacket EnergyShield)
 {
     public bool Attack { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a

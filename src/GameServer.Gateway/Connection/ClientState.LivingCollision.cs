@@ -1,6 +1,6 @@
 using GameServer.Core.World;
 
-sealed partial class ClientState
+public sealed partial class ClientState
 {
     readonly Dictionary<uint, (SpawnedMonster Monster, ClientPathfinder.Blocker Body)> corpseBodies = [];
 

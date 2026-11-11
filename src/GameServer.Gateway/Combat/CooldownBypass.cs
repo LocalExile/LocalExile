@@ -6,9 +6,21 @@
 /// (<c>current_removable_*_charges</c>, <c>0x141ea4560</c>) and spends one (<c>0x141ea4290</c>); the cooldown goes
 /// on as it was.
 /// </summary>
-static class CooldownBypass
+public static class CooldownBypass
 {
     public const string PowerOverride = "active_skill_cooldown_bypass_type_override_to_power_charge";
+
+    /// <summary>The character's stat that makes Flicker Strike and Vigilant Strike bypass with Power Charges instead
+    /// of Frenzy or Endurance Charges (a Crucible weapon passive). The client reads only <see cref="PowerOverride"/> on
+    /// the skill (<c>0x141ea4290</c>), so the server sends it there.</summary>
+    public const string FlickerVigilantPowerOverride = "vigilant_and_flicker_strike_active_skill_cooldown_bypass_type_override_to_power_charge";
+
+    /// <summary>Whether <see cref="FlickerVigilantPowerOverride"/> turns this skill's bypass into a Power Charge: Flicker
+    /// Strike, Vigilant Strike and their transfigured gems, whose bypass is Endurance or Frenzy (not Vaal Flicker Strike
+    /// nor the variants without one).</summary>
+    public static bool FlickerVigilantOverride(string? effectId, int bypassType) =>
+        bypassType is 1 or 2 && effectId is not null
+        && (effectId.StartsWith("FlickerStrike", StringComparison.Ordinal) || effectId.StartsWith("VigilantStrike", StringComparison.Ordinal));
 
     public static ChargeType? Charge(int bypassType, bool overrideToPower) =>
         overrideToPower ? ChargeType.Power : bypassType switch

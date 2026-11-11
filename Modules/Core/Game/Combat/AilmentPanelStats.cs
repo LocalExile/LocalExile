@@ -22,7 +22,7 @@ using GameServer.Core.World;
 /// The "from only Chaos Damage" poison rows (<c>_to_always_deal_</c>) show the poison the chaos portion alone deals,
 /// when a "Chaos Damage has a chance to Poison" source is present.
 /// </summary>
-static class AilmentPanelStats
+public static class AilmentPanelStats
 {
     /// <summary>The hit's context: which rows it fills (<paramref name="Hand"/>: main_hand, off_hand, spell,
     /// secondary), whether it is a spell and whether it is a melee hit.</summary>

@@ -8,7 +8,7 @@ using GameServer.Core;
 /// in memory per character name and saved after every change (<see cref="CharacterSaves"/>, data/saves/), so they follow
 /// the player through area changes and Gateway restarts.
 /// </summary>
-sealed class PlayerInventories
+public sealed class PlayerInventories
 {
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Gloves = 8,
         Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14, Offhand2 = 15, CraftingBench = 16,
@@ -18,8 +18,8 @@ sealed class PlayerInventories
 
     // Persistent gem edits replace immutable records without replacing the physical socketed gem.
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, object> GemIdentities = new();
-    internal static object GemIdentity(Item gem) => GemIdentities.GetValue(gem, _ => new());
-    internal static Item PreserveGemIdentity(Item before, Item after)
+    public static object GemIdentity(Item gem) => GemIdentities.GetValue(gem, _ => new());
+    public static Item PreserveGemIdentity(Item before, Item after)
     {
         if (!ReferenceEquals(before, after)) GemIdentities.Add(after, GemIdentity(before));
         return after;
@@ -309,7 +309,7 @@ sealed class PlayerInventories
             why = "";
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
-            if (shapeOf(held.Item)?.Class is not ("Active Skill Gem" or "Support Skill Gem")) { why = "the held item is not a gem"; return null; }
+            var heldClass = shapeOf(held.Item)?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -317,6 +317,12 @@ sealed class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
+            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
+                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                return null;
+            }
             var old = sockets[socket].Gem;
             sockets[socket] = sockets[socket] with { Gem = held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
@@ -365,7 +371,7 @@ sealed class PlayerInventories
     public IReadOnlyList<(uint ItemId, Item Gem)> SocketedGemsByItem() => [.. SocketedGemPlaces().Select(g => (g.ItemId, g.Gem))];
 
     // Immutable item records from ONE inventory read, including attribute gear and all active socket hosts.
-    internal IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
+    public IReadOnlyList<(byte Row, InventoryItem Item)> EquipmentSnapshot()
     {
         lock (_lock)
             return [.. ItemModStats.EquipmentRows.SelectMany(row =>
@@ -382,7 +388,7 @@ sealed class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem)).Where(g => g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
     }
 
@@ -407,7 +413,7 @@ sealed class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket].Gem is { } gem && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
@@ -834,10 +840,10 @@ sealed class PlayerInventories
     }
 
     /// <summary>Forgets the character's loaded items: the next use loads them from the database (tests: a restart).</summary>
-    internal static void Forget(string character) => ByCharacter.TryRemove(character, out _);
+    public static void Forget(string character) => ByCharacter.TryRemove(character, out _);
 
     // A confirmed build replacement retires old references, including the periodic unsaved-items writer.
-    internal static void Invalidate(string character)
+    public static void Invalidate(string character)
     {
         if (ByCharacter.TryRemove(character, out var old)) old._stale = true;
     }

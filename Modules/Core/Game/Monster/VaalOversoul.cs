@@ -6,11 +6,11 @@ using static Game;
 using static Program;
 
 /// <summary>The Act 2 encounter; the Atziri, map and Machinarium actors have different skills.</summary>
-static class VaalOversoul
+public static class VaalOversoul
 {
-    internal const string Boss = "Metadata/Monsters/IncaShadowBoss/BossIncaShadow", Area = "1_2_14_3";
-    internal static readonly string AltarUsed = Quests.InstanceFlag("VaalAltarUsed"), Defeated = Quests.InstanceFlag("VaalOversoulDefeated");
-    internal const int Slam = 1118, Summon = 1122, Laser = 1125, Travel = 1130, Ice = 1132, Cold = 1135, Rocks = 1137, RockHit = 1139;
+    public const string Boss = "Metadata/Monsters/IncaShadowBoss/BossIncaShadow", Area = "1_2_14_3";
+    public static readonly string AltarUsed = Quests.InstanceFlag("VaalAltarUsed"), Defeated = Quests.InstanceFlag("VaalOversoulDefeated");
+    public const int Slam = 1118, Summon = 1122, Laser = 1125, Travel = 1130, Ice = 1132, Cold = 1135, Rocks = 1137, RockHit = 1139;
     static readonly int[] Effects = [Rocks, Ice, Travel, Slam, Summon, Laser, RockHit, Cold];
     const string Art = "Metadata/Effects/Spells/monsters_effects/act2/inca_boss/";
     static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
@@ -19,8 +19,8 @@ static class VaalOversoul
     sealed class GroundExposure { public double Dps; }
     public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
-    internal static int Level(SkillCatalog catalog, int effect, int monsterLevel) => catalog.MaxLevelAt(effect, monsterLevel);
-    internal static int Stat(ClientState conn, int effect, int level, string name)
+    public static int Level(SkillCatalog catalog, int effect, int monsterLevel) => catalog.MaxLevelAt(effect, monsterLevel);
+    public static int Stat(ClientState conn, int effect, int level, string name)
     {
         var catalog = Game.SkillsFor(conn);
         var values = SkillStats.GetValue(catalog, _ => new()).GetOrAdd((effect, level), pair =>
@@ -45,7 +45,7 @@ static class VaalOversoul
             seconds /= 1 + Stat(conn, effect, level, "active_skill_cast_speed_+%_final") / 100d;
         return new(Skill(effect), seconds, 105, effect is Travel or Ice ? DamagePacket.Empty : damage) { Spell = true, Scripted = true };
     }
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety v, byte level)
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety v, byte level)
     {
         if (!IsBoss(v)) return null;
         var catalog = Game.SkillsFor(conn);
@@ -57,7 +57,7 @@ static class VaalOversoul
             return catalog.FindByRow(Skill(effect), effect, Level(catalog, effect, level), Game.WithBehaviourVariation(conn, effect, stats));
         }).OfType<GrantedSkill>()];
     }
-    internal static void LaserShock(ClientState conn, SpawnedMonster m, MonsterAttack attack, DamagePacket taken, bool blocked, double now,
+    public static void LaserShock(ClientState conn, SpawnedMonster m, MonsterAttack attack, DamagePacket taken, bool blocked, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         if (!IsBoss(m.Variety) || attack.SkillId != Skill(Laser) || blocked || conn.PlayerLife == 0 || InGracePeriod(conn)) return;
@@ -65,7 +65,7 @@ static class VaalOversoul
         double magnitude = 50 * Math.Pow(taken[DamageType.Lightning].Min / Math.Max(1, conn.PlayerMaxLife), .4);
         conn.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Shock, magnitude, 4, now, Get, conn.IncomingHitRandom);
     }
-    internal static bool CannotCrit(SpawnedMonster m, MonsterAttack attack) => IsBoss(m.Variety) && attack.SkillId == Skill(Slam);
+    public static bool CannotCrit(SpawnedMonster m, MonsterAttack attack) => IsBoss(m.Variety) && attack.SkillId == Skill(Slam);
 
     public static async Task Tick(ClientState conn)
     {
@@ -96,7 +96,7 @@ static class VaalOversoul
 
     sealed class Fight
     {
-        internal readonly SemaphoreSlim Gate = new(1);
+        public readonly SemaphoreSlim Gate = new(1);
         readonly uint id;
         readonly SpawnedMonster boss;
         readonly (int X, int Y) centre;
@@ -449,9 +449,9 @@ static class VaalOversoul
     }
 }
 
-static partial class Game
+public static partial class Game
 {
-    internal static void VaalGroundMinionsLocked(ClientState conn, double now, double rawDps,
+    public static void VaalGroundMinionsLocked(ClientState conn, double now, double rawDps,
         Func<(int X, int Y), bool> inside, Dictionary<uint, double> carry)
     {
         foreach (var g in conn.Golems.All.Values.Concat(conn.Reservations.Fighters.Values).ToArray())

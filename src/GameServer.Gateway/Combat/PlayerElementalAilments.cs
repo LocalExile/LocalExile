@@ -2,12 +2,12 @@ using GameServer.Core.World;
 
 /// <summary>Incoming ordinary monster-hit ailments. Connection-local, guarded by Monsters, on its pauseable clock.
 /// Alternative ailments require an explicit source and are not substituted for the ordinary ailments here.</summary>
-sealed class PlayerElementalAilments
+public sealed class PlayerElementalAilments
 {
     // Target Metadata/Monsters/Monster.ot: critical_ailment_dot_multiplier_+ = 30.
     // Character.ot's +50 belongs to player ailments, not this incoming monster consumer.
-    internal const double MonsterCriticalAilmentMultiplier = 1.3;
-    internal enum Kind { Ignite, Chill, Freeze, Shock }
+    public const double MonsterCriticalAilmentMultiplier = 1.3;
+    public enum Kind { Ignite, Chill, Freeze, Shock }
     // Source: the monster whose hit inflicted it, for damage taken from that enemy (an ignite from a Blinded one).
     sealed record Effect(Kind Kind, double From, double Until, double Magnitude, uint? Source = null);
     readonly List<Effect> effects = [];
@@ -98,15 +98,21 @@ sealed class PlayerElementalAilments
             // Changing Seasons (all_damage_taken_can_chill): every type of the hit's damage counts toward its chill.
             double chilling = get("all_damage_taken_can_chill") != 0 ? taken.MinTotal / maxLife : cold;
             double chill = Math.Min(30, Math.Floor(50 * Math.Pow(chilling, .4)
-                * Math.Max(0, 1 + get("chill_effectiveness_on_self_+%") / 100.0)));
+                * Math.Max(0, 1 + EffectOnSelfPct(Kind.Chill, get) / 100.0)));
             if (chill >= 5) Add(Kind.Chill, chill, 2);
             if (!critical) return;
             Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
             double shock = Math.Min(50, Math.Floor(50 * Math.Pow(lightning, .4)
-                * Math.Max(0, 1 + get("shocked_effect_on_self_+%") / 100.0)));
+                * Math.Max(0, 1 + EffectOnSelfPct(Kind.Shock, get) / 100.0)));
             if (shock >= 5) Add(Kind.Shock, shock, 2);
         }
     }
+
+    // The increased effect of a chill or shock on the player: its own stat plus the non-damaging ailments' one
+    // (chill and shock are non-damaging ailments, ReminderTextNonDamagingAilments), which the two add to.
+    static int EffectOnSelfPct(Kind kind, Func<string, int> get) =>
+        get(kind == Kind.Chill ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%")
+        + get("non_damaging_ailment_effect_+%_on_self");
 
     void AddLocked(Kind kind, double magnitude, double seconds, double now, Func<string, int> get, Random random,
         uint? source = null)
@@ -125,8 +131,8 @@ sealed class PlayerElementalAilments
         {
             Reconcile(get);
             if (kind is Kind.Chill or Kind.Shock)
-                magnitude = Math.Min(kind == Kind.Chill ? 30 : 50, Math.Floor(magnitude * Math.Max(0, 1 + get(kind == Kind.Chill
-                    ? "chill_effectiveness_on_self_+%" : "shocked_effect_on_self_+%") / 100.0)));
+                magnitude = Math.Min(kind == Kind.Chill ? 30 : 50,
+                    Math.Floor(magnitude * Math.Max(0, 1 + EffectOnSelfPct(kind, get) / 100.0)));
             if (kind is not (Kind.Chill or Kind.Shock) || magnitude >= 5) AddLocked(kind, magnitude, seconds, now, get, random);
         }
     }

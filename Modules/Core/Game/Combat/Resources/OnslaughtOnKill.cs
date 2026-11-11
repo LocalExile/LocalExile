@@ -12,9 +12,11 @@ using GameServer.Core.World;
 /// and a gain never shortens the Onslaught running.
 /// The stats apply while the client has been told (<see cref="Applied"/>), so both switch together.
 /// </summary>
-sealed class KillOnslaught
+public sealed class KillOnslaught
 {
     public IReadOnlyList<(int Chance, double Seconds)> Rolls = [];
+    // "You gain Onslaught for 4 seconds on Hit" (gain_onslaught_on_hit_duration_ms): every hit, no roll.
+    public int HitMs;
     public double Until = double.NegativeInfinity;
     public double SentUntil = double.NegativeInfinity;
     public ushort Buff;
@@ -43,6 +45,15 @@ sealed class KillOnslaught
         return true;
     }
 
+    /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
+    /// X seconds on Hit"). A gain never shortens the Onslaught running.</summary>
+    public bool Hit(double now)
+    {
+        if (HitMs <= 0 || now + HitMs / 1000.0 <= Until) return false;
+        Until = now + HitMs / 1000.0;
+        return true;
+    }
+
     /// <summary>What the client is told at <paramref name="now"/>, marked as told: the buff to remove (0 for none), the
     /// seconds of a new one (null for none; the caller numbers it into <see cref="Buff"/>), whether the stats change.
     /// Null when nothing changed. Death ends it; <paramref name="hidden"/> (a flask shows its own Onslaught) hides the
@@ -60,29 +71,40 @@ sealed class KillOnslaught
     }
 }
 
-static partial class Game
+public static partial class Game
 {
-    internal static readonly ConditionalWeakTable<ClientState, KillOnslaught> KillOnslaughts = new();
-    internal static KillOnslaught KillOnslaughtOf(ClientState conn) => KillOnslaughts.GetValue(conn, _ => new());
+    public static readonly ConditionalWeakTable<ClientState, KillOnslaught> KillOnslaughts = new();
+    public static KillOnslaught KillOnslaughtOf(ClientState conn) => KillOnslaughts.GetValue(conn, _ => new());
 
     // Read when the player stats are built, not per death: an area hit that kills a pack does not rebuild them per corpse.
-    internal static void ConfigureKillOnslaught(ClientState conn, Func<string, int> get)
+    public static void ConfigureKillOnslaught(ClientState conn, Func<string, int> get)
     {
         var rolls = KillOnslaught.From(get);
-        lock (conn.Monsters) KillOnslaughtOf(conn).Rolls = rolls;
+        lock (conn.Monsters)
+        {
+            var onslaught = KillOnslaughtOf(conn);
+            onslaught.Rolls = rolls;
+            onslaught.HitMs = get("gain_onslaught_on_hit_duration_ms");
+        }
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
     // Random.Shared, so a projectile commit's own draws stay in order.
-    internal static bool OnslaughtOnKill(ClientState conn)
+    public static bool OnslaughtOnKill(ClientState conn)
     {
         lock (conn.Monsters)
             return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared);
     }
 
+    // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
+    public static bool OnslaughtOnHitLocked(ClientState conn, double now)
+    {
+        lock (conn.Monsters) return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Hit(now);
+    }
+
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,
     // the strongest counts once. Its effect is the character's increased Onslaught effect.
-    internal static IEnumerable<UtilityFlasks.Source> KillOnslaughtSources(ClientState conn, Func<string, int> character)
+    public static IEnumerable<UtilityFlasks.Source> KillOnslaughtSources(ClientState conn, Func<string, int> character)
     {
         bool applied;
         lock (conn.Monsters) applied = conn.PlayerLife > 0 && KillOnslaughtOf(conn).Applied;
@@ -92,7 +114,7 @@ static partial class Game
 
     // The kill Onslaught's buff (timed like Adrenaline's) and, when it starts or ends, the pools, walk speed, stats and
     // skills it changes. A running Silver Flask or Mageblood's shows its own Onslaught buff, so this one hides meanwhile.
-    internal static byte[]? KillOnslaughtPresentation(ClientState conn)
+    public static byte[]? KillOnslaughtPresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {
@@ -113,12 +135,12 @@ static partial class Game
                 RecomputePoolsAndSpeed(conn);
                 bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-                Console.WriteLine($"[gateway] Onslaught on kill {(o.Applied ? "started" : "ended")}");
+                Console.WriteLine($"[gateway] Onslaught {(o.Applied ? "started" : "ended")}");
             }
             return [.. bytes];
         }
     }
 
-    internal static Task SendKillOnslaught(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+    public static Task SendKillOnslaught(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
         Send(remote, stream, ciphers, [], null, atGate: () => KillOnslaughtPresentation(conn));
 }

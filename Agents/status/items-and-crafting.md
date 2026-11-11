@@ -216,6 +216,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- The mod SDK validates native character-build previews and commits confirmed imports after session drain; the optional POB mod and converter are external.
+
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the
   official client 2026-11-05, server live check pending):** "Enemies you Kill Explode, dealing X% of their Life as
   Physical Damage" (the Crusader body-armour prefix and the synthesis implicit) deals X% of the killed monster's
@@ -297,12 +299,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
   Atziri's Reign.
+  Abyss jewels fit allocated passive sockets and equipment Abyss sockets. Active hosts contribute socketed jewel stats
+  and eye counts; Stygian Vise rolls its Abyss socket. Individual Gaze and Historic effects need their own consumers.
   `/item <name> <base name>` reaches one base of a unique with several (`/item Grand Spectrum Cobalt Jewel`).
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base
   implicit); the client shows the unique tooltip.
   While Mageblood is worn, the leftmost 2–4 magic utility flasks in the flask bar apply their effects permanently without
   charges or a timer, and using them is refused (client mod, server backstop); the stats refresh when the belt or the
   flask bar changes. Its flasks keep their buffs on the client without a timer (not seen live yet).
+  Inspired Learning grants one eligible rare affix for 20 s when its ordinary socket has four allocated notables in
+  range. Duplicate stolen effects retain the longer lifetime.
+  Bound By Destiny checks its 2/4/6 thresholds against active influenced equipment; dual-influenced items count
+  once toward each matching influence. Qualified stats enter attributes and combat through the normal item sources.
   Headhunter: killing a rare gives each of its rolled affixes as a stack of character stats for 60 s (the same one resets
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).

@@ -3,7 +3,7 @@
 /// <summary>One resource's timed leech instances. Call under the owner's combat lock with its game clock.
 /// An instance stores its base rate/duration at creation; current total-recovery and cap modifiers apply outside
 /// those instances. Settling before configuration changes prevents a new modifier from changing elapsed recovery.</summary>
-sealed class LeechRecoveryState
+public sealed class LeechRecoveryState
 {
     public readonly record struct Settings(double TotalMultiplier, double MaximumPerSecond, double RecoveryMultiplier);
     public readonly record struct DisplayState(int PerMinute, double Expiry);

@@ -6,9 +6,9 @@ using static Game;
 using static Program;
 
 /// <summary>The campaign cauldron encounter; the map variants have independent scripts.</summary>
-static class DoedreSewers
+public static class DoedreSewers
 {
-    internal const string Boss = "Metadata/Monsters/Doedre/DoedreSewers";
+    public const string Boss = "Metadata/Monsters/Doedre/DoedreSewers";
     const string Area = "2_8_2_2", Objects = "Metadata/Monsters/Doedre/DoedreSewer/";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act8/Doedre/";
     const int Melee = 406, Wand = 6437, Burst = 6440, Warp = 6447, Emerge = 6742, Drain = 6743;
@@ -22,8 +22,8 @@ static class DoedreSewers
         public readonly ushort[] Buffs = new ushort[4];
         public double Dps, NextStack;
     }
-    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
-    internal static StateMachineData? StartStates(MonsterCatalog.Variety v) => IsBoss(v)
+    public static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id == Boss;
+    public static StateMachineData? StartStates(MonsterCatalog.Variety v) => IsBoss(v)
         ? v.StateMachine?.Set("disable_life_bar", 1).Set("boss_life_bar", 0) : null;
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     public static Dictionary<uint, int> PlayerStats(ClientState c, Dictionary<uint, int> stats)
@@ -35,8 +35,8 @@ static class DoedreSewers
         Add("action_speed_-%", 7 * e.Purple);
         return stats;
     }
-    internal static double MinionDamageFactor(ClientState c) => Exposures.TryGetValue(c, out var e) ? Math.Max(0, 1 - .07 * e.Green) : 1;
-    internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level, int phase = 0)
+    public static double MinionDamageFactor(ClientState c) => Exposures.TryGetValue(c, out var e) ? Math.Max(0, 1 - .07 * e.Green) : 1;
+    public static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState c, MonsterCatalog.Variety v, byte level, int phase = 0)
     {
         if (!IsBoss(v)) return null;
         var catalog = Game.SkillsFor(c);
@@ -558,9 +558,9 @@ static class DoedreSewers
     }
 }
 
-static partial class Game
+public static partial class Game
 {
-    internal static void DoedreCloudMinionsLocked(ClientState c, double now, double rawDps,
+    public static void DoedreCloudMinionsLocked(ClientState c, double now, double rawDps,
         Func<(int X, int Y), bool> inside, Dictionary<uint, double> carry)
     {
         foreach (var g in c.Golems.All.Values.Concat(c.Reservations.Fighters.Values).ToArray())

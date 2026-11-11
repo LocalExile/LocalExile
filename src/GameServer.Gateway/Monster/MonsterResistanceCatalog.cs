@@ -5,7 +5,7 @@ using GameServer.Core;
 /// <summary>Base monster resistance from MonsterTypes.Resistances → MonsterResistances. The level's
 /// DefaultMonsterStats.Difficulty selects Normal/Cruel/Merciless columns; it is not guessed from area names.
 /// Spawned monster modifiers, exposure and curses are additional sources, outside this base table.</summary>
-sealed class MonsterResistanceCatalog(string folder = "data")
+public sealed class MonsterResistanceCatalog(string folder = "data")
 {
     private sealed record Tables(int[] TypeResistance, int[] Difficulty, int[][] Resistances);
     private readonly Lazy<Tables?> _tables = new(() => Load(folder));

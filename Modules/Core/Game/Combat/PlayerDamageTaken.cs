@@ -4,7 +4,7 @@ using GameServer.Core.World;
 /// after resistance and armour the flat damage taken, the increased damage taken and the share of a blocked hit (PoB
 /// CalcDefence's TakenHit: max(damage after mitigation + flat, 0) × the taken multiplier), and last the share of its
 /// Life damage that mana takes.</summary>
-static class PlayerDamageTaken
+public static class PlayerDamageTaken
 {
     const DamageType P = DamageType.Physical, F = DamageType.Fire, C = DamageType.Cold, L = DamageType.Lightning,
         X = DamageType.Chaos;

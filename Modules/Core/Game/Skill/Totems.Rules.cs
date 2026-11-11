@@ -4,15 +4,15 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core;
 
-static partial class Game
+public static partial class Game
 {
     /// <summary>"X% of Damage from Hits is taken from your nearest Totem's Life before you": Forest of Ancestors' 20 and
     /// Kaom's Leadership's 25 add.</summary>
-    internal const string TotemRedirectStat = "damage_removed_from_your_nearest_totem_before_life_or_es_%";
+    public const string TotemRedirectStat = "damage_removed_from_your_nearest_totem_before_life_or_es_%";
 
     /// <summary>Metadata/Characters/Character.ot: base_number_of_totems_allowed 1 and base_presence_radius 80 (the wiki's
     /// fixed 8 metres "in your presence"). The client has both from the .ot; the server's stats do not carry them.</summary>
-    internal const int BaseTotemsAllowed = 1, PresenceRadius = 80;
+    public const int BaseTotemsAllowed = 1, PresenceRadius = 80;
 
     /// <summary>Totem aura executors. Unsupported totem payloads are refused at preflight.</summary>
     static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new() { ["RejuvenationTotem"] = (172, 10) };
@@ -62,10 +62,10 @@ static partial class Game
     }
 
     /// <summary>The totem variety a gem skill with a totem executor summons, or null.</summary>
-    internal static bool IsTotemSkill(ClientState conn, ushort skill) =>
+    public static bool IsTotemSkill(ClientState conn, ushort skill) =>
         SupportedSkill(conn, skill).Stats.GetValueOrDefault(Stats.Key("is_totem") ?? 0) != 0;
 
-    internal static MonsterCatalog.Variety? TotemVariety(ClientState conn, int effect)
+    public static MonsterCatalog.Variety? TotemVariety(ClientState conn, int effect)
     {
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
             && TotemVarieties.Value.TryGetValue(effect, out int native))
@@ -81,7 +81,7 @@ static partial class Game
             && Monsters.Find(skin.GetProperty("MonsterVarietiesKey").GetInt32().ToString()) is { Supported: true } spell ? spell : null;
     }
 
-    internal static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
+    public static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
         || PlacedKind(SupportedSkill(conn, skill)) is (false, false)
             && TotemVariety(conn, effect) is not null && TotemLimit(conn, skill) > 0
             && (TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
@@ -124,7 +124,7 @@ static partial class Game
     /// and the skill's), replacing the oldest. Its aura's stats and radius are the skill's at this moment. Null when the
     /// limit is below one (the client refuses the use itself then) or the player is gone.
     /// </summary>
-    internal static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
@@ -210,7 +210,7 @@ static partial class Game
     /// each part goes to the nearest living totem's Life, capped by it (PoB ModParser "taken from your nearest totem's life
     /// before you", HaveTotem; reducePoolsByDamage). No distance limit applies. What the player still takes.
     /// </summary>
-    internal static (int NonChaos, int Chaos) TotemsTakeHitLocked(ClientState conn, int nonChaos, int chaos, double now,
+    public static (int NonChaos, int Chaos) TotemsTakeHitLocked(ClientState conn, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
         int pct = Stats.Key(TotemRedirectStat) is uint key ? stats.GetValueOrDefault(key) : 0;
@@ -254,7 +254,7 @@ static partial class Game
 
     // The totems as the client should see them, from the player tick and after a placement: expired ones die, their Life
     // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
-    internal static byte[]? TotemPresentation(ClientState conn)
+    public static byte[]? TotemPresentation(ClientState conn)
     {
         lock (conn.Monsters)
         {

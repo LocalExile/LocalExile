@@ -1,5 +1,5 @@
 /// <summary>ReminderTextBlind: 20% less Accuracy/Evasion for four seconds; strongest active effect wins.</summary>
-sealed class TimedBlind
+public sealed class TimedBlind
 {
     readonly List<(double Until, int Less)> effects = [];
     public ushort Buff;

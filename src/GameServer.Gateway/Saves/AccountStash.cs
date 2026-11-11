@@ -13,7 +13,7 @@ using GameServer.Storage;
 /// (from <see cref="FirstItemId"/>, never reused: the next id is saved) and keeps it when a character takes it out.
 /// PlayerInventories does not count stash ids when it picks its next id.</para>
 /// </summary>
-sealed partial class AccountStash
+public sealed partial class AccountStash
 {
     /// <summary>Stash item ids start here (PlayerInventories counts from 1, ground items from 0x100000).</summary>
     public const uint FirstItemId = 0x40000000;
@@ -832,5 +832,5 @@ sealed partial class AccountStash
     public uint NewItemId() { lock (_lock) return _nextItemId++; }
 
     /// <summary>Forgets the account's loaded stash: the next use loads it from the database (tests: a restart).</summary>
-    internal static void Forget(string account) => ByAccount.TryRemove(account, out _);
+    public static void Forget(string account) => ByAccount.TryRemove(account, out _);
 }

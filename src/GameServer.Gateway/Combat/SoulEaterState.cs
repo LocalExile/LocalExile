@@ -4,7 +4,7 @@
 /// character size while the buff's source lasts. A soul is lost every half second once four seconds pass without
 /// eating one (poedb's buff text); Path of Building's base maximum is 45.
 /// </summary>
-sealed class SoulEaterState
+public sealed class SoulEaterState
 {
     public const int MaximumStacks = 45;
     public const double DecayIntervalSeconds = 0.5, RecentlySeconds = 4, AscensionCooldownSeconds = 0.5;

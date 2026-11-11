@@ -2,7 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-static partial class Game
+public static partial class Game
 {
     sealed record AuraReconcileInputs(object? ItemSources, ItemCatalog Items, SkillCatalog Skills,
         CharacterStats.Pools Pools, Dictionary<uint, int> Sources, Dictionary<uint, int> Overrides,
@@ -43,14 +43,14 @@ static partial class Game
 
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.
-    internal static bool OwnAuraAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
+    public static bool OwnAuraAcknowledgementAllowed(ClientState conn, int effect, ushort skillId, Func<bool> nativeUse)
     {
         lock (conn.Monsters)
             return !OwnAuraSkillRestricted(conn, effect, skillId) && nativeUse();
     }
 
     // Raw caster sources only: never CharacterPlayerStats, PlayerSkills, aura bonuses or PoolsFor.
-    internal static int OwnAuraRestrictionValue(ClientState conn, Dictionary<uint, int>? sources = null)
+    public static int OwnAuraRestrictionValue(ClientState conn, Dictionary<uint, int>? sources = null)
     {
         lock (conn.Monsters)
         {
@@ -59,6 +59,23 @@ static partial class Game
                 conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
             return OwnAuraRestriction.Value(sources, conn.PlayerStats);
         }
+    }
+
+    static readonly Lazy<(string Family, uint Key)[]> SublimeRestrictions = new(() =>
+        (from family in new[] { "Anger", "Clarity", "Determination", "Discipline", "Grace", "Haste", "Hatred",
+            "Malevolence", "Precision", "Pride", "PurityOfElements", "PurityOfFire", "PurityOfIce",
+            "PurityOfLightning", "Vitality", "Wrath", "Zealotry" }
+         let name = ReservationStatName(family)
+         let key = Stats.Key($"your_auras_except_{name}_are_disabled")
+         where key.HasValue
+         select (family, key.Value)).ToArray());
+
+    static bool SublimeDisables(ClientState conn, int effect, IReadOnlyDictionary<uint, int> sources)
+    {
+        string family = AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? "");
+        lock (conn.Monsters)
+            return SublimeRestrictions.Value.Any(rule => rule.Family != family &&
+                conn.PlayerStats.GetValueOrDefault(rule.Key, sources.GetValueOrDefault(rule.Key)) != 0);
     }
 
     // your_spells_are_disabled (Devout of Gruthkul) from the same raw caster sources; a developer value replaces them.
@@ -78,12 +95,12 @@ static partial class Game
     // Received buffs, RF, flasks and other temporary effects have separate ownership and are untouched.
     // Local policy: suspend runtime effects, retaining ActiveAuras intent; this is not a proven GGG lifecycle.
     // Disabled spells suspend the auras that are spells (every supported one) the same way.
-    internal static bool SuspendRestrictedOwnAuras(ClientState conn, Dictionary<uint, int>? sources = null)
+    public static bool SuspendRestrictedOwnAuras(ClientState conn, Dictionary<uint, int>? sources = null)
     {
         if (conn.Auras.Count == 0) return false;
         lock (conn.Monsters) sources ??= CharacterStatSources(conn).Stats;
         bool all = OwnAuraRestrictionValue(conn, sources) != 0, spells = SpellsDisabled(conn, sources);
-        var gone = conn.Auras.Values.Where(a => all && SkillsFor(conn).IsAura(a.Effect)
+        var gone = conn.Auras.Values.Where(a => (all || SublimeDisables(conn, a.Effect, sources!)) && SkillsFor(conn).IsAura(a.Effect)
             || spells && CastingSpell(conn, a.Effect)).ToArray();
         if (gone.Length == 0) return false;
         foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
@@ -91,7 +108,7 @@ static partial class Game
         return true;
     }
 
-    internal static void EnsureOwnAuraPools(ClientState conn)
+    public static void EnsureOwnAuraPools(ClientState conn)
     {
         lock (conn.Monsters)
             if (SuspendRestrictedOwnAuras(conn))
@@ -102,7 +119,7 @@ static partial class Game
             }
     }
 
-    internal static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
+    public static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
     {
         // Raw sources remain live (charges, flasks, temporary buffs and their expiry included).
         // Cache only the lifecycle decision after comparing its complete effective inputs. A full
@@ -161,7 +178,7 @@ static partial class Game
     // Called under the send gate and Monsters lock. Diff against what actually reached this object,
     // rather than prebuilding adds/removes across an await. Old instances end once; new ones start once.
     // Reconcile before constructing any player/Actor/mana snapshot, including another mechanic's refresh.
-    internal static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false)
+    public static byte[] WithOwnAuraChanges(ClientState conn, Func<byte[]> snapshot, bool replay = false)
     {
         // At-gate builders are synchronous and hold Monsters. Do not inherit the input handler's
         // older scope across its await; resolve each supported skill once for this snapshot.
@@ -217,7 +234,7 @@ static partial class Game
         return [.. packets.SelectMany(p => p)];
     }
 
-    internal static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+    public static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         bool replay = false) => Send(remote, stream, ciphers, [], "own aura reconciliation", atGate: () =>
         {
             lock (conn.Monsters)
