@@ -310,8 +310,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Inspired Learning grants one eligible rare affix for 20 s when its ordinary socket has four allocated notables in
   range. Duplicate stolen effects retain the longer lifetime.
   Bound By Destiny checks its 2/4/6 thresholds against active influenced equipment; dual-influenced items count
-  once toward each matching influence. The periodic life regeneration and nearby blind/intimidate modifiers
-  lack native unconditional stat rows and remain inactive.
+  once toward each matching influence. The Hunter modifier regenerates life for one second every four seconds.
+  The Redeemer and Warlord modifiers blind and intimidate nearby enemies while in range.
   Headhunter: killing a rare gives each of its rolled affixes as a stack of character stats for 60 s (the same one resets
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).
