@@ -92,11 +92,21 @@ public static partial class Game
     public static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, List<byte> bytes)
     {
+        var records = new WorldRecordBuilder(conn, null);
+        TickSpellTotemsLocked(remote, stream, ciphers, conn, records);
+        bytes.AddRange(records.Bytes());
+    }
+
+    static void TickSpellTotemsLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+        ClientState conn, WorldRecordBuilder bytes)
+    {
         double now = conn.Clock.Elapsed.TotalSeconds;
         foreach (var totem in conn.Totems.Living(now).Where(t => t.Effect >= 0).ToArray())
         {
             if (!SpellTotemCurrent(conn, totem)) { totem.DiedAt = now; continue; }
             if (conn.Paused || now < totem.NextCast) continue;
+            // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
+            if (conn.LockstepClient && !conn.WorldOutput.PublishedObject(totem.Id).IsReady) continue;
             double range = TotemTargetRange(conn, totem.SkillId);
             var target = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0 }
                 && Dist(p.Value.Walk.Position(now), totem.At) <= range)
@@ -107,7 +117,7 @@ public static partial class Game
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
-            bytes.AddRange(InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
+            bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, 0x0408));
             var lifetime = CombatLifetime;
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),

@@ -1437,12 +1437,15 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   are equal), and its slot 0x460 thunks to the base replay; it gets no count until a trace shows how the two combine.
   Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
   at a moving target.
+  Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first
+  cast's early window and the last repeat's late window ([07](07-latency-visibility-movement.md) §6).
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
-  A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
-  server channel-hit cadence. Attack and non-spell timing paths are unchanged.
+  A channelled spell's native base is preserved; its server interval uses the fractional supported cast duration
+  without a new-action frame limit. This does not implement beam damage. Attack and non-spell timing are unchanged.
   For non-instant spells, a nonpositive speed factor or a duration exceeding signed integer milliseconds has
   no server duration, no hit/effect or mana cost, and zero displayed cast rate. Positive server durations round
-  to milliseconds with a 1 ms numeric floor; this bound is not an official cast-speed cap. Conditional action-speed
+  to milliseconds with a 1 ms numeric floor for integer waits; channel intervals and lockstep spell holds retain
+  fractional seconds. This bound is not an official cast-speed cap. Conditional action-speed
   rules, skill-specific speed substitutions and further native timing mechanics remain outside this fix.
 - **Instant skills.** The client knows an instant skill by its stat **`skill_is_instant`** (0x2064), not by the
   ActiveSkillType `Instant`; the server derives it from the type and sends it with `base_skill_is_instant`
@@ -1519,8 +1522,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Unsynchronized progress stays dirty through rate round trips such as 1 -> 2 -> 1,
   including changes before acknowledgement.
   Rejected/unacknowledged uses send nothing.
-  Instant acknowledgements request one progress snapshot even at an unchanged rate: native use consumption starts at
-  0x1ce, so its fresh full budget must align with the original server reservation after time spent queued.
+  Predictive instant acknowledgements request one progress snapshot even at an unchanged rate.
+  Lockstep 0x1ce consumes the native use itself: an immediate cooldown snapshot can arrive before its execution,
+  causing 0x141ea44c0 to reject the already-spent use. It therefore refreshes only later changed recovery progress.
   Ordinary casts keep their native predicted initial timing and refresh only changed progress.
   A refresh replaces one entry, including zero-rate transitions, rather than appending or restarting it.
   Initial ordinary prediction/network alignment and official tick boundaries are not claimed exact.

@@ -62,9 +62,9 @@ static class UniqueBeltsFeature
                     conn.StolenModsBuff = stacks > 0 ? buff = conn.NextBuff++ : (ushort)0;
                 }
                 // As charges: a change of count or time is the old buff off and a new one on.
-                if (old != 0) await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, old), "0x01c2 player buff: Headhunter");
+                if (old != 0) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old), "0x01c2 player buff: Headhunter");
                 if (buff != 0)
-                    await Send(remote, stream, ciphers, InstanceEntities.AddBuff(PlayerId, buff, StolenMods.BuffRow, PlayerId,
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, StolenMods.BuffRow, PlayerId,
                             u68: BitConverter.SingleToUInt32Bits((float)remaining), stacks: (ushort)stacks),
                         $"0x01c1 player buff: Headhunter x {stacks}, {remaining:0.#} s");
                 await SendCharacterStats(remote, stream, ciphers, conn, $"Headhunter: {stacks} modifier(s)");

@@ -674,12 +674,18 @@ Divine/Mirror and `AlertSound_03.ogg` for the Medicine Chest, without server-sel
 
 Clicking it sends C→S 0x24 on the object (skill 0x0266, Interaction). **Flag 0x0002 = the inventory panel is open**
 (0x040a vs 0x0408): the item goes to the cursor instead of the first free cell. The Gateway echoes the interaction at
-once (0x1ab aimed at the object, from the player's current cell) and picks the item up when its walk estimate is within
-**22 cells**: WorldItem.ot `InteractionAction interaction_distance_override = 20` is in grid cells, plus both radii
-(object_size 2). Measured with Frida (Positioned grid position at `+0x294/+0x298`): the client stopped 20.9 cells from
-the item, on the first step inside the range.
+once (0x1ab aimed at the object, from the player's current cell) and picks the item up when its walk estimate is in
+reach: WorldItem.ot `InteractionAction interaction_distance_override = 20` is in grid cells, and the client's walk adds
+the item's size on the ground (BaseItemTypes `SizeOnGround`, 1 to 3) as its tolerance, so it stops on the first cell
+within 21, 22 or 23 ([07](07-latency-visibility-movement.md) Pickups).
 
 Dying monsters drop items as WorldItems around the corpse (`DropLoot`, [15](15-progression.md) §3).
+Gold can be auto-picked before a committed kill's presentation queue drains.
+Sending that queue's old create/wake after `0x2bd` leaves a visible but unpickable pile, despite its gold being credited.
+Queue ground ids, resolve the current item at the cipher gate and send create+wake together; omit a taken id.
+Gold removal and `0x2aa` balance publication share that gate.
+A click on an issued-but-taken ground id resends removal without awarding gold again.
+
 
 **Ground items belong to the instance** (`InstanceStore`, `InstanceGround`), as in the real game. Dropped items and
 loot are kept per area instance, by Auth's instance id and its creation time (`Created` in the `resolve` answer: Auth's
@@ -969,12 +975,13 @@ See [the game rules](../re/fracturing-mirror-mechanics.md).
 
 ### Mirror of Kalandra (2026-10-21, verified live; rules rechecked 2026-10-30)
 
-`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). As the official mirror: a non-unique equipment item
-that is neither corrupted nor mirrored, on a supported non-`Unmodifiable` base whose `ItemClasses` equipment flag is
-set, is copied with every property (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity,
+`CurrencyDuplicate`, same 0x71 / 0x72 messages (`MirrorItem`). Non-unique equipment, flasks and maps of tiers 1–16
+are eligible. Flask/map admission extends the native equipment-class rule; map tiers come from `MapKeys` or `Maps`.
+The target must be neither corrupted nor mirrored, on a supported non-`Unmodifiable` base with `Mods`.
+It is copied with every property (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity,
 identification and name); the copy is **mirrored** and goes onto the cursor (S→C 0xbf on the cursor inventory) for
 the player to place, the original stays unchanged. A held item, a corrupted or mirrored target, a unique item, a
-non-equipment item (flask, jewel, map, currency), an unmodifiable base, or an item without mods is refused and
+different item class (including jewels and currency), a map outside tiers 1–16, an unmodifiable base or an item without mods is refused and
 nothing is spent. A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil is not
 modelled. Using a Mirror from a stash tab is a local limitation, not a game rule.
 
