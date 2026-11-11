@@ -9,9 +9,10 @@ public sealed class MonsterContagion
     /// <summary>What a cast put on the monster: its damage per second before the monster's mitigation, its duration, the
     /// radius it spreads in, the damage a spread keeps (Contagion of Subsiding: three quarters each time) and the caster's
     /// skill id: the contagion buff (BuffDefinitions __col7 8, as siphon_damage) names it as its source skill. SpreadAo is
-    /// the caster's Contagion skin art drawn at each spread (null: the default).</summary>
+    /// the caster's Contagion skin art drawn at each spread (null: the default). Caster owns it, also through spreads: a
+    /// kill by its damage and its owner-only gains are that player's, never the connection running the world.</summary>
     public sealed record Cast(double DamagePerSecond, double Seconds, int Radius, double SpreadMore = 1, ushort SkillId = 0,
-        string? SpreadAo = null);
+        string? SpreadAo = null, ClientState? Caster = null);
 
     // Each application counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];
@@ -77,6 +78,16 @@ public sealed class MonsterContagion
         return whole;
     }
 
+    /// <summary>The application that dealt the last Advance's damage at <paramref name="fraction"/> of its interval (the
+    /// strongest then, also one that ended in that Advance): the one whose damage killed the monster.</summary>
+    public Cast? WinnerAt(double fraction)
+    {
+        double at = previous + Math.Clamp(fraction, 0, 1) * (last - previous);
+        // At an application's very end it is no longer active; the one dealing just before then won.
+        var all = instances.Concat(ended);
+        return (Strongest(all, at) ?? Strongest(all, Math.BitDecrement(at)))?.Cast;
+    }
+
     /// <summary>Ends the debuff (the monster died or left). What it was affected by at the last advance is kept for the spread
     /// on death, with the time it had left then.</summary>
     public void Clear() => Clear(last);
@@ -88,7 +99,7 @@ public sealed class MonsterContagion
 
     void Clear(double at)
     {
-        var strongest = Strongest(instances, at) ?? Strongest(ended, at);
+        var strongest = Strongest(instances.Concat(ended), at);
         if (strongest is { } s && s.Until > at) diedWith = s.Cast with { Seconds = s.Until - at };
         instances.Clear();
         ended.Clear();
@@ -108,7 +119,7 @@ public sealed class MonsterContagion
         return cast is { Seconds: > 0 } ? cast : null;
     }
 
-    static (Cast Cast, double Start, double Until)? Strongest(List<(Cast Cast, double Start, double Until)> list, double t)
+    static (Cast Cast, double Start, double Until)? Strongest(IEnumerable<(Cast Cast, double Start, double Until)> list, double t)
     {
         (Cast Cast, double Start, double Until)? best = null;
         foreach (var i in list)
