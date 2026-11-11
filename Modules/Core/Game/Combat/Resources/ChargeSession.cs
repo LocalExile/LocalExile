@@ -10,7 +10,7 @@ using System.Collections.Concurrent;
 /// <see cref="Die"/> takes every gained charge at once. <see cref="Presentation"/> says which charge buffs the client
 /// must get or lose. Not thread-safe: the Gateway calls it under the connection's Monsters lock.
 /// </summary>
-public sealed class ChargeSession(Charges.State? state = null)
+public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType, double>? gained = null)
 {
     /// <summary>How often the ticker steps (seconds): expiry and periodic gains are this precise.</summary>
     public const double StepSeconds = 0.05;
@@ -187,6 +187,9 @@ public sealed class ChargeSession(Charges.State? state = null)
         limits[(int)gain.Type] = l;
         bool toMaximum = ChargeGains.Rolls(Observed(ChargeGains.ToMaximumStat(gain.Type)), rng);
         var (before, now2) = State.Gain(gain.Type, gain.Count, now, l, toMaximum);
+        // A successful gain refreshes the type even at its cap. Minimums, direct sets and converted charges
+        // cannot manufacture a standard-charge gain history.
+        if (gain.Count > 0 && l.Maximum > 0 && !Converted(gain.Type)) gained?.Invoke(gain.Type, now);
         log.Add($"{gain.Source}: {Charges.Label(gain.Type, Converted(gain.Type))} charges {before} -> {now2}/{l.Maximum}" +
             (toMaximum ? " (to maximum)" : "") + $", {l.DurationMs / 1000.0:0.###} s");
     }

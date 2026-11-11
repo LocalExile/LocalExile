@@ -114,6 +114,73 @@ public partial class ConditionalItemStatsTests
             inventory.Remove(PlayerInventories.Helmet, helmet.Id);
             Assert.Equal(0, Game.SelfCriticalReduction(conn));
             Assert.Empty(conn.PlayerStats);
+            var flesh = inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Immortal Flesh", new Random(504))!);
+            const string armour = "physical_damage_reduction_rating_+%";
+            Assert.Equal(40, Stat(armour));
+            foreach (var kind in Enum.GetValues<PlayerElementalAilments.Kind>())
+            {
+                conn.ElementalAilments.Clear();
+                double at = conn.Clock.Elapsed.TotalSeconds;
+                conn.ElementalAilments.Inflict(kind, 10, 2, at, _ => 0, new Random(504));
+                Assert.Equal(kind == PlayerElementalAilments.Kind.Chill ? 40 : 0, Stat(armour));
+            }
+            conn.ElementalAilments.Clear();
+            Assert.Equal(40, Stat(armour));
+            inventory.Remove(PlayerInventories.Belt, flesh.Id);
+            Assert.Equal(0, Stat(armour));
+
+            Game.ChargesOf(conn).Die();
+            var goblin = Wear("Goblinedge");
+            int attackSpeed = Bonus(goblin, "AttackSpeedFrenzyChargeNotGainedUnique__1");
+            int critChance = Bonus(goblin, "CriticalStrikeChancePowerChargeNotGainedUnique__1");
+            Assert.Equal(attackSpeed, Stat("attack_speed_+%"));
+            int initialCrit = Stat("critical_strike_chance_+%");
+            Assert.True(initialCrit >= critChance);
+            var session = Game.ChargesOf(conn);
+            double gainAt = conn.Clock.Elapsed.TotalSeconds;
+            session.Admit(gainAt, [new ChargeEvent.Hit(false, false, true, MonsterRarity.Normal, "Frenzy")],
+                _ => 0, () => default, alive: true, new Random(504));
+            Assert.True(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt));
+            Assert.Equal(4, Stat("attack_speed_+%")); // Only the standard charge's inherent speed remains.
+            session.Admit(gainAt, [new ChargeEvent.Hit(false, false, false, MonsterRarity.Normal, "PowerSiphon", Killed: true)],
+                _ => 0, () => default, alive: true, new Random(504));
+            Assert.True(conn.RecentEvents.Happened("gained_power_charge", gainAt));
+            Assert.Equal(initialCrit - critChance + 50, Stat("critical_strike_chance_+%"));
+            inventory.Remove(5, inventory.Items(5).Single().Id);
+            var bond = inventory.Add(5, 0, 0, uniques.Create("The Ephemeral Bond", new Random(504))!);
+            int multiplier = Bonus(bond, "CriticalStrikeMultiplierIfGainedPowerChargeUnique__1_");
+            Assert.Equal(multiplier, Stat("base_critical_strike_multiplier_+"));
+            var expiredRecent = conn.RecentEvents.Snapshot(gainAt + 4);
+            Assert.False(expiredRecent.Contains("gained_power_charge"));
+            Assert.Equal(0, ItemModStats.Sum([bond.Item], Program.Items.Mods, subject: new(Recent: expiredRecent,
+                KnownRecent: Game.TrackedItemRecentEvents), statExists: Program.Stats.Has)
+                .GetValueOrDefault("base_critical_strike_multiplier_+"));
+            Assert.Equal(attackSpeed, ItemModStats.Sum([goblin.Item], Program.Items.Mods,
+                subject: new(Recent: expiredRecent, KnownRecent: Game.TrackedItemRecentEvents), statExists: Program.Stats.Has)
+                .GetValueOrDefault("attack_speed_+%"));
+            conn.RecentEvents.Clear();
+            session.Die();
+            minimum = inventory.Add(PlayerInventories.Belt, 0, 0,
+                ItemCatalog.Create(Program.Items.Find("Metadata/Items/Belts/Belt1")!)
+                    with { Mods = [Minimum("MinimumFrenzyChargeInfluence1")] });
+            Assert.Equal(1, Stat("current_frenzy_charges"));
+            Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt));
+            session.Enqueue(new ChargeEvent.Set(ChargeType.Frenzy, 3));
+            session.Step(gainAt, _ => 0, () => default, true, false, false, new Random(504));
+            Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt));
+            session.Admit(gainAt + 1, [new ChargeEvent.Grant(ChargeType.Frenzy, 1, "at-cap grant")],
+                _ => 0, () => default, true, new Random(504));
+            Assert.True(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt + 4.999));
+            Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt + 5));
+            inventory.Remove(PlayerInventories.Belt, minimum.Id);
+            inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Olesya's Delight", new Random(504))!);
+            conn.RecentEvents.Clear();
+            Assert.Equal(0, Stat("current_frenzy_charges"));
+            session.Admit(gainAt + 2, [new ChargeEvent.Grant(ChargeType.Frenzy, 1, "converted grant")],
+                _ => 0, () => default, true, new Random(504));
+            Assert.False(conn.RecentEvents.Happened("gained_frenzy_charge", gainAt + 2));
+            inventory.Remove(5, bond.Id);
+            Assert.Equal(0, Stat("base_critical_strike_multiplier_+"));
         }
         finally
         {

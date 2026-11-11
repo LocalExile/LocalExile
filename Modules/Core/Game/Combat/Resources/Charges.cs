@@ -17,7 +17,13 @@ public static partial class Game
     // A ticket nobody connects with (a failed load) is forgotten after a few minutes.
     public static readonly ConcurrentDictionary<uint, (DateTime At, List<Charges.Carried> Charges)> CarriedCharges = new();
 
-    public static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState));
+    public static ChargeSession ChargesOf(ClientState conn) => ChargeSessions.GetValue(conn, _ => new ChargeSession(conn.PlayerChargeState,
+        (type, at) => conn.RecentEvents.Record(type switch
+        {
+            ChargeType.Frenzy => StatConditions.GainedFrenzyCharge,
+            ChargeType.Power => StatConditions.GainedPowerCharge,
+            _ => StatConditions.GainedEnduranceCharge,
+        }, at)));
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).

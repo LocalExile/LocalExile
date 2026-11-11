@@ -53,6 +53,7 @@ public static partial class Game
             ["_while_no_energy_shield"] = conn.EnergyShield.Current == 0,
             ["_while_moving"] = moving, ["_while_stationary"] = !moving, ["_while_not_moving"] = !moving,
             ["_while_phasing"] = conn.IsPhasing,
+            ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
             ["_while_ignited"] = ailments.Ignite, ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_fortified"] = FortificationOf(conn).Read(now).Current > 0,
@@ -179,6 +180,7 @@ public static partial class Game
         StatConditions.NonCrit, StatConditions.Crit8Seconds,
         StatConditions.ChangedStance,
         StatConditions.DetonatedMine,
+        StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
     };
     sealed class ConditionalItemPoolState
     {

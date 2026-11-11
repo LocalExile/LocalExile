@@ -94,7 +94,7 @@ public static class StatConditions
         "_while_on_full_mana", "_while_on_low_mana", "_while_not_on_low_mana",
         "_while_no_life_is_reserved", "_while_no_mana_reserved",
         "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing",
-        "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
+        "_while_not_ignited_frozen_shocked", "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
@@ -364,6 +364,8 @@ public static class StatConditions
         ("taunted_an_enemy", TauntedEnemy, false), ("detonated_mines", DetonatedMine, false),
         ("detonated_mine", DetonatedMine, false),
         ("frozen_enemy", FrozeEnemy, false), ("shocked", ShockedEnemy, false), ("ignited_an_enemy", IgnitedEnemy, false),
+        ("gained_frenzy_charge", GainedFrenzyCharge, false), ("gained_power_charge", GainedPowerCharge, false),
+        ("gained_endurance_charge", GainedEnduranceCharge, false),
         ("used_a_skill", UsedSkill, false), ("spent_mana", SpentMana, false),
         ("crit", Crit, false), ("hit", BeenHit, false),
     ];
@@ -380,6 +382,8 @@ public static class StatConditions
         NonCrit = "non_crit", Crit8Seconds = "crit_8_seconds",
         DetonatedMine = "detonated_mine", UsedSkill = "used_skill", SpentMana = "spent_mana",
         ChangedStance = "changed_stance",
+        GainedFrenzyCharge = "gained_frenzy_charge", GainedPowerCharge = "gained_power_charge",
+        GainedEnduranceCharge = "gained_endurance_charge",
         BlockedAttack = "blocked_attack", BlockedSpell = "blocked_spell", ShockedEnemy = "shocked_enemy", IgnitedEnemy = "ignited_enemy";
 
     /// <summary>
