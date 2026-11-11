@@ -1,16 +1,16 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 63 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 66 tattoo rows client-verified).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Sixty-three rows are `works` (the ten pilot,
-22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, nine Makanga
-gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral
-Bloodlines: ES recovery works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga)
-and 34 are `not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable,
-Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue,
-the client mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is
-per row; `Reason` names the missing layer.
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Sixty-six rows are `works` (the ten pilot,
+22 plain stats, the nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows, nine
+Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral Bloodlines: ES recovery
+works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga) and 31 are
+`not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable, Ancestral,
+Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue, the client
+mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is per row;
+`Reason` names the missing layer.
 
 This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`, `PassiveSkillTattoos`,
 `PassiveSkillTattooTargetSets` and `PassiveSkillOverrides`, cross-checked with the poewiki
@@ -23,10 +23,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 47 | 0 | 0 | 6 |
+| Current (drop-enabled) | 53 | 39 | 0 | 0 | 14 |
 | Drop-disabled | 40 | 27 | 1 | 2 | 10 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **63** | **1** | **2** | **34** |
+| **Total** | **100** | **66** | **1** | **2** | **31** |
 
 | Status | Meaning |
 |---|---|
@@ -43,7 +43,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work, as do the nine plain skill/minion/flask rows whose consumers exist (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown). Six rows still need new consumers: corpse consumption, Fortify-on-stun, knockback, guard duration, hinder and herald effect. |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row and the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers). Not implemented: the nine ailment and avoidance rows, and five rows that need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
@@ -627,7 +627,6 @@ Knockback row 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Wit
   queues the cell; the AI tick presents it with `InstanceProtocol.Teleport` (0x0f8, the same state the resync and
   boss teleports use). Monsters with the client's `ImmuneToKnockback` component are exempt.
   `TattooKnockbackTests` covers the destination rules and the push/teleport queue.
-- The current (drop-enabled) group is complete: all 53 rows work.
 
 Honoured rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
 
@@ -655,6 +654,5 @@ tattoos.
 
 - [Unique jewels](unique-jewels.md), [radius jewels](radius-jewels.md) and [cluster jewels](cluster-jewels.md) for
   the other passive-tree item families.
-- [Warrior's Tale](radius-jewels.md) is the radius jewel that scales tattoo effects; it is currently inactive for the
-  same reason (no tattoo model).
+- [Warrior's Tale](radius-jewels.md) is the radius jewel that scales the tattoo effects in its radius.
 - [Protocol 15: progression](../protocol/15-progression.md) for the passive tree packets and the save path.

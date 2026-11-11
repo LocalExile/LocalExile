@@ -145,14 +145,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
-  item source and client conversion are present (`/radius_jewel Lioneye's Fall`), but its server flag model is missing.
-  Warrior's Tale scales tattoo stats within its socket radius. Grand Spectrum rolls one of three current variants
-  per base and scales by the total equipped across bases (limit three). Inspired Learning's rare-mod steal, the melee
-  weapon conversion and skill-specific threshold consumers remain partial. The socket/save path,
   radius now converts melee and melee-weapon stats with native bow equivalents, including physical damage, attack
   speed and critical modifiers. Conditional modifiers without a mapped bow stat still need individual consumers.
-  Inspired Learning and Warrior's Tale remain inactive; the missing layers are the melee/weapon flag model, the
-  rare-mod steal, tattoos and the skill-specific threshold consumers. The socket/save path,
+  Warrior's Tale scales tattoo stats within its socket radius. Grand Spectrum rolls one of three current variants
+  per base and scales by the total equipped across bases (limit three). Inspired Learning's rare-mod steal and the
+  skill-specific threshold consumers remain partial. The socket/save path,
   `PassiveTree.NodesInRadius`/`NodesInRing`, the timeless per-node pattern and the art table are reused. The radius
   suite has 98 tests.
 
@@ -343,29 +340,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tattoos: the 100-item 3.29.3b catalogue, protocol and implementation groups are documented in
   [tattoos](../docs/game/tattoos.md). The client flow is implemented: C->S `0x77` names the inventory, item and
   passive; `0x33`'s fifth list carries `node | PassiveSkillOverrides.HASH16 << 16`; the item is consumed and the
-  map is saved independently of allocation. **63 rows are client-verified**: the ten pilot, 22 plain stats, the
-  nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, nine Makanga gates, three Journey
-  tattoos and Journey Makanui; Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava
-  Makanga are inert. Firewalker also survived relog and was removed with an Orb of Scouring. The Makanga gate,
-  Journey counting and the five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its
-  random keystone in `TattooKeystones`. The character currently has 530 passives and 12 tattoos from the test
-  session. 34 rows remain not implemented; next are the six rows that need new consumers (corpse consumption,
-  Fortify-on-stun, knockback, guard duration, hinder and herald effect), Loyalty and the seven Forbidden
-  ascendancy tattoos.
-  map is saved independently of allocation. **69 rows are client-verified**: the ten pilot, 22 plain stats, the
-  nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the three Herald/guard/Fortify
-  rows, the corpse-consumption, Hinder and knockback rows, nine Makanga gates, three Journey tattoos and Journey
-  Makanui; Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava Makanga are inert.
-  Firewalker also survived relog and was removed with an Orb of Scouring. The Makanga gate, Journey counting and
-  the five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its random keystone in
-  `TattooKeystones`. The whole current (drop-enabled) group now works. 28 rows remain: the Honoured rows (nine
-  attribute notables the apply path refuses, plus Flock and Hatungo), the ten Loyalty summons and the seven
-  Forbidden ascendancy tattoos.
-  map is saved independently of allocation. **80 rows are client-verified**: the ten pilot, 22 plain stats, the
-  ailment/avoidance and skill/minion/flask rows, the Herald/guard/Fortify, corpse-consumption, Hinder and knockback
-  consumers, the eleven Honoured rows (attribute notables included), nine Makanga gates, three Journey tattoos and
-  Journey Makanui; Ancestral Bloodlines is partial (life/mana recovery unread) and Hinekora/Kitava Makanga are
-  inert. Firewalker also survived relog and was removed with an Orb of Scouring. The Makanga gate, Journey counting
-  and the five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui stores its random keystone in
-  `TattooKeystones`. The whole drop-enabled group works. 17 rows remain: the ten Loyalty summons (they need the
-  Summon Spirit skills and their triggers) and the seven event-only Forbidden ascendancy tattoos.
+  map is saved independently of allocation. **66 rows are client-verified**: the ten pilot, 22 plain stats, the
+  nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows (attribute notables
+  included), nine Makanga gates, three Journey tattoos and Journey Makanui; Ancestral Bloodlines is partial
+  (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also survived relog and was removed
+  with an Orb of Scouring. The Makanga gate, Journey counting and the five `PassiveSkillOverrides.Limit` groups are
+  enforced server-side; Makanui stores its random keystone in `TattooKeystones`. 31 rows remain not implemented:
+  the nine ailment and avoidance rows, five rows that need new consumers (corpse consumption, Fortify-on-stun,
+  guard duration, hinder and herald effect), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.

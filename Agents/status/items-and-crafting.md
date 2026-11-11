@@ -297,10 +297,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   socket are generated from those rows too; link groups there use the Jeweller's approximation (automated).
   Every definition but the five tinctures creates, writes and reloads by test (the server cannot write the Tincture
   component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
-  Abyss jewels fit allocated passive sockets and equipment Abyss sockets. Active hosts contribute socketed jewel stats
-  and eye counts; Stygian Vise rolls its Abyss socket. Individual Gaze and Historic effects need their own consumers.
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
   Atziri's Reign.
+  Abyss jewels fit allocated passive sockets and equipment Abyss sockets. Active hosts contribute socketed jewel stats
+  and eye counts; Stygian Vise rolls its Abyss socket. Individual Gaze and Historic effects need their own consumers.
   `/item <name> <base name>` reaches one base of a unique with several (`/item Grand Spectrum Cobalt Jewel`).
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base
   implicit); the client shows the unique tooltip.
