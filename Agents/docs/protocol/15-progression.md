@@ -230,6 +230,13 @@ and league bases), item level = the monster's level, +1 magic, +2 rare, +3 uniqu
 unique, rare or magic, raised by item rarity. A unique is chosen among its base's by the inverse of its
 `VillageUniqueDisenchantValues` value (the client's measure of a unique's rarity; `RuthlessValue` in Ruthless); where a
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
+So a Mageblood is about 840 times as rare as a Wanderlust. The 1,527 weights are world.db's `unique_weights` (a CHECK
+keeps each in 0..1), with `unique_weight_overrides` on top; the client table is the fallback only while world.db is
+not open. The core currency weights come from `drop_currency_weights` (the compiled table is the fallback), still
+gated by each base's DropLevel. Affix spawn and generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families
+and tags) still load from JSON; moving them also needs the affix-pool cache cleared on reload.
+One drop event's stackable items of one type become stacks up to the `CurrencyItems` StackSize (twenty-one Divine
+Orbs lie as 10, 10 and 1; `ItemDrops.Stacked`).
 `DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
 it off. In a map, the kill also rolls the base card and scarab chances (`drop_card_chance_pct`, `drop_scarab_chance_pct`,

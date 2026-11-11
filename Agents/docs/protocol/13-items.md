@@ -309,6 +309,18 @@ ES increased from 206 to 216.
 These are historical feature checks; the merged branch still needs fresh real-client validation.
 Other unique and conditional defence mechanics remain separate work (#60).
 
+### Item modifier effect
+
+The item-local increased-effect stats scale the item's own explicit modifiers: every explicit one
+(`local_explicit_mod_effect_+%`: Simplex and Focused Amulets 100%, Subsume the Source 120–240%) or one side only
+(`local_prefix_mod_effect_+%` / `local_suffix_mod_effect_+%`: the Cogwork, Geodesic, Composite, Manifold, Ratcheting
+and Helical Rings, 25% or 50%). Implicits, enchants and the effect stats themselves stay raw, and values round down
+like The Adorned's jewel effect. The same implicits' `local_maximum_prefixes_allowed_+` and
+`local_maximum_suffixes_allowed_+` move the rare affix caps for currency and bench crafting (Composite 6/0, Manifold
+4/1, Simplex 1/2, Helical 1/4 …) (`ItemModStats.cs`, `ItemRolls.cs`, `BenchCrafting.cs`, `ItemWeaponStats.cs`).
+Not modelled: the weapon-tree damage-category effect stats (Mods.dat has no damage-type tags), unveiled and tincture
+effect, and the per-socketed-abyss-jewel variant.
+
 ## 2d. Requirements and inactive items
 
 **Attribute requirements are computed by the client from the item type and the mods; the level requirement is sent.**
@@ -454,6 +466,11 @@ time left, replaced at each change by the same ticker. Death and an area change 
 character does nothing. `damage_+%_vs_rare_monsters` scales the rolled hit of melee, area and projectile contacts
 (`WithDamageVsRarity`): (100 + global increased + the belt's roll) / (100 + global increased), so the hit's other increases are not in
 the sum (slightly above the game's). The loss on an area change is a limit: the game keeps them. Replica Headhunter is not modelled.
+
+Skin of the Loyal gets six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and on
+Dialla's Malefaction. Fixed "Has X Sockets" counts (Loreweave, Voidfletcher, The Squire, crests and hats) and Malachai's
+all-white Unset Ring socket are generated from the unique rows too; their link groups use the Jeweller's approximation.
+The five tinctures are the only definitions the server cannot create, as it cannot write the Tincture component.
 
 ## 2f. Item states
 
@@ -1117,6 +1134,26 @@ the current layout. Quality multiplies a layout's weight by `(1 + quality / 100)
 consumed. This is a local approximation, not an official probability table; exact chances, corruption and special
 item overrides remain open. No extracted-data changes are required.
 
+### Ancient Orb, chisels and the Eldritch rerolls (2026-11-05; local rules)
+
+- **Ancient Orb** reforges an uncorrupted unique piece of equipment as another unique of its item class and inventory
+  size, by the uniques' drop weights, keeping item level, quality, sockets and links; no corrupted or Replica results
+  (`UniqueCatalog.Reforge`).
+- **Cartographer's Chisel** and Maven's Chisel reach the map-quality effect through their `CurrencyItems.Action`
+  (`add_map_alt_quality`): 20% of the map's AlternateQualityTypes row (`CurrencyEffects.Chisel`/`TryAction`).
+- **Eldritch Chaos and Eldritch Exalted Orbs** reroll or add to a rare's explicits as Chaos/Exalted do, only on an
+  item carrying an Eater of Worlds or Searing Exarch implicit, which stays. The **Eldritch Orb of Annulment** is an
+  Annulment under the same condition.
+- **Orb of Unmaking**, used from the bag (C→S 0x58), refunds every allocated Atlas passive of all three presets and is
+  consumed; with nothing allocated it stays (`Game.UseOrbOfUnmaking`).
+- **Orb of Binding** turns a normal uncorrupted weapon or armour piece that can hold four sockets into a rare (as
+  Alchemy) with four linked sockets coloured from the base's requirements.
+- **Tainted currency** (Chaos, Exalted, Chromatic, Fusing, Jeweller's, Armourer's Scrap, Blacksmith's Whetstone)
+  applies to a corrupted item and leaves it corrupted: the item is handed to the ordinary effect with its corruption
+  cleared and the result is corrupted again; tainted quality currency adds 1%. A non-corrupted item, or anything the
+  ordinary effect refuses, is refused before spending (`CurrencyEffects.Binding`/`EldritchAnnulment`/`Tainted`).
+  Tainted Mythic, Tainted Divine Teardrop, Tainted Catalyst, Tainted Oil and Tainted Blessing are not implemented.
+
 ## 6. Equipment on the character: visuals, attributes, gem skills
 
 **What the model wears** is the player's Inventories component (index 8, reader `0x141e22490`, also as a 0x2bc update):
@@ -1656,6 +1693,20 @@ A point within the weapon's reach is a swing at the ground instead of an attack-
 the skill's mana as on the client (live 2026-10-26: it used to cost nothing).
 A full-pool refusal carries the authoritative pool too, so the orb and the next press agree.
 Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`).
+
+### Kill explosions and attribute damage reduction
+
+"Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix and the
+synthesis implicit) deals X% of the killed monster's maximum life as physical damage to every hostile monster in the
+radius, mitigated by each target's resistances; a kill by the explosion can trigger another (`KillExplosions.cs`).
+Measured with the official 3.29.3b client (2026-11-05), the radius is a fixed 25 cells (one explosion killed at 22.85
+and 24.35 cells) and increased area of effect does not extend it; an earlier version used 20 cells scaled by area.
+The explosion consumes the corpse (0x2bd at once; on the official client the corpse went 0-6 ms after the death) and
+plays the native `HolyExplosion` art (MiscAnimated 2877, `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two
+seconds. Not modelled: the chance-based and conditional (ignited, shocked, bleeding) variants and secondary damage's
+scaling by global physical or area damage.
+The Eater of Worlds body-armour implicits "1% less Damage Taken per X Strength/Dexterity/Intelligence" reduce hits,
+ignite and other damage over time taken as a final multiplier (`IncomingResourceDefences.cs`, `IncomingDamage.cs`).
 
 ## Open
 
