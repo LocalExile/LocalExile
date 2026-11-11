@@ -62,6 +62,7 @@ static partial class Game
             bool changed = CatAspectReconcileLocked(conn, AreaTime(conn));
             changed |= AvianReconcileLocked(conn, AreaTime(conn));
             changed |= CrabReconcileLocked(conn, AreaTime(conn));
+            SpiderReconcileOwnerLocked(conn, AreaTime(conn));
             changed |= conn.Reservations.CrabPoolsDirty;
             changed |= MadnessReconcileLocked(conn, AreaTime(conn));
             changed |= SuspendRestrictedOwnAuras(conn);

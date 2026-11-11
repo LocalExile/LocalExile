@@ -10,6 +10,7 @@ static partial class Game
         EndCatAspectRuntimeLocked(conn, aura);
         EndAvianAspectLocked(conn, aura);
         EndCrabAspectLocked(conn, aura);
+        EndSpiderAspectLocked(conn, aura);
         var state = conn.Reservations;
         var pending = state.Procs.Where(p => p.Skill != aura.SkillId).ToArray();
         state.Procs.Clear(); foreach (var proc in pending) state.Procs.Enqueue(proc);
@@ -201,8 +202,8 @@ static partial class Game
                 int multiplier = spell ? SupportedCriticalMultiplier(conn, aura.SkillId)
                     : 150 + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+");
                 var rolled = targetPacket.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
-                var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default));
-                int damage = MonsterTakesMitigated(m, mitigated, spell);
+                var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now);
                 if (ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(remote, stream, ciphers, conn, id, m, now); hit = hit with { StageStarts = false }; }
@@ -291,6 +292,7 @@ static partial class Game
             }
             else if (ReservationAura(conn, "TemporalRift") is null) state.Echoes.Clear();
             ReservationArcticTrailLocked(conn, now);
+            SpiderAspectTickLocked(conn, now);
             MadnessExplosionsLocked(conn, now);
         }
         if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);

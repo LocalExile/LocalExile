@@ -2162,6 +2162,7 @@ static partial class Game
         Cull cull = default)
     {
         if (m.Dead || m.Life == 0) return null;
+        if (allyAt is null) SpiderHitRewardsLocked(conn, m, ProjectileWorldTime(conn), player);
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         CaptureUnhingedHitKillLocked(conn, m, playerHit: allyAt is null);
         if (allyAt is null)

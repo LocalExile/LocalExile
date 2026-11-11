@@ -61,17 +61,19 @@ static partial class Game
     /// player's <paramref name="selfCriticalReduction"/>, base_self_critical_strike_multiplier_-%, read only on a crit)
     /// and the increased damage per 10% of the player's missing life (Executioner's). Call under the Monsters lock.</summary>
     internal static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
-        out bool critical, Func<int>? selfCriticalReduction = null)
+        out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN)
     {
         var e = m.Effects;
         critical = e.CriticalChance > 0 && random.Next(10_000) < e.CriticalChance;
         double factor = critical ? MonsterModEffects.CriticalMultiplierOnPlayer(selfCriticalReduction?.Invoke() ?? 0) / 100.0 : 1;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? "enfeeble_damage_+%_vs_rare_or_unique_final" : "enfeeble_damage_+%_final"] / 100.0);
-        if (e.ExecutionerPct(playerLife, playerMaxLife) is int executioner and > 0)
+        int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
+        int spiderDamage = m.SpiderWebs.Damage(now);
+        if (executioner > 0 || spiderDamage != 0)
         {
             int increased = e["damage_+%"] + e["physical_damage_+%"];
-            factor *= (100.0 + increased + executioner) / (100 + increased);
+            factor *= 100d + increased > 0 ? Math.Max(0, 100d + increased + executioner + spiderDamage) / (100d + increased) : 0;
         }
         return factor == 1 ? rolled : rolled.Scale(factor);
     }
@@ -83,7 +85,7 @@ static partial class Game
     /// Base and mod resistance compose before the cap; penetration subtracts once after that cap.
     /// </summary>
     internal static int MonsterTakes(SpawnedMonster m, DamagePacket hit, Random random, bool spell,
-        Penetration.PerType pen = default) => MonsterTakesRolled(m, hit.Roll(random), spell, pen);
+        Penetration.PerType pen = default, double now = double.NaN) => MonsterTakesRolled(m, hit.Roll(random), spell, pen, now);
 
     /// <summary>A monster's resistance to one type of the player's hit: base and mod resistance compose before
     /// Monster.ot's 75% cap; penetration subtracts once after that cap, the cold one against a chilled monster at
@@ -92,14 +94,16 @@ static partial class Game
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
-        return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now),
+        return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
+                + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
             Maximum = MonsterModEffects.MaxResistance, Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
     }
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
-    internal static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen)), spell);
+    internal static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
+        double now = double.NaN)
+        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)), spell, now);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,

@@ -179,6 +179,7 @@ static partial class Game
                 if (rate != oldRate)
                 {
                     m.Ignites.SetExpiryRate(now, rate); m.Bleeds.SetExpiryRate(now, rate); m.Poisons.SetExpiryRate(now, rate); m.Ailments.SetExpiryRate(now, rate);
+                    m.SpiderWebs.SetExpiryRate(now, rate);
                     m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                 }
                 m.ReceivedActionFactor = Math.Max(.25, 1 + slow / 100); m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
@@ -186,7 +187,8 @@ static partial class Game
             if (m.Curses.PresentedVersion != m.Curses.Version)
             {
                 var keys = m.Curses.PresentedStats.Concat(m.Curses.Stats.Keys).Distinct().ToArray();
-                bytes.AddRange(InstanceEntities.StatsUpdate(id, keys.Select(n => (Key: Stats.Key(n), Value: m.Effects[n]))
+                bytes.AddRange(InstanceEntities.StatsUpdate(id, keys.Select(n => (Key: Stats.Key(n), Value: m.Effects[n]
+                        + SpiderRecipientStat(m, n, now)))
                     .Where(p => p.Key is not null).Select(p => (p.Key!.Value, p.Value)).ToList()));
                 m.Curses.PresentedStats.Clear(); m.Curses.PresentedStats.UnionWith(m.Curses.Stats.Keys);
                 m.Curses.PresentedVersion = m.Curses.Version;

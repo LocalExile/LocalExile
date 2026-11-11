@@ -271,7 +271,7 @@ static partial class Game
             foreach (var (id, m) in conn.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
-                int damage = MonsterTakesRolled(m, packet, spell: false);
+                int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 if (hit.StageStarts)
                 {

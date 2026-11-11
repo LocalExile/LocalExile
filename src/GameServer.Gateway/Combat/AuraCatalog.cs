@@ -88,6 +88,7 @@ static class AuraCatalog
         ["TemporalRift"] = 1915,
         ["CatAspect"] = 1036,
         ["AspectOfTheAvian"] = 1039,
+        ["AspectOfTheSpider"] = 1042,
         ["AspectOfTheCrab"] = 1046,
     };
 

@@ -128,6 +128,7 @@ sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, InventoryItem 
 sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public MadnessExplosion? MadnessExplosion;
+    public readonly SpiderWebState SpiderWebs = new();
     public double ReceivedActionFactor = 1;
     public double ReceivedActionUntil;
     public bool ReceivedActionFloor;

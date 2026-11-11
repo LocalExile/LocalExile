@@ -14,6 +14,7 @@ static partial class Game
         bool chaos = false) =>
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
+            + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
@@ -95,8 +96,8 @@ static partial class Game
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
-        int totalPct = basePct + maimPct;
-        if (maimPct != 0 && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+        int totalPct = basePct + maimPct - SpiderHinder(m, now);
+        if ((maimPct != 0 || SpiderHinder(m, now) != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
             totalPct = Math.Max(0, totalPct);
         double Movement(double pct) => m.Variety is { } variety
             ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
@@ -214,7 +215,7 @@ static partial class Game
         {
             var a = m.Ailments;
             bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
-            if (elementalIdle && m.MaimedUntil <= now && !m.MaimedMovementShown) continue;
+            if (elementalIdle && m.MaimedUntil <= now && SpiderHinder(m, now) == 0 && !m.MaimedMovementShown) continue;
             if (!elementalIdle)
             {
                 foreach (var (kind, removed, added, magnitude) in a.Present(now))
@@ -252,7 +253,7 @@ static partial class Game
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
             }
-            bool maimed = m.MaimedUntil > now;
+            bool maimed = m.MaimedUntil > now || SpiderHinder(m, now) != 0;
             bool maimShown = m.MaimedMovementShown;
             bool movementChanged = maimed
                 ? !maimShown || movement.Pct != m.MaimedMovementShownPct

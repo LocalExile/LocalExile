@@ -445,7 +445,8 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Wider equipment, minion combat and visual verification remain open.
   Equipment self-Vulnerability has runtime effects, Life predicates and limited native representatives.
   Madness has runtime consumers and limited native lifecycle/cooldown checks; explosion geometry/art remain open.
-  Avian ally sharing/Twister and Spider still need runtime consumers.
+  Spider webs/Hinder, Shroud and hit rewards have runtime consumers and limited native recipient/expiry checks.
+  Spider retail range, Weave target-relative damage, Avian sharing and Twister remain open.
   Ordinary generic/typed added BASE now follows intrinsic-base replacement and precedes increased chance, including
   native weapon-local flat-before-increase ordering and linked Increased Critical Strikes once.
   Mode-specific passive/item, source-removal, zero, prohibition and hitless controls have automated cases;

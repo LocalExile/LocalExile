@@ -18,6 +18,8 @@ sealed class ReservationState
     public int CrabBarriers, CrabMaximum;
     public ushort CrabBuff, PresentedCrabBuff;
     public long AspectRevision;
+    public CatAspectOwner? SpiderOwner;
+    public double NextSpiderWeb;
     public bool CrabPoolsDirty;
     public ushort SelfVulnerabilityBuff;
     public readonly Queue<Echo> Echoes = new();

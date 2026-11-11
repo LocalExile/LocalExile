@@ -380,8 +380,8 @@ static partial class Game
             CannotPenetrateOrIgnore: g.Monster.Mods.Effects["cannot_penetrate_or_ignore_elemental_resistances"] != 0 ? 1 : 0);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
-            type => HitResistances.Effective(type, MonsterHitResistance(target, type, default), strike, resistanceMods));
-        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell);
+            type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));
+        int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         if (ApplyMonsterHitLocked(conn, target, damage, allyAt: from) is not { } hit) return false;

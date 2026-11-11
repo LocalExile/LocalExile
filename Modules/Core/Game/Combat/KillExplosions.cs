@@ -45,7 +45,7 @@ static partial class Game
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || ReferenceEquals(m, corpse)) continue;
                 if (Dist(m.Walk.Position(now), at) > radius) continue;
-                int damage = MonsterTakesRolled(m, packet, spell: false);
+                int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
                 if (ApplyMonsterHitLocked(conn, m, damage, allyAt: at) is not { } hit) continue;
                 hits.Add((id, m, hit));
             }

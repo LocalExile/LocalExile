@@ -102,7 +102,7 @@ static partial class Game
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical);
+        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical, now: now);
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects["chaos_damage_does_not_bypass_energy_shield"] != 0;
         long damage = 0;
