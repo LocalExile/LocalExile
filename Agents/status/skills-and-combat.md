@@ -469,6 +469,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Charges.cs`, `ChargeGains.cs`, `ChargeEffects.cs`, `ChargeSession.cs`, `ChargeBuffs.cs`,
   `Program.Charges.cs`, `ChargePanelStats.cs`, `BloodCharges.cs`, `Program.BloodCharges.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §15.
+- Discharge and Discharge of Misery: per removable charge, lightning (Power), fire (Endurance) and cold (Frenzy)
+  base damage and the gem's more area per charge; a use spends the charges above the minimum once, shared by its
+  Spell Echo repeat, kept by the quality chance; no removable charges deals nothing.
+  Skins are drawn by the client (`skill_art_variation`).
+  Code: `SkillHitPlan.cs`, `SkillArea.cs`, `Discharge.cs`.
 - Character panel sums: about 150 panel stats that sum base forms are computed from passives, items and auras with
   their unconditional combined stats: stun, ailment avoidance, durations and effects (ignite, chill, freeze, shock,
   scorch, brittle, sap), ailment chances, penetration, leech, life/mana/ES on kill, rarity and quantity, cooldown,

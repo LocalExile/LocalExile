@@ -1195,13 +1195,15 @@ public static partial class Game
             }
         }
         var jobs = new List<Task>();
+        // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
+        var discharge = DischargeUseFor(conn, gem.Effect, gem.Level, gem.Quality);
         for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
         {
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, addedChaos: addedChaos,
-                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1)));
+                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -1373,7 +1375,8 @@ public static partial class Game
         bool immediate = false, ushort sequence = 0, int? actionToken = null, CooldownUseTicket? cooldownUse = null, bool? melee = null,
         double damageMore = 1, uint excludeMonster = 0, SkillCriticalRoll? criticalRoll = null, int? channelGeneration = null,
         uint targetId = 0, int repeat = 0, int? radiusOverride = null, ISet<uint>? once = null, double repeatDelay = 0,
-        double radiusMore = 1, int addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null)
+        double radiusMore = 1, int addedChaos = 0, double? swingAt = null, Func<bool>? triggeredCurrent = null,
+        DischargeUse? discharge = null)
     {
         var paidVaal = SkillsFor(conn).VaalBudget(gem.Effect, gem.Level) is null ? null : conn.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
@@ -1398,6 +1401,13 @@ public static partial class Game
         int Stat(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
         if (Stat("base_deal_no_damage") != 0) return;
         if (!hitPlan.CanHit) return;
+        // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
+        if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(conn));
+        if (discharge is not null && discharge.Total == 0)
+        {
+            Console.WriteLine($"[gateway] {remote} {gem.Name}: no removable charges, nothing discharged");
+            return;
+        }
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         var weapon = WeaponFor(conn);
         int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
@@ -1595,7 +1605,10 @@ public static partial class Game
                     var local = spell || shield is not null ? null : MainHandLocalSources(conn);
                     pen = Penetration.Of(player, Stats, attack: !spell, skillStats, local);
                     mods = HitResistMods(player, skillStats);
-                    sweepHit = shield is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
+                    // Discharge's hit counts the charges of its use, not those left after an earlier repeat spent them.
+                    sweepHit = shield is null
+                        ? discharge is null ? SupportedHit(conn, skillId) : SupportedHitFor(conn, skillId, suppress: true, charges: discharge.Charges)
+                        : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     if (addedChaos > 0) sweepHit = sweepHit.Add(DamageType.Chaos, new(addedChaos, addedChaos));
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
@@ -1731,6 +1744,11 @@ public static partial class Game
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
         Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {(spell ? "spell" : "attack")} hit {targets.Count} monster(s) {shape}{contact} (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+        // An immediate (triggered) spell has no cast clip to draw Discharge's explosion: the server draws it.
+        if (discharge is not null
+            && SpendDischargedCharges(remote, conn, gem.Name, gem.Gem, discharge, Stat("discharge_chance_not_to_consume_charges_%"), targets.Count)
+            && immediate && spell)
+            await ShowTriggeredDischarge(remote, stream, ciphers, conn, gem.Gem, discharge, centre, radius);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;

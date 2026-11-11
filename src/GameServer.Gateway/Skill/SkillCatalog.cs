@@ -186,7 +186,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// Herald of Ice's shatter): neither an attack nor a spell, so no added attack/spell damage joins it.</summary>
     public DamagePacket SecondaryHitDamage(int effectRow, int level, int quality = 0) => HitDamageOf(effectRow, level, quality, "secondary");
 
-    private DamagePacket HitDamageOf(int effectRow, int level, int quality, string prefix)
+    /// <summary>A charge-spending skill's base hit per removable charge of <paramref name="type"/> (Discharge's
+    /// <c>spell_minimum_base_lightning_damage_per_removable_power_charge</c> and so on); empty for other skills.</summary>
+    public DamagePacket HitDamagePerCharge(int effectRow, int level, ChargeType type, int quality = 0) =>
+        HitDamageOf(effectRow, level, quality, "spell", $"_per_removable_{Charges.Name(type)}_charge");
+
+    private DamagePacket HitDamageOf(int effectRow, int level, int quality, string prefix, string suffix = "")
     {
         var stats = EffectStats(effectRow, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var result = DamagePacket.Empty;
@@ -201,10 +206,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 DamageType.Chaos => "chaos",
                 _ => throw new ArgumentOutOfRangeException(),
             };
-            int min = prefix == "spell" ? Value(stats, $"spell_minimum_base_{slug}_damage", $"minimum_base_{slug}_damage")
-                : Value(stats, $"{prefix}_minimum_base_{slug}_damage");
-            int max = prefix == "spell" ? Value(stats, $"spell_maximum_base_{slug}_damage", $"maximum_base_{slug}_damage")
-                : Value(stats, $"{prefix}_maximum_base_{slug}_damage");
+            int min = prefix == "spell" ? Value(stats, $"spell_minimum_base_{slug}_damage{suffix}", $"minimum_base_{slug}_damage{suffix}")
+                : Value(stats, $"{prefix}_minimum_base_{slug}_damage{suffix}");
+            int max = prefix == "spell" ? Value(stats, $"spell_maximum_base_{slug}_damage{suffix}", $"maximum_base_{slug}_damage{suffix}")
+                : Value(stats, $"{prefix}_maximum_base_{slug}_damage{suffix}");
             if (min > 0 || max > 0) result = result.Add(type, new DamageRange(min, Math.Max(min, max)));
         }
         return result;

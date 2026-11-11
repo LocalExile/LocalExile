@@ -6,7 +6,8 @@
 /// modifier, as Path of Building's calcRadius does: floor(base × floor(100 × √(increased × more)) / 100). Increased:
 /// base_skill_area_of_effect_+% (passives, gem quality), skill_area_of_effect_+% and, for spells, spell_area_of_effect_+%.
 /// More: each of the "_final" area stats; active_skill_area_of_effect_radius_+%_final scales the radius itself. The
-/// skill's stats include the player's. Conditional area stats (per charge, per attribute, "recently") are not modelled.
+/// skill's stats include the player's. Discharge's more area per removable charge counts; other conditional area stats (per
+/// attribute, "recently") are not modelled.
 /// </summary>
 public static class SkillArea
 {
@@ -25,6 +26,8 @@ public static class SkillArea
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
         "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
     ];
+
+    const string MorePerRemovableCharge = "area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge";
 
     /// <summary>The base form of increased area: the player's goes into the panel total <c>skill_area_of_effect_+%</c>
     /// (PanelStats), a skill's own (gem quality) stays in it.</summary>
@@ -55,6 +58,9 @@ public static class SkillArea
         int increased = Increased(get, spell);
         double mod = Math.Max(0, 1 + increased / 100.0);
         foreach (string more in MoreArea) mod *= Math.Max(0, 1 + get(more) / 100.0);
+        // Discharge: more area per removable charge it will spend (the charges above the minimum).
+        if (get(MorePerRemovableCharge) is int perCharge and not 0)
+            mod *= Math.Max(0, 1 + perCharge * Charges.Types.Sum(t => Math.Max(0, get($"current_removable_{Charges.Name(t)}_charges"))) / 100.0);
         return mod;
     }
 
