@@ -79,8 +79,8 @@ public static partial class Game
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 // A use the player cannot pay for is refused here, before it spends a cooldown use or a bypass charge and
-                // before its side effects move the player (a movement skill's landing, Flicker Strike's teleport): its
-                // cost is paid only later, when its effect starts (PayMana).
+                // before its side effects move the player (a movement skill's landing, Flicker Strike's teleport); an
+                // accepted use pays below.
                 if (reserve && skillId is ushort paying && !CanPaySkillCost(conn, paying)) return false;
                 state = CooldownStateLocked(conn, effect, cooldown, now);
                 if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
@@ -93,14 +93,34 @@ public static partial class Game
                 }
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
             }
+            // The accepted use pays its cost now, with its cooldown use or bypass charge, as the client pays at the start of
+            // the use: a later failure (mana spent in between, a cast stopped before its effect) cannot leave the use spent
+            // and unpaid, and an accepted use is never refunded. The check above ran under the same lock, so this succeeds.
+            (uint Mana, uint Life)? paid = null;
+            if (reserve && plan is not null && vaal is null && skillId is ushort payer && PaysOnUse(conn, payer, effect))
+            {
+                if (!PayMana(conn, payer, out uint mana, out uint life)) return false;
+                paid = (mana, life);
+            }
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
             // A bypassed use spends no cooldown use, so its ticket follows none.
             if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
-                bypassed ? null : state, bypassed ? 0 : state!.UseVersion);
+                bypassed ? null : state, bypassed ? 0 : state!.UseVersion) { Paid = paid };
             return true;
         }
     }
+
+    // A link gem links its target with no upfront cost, only its cost over time (CastLink).
+    public static bool IsLinkSkill(ClientState conn, int effect) => LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
+
+    // An aura or stance that is not a trap or mine toggles its reservation instead of paying a cost (ToggleAura).
+    public static (int Flat, int Percent)? ToggledReservation(ClientState conn, ushort skillId) =>
+        PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false } ? SupportedReservation(conn, skillId) : null;
+
+    // Whether a use of the skill pays its cost when it starts (CastGemSkill's PayMana), not a link's or a toggle's.
+    static bool PaysOnUse(ClientState conn, ushort skillId, int effect) =>
+        !IsLinkSkill(conn, effect) && ToggledReservation(conn, skillId) is null;
 
     // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.
     static ChargeType? CooldownBypassCharge(ClientState conn, int effect, ushort? skillId)

@@ -781,10 +781,9 @@ public static partial class Game
             }
         }
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
-        if (gem.Name is not null && LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+        if (gem.Name is not null && IsLinkSkill(conn, gem.Effect))
             return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
-        if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false }
-            && SupportedReservation(conn, skillId) is { } reservation)
+        if (gem.Name is not null && ToggledReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
             if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
@@ -802,7 +801,9 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
-                paid = PayMana(conn, skillId, out cost, out lifeCost);
+                // A cooldown use paid when it was accepted (TryBeginCooldownUseCore) is not paid again.
+                if (cooldownUse?.Paid is { } prepaid) (paid, cost, lifeCost) = (true, prepaid.Mana, prepaid.Life);
+                else paid = PayMana(conn, skillId, out cost, out lifeCost);
                 if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {

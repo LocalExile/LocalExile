@@ -21,6 +21,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `FlickerStrike.cs`. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Cooldown bypass (live 2026-11-09: Flicker Strike with Frenzy Charges): the skill record carries GEPL
   `CooldownBypassType`, and a use during the cooldown spends a charge above the minimum.
+  A cooldown skill's use pays its cost when it is accepted, with its cooldown use or charge, not when its effect starts.
   Code: `CooldownBypass.cs`, `Cooldowns.cs`. Docs: [11](../docs/protocol/11-skills.md) §9.
 - Fortification: qualifying melee hits build temporary protection through an explicit LocalExile generation model.
   Native checks confirmed the buff component, expiry, 20/30-stack limits, attack speed and actual hit protection.
