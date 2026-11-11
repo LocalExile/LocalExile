@@ -406,10 +406,13 @@ static partial class Game
         }
         var mapMods = MapDevice.Current(CharacterName(conn), layout.Hash)?.Mods;
         var scale = mapMods?.Packs ?? default;
+        // The layout's own pack points: a placed room's "normal", "magic" and "rare" points stand a pack of that rarity
+        // where the room puts it (issue #668). Trial rooms are among them and keep their own handling below.
+        var packPoints = points.Where(p => p.Name is "normal" or "magic" or "rare").ToList();
         var spawns = WithTwinBosses(AreaPopulation.Plan(area, layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
             [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], points,
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
-            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points)],
+            unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: packPoints,
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
         foreach (var room in trialRooms)
             foreach (var p in room.Points)

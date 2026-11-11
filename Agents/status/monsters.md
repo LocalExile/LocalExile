@@ -223,7 +223,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Area monsters: pack counts, magic/rare chances and rare mod counts are our own numbers;
+- Area monsters: a placed room's "normal", "magic" and "rare" points stand a pack of that rarity at the point
+  (The Aqueduct: 15 room points), and the scattered set fills the rest of the per-area budget; how many packs an
+  area has beyond its points, the magic/rare chances and the rare mod counts are still our own numbers;
   Act 1 Twilight Strand caps new populations at a provisional 45 including Hillock and the tutorial zombie.
   The reference capture misses its opening, so this is calibration rather than a verified official total;
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
