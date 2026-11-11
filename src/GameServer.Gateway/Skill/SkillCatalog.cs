@@ -729,7 +729,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Elemental Hit fires ElementalHitArrowFire/Cold/Lightning by the element it picked, a choice the server does not model
     // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
     // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
-    // cast was refused while the client drew its orb.
+    // cast was refused while the client drew its orb. Winter Orb's channelled orb fires FrostFuryMortar (its Projectiles row,
+    // one per volley); the effect's own name has no row, so the channel was refused while the client played it.
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
@@ -752,6 +753,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
+        ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
         ["SplitArrow"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",

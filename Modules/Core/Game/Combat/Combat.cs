@@ -1113,6 +1113,8 @@ public static partial class Game
         if (gem.Name is null) return Task.CompletedTask;
         // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
         if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
+        // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
+        if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
@@ -1210,8 +1212,9 @@ public static partial class Game
     // skill's own speed, its supports and the player's attack speed, as the tooltip shows) for as long as the channel
     // runs. The hits used to wait for the client's position updates (C→S 0x197), which do not come at that rate, so a
     // short channel landed one late sweep. The channel ends with C→S 0x199, any other action, mana, death or travel, or
-    // when the client's 0x197 updates stop for ChannelSilenceSeconds (it sends them all the time while the button is held,
-    // so a lost 0x199 cannot keep a channel spinning on its own).
+    // when the client's 0x197 updates stop for ChannelSilenceSeconds (so a lost 0x199 cannot keep a channel spinning on
+    // its own). A held Winter Orb is the exception: its client sends 0x198 only when the aimed cell changes, so a still
+    // cursor leaves none, and the orb must keep charging the stages the bar is counting (ChannelCurrent).
     public const double ChannelSilenceSeconds = 1.0;
 
     public static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
@@ -1219,8 +1222,13 @@ public static partial class Game
     {
         int generation = conn.ChannelGeneration;
         bool Running() => ChannelCurrent(conn, skillId, action, generation);
+        // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
+        // while this channel's cast ticks only build the orb's stages.
+        uint orbEffect = 0;
         try
         {
+            if (IsWinterOrb(gem.Effect))
+                orbEffect = await WinterOrbStart(remote, stream, ciphers, conn, skillId, gem, action);
             while (true)
             {
                 double wait = conn.NextChannelHitAt - conn.Clock.Elapsed.TotalSeconds;
@@ -1251,12 +1259,27 @@ public static partial class Game
                 if (!Running()) { await SendPlayerMana(remote, stream, ciphers, conn, "channel stopped"); return; }
                 if (cost > 0 || lifeCost > 0) await SendSkillCost(remote, stream, ciphers, conn, lifeCost, $"channel cost {cost} mana, {lifeCost} life");
                 if (!Running()) return;
+                // Winter Orb's orb pelts nearby enemies on its own loop (WinterOrb.cs); it does not sweep around the
+                // player. This cast tick only builds a stage, so a faster caster charges the orb sooner.
+                if (IsWinterOrb(gem.Effect))
+                {
+                    WinterOrbStageStep(conn);
+                    await WinterOrbPresentStages(remote, stream, ciphers, conn);
+                    continue;
+                }
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at,
                     immediate: true, sequence: conn.ChannelSkillSequence, actionToken: action, channelGeneration: generation);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        finally
+        {
+            // Winter Orb's orb outlives its channel (WinterOrb.cs): it keeps firing on its decaying stages until the
+            // duration they leave runs out, and death or an area change retires it with the connection. It has no object
+            // of its own to remove: the client draws the orb from the stage buff.
+            if (orbEffect != 0) WinterOrbRelease(conn, generation, action);
+        }
     }
 
     // Cyclone moves while it is channelled: its final movement modifier (cyclone_movement_speed_+%_final, from the gem's
@@ -1296,7 +1319,11 @@ public static partial class Game
         lock (conn.Monsters)
             return !conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0
                 && conn.ChannelSkill == skill && conn.ActionCount == action && conn.ChannelGeneration == generation
-                && conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds;
+                // Winter Orb's channel is held by the button, not by the aim: a still cursor keeps the aimed cell and the
+                // client sends no 0x198, so the aim silence must not release an orb the player is still charging. Before
+                // this a still hold released at five stages while the bar kept counting (live 2026-11-10).
+                && (conn.OrbRuntime is { Channelling: true } orb && orb.SkillId == skill
+                    || conn.Clock.Elapsed.TotalSeconds - conn.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
 
     public static bool PaidChannelCurrent(ClientState conn, ChannelPaymentReceipt receipt)

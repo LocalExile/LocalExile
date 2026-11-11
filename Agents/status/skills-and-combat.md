@@ -1711,6 +1711,48 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Ice Nova drew nothing (live 2026-10-30).
   Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- **Winter Orb (2026-11-09).** The channel is admitted again: its orb fires `Metadata/Projectiles/FrostFuryMortar`,
+  while the effect's own name has no Projectiles row, so every use was refused and the skill dealt no damage.
+  While channelling, each volley lands the skill's cold-damage area hit on nearby enemies every
+  `frost_fury_base_fire_interval_ms` (1200 ms), scaled by the 80% more while channelling and by cast speed (additive,
+  as the data's `display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed` says), with
+  `base_number_of_projectiles` impacts spread along a line across the nearest enemy, so a volley lands its whole spread
+  on one target instead of scattering over three. Stages are counted per channel cast tick up to
+  `frost_fury_max_number_of_stages` (8) plus the quality's `frost_fury_additional_max_number_of_stages`, and add their
+  `frost_fury_fire_speed_+%_per_stage` (20, the first stage adds none) to the frequency. The stages show in the buff
+  bar as the game's own `frost_fury_stage` row (BuffDefinitions 1216, ShowCount), the count the orb's (bit2) and, after
+  the release, the time the stages leave (bit1), which the client draws as a countdown clock under the count (`8` over
+  `0:05`, running down with each stage that goes, live 2026-11-09). Both ride the same 0x1c1 instance, updated in place
+  as the stages build or go and removed with the orb: a new instance for each change (0x1c2 then a fresh 0x1c1) restarts
+  the client's clock, so it never had time to be seen before. A held channel has no clock (no bit1); it runs only while
+  the stages decay. A held channel lives off the client's 10-byte aim updates, which a standing channel sends as 0x198
+  rather than Cyclone's 0x197: unregistered, they were dropped, so the one-second silence ended a held Winter Orb after
+  about five stages and its orb released while the button was still down (live 2026-11-09). The client sends a 0x198 only
+  when the aimed cell changes, so a held channel with a still cursor leaves none: the orb now ignores the aim silence
+  while it is channelling, and a still hold charges to the maximum and releases on the button alone (live 2026-11-10).
+  Its stages build at the channel cast tick (`hundred_times_casts_per_second` 400 with the player's cast speed), which is
+  the rate the client's own count charges at: with the channel kept alive the bar read 7 where the server's seventh stage
+  went and 10/10 once capped, so the one-stage lead seen while channelling is the client's prediction, not a cadence
+  difference. Its three earlier crashes came from the 0x1c1 trailing u32 list, not the message fields: the
+  row's buff visual starts the client's Winter Orb channelling art (`0x1415d17d0` → `0x1417b6030`), which reads entries
+  1 and 2 of the buff's list (buff +0x80) without a length check, so an empty list dereferenced null (`0xc0000005` at
+  fault offset `0x17b6067`, the same for all three shapes). Three entries (first form, not a totem) are all it needs.
+  The orb is its own runtime, not the channel's: releasing the button does not
+  stop it. It keeps firing at the released frequency (no 80% more) while its stages decay one at a time, each over the
+  remaining duration divided by the stages held; the duration is `base_skill_effect_duration` (1600 ms) grown by
+  `frost_fury_duration_+%_per_stage` (30 a stage) through `SkillDurationModifiers`, so 8 stages last 5.44 s at gem
+  level 1. The sphere is removed when the last stage goes, and re-channelling inside that window keeps the orb and the
+  stages it already built rather than creating a second one; death, an area change and a reload retire it. The visuals
+  are the client's own art: the buff plays the skill's channelling effect, which draws the orb and its swirl at the
+  caster, so no effect object is created for the orb — one was, at the player's cell, and showed as a second orb under
+  the player's feet (live 2026-11-09). Each impact is MiscAnimated `FrostFuryExplode`, an effect object at its cell
+  removed after its 250 ms clip. Each projectile is a real object of the row's own metadata (`Metadata/Projectiles/FrostFuryMortar`, whose
+  Projectiles.dat AOFiles are `FrostFury/projectile.ao`, so the client animates the shot), created at the player and
+  glided to its landing cell for the distance over the row's 1500 units/s through `ProjectileSpeed` (projectile speed
+  modifiers change the flight, 0.27–0.45 s measured live 2026-11-09). The object is removed on arrival, when the
+  explosion art plays and the area hit lands there, so damage lands when the mortar does, not when the button is
+  pressed. The impacts are visibly the client's `projectile_impact.ao` (live 2026-11-09). Damage, crits and kills were
+  checked with the real client the same day.
 
 ## Not working yet
 
