@@ -300,7 +300,8 @@ public static partial class Game
         conn.WalkersSteppedTo = now;
         var walks = new Dictionary<uint, GameServer.Core.World.PlayerWalk>();
         // A lockstep client's killed monster walks until its death reaches the client (ClientState.Corpse). A monster the
-        // grid has not listed yet joins it before this pass's steps (ClientEntityGrid: in id order, where it stands).
+        // grid has not listed yet joins it before this pass's steps (ClientEntityGrid: in the order the server added its
+        // monsters, where it stands).
         foreach (var (id, m) in conn.Monsters)
         {
             if (!ClientEntityGrid.Lists(conn, id)) ClientEntityGrid.Stepped(conn, id, m.Walk.Position(from));
