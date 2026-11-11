@@ -317,7 +317,14 @@ static partial class Game
             if (other.Closed || other.LeavingArea) return;
             if (!other.LockstepClient)
             {
-                if (other.Outbox is { } outbox) foreach (var bytes in copies) await outbox(bytes, null);
+                if (other.Outbox is { } outbox)
+                    foreach (var bytes in copies)
+                    {
+                        // A predictive client applies a message on arrival: the turn a lockstep sender keyed it into
+                        // is not its to keep.
+                        if (keyed) bytes.AsSpan(6, 6).Clear();
+                        await outbox(bytes, null);
+                    }
                 return;
             }
             if (after is { } start) await other.FrameFrom(start);

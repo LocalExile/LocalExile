@@ -511,10 +511,11 @@ static partial class Game
             // blood, the weapon impact sound "bonk") and 0x1b1 stays authoritative on life. flags 0x4201 is the real server's
             // player-melee hit (bit 0 hit, 0x200 damage, 0x4000 attack), kind 0x03 = action hit with hit data, the angle drives
             // the directional blood.
+            var order = HitOrder(conn, PlayerId);
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, use.Sequence, targetId, flags: 0x4201, kind: 0x03,
-                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y)),
+                    angle: HitAngle(target.X - stop.X, target.Y - stop.Y), orderKey: order.Key, checkpoint: order.Hit),
                 $"0x01af player hit on monster 0x{targetId:x} (sequence 0x{use.Sequence:x4})");
-            await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life),
+            await SendWorldRecord(remote, stream, ciphers, conn, targetId, InstanceProtocol.LifeUpdate(targetId, life, orderKey: order.Key, checkpoint: order.Life),
                 $"0x01b1 monster 0x{targetId:x} hit for {damage}{(critical ? " (critical)" : "")}" +
                 (resistance is { } note ? $", {note}" : "") +
                 (stored > 0 ? $", impale +{stored:0.#} ({impaleStacks} stack(s))" : "") +
@@ -1798,17 +1799,20 @@ static partial class Game
         }
         // The hit result for the client's damage/effect pipeline (0x1af): a melee hit plays the target's blood and the weapon
         // impact sound "bonk" locally, 0x1b1 stays authoritative on life. Spells and projectiles have their own impact and skip it.
+        // The life update follows its hit message in the attacker's turn; one with no hit message stays where it was.
+        var order = melee ? HitOrder(conn, PlayerId) : default;
         if (melee)
         {
             double now = conn.Clock.Elapsed.TotalSeconds;
             var (px, py) = conn.Walk.Position(now);
             var (mx, my) = m.Walk.Position(now);
-            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py)),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionHit(PlayerId, sequence, id, flags: 0x4201, kind: 0x03, code: hitCode, angle: HitAngle(mx - px, my - py),
+                    orderKey: order.Key, checkpoint: order.Hit),
                 !log ? null : $"0x01af player hit on monster 0x{id:x} (skill, sequence 0x{sequence:x4})");
         }
         // The hit reaction: one of the rig's TakeHit clips and its SoundEvent (0x1b2), as in Attack.
         await SendFlinch(remote, stream, ciphers, conn, id, m, stun ?? new(damage), log);
-        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
+        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life, orderKey: order.Key, checkpoint: order.Life),
             !log && life > 0 ? null : $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
         // One sweep's deaths (loot, experience, quests) wait until every monster of the sweep has its hit (AreaSkillHit).
         if (life == 0) { if (deaths is not null) deaths.Add((id, m)); else await MonsterKilled(remote, stream, ciphers, conn, id, m); }
@@ -1973,6 +1977,20 @@ static partial class Game
     // How long a kill waits for its death message on a lockstep client before the monster is taken as dead in the frame
     // then being sent (a kill whose life update is never written).
     const double CorpseDeathWaitSeconds = 1;
+
+    // Where a hit and the life it leaves go in a lockstep client's frame. GGG writes both into the attacker's own turn:
+    // keyed by the attacker (or by its projectile), the hit at checkpoint 0x7000 or 0x7001 and the target's life update
+    // with the same key two checkpoints up, never at the frame's start (recordings of 2026-11-04: 842 and 251 hits keyed
+    // by their actor at those two checkpoints; of the hits with their target's life update in the same frame, 245 and
+    // 102 have it on the hit's key at the hit's checkpoint + 2). There an actor's order always came before its own hit
+    // of the same frame (475 and 24 frames, none the other way). Written at the frame's start, key 0, the player's hit
+    // could come before his own order of that frame, and the client's action gate (0x141e8d900) then refuses the order
+    // with its +0x238 count raised and takes it in the Actor's tick: a Move's first step came a frame late (live
+    // 2026-11-10: 3 of 3 Moves written after the player's own hit, none of 2 190 other orders). A predictive client
+    // applies a message on arrival and keeps key 0.
+    internal const ushort HitCheckpoint = 0x7000, HitLifeCheckpoint = 0x7002;
+    internal static (uint Key, ushort Hit, ushort Life) HitOrder(ClientState conn, uint attacker) =>
+        conn.LockstepClient ? (attacker, HitCheckpoint, HitLifeCheckpoint) : default;
 
     // The ticks of its death clip that a corpse's body lasts on a lockstep client, the death's own frame included. The
     // client's Actor clears the body from Positioned (+0x1e5 & 8, what its path searches and step checks read) when the

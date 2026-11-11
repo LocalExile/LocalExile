@@ -786,6 +786,18 @@ replaces a queued Move that can be cancelled (its vtable +0x190 and +0x208, flag
 (`0x141e8cf10`) destroys that one before the test runs. A queued non-Move it replaces only when it carries flag 0x400
 and the walker's Player component, if it has one, has +0x2e9 other than 2 or 3; otherwise the offer refuses the Move.
 
+**A hit before an order.** The Actor's gate (`0x141e8d900`) refuses every action without flag 0x8000 while the Actor's
+count at `+0x238` is raised or its timer at `+0x29c` (0.03 s from an action started out of the queue) runs, and the
+action then waits in the queue (`+0x1c0`) for the next try, the top of the Actor's tick (`0x141e8ef50` →
+`0x141e8e060`). A walk set up there comes after the walker's own tick of that frame, so its first step is a frame late.
+The count is raised while the hit handler runs (`0x141e91580`, and the other callers of the current action). Live
+2026-11-10, the player's Move after a wand attack: with the player's own 0x1af written before the Move in the same
+frame the gate answered 0 with the count at 1 and the Move's path search came from the tick, 3 of 3; with the order
+first or no hit in the frame it answered 1 at the apply, 2 190 of 2 190. GGG's hits are never at the frame's start
+(key = the attacker or its projectile, checkpoints 0x7000 and up; an actor's order came before its own hit in every
+frame that had both, 499 of 499 in two recordings), so the Gateway writes the player's hit and the life update after
+it the same way (`HitOrder`: key = the player, 0x7000 and 0x7002).
+
 **Action flags.** A 0x1ab's u16 flags become action `+0x122` in both modes (`0x1421940a0`), less 0x80, which only says
 a target id follows (the reader `0x141fdda70` reads the id and clears the bit). Starting the action (`0x141e8e7e0`)
 reads none of them. The client reads:
@@ -969,6 +981,7 @@ another player's attack on a monster; the copy stands until that player's next o
 | No resync with a stun, a freeze, a movement skill or the client's request | Its 0x128, which the client skips | Ours for a predictive client is one 0x1b7 per monster (0x128 would move the player too), and a 0x1b7 zeroes a walker's step accumulator (`0x141e31800`): after one, 8–12 % of the next 3 s of monster orders were off the client's cell, against 0.2 % otherwise |
 | No 0x1ac when a monster's chase walk-up starts its swing | One when its copy starts the swing | A lockstep client does nothing with a 0x1ac; the swing starts by its own goal test |
 | A corpse's 0x2b0 goes out the frame after the client's own clear (5 frames after a 150 ms death, 0 after one without the event, 56 after Hillock's) | 4 or 5 frames after a 150 ms death, 0 without the event, 54 or 55 after Hillock's (its world's own count of the clip) | The client clears the body itself from the death clip; sent after that, the message changes nothing, so the estimate needs only the client's count |
+| A monster's or a minion's hit (0x1af) and the life update after it are written at the frame's start (key 0) | In the attacker's own turn: key = the attacker or its projectile, the hit at checkpoint 0x7000 or 0x7001, the life update on the same key two checkpoints up | The player's own are written GGG's way (`HitOrder`); the others have not been seen to share a frame with their attacker's order |
 | A step due exactly on a frame's end can fall a frame apart (about 1 walker-frame in 40 000, for one frame) | Never: one simulation | The client counts a walker's step time in a float accumulator; the estimate keeps times as doubles |
 | A monster that gives up a pursuit gets no order: it goes on with its last one as the client's does, a chase's walk-up after the player | Nothing then either, but idle orders after (131 pursuits ended with the player 60+ cells off: a Move of 3+ cells 65, a self-aimed Wait 30, a flight 9, an aimed order again 15, nothing 12) | No idle AI here |
 | A frozen monster gets no stop: its walk goes on, the estimate's too, a chase's walk-up with its goal test | Not traced | The client does not stop the player for `is_frozen` (§5) and takes no Move onto the walker's own cell; the player's freeze plays a recovery of its length (`ShowFreeze`), a monster's does not |

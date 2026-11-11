@@ -307,12 +307,14 @@ public static class InstanceProtocol
     /// picks the damage stat container (or the one the action's sequence names) and calls the attacker Actor's
     /// ProcessDamagePackageInternal (vtable +0x230, 0x141e91580): the client applies the hit locally, which is what plays
     /// the blood particles and the weapon impact sound ("bonk") on the target. Server life (0x1b1) stays authoritative.
+    /// <paramref name="orderKey"/> and <paramref name="checkpoint"/> are the header's ordering fields: where in a
+    /// lockstep client's frame the message is applied (0 = at the frame's start).
     /// </summary>
     public static byte[] ActionHit(uint objectId, ushort sequence, uint targetObjectId, byte actionByte = 0,
         byte skillIndex = 0, ushort flags = 0, byte kind = 0x03, byte code = 0, byte angle = 0, ushort u34 = 0,
-        ushort u3c = 0, ushort u3e = 0)
+        ushort u3c = 0, ushort u3e = 0, uint orderKey = 0, ushort checkpoint = 0)
     {
-        var w = new LoginWriter().U16(ActionHitId).U32(objectId).U32(0).U16(0)
+        var w = new LoginWriter().U16(ActionHitId).U32(objectId).U32(orderKey).U16(checkpoint)
             .U16(sequence).U8(actionByte).U8(skillIndex).U32(targetObjectId).U16(flags).U8(kind);
         if ((kind & 0x02) != 0)
         {
@@ -353,8 +355,9 @@ public static class InstanceProtocol
     /// values in the pool. For the life pool the handler also calls the Life component's death slot (vtable +0xe8, with
     /// the +0x2c byte) when life drops from ≥ 1 to &lt; 1, and its revive slot (+0x100) on the way back.
     /// </summary>
-    public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0) =>
-        new LoginWriter().U16(LifeUpdateId).U32(objectId).U32(0).U16(0).U32(current).U32(reserved).U8(pool).U16(u2a).U8(u2c).ToArray();
+    public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0,
+        uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(LifeUpdateId).U32(objectId).U32(orderKey).U16(checkpoint).U32(current).U32(reserved).U8(pool).U16(u2a).U8(u2c).ToArray();
 
     public const ushort AnimationUpdateId = 0x1b2;
 

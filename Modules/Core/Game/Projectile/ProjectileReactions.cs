@@ -33,6 +33,8 @@ static partial class Game
             double until = target.FlinchUntil;
             session.World(id, () => TakeHitPacket(conn, id, target, until, now));
         }
+        // The life update follows its hit message in the attacker's turn (HitOrder); one with no hit message stays.
+        (uint Key, ushort Hit, ushort Life) order = default;
         if (shot.HitPacket)
         {
             // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
@@ -42,10 +44,12 @@ static partial class Game
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
+            order = HitOrder(conn, PlayerId);
             session.World(PlayerId, InstanceProtocol.ActionHit(PlayerId, shot.ActionSequence ?? 0xffff, id, flags: flags, kind: 0x03,
-                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000))));
+                code: HitCode(shot.Hit), angle: HitAngle((int)Math.Round(direction.X * 1000), (int)Math.Round(direction.Y * 1000)),
+                orderKey: order.Key, checkpoint: order.Hit));
         }
-        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
+        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
             $"projectile {shot.Label} {contact.Stage} t={now:0.000000} use={contact.Projectile.UseId} entity={contact.Projectile.Id}"
             + $" phase={contact.Phase} form={contact.Projectile.Form} at={contact.Position}"
             + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");

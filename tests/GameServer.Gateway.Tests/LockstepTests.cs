@@ -514,6 +514,16 @@ public class LockstepTests : IDisposable
         conn.NoteLockstepClient("test");
         conn.NoteLockstepClient("test");
         Assert.True(conn.LockstepClient);
+        // A lockstep client's hit and the life it leaves go into the attacker's own turn of the frame, keyed by the
+        // attacker at GGG's checkpoints, so they never come before the attacker's order of that frame; a predictive
+        // client applies a message on arrival and keeps the frame's start.
+        Assert.Equal(default, Game.HitOrder(new ClientState(new(1, "mode", 300, 300, 100, 100, null, []), 1, 1), 0x1000));
+        var hit = Game.HitOrder(conn, 0x1000);
+        Assert.Equal((0x1000u, (ushort)0x7000, (ushort)0x7002), hit);
+        Assert.Equal("01AF0000100000001000700080010000000030004201030000", Convert.ToHexString(
+            InstanceProtocol.ActionHit(0x1000, 0x8001, 0x3000, flags: 0x4201, orderKey: hit.Key, checkpoint: hit.Hit)));
+        Assert.Equal("01B1000030000000100070020000000500000000000000" + "00", Convert.ToHexString(
+            InstanceProtocol.LifeUpdate(0x3000, 5, orderKey: hit.Key, checkpoint: hit.Life)));
         // A lockstep client skips GGG's resync message, and a teleport would cost its walkers their step's fraction.
         lock (conn.Monsters) Assert.Empty(Game.ResyncPacketLocked(conn, 0));
         conn.Monsters.Clear();
