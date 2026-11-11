@@ -28,7 +28,7 @@ public sealed class GameModule : IModule
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DepravedTrinity.Leaving(conn));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id,global::BrineKing.PlayerStats);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
