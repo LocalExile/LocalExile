@@ -275,6 +275,11 @@ def first_contact(events):
     return min(hits, key=lambda h: h[0]) if hits else None
 
 
+def all_contacts(events):
+    """Every "contact" event of a clip in time order, as [(ms, position or None), ...]."""
+    return sorted([(ms, pos) for name, ms, pos in events if name == "contact"], key=lambda h: h[0])
+
+
 TOKEN = re.compile(r'"[^"]*"|\'[^\']*\'|[{}=]|[^\s{}=]+')
 
 

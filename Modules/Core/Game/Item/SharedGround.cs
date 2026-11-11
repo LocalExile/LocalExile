@@ -51,7 +51,8 @@ public static partial class Game
             {
                 if (conn.SeenGround.Contains(id)) continue;
                 var (by, shared) = ground.Origin(id);
-                if (!shared && !ReferenceEquals(by, conn)) continue; // another player's own
+                if (!shared && !ReferenceEquals(by, conn)
+                    && (QuestFlagsOf(conn, item.Item) is null || !QuestDropVisibleTo(conn, id))) continue;
                 conn.SeenGround.Add(id);
                 if (ReferenceEquals(by, conn)) continue; // shown where it was put down
                 packets.Create(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),

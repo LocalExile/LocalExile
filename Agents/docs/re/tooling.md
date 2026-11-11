@@ -190,6 +190,12 @@ call. There is no `cdb`/WinDbg installed.
 | C→S messages | `bash scripts/re/ghidra/g.sh SendSites.java 'C:\…\Tools\re\out\sendsites.json'` (15 s), then `python -I scripts/re/c2s_md.py` | [../protocol/c2s.md](../protocol/c2s.md): every client → server message of the instance, login and patch connections with its class, writer, length and senders. Senders outside `0x1421752b0` are a hand table in the script. Exit 1 if an exact length disagrees with the Gateway's `KnownClientLength` |
 | Live check | `common.js` + `frida/check-components.js` (section 4) | bytes per component of every object the server sends |
 
+The offline command `python -I scripts/re/c2s_md.py --instance-length-candidates` reads the checked-in
+[message inventory](../protocol/c2s.json) using only the Python standard library.
+It writes sorted C# switch arms for exact instance lengths to standard output and the fixed-table audit to standard error.
+The plaintext opening, dedicated framer IDs and messages without an exact length stay outside the candidate table.
+A mismatch or a fixed ID missing from the inventory stops candidate output.
+
 Rules the generators rely on (all from the code, see the script headers): the object-type constructor `0x141ec7c10`
 creates Positioned first; `.ot` sections merge parent-first with the first position kept; `type+0x80` components (the
 non-client ones) are deserialized; live objects often use a subclass vtable (`ClientPlayer`, `ClientActor`,
