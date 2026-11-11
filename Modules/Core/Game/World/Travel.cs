@@ -67,8 +67,7 @@ public static partial class Game
                     conn.Walk.Order(self.X, self.Y, at);
                 }, out var cooldownUse, requestedAt: requestedAt)) return;
             bool acknowledged = false;
-            await Send(remote, stream, ciphers,
-                InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, self.X, self.Y, self.X, self.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: PlayerId),
                 $"0x01ab player skill 0x{use.SkillId:x4} cast on itself at ({self.X}, {self.Y})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? true));
@@ -142,7 +141,7 @@ public static partial class Game
                 if (!PlayerActionCurrent(conn, action)) return;
                 conn.Walk.Teleport(tx, ty, ProjectileWorldTime(conn));
             }
-            await Send(remote, stream, ciphers, InstanceProtocol.Teleport(PlayerId, tx, ty),
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.Teleport(PlayerId, tx, ty),
                 $"0x01b7 player through the gate 0x{use.TargetId:x} to ({tx}, {ty}), destination gate at ({pair.X}, {pair.Y})",
                 still: () => PlayerActionCurrent(conn, action));
             return;
@@ -337,7 +336,7 @@ public static partial class Game
         conn.TalkingTo = 0;
         conn.InNpcTalk = false;
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
-        await Send(remote, stream, ciphers, InstanceEntities.PlayerHideoutsUpdate(PlayerId, hideout.Hash16, 0),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerHideoutsUpdate(PlayerId, hideout.Hash16, 0),
             $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(conn)} selected hideout row {hideout.Row}: {hideout.AreaId}");
         await WarpToHideout(remote, stream, ciphers, conn, "Helena: Select Hideout");
@@ -357,7 +356,7 @@ public static partial class Game
         // Remove outstanding visuals while the old world still exists, before 0x2b4. If Auth refuses the transfer,
         // their canceled tasks must not leave permanent projectile/explosion objects in the retained world.
         foreach (uint id in projectiles)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd remove projectile 0x{id:x} (leaving area)",
+            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove projectile 0x{id:x} (leaving area)",
                 still: () => !conn.Closed);
         await Send(remote, stream, ciphers, InstanceTransfer.ChangeArea(t.Area), $"0x02b4 change area to 0x{t.Area:x4} ({why})");
         // If the client never acknowledges, move it anyway after a moment.

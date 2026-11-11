@@ -40,6 +40,8 @@ public sealed partial class ClientState
             }
             OwnedCombatState = null;
             VaalUseState = null;
+            // Winter Orb's orb ends with the area, the death or the load that retires the connection's combat work.
+            WinterOrbState = null;
             CombatRushUntil = 0;
             CombatRushAttackSpeed = 0;
             CombatRushUse = null;

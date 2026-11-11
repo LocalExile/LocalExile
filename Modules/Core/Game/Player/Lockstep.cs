@@ -10,7 +10,7 @@ public static partial class Game
     // for: everything starts in the frame pass, as on GGG's server, which answers a click at the next frame start and the
     // rest from the player's own tick. The offsets are from the client's cell, and GGG's target is that cell plus the
     // offset: where the cursor is (median 0.8 cells off over 5 300 requests, moving or not). The newest request wins. A request made during a
-    // swing comes with flags 0x0001 and u8 3, and is served like any other.
+    // swing comes with u8 3, and is served like any other.
     public static void OnLockstepRequest(string remote, ClientState conn, ushort id, byte[] bytes)
     {
         lock (conn.Monsters)
@@ -24,7 +24,7 @@ public static partial class Game
                 conn.LockstepUse = null;
                 if (SkillsFor(conn).ActionName(click.SkillId) == "Move")
                 {
-                    conn.LockstepSkill.Clear();
+                    conn.LockstepSkill.Clear(finishChannel: true);
                     conn.LockstepHold.Press(aim, click.SkillId, click.Flags);
                 }
                 else
@@ -39,6 +39,8 @@ public static partial class Game
                 var (dx, dy) = InstanceProtocol.ReadLockstepMoveUpdate(bytes);
                 conn.LockstepHold.Update((here.X + dx, here.Y + dy));
                 conn.LockstepSkill.Update((here.X + dx, here.Y + dy));
+                if (conn.ChannelSkill != 0 && conn.LockstepSkill.Channel == conn.ChannelSkillSequence)
+                    conn.LastChannelUpdateAt = conn.Clock.Elapsed.TotalSeconds;
             }
             else if (id == InstanceProtocol.LockstepMoveStopId)
             {
@@ -53,7 +55,7 @@ public static partial class Game
             {
                 var (target, skill, flags, _) = InstanceProtocol.ReadLockstepUseOnObject(bytes);
                 conn.LockstepHold.Clear();
-                conn.LockstepSkill.Clear();
+                conn.LockstepSkill.Clear(finishChannel: true);
                 if (SkillsFor(conn).IsGemSkill(skill) || skill == SkillCatalog.FirstSkillId)
                 {
                     var aim = conn.Monsters.TryGetValue(target, out var m) ? m.Walk.Position(conn.Clock.Elapsed.TotalSeconds) : here;
@@ -72,6 +74,19 @@ public static partial class Game
     {
         conn.LockstepSequence = (ushort)((conn.LockstepSequence + 1) & 0x7fff);
         return (ushort)(conn.LockstepSequence | 0x8000);
+    }
+
+    // A Move can cancel at either end of a spell. A different spell can replace it only early; a held repeat waits.
+    public static bool LockstepPlayerFree(ClientState conn, double at)
+    {
+        if (at >= conn.LockstepBusyUntil) return true;
+        if (!conn.LockstepClient || conn.LockstepCastWindow is not { } cast) return false;
+        if (conn.LockstepHold.Active)
+            return cast.AllowsMove(at, earlyCancellation: (conn.LockstepHold.Flags & 0x400) != 0);
+        if (!conn.LockstepSkill.Pending || (conn.LockstepSkill.Flags & 0x400) == 0) return false;
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == conn.LockstepSkill.Skill);
+        return gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect)
+            && cast.AllowsSkill(at, SkillsFor(conn).ActionHash(gem.Effect));
     }
 
     // The frame pass: starts what the player's requests call for, if anything, at the frame's start. Blocked steps are
@@ -94,6 +109,7 @@ public static partial class Game
             {
                 conn.LockstepHold.Clear();
                 conn.LockstepSkill.Clear();
+                conn.LockstepCastWindow = null;
                 conn.LockstepUse = null;
                 return;
             }
@@ -111,7 +127,7 @@ public static partial class Game
             }
             // Readiness belongs to the client's frame. Projectile time may already be ahead of it; using that
             // clock can start a Move before pickup completion, whose cleanup then discards the new path.
-            bool free = frameStart >= conn.LockstepBusyUntil;
+            bool free = LockstepPlayerFree(conn, frameStart);
             if (!PlayerActionBlocked(conn, at, at) && free)
             {
                 if (conn.LockstepSkill.Target is { } aimedAt && aimedAt != PlayerId
@@ -122,10 +138,10 @@ public static partial class Game
                 // 2026-11-03: a ground attack sent as soon as the player was free came 0.4 s into a 0.645 s swing, and
                 // the client queued it until the swing's end). A new click goes at the next frame start over an open
                 // walk-up, as over a walk, and its action ends that walk-up (PlayerWalkUpOpen); only a swing holds it.
-                bool monster = conn.LockstepSkill.Target is { } t && t != PlayerId;
                 bool attack = LockstepAttackSkill(conn, conn.LockstepSkill.Skill);
                 if (conn.LockstepUse is { } object_)
                 {
+                    conn.LockstepCastWindow = null;
                     conn.LockstepUse = null;
                     use = object_;
                     from = conn.Walk.Position(at);
@@ -136,9 +152,8 @@ public static partial class Game
                 {
                     skill = true;
                     sequence = NextLockstepSequence(conn);
-                    // A use at the ground starts at the end of this frame on the client, and holds the player from there.
-                    if (!monster && !LockstepGroundMelee(conn, conn.LockstepSkill.Skill, conn.LockstepSkill.Flags))
-                        conn.LockstepBusyUntil = (conn.LockstepFrame?.End ?? at) + LockstepActionHold(conn, conn.LockstepSkill.Skill, sequence);
+                    conn.LockstepCastWindow = null;
+                    HoldLockstepSkill(conn, sequence, frameStart, at);
                 }
                 else if (conn.LockstepHold.Due(conn.Walk.Moving(at), conn.Walk.Position(at)) is { } due
                     && PlaceLockstepPlayerMove(conn, due, at) is { } placed)
@@ -146,22 +161,24 @@ public static partial class Game
                     (target, from) = (due, placed);
                     action = Interlocked.Increment(ref conn.ActionCount);
                     conn.ChannelSkill = 0;
+                    conn.LockstepCastWindow = null;
+                    conn.LockstepBusyUntil = frameStart;
                     sequence = NextLockstepSequence(conn);
                 }
             }
         }
         // GGG ends a channel with 0x1ae on the release (35 ms later).
-        if (ended != 0) await Send(remote, stream, ciphers, InstanceProtocol.ChannelFinished(PlayerId, ended), $"0x01ae channel 0x{ended:x4} ended");
+        if (ended != 0) await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ChannelFinished(PlayerId, ended), $"0x01ae channel 0x{ended:x4} ended");
         if (sequence == 0) return;
         if (skill) StartLockstepSkill(remote, stream, ciphers, conn, sequence, at);
         else if (use is not null)
         {
             // The client walks up on this 0x1ab, where a predictive client starts by itself; the server's use goes on as
             // ever from here, its own walk included.
-            await Send(remote, stream, ciphers, LockstepObjectStart(from, use, sequence), $"0x01ab lockstep use of object 0x{use.TargetId:x} from ({from.X}, {from.Y})");
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepObjectStart(from, use, sequence), $"0x01ab lockstep use of object 0x{use.TargetId:x} from ({from.X}, {from.Y})");
             _ = OnUseObject(remote, stream, ciphers, conn, use with { Sequence = sequence, Started = true }, at);
         }
-        else await Send(remote, stream, ciphers, LockstepActionStart(conn, from, target, sequence),
+        else await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, LockstepActionStart(conn, from, target, sequence),
             $"0x01ab lockstep walk from ({from.X}, {from.Y}) to ({target.X}, {target.Y})",
             still: () => PlayerActionCurrent(conn, action));
     }
@@ -197,9 +214,12 @@ public static partial class Game
         {
             conn.LockstepAttack?.Fails();
             conn.LockstepAttack = attack = new(action, use.TargetId, m, WalkUpRange(weapon), m.StopRange - 2, precision,
-                () => LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail);
+                () => LockstepAttackCutIn(conn, use.SkillId, use.Sequence) + conn.LockstepActionTail)
+            {
+                InPlace = (use.Flags & 1) != 0,
+            };
         }
-        await Send(remote, stream, ciphers, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], $"0x01ab lockstep {what} 0x{use.SkillId:x4} on 0x{use.TargetId:x}",
             atGate: () =>
             {
                 using (ProjectileMutation(conn, phase: "send")) return LockstepAttackAtGate(remote, conn, attack, use);
@@ -236,9 +256,24 @@ public static partial class Game
     // 0x141e81950): met, the swing begins in this frame, from where the frame's steps leave a walking player
     // (0x141e82310 → 0x141e38420 tests that same cell, then stops after the steps, even when they carry him out of reach);
     // nothing found ends the action (0x141e82010 → 0x141e82310); else the step pass runs the walk-up. Under conn.Monsters.
+    // Flag 0x0001 is attack in place: the client sets it on its request (0x1401214f0: the attack-in-place key, a skill
+    // set to always attack in place, or a use the input handler goes on with) and the 0x1ab echoes it. The Actor's start
+    // then asks MoveTo for the actor's own cell, ranges 0 (0x141e95400), instead of the target with the weapon's range:
+    // in goal at once whatever the distance, so the walk under way ends with the stop that waits for the tick and the
+    // swing begins in this frame from where its steps leave the player. The hit asks the reach as ever. Live 2026-11-10:
+    // after such a request 27 cells from the monster the client's player took the frame's step and stood through the
+    // swing, while an estimate that walked up went 11 cells on and its next order put the client's player there.
     public static ((int X, int Y) Here, (int X, int Y) Aim) PlaceLockstepAttack(ClientState conn, LockstepAttack attack, double at)
     {
         var aim = attack.AimAt(at);
+        if (attack.InPlace)
+        {
+            var stand = conn.Walk.Position(at);
+            conn.Walk.Cancel(at);
+            attack.TimerFrom = at;
+            LockstepAttackSwings(conn, attack, at, conn.LockstepFrame?.End ?? at);
+            return (stand, aim);
+        }
         var here = conn.Walk.Approach(aim.X, aim.Y, attack.Reach, at, attack.Tolerance, attack.Precision).Here;
         attack.TimerFrom = at;
         if (conn.Walk.InReachOf(here, aim, attack.Reach, attack.Tolerance))
@@ -276,7 +311,7 @@ public static partial class Game
         try
         {
             await EndGracePeriod(remote, stream, ciphers, conn, action: true);
-            await Send(remote, stream, ciphers, [], $"0x01ab lockstep ground attack 0x{skill:x4}", atGate: () =>
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [], $"0x01ab lockstep ground attack 0x{skill:x4}", atGate: () =>
             {
                 using (ProjectileMutation(conn, phase: "send"))
                 {
@@ -294,22 +329,68 @@ public static partial class Game
         finally { LockstepAttackOver(conn, attack.Action); }
     }
 
+    // A spell advances in its first native frame. Preserve its fractional duration so a short cast can repeat on
+    // the next frame. Attacks retain their separately traced end-of-frame anchor and walk-up swing timing.
+    public static void HoldLockstepSkill(ClientState conn, ushort sequence, double frameStart, double at)
+    {
+        bool monster = conn.LockstepSkill.Target is { } target && target != PlayerId;
+        ushort requested = conn.LockstepSkill.Skill;
+        var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == requested);
+        bool spell = gem.Name is not null && SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect);
+        // A spell aimed at an object uses the same cast action and duration as one aimed at the ground.
+        // Only attacks defer their hold until the walk-up reaches its swing.
+        if (monster && !spell || !monster && LockstepGroundMelee(conn, requested, conn.LockstepSkill.Flags)) return;
+        double start = spell ? frameStart : conn.LockstepFrame?.End ?? at;
+        double hold = LockstepActionHold(conn, requested, sequence);
+        conn.LockstepBusyUntil = start + hold;
+        if (spell) conn.LockstepCastWindow = LockstepSpellMoveWindow(conn, requested, gem.Effect, start, hold);
+    }
+
     // Whether a held skill is an attack (the default attack or an attack gem): its uses share the attack timer.
     static bool LockstepAttackSkill(ClientState conn, ushort skill) =>
         skill == SkillCatalog.FirstSkillId
         || GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem && SkillsFor(conn).IsAttack(gem.Effect);
 
     // How long a use started at the ground or on the player holds it: an attack until the client lets a Move cut in
-    // (LockstepAttackCutIn), a spell for its cast time (a Move during a cast is not measured), a channel not at all (it
+    // (LockstepAttackCutIn), a spell repeat for its adjusted cast time, a channel not at all (it
     // runs until the release).
-    static double LockstepActionHold(ClientState conn, ushort skill, ushort sequence)
+    public static double LockstepActionHold(ClientState conn, ushort skill, ushort sequence)
     {
         if (GemSkillEffects(conn).FirstOrDefault(g => g.Id == skill) is { Name: not null } gem)
         {
             if (SkillsFor(conn).IsChannelled(gem.Effect)) return 0;
+            // The native spell duration divides the virtual base by cast speed (0x1419f1960).
+            // The repeat counter restarts the same action (0x1419e6370); hold through every cast, not just its first.
+            // Reuse the cast path's skill-specific speed and action speed; a refused cast holds no action.
+            if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
+                return (SpellTimingFor(conn, gem.Effect, skill)?.DurationSeconds ?? 0)
+                    * (1d + SpellRepeats(conn, skill, gem.Effect)) / PlayerActionFactor(conn);
             if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail;
+    }
+
+    static GameServer.Core.World.LockstepCastWindow? LockstepSpellMoveWindow(ClientState conn, ushort skill, int effect, double start, double duration)
+    {
+        // These projectile actions share the clip gate (0x141942b50). Ordinary repeats allow its early window only
+        // on the first cast and its late window only on the final cast (0x1419e6460).
+        if (SkillsFor(conn).EffectId(effect) is not ("Fireball" or "FreezingPulse") || duration <= 0) return null;
+        int repeats = SpellRepeats(conn, skill, effect);
+        var own = SupportedStats(conn, skill);
+        bool Has(string name) => Stats.Key(name) is uint key && own.GetValueOrDefault(key) != 0;
+        // These overrides bypass the repeat-stage gate; retain the full hold until their separate windows are modeled.
+        if (repeats > 0 && (Has("multistrike_damage_+%_final_on_first_repeat")
+            || Has("multistrike_damage_+%_final_on_second_repeat"))) return null;
+        bool cannotCancelBeforeContact = Has("cannot_cancel_skill_before_contact_point");
+        string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
+        var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
+            start, duration / (1d + repeats), cannotCancelBeforeContact);
+        return window is { } cast ? cast with
+        {
+            Duration = duration,
+            LateFrom = duration - cast.Duration + cast.LateFrom,
+            ActionHash = SkillsFor(conn).ActionHash(effect),
+        } : null;
     }
 
     // The attack time of a held attack skill, as its handler paces it (Attack, CastGemSkill).
@@ -369,7 +450,7 @@ public static partial class Game
             if (channel is { } current) AimChannelTriggers(conn, current.Aim);
         }
         return channel is { } c
-            ? Send(remote, stream, ciphers, InstanceProtocol.ActionTarget(PlayerId, c.Sequence, c.Aim.X, c.Aim.Y), $"0x01ad channel aims at ({c.Aim.X}, {c.Aim.Y})")
+            ? SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionTarget(PlayerId, c.Sequence, c.Aim.X, c.Aim.Y), $"0x01ad channel aims at ({c.Aim.X}, {c.Aim.Y})")
             : Task.CompletedTask;
     }
 }

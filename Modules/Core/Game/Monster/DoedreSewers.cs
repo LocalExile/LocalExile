@@ -74,7 +74,7 @@ public static class DoedreSewers
             if (e.Buffs[i] != 0)
             {
                 ushort buff = e.Buffs[i]; e.Buffs[i] = 0;
-                if (!c.Closed) await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), null);
+                if (!c.Closed) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), null);
             }
         if (!c.Closed && !c.LeavingArea) await Refresh(c);
     }
@@ -91,9 +91,9 @@ public static class DoedreSewers
             if (index == 0) e.Red = count; else if (index == 1) e.Green = count; else e.Purple = count;
         }
         var w = c.Wire;
-        if (e.Buffs[index] != 0) await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[index]), null);
+        if (e.Buffs[index] != 0) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[index]), null);
         e.Buffs[index] = c.NextBuff++;
-        await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.AddBuff(PlayerId, e.Buffs[index], (ushort)(832 + index), stacks: (ushort)count), "[Doedre] effluent stacks");
+        await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[index], (ushort)(832 + index), stacks: (ushort)count), "[Doedre] effluent stacks");
         await Refresh(c);
     }
     public static IDisposable CleanupOnUnload() => new Cleanup();
@@ -125,7 +125,7 @@ public static class DoedreSewers
         if (c.Layout.Id != Area || !Fights.TryGetValue(c.Instance, out var f) || use.TargetId != f.ValveId) return false;
         if (!TryBeginObjectWalk(c, requestedAt, f.ValveAt.X, f.ValveAt.Y, 3, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk; var w = c.Wire;
-        if (!use.Started) await Send(w.Remote, w.Stream, w.Ciphers,
+        if (!use.Started) await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId,
             InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, f.ValveAt.X, f.ValveAt.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
             still: () => PlayerActionCurrent(c, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
@@ -136,7 +136,7 @@ public static class DoedreSewers
             await f.Gate.WaitAsync();
             try { await f.Turn(c, c.Clock.Elapsed.TotalSeconds); } finally { f.Gate.Release(); }
         }
-        finally { await Send(w.Remote, w.Stream, w.Ciphers, InstanceProtocol.ActionEnded(PlayerId), null); }
+        finally { await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, c, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null); }
         return true;
     }
     sealed record Scene(uint Id, string Type, GlyphQuest.Placement At, QuestObjectTypes.Info Info);
@@ -511,8 +511,8 @@ public static class DoedreSewers
                 }
                 if (inside == (e.Buffs[3] != 0)) continue;
                 var w = p.Wire;
-                if (inside) { e.Buffs[3] = p.NextBuff++; await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.AddBuff(PlayerId, e.Buffs[3], 25), null); }
-                else { await Send(w.Remote, w.Stream, w.Ciphers, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[3]), null); e.Buffs[3] = 0; }
+                if (inside) { e.Buffs[3] = p.NextBuff++; await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.AddBuff(PlayerId, e.Buffs[3], 25), null); }
+                else { await SendWorldRecord(w.Remote, w.Stream, w.Ciphers, p, PlayerId, InstanceEntities.RemoveBuff(PlayerId, e.Buffs[3]), null); e.Buffs[3] = 0; }
             }
         }
         readonly Dictionary<uint, double> minionDotCarry = [];

@@ -16,22 +16,19 @@ public static partial class Game
             var equipment = ItemsOf(conn).EquipmentSnapshot().ToDictionary(p => p.Row, p => p.Item.Item);
             return new(0, null, equipment);
         }
-        var catalog = ItemsFor(conn);
-        byte Slot(Item item)
+        byte Slot(Item item) => AnimatedItemSlot(conn, definition, gem, item);
+        bool Visible(uint id)
         {
-            if (!item.Identified || catalog.ByHash(item.TypeHash) is not { } type
-                || ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods) > GolemStat(gem.Stats, "animate_item_maximum_level_requirement")) return 0;
-            if (WeaponIn(conn, (item, type)) is { } weapon)
-                return definition.Family == "AnimatedGuardian" || weapon.Melee || definition.Id == "AnimateWeaponAltY" ? (byte)2 : (byte)0;
-            if (definition.Family != "AnimatedGuardian") return 0;
-            return type.Class switch { "Body Armour" => 1, "Shield" => 3, "Helmet" => 4, "Gloves" => 8, "Boots" => 9, _ => (byte)0 };
+            var origin = conn.Instance.Ground.Origin(id);
+            return origin.Shared || ReferenceEquals(origin.By, conn);
         }
+        if (target != 0 && !Visible(target)) return null;
         var ground = target != 0 ? conn.Instance.Ground.Get(target) : null;
         uint id = target;
         if (ground is null)
         {
             var found = conn.Instance.Ground.Within(aim.X, aim.Y, 15, p => Slot(p.Item) != 0)
-                .OrderBy(p => Dist((p.Item.GridX, p.Item.GridY), aim)).FirstOrDefault();
+                .Where(p => Visible(p.Id)).OrderBy(p => Dist((p.Item.GridX, p.Item.GridY), aim)).FirstOrDefault();
             id = found.Id; ground = found.Item;
         }
         var gear = definition.Family == "AnimatedGuardian" ? new Dictionary<byte, Item>(conn.Summons.GuardianEquipment) : [];
@@ -40,6 +37,23 @@ public static partial class Game
         if (slot == 0) return null;
         gear[slot] = ground.Item;
         return new(id, ground, gear);
+    }
+
+    internal static byte AnimatedItemSlot(ClientState conn, SummonCatalog.Definition definition, SupportedGem gem, Item item)
+    {
+        var catalog = ItemsFor(conn);
+        if (!item.Identified || catalog.ByHash(item.TypeHash) is not { } type
+            || ItemModStats.LevelRequirement(item, type.DropLevel, catalog.Mods)
+                > GolemStat(gem.Stats, "animate_item_maximum_level_requirement")) return 0;
+        if (WeaponIn(conn, (item, type)) is { } weapon)
+        {
+            if (definition.Family == "AnimatedGuardian") return weapon.Melee ? (byte)2 : (byte)0;
+            if (definition.Family != "AnimatedWeapon" || item.Sockets.Count >= 6) return 0;
+            bool allowed = definition.Id == "AnimateWeaponAltY" ? !weapon.Melee : weapon.Melee;
+            return allowed ? (byte)2 : (byte)0;
+        }
+        if (definition.Family != "AnimatedGuardian") return 0;
+        return type.Class switch { "Body Armour" => 1, "Shield" => 3, "Helmet" => 4, "Gloves" => 8, "Boots" => 9, _ => (byte)0 };
     }
 
     static IReadOnlyList<VisibleItem> SummonLooks(GolemState.Golem fighter) => fighter.Equipment

@@ -182,11 +182,11 @@ static partial class SurvivorsRunRules
                     await Send(remote, stream, ciphers, InstancePause.State(false),
                         "0x01d3 resumed (the survivors run ended)");
                 foreach (ushort buff in buffs)
-                    await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), "survivors retired aura");
                 foreach (uint orb in orbs)
-                    await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(orb), "survivors retired xp orb");
+                    await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, orb, "survivors retired xp orb");
                 foreach (uint zone in zones)
-                    await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(zone), "survivors retired death zone");
+                    await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, zone, "survivors retired death zone");
                 if (closeWindow)
                     await Send(remote, stream, ciphers, InstanceNpcs.Talk(0), "survivors retired reward window",
                         still: () => StateOf(conn).Survivors is null);

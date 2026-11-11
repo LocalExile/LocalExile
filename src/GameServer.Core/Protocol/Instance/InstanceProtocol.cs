@@ -40,10 +40,14 @@ public static class InstanceProtocol
     /// first; the client sends "current set is the first"). It then waits (session +0xcfa4 = 1) for S→C 0xde.</summary>
     public const ushort SwapWeaponsId = 0xdd;
 
-    /// <summary>C→S 0x197 (10 bytes, live 2026-10-23 while Cyclone was held): a channelled skill goes on, u32 BE x, u32 BE
-    /// y (grid cells) of the point it is aimed at now (the cursor, not the player). C→S 0x199 (2 bytes): the channel ends
-    /// (the button let go). Read from captures.</summary>
-    public const ushort ChannelUpdateId = 0x197, ChannelEndId = 0x199;
+    /// <summary>C→S 0x197 (10 bytes, live 2026-10-23 while Cyclone was held) and C→S 0x198 (the same 10 bytes, class and
+    /// handler, which a channelled spell that stands still — Winter Orb — sends instead, live 2026-11-09): a channelled
+    /// skill goes on, u32 BE x, u32 BE y (grid cells) of the point it is aimed at now (the cursor, not the player). C→S
+    /// 0x199 (2 bytes): the channel ends (the button let go). Read from captures.</summary>
+    public const ushort ChannelUpdateId = 0x197, ChannelUpdateAltId = 0x198, ChannelEndId = 0x199;
+
+    /// <summary>The channel update in either form the client sends it.</summary>
+    public static bool IsChannelUpdate(ushort id) => id is ChannelUpdateId or ChannelUpdateAltId;
 
     public static (int X, int Y) ReadChannelUpdate(ReadOnlySpan<byte> m) =>
         ((int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), (int)System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
@@ -98,7 +102,7 @@ public static class InstanceProtocol
         InstanceItems.LevelUpGemId => 14, InstanceItems.LevelUpAllGemsId => InstanceItems.LevelUpAllGemsLength, InstanceItems.LockGemId => InstanceItems.LockGemLength,
         InstanceEntities.AllocatePassiveId => 7, InstanceEntities.MasteryEffectId => InstanceEntities.MasteryEffectLength, InstanceEntities.RefundPassiveId => InstanceEntities.RefundPassiveLength,
         InstanceEntities.RefundAllPassivesId => 2, InstanceEntities.PanelToggleId => 3, InstanceWaypoints.TravelId => InstanceWaypoints.TravelLength, InstanceNpcs.DialogueClosedId => 2, InstanceNpcs.OptionId => InstanceNpcs.OptionLength, InstanceNpcs.TradeAnswerId => InstanceNpcs.TradeAnswerLength, InstanceNpcs.TradeOfferId => InstanceNpcs.TradeOfferLength, InstanceNpcs.TradeTakeBackId => InstanceNpcs.TradeTakeBackLength, InstanceNpcs.TradeMoveAllId => InstanceNpcs.TradeMoveAllLength, InstanceNpcs.TradeAcceptId => InstanceNpcs.TradeAcceptLength, InstanceNpcs.TradeUnacceptId => InstanceNpcs.TradeUnacceptLength, InstanceStash.RequestTabId => InstanceStash.RequestTabLength, InstanceStash.MoveTabId => InstanceStash.MoveTabLength, InstanceStash.MoveToTabId => InstanceStash.MoveToTabLength, InstanceStash.TakeFromTabId => InstanceStash.TakeFromTabLength, InstanceMapDevice.ActivateId => InstanceMapDevice.ActivateLength, InstanceMapDevice.SelectMapId => InstanceMapDevice.SelectMapLength, InstanceMapDevice.MoveId => InstanceMapDevice.MoveLength, InstanceMapDevice.SocketId => InstanceMapDevice.SocketLength, InstanceEntities.AtlasAllocateId => InstanceEntities.AtlasAllocateLength, InstanceEntities.AtlasRefundId => InstanceEntities.AtlasRefundLength,
-        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
+        SwapWeaponsId => 3, ChannelUpdateId => 10, ChannelUpdateAltId => 10, ChannelEndId => 2, LockstepMoveStartId => 15, LockstepMoveUpdateId => 10, LockstepMoveStopId => 2, LockstepUseOnObjectId => 11, LockstepSkillStopId => 4,
         UseInstantSkillAtLocationId => 12, UseInstantSkillId => 8,
         InstancePause.RequestId => InstancePause.RequestLength, InstanceMicrotransactions.SlotId => InstanceMicrotransactions.SlotLength,
         InstanceWaypoints.LabyrinthChosenId => InstanceWaypoints.LabyrinthChosenLength,
@@ -146,8 +150,9 @@ public static class InstanceProtocol
     /// an object, instead of 0x24. C→S 0x0196 (u16 skill): release that skill.</summary>
     public const ushort LockstepUseOnObjectId = 0x018f, LockstepSkillStopId = 0x0196;
 
-    /// <summary>C→S 0x018f. Flags 0x0401 and u8 0 on a free player; flags 0x0001 and u8 3 for a request made during a swing,
-    /// which GGG serves when the swing ends.</summary>
+    /// <summary>C→S 0x018f. u8 0 on a free player, 3 for a request made during a swing, which GGG serves when the swing
+    /// ends. Flags: 0x0400 on a new press, 0x0001 attack in place (07 §6, "Action flags"), 0x0008 the client's
+    /// auto_equip option.</summary>
     public static (uint ObjectId, ushort SkillId, ushort Flags, byte Extra) ReadLockstepUseOnObject(byte[] b) =>
         (BinaryPrimitives.ReadUInt32BigEndian(b.AsSpan(2)), BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(6)),
          BinaryPrimitives.ReadUInt16BigEndian(b.AsSpan(8)), b[10]);
@@ -311,12 +316,14 @@ public static class InstanceProtocol
     /// picks the damage stat container (or the one the action's sequence names) and calls the attacker Actor's
     /// ProcessDamagePackageInternal (vtable +0x230, 0x141e97e20): the client applies the hit locally, which is what plays
     /// the blood particles and the weapon impact sound ("bonk") on the target. Server life (0x1b1) stays authoritative.
+    /// <paramref name="orderKey"/> and <paramref name="checkpoint"/> are the header's ordering fields: where in a
+    /// lockstep client's frame the message is applied (0 = at the frame's start).
     /// </summary>
     public static byte[] ActionHit(uint objectId, ushort sequence, uint targetObjectId, byte actionByte = 0,
         byte skillIndex = 0, ushort flags = 0, byte kind = 0x03, byte code = 0, byte angle = 0, ushort u34 = 0,
-        ushort u3c = 0, ushort u3e = 0)
+        ushort u3c = 0, ushort u3e = 0, uint orderKey = 0, ushort checkpoint = 0)
     {
-        var w = new LoginWriter().U16(ActionHitId).U32(objectId).U32(0).U16(0)
+        var w = new LoginWriter().U16(ActionHitId).U32(objectId).U32(orderKey).U16(checkpoint)
             .U16(sequence).U8(actionByte).U8(skillIndex).U32(targetObjectId).U16(flags).U8(kind);
         if ((kind & 0x02) != 0)
         {
@@ -339,10 +346,10 @@ public static class InstanceProtocol
     /// animation and consumes a use of the skill: that starts its cooldown on the skill bar (live 2026-10-21).
     /// </summary>
     public static byte[] InstantAction(uint objectId, ushort skillId, int targetX, int targetY, uint? targetObjectId = null,
-        ushort sequence = 0xffff)
+        ushort sequence = 0xffff, ushort flags = 0)
     {
         var w = new LoginWriter().U16(InstantActionId).U32(objectId).U32(0).U16(0)
-            .U16(skillId).U16(sequence).U16((ushort)(targetObjectId is null ? 0 : 0x20));
+            .U16(skillId).U16(sequence).U16((ushort)(flags | (targetObjectId is null ? 0 : 0x20)));
         if (targetObjectId is { } t) w.U32(t);
         CompactInt(w, targetX); CompactInt(w, targetY);
         return w.ToArray();
@@ -357,8 +364,9 @@ public static class InstanceProtocol
     /// values in the pool. For the life pool the handler also calls the Life component's death slot (vtable +0xe8, with
     /// the +0x2c byte) when life drops from ≥ 1 to &lt; 1, and its revive slot (+0x100) on the way back.
     /// </summary>
-    public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0) =>
-        new LoginWriter().U16(LifeUpdateId).U32(objectId).U32(0).U16(0).U32(current).U32(reserved).U8(pool).U16(u2a).U8(u2c).ToArray();
+    public static byte[] LifeUpdate(uint objectId, uint current, uint reserved = 0, byte pool = 0, ushort u2a = 0, byte u2c = 0,
+        uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(LifeUpdateId).U32(objectId).U32(orderKey).U16(checkpoint).U32(current).U32(reserved).U8(pool).U16(u2a).U8(u2c).ToArray();
 
     public const ushort AnimationUpdateId = 0x1b2;
 

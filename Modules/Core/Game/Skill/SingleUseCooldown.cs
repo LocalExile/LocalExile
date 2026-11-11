@@ -19,7 +19,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
             if (!Current(conn)) return false;
             if (Reserved)
             {
-                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant);
+                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
                 foreach (var (state, version, skill) in SharedUses)
                     state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
             }

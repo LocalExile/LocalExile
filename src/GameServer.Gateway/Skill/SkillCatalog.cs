@@ -186,7 +186,12 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// Herald of Ice's shatter): neither an attack nor a spell, so no added attack/spell damage joins it.</summary>
     public DamagePacket SecondaryHitDamage(int effectRow, int level, int quality = 0) => HitDamageOf(effectRow, level, quality, "secondary");
 
-    private DamagePacket HitDamageOf(int effectRow, int level, int quality, string prefix)
+    /// <summary>A charge-spending skill's base hit per removable charge of <paramref name="type"/> (Discharge's
+    /// <c>spell_minimum_base_lightning_damage_per_removable_power_charge</c> and so on); empty for other skills.</summary>
+    public DamagePacket HitDamagePerCharge(int effectRow, int level, ChargeType type, int quality = 0) =>
+        HitDamageOf(effectRow, level, quality, "spell", $"_per_removable_{Charges.Name(type)}_charge");
+
+    private DamagePacket HitDamageOf(int effectRow, int level, int quality, string prefix, string suffix = "")
     {
         var stats = EffectStats(effectRow, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         var result = DamagePacket.Empty;
@@ -201,10 +206,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 DamageType.Chaos => "chaos",
                 _ => throw new ArgumentOutOfRangeException(),
             };
-            int min = prefix == "spell" ? Value(stats, $"spell_minimum_base_{slug}_damage", $"minimum_base_{slug}_damage")
-                : Value(stats, $"{prefix}_minimum_base_{slug}_damage");
-            int max = prefix == "spell" ? Value(stats, $"spell_maximum_base_{slug}_damage", $"maximum_base_{slug}_damage")
-                : Value(stats, $"{prefix}_maximum_base_{slug}_damage");
+            int min = prefix == "spell" ? Value(stats, $"spell_minimum_base_{slug}_damage{suffix}", $"minimum_base_{slug}_damage{suffix}")
+                : Value(stats, $"{prefix}_minimum_base_{slug}_damage{suffix}");
+            int max = prefix == "spell" ? Value(stats, $"spell_maximum_base_{slug}_damage{suffix}", $"maximum_base_{slug}_damage{suffix}")
+                : Value(stats, $"{prefix}_maximum_base_{slug}_damage{suffix}");
             if (min > 0 || max > 0) result = result.Add(type, new DamageRange(min, Math.Max(min, max)));
         }
         return result;
@@ -732,13 +737,19 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Elemental Hit fires ElementalHitArrowFire/Cold/Lightning by the element it picked, a choice the server does not model
     // yet, so both the gem and its transfigured (Spectrum) version take the combined arrow's art.
     // Rolling Magma (once Magma Orb) creates MagmaOrbShort (Frida 2026-11-01, trace-projectile-create.js); without the row every
-    // cast was refused while the client drew its orb.
+    // cast was refused while the client drew its orb. Winter Orb's channelled orb fires FrostFuryMortar (its Projectiles row,
+    // one per volley); the effect's own name has no row, so the channel was refused while the client played it.
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
+    // Kinetic Bolt (ZigZagProjectile) creates ZigZagWandProjectile (3.29.3c RE); its transfigured/internal variants share
+    // the same ActionType and primary projectile row.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltX"] = "Metadata/Projectiles/WandProjectile",
         ["KineticBlastAltY"] = "Metadata/Projectiles/WandProjectile",
+        ["KineticBolt"] = "Metadata/Projectiles/ZigZagWandProjectile",
+        ["KineticBoltAltX"] = "Metadata/Projectiles/ZigZagWandProjectile",
+        ["KineticBoltAltY"] = "Metadata/Projectiles/ZigZagWandProjectile",
         ["EtherealKnives"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltX"] = "Metadata/Projectiles/EtherealKnivesProjectile",
         ["EtherealKnivesAltY"] = "Metadata/Projectiles/EtherealKnivesProjectile",
@@ -755,6 +766,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
+        ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
         ["SplitArrow"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
@@ -904,8 +916,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     /// <summary>The clip the client plays for a monster's action: the variety's ACT pool for the skill's animation key
     /// (<c>SpellProjectile</c> for the Spitter's mortar), chosen as the client chooses it, with the native selector seeded
-    /// by the action's sequence (AnimationVariantSelector; the Gateway's monster actions send 0xffff, so the choice is the
-    /// same for every swing). Null without data for the variety or key.</summary>
+    /// by the action's sequence (AnimationVariantSelector). Null without data for the variety or key.</summary>
     public MonsterClipContact? MonsterContact(string varietyId, string animationKey, ushort sequence)
     {
         if (!_monsterContacts.Value.TryGetValue(varietyId, out var pools) || !pools.TryGetValue(animationKey, out var pool)

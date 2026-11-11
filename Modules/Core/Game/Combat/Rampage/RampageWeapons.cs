@@ -70,7 +70,7 @@ public static partial class Game
             }
         }
         foreach (var (id, from, to) in moves)
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y,
                 0x2909, 0xffff, conn.MonsterOrderFlags), "Rampage weapon moves", still: () =>
                 conn.OwnedCombatState is RampageWorld current && current.Actors.TryGetValue(id, out var actor)
                     && RampageEffectCurrent(conn, actor.Epoch));
@@ -79,7 +79,7 @@ public static partial class Game
             if (!CurrentRampageWork) return;
             var from = swing.Actor.Walk.Position(ProjectileWorldTime(conn));
             var to = swing.Target.Walk.Position(ProjectileWorldTime(conn));
-            await Send(remote, stream, ciphers, InstanceProtocol.ActionStartedNow(swing.Id, from.X, from.Y, to.X, to.Y,
+            await SendWorldRecord(remote, stream, ciphers, conn, swing.Id, InstanceProtocol.ActionStartedNow(swing.Id, from.X, from.Y, to.X, to.Y,
                 SkillCatalog.FirstSkillId, 0xffff, conn.MonsterOrderFlags, swing.TargetId), "Rampage weapon attacks",
                 still: () => RampageEffectCurrent(conn, swing.Plan.Epoch));
             var variety = swing.Actor.Variety!;
