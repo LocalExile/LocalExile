@@ -26,7 +26,6 @@ static class TattoosFeature
         if (!conn.Tattoos.ContainsKey(node) && totalLimit > 0 && conn.Tattoos.Count >= totalLimit)
             return $"a character can have at most {totalLimit} tattoos";
         if (entry.EventOnly) return $"{entry.Name} is event-only and is not supported yet";
-        if (entry.Name.StartsWith("Loyalty ", StringComparison.Ordinal)) return "Loyalty tattoos are not supported yet";
 
         var next = new Dictionary<ushort, string>(conn.Tattoos) { [node] = entry.Name };
         if (TattooLimitRefusal(next, node, entry, ItemsFor(conn).Limits) is { } limitError) return limitError;

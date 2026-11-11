@@ -232,11 +232,8 @@ public static partial class Game
     // has_trigger_on_totem_death_in_presence_of_unique; the shared Spirit cooldown decides).
     static void TotemsDiedLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.PlayerLife == 0) return;
-        var here = conn.Walk.Position(now);
-        if (conn.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0 && m.Rarity == MonsterRarity.Unique
-            && Dist(m.Walk.Position(now), here) <= PresenceRadius))
-            TriggerSpiritChieftainLocked(conn, TotemDeathInPresenceOfUniqueTrigger, stats);
+        if (conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return;
+        TriggerSpiritChieftainLocked(conn, TotemDeathInPresenceOfUniqueTrigger, stats);
     }
 
     // The aura of the totem covering the living player joins his stats (CharacterPlayerStatsCore), with his aura effect.

@@ -870,7 +870,7 @@ public static partial class Game
             return await PlaceSkill(remote, stream, ciphers, conn, skillId, from, to, recoveryGeneration, Current);
         if (gem.Name is not null)
         {
-            if (SkillsFor(conn).IsTravel(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);
+            if (SkillsFor(conn).IsTravel(gem.Effect)) { QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(conn); }
             if (SkillsFor(conn).IsGuard(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Guard);
         }
         // The Portal skill: a town portal, as the Portal Scroll's, once its cast (2.5 s) is over.
@@ -1023,7 +1023,7 @@ public static partial class Game
             });
         if (accepted)
         {
-            if (SkillsFor(conn).IsTravel(gem.Effect)) QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel);
+            if (SkillsFor(conn).IsTravel(gem.Effect)) { QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(conn); }
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
     }
