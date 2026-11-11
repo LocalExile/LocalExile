@@ -217,6 +217,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - The mod SDK validates native character-build previews and commits confirmed imports after session drain; the optional POB mod and converter are external.
+- Currency pickup into affinity-bound stash tabs is opt-in through a lifetime-owned user mod policy.
+  Ownership, capacity and save rollback have automated coverage; fresh native mod lifecycle checks are pending.
 
 - **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the
   official client 2026-11-05, server live check pending):** "Enemies you Kill Explode, dealing X% of their Life as

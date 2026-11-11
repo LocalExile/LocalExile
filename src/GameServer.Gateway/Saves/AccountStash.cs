@@ -516,7 +516,11 @@ public sealed partial class AccountStash
     /// save. What does not fit is <see cref="Stacking.Left"/>; null (nothing changes) with the reason when the tab doesn't
     /// hold the item. New items get stash ids.
     /// </summary>
-    public Stacking? AddStacked(int tab, Item item, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    public Stacking? AddStacked(int tab, Item item, Func<Item, PlayerInventories.Shape?> shapeOf, out string why) =>
+        AddStacked(tab, item, shapeOf, out why, requireAll: false);
+
+    /// <summary>With requireAll, insufficient space leaves both the tab and its item id counter unchanged.</summary>
+    public Stacking? AddStacked(int tab, Item item, Func<Item, PlayerInventories.Shape?> shapeOf, out string why, bool requireAll)
     {
         var changed = new List<InventoryItem>();
         var added = new List<InventoryItem>();
@@ -528,6 +532,8 @@ public sealed partial class AccountStash
             var t = _tabs[tab];
             if (shapeOf(item) is not { } shape) { why = "unknown item type"; return null; }
             if (CellIn(t, item, 0, 0, out why) is not var (slotX, slotY)) return null;
+            var original = requireAll ? t.Items.ToArray() : null;
+            uint originalNextId = _nextItemId;
             bool slotted = _rules.Slotted(t.Saved.Type);
             int max = Math.Max(1, MaxStack(t, item, shape, -1, -1));   // stacks into the item's own slot, never the crafting slot
             left = item.StackSize;
@@ -555,6 +561,14 @@ public sealed partial class AccountStash
                 if (!slotted) placed = PlayerInventories.Completed(placed, shape);
                 t.Items.Add(placed);
                 added.Add(placed);
+            }
+            if (requireAll && left > 0)
+            {
+                t.Items.Clear();
+                t.Items.AddRange(original!);
+                _nextItemId = originalNextId;
+                why = "not enough room for the whole stack";
+                return null;
             }
         }
         if (changed.Count + added.Count > 0) Persist(tab);

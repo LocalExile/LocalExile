@@ -522,6 +522,7 @@ public static partial class Game
         var leechContext = LeechContext(conn);
         var ailments = conn.ElementalAilments.Snapshot(last);
         bool moving = conn.Walk.Moving(last);
+        double nextPetPickup = 0;
         while (PlayerUpdatesCurrent(conn, updates))
         {
             await updates.Schedule.Wait(PlayerUpdateRole.Player, PlayerTickMs, updates.Stop.Token);
@@ -636,6 +637,12 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             // Gold within the configured auto-loot radius is picked up unless a league system suppresses loot.
             var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+            if (conn.Clock.Elapsed.TotalSeconds >= nextPetPickup)
+            {
+                nextPetPickup = conn.Clock.Elapsed.TotalSeconds + .5;
+                await PickUpPetCurrency(remote, stream, ciphers, conn);
+                if (!PlayerUpdatesCurrent(conn, updates)) return;
+            }
             foreach (var (id, gold) in GameEvents.AllowsLoot(conn)
                 ? conn.Instance.Ground.Within(at.X, at.Y, SystemSettings.Default.GoldAutoLootRadius, IsGold)
                 : [])
