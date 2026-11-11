@@ -820,7 +820,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// <summary>What Headhunter took from slain rares (StolenMods).</summary>
     public StolenMods StolenMods { get; } = new();
     /// <summary>The Headhunter buff on the client, 0 for none (Monsters lock).</summary>
-    public ushort StolenModsBuff;
+    public ushort StolenModsBuff, InspiredLearningBuff;
     /// <summary>The flask buffs Mageblood has on the client, by flask item id (Program.StepMagebloodBuffs; Monsters lock).</summary>
     public Dictionary<uint, (byte Slot, ushort Buff, ushort? Extra)> MagebloodBuffs { get; } = [];
     /// <summary>The flasks' partial charges and the crit charge cooldown (FlaskCharges).</summary>

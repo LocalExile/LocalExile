@@ -251,7 +251,7 @@ public static partial class Game
         foreach (var (socket, conversion) in radiusJewels)
             if (conversion.TattooEffectPct != 0)
                 foreach (ushort node in tree.NodesInRadius(socket, conversion.Radius))
-                    if (tattoos.ContainsKey(node))
+                    if (tattoos.TryGetValue(node, out string? tattooName) && tattooName != "Journey Tattoo of Makanui")
                         tattooEffect[node] = tattooEffect.GetValueOrDefault(node) + conversion.TattooEffectPct;
         IReadOnlyList<(uint Key, int Value)> TattooEffect(ushort node, IReadOnlyList<(uint Key, int Value)> stats) =>
             tattooEffect.TryGetValue(node, out int pct) ? ScaleStats(stats, pct) : stats;
@@ -275,8 +275,7 @@ public static partial class Game
                     bool tattooActive = entry.RequiresAdjacent > 0
                         ? adjacent >= entry.RequiresAdjacent
                         : entry.MaxAdjacent <= 0 || adjacent <= entry.MaxAdjacent;
-                    nodeStats[node] = !tattooActive ? [] : name == "Journey Tattoo of Makanui"
-                        ? tattooStats : TattooEffect(node, tattooStats);
+                    nodeStats[node] = tattooActive ? tattooStats : [];
                 }
         var conquered = new HashSet<ushort>();
         if (timeless.Spec is { } timelessSpec)
@@ -289,7 +288,8 @@ public static partial class Game
                 {
                     nodeStats[node] = alternate.Replaces
                         ? alternate.Stats
-                        : [.. nodeStats[node], .. alternate.Stats];
+                        : [.. TattooEffect(node, nodeStats[node]), .. alternate.Stats];
+                    tattooEffect.Remove(node);
                 }
         }
         // Radius jewels run in Path of Building's order: the first pass applies conversions, notable replacements,
@@ -300,7 +300,7 @@ public static partial class Game
         // The first pass matches Path of Building's "Other" radius jewels: conversions, notable replacements,
         // passive additions and resistance-scaled additions. Might of the Meek's effect and suppression are
         // collected here and applied after the pass, so a later replacement cannot survive suppression.
-        var effectPct = new Dictionary<ushort, int>();
+        var effectPct = new Dictionary<ushort, int>(tattooEffect);
         var suppressedNotables = new HashSet<ushort>();
         var suppressedSmalls = new HashSet<ushort>();
         foreach (var (socket, conversion) in radiusJewels)
@@ -401,7 +401,7 @@ public static partial class Game
             if (suppressedNotables.Contains(node)) return [];
             // Unnatural Instinct grants a tattoo on an unallocated small passive, not the original passive.
             var stats = tattoos.TryGetValue(node, out string? tattooName) && TattooStats.For(tattooName) is { } tattoo
-                ? TattooEffect(node, tattoo) : passive.Stats;
+                ? tattoo : passive.Stats;
             return effectPct.TryGetValue(node, out int pct) && pct != 0 && !passive.IsKeystone
                 ? ScaleStats(stats, pct) : stats;
         }
@@ -452,7 +452,7 @@ public static partial class Game
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             }
         }
-        foreach (var (key, value) in TattooCountingStats(tattoos, allocated, tattooEffect))
+        foreach (var (key, value) in TattooCountingStats(tattoos, allocated.Where(n => !suppressedNotables.Contains(n) && !suppressedSmalls.Contains(n)).ToHashSet(), effectPct))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in scalingStats)
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
@@ -1193,7 +1193,7 @@ public static partial class Game
             bypass.Keys.ToHashSet(), bypass);
     }
 
-    // Allocated passives that a socketed Intuitive Leap/Thread of Hope lets stand without a path to the class start,
+    // Allocated passives that Intuitive Leap, Thread of Hope or Impossible Escape lets stand without a path to the class start,
     // with the socket(s) of the jewels that grant each one. The candidate set decides whether the jewel's own socket
     // is still allocated; skipItemId simulates taking that jewel out before the item move validates the remaining
     // tree.

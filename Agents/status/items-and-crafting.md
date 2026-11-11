@@ -300,7 +300,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
   Atziri's Reign.
   Abyss jewels fit allocated passive sockets and equipment Abyss sockets. Active hosts contribute socketed jewel stats
-  and eye counts; Stygian Vise rolls its Abyss socket. Individual Gaze and Historic effects need their own consumers.
+  and eye counts. Stygian Vises and unique armour create the Abyss sockets granted by their modifiers. Individual Gaze and Historic effects need their own consumers.
   `/item <name> <base name>` reaches one base of a unique with several (`/item Grand Spectrum Cobalt Jewel`).
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base
   implicit); the client shows the unique tooltip.
@@ -310,7 +310,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Inspired Learning grants one eligible rare affix for 20 s when its ordinary socket has four allocated notables in
   range. Duplicate stolen effects retain the longer lifetime.
   Bound By Destiny checks its 2/4/6 thresholds against active influenced equipment; dual-influenced items count
-  once toward each matching influence. Qualified stats enter attributes and combat through the normal item sources.
+  once toward each matching influence. The periodic life regeneration and nearby blind/intimidate modifiers
+  lack native unconditional stat rows and remain inactive.
   Headhunter: killing a rare gives each of its rolled affixes as a stack of character stats for 60 s (the same one resets
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).

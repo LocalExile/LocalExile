@@ -138,8 +138,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   are built, so the server's ordinary-PSG-only radius is intentional. The 33 threshold jewels have generated item
   sources (`scripts/re/threshold_jewels.py`, `ThresholdJewelCatalogue.cs`); the client applies their local threshold
   mods. Current Dead Reckoning gives skeleton hits flat chaos from the equipped shield's local energy shield without
-  an attribute threshold. `ThresholdJewels.cs` parses the target/attribute mask, sums every ordinary passive in radius (allocated or
-  not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
+  an attribute threshold. `ThresholdJewels.cs` parses the target/attribute mask, sums every ordinary passive in radius
+  (allocated or not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
   36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
   `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
   (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and

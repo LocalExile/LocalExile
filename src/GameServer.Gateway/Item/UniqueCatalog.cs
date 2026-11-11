@@ -33,7 +33,7 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0, bool EncounterOnly = false,
-        RollGroup[]? RollGroups = null, int JewelLimit = 0);
+        RollGroup[]? RollGroups = null, int JewelLimit = 0, int? EncounterItemLevelBonus = null);
 
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
@@ -187,6 +187,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         bool abyss = local.Keys.Any(id => id is "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets");
         if (local.ContainsKey("local_has_no_sockets")) return item with { Sockets = [], Links = null };
         if (type.Id == AbyssJewels.StygianVise) return AbyssJewels.StygianSockets(item, local);
+        if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0)
+            return AbyssJewels.EquipmentSockets(item, type, items, local, random);
         if (!abyss && local.ContainsKey("local_six_linked_random_sockets"))
         {
             int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));

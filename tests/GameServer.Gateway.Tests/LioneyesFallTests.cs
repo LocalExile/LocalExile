@@ -56,5 +56,10 @@ public class LioneyesFallTests
         Assert.Equal(200, Hit(true, false));
         Assert.Equal(100, Hit(false, false));
         Assert.Equal(100, Hit(true, true));
+
+        int Ignite(bool bow) => AilmentPanelStats.Compute(new("main_hand", Spell: false, Bow: bow),
+            packet, conversion, Get).Single(row => row.Stat == "minimum_ignite_damage_to_deal_per_minute_from_non_critical_main_hand_damage").Value;
+        Assert.Equal(2 * Ignite(false), Ignite(true));
+        Assert.True(Ignite(false) > 0);
     }
 }

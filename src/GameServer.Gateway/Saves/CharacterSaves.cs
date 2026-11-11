@@ -550,6 +550,12 @@ public static class CharacterSaves
             if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
                 item = AbyssJewels.StygianSockets(item, local);
         }
+        else if (item.Rarity == ItemRarity.Unique && item.Sockets.Count == 0 && t.Components.Contains("Sockets"))
+        {
+            var local = ItemModStats.Local(item, catalog.Mods);
+            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+                item = AbyssJewels.EquipmentSockets(item, t, catalog, local, new Random(item.TypeHash.GetHashCode()));
+        }
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
     }
 

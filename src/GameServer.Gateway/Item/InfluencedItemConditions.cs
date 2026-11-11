@@ -31,7 +31,7 @@ public static class InfluencedItemConditions
         "physical_damage_%_to_add_as_each_element" =>
             ["physical_damage_%_to_add_as_fire", "physical_damage_%_to_add_as_cold", "physical_damage_%_to_add_as_lightning"],
         "elemental_damage_%_taken_as_chaos" =>
-            ["fire_damage_taken_%_as_chaos", "cold_damage_taken_%_as_chaos", "lightning_damage_taken_%_as_chaos"],
+            ["elemental_damage_taken_%_as_chaos"],
         _ => [target],
     };
 }

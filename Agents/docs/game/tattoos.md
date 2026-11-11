@@ -270,9 +270,9 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Journey Tattoo of the Body** | +25 to maximum Life per Allocated Journey Tattoo of the Body | Notable (+30 Str) | Ngakanu | works | live +25 maximum Life per allocated copy; base life 5535 -> 5550 after replacing Prowess |
-| **Journey Tattoo of the Mind** | +30 to maximum Mana per Allocated Journey Tattoo of the Mind | Notable (+30 Dex) | Te Onui | works | live +30 maximum Mana per allocated copy; base mana 2336 -> 2365 |
-| **Journey Tattoo of the Soul** | +40 to maximum Energy Shield per Allocated Journey Tattoo of the Soul | Notable (+30 Int) | Moti Aro | works | live +40 maximum Energy Shield per allocated copy; ES 34 -> 74 |
+| **Journey Tattoo of the Body** | +25 to maximum Life per Allocated Journey Tattoo of the Body | Notable (+30 Str) | Ngakanu | works | +25 × n² maximum Life for n allocated copies; base life 5535 -> 5550 after replacing Prowess |
+| **Journey Tattoo of the Mind** | +30 to maximum Mana per Allocated Journey Tattoo of the Mind | Notable (+30 Dex) | Te Onui | works | +30 × n² maximum Mana for n allocated copies; base mana 2336 -> 2365 |
+| **Journey Tattoo of the Soul** | +40 to maximum Energy Shield per Allocated Journey Tattoo of the Soul | Notable (+30 Int) | Moti Aro | works | +40 × n² maximum Energy Shield for n allocated copies; ES 34 -> 74 |
 
 ### Arohongui (5)
 
@@ -577,7 +577,7 @@ Conditional Makanga stats 2026-10-30 (client/server, `/stat` after the live gate
 Counting tattoos 2026-10-30 (client/server, `/stat`):
 
 - **Journey Body** on 52714 (Prowess, +30 Strength): base maximum life 5535 -> 5550. The net +15 is because the
-  replaced Prowess stats were removed; the counting pass adds +25 per allocated Body.
+  replaced Prowess stats were removed; each allocated Body grants +25 times the allocated Body count.
 - **Journey Mind** on 56029 (Agility, +30 Dexterity): base maximum mana 2336 -> 2365 (the net +29 is +30 minus the
   replaced Agility stat).
 - **Journey Soul** on 50197 (Ancestral Knowledge, +30 Intelligence): base maximum energy shield 34 -> 74 (+40).

@@ -333,10 +333,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             if (row.BossId != bossId || row.ItemKind != "unique" || (row.OverrideChance ?? row.Chance) is not (> 0 and <= 1 and var chance))
                 continue;
             if (uniques.Find(row.ItemId) is not { EncounterOnly: true } definition || definition.Name != row.ItemId
-                || random.NextDouble() >= chance || uniques.Create(definition, random) is not { } jewel
+                || random.NextDouble() >= chance) continue;
+            int bonus = definition.EncounterItemLevelBonus ?? ItemLevelBonus(MonsterRarity.Unique);
+            byte itemLevel = (byte)Math.Clamp(monsterLevel + (long)bonus, 1, 100);
+            if (uniques.Create(definition with { ItemLevel = itemLevel }, random) is not { } jewel
                 || catalog.ByHash(jewel.TypeHash) is not { } type) continue;
-            byte itemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(MonsterRarity.Unique), 1, 100);
-            result.Add(new(jewel with { Identified = false, ItemLevel = itemLevel }, type));
+            result.Add(new(jewel with { Identified = false }, type));
         }
         return result;
     }

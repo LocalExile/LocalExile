@@ -265,7 +265,7 @@ public static partial class Game
                 if (Stats.Key(stat) is uint key && !devSet.Contains(key)) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
-            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
+            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack(), Bow: Profile().Bow);
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext, SupportedAttackDamage.Raw(WeaponFor(), Get), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
                 ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
