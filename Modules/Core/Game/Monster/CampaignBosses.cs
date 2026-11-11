@@ -472,15 +472,29 @@ static class CampaignBosses
         || IsAbberath(v) || IsRyslatha(v) || IsGreust(v) || IsGruthkul(v) || IsArakaali(v) || IsYugul(v)
         || IsSolaris(v) || IsLunaris(v) || IsShakari(v) || IsGarukhan(v));
 
-    /// <summary>A bar-boss no other controller claims: the map, league and pinnacle fights the atlas, the Maven, the
-    /// Elder, Sirus, the Brine King, the Depraved Trinity, Doedre and the King in the Mists do not own. Its own granted
-    /// rows are its whole kit (<see cref="EndgameKit"/>).</summary>
-    internal static bool IsEndgame(MonsterCatalog.Variety? v) => v is { BossHealthBar: true, GrantedEffects.Count: > 0 } && !IsOwned(v)
+    /// <summary>A bar-boss no other controller claims. Its own granted rows are its whole kit
+    /// (<see cref="EndgameKit"/>).</summary>
+    // The exclusion list below is the whole rule, on purpose. The generated kit exists for bodies that had a bar and no
+    // controller at all; the moment it also claims a body something else drives, it does not add a fight, it replaces
+    // one. Two of those are not module code and so are easy to miss when reading this file: the Gateway's BossFights
+    // (Hillock's 50% extract: its gate returns before the swing, so a kit here removed the stage) and MapBossFights
+    // (the Shaper, the Elder, Sirus, the Maven's Nucleus and the invaders' pinnacles: device recipes that form those
+    // bodies and hold the last of an arena back, which a kit rotating rows over the top of fights with the encounter).
+    // Anything a future controller starts driving belongs on this list too; adding a body here is what gives it a kit.
+    internal static bool IsEndgame(MonsterCatalog.Variety? v) => v is { BossHealthBar: true, GrantedEffects.Count: > 0 }
+        && v.Id is not null && !IsOwned(v) && !Claimed(v.Id)
+        // The Maven and her Nucleus have their own controller (MavenNucleus): a kit over them played two teleport rows
+        // and three MoveDaemon rows as physical hits, and left MavenProjectile without the art MavenNucleus.Shot names.
+        && !MavenNucleus.Is(v.Id)
         && !AtlasBosses.IsBoss(v) && !BrineKing.IsBoss(v) && !DepravedTrinity.IsBoss(v) && !DoedreSewers.IsBoss(v)
         && !KingInMists.IsBoss(v) && !VaalOversoul.IsBoss(v)
         // Kitava keeps his own fights (KitavaActFive.cs, KitavaActTen.cs), which own his body, heart, Sin and Innocence:
         // giving the body a second kit here would rotate rows over the encounter's own actions.
         && !KitavaActFive.IsActor(v) && !KitavaActTen.IsActor(v);
+
+    /// <summary>Whether something other than this file already drives the body: the Gateway's staged fights
+    /// (<see cref="BossFights"/>) and the device-recipe arenas (<see cref="MapBossFights"/>).</summary>
+    static bool Claimed(string varietyId) => BossFights.For(varietyId) is not null || MapBossFights.Current.Drives(varietyId);
 
     internal static bool IsBoss(MonsterCatalog.Variety? v) => IsOwned(v) || IsEndgame(v);
 
@@ -694,6 +708,12 @@ static class CampaignBosses
                 // The boss is gone: whatever he raised goes with him (his controller will not step again).
                 if (monster.Dead || monster.Life == 0) await fight.RetireAdds(conn);
                 if (IsMonsterRunner(conn)) await fight.Step(conn, conn.Clock.Elapsed.TotalSeconds);
+            }
+            catch (Exception ex)
+            {
+                // One failed step must not take the tick down with it (the Atlas fights' Tick catches the same way): the
+                // gate is released below and the next tick tries again.
+                Console.WriteLine($"[gateway] {conn.Wire.Remote} {monster.Variety?.Id} 0x{id:x} step failed: {ex.GetType().Name}: {ex.Message}");
             }
             finally { fight.Gate.Release(); }
         }

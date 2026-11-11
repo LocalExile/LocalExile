@@ -98,6 +98,14 @@ public class PantheonBossSkillTests
             foreach (int effect in kit) Assert.Contains(effect, variety.GrantedEffects!);
         }
         Assert.True(endgame > 50, $"{endgame} endgame bosses");
+        // The generated kit is for bodies that had a bar and no controller. The Gateway drives some of those itself: its
+        // staged fights (Hillock's 50% extract) and its device-recipe arenas, which form the Shaper, the Elder, Sirus, the
+        // Maven's Nucleus and the invaders' pinnacles and hold the last boss of an arena back. A kit over the top of one
+        // does not add a fight, it replaces the encounter's own actions with a rotation.
+        foreach (var variety in monsters.All.Where(v => v.BossHealthBar && v.Id is not null))
+            if (MapBossFights.Current.Drives(variety.Id)
+                || BossFights.For(variety.Id) is not null)
+                Assert.False(CampaignBosses.IsEndgame(variety), $"{variety.Id} is already driven by the Gateway");
         // The acts' bosses: every kit is built out of that variety's own rows (never an effect the client did not
         // grant it), and the whole kit gets a skill id of its own. Kitava's two fights are not here: they are
         // KitavaActFive's and KitavaActTen's own controllers (and this table must not claim them).

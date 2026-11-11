@@ -60,6 +60,17 @@ public sealed class MapBossFights
 
     public Phase? PhaseOf(string areaId) => _phases.GetValueOrDefault(areaId);
 
+    /// <summary>Whether this class already drives the body: a member of a first wave, an arena's held-back last boss,
+    /// the Atlas bosses an invitation can stand in MavenHub, or a body a Voidstone records the defeat of. A module that
+    /// would otherwise give every bar'd monster its own rotation asks this, so a kit cannot take over a fight this class
+    /// forms, holds back or tracks.
+    /// </summary>
+    public bool Drives(string varietyId) => _phases.Values.Any(phase =>
+            phase.Last == varietyId || phase.First.Contains(varietyId))
+        || _atlasBosses.Contains(varietyId)
+        || _stones.Any(stone => stone.Defeat.Contains(varietyId)
+            || (stone.AllOf is { Count: > 0 } need && need.Contains(varietyId)));
+
     /// <summary>Marks the held-back last boss absent so Plan does not place him with the first wave.</summary>
     public PackCatalog.AreaPacks HoldFinal(PackCatalog.AreaPacks area, Func<int, string?> varietyId)
     {
