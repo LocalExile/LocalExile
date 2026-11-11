@@ -324,7 +324,7 @@ public static class CurrencyEffects
 
     public const string MirrorOfKalandra = "Metadata/Items/Currency/CurrencyDuplicate";
 
-    /// <summary>Mirror of Kalandra (as the official one): a mirrored copy of a non-unique equipment item that is neither
+    /// <summary>Mirror of Kalandra: a mirrored copy of non-unique equipment, a flask or a tier 1-16 map that is neither
     /// corrupted nor mirrored, with every property kept (mods and their values, fractured mods, quality, sockets, links,
     /// socketed gems, name). The original stays as it was. Null when the item cannot be mirrored.</summary>
     public static Item? Mirror(Item item, ItemRolls rolls) => rolls.Mirror(item);
