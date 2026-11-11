@@ -66,14 +66,16 @@ static partial class QuestobjectsRules
         }
     }
 
-    // It fights: out of its rise (seconds), into the AI.
-    static void WakeIzaroLieutenant(ClientState conn, LieutenantSlot l, double seconds)
+    // It fights: out of its rise (seconds), into the AI, with its skills (IzaroSkills) between the AI's swings.
+    static void WakeIzaroLieutenant(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, LieutenantSlot l,
+        double seconds, Func<bool> here)
     {
         lock (conn.Monsters)
         {
             if (LieutenantDead(conn, l)) return;
             (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace) = (conn.Clock.Elapsed.TotalSeconds + seconds, true, false);
         }
+        _ = IzaroSkills.Run(remote, stream, ciphers, conn, l.Id, l.Monster, here);
     }
 
     // The arena's lieutenants rise one at a time, the first with Izaro (the original, live; the interval is the user's choice).
@@ -107,14 +109,15 @@ static partial class QuestobjectsRules
             if (!here()) return;
             await Send(remote, stream, ciphers, [.. LiftState(conn, l.Lift!.Value.Id, l.Lift.Value.At, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(l.Id, l.Transitionable, LieutenantRaised)], $"0x02bc {l.Effect.Id} 0x{l.Id:x} up");
-            WakeIzaroLieutenant(conn, l, 0);
+            WakeIzaroLieutenant(remote, stream, ciphers, conn, l, 0, here);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} Izaro's lieutenant {l.Effect.Id} stopped: {ServerLog.Describe(ex)}"); }
     }
 
     // The earlier trials' lieutenants: their alcoves' railings lower, their buffs go on Izaro and they come out.
-    static async Task ReleaseIzaroLieutenants(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena)
+    static async Task ReleaseIzaroLieutenants(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena,
+        Func<bool> here)
     {
         var carried = arena.Lieutenants.Where(l => l.Carried is not null).ToList();
         foreach (uint railing in carried.Select(l => l.Railing).OfType<uint>().Distinct())
@@ -129,7 +132,7 @@ static partial class QuestobjectsRules
                 UpdateIzaroStats(arena);
             }
             await Send(remote, stream, ciphers, InstanceEntities.AddBuff(arena.Izaro, buff, l.Effect.Buff, l.Id), $"0x01c1 Izaro 0x{arena.Izaro:x} has {l.Effect.Id}");
-            WakeIzaroLieutenant(conn, l, IzaroFights.RailingSeconds);
+            WakeIzaroLieutenant(remote, stream, ciphers, conn, l, IzaroFights.RailingSeconds, here);
         }
     }
 

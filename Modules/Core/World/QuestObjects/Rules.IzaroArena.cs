@@ -169,7 +169,7 @@ static partial class QuestobjectsRules
         await ReleaseIzaroGargoyles(remote, stream, ciphers, conn, arena, here);
         await ReleaseIzaroPortals(remote, stream, ciphers, conn, arena, here);
         await ReleaseIzaroIdols(remote, stream, ciphers, conn, arena, here);
-        await ReleaseIzaroLieutenants(remote, stream, ciphers, conn, arena);
+        await ReleaseIzaroLieutenants(remote, stream, ciphers, conn, arena, here);
         _ = RunIzaroGuardians(remote, stream, ciphers, conn, arena, here);
         if (arena.Gargoyles.Count > 0) _ = WatchIzaroGargoyles(remote, stream, ciphers, conn, arena, here);
         if (arena.Lieutenants.Count > 0) _ = WatchIzaroLieutenants(remote, stream, ciphers, conn, arena, here);
