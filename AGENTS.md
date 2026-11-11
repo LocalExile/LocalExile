@@ -70,7 +70,7 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
   credentials of the official services.
 - **Databases are built from `sql/`** ([databases](Agents/docs/dev/databases.md)): a data or schema change is a new
   file in `sql/updates/pending_<db>/`. Never edit a merged update file or put rows in `sql/base/`; a fix is a new update.
-- **Other game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs it). A change that adds a game-data file
+- **Other game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs its `-Servers` part). A change that adds a game-data file
   under `data/`, or changes what a generator writes, adds or bumps that file's entry in the script's manifest (and in
   the Gateway's `GameDataFiles.cs`) in the same PR, instead of a "regenerate after pulling" note. A file the
   servers read from `client.db` (`FILES` in `scripts/dev/client_sql.py`) also gets its rows from `client-sql.ps1 diff`.

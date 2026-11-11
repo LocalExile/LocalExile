@@ -1,6 +1,6 @@
 # Native client control
 
-`scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3b**
+`scripts/dev/client_control.py` provides CLI and persistent JSON-lines RPC for the copied standalone **3.29.3c**
 client. It calls existing client functions through [Frida RPC](https://frida.re/docs/javascript-api/#rpc), on the
 game thread. It uses the normal local authentication, character list, Play, instance connection, and Gateway command
 handlers. No screenshots, keyboard/mouse events, HTTP listener, save editing, or server authentication bypass are used.
@@ -135,7 +135,7 @@ local gateway selection, and failed preflights with mocked processes and no GGPK
 From character selection, `{"command":"character:create","name":"CampaignWitch","class":"Witch","league":"Standard"}`
 calls the client's own 0x12 sender (`league` defaults to Standard; `startState`, e.g. `IntDefault`, replaces `class`).
 The class's default start state (set 0, level 1) comes from `data/tables/Characters.json` and
-`CharacterStartStates.json`. Names follow Auth's rule: 3–23 letters, digits, `_` or `-`. The call waits until the new
+`CharacterStartStates.json`, which only a full extraction writes (`extract-data.ps1` without `-Servers`). Names follow Auth's rule: 3–23 letters, digits, `_` or `-`. The call waits until the new
 name is in the received list and returns `{"character":{index,name,league,level,classId},"startState",…}`. A non-zero
 0x13 result raises its meaning, e.g. 21 name taken or 49 no slots. After a successful create the client itself moves
 to the loading state (11) and waits for the Play its create screen would send; `character:play` sends that Play from

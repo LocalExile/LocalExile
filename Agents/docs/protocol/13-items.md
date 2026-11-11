@@ -2,7 +2,7 @@
 
 Code: `src/GameServer.Core/Protocol/Instance/InstanceItems.cs` (`Item`, `VisibleItem`, `WorldItemObject`,
 `InstanceItems`), `InstanceInventories.AddInventory` (`InstanceEntities.cs`); in the Gateway `ItemCatalog.cs`,
-`PlayerInventories.cs` and the item handlers in `Program.Items.cs`. Tests: `InstanceItemsTests`. Live trace:
+`PlayerInventories.cs` and the item handlers in `Modules/Core/Game/Item/Items.cs`. Tests: `InstanceItemsTests`. Live trace:
 `scripts/re/frida/common.js` + `scripts/re/frida/trace-items.js`. Verified with the real client on 2026-10-18.
 
 ## 1. Item types
@@ -34,8 +34,8 @@ python -I scripts/re/ot_components.py --items --json data/item-types.json
 
 **Issue #75 evidence scope:** the defence, requirement and flask native captures and earlier test counts below
 belong to the original LocalExile revisions. Standard/Ruthless comparisons describe that source checkout, not
-game-mode support or a fresh client run on this branch. See [the port record](../dev/issue75-port.md) for current
-automated validation and exclusions; source `artifacts/issue75-completion/` evidence remains in LocalExile.
+game-mode support or a fresh client run on this branch; source `artifacts/issue75-completion/` evidence remains in
+LocalExile.
 
 Write `0x1421f2b40` → `0x1421f2980`, read `0x1421f2c30` → `0x1421f2d00`. Wrapped in a **u16 big-endian length**; inside,
 everything is little-endian (memcpy):
@@ -428,7 +428,7 @@ throughout the active effect and allowed it after expiry. Hitting a spawned rare
 Instilling-enchanted flask through the normal charge/buff path. Other trigger conditions have automated coverage.
 Official mechanic reference: https://www.pathofexile.com/forum/view-thread/3147479 (Major New Content).
 
-**Mageblood's mechanic** (`Program.Mageblood`): while the belt is worn (and its requirements met), the leftmost N (2-4,
+**Mageblood's mechanic** (`Game.Mageblood`): while the belt is worn (and its requirements met), the leftmost N (2-4,
 from `num_magic_utility_flasks_always_apply`) magic utility flasks in the flask bar constantly apply their effects. The
 stats are added where a running utility flask's stats are added (pools, the client's stats, phasing), scaled like a use
 (the flask's own mods and the character's flask effect/duration), with no charges or timer. Each such flask keeps its
@@ -445,7 +445,7 @@ Not modelled yet: the "Magic Utility Flask Effects cannot be removed" backstop (
 effect), the Foulborn rightmost variant. Enkindling/Instilling server logic is described above. How the client draws a flask buff without a duration
 has not been seen live.
 
-**Headhunter's mechanic** (`StolenMods`, `Program.UniqueBelts`): killing a rare monster with
+**Headhunter's mechanic** (`StolenMods`, the UniqueBelts module): killing a rare monster with
 `gain_rare_monster_mods_on_kill_ms` on the character adds the stats of the rare's rolled affixes (not its rarity's
 `MonsterRare` mods) to the character's stat sources, so pools, speed, damage and the panel read them as they read gear.
 By the project's rule, not the mod's 20 s: each different modifier is one stack lasting 60 s, and getting it again resets its
@@ -747,7 +747,7 @@ Not modelled: Tainted Chromatic and Tainted Jeweller's Orbs, the Orb of Binding,
 bench's milestone reward (25 reforges keeping the most non-white sockets). Verified live 2026-10-26: white sockets are
 drawn and accepted, Chromatic leaves one socket non-white and the rest white, Jeweller's keeps retained colours and
 adds white ones, and the matching-colour +10% quality changes the gem's stats; the stat path is in
-`Program.GemSupports.cs` (`Quality`). The probabilities remain an approximation.
+`Modules/Core/Game/Skill/Gem/GemSupports.cs` (`Quality`). The probabilities remain an approximation.
 
 ### Orb of Alchemy (2026-10-21, verified live; CoE-checked 2026-10-30)
 
@@ -799,7 +799,6 @@ Affixes, fractures, quality, sockets, gems and other item properties stay unchan
 Inventory/stash saves and currency consumption commit together; a failed save rolls both back.
 Worn-item changes feed the shared pools and the next character-panel update.
 Native range eligibility includes Ward, but Ward character calculations and recovery remain unimplemented.
-`SacredOrbTests` covers eligibility, endpoints, preservation, persistence, rollback and pool refresh.
 Fourteen historical native captures recorded at `63c1039` cover ordinary/repeat use, defence updates, refusals,
 raw-32 replacement, Ward-only targets and inventory/stash pairings.
 A native 9-to-9 reroll consumed one orb, and a Gateway restart preserved the rolls and currency counts.
@@ -1072,7 +1071,7 @@ Enkindling uses the five GenerationType 21 rows (Domain 1) with the game's spawn
 - `FlaskEnchantmentSealMaximumCharges____`: +40-60 to Maximum Charges
 
 Every one also carries `Gains no Charges during Effect` (stat value 1). While the enchanted flask's effect runs,
-`Program.CanGainFlaskCharges` refuses every charge source (kills, hits, critical strikes, the every-3-seconds
+`Game.CanGainFlaskCharges` refuses every charge source (kills, hits, critical strikes, the every-3-seconds
 recovery, refills and projectiles); an expired effect no longer blocks, and the paused clock keeps the effect active.
 This is absolute and separate from the Ruthless active-flask rule.
 
@@ -1378,7 +1377,7 @@ Queued native timer/predictor presentation and exact official-server arithmetic/
 
 ## 8a. Utility flasks
 
-A flask key (0x70) on a utility flask goes to `UseUtilityFlask` (`Program.UtilityFlasks.cs`, `UtilityFlasks.cs`).
+A flask key (0x70) on a utility flask goes to `UseUtilityFlask` (`Modules/Core/Game/Flask/UtilityFlasks.cs`, `UtilityFlasks.cs`).
 Everything comes from the tables (`ItemCatalog.UtilityFlaskOf`): the Flasks.dat row names the flask's BuffDefinitions
 row, its BuffStatValues (one value per StatsKeys entry of that row) and its duration (RecoveryTime, tenths of a second);
 ComponentCharges gives its charges. This branch uses RecoveryTime, matching the pinned ordinary-mode bases:
@@ -1485,7 +1484,7 @@ target's walk takes their `base_movement_velocity_+%`: the server's speed and th
 (0x1b3 on the minion) change together (`MinionFlaskSpeedLocked`). Their other stats have nothing to act on or are
 not applied ([Paladin](../game/paladin.md#link-skills)).
 
-**What some flasks and Rational Doctrine make** (`FlaskGrounds.cs`, `Program.FlaskGrounds.cs`), from their implicit
+**What some flasks and Rational Doctrine make** (`FlaskGrounds.cs`, `Modules/Core/Game/Flask/FlaskGrounds.cs`), from their implicit
 mods or the jewel's stats, where the player or the struck monster stands (radii in cells):
 - Stibnite (`local_smoke_ground_on_flask_use_radius` 16): a smoke cloud. Hostile monsters standing in it (not the
   player's minions) are blinded (buff 179 `blinded`): 20% less accuracy against the player (`MonsterSwing`) and 20% less evasion against the player's attacks
@@ -1549,12 +1548,12 @@ off the bar ended its effect at once. Not seen live: the client actually walking
 bridge cannot make it walk), the tooltip's duration with quality.
 
 **Mageblood:** while the unique belt is worn, the leftmost magic utility flasks apply their effects permanently without
-charges or a duration (`Program.Mageblood`, §2e); using them is refused, and the character's stats are re-sent when the
+charges or a duration (`Game.Mageblood`, §2e); using them is refused, and the character's stats are re-sent when the
 bar changes.
 
 ## 8b. Flask charges
 
-`FlaskCharges.cs`, `Program.FlaskCharges.cs`; poewiki (Flask, "Flask charges").
+`FlaskCharges.cs`, `Modules/Core/Game/Flask/FlaskCharges.cs`; poewiki (Flask, "Flask charges").
 - **Per use and maximum**: charges used = floor(base × (1 + the flask's `local_charges_used_+%`)), then × (1 + the
   character's `flask_charges_used_+%`), floored; maximum = base + `local_extra_max_charges` (Path of Building Item.lua).
 - **Kills** give every flask 1 charge × (1 + the monster rarity mod's `monster_slain_flask_charges_granted_+%`: Mods.dat
@@ -1570,7 +1569,7 @@ bar changes.
   Critical Strike", and `recharge_flasks_on_crit_while_affected_by_precision` while Precision runs) give the first
   flask that is not full (`FlaskCharges.CritSources`); one cooldown for all of them, 0.1 s, which the game's 0.033 s
   server frames make 0.132 s (poewiki), not affected by cooldown recovery, looked at before anything else
-  (`FlaskCharges.OnCrit`). The hooks are one line after each of the player's crit rolls in `Program.Combat.cs`. Not
+  (`FlaskCharges.OnCrit`). The hooks are one line after each of the player's crit rolls in `Modules/Core/Game/Combat/Combat.cs`. Not
   applied: `gain_flask_charge_when_crit_%` / `_amount` (charges when the player *takes* a critical strike: monsters
   deal none here) and `gain_flask_charge_on_crit_chance_%_while_at_maximum_frenzy_charges` (no frenzy charges here).
 - **Hits**: "Gain # Charges when you are Hit by an Enemy" when a monster's hit lands (not evaded or blocked).
@@ -1638,7 +1637,6 @@ authoritative `0x1b1` of that pool (so the orb matches the server), with no inve
 and no drinking audio submission.
 After `/hit chaos 20`, life-flask use spends charges, adds its buff, recovers life and plays `flaskdrink.ogg`;
 after `/heal`, another use is refused again.
-`FlasksTests` cover full pools, one-point deficits, irrelevant missing resources, reservation caps and hybrids.
 
 ### The client pays for attack-moves the server only walks
 
@@ -1650,8 +1648,7 @@ client repeats the use every frame while the button is held), giving the predict
 A point within the weapon's reach is a swing at the ground instead of an attack-move, so standing and swinging costs
 the skill's mana as on the client (live 2026-10-26: it used to cost nothing).
 A full-pool refusal carries the authoritative pool too, so the orb and the next press agree.
-Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`); test: `ManaCostTests` pins Holy Strike's
-6 mana at level 1.
+Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`).
 
 ## Open
 
@@ -1682,4 +1679,4 @@ Probe: `scripts/re/frida/trace-flask-mana.js` (load alone, no `common.js`); test
 
 Currency mutations snapshot positive explicit metamod stats before changing the item. Scouring, Annulment, Divine and Chaos preserve existing prefixes/suffixes protected by their respective locks, as well as fractured affixes. Scouring removes the opposite-side protecting craft, retains quality, sockets, links and non-explicit mods, refuses uniques, and derives rarity from retained explicit count (0 normal, 1 magic, 2+ rare). Annulment retains rarity and also excludes attack/caster-tagged affixes when their cannot-roll craft is present. Exalt, Regal and Augment allow additions to a locked side, but filter cannot-roll attack/caster tags. Reforges use cannot-roll restrictions from retained crafts; an unprotected craft removed by Chaos does not restrict the new pool. Bench selective replacement uses the same protection and generation rules. Essence rejects the four outcome-changing metamods (multimod remains allowed). Socket/quality/implicit currencies do not alter explicit affixes.
 
-Regression coverage: MetacraftTests, real data prefix/suffix lock removal, Divine/Chaos preservation, annul tag protection and added-affix tag exclusion. These fixes do not implement currencies absent from UseItemOn, or replace the documented local Chance/Vaal outcome distributions with official probabilities. References: https://www.poewiki.net/wiki/Metamod and https://www.poewiki.net/wiki/Orb_of_Scouring.
+These fixes do not implement currencies absent from UseItemOn, or replace the documented local Chance/Vaal outcome distributions with official probabilities. References: https://www.poewiki.net/wiki/Metamod and https://www.poewiki.net/wiki/Orb_of_Scouring.

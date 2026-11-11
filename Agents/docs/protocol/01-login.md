@@ -42,7 +42,7 @@ Our side: `LoginGroups.cs`, `LoginKeys.cs` (keygen, image patching), `LoginHands
 `LoginCrypto.cs` (`ConnectionCiphers`, `LoginKdf`), `Salsa20.cs`.
 
 **The same cipher construction is reused by the instance connection**, with the 64 key bytes from 0x14 in place of
-`km` (see [02](02-instance-connection.md#4-switching-to-encryption-s→c-0x11)).
+`km` (see [02](02-instance-connection.md#4-switching-to-encryption-sc-0x11)).
 
 ## 3. Framing and field encodings
 

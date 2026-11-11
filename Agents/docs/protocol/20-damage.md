@@ -33,8 +33,7 @@ values were not used on the wire).
 
 **Issue #75 evidence scope:** test counts and native matrices imported with the completed jobs are historical
 LocalExile results. Standard/Ruthless observations do not add private game-mode support to this branch or certify
-its current native behavior. The [port record](../dev/issue75-port.md) identifies revisions, fresh automated
-results and remaining checks. Source `artifacts/issue75-completion/` paths remain in the LocalExile checkout.
+its current native behavior. Source `artifacts/issue75-completion/` paths remain in the LocalExile checkout.
 
 ```
 base skill/weapon damage by type
@@ -764,7 +763,7 @@ support multiplier's flags. Not modelled: conditional sources and supports (Ruth
 weapon's `local_bleeding_ailment_dot_multiplier_+`, "as though dealing more", and the rows' native formatting.
 Burning Arrow's quality (`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
 
-**Hit ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
+**Hit ignite on monsters (`MonsterIgnites`, `Modules/Core/Game/Monster/MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
 shot captures its ignite at release, and the default attack and an area skill's sweep read the same when they hit
 (`SupportedIgnite`, `DefaultAttackIgnite`): chance `base_chance_to_ignite_%` + `chance_to_freeze_shock_ignite_%` from the caster
 and the skill (Burning Arrow's own 25%), the context's ignite rows above (main hand for attacks, spell for spells) as the
@@ -1039,7 +1038,7 @@ the capped leech contribution. Pinned PoB `CalcOffence.lua:3721` likewise derive
 and its base rate; instant portions and Ghost Reaver remain distinct conversions. Preserve these distinctions
 in gameplay rather than using a single regeneration rate or an amount-draining speed multiplier.
 
-`LeechSources`, `LeechRecoveryState`, `LeechSession` and `Program.Leech` now connect raw actor/qualified support/
+`LeechSources`, `LeechRecoveryState`, `LeechSession` and `Game.Leech` now connect raw actor/qualified support/
 attacking-hand inputs to accepted ordinary melee/bow, gem projectile and area contacts. Coefficients apply to final
 damage types after resistance, physical reduction and damage-taken modifiers. Misses, blocks, rejected owners and
 targets, DoT and reflected impales do not grant instances. A monster's `cannot_have_life_leeched_from` gates Life
@@ -1246,7 +1245,7 @@ The recovery writer advances the projectile horizon before consuming earned reco
 use that committed horizon, preventing late pump work from being aged prematurely to the wall clock.
 Decision: port these consumers into the new engine; keeping the removed flight task would duplicate execution paths
 and lose upstream continuation/secondary-area rules. The [framework guide](../game/projectile-framework.md#issue-75-integration)
-and [merge report](../dev/issue75-review.md#upstream-merge-resolution) record the contracts and validation.
+records the contracts.
 
 The later main integration also retains incoming ignite/shock and Hardcore death handling in the same resource
 writer, alongside leech, Energy Shield, Fortification and temporary recovery. Ruthless periodic pool persistence

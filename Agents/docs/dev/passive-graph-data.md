@@ -1,9 +1,9 @@
-# Read-only passive graph analysis (3.29.3b)
+# Read-only passive graph analysis (3.29.3c)
 
 This layer parses and exports passive topology from the pinned client archive.
 Generated files are analysis artifacts under `data/`; they provide no installed gameplay support.
 The exporter never writes `Client/Content.ggpk` and has no apply, restore, recovery or installed-graph check modes.
-Standard startup must preserve the installed 3.29.3b archive.
+Standard startup must preserve the installed 3.29.3c archive.
 Any client archive mutation requires separate maintainer agreement.
 The [selection layer](../game/ascendancies.md) consumes JSON topology for server validation and command-based lifecycle.
 Exporting topology does not enable gameplay admission.
@@ -11,7 +11,7 @@ Antiquarian's separately opted-in read-only archive check and native acceptance 
 
 ## Inputs and generated data
 
-Run commands from the repository root with the standalone 3.29.3b client and the dependencies in
+Run commands from the repository root with the standalone 3.29.3c client and the dependencies in
 [GettingStarted](../../GettingStarted.md#what-you-need).
 The exporter uses the existing Node/ooz-wasm worker and `data/tables/PassiveSkills.json` from table extraction.
 Production paths remain relative to the repository root.

@@ -26,7 +26,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Named packs bring their boss (Pikerivet, The Burning Man); The Quay's Tolman stands at his spawner.
   The Ashen Fields' boss is the bandit lord the character spared in Act 2, or Greust (`MapBossOverride`).
   A boss whose point is off the walk map stands on the nearest walkable cell; the boss pack stands once per area.
-  `CampaignBossPlacementTests` (`Game_BOSS_CHECK=1`) checks every boss of the act 1–10 areas the Gateway generates.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
@@ -43,7 +42,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   an instance keeps buried ones buried and risen ones risen.
   Verified live 2026-10-25 (`/spawn_mob` Gravel Eater, packs on The Coast, the Mud Flats, the Twilight Strand, and
   lurking Tide Striders on Tidal Island).
-  Code: `MonsterEmerge.cs`, `Program.Emerge.cs`, Gateway.
+  Code: `MonsterEmerge.cs`, `Modules/Core/Game/Monster/Emerge.cs`, Gateway.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §5.
 - Monster hit reaction: a hit that leaves a monster alive and passes the wiki's stun roll
   requests native Actor TakeHit recovery (S→C 0x1d1, animation type 5).
@@ -53,13 +52,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   The actor's native ACT selects and fits the presented clip; the server does not force a rig index.
   Recovery stops server and client movement, holds AI and invalidates old ordinary swing echoes and contacts.
   Historical LocalExile moving-Drowned samples held one cell through recovery, then resumed a fresh AI walk.
-  This standalone port has fresh automated coverage; native integration remains pending in the
-  [port record](../docs/dev/ranged-monster-actions-port.md).
+  The port has not been checked in the native client yet.
   Rig-only 0x1b2 did not stop locomotion; it is no longer used as the enemy's recovery packet.
   The weapon impact sound and the target's blood come from S→C 0x1af "action hit", sent on melee and attack-gem hits
   and on monster hits on the player (2026-10-25; not yet checked live after the timing cap).
   GGG's server sends it too, but with the monster action's own sequence and skill index 2, where we send 0xffff and 0
-  (Sand Spitters, live capture 2026-10-30; [port record](../docs/dev/ranged-monster-actions-port.md) "Live reference").
+  (Sand Spitters, live capture 2026-10-30; [11-skills §17](../docs/protocol/11-skills.md#17-live-reference-ranged-attacks-on-gggs-servers)).
   A level 1 Sand Spitter hits for 5–7 here and a constant 4 on live (5 on a crit); the cause is not known.
   Code: `HitReaction.cs`, `MonsterCatalog.TakeHit`, Gateway (`SendMonsterFlinch`), `scripts/re/monster_takehit.py` →
   `data/monster-takehit.json`.
@@ -76,7 +74,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   instance keeps them.
   Only the 37 mods the server can honour roll; the other 74 are listed in [14](../docs/protocol/14-monster-packs.md)
   §5.
-  Code: `MonsterMods.cs`, `Program.MonsterMods.cs`, `MagicProperties.cs`.
+  Code: `MonsterMods.cs`, `Modules/Core/Game/Monster/Mods/MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 - Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
   A melee chase repeats every 200 ms ([07](../docs/protocol/07-latency-visibility-movement.md) §5), in legs of 12 cells
@@ -101,7 +99,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Actual Escape-menu pause held 30 samples at one cell without actions; resume continued the existing path.
   Automated cadence, pause, interruption and stage-completion checks pass; quoted native controls are historical
   LocalExile evidence, not a fresh run of this standalone port.
-  Code: `MonsterAiCadence.cs`, `Program.Monsters.cs`.
+  Code: `MonsterAiCadence.cs`, `Modules/Core/Game/Monster/Monsters.cs`.
   Evidence: `artifacts/wand-ai-validation/ai-native-response-*.json`, `ai-native-turns.json`,
   `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
   Docs: [11](../docs/protocol/11-skills.md) §6.
@@ -182,20 +180,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Core helper retains an optional owned guard; corpse identity and final-death registration remain open.
   Deathrattle's warcry explosion is the first consumer: a dead zero-Life eligible monster explodes once and is marked
   `SpawnedMonster.CorpseConsumed` and removed ([11](../docs/protocol/11-skills.md) section 10i).
-  Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Program.Monsters.cs`, `ot_components.py`.
+  Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Modules/Core/Game/Monster/Monsters.cs`, `ot_components.py`.
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
 - Player hits on monsters: each one records the time on the monster (`PlayerHitAt`), and the player's death clears it.
   `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` (Devout of Ryslatha) scales a monster's regeneration for 4 s
   after a hit.
   Gateway coverage only; not checked with the real client.
-  Code: `Program.MonsterMods.cs`, `Program.Combat.cs`.
+  Code: `Modules/Core/Game/Monster/Mods/MonsterMods.cs`, `Modules/Core/Game/Combat/Combat.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5, [Polytheist](../docs/game/polytheist.md).
 - Monster hits on the player: an attack that is neither evaded nor blocked records the time on the monster
   (`HitPlayerAt`), and the player's death clears it.
   For 4 s after it, the player's `enemies_that_hit_you_with_attack_recently_attack_speed_+%` (Devout of Gruthkul)
   lengthens the monster's swings, and its attack stats are sent again on its Stats component.
   Gateway coverage only; whether the client's swing animation follows those stats is not checked with the real client.
-  Code: `Program.Monsters.cs` (`MonsterSwingSeconds`, `SendAttackerSlows`), `MonsterMods.cs`.
+  Code: `Modules/Core/Game/Monster/Monsters.cs` (`MonsterSwingSeconds`, `SendAttackerSlows`), `MonsterMods.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Polytheist](../docs/game/polytheist.md).
 - Monster walk speed on the server includes the client's per-monster speed roll: Actor setup draws a uniform percent
   in the MonsterVarieties row's range (the Goatmen ±5 %, the 7.60–8.40 band measured live for a base of 8; most rows
@@ -217,13 +215,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   hostile, giving no experience or items when the skill says so, and not kept in the instance; the summoner plays its
   actor's `SpellAreaOfEffect` clip (0x1d1), as the skill's own action plays nothing on the client.
   Built for the Crematorium trial: its Immolators' skeletons checked live (2026-11-01), their opening being checked.
-  Code: `SkillCatalog.MonsterSummon`, `Program.Monsters.cs` (`MonsterSummon`), Gateway.
+  Code: `SkillCatalog.MonsterSummon`, `Modules/Core/Game/Monster/Monsters.cs` (`MonsterSummon`), Gateway.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md) ("Monsters").
 - Monster flee: a player hit with a chance to cause monsters to flee (Surfcaster's small nodes, Chance to Flee Support)
   makes a living monster walk to a floor cell 5 m away from the player and not attack until that walk ends.
   Magic monsters avoid half of the flees and rare and unique ones all, through their rarity's own mods.
   Only the Gateway tests check it; the distance and the action the real server walks it with are not verified.
-  Code: `MonsterFlee.cs`, `MonsterAilments.cs`, `Program.Monsters.cs`.
+  Code: `MonsterFlee.cs`, `MonsterAilments.cs`, `Modules/Core/Game/Monster/Monsters.cs`.
   Docs: [11](../docs/protocol/11-skills.md) §6, [Surfcaster](../docs/game/surfcaster.md).
 
 ## Not working yet

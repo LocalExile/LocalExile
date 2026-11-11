@@ -75,7 +75,7 @@ read **unallocated** nodes:
 - `PassiveTree` has node positions from `passive-graphs` v5 and `NodesInRadius` for the timeless 0..1500 disc.
 - `TimelessJewels.Alternate` and `EquipmentStatSources` show the per-node override pattern: build a `nodeStats` map for
   allocated nodes, replace or append stats, and let the pools/panels consume the result.
-- `Program.PassiveJewelRefusal`, `PlayerInventories.PassiveJewels`, the item limits and `CharacterSaves` are shared.
+- `Game.PassiveJewelRefusal`, `PlayerInventories.PassiveJewels`, the item limits and `CharacterSaves` are shared.
 - `UniqueJewelVisuals.cs` already contains the art for all 190 unique jewels, so a radius item can use the correct icon
   without new art work.
 - The 42 "Global" unique jewels have a dev source (`/unique_jewel`); the six attribute-conversion, five
@@ -629,7 +629,7 @@ are ordinary global stats and the radius label is unused.
   (`NodesInIntuitiveLeapLikeRadius`, the radius-jewel rebuild).
 - Client data: `data/tables/PassiveJewelRadii.json`, `PassiveJewelSlots.json`, `UniqueJewelLimits.json`,
   `BaseItemTypes.json`, `Mods.json`, `Stats.json`.
-- Server: `PassiveTree.cs` (`NodesInRadius`), `TimelessJewels`/`Program.Progression.cs` (per-node override and pools),
-  `Program.Items.cs` (passive-jewel socket/refusal), `UniqueJewelVisuals.cs`, `UniqueJewelCatalogue.cs`.
+- Server: `PassiveTree.cs` (`NodesInRadius`), `TimelessJewels`/`Modules/Core/Game/Passive/Progression.cs` (per-node override and pools),
+  `Modules/Core/Game/Item/Items.cs` (passive-jewel socket/refusal), `UniqueJewelVisuals.cs`, `UniqueJewelCatalogue.cs`.
 - Wiki list: [List of unique jewels](https://www.poewiki.net/wiki/List_of_unique_jewels) (the current wiki is
   bot-protected; the Path of Building data is the current reference).

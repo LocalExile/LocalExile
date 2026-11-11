@@ -33,11 +33,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Not yet: fewer charges in acts 6 to 10 and maps; charges on taking a critical strike (monsters deal none) and at
   maximum frenzy charges (none here).
   Checked live: kill and crit charges and the hostile-area rule; charges when hit and every 3 seconds by tests.
-  Code: `FlaskCharges.cs`, Gateway (`Program.FlaskCharges.cs`).
+  Code: `FlaskCharges.cs`, Game module (`Modules/Core/Game/Flask/FlaskCharges.cs`).
   Docs: [13](../docs/protocol/13-items.md) §8b.
 - Flask modifier composition (#75): the validation counts and Standard/Ruthless observations in this entry are
-  historical LocalExile evidence. This branch ports ordinary-mode calculations; fresh automated results and
-  outstanding native checks are in the [port record](../docs/dev/issue75-port.md).
+  historical LocalExile evidence. This branch ports ordinary-mode calculations; native checks are outstanding.
   Raw character charge-gain sources resolve into the native virtual once,
   then multiply local flask charge recovery with fractional carry. Generic and resource-specific recovery-rate
   factors multiply; hybrid Life/Mana keep independent rates, native buff rows 5/9, queues and lifetimes.
@@ -89,7 +88,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [Ward and native evidence](../docs/game/antiquarian.md).
   Not yet: ailments, stun and curses on the player (Aquamarine, Corundum and the ailment
   suffixes reach the panel only), Aquamarine's chilled ground, the smoke cloud's art, leech suffixes.
-  Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, Gateway (`UseUtilityFlask`, `RunUtilityFlasks`, `RunFlaskGrounds`).
+  Code: `UtilityFlasks.cs`, `FlaskGrounds.cs`, the Game module (`UseUtilityFlask`, `RunFlaskGrounds`).
   Docs: [13](../docs/protocol/13-items.md) §8a.
 - Items: the start kit (Characters.dat skill and support gems, two life flasks on keys 1–2 and a mana flask on key 5)
   in the inventories, and the class weapon with two linked sockets worn in the main hand (`Game_START_WEAPON=ground`:
@@ -181,13 +180,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shield-only increases now affect character defences without changing local item values or converted Life.
   Native application, clearing, weapon swaps and Gateway-restart checks passed with final half-up pool rounding.
   Ward conversions, ring-slot and jewel-radius mechanics remain separate work.
-  Code: `ItemDefences.cs`, `Program.Equipment.cs`, `Program.Progression.cs`, `PathOfBuildingItems.cs`.
+  Code: `ItemDefences.cs`, `Modules/Core/Game/Item/Equipment.cs`, `Modules/Core/Game/Passive/Progression.cs`.
   Docs: [13](../docs/protocol/13-items.md) §2, [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: shared by the account's characters of one league (S→C 0x2aa), saved with that league's stash, sent on area
   entry; every league has its own stash and gold, Standard keeps the account's stash from before (`AccountStash.Key`);
   monsters drop piles of gold (normal 40%, magic 75%, rare and unique always;
   (3 + 1.2 × level) × 1/2/5/15, our own numbers, `ItemDrops.Gold`), and picking one up adds it to the gold;
-  gold within 15 cells of the player is picked up by itself (player tick, `GoldAutoLootRange`);
+  gold within 15 cells of the player is picked up by itself (player tick; the `gold_auto_loot_radius` setting);
   older per-character gold moves into the account at login; `/gold <±amount>`.
   Code: `InstanceEntities.Gold`, `AccountStash`, Gateway.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
@@ -270,7 +269,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Fourteen native captures recorded at `63c1039` verify ordinary/repeat use, refusals, inventory/stash combinations,
   unchanged outcomes and restart persistence; fresh checks of the merged branch remain open.
   Ward ranges count for eligibility, but Ward character calculations and recovery remain unimplemented.
-  Code: `CurrencyEffects.Sacred`, Gateway (`Program.Items.cs`).
+  Code: `CurrencyEffects.Sacred`, Game module (`Modules/Core/Game/Item/Items.cs`).
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules: local zero-ES modifiers override this item's base, mods and quality only for ES.
   Supported equipment ES-to-Life conversion truncates each item's contribution, removes all equipment ES and adds
@@ -283,7 +282,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Automated coverage passes; historical native conversion and corrupted-item ES controls are recorded at `0bae37a`
   and `c9060e4` (see the protocol reference for values).
   Fresh real-client checks of the merged branch and other unique/conditional mechanics remain open.
-  Code: `ItemDefences.cs`, `ItemModStats.cs`, Gateway (`Program.Equipment.cs`).
+  Code: `ItemDefences.cs`, `ItemModStats.cs`, Game module (`Modules/Core/Game/Item/Equipment.cs`).
   Docs: [13](../docs/protocol/13-items.md) §2-§2d.
 - **Unique items and Mageblood (verified live 2026-10-26).** The client data links a unique's name (`Words` wordlist 6)
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
@@ -309,7 +308,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).
   Not yet: other uniques' mechanics, chancing, the "effects cannot be removed" backstop, the Foulborn rightmost variant,
-  Replica Headhunter and Enkindling (`UniqueCatalog`, `Program.Mageblood`, `StolenMods`, `Program.UniqueBelts`;
+  Replica Headhunter and Enkindling (`UniqueCatalog`, `Game.Mageblood`, `StolenMods`, the UniqueBelts module;
   [13](../docs/protocol/13-items.md) §2e, §8a).
 
 - Ruthless uses native mod/flask alternatives, reduced tunable drops and vendor returns, and refuses bench crafting.

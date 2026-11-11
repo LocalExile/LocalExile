@@ -27,8 +27,8 @@ WorldAreas, MonsterVarieties, CharacterStartQuestState), the generated layouts (
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act4.cs`,
 [12](../../protocol/12-quests.md) §13) and was played unattended by the campaign runner (driver steps `a4q2`, `a4q6`,
 `a4q3`, `a4q4`, `a4q5`, `a4q1`, `a5q1a`: the main line split where its quests meet) from `/quest_preset Act3Complete`
-to The Slave Pens with every `Act4Complete` flag, before the game moved into modules; on the modules the oracle
-(`QuestEngineTests`) plays it after Acts 1–3 to `Act4Complete`. The sections after this one are the research done
+to The Slave Pens with every `Act4Complete` flag, before the game moved into modules; it has not been played on the modules
+yet. The sections after this one are the research done
 before the act was built. What differs from them:
 - Every boss is placed by the bosses workstream (numbered points, Malachai's two forms from the start); Dialla's four
   places, Piety in the Belly (where she falls) and in The Harvest, the seal, Deshret's spirit, the Rapture Device and

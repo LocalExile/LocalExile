@@ -230,7 +230,7 @@ is sent, e.g. `Visited-1_2_town`), `waypoints` (WorldAreas Ids), `talking` (NPC 
 `inventory` {`w`, `h`, `items` [{`id`, `base`, `name`, `class`, `x`, `y`, `w`, `h`, `quest`}]}. `/state brief` leaves
 out monsters, NPCs, objects, items, transitions, the waypoint and the inventory. Monsters are the bosses and the living
 ones within 120 cells (at most 60); `/state all` lists every monster. The objects are the server's interactive ones:
-the tutorial chest, Rhoa Nests, Glyph Wall, and the quest engine's chests and objects (`StateObjects`); `/tp` finds
+the tutorial chest, Rhoa Nests, Glyph Wall, and the quest engine's chests and objects (`StateObjects` in the gm-commands mod's `Rules.Campaign.cs`); `/tp` finds
 them by these ids, and the room objects quest rules watch (`On.Near`, `On.SpawnsNear`: `PietyBlockage`) by type.
 In a league with the Pantheon module /state has `pantheon` {`major`, `minor` (the chosen gods' PantheonPanelLayout Ids
 or null), `unlocked` [{`id`, `name`, `major`, `row`}] (majors first), `canChoose` (a town, a hideout, the Rogue Harbour
@@ -251,7 +251,7 @@ experience, drops, quest flags; a boss's stage is skipped), `/quest_preset <Id>`
 The tests drive the runner against a simulated server (no client): `/state` joining, goto method choice, kill,
 pickup, equip, talk texts, reward choice and free cells, skip/resume, selection, not implemented/blocked, the shipped
 step files, retries with diagnostics and recovery (including logging in again), passives, the session and password
-file parsing. `CampaignCommandTests` checks `/state`'s JSON and reply lines and `/quest_preset`'s flags.
+file parsing.
 
 Live history: the same driver (then in `Program.Campaign.cs`, before the game moved into modules) played all 82
 entries of `order.py` from a fresh level-1 Witch unattended in 1 h 00 min on 2026-10-31 (seed 1, copied save

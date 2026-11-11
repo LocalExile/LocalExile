@@ -40,15 +40,7 @@ per-base outcomes. It also allows flasks, jewels, maps and gems, and unique item
 The local server rule intentionally stays narrower (weapon/armour/jewellery, no uniques); implementing the official
 table is a separate feature per the roadmap.
 
-## Automated coverage
-
-`VaalTests` checks normal/magic → corrupted rare, the rare replacement branch keeping the name and six affixes, the
-rare reroll branch getting a new name and 4-6 affixes, one white socket coloured with quality/links/implicits kept,
-corrupted/mirrored/unique refusal, unsupported weapons, empty pools, non-target jewels/flasks/maps, and unknown or
-no-Mods items.
-`VaalGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, one orb spent, saved corrupted rare after cache eviction, refused second use, and
-refused corrupted/unique/mirrored/jewel targets without spending.
+## Verification
 
 No fresh real-client run was made for this change.
 The old live check (2026-10-21) is not evidence for the new admission rules; native re-acceptance remains to be

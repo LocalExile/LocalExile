@@ -77,7 +77,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   An end-to-end client check (`scripts/dev/jewel_selftest.py`) covers insert/remove with no node taken, the small and
   notable stats of a large cluster, a medium cluster in a large one's socket, and a normal jewel with +80 life in a
   cluster socket.
-  Code: `Program.Items.cs` (`ClusterJewelSocketed`, `ClusterNodeBudget`, `CreateClusterJewel`, `CreateVoices`),
+  Code: `Modules/Core/Game/Item/Items.cs` (`ClusterJewelSocketed`, `ClusterNodeBudget`, `CreateClusterJewel`, `CreateVoices`),
   `ClusterJewelStats.cs`, Gateway (`ChangeClusterPassive`). Docs: [cluster-jewels](../docs/game/cluster-jewels.md).
 
 - Timeless jewels (Legion; server and live client check 2026-10-29): `/timeless <name> [displayed seed] [conqueror]`
@@ -95,8 +95,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   rows missing from Path of Building's reference data.
   Keystone stat rows are applied, but the conqueror keystones' special gameplay mechanics (Divine Flesh, Chainbreaker and
   the rest) are still missing.
-  Code: `TimelessJewelCatalog.cs`, `TimelessJewelEngine.cs`, `PassiveTree` geometry/radius, `Program.Progression.cs`
-  (`EquipmentStatSources`), `Program.Items.cs` (`PassiveJewelRefusal`). Docs:
+  Code: `TimelessJewelCatalog.cs`, `TimelessJewelEngine.cs`, `PassiveTree` geometry/radius, `Modules/Core/Game/Passive/Progression.cs`
+  (`EquipmentStatSources`), `Modules/Core/Game/Item/Items.cs` (`PassiveJewelRefusal`). Docs:
   [timeless-jewels](../docs/game/timeless-jewels.md).
 
 - Radius unique jewels (pilot 2026-10-29): all **78 rows / 76 distinct names** with a `Radius:` line are classified in

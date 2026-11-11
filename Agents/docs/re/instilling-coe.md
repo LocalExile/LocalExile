@@ -84,15 +84,7 @@ Harvest/bench flask enchantments. They were removed in 3.28 but legacy items can
 them when either orb is applied, preserving unrelated implicits. The native run used new flasks, so legacy Harvest
 removal is covered by unit tests only.
 
-## Automated coverage
-
-`FlaskEnchantTests` checks the fifteen-row pool and equal weights, the zero-weight exclusion, all fifteen outcomes,
-value 1, coexistence and same-type replacement, Harvest removal with unrelated implicit preservation, every rarity,
-life/mana/non-flask/corrupted/mirrored/unknown refusal.
-
-`FlaskEnchantGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: all inventory/stash
-and Shift combinations, one orb spent per success, coexistence after two different orbs, explicit-affix and quality
-preservation, save reload, and refusal without spending.
+## Verification
 
 Native acceptance: 2026-10-30, 3.29.3b client; Enkindling and Instilling both appeared on one flask, repeated use
 replaced only its own type, magic explicit affixes stayed, and life/mana flasks were refused.

@@ -18,7 +18,7 @@ grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom 
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act9.cs`, [12](../../protocol/12-quests.md) §18), with
 driver steps `a9q3`, `a9q5`, `a9q4`, `a9q2`, `a9q1`. Played live on 2026-10-31 before the game moved into modules; on
-the modules the oracle (`QuestEngineTests`) and the offline exit audit check it; the Rotting Core's portals,
+the modules the offline exit audit checks it; the Rotting Core's portals,
 Trinity encounter and blood landing are also verified with the 3.29.3c client. The remaining modular quests have
 not been replayed live. The sections
 after the status are the research done before the act was built. What differs from the sections below:

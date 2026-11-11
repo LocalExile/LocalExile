@@ -190,10 +190,10 @@ every expansion node and is the quickest way to check a new shape.
 
 - `PassiveTree.cs`: `JewelNodeForSlot`, `ClusterNodeForSlot`, `ClusterSlots`, `ClusterParent`, `ClusterCellSize`,
   `IsLargeJewelSlot`.
-- `Program.Items.cs`: `ClusterSize`, `ClusterSocketCount`, `ClusterPassiveCount`, `ClusterNodeBudget`,
+- `Modules/Core/Game/Item/Items.cs`: `ClusterSize`, `ClusterSocketCount`, `ClusterPassiveCount`, `ClusterNodeBudget`,
   `ClusterJewelSocketed`, `JewelFitsCell`, `ClusterSlotOpen`, `PassiveJewelRefusal`, `ClusterRemovalRefusal`,
   `SpendClusterRemoval`, `CreateClusterJewel`, `CreateVoices`.
-- `Program.Progression.cs`: cluster jewel nodes in the passive point budget and in 0x33; `ChangeClusterPassive` (which
+- `Modules/Core/Game/Passive/Progression.cs`: cluster jewel nodes in the passive point budget and in 0x33; `ChangeClusterPassive` (which
   also saves the set and refreshes the stats).
 - `ClusterJewelLayout.cs`: the client's layout for a jewel in a tree socket. `ClusterJewelStats.cs`: each mapped
   node's stats, and the full-allocation count for an expansion cell. `CharacterSaves.ClusterPassives` keeps the client's ids across sessions.

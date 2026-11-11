@@ -11,7 +11,7 @@ Every database is a SQLite file under `data/` (git-ignored), created and brought
 |---|---|---|---|
 | `auth.db` | accounts | Auth, Host, Gateway (attached to `characters.db`) | `Game_AUTH_DB` |
 | `characters.db` | character saves, stashes, the login character list, friends, deleted characters | Gateway, Auth, Host | `Game_CHARACTERS_DB` |
-| `client.db` | the client's 943 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
+| `client.db` | the client's 941 tables (`Mods`, `Stats`, `WorldAreas`, ...), untouched rows plus our corrections | Gateway, Auth | `Game_CLIENT_DB` |
 | `world.db` | the game content: settings, unique weights, catalogues, drop tables, roll range and limit overrides | Gateway | `Game_WORLD_DB` |
 
 A connection to the player databases opens `characters.db` and attaches `auth.db` as `auth`, so a query names a table of

@@ -19,10 +19,8 @@ sections after the status are the research done before the act was built.
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act10.cs`, [12](../../protocol/12-quests.md) §19; the
 Epilogue's quests need no rules, so it has no act file), with driver steps `a10q1`, `a10q6`, `a10q4`, `a10q5`, `a10q2`,
-`a10q3`, `A11q0`, `a10q3a11`. Played live on 2026-10-31 before the game moved into modules; on the modules the oracle
-(`QuestEngineTests`: every quest of acts 7–10 and the Epilogue completes, `EpilogueAtlasDemo`'s act 7–10 flags, the
-campaign's 24 quest passive and 20 refund points, Kitava's penalty −30% before him and −60% after, Karui Shores) and
-the offline exit audit check it, not yet the client. What differs from the sections below:
+`a10q3`, `A11q0`, `a10q3a11`. Played live on 2026-10-31 before the game moved into modules; on the modules the offline
+exit audit checks it, not yet the client. What differs from the sections below:
 - a10q1: coming near Bannon brings Plaguewing from its spawner (`On.SpawnsNear`; the cultist waves are not run); its
   death sets `a10q1-RescuedBannon` and Bannon stands (Transitionable 2).
 - a10q2: Bannon (`BannonTown`) goes and Innocence (`InnocenceTown`, state 2) stands on the same cell with

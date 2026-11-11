@@ -19,7 +19,7 @@ Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobje
 Every quest of the act runs on the engine (`Modules/Core/World/QuestObjects/Acts/Act3.cs`,
 [12](../../protocol/12-quests.md) §12) and was played unattended by the campaign runner
 (`scripts/dev/campaign/quests/a3q*.py`, `a2q8a3.py`) through to Highgate, with every flag of `Act3Complete`, before the
-game moved into modules; on the modules the oracle (`QuestEngineTests`) plays it after Acts 1 and 2 to `Act3Complete`.
+game moved into modules; it has not been played on the modules yet.
 Clarissa is freed by her guards' captain's death; Tolman's chair, Victario's stashes, the book stands (Chests.dat rows
 without an `.ot`) and the other quest chests open; the Sewer Keys and the Infernal Talc are built as rewards and used on
 the grating and the BioWall; Hargan's hand-in sets `a3q11-DeliveredBust1`–`3`; Fairgraves stands in The Docks after his

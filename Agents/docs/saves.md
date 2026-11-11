@@ -49,7 +49,7 @@ the player's clicks.
 A change that touches more than one save, or one save more than once, runs in one transaction, so all of it is saved or
 none of it is. An item is never lost between its two places, nor counted in both:
 
-| Change | In one transaction (`ItemMoves`, Program.Items.cs) |
+| Change | In one transaction (`ItemMoves`, `Modules/Core/Game/Item/ItemMoves.cs`) |
 |---|---|
 | Stash → cursor (C→S 0x28), stash → inventory (0xe3, a stack onto the inventory's stacks) | out of the tab (or what doesn't fit stays), the last tab, onto the cursor / into the inventory |
 | Inventory → stash (0xe0 into the shown tab, 0xe1 into the item's affinity tab) | out of the inventory (or what doesn't fit stays), into the tab (a stack onto its stacks, a slotted tab into the item's slot), the last tab |
@@ -151,16 +151,5 @@ header until its first save, which gives every tab its row.
 
 ## Tests
 
-`SaveDatabaseTests` (commit, rollback, nested transactions, another process writing, set-aside, the import),
-`ItemMovesTests` (every change above, each with a write made to fail part-way, then both saves loaded again; a control
-test shows the same failure without a transaction loses the item), `ProgressSaveTests` (quest flags, waypoints, level,
-unknown fields and items), `UnsavedProgressTests` (experience and flask charges kept in memory and saved),
-`StashRowsTests` (one tab per write, imported stashes), `SaleImprintTests` (the sell window), `StashRulesTests` (what
-each tab holds, slots, the repair at load), `CtrlClickTests` (Ctrl + click to and from the stash and a shop) and, in the
-Core tests,
-`SqliteAccountStoreTests` (accounts, deletion with its save, the import).
-
-`ExperienceLevelEventTests` also checks an extra-point grant while level publication is in flight. Its grant and
-publication run independently from the coordinator that releases the deliberately held save. A loopback connect
-may complete synchronously, so invoking publication on the coordinator can block on that save before release.
-Keep the independent scheduling rather than increasing the timeout; the production transaction is unchanged.
+In the Core tests, `SqliteAccountStoreTests` (accounts, deletion with its save, the import), `JsonAccountStoreTests`
+and `SaveFilesTests`; in the Gateway tests, `LeagueQuestFlagSaveTests` (league quest flags per account and league).

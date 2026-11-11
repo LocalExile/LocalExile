@@ -17,8 +17,8 @@ grep/cat` of the rooms), the unpacked game text (`.ot`/`.it`), the wiki (Fandom 
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act8.cs`, [12](../../protocol/12-quests.md) §17), with
 driver steps `a8q1`, `a8q5`, `a8q4`, `a8q6`, `a8q7`, `a8q3` (both eclipses' fight), `a8q2` (the arrival in Act 9). Played
-live on 2026-10-31 before the game moved into modules; on the modules the oracle (`QuestEngineTests`, to
-`E3EndOfAct8`'s act 7–8 flags) and the offline exit audit check it, not yet the client. The sections after the status
+live on 2026-10-31 before the game moved into modules; on the modules the offline exit audit checks it, not
+yet the client. The sections after the status
 are the research done before the act was built. What differs from the
 sections below:
 - Every boss is placed (the numbered boss points: Dusk at `mapboss1`, the legion at `mapboss1–7`, Tolman at his spawner,

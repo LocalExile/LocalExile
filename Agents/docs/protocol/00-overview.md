@@ -85,7 +85,7 @@ are the working notes these documents were consolidated from. When they disagree
 ## Conventions
 
 - **Message framing** (login and instance): `u16 id` big-endian, then fields, no length prefix and no terminator. A
-  reader has to know every layout. Field encodings are in [01-login.md](01-login.md#field-encodings).
+  reader has to know every layout. Field encodings are in [01-login.md](01-login.md#3-framing-and-field-encodings).
 - **Message fields are big-endian. The 0x2bb component blob is little-endian** (it is read with memcpy).
 - `+0x…` means a field offset inside the client object named in context (message object, component, instance client).
   Message objects store `u16 id` at `+8` and fields from `+0x10`.
