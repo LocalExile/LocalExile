@@ -201,6 +201,12 @@ public sealed class InstanceGround
         lock (_items) return _items.GetValueOrDefault(id);
     }
 
+    /// <summary>An id this ground issued whose item has since gone; permits repairing an older client's stale label.</summary>
+    public bool WasTaken(uint id)
+    {
+        lock (_items) return id >= FirstItemId && id < _nextId && !_items.ContainsKey(id);
+    }
+
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>
     public WorldItemObject? Take(uint id, WorldItemObject? expected = null)
     {
