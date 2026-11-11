@@ -215,6 +215,8 @@ def main():
         if text is None:
             raise ValueError(f"Missing character ACT asset: {act}")
         result[ao] = {"amd": amd, "act": act, "animations": contacts(animations), "positions": positions(animations),
+                      "cancels": {a["name"]: next((t for e, t, _ in a["events"] if e == "lock_cancelling"), None)
+                                  for a in animations if first_contact(a["events"]) is not None},
                       "indices": {a["name"]: i for i, a in enumerate(animations)},
                       "defaultAttack": default_attack_pools(text, animations, ao_views(ao))}
         print(f"{c['Name']}: {ao} -> {amd}, {len(result[ao]['animations'])} animations with a contact, "
