@@ -2154,10 +2154,8 @@ static partial class Game
         Cull cull = default)
     {
         if (m.Dead || m.Life == 0) return null;
-        uint before = m.Life;
         (m.Life, bool starts) = TakeOwnerHitLocked(conn, m, damage, cull, rampageSource, player);
         CaptureUnhingedHitKillLocked(conn, m, playerHit: allyAt is null);
-        if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)damage - before, 0, int.MaxValue);
         if (allyAt is null)
         {
             conn.LastEnemyHitAt = m.PlayerHitAt = ProjectileWorldTime(conn);

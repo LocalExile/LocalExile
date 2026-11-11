@@ -41,7 +41,11 @@ static partial class Game
             damage = (int)Math.Min(damage, Math.Max(0, (long)m.Life - 1));
             threshold = 0;
         }
+        uint beforeHit = m.Life;
         var hit = TakeOwnerDamageLocked(conn, m, damage, rampageSource, player);
+        // The direct hit's excess feeds overkill effects; a subsequent cull contributes no overkill.
+        m.Overkill = beforeHit > 0 && hit.Life == 0
+            ? (int)Math.Clamp((long)damage - beforeHit, 0, int.MaxValue) : 0;
         if (threshold == 0 || hit.Life == 0 || hit.StageStarts || m.StageRunning
             || hit.Life * 100L > m.MaxLife * (long)threshold || m.Mods.Effects["immune_to_culling_strike"] != 0) return hit;
         m.Life = hit.Life;
