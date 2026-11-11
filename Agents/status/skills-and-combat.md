@@ -1251,7 +1251,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Enemy stealth and other Cat parts remain unsupported.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
-  trail; Tempest Shield grants shield spell block, shock immunity and block retaliation. Herald kill/poison procs use
+  trail; Tempest Shield grants shield spell block, shock immunity and block retaliation, with pre-hit Blind damage profiles.
+  Tempest Shield and Temporal Rift supply required native behaviour data on both source and received buffs.
+  Herald kill/poison procs use
   the ordinary damage/minion pipeline. Temporal Rift recalls position/resources from four seconds ago, with native proof.
   Nearby player auras reach allies and controlled fighters using caster effect; duplicate families select each stat's
   strongest value. Life reservation uses an independent budget, Arrogance and pool/recovery caps; curse auras use

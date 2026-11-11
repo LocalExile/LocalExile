@@ -20,23 +20,23 @@ static class AuraCatalog
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
     public static IEnumerable<byte[]> StartPackets(Aura aura, uint player, ushort? action)
     {
+        // Both source and received buffs instantiate these native behaviours, which read two words unchecked.
+        uint[]? behaviourData = aura.EffectId switch
+        {
+            "TempestShield" => [0u, 0u],
+            "TemporalRift" => [42u, 100u],
+            _ => null,
+        };
         if (aura.SourceBuff is ushort source)
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, source, aura.BuffRow,
-                player, aura.SkillId, auraSource: true, displayState: 0);
+                player, aura.SkillId, auraSource: true, displayState: 0, list: behaviourData);
         // An enemy hex aura has a source on its caster, never a received self curse.
         if (!CurseCatalog.Hex(aura.EffectId))
             yield return GameServer.Core.Protocol.Instance.InstanceEntities.AddBuff(player, aura.Buff, aura.BuffRow,
                 player, aura.SkillId, activeSkill: action is ushort hash ? (aura.SkillId, hash) : null,
                 // TempestShieldBuff's native behaviour reads the art variation and alternate-shield flag
                 // from the first two list entries without checking its length (0x1417a4380).
-                list: aura.EffectId switch
-                {
-                    "TempestShield" => [0u, 0u],
-                    // ChronomancerBuff likewise reads its ring size and sample interval unchecked.
-                    // A 42-entry ring holds 41 samples spanning the server's four-second history.
-                    "TemporalRift" => [42u, 100u],
-                    _ => null,
-                });
+                list: behaviourData);
     }
 
     public static IEnumerable<byte[]> EndPackets(Aura aura, uint player)

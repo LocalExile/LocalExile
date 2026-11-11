@@ -3045,12 +3045,17 @@ public sealed class GolemTests
                         active.Name, reservation!.Value, active.Level, active.Quality), effectId);
                 Assert.Single(conn.Auras); Assert.True(Game.ReservedMana(conn) > 0, effectId);
                 var aura = conn.Auras[active.Id];
-                if (effectId == "TempestShield")
-                    Assert.Equal(Convert.FromHexString("000000020000000000000000"),
-                        AuraCatalog.StartPackets(aura, 0x1000, null).Last()[^12..]);
-                if (effectId == "TemporalRift")
-                    Assert.Equal(Convert.FromHexString("000000020000002A00000064"),
-                        AuraCatalog.StartPackets(aura, 0x1000, null).Last()[^12..]);
+                if (effectId is "TempestShield" or "TemporalRift")
+                {
+                    Assert.NotNull(aura.SourceBuff);
+                    byte[] expectedList = Convert.FromHexString(effectId == "TempestShield"
+                        ? "000000020000000000000000" : "000000020000002A00000064");
+                    var activationPackets = AuraCatalog.StartPackets(aura, 0x1000, null).ToArray();
+                    Assert.Equal(2, activationPackets.Length);
+                    // Both source and received buffs instantiate the same unchecked native behaviour.
+                    foreach (var packet in activationPackets)
+                        Assert.Equal(expectedList, packet[^12..]);
+                }
                 if (effectId is "HeraldOfIce" or "HeraldOfThunder" or "TempestShield")
                     Assert.True(Game.ReservationHitPacket(conn, aura).MaxTotal > 0, effectId);
                 if (effectId == "HeraldOfPurity")

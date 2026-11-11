@@ -2451,6 +2451,7 @@ public sealed class ReservationCurseSummonTests
             await RealAreaSkillHitBiteDamageFixture();
             await SacrificePrepaidConsumerFixture();
             await RealProjectileSacrificePaidProducerFixture();
+            await TempestShieldBiteConsumerFixture();
 
             void DefaultMeleeBiteProfileFixture()
             {
@@ -4931,6 +4932,636 @@ public sealed class ReservationCurseSummonTests
                         await paidSession.OutputCompleted;
                     }
                     if (paidConnection is not null) paidConnection.Closed = true;
+                    Game.AreaUpdateContext.Value = previousContext;
+                    PlayerInventories.Forget(character);
+                }
+            }
+
+            async Task TempestShieldBiteConsumerFixture()
+            {
+                // A controlled pending proc enters the real reservation consumer. It deliberately does not call the
+                // blocked-hit producer: Tempest Shield aura ownership and target selection are real, while admission
+                // from an actual enemy block remains a separate proof boundary.
+                string character = "TempestShieldBiteConsumer" + Guid.NewGuid().ToString("N");
+                const byte witchRow = 1;
+                PlayerInventories.SetClass(character, witchRow);
+                CharacterSaves.Write(character, new(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>(),
+                    Experience: CharacterStats.ExperienceFor(100)));
+                var schedule = new CatClockSchedule { At = 300 };
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = Game.AreaUpdateContext.Value;
+                Game.AreaUpdateContext.Value = updates;
+                using var tempestWire = new Wire();
+                ClientState? tempestConnection = null;
+                IProjectileRuntime? previousRuntime = null;
+                FixedProjectileRuntime? fixedRuntime = null;
+                try
+                {
+                    tempestConnection = new ClientState(conn.Layout, 0xC474, 1)
+                    {
+                        Character = character, CharacterId = Guid.NewGuid(), Account = "tempest-bite-consumer-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
+                        Experience = CharacterStats.ExperienceFor(100), LeagueModule = conn.LeagueModule,
+                        Wire = ("tempest-bite-consumer", tempestWire.Stream, tempestWire.Ciphers),
+                        Pools = new(100, 1, 1, 0, 0),
+                    };
+                    var tempestConn = tempestConnection;
+                    Assert.Empty(tempestConn.PlayerStats);
+
+                    var inventory = Game.ItemsOf(tempestConn);
+                    foreach (byte row in new byte[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1,
+                                 PlayerInventories.Helmet, 5, 6, 7 })
+                        foreach (var old in inventory.Items(row)) inventory.Remove(row, old.Id);
+
+                    Item Gem(string name, int level)
+                    {
+                        var type = Program.Items.FindGem(name)
+                            ?? throw new InvalidOperationException("missing creatable gem " + name);
+                        return ItemCatalog.Create(type.Type) with
+                        {
+                            GemVariant = type.Variant.Index,
+                            GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(level),
+                        };
+                    }
+
+                    var tempestGem = Gem("Tempest Shield", 1);
+                    var heraldGem = Gem("Herald of Ice", 1);
+                    var thunderGem = Gem("Herald of Thunder", 1);
+                    var sword = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!) with
+                    {
+                        Sockets = [new(SocketColour.White, tempestGem), new(SocketColour.White, heraldGem),
+                            new(SocketColour.White, thunderGem)],
+                    };
+                    var shield = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Armours/Shields/ShieldStr1")!);
+                    var swordPlacement = inventory.Add(PlayerInventories.Weapon1, 0, 0, sword);
+                    var shieldPlacement = inventory.Add(PlayerInventories.Offhand1, 0, 0, shield);
+                    var astramentisPlacement = inventory.Add(5, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!);
+                    var firstRingPlacement = inventory.Add(6, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(504))!);
+                    var secondRingPlacement = inventory.Add(7, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(505))!);
+                    var bite = new UniqueCatalog(Program.Items).Create("Farrul's Bite", new Random(504))!;
+                    var bitePlacement = inventory.Add(PlayerInventories.Helmet, 0, 0, bite);
+                    tempestConn.Pools = Game.PoolsFor(tempestConn, 100);
+                    tempestConn.PlayerLife = tempestConn.Pools.Life;
+                    tempestConn.PlayerMana = tempestConn.Pools.Mana;
+                    Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                    Assert.Empty(tempestConn.PlayerStats);
+                    Assert.Equal(100, tempestConn.Pools.Level);
+                    Assert.False(Game.IsInactive(tempestConn, swordPlacement.Id));
+                    Assert.False(Game.IsInactive(tempestConn, shieldPlacement.Id));
+                    Assert.False(Game.IsInactive(tempestConn, astramentisPlacement.Id));
+                    Assert.False(Game.IsInactive(tempestConn, firstRingPlacement.Id));
+                    Assert.False(Game.IsInactive(tempestConn, secondRingPlacement.Id));
+                    Assert.False(Game.IsInactive(tempestConn, bitePlacement.Id));
+
+                    var biteDamageMod = Assert.Single(bite.Mods, mod =>
+                        Program.Items.Mods.ByHash(mod.Hash)?.Id == "DamageAgainstBlindedEnemiesUnique__1");
+                    string biteDamageStat =
+                        Assert.Single(Program.Items.Mods.ByHash(biteDamageMod.Hash)!.Stats).Id;
+                    int rolledBiteDamage = Assert.Single(biteDamageMod.Values);
+                    Assert.Equal(40, rolledBiteDamage);
+
+                    void SetStat(string name, int value)
+                    {
+                        uint key = Program.Stats.Key(name)
+                            ?? throw new InvalidOperationException("missing required stat " + name);
+                        tempestConn.PlayerStats[key] = value;
+                    }
+                    void ZeroIfPresent(string name)
+                    {
+                        if (Program.Stats.Key(name) is uint key) tempestConn.PlayerStats[key] = 0;
+                    }
+                    foreach (string name in new[]
+                    {
+                        "spell_damage_+%", "lightning_damage_+%", "chaos_damage_+%", "elemental_damage_+%",
+                        "critical_strike_chance_+%", "spell_critical_strike_chance_+%",
+                        "base_extra_damage_rolls", "base_chance_to_deal_triple_damage_%",
+                        "chance_to_deal_double_damage_%", "spell_chance_to_deal_double_damage_%",
+                        "global_chance_to_blind_on_hit_%", "base_chance_to_poison_on_hit_%",
+                        "chance_to_freeze_shock_ignite_%", "chance_to_ignite_%",
+                    })
+                        ZeroIfPresent(name);
+                    foreach (string type in new[] { "physical", "cold", "fire", "lightning", "chaos" })
+                    {
+                        SetStat($"spell_minimum_added_{type}_damage", 0);
+                        SetStat($"spell_maximum_added_{type}_damage", 0);
+                        SetStat($"attack_minimum_added_{type}_damage", 0);
+                        SetStat($"attack_maximum_added_{type}_damage", 0);
+                    }
+                    foreach (string targetType in new[] { "fire", "cold", "lightning", "chaos" })
+                        foreach (string sourceType in new[] { "physical", "lightning", "cold", "fire" })
+                            foreach (string prefix in new[] { "", "base_", "skill_", "spell_", "attack_" })
+                            {
+                                ZeroIfPresent($"{prefix}{sourceType}_damage_%_to_convert_to_{targetType}");
+                                ZeroIfPresent($"{prefix}{sourceType}_damage_%_to_add_as_{targetType}");
+                            }
+                    SetStat("damage_+%", 100);
+                    SetStat("global_cannot_crit", 1);
+                    SetStat("spell_minimum_added_chaos_damage", 10_000);
+                    SetStat("spell_maximum_added_chaos_damage", 10_000);
+
+                    var source = Assert.Single(Game.GemSkillEffects(tempestConn), gem =>
+                        Game.SkillsFor(tempestConn).EffectId(gem.Effect) == "TempestShield");
+                    Assert.Equal(1, source.Level);
+                    Assert.True(Program.Skills.HasType(source.Effect, "HasReservation"));
+                    Assert.True(Game.SkillsFor(tempestConn).IsSpell(source.Effect));
+                    Assert.False(Game.SkillsFor(tempestConn).IsAttack(source.Effect));
+                    var supported = Game.SupportedSkill(tempestConn, source.Id);
+                    Assert.True(supported.RequirementsMet);
+                    Assert.Equal(source.Effect, supported.Effect);
+                    Assert.Equal(1, supported.Level);
+                    var heraldSource = Assert.Single(Game.GemSkillEffects(tempestConn), gem =>
+                        Game.SkillsFor(tempestConn).EffectId(gem.Effect) == "HeraldOfIce");
+                    var heraldSupported = Game.SupportedSkill(tempestConn, heraldSource.Id);
+                    Assert.True(heraldSupported.RequirementsMet);
+                    Assert.True(AuraCatalog.Supported("TempestShield"));
+                    var reservation = Game.SupportedReservationCost(tempestConn, source.Id);
+                    Assert.NotNull(reservation);
+                    Assert.True(reservation.Value.ManaFlat + reservation.Value.ManaPercent > 0);
+                    Assert.True(await Game.ToggleAura("test", tempestWire.Stream, tempestWire.Ciphers,
+                        tempestConn, source.Id, source.Effect, source.Name, reservation.Value,
+                        supported.Level, supported.Quality));
+                    Assert.True(tempestConn.Auras.TryGetValue(source.Id, out var activeAura));
+                    Assert.Equal("TempestShield", activeAura!.EffectId);
+                    Assert.Equal(112, activeAura.BuffRow);
+                    int reservedMana = Game.ReservedMana(tempestConn);
+                    Assert.True(reservedMana > 0 && reservedMana <= tempestConn.Pools.Mana,
+                        $"Tempest Shield reservation must fit: {reservedMana}/{tempestConn.Pools.Mana}");
+
+                    previousRuntime = tempestConn.ProjectileRuntimeState;
+                    fixedRuntime = new FixedProjectileRuntime(ProjectileRuntime.Time(schedule.At));
+                    tempestConn.ProjectileRuntimeState = fixedRuntime;
+                    Assert.Same(fixedRuntime, tempestConn.ProjectileRuntimeState);
+                    Assert.Null(tempestConn.ProjectileRuntime);
+                    Assert.True(fixedRuntime.Active);
+                    Assert.False(tempestConn.Paused);
+                    Assert.False(tempestConn.Closed);
+                    Assert.False(tempestConn.LeavingArea);
+                    Assert.False(Game.InTown(tempestConn));
+                    Assert.True(Game.CurrentGameRules);
+                    double now = Game.ResourceEffectsTime(tempestConn);
+                    Assert.Equal(schedule.At, now, 9);
+                    var owner = Game.ResourceEffectsOf(tempestConn);
+                    Assert.True(Game.ResourceEffectsCurrent(tempestConn, owner));
+
+                    var targetAt = tempestConn.Walk.Position(now);
+                    Assert.NotNull(Program.Stats.Key("never_shock"));
+                    Assert.True(MonsterElementalAilments.CannotInflict("shock", name => name == "never_shock" ? 1 : 0));
+                    MonsterModSet ShockImmune() => MonsterModSet.None with
+                    {
+                        Effects = new(new Dictionary<string, int> { ["never_shock"] = 1 }),
+                    };
+                    SpawnedMonster Target(uint id, string label, bool shockImmune = true, bool hostile = true)
+                    {
+                        var target = new SpawnedMonster(label, new(targetAt.X, targetAt.Y, 0), 0, 0, 1_000_000)
+                        {
+                            Level = 100, Hostile = hostile, Life = 1_000_000,
+                            Mods = shockImmune ? ShockImmune() : MonsterModSet.None,
+                        };
+                        lock (tempestConn.Monsters) tempestConn.Monsters[id] = target;
+                        return target;
+                    }
+                    void AssertNeutralTarget(SpawnedMonster target)
+                    {
+                        Assert.Null(target.Variety);
+                        Assert.Equal(1, target.Mods.Effects["never_shock"]);
+                        Assert.Equal(0, target.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now));
+                        Assert.Equal(0, target.Effects.Resistance(DamageType.Lightning));
+                        Assert.Equal(0, target.Effects.Resistance(DamageType.Chaos));
+                        Assert.Equal(1, target.Effects.DamageTaken(spell: true), 9);
+                        Assert.Equal(targetAt, target.Walk.Position(now));
+                        Assert.True(target.Hostile && !target.Dead && target.Life > 0);
+                    }
+                    async Task<int> RunProc(uint id, SpawnedMonster target, string label, double at)
+                    {
+                        uint before = target.Life;
+                        lock (tempestConn.Monsters)
+                        {
+                            Assert.Same(target, tempestConn.Monsters[id]);
+                            Assert.Empty(tempestConn.Reservations.Procs);
+                            tempestConn.Reservations.Procs.Enqueue(
+                                new ReservationState.Proc(source.Id, target.Walk.Position(at), id));
+                        }
+                        await Game.ReservationSkillsTick(label, tempestWire.Stream, tempestWire.Ciphers,
+                            tempestConn, at);
+                        Assert.Empty(tempestConn.Reservations.Procs);
+                        return checked((int)(before - target.Life));
+                    }
+                    Game.ReservationDamageProfile Profile(Game.SupportedHitInputs inputs, long increased) => new(
+                        Game.SupportedHitFrom(inputs, suppress: true, additionalIncreased: increased),
+                        Game.SupportedIgnite(tempestConn, source.Id, true, Game.CharacterPlayerStats(tempestConn),
+                            additionalIncreased: increased, capturedInputs: inputs),
+                        Game.SupportedBleed(tempestConn, source.Id, true, Game.CharacterPlayerStats(tempestConn),
+                            additionalIncreased: increased, capturedInputs: inputs),
+                        Game.SupportedPoison(tempestConn, source.Id, true, Game.CharacterPlayerStats(tempestConn),
+                            additionalIncreased: increased, capturedInputs: inputs));
+                    (int Min, int Max) FloorComponents(DamagePacket hit) => (
+                        hit.Components.Sum(component => (int)Math.Floor(component.Range.Min)),
+                        hit.Components.Sum(component => (int)Math.Floor(component.Range.Max)));
+
+                    (int Min, int Max) normalBounds, intendedBlindBounds, wrongMoreBounds;
+                    double effectiveness, rawChaos, rawLightning;
+                    Game.SupportedHitInputs initialInputs;
+                    Game.ReservationDamageProfile normal, intendedBlind;
+                    using (new Game.PlayerStatScope(tempestConn, fresh: true))
+                    {
+                        var player = Game.CharacterPlayerStats(tempestConn);
+                        Assert.Equal(rolledBiteDamage,
+                            player.GetValueOrDefault(Program.Stats.Key(biteDamageStat)!.Value));
+                        Assert.Equal(100, player.GetValueOrDefault(Program.Stats.Key("damage_+%")!.Value));
+                        Assert.Equal(1, player.GetValueOrDefault(Program.Stats.Key("global_cannot_crit")!.Value));
+                        initialInputs = Assert.IsType<Game.SupportedHitInputs>(
+                            Game.SupportedHitInputsFor(tempestConn, source.Id, capturedGem: supported));
+                        Assert.Equal(SkillHitKind.Spell, initialInputs.Plan.Kind);
+                        Assert.False(initialInputs.Attack);
+                        Assert.False(initialInputs.Area);
+                        Assert.Equal(rolledBiteDamage, initialInputs.Get(biteDamageStat));
+                        Assert.Equal(100, initialInputs.Get("damage_+%"));
+                        Assert.Equal(1, initialInputs.Get("global_cannot_crit"));
+                        Assert.Equal([DamageType.Lightning, DamageType.Chaos],
+                            initialInputs.Raw.Components.Select(component => component.Type).ToArray());
+                        effectiveness = Game.AddedEffectiveness(tempestConn, source.Effect, source.Level);
+                        Assert.True(effectiveness > 0);
+                        rawChaos = initialInputs.Raw[DamageType.Chaos].Min;
+                        rawLightning = initialInputs.Raw[DamageType.Lightning].Min;
+                        Assert.Equal(rawChaos, initialInputs.Raw[DamageType.Chaos].Max, 9);
+                        Assert.Equal(10_000 * effectiveness, rawChaos, 6);
+                        Assert.True(rawLightning > 0);
+
+                        normal = Profile(initialInputs, 0);
+                        intendedBlind = Profile(initialInputs, rolledBiteDamage);
+                        var wrongMore = normal.Hit.Scale(1.4);
+                        Assert.Equal(2d, normal.Hit.MinTotal / initialInputs.Raw.MinTotal, 9);
+                        Assert.Equal(2.4, intendedBlind.Hit.MinTotal / initialInputs.Raw.MinTotal, 9);
+                        Assert.Equal(2.8, wrongMore.MinTotal / initialInputs.Raw.MinTotal, 9);
+                        Assert.Equal(MonsterIgnites.Settings.None, normal.Bleed);
+                        Assert.Equal(MonsterIgnites.Settings.None, intendedBlind.Bleed);
+                        normalBounds = FloorComponents(normal.Hit);
+                        intendedBlindBounds = FloorComponents(intendedBlind.Hit);
+                        wrongMoreBounds = FloorComponents(wrongMore);
+                        Assert.True(intendedBlindBounds.Min > normalBounds.Max,
+                            $"normal {normalBounds} and intended Blind {intendedBlindBounds} overlap");
+                        Assert.True(wrongMoreBounds.Min > intendedBlindBounds.Max,
+                            $"intended Blind {intendedBlindBounds} and wrong more {wrongMoreBounds} overlap");
+                    }
+
+                    // A pure-packet seam control: Herald secondary damage cannot borrow the spell's large added chaos.
+                    var heraldAura = new AuraCatalog.Aura(heraldSource.Id, heraldSource.Effect, "HeraldOfIce",
+                        heraldSource.Name, 1, 0, 0, 0, Level: heraldSupported.Level);
+                    var heraldPacket = Game.ReservationHitPacket(tempestConn, heraldAura);
+                    Assert.Equal(0, heraldPacket[DamageType.Chaos].Max);
+
+                    const uint controlId = 0xC47401u;
+                    var control = Target(controlId, "tempest-unblinded-control");
+                    AssertNeutralTarget(control);
+                    Assert.False(Game.Blinded(tempestConn, controlId));
+                    int controlDamage = await RunProc(controlId, control, "tempest-bite-control", now);
+                    Assert.True(controlDamage >= normalBounds.Min && controlDamage <= normalBounds.Max,
+                        $"actual source Bite {rolledBiteDamage}, generic damage 100%, normal bounds "
+                        + $"{normalBounds}, intended {intendedBlindBounds}, actual unblinded control "
+                        + $"{controlDamage}, target life {1_000_000}->{control.Life}");
+                    lock (tempestConn.Monsters) tempestConn.Monsters.Remove(controlId);
+
+                    const uint blindId = 0xC47402u;
+                    var blindTarget = Target(blindId, "tempest-owned-blind-positive");
+                    AssertNeutralTarget(blindTarget);
+                    lock (tempestConn.Monsters)
+                    {
+                        Assert.Same(blindTarget, tempestConn.Monsters[blindId]);
+                        Assert.True(Game.InflictMonsterBlind(tempestConn, blindId, blindTarget, now,
+                            (100, 0, 4), new Random(1)));
+                    }
+                    Assert.True(Game.Blinded(tempestConn, blindId));
+                    Assert.True(Game.ResourceEffectsCurrent(tempestConn, owner));
+                    uint blindBefore = blindTarget.Life;
+                    int blindDamage = await RunProc(blindId, blindTarget, "tempest-bite-positive", now);
+                    Assert.True(blindDamage >= intendedBlindBounds.Min && blindDamage <= intendedBlindBounds.Max,
+                        $"controlled Tempest Shield proc consumer: source Bite {rolledBiteDamage}, "
+                        + $"support count {supported.Supports.Count}, effectiveness {effectiveness:0.######}, "
+                        + $"raw Lightning {rawLightning:0.###}, raw Chaos {rawChaos:0.###}, "
+                        + $"normal {normalBounds}, intended additive Blind {intendedBlindBounds}, "
+                        + $"wrong more {wrongMoreBounds}, actual {blindDamage}, target life "
+                        + $"{blindBefore}->{blindTarget.Life}, aura reservation {reservedMana}/"
+                        + $"{tempestConn.Pools.Mana}, owned Blind {Game.Blinded(tempestConn, blindId)}; "
+                        + "this is the controlled proc consumer boundary, not a real block producer.");
+                    lock (tempestConn.Monsters) tempestConn.Monsters.Remove(blindId);
+
+                    var heraldBounds = new Dictionary<string, (int Min, int Max)>();
+                    async Task CheckHerald(string effectId, uint firstId, bool sourceRemoved)
+                    {
+                        var grant = Assert.Single(Game.GemSkillEffects(tempestConn), g =>
+                            Game.SkillsFor(tempestConn).EffectId(g.Effect) == effectId);
+                        var admitted = Game.SupportedSkill(tempestConn, grant.Id);
+                        Assert.True(admitted.RequirementsMet);
+                        if (!tempestConn.Auras.ContainsKey(grant.Id))
+                        {
+                            var cost = Game.SupportedReservationCost(tempestConn, grant.Id);
+                            Assert.NotNull(cost);
+                            Assert.True(await Game.ToggleAura("herald-bite", tempestWire.Stream, tempestWire.Ciphers,
+                                tempestConn, grant.Id, grant.Effect, grant.Name, cost.Value, admitted.Level, admitted.Quality));
+                        }
+                        Assert.True(tempestConn.Auras.TryGetValue(grant.Id, out var aura));
+                        Assert.Equal(effectId, aura!.EffectId);
+                        SetStat("global_minimum_added_chaos_damage", 10_000);
+                        SetStat("global_maximum_added_chaos_damage", 10_000);
+                        SetStat("spell_damage_+%", 900);
+                        // A secondary hit must ignore this deliberately much larger spell-only flat source.
+                        SetStat("spell_minimum_added_chaos_damage", 1_000_000);
+                        SetStat("spell_maximum_added_chaos_damage", 1_000_000);
+                        double at = Game.ResourceEffectsTime(tempestConn);
+                        var raw = Game.SkillsFor(tempestConn).SecondaryHitDamage(grant.Effect, admitted.Level, admitted.Quality)
+                            .Add(DamageType.Chaos, new(10_000 * Game.AddedEffectiveness(tempestConn, grant.Effect, admitted.Level),
+                                10_000 * Game.AddedEffectiveness(tempestConn, grant.Effect, admitted.Level)));
+                        (int Min, int Max) Bounds(double factor) =>
+                            (raw.Components.Sum(c => (int)Math.Floor(c.Range.Min * factor)),
+                                raw.Components.Sum(c => (int)Math.Floor(c.Range.Max * factor)));
+                        var baseline = Bounds(2);
+                        var blinded = Bounds(2.4);
+                        Assert.True(blinded.Min > baseline.Max);
+                        if (!sourceRemoved) heraldBounds[effectId] = baseline;
+                        else Assert.Equal(heraldBounds[effectId], baseline);
+                        async Task<int> Proc(uint id, SpawnedMonster victim, string phase)
+                        {
+                            uint before = victim.Life;
+                            Assert.Empty(tempestConn.Reservations.Procs);
+                            tempestConn.Reservations.Procs.Enqueue(new(grant.Id, victim.Walk.Position(at), id));
+                            await Game.ReservationSkillsTick(effectId + "-" + phase, tempestWire.Stream, tempestWire.Ciphers,
+                                tempestConn, at);
+                            Assert.Empty(tempestConn.Reservations.Procs);
+                            return checked((int)(before - victim.Life));
+                        }
+                        var positive = Target(firstId, effectId + "-blinded");
+                        if (!sourceRemoved)
+                        {
+                            Assert.False(Game.Blinded(tempestConn, firstId));
+                            int control = await Proc(firstId, positive, "unblinded-control");
+                            Assert.InRange(control, baseline.Min, baseline.Max);
+                        }
+                        Assert.True(Game.InflictMonsterBlind(tempestConn, firstId, positive, at,
+                            (100, 0, 4), new Random(1)));
+                        Assert.True(Game.Blinded(tempestConn, firstId));
+                        var neighbor = Target(firstId + 1, effectId + "-unblinded-neighbor");
+                        uint neighborBefore = neighbor.Life;
+                        int damage = await Proc(firstId, positive, sourceRemoved ? "source-off" : "blinded-positive");
+                        var expected = sourceRemoved ? baseline : blinded;
+                        Assert.True(damage >= expected.Min && damage <= expected.Max,
+                            $"{effectId} controlled secondary consumer, Bite removed={sourceRemoved}: actual {damage}, "
+                            + $"normal {baseline}, additive {blinded}, wrong more {Bounds(2.8)}; spell-only sources must not apply");
+                        if (effectId == "HeraldOfIce")
+                            Assert.InRange(checked((int)(neighborBefore - neighbor.Life)), baseline.Min, baseline.Max);
+                        else Assert.Equal(neighborBefore, neighbor.Life);
+                        lock (tempestConn.Monsters)
+                        {
+                            tempestConn.Monsters.Remove(firstId);
+                            tempestConn.Monsters.Remove(firstId + 1);
+                        }
+                        if (!sourceRemoved)
+                        {
+                            SetStat("global_chance_to_blind_on_hit_%", 100);
+                            var firstBlind = Target(firstId + 2, effectId + "-first-new-blind");
+                            Assert.False(Game.Blinded(tempestConn, firstId + 2));
+                            Assert.InRange(await Proc(firstId + 2, firstBlind, "first-new-blind"), baseline.Min, baseline.Max);
+                            Assert.True(Game.Blinded(tempestConn, firstId + 2));
+                            Assert.InRange(await Proc(firstId + 2, firstBlind, "already-blinded"), blinded.Min, blinded.Max);
+                            SetStat("global_chance_to_blind_on_hit_%", 0);
+                            lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 2);
+                            var immune = Target(firstId + 3, effectId + "-blind-immune");
+                            immune.Mods = ShockImmune() with { Effects = new(new Dictionary<string, int>
+                                { ["never_shock"] = 1, ["cannot_be_blinded"] = 1 }) };
+                            Assert.False(Game.InflictMonsterBlind(tempestConn, firstId + 3, immune, at,
+                                (100, 0, 4), new Random(1)));
+                            Assert.InRange(await Proc(firstId + 3, immune, "blind-immune"), baseline.Min, baseline.Max);
+                            lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 3);
+                            SetStat("base_deal_no_damage", 1);
+                            var prohibited = Target(firstId + 4, effectId + "-prohibited");
+                            Assert.Equal(0, await Proc(firstId + 4, prohibited, "prohibited"));
+                            SetStat("base_deal_no_damage", 0);
+                            lock (tempestConn.Monsters) tempestConn.Monsters.Remove(firstId + 4);
+                        }
+                        Console.WriteLine($"#504 {effectId} secondary consumer sourceRemoved={sourceRemoved} "
+                            + $"actual={damage} normal={baseline} additive={blinded}; active aura {grant.Id}, controlled queue only");
+                        SetStat("global_minimum_added_chaos_damage", 0);
+                        SetStat("global_maximum_added_chaos_damage", 0);
+                        SetStat("spell_damage_+%", 0);
+                        SetStat("spell_minimum_added_chaos_damage", 10_000);
+                        SetStat("spell_maximum_added_chaos_damage", 10_000);
+                    }
+                    await CheckHerald("HeraldOfIce", 0xC47500, false);
+                    await CheckHerald("HeraldOfThunder", 0xC47600, false);
+
+                    SetStat("spell_minimum_added_fire_damage", 1_000);
+                    SetStat("spell_maximum_added_fire_damage", 1_000);
+                    SetStat("base_chance_to_ignite_%", 100);
+                    SetStat("base_chance_to_poison_on_hit_%", 100);
+                    SetStat("global_chance_to_blind_on_hit_%", 100);
+
+                    Game.ReservationDamageProfile expandedNormal, expandedBlind;
+                    double expandedRawFire, expandedRawChaos;
+                    (int Min, int Max) expandedNormalBounds, expandedBlindBounds;
+                    using (new Game.PlayerStatScope(tempestConn, fresh: true))
+                    {
+                        var player = Game.CharacterPlayerStats(tempestConn);
+                        Assert.Equal(rolledBiteDamage,
+                            player.GetValueOrDefault(Program.Stats.Key(biteDamageStat)!.Value));
+                        var inputs = Assert.IsType<Game.SupportedHitInputs>(
+                            Game.SupportedHitInputsFor(tempestConn, source.Id, capturedGem: supported));
+                        Assert.Equal(rolledBiteDamage, inputs.Get(biteDamageStat));
+                        Assert.False(inputs.Area);
+                        expandedRawFire = inputs.Raw[DamageType.Fire].Min;
+                        expandedRawChaos = inputs.Raw[DamageType.Chaos].Min;
+                        Assert.Equal(1_000 * effectiveness, expandedRawFire, 6);
+                        Assert.Equal(expandedRawFire, inputs.Raw[DamageType.Fire].Max, 9);
+                        expandedNormal = Profile(inputs, 0);
+                        expandedBlind = Profile(inputs, rolledBiteDamage);
+                        double expectedNormalIgnite = .9 * expandedRawFire * (1 + 100 / 100d);
+                        double expectedNormalPoison = .3 * expandedRawChaos * (1 + 100 / 100d);
+                        Assert.Equal(expectedNormalIgnite, expandedNormal.Ignite.Min, 9);
+                        Assert.Equal(expectedNormalPoison, expandedNormal.Poison.Min, 9);
+                        Assert.Equal(1.2, expandedBlind.Ignite.Min / expandedNormal.Ignite.Min, 9);
+                        Assert.Equal(1.2, expandedBlind.Poison.Min / expandedNormal.Poison.Min, 9);
+                        Assert.Equal(MonsterIgnites.Settings.None, expandedNormal.Bleed);
+                        Assert.Equal(MonsterIgnites.Settings.None, expandedBlind.Bleed);
+                        expandedNormalBounds = FloorComponents(expandedNormal.Hit);
+                        expandedBlindBounds = FloorComponents(expandedBlind.Hit);
+                        Assert.True(expandedBlindBounds.Min > expandedNormalBounds.Max);
+                    }
+                    uint chainKey = Program.Stats.Key("number_of_chains")
+                        ?? throw new InvalidOperationException("missing required stat number_of_chains");
+                    Assert.Equal(1, supported.Stats.GetValueOrDefault(chainKey));
+
+                    // This is the first contact on a currently unblinded target: profile selection happens before its
+                    // own on-hit Blind, so only the second contact uses the additive Bite profile.
+                    const uint ownBlindId = 0xC47403u;
+                    var ownBlind = Target(ownBlindId, "tempest-first-new-blind");
+                    AssertNeutralTarget(ownBlind);
+                    Assert.False(Game.Blinded(tempestConn, ownBlindId));
+                    int firstContact = await RunProc(ownBlindId, ownBlind, "tempest-first-new-blind", now);
+                    Assert.InRange(firstContact, expandedNormalBounds.Min, expandedNormalBounds.Max);
+                    Assert.True(Game.Blinded(tempestConn, ownBlindId));
+                    Assert.Equal(now, ownBlind.Ignites.LastApplied, 9);
+                    Assert.Equal(expandedNormal.Ignite.Min, ownBlind.Ignites.PerSecond(now), 9);
+                    Assert.Equal(now + expandedNormal.Ignite.Seconds, ownBlind.Ignites.Until, 9);
+                    Assert.Equal(1, ownBlind.Poisons.Stacks(now));
+                    Assert.Equal(expandedNormal.Poison.Min, ownBlind.Poisons.TotalDps(now), 9);
+                    double firstPoisonUntil = ownBlind.Poisons.Until;
+                    Assert.Equal(now + expandedNormal.Poison.Seconds, firstPoisonUntil, 9);
+
+                    fixedRuntime.Advance(1.25);
+                    double secondStart = Game.ResourceEffectsTime(tempestConn);
+                    Assert.Equal(now + 1.25, secondStart, 9);
+                    double firstOnlyMidpoint = (firstPoisonUntil - expandedNormal.Poison.Seconds + firstPoisonUntil) / 2;
+                    Assert.True(firstOnlyMidpoint < secondStart);
+                    Assert.Equal(1, ownBlind.Poisons.Stacks(firstOnlyMidpoint));
+                    double poisonBeforeSecond = ownBlind.Poisons.TotalDps(secondStart);
+                    Assert.Equal(expandedNormal.Poison.Min, poisonBeforeSecond, 9);
+
+                    // Tempest Shield has one native chain here: this proc contacts the targeted Blind victim and then
+                    // one equally close unblinded neighbor, proving that the selected profiles do not leak across them.
+                    const uint nextUnblindId = 0xC47404u;
+                    var nextUnblind = Target(nextUnblindId, "tempest-next-unblinded");
+                    AssertNeutralTarget(nextUnblind);
+                    uint neighborBefore = nextUnblind.Life;
+                    int secondContact = await RunProc(ownBlindId, ownBlind, "tempest-owned-blind-second", secondStart);
+                    Assert.InRange(secondContact, expandedBlindBounds.Min, expandedBlindBounds.Max);
+                    int nextDamage = checked((int)(neighborBefore - nextUnblind.Life));
+                    Assert.InRange(nextDamage, expandedNormalBounds.Min, expandedNormalBounds.Max);
+                    Assert.True(Game.Blinded(tempestConn, nextUnblindId));
+                    Assert.Equal(expandedNormal.Ignite.Min, nextUnblind.Ignites.PerSecond(secondStart), 9);
+                    Assert.Equal(expandedNormal.Poison.Min, nextUnblind.Poisons.TotalDps(secondStart), 9);
+                    Assert.Equal(secondStart, ownBlind.Ignites.LastApplied, 9);
+                    Assert.Equal(expandedBlind.Ignite.Min, ownBlind.Ignites.PerSecond(secondStart), 9);
+                    Assert.Equal(secondStart + expandedBlind.Ignite.Seconds, ownBlind.Ignites.Until, 9);
+                    Assert.Equal(2, ownBlind.Poisons.Stacks(secondStart));
+                    Assert.Equal(poisonBeforeSecond + expandedBlind.Poison.Min,
+                        ownBlind.Poisons.TotalDps(secondStart), 9);
+                    Assert.Equal(expandedNormal.Poison.Min, ownBlind.Poisons.TotalDps(firstOnlyMidpoint), 9);
+                    Assert.Equal(secondStart + expandedBlind.Poison.Seconds, ownBlind.Poisons.Until, 9);
+                    double firstOnlyAfter = firstPoisonUntil + .001;
+                    Assert.True(firstOnlyAfter < secondStart + expandedBlind.Poison.Seconds);
+                    Assert.Equal(1, ownBlind.Poisons.Stacks(firstOnlyAfter));
+                    Assert.Equal(expandedBlind.Poison.Min, ownBlind.Poisons.TotalDps(firstOnlyAfter), 9);
+                    lock (tempestConn.Monsters)
+                    {
+                        tempestConn.Monsters.Remove(nextUnblindId);
+                        tempestConn.Monsters.Remove(ownBlindId);
+                    }
+                    double oldPoisonDps = ownBlind.Poisons.TotalDps(secondStart);
+                    double oldPoisonUntil = ownBlind.Poisons.Until;
+                    double oldIgniteDps = ownBlind.Ignites.PerSecond(secondStart);
+                    double oldIgniteUntil = ownBlind.Ignites.Until;
+
+                    const uint blindImmuneId = 0xC47405u;
+                    var blindImmune = Target(blindImmuneId, "tempest-blind-immune");
+                    blindImmune.Mods = ShockImmune() with
+                    {
+                        Effects = new(new Dictionary<string, int> { ["never_shock"] = 1, ["cannot_be_blinded"] = 1 }),
+                    };
+                    Assert.False(Game.Blinded(tempestConn, blindImmuneId));
+                    Assert.False(Game.InflictMonsterBlind(tempestConn, blindImmuneId, blindImmune, secondStart,
+                        (100, 0, 4), new Random(1)));
+                    int immuneDamage = await RunProc(blindImmuneId, blindImmune, "tempest-blind-immune", secondStart);
+                    Assert.InRange(immuneDamage, expandedNormalBounds.Min, expandedNormalBounds.Max);
+                    Assert.False(Game.Blinded(tempestConn, blindImmuneId));
+                    lock (tempestConn.Monsters) tempestConn.Monsters.Remove(blindImmuneId);
+
+                    async Task AssertExcluded(uint id, SpawnedMonster target, string label)
+                    {
+                        int damage = await RunProc(id, target, label, secondStart);
+                        Assert.Equal(0, damage);
+                        Assert.False(target.Ignites.Burning);
+                        Assert.False(target.Poisons.Poisoned);
+                        lock (tempestConn.Monsters) tempestConn.Monsters.Remove(id);
+                    }
+                    await AssertExcluded(0xC47406u,
+                        Target(0xC47406u, "tempest-friendly", hostile: false), "tempest-friendly");
+                    var dead = Target(0xC47407u, "tempest-dead");
+                    dead.Dead = true;
+                    dead.Life = 0;
+                    await AssertExcluded(0xC47407u, dead, "tempest-dead");
+                    var asleep = Target(0xC47408u, "tempest-asleep");
+                    asleep.Asleep = true;
+                    await AssertExcluded(0xC47408u, asleep, "tempest-asleep");
+                    var noDamage = Target(0xC47409u, "tempest-no-damage");
+                    noDamage.KingGrace = true;
+                    await AssertExcluded(0xC47409u, noDamage, "tempest-no-damage");
+
+                    uint prohibitionKey = Program.Stats.Key("base_deal_no_damage")
+                        ?? throw new InvalidOperationException("missing required stat base_deal_no_damage");
+                    SetStat("base_deal_no_damage", 1);
+                    using (new Game.PlayerStatScope(tempestConn, fresh: true))
+                    {
+                        var inputs = Assert.IsType<Game.SupportedHitInputs>(
+                            Game.SupportedHitInputsFor(tempestConn, source.Id, capturedGem: supported));
+                        Assert.Equal(1, inputs.Get("base_deal_no_damage"));
+                        Assert.True(DamageStats.Prohibited(DamageType.Chaos, inputs.Get));
+                        Assert.Equal(0, Game.SupportedHitFrom(inputs, suppress: true).MaxTotal);
+                        var prohibitedIgnite = Game.SupportedIgnite(tempestConn, source.Id, true,
+                            Game.CharacterPlayerStats(tempestConn), capturedInputs: inputs);
+                        var prohibitedPoison = Game.SupportedPoison(tempestConn, source.Id, true,
+                            Game.CharacterPlayerStats(tempestConn), capturedInputs: inputs);
+                        Assert.Equal(0, prohibitedIgnite.Min + prohibitedIgnite.Max);
+                        Assert.Equal(0, prohibitedPoison.Min + prohibitedPoison.Max);
+                    }
+                    const uint prohibitedId = 0xC4740Au;
+                    var prohibited = Target(prohibitedId, "tempest-prohibited-damage");
+                    uint prohibitedBefore = prohibited.Life;
+                    Assert.Equal(0, await RunProc(prohibitedId, prohibited, "tempest-prohibited-damage", secondStart));
+                    Assert.Equal(prohibitedBefore, prohibited.Life);
+                    Assert.False(prohibited.Ignites.Burning);
+                    Assert.False(prohibited.Poisons.Poisoned);
+                    SetStat("base_deal_no_damage", 0);
+                    lock (tempestConn.Monsters) tempestConn.Monsters.Remove(prohibitedId);
+
+                    var removedBite = inventory.Remove(PlayerInventories.Helmet, bitePlacement.Id);
+                    Assert.NotNull(removedBite);
+                    Game.ReconcileOwnAuras(tempestConn, validateSkills: true);
+                    Assert.True(tempestConn.Auras.TryGetValue(source.Id, out var stillActive));
+                    Assert.Equal("TempestShield", stillActive!.EffectId);
+                    var stillSupported = Game.SupportedSkill(tempestConn, source.Id);
+                    Assert.True(stillSupported.RequirementsMet);
+                    Assert.Equal(source.Effect, stillSupported.Effect);
+                    using (new Game.PlayerStatScope(tempestConn, fresh: true))
+                    {
+                        var player = Game.CharacterPlayerStats(tempestConn);
+                        Assert.Equal(0, player.GetValueOrDefault(Program.Stats.Key(biteDamageStat)!.Value));
+                        var inputs = Assert.IsType<Game.SupportedHitInputs>(
+                            Game.SupportedHitInputsFor(tempestConn, source.Id, capturedGem: stillSupported));
+                        Assert.Equal(0, inputs.Get(biteDamageStat));
+                    }
+                    Assert.Equal(oldPoisonDps, ownBlind.Poisons.TotalDps(secondStart), 9);
+                    Assert.Equal(oldPoisonUntil, ownBlind.Poisons.Until, 9);
+                    Assert.Equal(oldIgniteDps, ownBlind.Ignites.PerSecond(secondStart), 9);
+                    Assert.Equal(oldIgniteUntil, ownBlind.Ignites.Until, 9);
+
+                    const uint noBiteId = 0xC4740Bu;
+                    var noBiteTarget = Target(noBiteId, "tempest-source-off");
+                    Assert.True(Game.InflictMonsterBlind(tempestConn, noBiteId, noBiteTarget, secondStart,
+                        (100, 0, 4), new Random(1)));
+                    Assert.True(Game.Blinded(tempestConn, noBiteId));
+                    int noBiteDamage = await RunProc(noBiteId, noBiteTarget, "tempest-source-off", secondStart);
+                    Assert.InRange(noBiteDamage, expandedNormalBounds.Min, expandedNormalBounds.Max);
+                    Assert.True(Game.Blinded(tempestConn, noBiteId));
+                    Assert.Equal(expandedNormal.Ignite.Min, noBiteTarget.Ignites.PerSecond(secondStart), 9);
+                    Assert.Equal(expandedNormal.Poison.Min, noBiteTarget.Poisons.TotalDps(secondStart), 9);
+                    lock (tempestConn.Monsters) tempestConn.Monsters.Remove(noBiteId);
+                    Assert.True(reservedMana > 0 && reservedMana < tempestConn.Pools.Mana);
+                    SetStat("spell_minimum_added_fire_damage", 0);
+                    SetStat("spell_maximum_added_fire_damage", 0);
+                    SetStat("global_chance_to_blind_on_hit_%", 0);
+                    await CheckHerald("HeraldOfIce", 0xC47700, true);
+                    await CheckHerald("HeraldOfThunder", 0xC47800, true);
+                    _ = prohibitionKey;
+                }
+                finally
+                {
+                    if (tempestConnection is not null) tempestConnection.ProjectileRuntimeState = previousRuntime;
+                    fixedRuntime?.Invalidate();
+                    if (tempestConnection is not null) tempestConnection.Closed = true;
                     Game.AreaUpdateContext.Value = previousContext;
                     PlayerInventories.Forget(character);
                 }

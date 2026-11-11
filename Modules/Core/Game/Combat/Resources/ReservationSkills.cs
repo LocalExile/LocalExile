@@ -92,7 +92,14 @@ static partial class Game
     {
         if (aura.EffectId == "TempestShield") return SupportedHitFor(conn, aura.SkillId, suppress: false);
         var skill = SupportedSkill(conn, aura.SkillId);
-        var stats = MergeSkillStats(CharacterPlayerStats(conn), skill.Stats);
+        return ReservationSecondaryHits(conn, aura, skill, CharacterPlayerStats(conn))(0);
+    }
+
+    // One proc captures the raw secondary packet and its source modifiers before selecting any target.
+    static Func<long, DamagePacket> ReservationSecondaryHits(ClientState conn, AuraCatalog.Aura aura,
+        SupportedGem skill, IReadOnlyDictionary<uint, int> player)
+    {
+        var stats = MergeSkillStats(player, skill.Stats);
         int Get(string n) => GolemStat(stats, n);
         var raw = SkillsFor(conn).SecondaryHitDamage(aura.Effect, aura.Level, aura.Quality);
         foreach (var type in DamageTypes.ConversionOrder)
@@ -102,11 +109,18 @@ static partial class Game
             raw = raw.Add(type, new(Get($"global_minimum_added_{slug}_damage") * effectiveness,
                 Get($"global_maximum_added_{slug}_damage") * effectiveness));
         }
-        return PlayerHitDamage.Resolve(raw, Get, DamageStats.Conversion(stats, Stats, attack: null),
+        var conversion = DamageStats.Conversion(stats, Stats, attack: null);
+        var modifiers = skill.Supports.SelectMany(s => s.Stats)
+            .Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToArray();
+        var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
+        return increased => PlayerHitDamage.Resolve(raw, Get, conversion,
             spell: false, area: aura.EffectId != "HeraldOfThunder", secondary: true,
-            supportModifiers: skill.Supports.SelectMany(s => s.Stats).Select(s => (Stats.Name(s.Key) ?? "", s.Value)),
-            skillTypes: Supports.Of(aura.Effect)?.Types.ToHashSet());
+            supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased);
     }
+
+    /// <summary>The immutable hit and damaging-ailment outputs selected for one reservation contact.</summary>
+    internal sealed record ReservationDamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+        MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
 
     static double ReservationRadius(ClientState conn, AuraCatalog.Aura aura, int fallback)
     {
@@ -120,10 +134,37 @@ static partial class Game
     static void ReservationDamageLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         AuraCatalog.Aura aura, (int X, int Y) at, double now, uint target = 0)
     {
+        using var statScope = new PlayerStatScope(conn, fresh: true);
         var skill = SupportedSkill(conn, aura.SkillId);
-        if (!skill.RequirementsMet) return;
+        if (!skill.RequirementsMet || skill.Effect != aura.Effect
+            || SkillsFor(conn).EffectId(skill.Effect) != aura.EffectId) return;
         var player = CharacterPlayerStats(conn);
-        var packet = ReservationHitPacket(conn, aura);
+        var packet = DamagePacket.Empty;
+        DamagePacket? blindedPacket = null;
+        long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint key
+            ? (long)player.GetValueOrDefault(key) + skill.Stats.GetValueOrDefault(key) : 0;
+        ReservationDamageProfile? normalProfile = null, blindedProfile = null;
+        if (aura.EffectId == "TempestShield")
+        {
+            if (SupportedHitInputsFor(conn, aura.SkillId, capturedGem: skill) is not { } inputs) return;
+            ReservationDamageProfile Profile(long increased) => new(
+                SupportedHitFrom(inputs, suppress: true, additionalIncreased: increased),
+                SupportedIgnite(conn, aura.SkillId, spell: true, player, additionalIncreased: increased,
+                    capturedInputs: inputs),
+                SupportedBleed(conn, aura.SkillId, spell: true, player, additionalIncreased: increased,
+                    capturedInputs: inputs),
+                SupportedPoison(conn, aura.SkillId, spell: true, player, additionalIncreased: increased,
+                    capturedInputs: inputs));
+            normalProfile = Profile(0);
+            blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
+            packet = normalProfile.Hit;
+        }
+        else
+        {
+            var secondary = ReservationSecondaryHits(conn, aura, skill, player);
+            packet = secondary(0);
+            blindedPacket = additionalIncreased == 0 ? packet : secondary(additionalIncreased);
+        }
         double radius = ReservationRadius(conn, aura, aura.EffectId == "TempestShield" ? 60 : 32);
         var candidates = conn.Monsters.Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 && !conn.AsleepMonsters.Contains(p.Key) && Dist(p.Value.Walk.Position(now), at) <= radius)
@@ -135,9 +176,18 @@ static partial class Game
         {
             foreach (var (id, m) in candidates)
             {
+                if (m.Hostile != true || m.Dead || m.Life == 0 || m.Invulnerable || m.Asleep
+                    || conn.AsleepMonsters.Contains(id)
+                    || !conn.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
+                // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
+                bool targetWasBlinded = Blinded(conn, id);
+                var profile = targetWasBlinded ? blindedProfile : normalProfile;
+                var targetPacket = profile?.Hit ?? (targetWasBlinded ? blindedPacket ?? packet : packet);
                 bool spell = aura.EffectId == "TempestShield";
                 int Player(string n) => GolemStat(player, n);
                 int Own(string n) => GolemStat(skill.Stats, n);
+                List<byte[]>? ignited = null;
+                string? igniteLog = null;
                 int criticalChance = spell ? SupportedCriticalChance(conn, aura.SkillId)
                     : Player("global_cannot_crit") != 0 || Own("global_cannot_crit") != 0 ? 0
                     : CriticalChanceFinal.Project((long)Player(AddedBaseCriticalStrike.Generic) + Own(AddedBaseCriticalStrike.Generic),
@@ -145,7 +195,7 @@ static partial class Game
                 bool critical = RandomRolls.Chance(criticalChance, 10000, Random.Shared);
                 int multiplier = spell ? SupportedCriticalMultiplier(conn, aura.SkillId)
                     : 150 + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+");
-                var rolled = packet.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
+                var rolled = targetPacket.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default));
                 int damage = MonsterTakesMitigated(m, mitigated, spell);
                 if (ApplyMonsterHitLocked(conn, m, damage) is not { } hit) continue;
@@ -154,12 +204,20 @@ static partial class Game
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (aura.EffectId == "HeraldOfThunder" && Stats.Key("never_shock") is uint noShock) own[noShock] = 1;
-                    AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now, Random.Shared,
+                    AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, 100, player, own, now,
+                        Random.Shared, poison: profile?.Poison ?? default,
                         blind: BlindHitInput.Capture(player, own));
+                    if (profile is not null && m.Life > 0 && rolled[DamageType.Fire].Max > 0
+                        && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, now) is { } packets)
+                        (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, now));
                 }
                 CommitAcceptedHitLocked(conn, id, m, hit, damage, now, aura.Name, playerKill: true);
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(PlayerId, 0xffff, id,
                     flags: (ushort)(0x4201 | (critical ? 0x20 : 0)), kind: 2, u34: 450), aura.Name + " triggered hit", id, m));
+                if (ignited is { } packetsToSend)
+                    for (int i = 0; i < packetsToSend.Count; i++)
+                        conn.Minions.OutputQueue.Add(new(packetsToSend[i],
+                            i == packetsToSend.Count - 1 ? igniteLog : null, id, m));
             }
         }
         finally { conn.Reservations.Secondary = false; }

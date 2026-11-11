@@ -3181,11 +3181,13 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
   alternate-shield flag. `0x1417a4380` dereferences `Buff+0x80` and its second word before any length check;
   `0x1417a4de0` passes the first word to MiscEffectPacks variation lookup. Empty-list activation reproduced
   an access violation at `0x1417a43cf`. The base shield visual uses `[0, 0]`.
+  Both the source and received buff instantiate this behaviour and require the list, even with source display disabled.
 
   Temporal Rift (row 1915, `ChronomancerBuff`) also dereferences its list immediately: `0x141f7c8b0`
   allocates the sample ring from word 0, and `0x141f7c9e0` reads the interval in milliseconds from word 1.
   An empty list reproduced an access violation at `0x141f7c8e1`. The server uses `[42, 100]`, retaining
   41 samples over four seconds; these sampling parameters are server choices, not captured retail traffic.
+  Both source and received buff packets carry these two words.
 - **Implemented effects.** Purity of Elements/Fire/Ice/Lightning add their resistances; Clarity and Vitality
   add their flat regeneration; Precision adds flat accuracy and increased critical strike chance; Haste adds
   attack, cast and movement speed. Generic
