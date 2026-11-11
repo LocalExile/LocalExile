@@ -103,7 +103,10 @@ public static class Lifetap
     /// The buff instance the client must add or remove since the previous call. Called under the send gate and the
     /// Monsters lock, after the cost that granted it, and by the player tick that ends it.
     /// </summary>
-    public static byte[]? Presentation(ClientState conn)
+    public static byte[]? Presentation(ClientState conn) =>
+        PresentationRecords(conn) is { } records ? [.. records.SelectMany(p => p)] : null;
+
+    public static byte[][]? PresentationRecords(ClientState conn)
     {
         var state = conn.Lifetap;
         double now = conn.Clock.Elapsed.TotalSeconds;
@@ -122,6 +125,6 @@ public static class Lifetap
                 u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, state.Until - now))));
             state.PresentedBuff = state.Buff;
         }
-        return packets.Count == 0 ? null : [.. packets.SelectMany(packet => packet)];
+        return packets.Count == 0 ? null : [.. packets];
     }
 }

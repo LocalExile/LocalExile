@@ -13,4 +13,15 @@ public static class SkillGemLevel
 
     public static int Resolve(int intrinsic, int supportedBonus, IEnumerable<int> familyBonuses) =>
         (int)Math.Clamp(intrinsic + (long)supportedBonus + familyBonuses.Sum(value => (long)value), 1, int.MaxValue);
+
+    /// <summary>"+1 to Level of all Strength/Dexterity/Intelligence Skill Gems" (the Honoured Warlord, Hunter and Wise
+    /// tattoos): a gem's SkillGems GemColour names the attribute it belongs to - 1 red strength, 2 green dexterity,
+    /// 3 blue intelligence; a white (4) gem has none.</summary>
+    public static string? AttributeStat(int colour) => colour switch
+    {
+        1 => "strength_skill_gem_level_+",
+        2 => "dexterity_skill_gem_level_+",
+        3 => "intelligence_skill_gem_level_+",
+        _ => null,
+    };
 }

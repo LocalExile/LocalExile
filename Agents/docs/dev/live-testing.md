@@ -252,6 +252,21 @@ Source [Lioneye's Watch]". Then the HUD appears.
 Window position and size change between launches; take a screenshot before clicking. At half scale, the password
 field, character row and Play button were near (245, 217), (375, 61) and (455, 263) in one layout and moved in others.
 
+## Dev commands that lie
+
+Four things that made a live boss check read as broken when it was not (all seen 2026-11-11, checking the Pantheon):
+
+| What you do | What actually happens |
+|---|---|
+| `/tp <x> <y>` onto the monster's own cell (`/mobs` prints it) | it neither moves nor attacks: stand 8–10 cells off. A boss that reads as idle, or as never swinging, is usually this |
+| `/mob_life <id> 0` on a boss with life phases | one smite, so the life stops at the next threshold (the Brine King's 75, 50, 25) and the phase runs; smite again once the log says that phase is over. The phase only begins with the player inside the arena, so smiting from the entrance leaves the boss clamped and looking unkillable |
+| `/quest_flag <flag>-HaveItem` | it is set and the quest-item sync takes it back within the millisecond — the log shows `set` and then `cleared`. A gate that needs an item only opens with the real item in the bag |
+| `rawpacket` | the fields are big-endian: C→S 0x24 (use an object or a ground item) wants the entity id as `04 00 00 00` for `0x4000000`. Little-endian is accepted silently and the server reads `TargetId = 4` |
+
+Counting a boss's actions from the log has the same shape: `attacks the player` is not every swing — the Brine King's
+only ever show as `player hit by monster 0x…`. Count `player hit by monster <id>` and `uses area skill` instead, or a boss
+that deals damage every second reads as idle.
+
 ## Env vars
 
 | Var | Default | Used by |

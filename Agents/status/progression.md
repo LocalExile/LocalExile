@@ -51,7 +51,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   catalogue is 10%. The per-jewel table is in [unique-jewels](../docs/game/unique-jewels.md).
   Code: `PassiveTree.JewelNodeForSlot`, Gateway (`PlaceItem`, `HeldOntoItem`, `PickUpItem`, `CharacterStatSources`).
   Docs: [15](../docs/protocol/15-progression.md) §2a, [unique-jewels](../docs/game/unique-jewels.md).
-- Cluster jewels (server and live client check 2026-10-27): `/cluster_jewel <small|medium|large> [passives] [sockets]
+- The seven single-keystone small cluster jewels grant their native keystone stat on allocation. Their individual
+  combat mechanics remain partial. For ordinary clusters, `/cluster_jewel <small|medium|large> [passives] [sockets]
   [theme] [notables…]` and `/voices [1|3|5|7]` make real items, and nesting follows the size rule (a tree socket takes any
   size, a large jewel's sockets medium/small, a medium one's socket small). Their passives are the client's own
   expansion ids (block base fixed per pane cell, e.g. 195..206 for cell 20); the server keeps them in the third list of
@@ -80,8 +81,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Modules/Core/Game/Item/Items.cs` (`ClusterJewelSocketed`, `ClusterNodeBudget`, `CreateClusterJewel`, `CreateVoices`),
   `ClusterJewelStats.cs`, Gateway (`ChangeClusterPassive`). Docs: [cluster-jewels](../docs/game/cluster-jewels.md).
 
-- Timeless jewels (Legion; server and live client check 2026-10-29): `/timeless <name> [displayed seed] [conqueror]`
-  creates the six unique jewels with the client's `UniqueJewelAlternateTreeInRadius*` mod. The client itself draws the
+- Timeless jewels roll a faction seed and current conqueror in ordinary unique generation.
+  `/timeless <name> [displayed seed] [conqueror]` creates the six unique jewels with the client's `UniqueJewelAlternateTreeInRadius*` mod. The client itself draws the
   conquered radius from those stats; the server reproduces the same alternate tree with the TinyMT32 generator, the
   `AlternateTreeVersions` flags, `AlternatePassiveSkills` and `AlternatePassiveAdditions`, and applies replacement or
   added stats to allocated ordinary nodes in the fixed 0..1500 radius. The RNG and generated values match Path of
@@ -136,39 +137,37 @@ Part of [Status](../Status.md); what to build next in this area is in
   passives are never in a radius jewel's radius: Path of Building precomputes `nodesInRadius` before its cluster graphs
   are built, so the server's ordinary-PSG-only radius is intentional. The 33 threshold jewels have generated item
   sources (`scripts/re/threshold_jewels.py`, `ThresholdJewelCatalogue.cs`); the client applies their local threshold
-  mods, and `ThresholdJewels.cs` parses the target/attribute mask, sums every ordinary passive in radius (allocated or
+  mods. Current Dead Reckoning gives skeleton hits flat chaos from the equipped shield's local energy shield without
+  an attribute threshold. `ThresholdJewels.cs` parses the target/attribute mask, sums every ordinary passive in radius (allocated or
   not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
   36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
   `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
   (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
-  item source and client conversion are present (`/radius_jewel Lioneye's Fall`), but its server flag model is missing.
-  Inspired Learning and Warrior's Tale remain inactive; the missing layers are the melee/weapon flag model, the
-  rare-mod steal, tattoos and the skill-specific threshold consumers. The socket/save path,
+  radius now converts melee and melee-weapon stats with native bow equivalents, including physical damage, attack
+  speed and critical modifiers. Conditional modifiers without a mapped bow stat still need individual consumers.
+  Warrior's Tale scales tattoo stats within its socket radius. Grand Spectrum rolls one of three current variants
+  per base and scales by the total equipped across bases (limit three). Inspired Learning's rare-mod steal and the
+  skill-specific threshold consumers remain partial. The socket/save path,
   `PassiveTree.NodesInRadius`/`NodesInRing`, the timeless per-node pattern and the art table are reused. The radius
   suite has 98 tests.
 
 - Impossible Escape (generated special): `/impossible_escape <keystone>|list` creates the 48-variant Viridian Jewel
   (Small, limit 1, corrupted). The item mod stores the keystone's `PassiveSkillGraphId` and display base radius 800;
   the effect radius is Path of Building 3_16's Small **960**. Legacy items with the Maven table row are migrated on
-  load. `AllocationBypassNodes` uses the allocated keystone as the centre and the jewel socket as provider. Live: Versatile Combatant (row 2444,
-  graph 50679) drew the client ring; node 29547 (Life Leech, 293 units away) was accepted without a path, pickup was
-  refused until it was refunded, then both were removed. Supreme Ego (row 2312, graph 49639) showed no ring until the
-  keystone was allocated; after allocation the ring appeared and Dire Torment (9015) next to it was accepted.
-  Replenishing Remedies (50690, 953.7 units from Supreme Ego) is inside the client ring and is now accepted too. The
-  command now warns when the chosen keystone is not allocated; the five legacy row-valued items were migrated on load
-  and their tooltips now show Supreme Ego/Versatile Combatant. Rational Doctrine (`/unique_jewel`) creates
+  load. The allocated socket grants disconnected passives around the named keystone, excluding the keystone itself.
+  A live Witch allocated Dire Torment (9015) without taking Supreme Ego (49639). Earlier client checks also placed
+  Replenishing Remedies (50690) within the ring and refused pickup while a disconnected node depended on the jewel. Rational Doctrine (`/unique_jewel`) creates
   consecrated ground while stationary with Strength highest and profane ground on a critical strike with Intelligence
   highest; both effects linger for 4 seconds, and hits against enemies on profane ground have 100% increased critical
   chance. The profane-ground debuff and its critical-chance consumer have automated coverage. Live 2026-11-01 (the
   item's stats set through `/set_stat`): a critical strike created the profane ground art, applied buff 1569, and
   removed it after the linger.
 
-- Wiki catalogue gap check: the poewiki list (189 distinct names) vs this catalogue (182) leaves Bound By Destiny,
-  Forbidden Flame/Flesh, Megalomaniac, Sublime Vision, The Balance of Terror and Watcher's Eye unimplemented; they are
-  recorded in [unique-jewels](../docs/game/unique-jewels.md) without item sources. Impossible Escape and Rational
-  Doctrine are the two gaps closed here.
+- Watcher's Eye, Bound By Destiny, Sublime Vision, The Balance of Terror and Megalomaniac have named item generation.
+  Their encounter drop rates and individual conditional-stat consumers are partial. Megalomaniac adds three distinct
+  notables and an empty small passive. Forbidden Flame and Forbidden Flesh still lack a mainline source.
 
 - Command-based ordinary ascendancy selection, separate point awards, connected allocations, paid refunds and saves.
   A native Duelist/Slayer smoke checked ordinary nodes, ascendancy allocation/refund and both point budgets.
@@ -215,6 +214,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Hierophant: every ordinary node's stats apply except the Brand ones (no Brand executes), checked in the client
+  except the halved shock while Arcane Surge runs,
+  [node by node](../docs/game/hierophant.md).
 - Behemoth: the optional Phrecia module supplies its capability, verified-graph opt-in and mode-aware node sources.
   Shared Rampage tiers and Vaal Ground Slam payment execute in Game with generation/source retirement guards.
   Two deterministic Gateway regressions cover worker ownership and atomic attack/payment admission.
@@ -338,10 +340,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tattoos: the 100-item 3.29.3b catalogue, protocol and implementation groups are documented in
   [tattoos](../docs/game/tattoos.md). The client flow is implemented: C->S `0x77` names the inventory, item and
   passive; `0x33`'s fifth list carries `node | PassiveSkillOverrides.HASH16 << 16`; the item is consumed and the
-  map is saved independently of allocation. **45 rows are client-verified**: the ten pilot, 22 plain stats,
-  nine Makanga gates, three Journey tattoos and Journey Makanui; Ancestral Bloodlines is partial (life/mana
-  recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also survived relog and was removed with an
-  Orb of Scouring. The Makanga gate, Journey counting and the five `PassiveSkillOverrides.Limit` groups are
-  enforced server-side; Makanui stores its random keystone in `TattooKeystones`. The character currently has 530
-  passives and 12 tattoos from the test session. 52 rows remain not implemented; next are the condition/skill
-  rows, Loyalty and the seven Forbidden ascendancy tattoos.
+  map is saved independently of allocation. **66 rows are client-verified**: the ten pilot, 22 plain stats, the
+  nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows (attribute notables
+  included), nine Makanga gates, three Journey tattoos and Journey Makanui; Ancestral Bloodlines is partial
+  (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also survived relog and was removed
+  with an Orb of Scouring. The Makanga gate, Journey counting and the five `PassiveSkillOverrides.Limit` groups are
+  enforced server-side; Makanui stores its random keystone in `TattooKeystones`. 31 rows remain not implemented:
+  the nine ailment and avoidance rows, five rows that need new consumers (corpse consumption, Fortify-on-stun,
+  guard duration, hinder and herald effect), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.

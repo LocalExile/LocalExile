@@ -1432,12 +1432,15 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   are equal), and its slot 0x460 thunks to the base replay; it gets no count until a trace shows how the two combine.
   Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
   at a moving target.
+  Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first
+  cast's early window and the last repeat's late window ([07](07-latency-visibility-movement.md) §6).
   Catalog instant skills retain their instant flag, zero server cast duration and no finite casts-per-second rate.
-  A channelled spell's native base is also preserved; this does not implement beam damage or change the existing
-  server channel-hit cadence. Attack and non-spell timing paths are unchanged.
+  A channelled spell's native base is preserved; its server interval uses the fractional supported cast duration
+  without a new-action frame limit. This does not implement beam damage. Attack and non-spell timing are unchanged.
   For non-instant spells, a nonpositive speed factor or a duration exceeding signed integer milliseconds has
   no server duration, no hit/effect or mana cost, and zero displayed cast rate. Positive server durations round
-  to milliseconds with a 1 ms numeric floor; this bound is not an official cast-speed cap. Conditional action-speed
+  to milliseconds with a 1 ms numeric floor for integer waits; channel intervals and lockstep spell holds retain
+  fractional seconds. This bound is not an official cast-speed cap. Conditional action-speed
   rules, skill-specific speed substitutions and further native timing mechanics remain outside this fix.
 - **Instant skills.** The client knows an instant skill by its stat **`skill_is_instant`** (0x2064), not by the
   ActiveSkillType `Instant`; the server derives it from the type and sends it with `base_skill_is_instant`
@@ -1514,8 +1517,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Unsynchronized progress stays dirty through rate round trips such as 1 -> 2 -> 1,
   including changes before acknowledgement.
   Rejected/unacknowledged uses send nothing.
-  Instant acknowledgements request one progress snapshot even at an unchanged rate: native use consumption starts at
-  0x1ce, so its fresh full budget must align with the original server reservation after time spent queued.
+  Predictive instant acknowledgements request one progress snapshot even at an unchanged rate.
+  Lockstep 0x1ce consumes the native use itself: an immediate cooldown snapshot can arrive before its execution,
+  causing 0x141ea44c0 to reject the already-spent use. It therefore refreshes only later changed recovery progress.
   Ordinary casts keep their native predicted initial timing and refresh only changed progress.
   A refresh replaces one entry, including zero-rate transitions, rather than appending or restarting it.
   Initial ordinary prediction/network alignment and official tick boundaries are not claimed exact.
@@ -1689,7 +1693,9 @@ each use gives it for the skill's duration, and its bonus is in the movement spe
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
-2026-10-23). 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
+2026-10-23). A channelled spell that stands still sends the same 10 bytes as **C→S 0x198** instead (Winter Orb, live
+2026-11-09: same class and handler, and unregistered it was dropped as an unknown message, so the silence below ended
+the channel one second in); both forms refresh the channel's liveness. 0x197's cell is where the channel is aimed now (the cursor), not the player's cell: the first one, ~90 ms
 after the start, is already at the 0x1ab target 45–60 cells away, then it drifts as the cursor and camera move
 (live 2026-11-08). Taken as the player's cell it put Cyclone's sweeps around the cursor. Cyclone's player walks toward
 it, an order re-aimed on each update, at the movement speed with the gem's `cyclone_movement_speed_+%_final`

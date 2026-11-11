@@ -2,6 +2,7 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
 using System.Text.Json;
+using GameServer.Modding;
 
 namespace GameServer.Gateway.Tests;
 
@@ -25,6 +26,11 @@ public sealed class CharacterBuildImportTests
         {
             Version = version, Record = character, Save = new CharacterSaves.Save([]), Summary = "Prepared", Warnings = Array.Empty<string>(),
         });
+        // The probe's /capture resolves the player through Program.PlayerOf, which needs a game logic: install one for
+        // this test instead of inheriting whatever another test in the same process left behind (the suite is one
+        // process, so without this the test passes or fails by class order).
+        IGameLogic? previousLogic = Program.GameLogicOrNull;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         try
         {
             new SqliteAccountStore(Saves.Db).AddCharacter(record);
@@ -66,12 +72,12 @@ public sealed class CharacterBuildImportTests
                         (conn, _) => Program.PlayerOf(conn).Tell(CharacterBuildApi.For(mod).Capture(Program.PlayerOf(conn))));
                 }
                 """);
-            using (var host = new ModHost(mods, _ => { }))
+            using (var host = new ModHost(mods, Console.WriteLine))
             {
                 host.Reload();
                 Assert.True(host.IsLoaded("probe"), string.Join("; ", host.Mods().Select(m => m.Error)));
                 Assert.True(await Commands().RunAsync("/capture"));
-                Assert.Contains(player.Messages, m => JsonSerializer.Deserialize<Character>(m) == record);
+                Assert.Contains(player.Messages, m => m.StartsWith('{') && JsonSerializer.Deserialize<Character>(m) == record);
                 Assert.True(host.SetEnabled("probe", false));
                 Assert.False(host.IsLoaded("probe"));
                 // Unloading released its subscription: nobody answers /capture any more.
@@ -88,6 +94,7 @@ public sealed class CharacterBuildImportTests
         }
         finally
         {
+            Program.SetGameLogic(previousLogic!);
             CharacterBuildImports.Release(conn);
             TestEnvironment.ReleaseSaves(path);
             if (Directory.Exists(mods)) Directory.Delete(mods, recursive: true);

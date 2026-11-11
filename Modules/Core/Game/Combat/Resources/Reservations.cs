@@ -15,6 +15,8 @@ public static partial class Game
         ["Vulnerability"] = "vulnerability", ["Despair"] = "despair", ["Punishment"] = "punishment",
     };
 
+    static string ReservationStatName(string family) => ReservationNames.GetValueOrDefault(family, family.ToLowerInvariant());
+
     public static bool IsBlasphemySupport(string effect) => effect is "SupportBlasphemy"
         or "SupportAwakenedBlasphemy" or "SupportEldritchBlasphemy" or "SupportBlasphemyPlus";
 
@@ -35,7 +37,7 @@ public static partial class Game
         int efficiency = Own("base_reservation_efficiency_+%") + Own("reservation_efficiency_+%")
             + Own($"base_{resource}_reservation_efficiency_+%") + Own($"{resource}_reservation_efficiency_+%");
         string effect = AuraCatalog.Family(SkillsFor(conn).EffectId(gem.Effect) ?? "");
-        string name = ReservationNames.GetValueOrDefault(effect, effect.ToLowerInvariant());
+        string name = ReservationStatName(effect);
         if (!life)
         {
             efficiency += Get(name + "_mana_reservation_efficiency_+%")

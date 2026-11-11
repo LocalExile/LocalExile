@@ -252,18 +252,31 @@ to Sin · 6 `SinPreKitavaTalk` → Kill Kitava · 5 `EndGameAvailable` → Talk 
 ]
 ```
 
-### Risks
-- **Kitava (high):** `force:mapboss` is not placed; KitavaFinal has `set_cannot_die = 1` and its fight is scripted
-  (grabs Sin/Innocence, heart phase with the feast bosses, Sin/Innocence finish him with `KillKitava`); `/kill`
-  through the normal death path must not be blocked by `cannot_die`, and the kill must set `EndGameAvailable` and apply
-  QuestStaticRewards 39.
-- **Post-fight Sin** is a monster type with NPC and InteractionAction (not spawnable today); without it row 1942 (and
-  the portal) cannot run. Fallback: the driver uses `goto 2_10_town via command` (QS 1041/1042 are cosmetic; no later
-  quest reads `SinOnKitavaDead`).
-- InnocenceSquare, SinTrough, InnocenceTrough are out-of-town NPCs with scripts; the horn transition is a quest-gated
-  tile AreaTransition with Transitionable (the gate-state problem of [12](../../protocol/12-quests.md) §6).
-- `SinPreKitavaTalk` is also a session flag; saving it (QF4) is harmless (only blockers and the log read it).
-- `a10q3-SeenGate`, `a10q3-SeenBoss`, `EndGameAvailable` have no client setter: server script.
+### Native encounter findings
+
+`KitavaFinal.act` has ordinary, heart-exposed and grabbed stances; its basic actions are `Emerge`,
+`ChangeToStance1/2`, `KitavaGrabSin`, `KitavaGrabInnocence` and `KitavaRelease`.
+The final `.ot` sets `cannot_die`: reaching the old 1% quest threshold is not victory.
+The Game controller alternates three body/heart intervals, then uses the native release and 16.8-second death clip.
+The heart guards appear Shaman, Champion, with a second Shaman in the last interval.
+The third body interval uses final beam orbs, both darkness sides and ultimate breath.
+Exact official HP thresholds, AI decision weights and hazard footprints still need reference calibration.
+
+The breath ACT attachments exist only in the grabbed stance; ordinary breaths need server-created
+`death_breath/rig.ao` and `DB_burning_grd/DB_burning_grd.ao` at the body's transform.
+Their AMD clip order is centre, left, right; durations are 5000 and 6433 ms.
+Beam and swipe contacts come from the body's AMD model-space tracks, transformed to the placed body's facing.
+Spell stats scale at the actor's level; beam/orb physical-to-fire conversion and minion penalties are separate.
+
+Post-fight Sin remains a monster with NPC/InteractionAction components.
+His `finished = 1`, visible Transitionable state and NPC dialogue byte must all be sent.
+An interaction must route to NPC talk before generic monster casting, and the registered `SpawnedNpc` identity must
+remain stable while walking to him: `TalkToNpc` looks it up by identity after arrival.
+Row 1942 grants `SinOnKitavaDead`; only then is the epilogue portal exposed.
+The Game controller routes that same portal directly to Karui Shores (`2_11_endgame_town`) on manual use.
+Its label uses `ClientStrings.EpilogueActName2` (HASH32 `410179532`, "Epilogue"), independently of the area's name.
+The native quest-table route through Oriath Docks and Lilly, recorded below, is overridden for this exit only.
+`EndGameAvailable` applies the earned second resistance penalty once; replay does not stack it.
 
 ## a10q4 "No Love for Old Ghosts" (Quest row 101, side)
 

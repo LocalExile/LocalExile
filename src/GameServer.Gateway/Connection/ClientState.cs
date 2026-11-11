@@ -30,6 +30,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>When and from where a projectile skill releases its shot; null: half the attack time, 1.5 cells ahead at
     /// the default height (no rig data for the variety).</summary>
     public MonsterRelease? Release { get; init; }
+    /// <summary>The granted effect whose rig contact is selected for each ordered action. Null for a scripted release.</summary>
+    public int? ReleaseEffect { get; init; }
     /// <summary>A ranged skill's projectile (SkillCatalog.MonsterProjectile): the shot flies from the monster at the
     /// attack's contact and lands its hit when it reaches the player (Program.ProjectileHostile.cs). Null keeps the
     /// instant contact at half the attack time.</summary>
@@ -213,7 +215,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int ActionGeneration;
     public int? SwingGeneration;
     public double SwingOrderedAt;
-    // The sequence of its last melee order, rising with the top bit set as GGG's do: the client picks the swing's clip by it.
+    // The last melee order, or admitted lockstep AI Move/swing: one rising counter for the actor's orders.
+    // The client picks a melee swing's clip by its action sequence.
     public ushort Sequence = 0x8000;
     public ushort NextSequence() => Sequence = (ushort)(0x8000 | ((Sequence + 1) & 0x7fff));
     // The player's debuffs on it (Game.EnemyDebuffsTick, under the Monsters lock): taunted by him until when (Clock
@@ -234,6 +237,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
+    public (int X, int Y)? KnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
     public double HallowingFlameUntil = double.NegativeInfinity;
     public double HallowingFlamePct;
@@ -300,6 +305,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // action generation the swing belongs to, for the AI to take as its own (Game.PlanMonsterAi); null when none.
     public double? ClientSwingAt;
     public int ClientSwingAction;
+    // Lockstep: the start of the frame in whose tick the client ends a walk that an in-place action left going under it
+    // (Game.MonsterSwingOrderLocked), the frame after its Actor ends that action; null when none is pending. The step
+    // pass applies it (Game.StepFrames), and an order the client takes drops it (Game.LockstepOrderFrom).
+    public double? ClientActionWalkStop;
     public double NextChaseRetryAt;
     // The cell a Move chase's current walk was cut to (Game.LegCells along its way), or null when the walk goes the whole
     // way: a walk at its leg's end is still on its way for the chase cadence.
@@ -328,6 +337,9 @@ public sealed class LockstepAttack(int action, uint targetId, SpawnedMonster? ta
     public SpawnedMonster? Target { get; } = target;
     public (int X, int Y) GroundTarget { get; init; }
     public (int X, int Y) AimAt(double at) => Target?.Walk.Position(at) ?? GroundTarget;
+    // The request's flag 0x0001, attack in place: the player swings where the frame's steps leave him and walks nowhere
+    // (Game.PlaceLockstepAttack).
+    public bool InPlace { get; init; }
     // MoveTo's max range (+0x524, the weapon's range less one), the target's size (+0x52d) and the precision (+0x528).
     public int Reach { get; } = reach;
     public int Tolerance { get; } = tolerance;
@@ -521,7 +533,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     }
 
     // Successful transfers retire all source-area workers independently of any particular carried mechanic.
-    public void Retire() { lock (Monsters) RageRetired = true; }
+    public void Retire() { lock (Monsters) RageRetired = true; WorldOutput.Close(); }
 
     /// <summary>The <see cref="Clock"/> time of a Stopwatch timestamp in the past (a socket read); now when 0 or paused.</summary>
     public double ClockAt(long timestamp)
@@ -557,13 +569,23 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
             if (IsPhasing) return fixedOnes;   // phasing (Quartz Flask, Rampage threshold): monsters do not block
             double now = Clock.Elapsed.TotalSeconds;
             List<ClientPathfinder.Blocker>? all = null;
+            // Another player stands where this client's own copy of it does (PeerWalks), else on its published pose.
+            var copies = new Dictionary<uint, (int X, int Y)>();
             lock (Monsters)
+            {
                 foreach (var (id, m) in CollisionMonsters)
                 {
                     if (MonsterBody(id, m, now) is { } body) (all ??= [.. fixedOnes]).Add(body);
                 }
+                // A copy moves only in this client's frames: its cell is the one the frame being sent starts on.
+                double frameStart = LockstepFrame is { } sending ? sending.Start : now;
+                foreach (var (id, copy) in PeerWalks) copies[id] = copy.Position(frameStart);
+            }
             foreach (var peer in Instance?.PlayersExcept(PeerId) ?? [])
-                if (peer.Life > 0 && peer.Owner is not null) (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+                if (peer.Life > 0 && peer.Owner is not null && !copies.ContainsKey(peer.Id))
+                    (all ??= [.. fixedOnes]).Add(new(peer.X, peer.Y, LivingCollision.PlayerSize));
+            foreach (var (id, at) in copies)
+                if (Instance?.Player(id) is not { Life: 0 }) (all ??= [.. fixedOnes]).Add(new(at.X, at.Y, LivingCollision.PlayerSize));
             return all is null ? fixedOnes : new GameServer.Core.World.BlockerSet(all);
         }
     }
@@ -1053,7 +1075,14 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public InstanceState Instance { get; init; } = null!;
     /// <summary>This connection placed or restored the instance's monsters, so it saves them when it closes.</summary>
     public bool MonstersPlaced;
-    public volatile bool AiEnabled = true, Closed;
+    public readonly WorldOutput WorldOutput = new();
+    public volatile bool AiEnabled = true;
+    volatile bool closed;
+    public bool Closed
+    {
+        get => closed;
+        set { closed = value; if (value) WorldOutput.Close(); }
+    }
     // The client has shown it is in lockstep, by a lag byte in a tick or by a request. A predictive client's lag byte stays
     // 0, so it is never probed and keeps its own messages. The client alone picks its Network Mode (07 §6): every
     // connection serves both, and a player switches by changing it and entering again.
@@ -1082,6 +1111,38 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public double LockstepNextProbeAt;
     // The frame now being sent, on Clock (PlayerWalk.FrameOf).
     public (double Start, double End)? LockstepFrame;
+    // Completed and replaced at every frame end (Program.EndWorldFrame): what waits for this connection's next frame.
+    TaskCompletionSource frameTurn = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public void TurnFrame() =>
+        Interlocked.Exchange(ref frameTurn, new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+    /// <summary>Completes once the frame this connection is sending starts at or after <paramref name="start"/> (Clock
+    /// seconds): at once for a connection that runs no lockstep frames, and when it closes. Every connection of an
+    /// instance ends its frames on the instance's one grid (Program.BeginWorldFrames), so a record another connection
+    /// wrote in its frame n can be given to this one in frame n + 1 exactly.</summary>
+    public async Task FrameFrom(double start)
+    {
+        while (true)
+        {
+            var turn = Volatile.Read(ref frameTurn).Task;
+            lock (Monsters)
+                if (Closed || WorldOutput.Closed || LockstepFrame is not { } frame || frame.Start >= start - 1e-6) return;
+            await Task.WhenAny(turn, WorldOutput.ClosedTask);
+        }
+    }
+    // What other connections show this client of their players, in the order they made it (SharedMonsters.cs): each
+    // piece may wait for a frame, and the next must not overtake it.
+    readonly object mirrorOrder = new();
+    Task mirrorTail = Task.CompletedTask;
+    public Task Mirror(Func<Task> work)
+    {
+        lock (mirrorOrder) return mirrorTail = After(mirrorTail, work);
+        static async Task After(Task before, Func<Task> work)
+        {
+            try { await before; } catch { }
+            try { await work(); }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
+    }
     // A lockstep client ends an action on a frame, up to two after the server's clock, and loses an order that comes first.
     public double LockstepActionTail => LockstepClient ? .066 : 0;
     (double Start, double End)? LockstepFrameOf(double at) =>
@@ -1093,6 +1154,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public readonly GameServer.Core.World.LockstepSkillHold LockstepSkill = new();
     // Until when the skill started last keeps the player (Clock seconds).
     public double LockstepBusyUntil;
+    public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
     public LockstepAttack? LockstepAttack;

@@ -38,6 +38,51 @@ public class LockstepStepTests
         Assert.Equal((50, 56), b.Walk.Position(0.132));
         Assert.False(b.Walk.Moving(0.2));
 
+        // A stop waits for the tick, and the step that tick still owes is checked like any other. 0x3001 is ordered onto
+        // its own cell in the frame from 0.099: its step to (50, 55) at 0.100 is still due, and 0x3000's body, ticked
+        // first, blocks it, so it never leaves (50, 56).
+        var stopping = Connection(lockstep: true, sending: (0.099, 0.132));
+        (double Start, double End) sent = (0.099, 0.132);
+        a = Monster(50, 50, 1 / 0.105);
+        b = new SpawnedMonster("Drowned", new PlayerWalk(50, 56, 10, size: 2) { FrameOf = at => (Math.Min(at, sent.Start), sent.End) },
+            aggroRange: 60, stopRange: 2, maxLife: 23);
+        a.Walk.Order(50, 70, now: 0);
+        b.Walk.Order(50, 36, now: 0);
+        stopping.Monsters[0x3000] = a;
+        stopping.Monsters[0x3001] = b;
+        Assert.Equal((50, 56), b.Walk.Order(50, 56, now: 0.1));
+        stopping.LockstepFrame = sent = (0.132, 0.165);
+        lock (stopping.Monsters) Game.StepWalkers(stopping, now: 0.14);
+        Assert.Equal((50, 51), a.Walk.Position(0.132));
+        Assert.Equal((50, 56), b.Walk.Position(0.132));
+        Assert.False(b.Walk.Moving(0.132));
+
+        // An in-place attack leaves a walk going under it, and the client's Actor stops that walk when it ends the
+        // attack: a 0.99 s attack ordered in the frame from 0.132 uses up 31 frames' time with its own frame, so the
+        // walk (a cell each 0.1 s) is stopped in the frame from 1.155, 31 after it, and stands on its 11th cell with
+        // the step due at 1.2 never taken. A predictive client's walk is left as it is.
+        foreach (bool lockstep in new[] { true, false })
+        {
+            var shooting = Connection(lockstep, sending: (0.132, 0.165));
+            var spitter = Monster(50, 50, 10);
+            var spit = new MonsterAttack(0x1535, 0.99, 30, DamagePacket.Empty) { Ranged = true };
+            spitter.Walk.Order(50, 90, now: 0);
+            shooting.Monsters[0x3000] = spitter;
+            lock (shooting.Monsters)
+            {
+                Assert.NotNull(Game.MonsterSwingOrderLocked(shooting, spitter, spit, action: 1, generic: false, seconds: 0.99, now: 0.14));
+                Assert.Equal(lockstep ? 0.132 + 31 * 0.033 : null, spitter.ClientActionWalkStop);
+                shooting.LockstepFrame = (1.155, 1.188);
+                Game.StepWalkers(shooting, now: 1.16);
+                Assert.True(spitter.Walk.Moving(1.155));
+                shooting.LockstepFrame = (1.188, 1.221);
+                Game.StepWalkers(shooting, now: 1.19);
+            }
+            Assert.Equal(lockstep, !spitter.Walk.Moving(1.19));
+            Assert.Equal(lockstep ? (50, 61) : (50, 64), spitter.Walk.Position(1.45));
+            Assert.Null(spitter.ClientActionWalkStop);
+        }
+
         // A predictive client's steps are replayed in time order: 0x3001's at 0.100 goes first and 0x3000's is blocked.
         var predictive = Connection(lockstep: false, sending: (0.132, 0.165));
         a = Monster(50, 50, 1 / 0.105);
@@ -51,6 +96,48 @@ public class LockstepStepTests
         Assert.Equal((50, 50), a.Walk.Position(0.14));
         Assert.False(a.Walk.Moving(0.2));
         Assert.Equal((50, 55), b.Walk.Position(0.14));
+    }
+
+    // A lockstep client runs its own copy of another player, so the estimate runs it too: the other player's order
+    // starts from the cell the copy stands on, whatever cell its owner's estimate reported, and the copy steps in this
+    // client's frames after the local player (a higher id), a body like any other.
+    [Fact]
+    public void Another_players_copy_walks_its_orders_in_the_observers_frames()
+    {
+        const uint peer = 0x20000005;
+        var conn = Connection(lockstep: true, sending: (0.033, 0.066));
+        conn.Walk.Teleport(50, 50, 0);
+        lock (conn.Monsters)
+        {
+            var copy = conn.PeerWalks[peer] = conn.NewPeerWalk(peer, 60, 50, 37);
+            // The owner was sent a Move from (61, 50), a cell ahead of the copy: this client gets it from (60, 50).
+            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 60, 50, 80, 50, 0x2909, 0x8005, 0x0408),
+                Game.PeerRecordAtGate(conn, peer,
+                    GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 61, 50, 80, 50, 0x2909, 0x8005, 0x0408), 37));
+            // 37 cells a second, a step every 27 ms: one in the frame from 0.033, one in the frame from 0.066.
+            conn.LockstepFrame = (0.099, 0.132);
+            Game.StepWalkers(conn, now: 0.1);
+            Assert.Equal((62, 50), copy.Position(0.099));
+            // Another action ends its walk after the frame's step; the order again names the copy's cell.
+            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 62, 50, 70, 60, 0x0102, 0x8006, 0x0408),
+                Game.PeerRecordAtGate(conn, peer,
+                    GameServer.Core.Protocol.Instance.InstanceProtocol.ActionStarted(peer, 64, 50, 70, 60, 0x0102, 0x8006, 0x0408), 37));
+            conn.LockstepFrame = (0.198, 0.231);
+            Game.StepWalkers(conn, now: 0.2);
+            Assert.Equal((63, 50), copy.Position(0.198));
+            Assert.False(copy.Moving(0.198));
+            // The local player walks into it: its body stops him three cells short, as a monster's would.
+            conn.Walk.Order(63, 50, now: 0.198);
+            conn.LockstepFrame = (0.990, 1.023);
+            Game.StepWalkers(conn, now: 1);
+            Assert.Equal((60, 50), conn.Walk.Position(0.990));
+            Assert.False(conn.Walk.Moving(0.990));
+            // His own search for a way past sees the copy's cell too, and goes round it.
+            conn.Walk.Order(70, 50, now: 0.990);
+            conn.LockstepFrame = (2.970, 3.003);
+            Game.StepWalkers(conn, now: 2.98);
+            Assert.Equal((70, 50), conn.Walk.Position(2.970));
+        }
     }
 
     [Fact]

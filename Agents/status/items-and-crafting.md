@@ -187,6 +187,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   monsters drop piles of gold (normal 40%, magic 75%, rare and unique always;
   (3 + 1.2 × level) × 1/2/5/15, our own numbers, `ItemDrops.Gold`), and picking one up adds it to the gold;
   gold within 15 cells of the player is picked up by itself (player tick; the `gold_auto_loot_radius` setting);
+  gold within the configured radius (default 20 cells) is picked up in full without late-drop ghosts;
   older per-character gold moves into the account at login; `/gold <±amount>`.
   Code: `InstanceEntities.Gold`, `AccountStash`, Gateway.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
@@ -298,12 +299,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   component). Seen in the client 2026-10-30, with their name, art, base, mods and item level: Tulfall, Shimmeron,
   Replica Atziri's Foible, Kalandra's Touch, Emperor's Vigilance, The Broken Elegy, Gorgon's Gaze, Grand Spectrum and
   Atziri's Reign.
+  Abyss jewels fit allocated passive sockets and equipment Abyss sockets. Active hosts contribute socketed jewel stats
+  and eye counts; Stygian Vise rolls its Abyss socket. Individual Gaze and Historic effects need their own consumers.
   `/item <name> <base name>` reaches one base of a unique with several (`/item Grand Spectrum Cobalt Jewel`).
   `/item Mageblood` creates the Heavy Belt unique with its name, artwork and fixed mods (the Strength is the base
   implicit); the client shows the unique tooltip.
   While Mageblood is worn, the leftmost 2–4 magic utility flasks in the flask bar apply their effects permanently without
   charges or a timer, and using them is refused (client mod, server backstop); the stats refresh when the belt or the
   flask bar changes. Its flasks keep their buffs on the client without a timer (not seen live yet).
+  Inspired Learning grants one eligible rare affix for 20 s when its ordinary socket has four allocated notables in
+  range. Duplicate stolen effects retain the longer lifetime.
+  Bound By Destiny checks its 2/4/6 thresholds against active influenced equipment; dual-influenced items count
+  once toward each matching influence. Qualified stats enter attributes and combat through the normal item sources.
   Headhunter: killing a rare gives each of its rolled affixes as a stack of character stats for 60 s (the same one resets
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).
@@ -485,14 +492,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   stay eligible; influenced and synthesised items are refused. Veiled modifiers are not modelled. Native 2026-10-30: a four-mod rare wand
   was fractured, a second use was refused without spending. See [13](../docs/protocol/13-items.md), "Fracturing Orb",
   and [the game rules](../docs/re/fracturing-mirror-mechanics.md).
-- **Mirror of Kalandra (verified live, 2026-10-21; rules rechecked 2026-10-30):** a mirrored copy (Mods flag bit 1) of
-  a non-unique equipment item that is not corrupted, mirrored or unmodifiable goes onto the cursor; the original
-  stays unchanged. Unique items and non-equipment classes (flasks, jewels, maps, currency) are refused, as are
-  unmodifiable/unknown/no-`Mods` bases. A mirrored item takes no currency at all, including a Scroll of Wisdom;
-  Reflective Oil and Split/Sanctified items are not modelled. Native 2026-10-30: a rare wand produced a mirrored copy
-  on the cursor, while a unique Mageblood, a Diamond Flask, a Crimson Jewel and a Scroll of Wisdom on the copy were
-  refused without spending. See [13](../docs/protocol/13-items.md), "Mirror of Kalandra", and
-  [the game rules](../docs/re/fracturing-mirror-mechanics.md).
+- Mirror copies non-unique equipment, flasks and T1–16 maps onto the cursor ([13](../docs/protocol/13-items.md)).
 - **Hinekora's Lock (server rules verified live, 2026-10-31):** applying the Lock through C→S 0x71 to a rare item
   sets the Mods flag bit 8 (0x0100) and a non-zero seed; the client shows the purple glow and the Lock tooltip text. When a currency is
   used on the item the client sends C→S 0x29d (u16 key, currency/target ids) and S→C 0x2a0 answers with the preview

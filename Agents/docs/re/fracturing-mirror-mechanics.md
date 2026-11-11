@@ -72,7 +72,8 @@ The beta engine has no Mirror method; it only carries a mirrored item flag. The 
 for the target class and the uniqueness check.
 
 Local rule (`ItemRolls.Mirror`): the item must be non-unique, not corrupted, not already mirrored, have a supported
-base with `Mods`, not be `Unmodifiable`, and its class must have `CanBeMirrored`. The copy keeps every property
+base with `Mods`, not be `Unmodifiable`, and its class must have `CanBeMirrored` or be a flask or tier 1–16 map.
+Flask/map admission is a LocalExile extension to the equipment rule above. The copy keeps every property
 (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity, identification and name) and sets
 `Item.Mirrored`; the original is unchanged. `Game.MirrorItem` puts the copy on the cursor and spends one Mirror.
 A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil, Split and Sanctified items
