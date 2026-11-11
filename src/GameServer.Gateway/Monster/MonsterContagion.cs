@@ -3,7 +3,7 @@
 /// not stack: casting it again on an affected monster keeps the stronger damage and the later expiry. When the monster dies
 /// while affected, the debuff spreads (Game.SpreadContagion) with the damage and duration it was cast with.
 /// </summary>
-sealed class MonsterContagion
+public sealed class MonsterContagion
 {
     /// <summary>What a cast put on the monster: its damage per second before the monster's mitigation, its full duration, the
     /// radius it spreads in, the damage a spread keeps (Contagion of Subsiding: three quarters each time) and the caster's
