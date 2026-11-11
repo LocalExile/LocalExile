@@ -494,14 +494,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   stay eligible; influenced and synthesised items are refused. Veiled modifiers are not modelled. Native 2026-10-30: a four-mod rare wand
   was fractured, a second use was refused without spending. See [13](../docs/protocol/13-items.md), "Fracturing Orb",
   and [the game rules](../docs/re/fracturing-mirror-mechanics.md).
-- **Mirror of Kalandra (verified live, 2026-10-21; rules rechecked 2026-10-30):** a mirrored copy (Mods flag bit 1) of
-  a non-unique equipment item that is not corrupted, mirrored or unmodifiable goes onto the cursor; the original
-  stays unchanged. Unique items and non-equipment classes (flasks, jewels, maps, currency) are refused, as are
-  unmodifiable/unknown/no-`Mods` bases. A mirrored item takes no currency at all, including a Scroll of Wisdom;
-  Reflective Oil and Split/Sanctified items are not modelled. Native 2026-10-30: a rare wand produced a mirrored copy
-  on the cursor, while a unique Mageblood, a Diamond Flask, a Crimson Jewel and a Scroll of Wisdom on the copy were
-  refused without spending. See [13](../docs/protocol/13-items.md), "Mirror of Kalandra", and
-  [the game rules](../docs/re/fracturing-mirror-mechanics.md).
+- Mirror copies non-unique equipment, flasks and T1–16 maps onto the cursor ([13](../docs/protocol/13-items.md)).
 - **Hinekora's Lock (server rules verified live, 2026-10-31):** applying the Lock through C→S 0x71 to a rare item
   sets the Mods flag bit 8 (0x0100) and a non-zero seed; the client shows the purple glow and the Lock tooltip text. When a currency is
   used on the item the client sends C→S 0x29d (u16 key, currency/target ids) and S→C 0x2a0 answers with the preview

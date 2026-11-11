@@ -162,6 +162,9 @@ public static partial class Game
         await ApplyQuestConversationStart(remote, stream, ciphers, conn, id, npc, talk, applyRowRules: true);
         conn.NpcFinishFlag = talk.FinishFlag;
         conn.NpcTalkScript = null;
+        var option = new NpcOption(conn, npc.Npc.Name, talk.Category, talk.Option,
+            talk.Script, talk.TextAudio.Count > 0, talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer);
+        bool offeredScript = false;
         // A scripted row's end (FinishNPCChat, DoNPCChat, a screen, a move): after its talk, or now when it has none.
         if (EndsWithScript(talk) && talk.Category is "Gossip" or "Quests" or "QuestReward" && talk.RewardOffer is null)
         {
@@ -169,11 +172,14 @@ public static partial class Game
             else
             {
                 if (conn.NpcFinishFlag is { } finish) { conn.NpcFinishFlag = null; await SetQuestFlags(remote, stream, ciphers, conn, [finish]); }
+                // Let the owning module execute its no-audio script before generic FinishNPCChat consumes it.
+                offeredScript = true;
+                if (await GameEvents.AnyNpcOption(option)) return;
                 if (await EndTalkScript(remote, stream, ciphers, conn, id, npc, talk)) return;
             }
         }
         // What an option does is a module's (Modules/Core/npcdialogue); one nothing answers does nothing.
-        if (!await GameEvents.AnyNpcOption(new(conn, npc.Npc.Name, talk.Category, talk.Option, talk.Script, talk.TextAudio.Count > 0,
+        if (offeredScript || !await GameEvents.AnyNpcOption(new(conn, npc.Npc.Name, talk.Category, talk.Option, talk.Script, talk.TextAudio.Count > 0,
                 talk.Index, talk.Row, talk.OpensGuildHideouts, talk.RewardOffer)))
             Console.WriteLine($"[gateway] {remote} npc option category {talk.Category}: no module answers it");
     }
