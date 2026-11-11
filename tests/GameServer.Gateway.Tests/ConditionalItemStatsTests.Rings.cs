@@ -92,6 +92,19 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(1, Read(veil, magic).GetValueOrDefault("hexproof"));
         Assert.Equal(0, Read(veil).GetValueOrDefault("hexproof"));
         Assert.Equal(0, Read(magic).GetValueOrDefault("hexproof"));
+        var disabled = magic with { Corrupted = true, Influences = ItemInfluence.Elder | ItemInfluence.Shaper };
+        Wear(plain, disabled);
+        var counts = Game.EquipmentConditionValues(rows, catalog, [plain]);
+        Assert.Equal(0, counts["magic_ring_equipped"]);
+        Assert.Equal(0, counts["equipped_magic"]);
+        Assert.Equal(0, counts["equipped_corrupted"]);
+        Assert.Equal(0, counts["equipped_elder"]);
+        Assert.Equal(0, counts["equipped_unique_influence_amoung_equipped_non_amulet"]);
+        var enabledCounts = Game.EquipmentConditionValues(rows, catalog, [plain, disabled]);
+        Assert.Equal(1, enabledCounts["magic_ring_equipped"]);
+        Assert.Equal(1, enabledCounts["equipped_elder"]);
+        Assert.Equal(1, enabledCounts["equipped_corrupted"]);
+        Assert.Equal(2, enabledCounts["equipped_unique_influence_amoung_equipped_non_amulet"]);
         Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of(attack, default));
         Assert.Equal(attackBonus, ItemModStats.Sum([left], catalog.Mods, local: true).GetValueOrDefault(attack));
         Assert.Equal(0, ItemModStats.Sum([left], catalog.Mods).GetValueOrDefault(attack));
@@ -121,7 +134,7 @@ public partial class ConditionalItemStatsTests
             var inventory = Game.ItemsOf(conn);
             foreach (var (row, item) in inventory.EquipmentSnapshot()) inventory.Remove(row, item.Id);
             var uniques = new UniqueCatalog(Program.Items);
-            inventory.Add(5, 0, 0, uniques.Create("Astramentis", new Random(504))!);
+            var astramentis = inventory.Add(5, 0, 0, uniques.Create("Astramentis", new Random(504))!);
             var elder = inventory.Add(6, 0, 0, uniques.Create("Mark of the Elder", new Random(504))!);
             var shaper = inventory.Add(7, 0, 0, uniques.Create("Mark of the Shaper", new Random(504))!);
             int Stat(string n) => Game.CharacterPlayerStats(conn).GetValueOrDefault(Program.Stats.Key(n)!.Value);
@@ -137,7 +150,7 @@ public partial class ConditionalItemStatsTests
             Assert.Equal(75, Stat("attack_damage_+%"));
             Assert.Equal(75, Stat("spell_damage_+%"));
             inventory.Remove(6, shaper.Id); inventory.Remove(7, elder.Id);
-            inventory.Add(PlayerInventories.Helmet, 0, 0, uniques.Create("Viridi's Veil", new Random(504))!);
+            var helmet = inventory.Add(PlayerInventories.Helmet, 0, 0, uniques.Create("Viridi's Veil", new Random(504))!);
             var magic = inventory.Add(6, 0, 0,
                 ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring1")!) with { Rarity = ItemRarity.Magic });
             Assert.Equal(1, Stat("self_take_no_extra_damage_from_critical_strikes"));
@@ -149,6 +162,28 @@ public partial class ConditionalItemStatsTests
             Assert.NotSame(before, conn.StatSourcesCache);
             inventory.Remove(7, magic.Id);
             Assert.Equal(0, Stat("hexproof"));
+            ItemMod Attribute(string id) => Program.Items.Mods.ById(id)!.Roll(ModSection.Explicit, new Random(504)) with { Values = [43] };
+            inventory.Add(6, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring1")!)
+                with { Mods = [Attribute("Strength8"), Attribute("Intelligence8")] });
+            ItemMod Minimum(string id) => Program.Items.Mods.ById(id)!.Roll(ModSection.Explicit, new Random(504))
+                with { Values = [Program.Items.Mods.ById(id)!.Stats[0].Min] };
+            inventory.Add(PlayerInventories.Belt, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Belts/Belt1")!)
+                with { Rarity = ItemRarity.Rare, Mods = [Minimum("Strength5"), Minimum("Intelligence3")] });
+            var fireballType = Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!;
+            var fireball = ItemCatalog.Create(fireballType) with { GemExperience = Program.Items.Gem(fireballType)!.ExperienceFor(17) };
+            var socketed = inventory.Add(7, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring15")!)
+                with { Rarity = ItemRarity.Magic, Sockets = [new(SocketColour.Blue, fireball)] });
+            Assert.Equal(1, Stat("hexproof"));
+            Assert.Equal(-1, Stat("base_enemy_extra_damage_rolls"));
+            Assert.False(Game.IsInactive(conn, socketed.Id));
+            inventory.Remove(5, astramentis.Id);
+            Assert.Equal(0, Stat("hexproof"));
+            Assert.Equal(0, Stat("base_enemy_extra_damage_rolls"));
+            Assert.True(Game.IsInactive(conn, socketed.Id));
+            Assert.False(Game.IsInactive(conn, helmet.Id));
+            inventory.Put(5, astramentis);
+            Assert.Equal(1, Stat("hexproof"));
+            Assert.Equal(-1, Stat("base_enemy_extra_damage_rolls"));
             Assert.Empty(conn.PlayerStats);
         }
         finally

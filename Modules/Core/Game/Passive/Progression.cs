@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using Progression = GameServer.Core.World.Progression;
@@ -570,24 +570,11 @@ public static partial class Game
         foreach (var (key, value) in copiedSmallStats)
             if (Stats.Name(key) is string name && AttributeModifiers.IsInput(name))
                 passiveAttributes[name] = passiveAttributes.GetValueOrDefault(name) + value;
-        var equipmentValues = new Dictionary<string, int>();
-        foreach (var influence in Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None))
-            equipmentValues["equipped_" + influence.ToString().ToLowerInvariant()] = equipment.Count(e => e.Item.Item.Influences.HasFlag(influence));
-        foreach (var rarity in new[] { ItemRarity.Normal, ItemRarity.Magic, ItemRarity.Rare, ItemRarity.Unique })
-            equipmentValues["equipped_" + rarity.ToString().ToLowerInvariant()] = equipment.Count(e => e.Item.Item.Rarity == rarity);
-        equipmentValues["magic_ring_equipped"] = equipment.Count(e => e.Row is 6 or 7 && e.Item.Item.Rarity == ItemRarity.Magic);
-        equipmentValues["equipped_corrupted"] = equipment.Count(e => e.Item.Item.Corrupted);
-        equipmentValues["equipped_uncorrupted"] = equipment.Count - equipmentValues["equipped_corrupted"];
-        equipmentValues["equipped_one_handed_sword"] = equipment.Count(e => ItemsFor(conn).ByHash(e.Item.Item.TypeHash)?.Class
-            is "One Hand Sword" or "Thrusting One Hand Sword");
-        equipmentValues["equipped_unique_influence_amoung_equipped_non_amulet"] = Enum.GetValues<ItemInfluence>()
-            .Count(i => i != ItemInfluence.None && equipment.Any(e => ItemsFor(conn).ByHash(e.Item.Item.TypeHash)?.Class != "Amulet"
-                && e.Item.Item.Influences.HasFlag(i)));
-
         StatConditions.Subject ConditionSubject(IReadOnlyDictionary<string, long> raw, IReadOnlyList<Item>? activeItems = null)
         {
             var attributes = AttributeInputs(raw, dev).Apply(c.Strength + (conn.God ? 1000 : 0),
                 c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+            var equipmentValues = EquipmentConditionValues(equipment, catalog, activeItems);
             var weapons = WeaponProfileFor(conn);
             bool offHandEmpty = equipment.All(e => e.Row != PlayerInventories.Offhand1);
             bool axe = activeItems is null ? weapons.Axe : equipment.Any(e =>
