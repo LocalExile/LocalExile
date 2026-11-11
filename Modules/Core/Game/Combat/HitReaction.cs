@@ -2,10 +2,11 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 /// <summary>A hit's stun inputs: its stunning damage (<see cref="HitReaction.StunningDamage"/>), the attacker's stun
-/// threshold reduction and stun duration increases, whether it is melee (the duration), and the player whose "when you
-/// stun" gains it feeds. Minions, explosions and /kill pass their plain damage and no owner.</summary>
+/// threshold reduction and stun duration increases, whether it is melee (the duration), the player whose "when you
+/// stun" gains it feeds, and the melee hit's raw fortification damage plus whether that same hit already fortified.
+/// Minions, explosions and /kill pass their plain damage and no owner.</summary>
 public readonly record struct StunHit(double Damage, int ThresholdReductionPct = 0, int DurationPct = 0, bool Melee = false,
-    ClientState? Owner = null);
+    ClientState? Owner = null, decimal FortificationDamage = 0m, bool Fortified = false);
 
 /// <summary>
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
@@ -48,6 +49,11 @@ public static class HitReaction
         if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;   // Unwavering
         if (random.NextDouble() * 100 >= Chance(hit, m.MaxLife)) return false;
         if (hit.Owner is { } owner) Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun());
+        // "Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): a stun from a melee hit that did not
+        // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running
+        // recovery counts too, before the recovery shortcut below.
+        if (hit.Melee && !hit.Fortified && hit.FortificationDamage > 0 && hit.Owner is { } fortifier)
+            Game.FortificationFromMeleeStun(fortifier, hit.FortificationDamage, m.MaxLife, m.Rarity, random);
         // shortcut: a stun during a running recovery counts for on-stun gains but neither restarts nor extends it (restarting
         // would cut the clip and repeat its SoundEvent), until a capture shows how the real server re-presents one.
         if (now < m.FlinchUntil) return false;

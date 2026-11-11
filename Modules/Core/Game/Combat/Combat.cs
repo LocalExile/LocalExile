@@ -480,9 +480,11 @@ public static partial class Game
                     ImpaleStats.From(player, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
-                stun = OwnerStun(conn, m, damage, mitigated, WeaponProfileFor(conn, activeSet: true).Melee, spell: false, critical, player, ownPenetration);
-                if (!fortified) fortified = FortificationOnHitLocked(conn, m, RawFortificationDamage(ownRolled, critical, criticalMultiplier),
-                    WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration);
+                var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
+                bool fortifiedThisHit = !fortified && (fortified = FortificationOnHitLocked(conn, m, fortificationDamage,
+                    WeaponProfileFor(conn, activeSet: true).Melee, player, ownPenetration));
+                stun = OwnerStun(conn, m, damage, mitigated, WeaponProfileFor(conn, activeSet: true).Melee, spell: false, critical, player, ownPenetration)
+                    with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, WeaponProfileFor(conn, activeSet: true).Melee, player);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(conn, m, damage, Cull.Of(player, ownPenetration, critical, spell: false),
                     rampageSource, player);
@@ -1780,10 +1782,10 @@ public static partial class Game
                 }
                 if (applied is not null)
                 {
-                    if (!fortificationGranted)
-                        fortificationGranted = FortificationOnHitLocked(conn, m,
-                            RawFortificationDamage(rolled, critical, multiplier),
-                            !spell && SkillsFor(conn).IsMelee(gem.Effect), player, skillStats);
+                    var sweepFortificationDamage = RawFortificationDamage(rolled, critical, multiplier);
+                    bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(conn, m,
+                        sweepFortificationDamage, !spell && SkillsFor(conn).IsMelee(gem.Effect), player, skillStats));
+                    stun = stun with { FortificationDamage = sweepFortificationDamage, Fortified = fortifiedThisHit };
                     if (!rageGranted) rageGranted = RageOnHitLocked(conn, attack: !spell,
                         melee: !spell && SkillsFor(conn).IsMelee(gem.Effect), critical, skillStats, player: player);
                     InflictMonsterBlind(conn, id, m, ResourceEffectsTime(conn), BlindInputs(player, skillStats));

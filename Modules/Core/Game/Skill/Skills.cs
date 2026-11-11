@@ -432,7 +432,10 @@ public static partial class Game
         }
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
-        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
+        // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
+        int heraldEffectPct = RawDefault("herald_effect_on_self_+%");
+        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats,
+                     heraldEffectPct).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
