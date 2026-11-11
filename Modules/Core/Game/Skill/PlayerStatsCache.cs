@@ -15,6 +15,7 @@ static partial class Game
         public object? Pools;
         public long NextBuff, Life, Mana;
         public long Golems;
+        public long AspectRevision;
         public int Overrides, Auras;
         public bool Moving, GolemSummonedRecently;
         public StatSourcesResult? StatSources;
@@ -49,6 +50,7 @@ static partial class Game
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
             GolemSummonedRecently = GolemSummonedInPastEightSeconds(conn, AreaTime(conn)), StatSources = statSources,
+            AspectRevision = conn.Reservations.AspectRevision,
         };
     }
 
@@ -56,6 +58,7 @@ static partial class Game
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving
         && a.Golems == b.Golems && a.GolemSummonedRecently == b.GolemSummonedRecently
+        && a.AspectRevision == b.AspectRevision
         && ReferenceEquals(a.StatSources, b.StatSources);
 
     internal static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)

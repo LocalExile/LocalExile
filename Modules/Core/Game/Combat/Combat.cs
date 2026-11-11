@@ -1319,6 +1319,8 @@ static partial class Game
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {name}: refused, {same.Name} already runs (skill 0x{same.SkillId:x4})");
                 return false;
             }
+            else if (AuraCatalog.IsAspect(effectId) && conn.Auras.Values.Any(a => AuraCatalog.IsAspect(a.EffectId)))
+                return false;
             else
             {
                 var supported = SupportedSkill(conn, skillId);

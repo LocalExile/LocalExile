@@ -29,6 +29,7 @@ static partial class Game
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(conn, physical, at);
         (physical, other, chaos) = AbsorbPlayerWard(conn, physical, other, chaos, at, player);
+        CrabPhysicalHitLocked(conn, physical, at, player);
         int bypass = Get(IncomingResourceDefences.BypassStat);
         int physicalLife = IncomingResourceDefences.Damage(conn.EnergyShield, physical, bypass, at);
         int otherLife = IncomingResourceDefences.Damage(conn.EnergyShield, other, bypass, at);

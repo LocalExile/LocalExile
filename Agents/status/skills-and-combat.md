@@ -1249,6 +1249,11 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Replica Farrul's Fur extends Agility and grants maximum Frenzy and Endurance charges on Agility entry; its
   Cat-owned Onslaught applies while in Agility and composes with kill, Silver Flask and Mageblood sources.
   Enemy stealth and other Cat parts remain unsupported.
+  Avian cycles Might/Flight for owner and minion damage/speed; Talons/Winds bonuses have automated coverage.
+  Crab gains half-second barriers, mitigates physical damage and loses barriers on accepted physical hit damage.
+  Crab equipment thresholds and loss protection have automated coverage.
+  Native checks verify phases, pools, timed barriers, physical-hit loss and unequip cleanup; visuals remain unverified.
+  Avian ally sharing and Twister, Spider, Madness and self-Vulnerability remain unimplemented.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation, with pre-hit Blind damage profiles.

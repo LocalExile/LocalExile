@@ -60,6 +60,9 @@ static partial class Game
         lock (conn.Monsters)
         {
             bool changed = CatAspectReconcileLocked(conn, AreaTime(conn));
+            changed |= AvianReconcileLocked(conn, AreaTime(conn));
+            changed |= CrabReconcileLocked(conn, AreaTime(conn));
+            changed |= conn.Reservations.CrabPoolsDirty;
             changed |= SuspendRestrictedOwnAuras(conn);
             changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
             if (changed)
@@ -221,6 +224,8 @@ static partial class Game
                 }
         PresentCatPhaseLocked(conn, packets);
         PresentCatOnslaughtLocked(conn, packets);
+        PresentAvianPhaseLocked(conn, packets);
+        PresentCrabLocked(conn, packets);
         // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
         // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
         using var publicationStats = new PlayerStatScope(conn, fresh: true);

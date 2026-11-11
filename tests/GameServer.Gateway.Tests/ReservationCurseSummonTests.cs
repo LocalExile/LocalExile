@@ -10,7 +10,7 @@ using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class ReservationCurseSummonTests
+public sealed partial class ReservationCurseSummonTests
 {
     sealed class FixedProjectileRuntime(long initialTicks) : IProjectileRuntime
     {
@@ -2447,6 +2447,8 @@ public sealed class ReservationCurseSummonTests
                 }
             }
             await CatCoreFixture();
+            await AvianAspectFixture(conn, lifetime);
+            await CrabAspectFixture(conn, lifetime);
             DefaultMeleeBiteProfileFixture();
             await RealAreaSkillHitBiteDamageFixture();
             await SacrificePrepaidConsumerFixture();

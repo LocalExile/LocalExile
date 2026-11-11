@@ -441,6 +441,9 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
   Continue native spell/projectile checks and the resolved critical-hit/Fortification composition on `effb797`.
   Verify successful paid Final Blow refunds once Phrecia play has an agreed client-compatible graph.
   Focus/curse lifecycles and statistical RNG validation remain separate from the deterministic policy tests.
+  Avian/Crab owner lifecycles and combat consumers have automated coverage and limited native representatives.
+  Wider equipment, minion combat and visual verification remain open.
+  Avian ally sharing/Twister, Spider, Madness and equipment self-Vulnerability still need runtime consumers.
   Ordinary generic/typed added BASE now follows intrinsic-base replacement and precedes increased chance, including
   native weapon-local flat-before-increase ordering and linked Increased Critical Strikes once.
   Mode-specific passive/item, source-removal, zero, prohibition and hitless controls have automated cases;

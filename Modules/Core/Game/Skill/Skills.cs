@@ -456,6 +456,8 @@ static partial class Game
                     : 0);
         foreach (var (k, v) in catPhase)
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
+        foreach (var (k, v) in AvianRawStatsLocked(conn, extra).Concat(CrabRawStatsLocked(conn, extra)))
+            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         // The mods' stats (Program.Mods.cs), added like /god's: the pools (life, mana) are not rebuilt from them.
         if (Program.ServerHooks.ChangesStats)
             foreach (var (stat, value) in Program.ServerHooks.Stats(PlayerOf(conn)))

@@ -7,6 +7,18 @@ sealed class ReservationState
     internal sealed record Ice((int X, int Y) At, double Until, uint? Object = null);
     internal enum CatPhase { None, Stealth, Agility }
     internal readonly record struct CatAspectOwner(ushort Skill, ushort RootBuff);
+    internal enum AvianPhase { None, Might, Flight }
+    public CatAspectOwner? AvianOwner;
+    public AvianPhase Avian;
+    public double AvianStartedAt, AvianDeadline;
+    public ushort AvianBuff, PresentedAvianBuff;
+    public ushort PresentedAvianRow;
+    public CatAspectOwner? CrabOwner;
+    public double NextCrabBarrier, CrabLastLoss = double.NegativeInfinity;
+    public int CrabBarriers, CrabMaximum;
+    public ushort CrabBuff, PresentedCrabBuff;
+    public long AspectRevision;
+    public bool CrabPoolsDirty;
     public readonly Queue<Echo> Echoes = new();
     public readonly Queue<Proc> Procs = new();
     public readonly List<Ice> Trail = [];

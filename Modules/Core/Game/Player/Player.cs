@@ -48,6 +48,7 @@ static partial class Game
             bool requested = stanceSource ? wantedStanceFamilies.Contains(family)
                 : wanted.Contains(family) && AuraCatalog.Supported(effect);
             if (!requested) continue;
+            if (AuraCatalog.IsAspect(effect) && conn.Auras.Values.Any(a => AuraCatalog.IsAspect(a.EffectId))) continue;
             bool owned = stanceSource
                 ? conn.Auras.Values.Any(a => StanceCatalog.SourceFamily(a.EffectId) == family)
                 : conn.Auras.Values.Any(a => AuraCatalog.Family(a.EffectId) == family);

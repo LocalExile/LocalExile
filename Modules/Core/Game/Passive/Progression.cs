@@ -787,6 +787,11 @@ static partial class Game
         if (CatAspectReconcileLocked(conn, AreaTime(conn), snapshot.Stats) && CatAspectRootActiveLocked(conn))
             snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
+        AvianReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
+        CrabReconcileLocked(conn, AreaTime(conn), snapshot.Stats);
+        foreach (var (key, value) in AvianRawStatsLocked(conn, snapshot.Stats).Concat(CrabRawStatsLocked(conn, snapshot.Stats)))
+            sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
+        conn.Reservations.CrabPoolsDirty = false;
         AddGolemStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
         SuspendRestrictedOwnAuras(conn, new(sources));

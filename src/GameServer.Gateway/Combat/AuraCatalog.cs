@@ -87,6 +87,8 @@ static class AuraCatalog
         ["SummonSkitterbots"] = 1390,
         ["TemporalRift"] = 1915,
         ["CatAspect"] = 1036,
+        ["AspectOfTheAvian"] = 1039,
+        ["AspectOfTheCrab"] = 1046,
     };
 
     /// <summary>Flesh and Stone's Blood Stance BuffDefinitions row: enemies nearby take more Physical Damage.</summary>
@@ -103,6 +105,8 @@ static class AuraCatalog
         IsStance(effectId) && stance == "Sand" ? FleshAndStoneSandRow : BuffRow(effectId);
 
     public static bool IsStance(string effectId) => Family(effectId) is "BloodAndSand" or "FleshAndStone";
+    public static bool IsAspect(string id) => Family(id) is "CatAspect" or "AspectOfTheAvian"
+        or "AspectOfTheSpider" or "AspectOfTheCrab";
     public static bool Shared(string id) => Family(id) is "PurityOfElements" or "PurityOfFire" or "PurityOfIce"
         or "PurityOfLightning" or "Clarity" or "Vitality" or "Precision" or "Haste" or "Determination" or "Grace"
         or "Discipline" or "Anger" or "Hatred" or "Wrath" or "Zealotry" or "Malevolence" or "Envy";
@@ -172,7 +176,8 @@ static class AuraCatalog
         var restored = new List<Aura>();
         foreach (string effect in saved.Select(RestoreFamily).Distinct())
             if (gems.TryGetValue(effect, out var aura))
-                if (RequiredMana(pools, restored.Append(aura)) <= pools.Mana
+                if ((!IsAspect(aura.EffectId) || !restored.Any(a => IsAspect(a.EffectId)))
+                    && RequiredMana(pools, restored.Append(aura)) <= pools.Mana
                     && RequiredLife(pools, restored.Append(aura)) < pools.Life) restored.Add(aura);
         return restored;
     }

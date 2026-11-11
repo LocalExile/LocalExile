@@ -8,6 +8,8 @@ static partial class Game
     static void EndReservationRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
     {
         EndCatAspectRuntimeLocked(conn, aura);
+        EndAvianAspectLocked(conn, aura);
+        EndCrabAspectLocked(conn, aura);
         var state = conn.Reservations;
         var pending = state.Procs.Where(p => p.Skill != aura.SkillId).ToArray();
         state.Procs.Clear(); foreach (var proc in pending) state.Procs.Enqueue(proc);
@@ -259,6 +261,8 @@ static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
             var state = conn.Reservations;
             catChanged = CatAspectReconcileLocked(conn, now);
+            catChanged |= AvianReconcileLocked(conn, now);
+            catChanged |= CrabReconcileLocked(conn, now);
             if (catChanged)
             {
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
