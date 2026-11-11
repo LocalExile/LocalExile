@@ -15,7 +15,7 @@ namespace GameServer.Gateway.Tests;
 /// A condition that does hold moves the value onto the stat's plain name, which is what the pools and panels already
 /// read — without that the condition would be decided correctly and the mod would still do nothing.
 /// </summary>
-public class ConditionalItemStatsTests
+public partial class ConditionalItemStatsTests
 {
     [Fact]
     public void Conditional_operators_resolve_real_item_mods_and_recent_event_lifecycles()
@@ -5405,6 +5405,7 @@ public class ConditionalItemStatsTests
 
     void Ordinary_slot_conditions_reach_existing_consumers()
     {
+        Source_relative_ring_conditions_use_qualified_counterparts();
         var exists = (string name) => Program.Stats.Has(name);
         var cases = new (string Source, string Mod, string Target, int Value, StatConditions.Subject Holds, StatConditions.Subject Fails)[]
         {

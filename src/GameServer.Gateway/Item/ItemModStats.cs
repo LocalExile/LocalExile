@@ -69,6 +69,12 @@ public static class ItemModStats
     public static IEnumerable<(string Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
         StatConditions.Subject subject = default, Func<string, bool>? statExists = null)
     {
+        bool sourceBound = subject.ItemValue is not null;
+        if (subject.ItemValue is { } itemValue)
+        {
+            var characterValue = subject.Value;
+            subject = subject with { Value = key => itemValue(item, key) ?? characterValue?.Invoke(key), ItemValue = null };
+        }
         var effect = Effect(item, mods);
         foreach (var mod in item.Mods)
             if (mods.ByHash(mod.Hash) is { } row)
@@ -79,10 +85,13 @@ public static class ItemModStats
                 if (row.Stats.Any(s => IsOthersAura(s.Id))) continue;
                 int percent = EffectPercent(mod, row, effect);
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
-                    if (row.Stats[s].Local == local)
+                    if (row.Stats[s].Local == local
+                        || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Id))
                     {
                         string id = row.Stats[s].Id;
                         var state = StatConditions.Of(id, subject);
+                        // Unknown source relationships retain the local view instead of leaking into a global one.
+                        if (row.Stats[s].Local && !local && state is StatConditions.State.NotModelled) continue;
                         if (!StatConditions.Counts(state)) continue;
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).

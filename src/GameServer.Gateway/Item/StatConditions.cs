@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using GameServer.Core.Protocol.Instance;
 
 
 /// <summary>
@@ -141,6 +142,12 @@ public static class StatConditions
 
     static string? ParsePlainName(string statId)
     {
+        var ring = RingConditionId.Match(statId);
+        if (ring.Success)
+        {
+            string prefix = statId[..ring.Index];
+            return PlainOf(prefix) ?? prefix;
+        }
         var below = BelowThresholdId.Match(statId);
         if (below.Success)
         {
@@ -392,6 +399,14 @@ public static class StatConditions
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
     {
+        var ring = RingConditionId.Match(statId);
+        if (ring.Success)
+        {
+            string ringKey = ring.Value[4..]; // Drop _if_; the source-aware value reader owns slot relationships.
+            string prefix = statId[..ring.Index];
+            return subject => And(Of(prefix, subject), subject.Value?.Invoke(ringKey) is int value
+                ? value != 0 ? State.Holds : State.Fails : State.NotModelled);
+        }
         var below = BelowThresholdId.Match(statId);
         if (below.Success)
         {
@@ -566,6 +581,13 @@ public static class StatConditions
         new(@"_per_equipped_(?<kind>[a-z_]+?)(?:_item)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex AttributeComparisonId =
         new(@"_if_(?<left>strength|dexterity|intelligence)_(?<op>higher|lower|equal)_than_(?<right>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    static readonly System.Text.RegularExpressions.Regex RingConditionId =
+        new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    // These table-local values describe a relationship to the source, then project onto the recipient's stats.
+    public static bool SourceLocalCondition(string id) => RingConditionId.IsMatch(id)
+        && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 
     static State And(State left, State right) => left is State.Fails || right is State.Fails ? State.Fails
         : left is State.NotModelled || right is State.NotModelled ? State.NotModelled
@@ -765,7 +787,8 @@ public static class StatConditions
         Func<string, int?>? Value = null,
         IReadOnlySet<string>? KnownRecent = null,
         IReadOnlyDictionary<string, bool>? Flags = null,
-        IReadOnlyDictionary<string, long>? Amounts = null)
+        IReadOnlyDictionary<string, long>? Amounts = null,
+        Func<Item, string, int?>? ItemValue = null)
     {
         /// <summary>Nothing known: every condition is NotModelled and no stat changes.</summary>
         public static Subject Unknown => new();

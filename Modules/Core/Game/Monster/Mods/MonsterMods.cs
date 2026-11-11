@@ -147,8 +147,15 @@ public static partial class Game
             .Scale(m.Effects.DamageTaken(spell));
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>
-    public static int SelfCriticalReduction(ClientState conn) =>
-        Stats.Key("base_self_critical_strike_multiplier_-%") is uint key ? CharacterPlayerStats(conn).GetValueOrDefault(key) : 0;
+    public static int SelfCriticalReduction(ClientState conn)
+    {
+        var stats = CharacterPlayerStats(conn);
+        return SelfCriticalReduction(name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0);
+    }
+
+    public static int SelfCriticalReduction(Func<string, int> get) =>
+        get("self_take_no_extra_damage_from_critical_strikes") != 0 ? MonsterModEffects.CriticalMultiplier
+            : get("base_self_critical_strike_multiplier_-%");
 
     /// <summary>Whether the monster blocks a hit of the player (Stalwart's monster_base_block_%: attacks only). Rolled
     /// before anything of the hit happens: a blocked hit has no damage, impale, flinch or hit message. The skill's

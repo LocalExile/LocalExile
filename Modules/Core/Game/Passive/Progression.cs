@@ -601,7 +601,8 @@ public static partial class Game
                     "strength" => attributes.Strength, "dexterity" => attributes.Dexterity, "intelligence" => attributes.Intelligence,
                     "life" => life, "mana" => mana, "energy_shield" => energyShield,
                     _ => equipmentValues.TryGetValue(name, out int count) ? count : null,
-                }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags, Amounts: recentAmounts);
+                }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags, Amounts: recentAmounts,
+                ItemValue: ConditionalRings(equipment, activeItems).Value);
         }
 
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
@@ -613,7 +614,7 @@ public static partial class Game
             // Keep wide attribute inputs and use the same conditional view for qualification and final pools.
             for (int pass = 0; pass < 4; pass++)
             {
-                var next = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods, ConditionSubject(raw), Stats.Has);
+                var next = ItemModStats.RawAttributes(items, ItemsFor(conn).Mods, ConditionSubject(raw, items), Stats.Has);
                 foreach (var (name, value) in passiveAttributes) next[name] = next.GetValueOrDefault(name) + value;
                 bool same = raw.Count == next.Count && raw.All(p => next.TryGetValue(p.Key, out long value) && p.Value == value);
                 raw = next;
@@ -673,6 +674,9 @@ public static partial class Game
         // Qualification for this exact build is now known. Re-evaluate reservation-only conditions from that active set,
         // so an item's first action after a requirement change cannot use the previous inactive cache.
         conditionFlags = RequalifyLifeReservation(conditionFlags, conn, active, lifeReservationConditions);
+        var qualifiedSlotFlags = new Dictionary<string, bool>(conditionFlags);
+        foreach (var (key, value) in ConditionalRings(equipment, active).Flags) qualifiedSlotFlags[key] = value;
+        conditionFlags = qualifiedSlotFlags;
         var curseInputs = SelfCurseConditionInputs(conn, active, passives);
         bool cursed = Stats.Key("cursed_by_vulnerability") is uint cursedKey && curseInputs.GetValueOrDefault(cursedKey) != 0;
         auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Where(a => a.EffectId != "Vulnerability").Select(a => a.EffectId)

@@ -228,7 +228,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two seconds; its corpse was removed 0-6 ms after the
   death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
 - Conditional item gates feed live pools and stat publication; Kintsugi incoming hits, expiry and lifecycle verified.
-  Weapon/aura, tracked-event, strict below/at-least thresholds and supported runtime-state gates have coverage;
+  Weapon/aura, tracked-event, strict thresholds and source-aware ring conditions have automated coverage;
   Arborix's worn Dash, travel lock and four recent consumers have deterministic transaction, lifetime and boundary
   coverage in the Gateway; the native check remains pending. Yriel's Fostering's actual worn Ursa grant now owns one
   level-70 friendly beast minion through the shared spawn, movement and attack path, including source, area, owner and
