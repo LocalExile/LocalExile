@@ -1,4 +1,5 @@
 using GameServer.Core.World;
+using GameServer.Core.Projectiles;
 
 namespace GameServer.Gateway.Tests;
 
@@ -65,6 +66,8 @@ public sealed partial class ReservationCurseSummonTests
             schedule.At = 100.5;
             Game.SpiderAspectTickLocked(conn, schedule.At);
             Assert.Equal(1, target.SpiderWebs.Count(schedule.At));
+            Assert.Equal(0, target.SpiderWebs.Taken(schedule.At - .001));
+            Assert.Equal(0, Game.SpiderHinder(target, schedule.At - .001));
             Assert.Equal(5, target.SpiderWebs.Taken(schedule.At));
             Assert.Equal(-30, Game.MaimedMovementFactor(target, schedule.At).Pct);
             Assert.Equal(.7, Game.MaimedMovementFactor(target, schedule.At).Factor, 6);
@@ -79,6 +82,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(20, target.SpiderWebs.Taken(schedule.At));
             Assert.Equal(-10, Game.MonsterHitResistance(target, DamageType.Chaos, default, schedule.At).Value);
             Assert.Equal(120, Game.MonsterTakesRolled(target, DamagePacket.Of(DamageType.Physical, 100, 100), false, now: schedule.At));
+            Assert.Equal(120, Game.MonsterImpaleDamage(target, 100, schedule.At));
             Assert.Equal(132, Game.MonsterTakesRolled(target, DamagePacket.Of(DamageType.Chaos, 100, 100), false, now: schedule.At));
             Assert.Equal(1.32, Game.MonsterDotTaken(target, DamageType.Chaos, schedule.At), 6);
             Assert.Equal(.9, Game.SpiderOutgoingFactor(target, schedule.At), 6);
@@ -89,10 +93,24 @@ public sealed partial class ReservationCurseSummonTests
             target.MaimedUntil = 0;
             int gain = Game.CharacterPlayerStats(conn)[Program.Stats.Key("energy_shield_gain_when_you_hit_enemy_affected_by_spiders_web")!.Value];
             Assert.InRange(gain, 15, 20);
-            Assert.NotNull(Game.ApplyMonsterHitLocked(conn, target, 1));
-            Assert.Equal((uint)gain, conn.EnergyShield.Current);
-            Assert.NotNull(Game.ApplyMonsterHitLocked(conn, distant, 1));
-            Assert.Equal((uint)gain, conn.EnergyShield.Current);
+            var previousRuntime = conn.ProjectileRuntimeState;
+            var hitSession = new Game.ProjectileSession("spider-contact-clock", wire.Stream, wire.Ciphers, conn);
+            try
+            {
+                conn.ProjectileRuntime = hitSession;
+                hitSession.Runtime.AdvanceTo(ProjectileRuntime.Time(schedule.At));
+                Assert.Equal(schedule.At, Game.ProjectileWorldTime(conn), 6);
+                Assert.NotNull(Game.ApplyMonsterHitLocked(conn, target, 1));
+                Assert.Equal((uint)gain, conn.EnergyShield.Current);
+                Assert.NotNull(Game.ApplyMonsterHitLocked(conn, distant, 1));
+                Assert.Equal((uint)gain, conn.EnergyShield.Current);
+            }
+            finally
+            {
+                conn.ProjectileRuntimeState = previousRuntime;
+                hitSession.Invalidate();
+                await hitSession.OutputCompleted;
+            }
             double earnedUntil = target.SpiderWebs.Until(schedule.At);
             inventory.Remove(PlayerInventories.Gloves, weave.Id);
             Game.ReconcileOwnAuras(conn, validateSkills: true);
