@@ -113,10 +113,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `MonsterAttack`, `Resurrect`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §6–7.
 - The Shaper (`MapWorldsShapersRealm`, TheShaperBoss; `TheShaperBossUberElder` in the Uber Elder arena), the Elder
-  (`MapWorldsElderArena`, TheElder; TheElderUber) and Sirus (`AtlasExilesBoss5` "Eye of the Storm", AtlasExile5;
-  the Gauntlet and standalone rows fight the same way) fight with their own kits instead of one granted effect as a plain
-  swing. All are scripted (the ordinary AI skips them), own their whole effect list on the actor under ids 0x4000-0x4005
-  (Shaper), 0x4010-0x4015 (Elder) and 0x4020-0x402c (Sirus) — never a gem id — and play it from one controller per
+  (`MapWorldsElderArena`, TheElder; TheElderUber), Sirus (`AtlasExilesBoss5` "Eye of the Storm", AtlasExile5;
+  the Gauntlet and standalone rows fight the same way) and The Maven with the Nucleus her death forms (`MavenBoss`
+  "Absence of Mercy and Empathy", TheMaven and MavenBrainBoss at level 84) fight with their own kits instead of one
+  granted effect as a plain swing. All are scripted (the ordinary AI skips them), own their whole effect list on the
+  actor under ids 0x4000-0x4005 (Shaper), 0x4010-0x4015 (Elder), 0x4020-0x402c (Sirus), 0x4030-0x4038 (The Maven) and
+  0x4040-0x4049 (the Nucleus) — never a gem id — and play it from one controller per
   monster: the Shaper's melee (481), Celestial Beam (6093, a three-second degen whose fire/cold/lightning come from its
   per-minute stats), accelerating projectiles (6106), flicker slam (6091), retreat (6089) and the bullet-hell ring (6111,
   twelve in a circle) behind `immune_shield.ao` at 75/50/25%; the Elder's melee (406), siphon (9058, a physical degen
@@ -135,11 +137,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   standing in it, not only on the connection that owns the fight, and an intermission returns the boss to the arena's
   own `ArenaMiddle` marker (the layout's spawn is the map entrance, which put the Shaper at the door). Sirus' rows carry it as a fraction of
   the variety's damage (0.8-2.4, read as a multiplier, not as the flat hit the rounded row would suggest); every `.ao`
-  path is checked against the client's metadata. Not yet: the Shaper's fragment summon (3429 names a GameObject, not a
+  path is checked against the client's metadata. The Maven's rows carry theirs the same way, each naming its own
+  element: her lightning shot (11748, her record's own skill, 0.75-2.25), circle slam (11725 through the
+  MavenEASCircleSlam clip 11741, physical 1.6-2.4 — its three 100% conversions are capped at 100% by the game's
+  conversion table, so fire, cold and lightning keep a third each and 1% stays physical), cold cannon (11749 through
+  the EASCannon clip 11740, three shots of the Projectiles.dat row's own 1500 units a second and 4-unit radius), super
+  fire projectile (11750, 750/s) whose impact (11751, fire 1.6-2.4) is what lands — its own row resolves to a single
+  point of damage — the laser barrage (11739's clip with the six invisible targets' beam impact 1872, fire 1.6-2.4,
+  drawn as six lines onto the player's ground because the server spawns no actor for those six) and two teleports played
+  as art at either end. She never swings a weapon: she blinks out of a player's face and back into reach. The Nucleus
+  never walks — charge beam (11723), ion cannon (11724, lightning and cold at once), beam blast (11726) and the
+  projectile barrages (11730/11731/11732, their MPS rows carrying the shots, with the large one's impact 11733, the
+  decelerating shot 11752 and the barrage's explosion 11756) — and moves to the arena's middle for each phase change.
+  Both are immune behind `cannot_be_damaged` (row 350: their own `maven_boss_stasis` row carries no stats at all) at
+  75/50/25%; their memory-game rows (11736-11738) and the six laser-target actors are not modelled. Not yet: the Shaper's fragment summon (3429 names a GameObject, not a
   monster variety), his teleport-the-player (6092) and portal warp (6090), the uber phase variants (6112-6114, 7905), the
   Elder's super siphon (9061), the Uber Elder pairing's shared phases (each boss runs its own), Sirus' death storms and
   the apparitions/clones (separate monsters and encounters) and his meteor's per-effect ground layers. Code:
-  `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`.
+  `Modules/Core/Game/Monster/AtlasBosses.cs`, `AtlasBossFight.cs`, `ShaperFight.cs`, `ElderFight.cs`, `SirusFight.cs`,
+  `MavenFight.cs`.
 - Dominus (Upper Sceptre of God): both forms fight to the end without a client crash (live 2026-11-05).
   He swings `DominusLightningSlam` (bond, mark and souls effects are skipped); a far boss is created asleep and
   woken when the player comes near. Code: `MavenNucleus.CombatEffect`, `SpawnMonster`.
@@ -190,7 +206,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   the Abomination her eye, Shavronne her lightning skeletons and Daresso his arena statues — each a variety the blob
   can serialize, standing in where the row's real monster carries a component the write cannot
   (AvariusCasticusStatue's TriggerableBlockage, DaressoStatueMaleSword, SkeletonMeleeLightningShavronne), and past
-  six live adds a summon raises nothing. Not yet: the rows the data leaves unnamed (Dominus' lightning souls,
+  six live adds a summon raises nothing. Izaro's three weapons (the Labyrinth's `LabyrinthBossMaul`, `…OneHandAndShield`,
+  `…DualWield`, whose own Ids have no `.ot` and share `LabyrinthBoss` through `BaseMonsterTypeIndex`) have their kits
+  too — the swing, the leap slam, Voll's slam or Voll's charge, and the ornaments — but nothing spawns him yet: the
+  arena driver (`IzaroFights.cs`, which has the elevator, the doors, the trial's life split and his lines) is not
+  called by anything. Not yet: the rows the data leaves unnamed (Dominus' lightning souls,
   Malachai's hearts, his flayed ones and Maligaro's blades), Arakaali's
   laser turret daemons and Abberath's spawner daemons as separate
   casters (their beams and fireballs play from the boss's own rows), Garukhan's charged-dash shadow clones, the

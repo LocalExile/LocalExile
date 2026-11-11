@@ -73,7 +73,8 @@ public class PantheonBossSkillTests
             CampaignBosses.Weaver, CampaignBosses.Piety, CampaignBosses.Dominus, CampaignBosses.DominusAscendant,
             CampaignBosses.Kaom, CampaignBosses.Daresso, CampaignBosses.PietyBeast, CampaignBosses.Malachai,
             CampaignBosses.Malachai2, CampaignBosses.Avarius, CampaignBosses.AvariusReassembled,
-            CampaignBosses.AvariusDivine,
+            CampaignBosses.AvariusDivine, CampaignBosses.IzaroMaul, CampaignBosses.IzaroOneHand,
+            CampaignBosses.IzaroDualWield,
             CampaignBosses.ShavronneTower,
             CampaignBosses.BruteTower, CampaignBosses.Maligaro, CampaignBosses.GeneralAdus, CampaignBosses.Vilenta })
         {

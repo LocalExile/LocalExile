@@ -122,6 +122,9 @@ static class CampaignBosses
         9402, 6203,                    // vilenta's hide and her change_to_stance2
         9083, 9085, 7901, 7903, 7904,  // her geometry and empty_action rows
         6328, 6329, 6322,              // Innocence's own raise_statues and summon_templars rows
+        // The Labyrinth: Izaro's taunt, his leaving, the shield he raises and the lieutenants the arena calls for.
+        5583, 5558, 5582, 5580,
+        5922,                          // effect_driven_attack: it releases its own effect, no hit of its own
     ];
 
     // The summon rows whose monster the data names: what the boss raises and how many at a time. The rows'
@@ -213,6 +216,8 @@ static class CampaignBosses
         [6415] = 6, [6422] = 8, [6434] = 9, [6418] = 10, [5596] = 11, [6412] = 12,
         [5474] = 10, [4740] = 14,
         [8904] = 9, [8896] = 12, [357] = 7, [5603] = 10, [6388] = 11, [5637] = 10,
+        // The Labyrinth: Izaro's leap slam, Voll's slam, Voll's charge and his ornaments.
+        [811] = 12, [4386] = 14, [4362] = 16, [5535] = 10,
     };
 
     // Ground art of the kit's skills (checked against the client's metadata; where a skill has none, its cast
@@ -328,6 +333,12 @@ static class CampaignBosses
     internal const string GeneralAdus = "Metadata/Monsters/GeneralAdus/GeneralAdus";     // a9q?, The Refinery
     internal const string Vilenta = "Metadata/Monsters/Vilenta/Vilenta";                 // a10q?, The Control Blocks
 
+    // The Lord's Labyrinth: Izaro's three weapons. The weapon rows share the LabyrinthBoss type (their own Ids have no
+    // .ot; BaseMonsterTypeIndex names it), so the day's weapon is only a different kit on the same body.
+    internal const string IzaroMaul = "Metadata/Monsters/Labyrinth/LabyrinthBossMaul";
+    internal const string IzaroOneHand = "Metadata/Monsters/Labyrinth/LabyrinthBossOneHandAndShield";
+    internal const string IzaroDualWield = "Metadata/Monsters/Labyrinth/LabyrinthBossDualWield";
+
     // Brutus: his plain swing is row 491 (his own Default Attack, not 406), then the hook that pulls the player in,
     // the ground slam and the spiked ground it leaves.
     internal static readonly int[] BrutusEffects = [491, 2395, 4003, 3971];
@@ -370,6 +381,13 @@ static class CampaignBosses
     internal static readonly int[] AdusEffects = [406, 5474, 4740];
     // Vilenta: the gas mortars, the reflection, Whirling Blades, her slam, the breach mortar and the sunder.
     internal static readonly int[] VilentaEffects = [406, 8904, 8896, 357, 5603, 6388, 5637];
+    // Izaro, two-handed mace: the swing, the leap slam and Voll's slam (the pile-driver the arena shakes with), and
+    // the ornaments he raises off the floor.
+    internal static readonly int[] IzaroMaulEffects = [482, 811, 4386, 5535];
+    // Izaro, sword and shield: the swing, Voll's charge and the effect-driven attack that follows his block.
+    internal static readonly int[] IzaroOneHandEffects = [482, 4362, 5922, 5535];
+    // Izaro, two swords: the swing, the leap slam and the effect-driven attack.
+    internal static readonly int[] IzaroDualWieldEffects = [482, 811, 5922, 5535];
 
     // What stands in for a campaign boss's own swing where the kit's first row is not an attack (BasicEffect).
     static readonly Dictionary<string, int> ActBasic = new()
@@ -378,6 +396,9 @@ static class CampaignBosses
         [MerveilTwisted] = 3777,   // no Default Attack in her row: the geyser is her basic skill
         [Dominus] = 2679,          // no Default Attack either: Touch of God is what he swings
         [Malachai2] = 5014,        // likewise: the elemental cone
+        [IzaroMaul] = 482,         // his rows' "melee" is the swing, for all three weapons
+        [IzaroOneHand] = 482,
+        [IzaroDualWield] = 482,
     };
 
     internal static bool IsAct(MonsterCatalog.Variety? v) => v?.Id is Brutus or Merveil or MerveilTwisted or Weaver
@@ -385,13 +406,20 @@ static class CampaignBosses
         or Avarius or AvariusReassembled or ShavronneTower or BruteTower or Maligaro
         or GeneralAdus or Vilenta or AvariusDivine;
 
-    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsTukohama(v)
+    // The Lord's Labyrinth's Izaro: one body, the day's weapon.
+    internal static bool IsLabyrinth(MonsterCatalog.Variety? v) => v?.Id is IzaroMaul or IzaroOneHand or IzaroDualWield;
+
+    internal static bool IsBoss(MonsterCatalog.Variety? v) => v?.Id is not BrineKingId && (IsAct(v) || IsLabyrinth(v)
+        || IsTukohama(v)
         || IsAbberath(v) || IsRyslatha(v) || IsGreust(v) || IsGruthkul(v) || IsArakaali(v) || IsYugul(v)
         || IsSolaris(v) || IsLunaris(v) || IsShakari(v) || IsGarukhan(v));
 
     internal static int[] EffectsFor(MonsterCatalog.Variety variety) => variety.Id switch
     {
         Brutus => BrutusEffects,
+        IzaroMaul => IzaroMaulEffects,
+        IzaroOneHand => IzaroOneHandEffects,
+        IzaroDualWield => IzaroDualWieldEffects,
         Merveil => MerveilEffects,
         MerveilTwisted => MerveilTwistedEffects,
         Weaver => WeaverEffects,
