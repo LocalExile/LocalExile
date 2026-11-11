@@ -1244,6 +1244,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   remain separate, with the latter not advertised until its enemy-distance executor exists.
   Not modelled: Heralds, banners, curse auras, unsupported conditional effects, Purity ailment immunity, Reservation
   masteries 1/2/6, party/minion auras and reservation-declining/special supports
+  Aspect of the Cat core is automated only; enemy stealth, Fur charge/phasing and other Cat parts remain unsupported.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
   trail; Tempest Shield grants shield spell block, shock immunity and block retaliation. Herald kill/poison procs use

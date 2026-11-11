@@ -59,7 +59,8 @@ static partial class Game
     {
         lock (conn.Monsters)
         {
-            bool changed = SuspendRestrictedOwnAuras(conn);
+            bool changed = CatAspectReconcileLocked(conn, AreaTime(conn));
+            changed |= SuspendRestrictedOwnAuras(conn);
             changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
             if (changed)
             {
@@ -218,6 +219,7 @@ static partial class Game
                     packets.AddRange(AuraBuffs(aura));
                     conn.PresentedAuras[aura.SkillId] = aura;
                 }
+        PresentCatPhaseLocked(conn, packets);
         if (conn.AuraStatsDirty)
         {
             conn.AuraStatsDirty = false;
@@ -244,6 +246,55 @@ static partial class Game
         if (Lifetap.Presentation(conn) is { } lifetap) packets.Add(lifetap);
         packets.Add(snapshot());
         return [.. packets.SelectMany(p => p)];
+    }
+
+    // Cat's two phase rows are owned by the exact accepted root aura. Build their diff at this send gate, so an add
+    // queued for an old owner can never reach the wire after that owner was removed or replaced.
+    static void PresentCatPhaseLocked(ClientState conn, List<byte[]> packets)
+    {
+        var state = conn.Reservations;
+        bool active = CatAspectRootActiveLocked(conn);
+        IReadOnlyList<uint> phaseValues = [];
+        if (active)
+        {
+            var rawStats = CharacterStatSources(conn).Stats;
+            Func<string, int> raw = name => Stats.Key(name) is uint key
+                ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
+                    : rawStats.GetValueOrDefault(key)
+                : 0;
+            phaseValues = CatAspectPhaseValues(state.Cat,
+                CatAspectPhaseStatsLocked(conn, conn.Pools.AuraEffectPct, raw));
+        }
+        int value1 = phaseValues.Count > 0 ? unchecked((int)phaseValues[0]) : 0;
+        int value2 = phaseValues.Count > 1 ? unchecked((int)phaseValues[1]) : 0;
+        int value3 = phaseValues.Count > 2 ? unchecked((int)phaseValues[2]) : 0;
+        ushort row = active ? CatAspectPhaseRow(state.Cat) : (ushort)0;
+        bool sameValues = state.PresentedCatPhaseRow == row
+            && state.PresentedCatValue1 == value1 && state.PresentedCatValue2 == value2
+            && state.PresentedCatValue3 == value3;
+        if (active && state.PresentedCatPhaseBuff != 0
+            && state.CatPhaseBuff == state.PresentedCatPhaseBuff && !sameValues)
+            state.CatPhaseBuff = conn.NextBuff++;
+        ushort wanted = active ? state.CatPhaseBuff : (ushort)0;
+        if (state.PresentedCatPhaseBuff != 0 && (state.PresentedCatPhaseBuff != wanted || !sameValues))
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCatPhaseBuff));
+            state.PresentedCatPhaseBuff = 0;
+        }
+        if (active && wanted != 0 && (state.PresentedCatPhaseBuff != wanted || !sameValues))
+        {
+            float remaining = (float)Math.Max(0, state.CatPhaseDeadline - AreaTime(conn));
+            // Cat phase rows are not recovery rows, so 0x1c1 carries no GrantedStats values here.
+            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, CatAspectPhaseRow(state.Cat), PlayerId,
+                state.CatOwner!.Value.Skill, u68: BitConverter.SingleToUInt32Bits(remaining)));
+            state.PresentedCatPhaseBuff = wanted;
+            if (!sameValues) conn.AuraStatsDirty = true;
+        }
+        state.PresentedCatPhaseRow = row;
+        state.PresentedCatValue1 = value1;
+        state.PresentedCatValue2 = value2;
+        state.PresentedCatValue3 = value3;
+        state.PresentedCatRevision = state.CatRevision;
     }
 
     internal static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

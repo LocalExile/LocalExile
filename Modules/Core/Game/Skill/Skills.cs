@@ -445,6 +445,14 @@ static partial class Game
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
+        IReadOnlyList<(uint Key, int Value)> catPhase;
+        lock (conn.Monsters)
+            catPhase = CatAspectRawStatsLocked(conn, conn.Pools.AuraEffectPct,
+                name => Stats.Key(name) is uint key
+                    ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : extra.GetValueOrDefault(key)
+                    : 0);
+        foreach (var (k, v) in catPhase)
+            extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         // The mods' stats (Program.Mods.cs), added like /god's: the pools (life, mana) are not rebuilt from them.
         if (Program.ServerHooks.ChangesStats)
             foreach (var (stat, value) in Program.ServerHooks.Stats(PlayerOf(conn)))

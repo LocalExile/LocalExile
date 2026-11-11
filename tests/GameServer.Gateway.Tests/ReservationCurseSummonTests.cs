@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Text.Json;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -251,12 +252,402 @@ public sealed class ReservationCurseSummonTests
             Game.ReconcileOwnAuras(conn, validateSkills: true);
             Assert.DoesNotContain(conn.Auras.Values, a => a.EffectId == "Clarity");
             Assert.DoesNotContain("Clarity", CharacterSaves.Load(conn.Character!)!.ActiveAuras ?? []);
+
+            async Task CatCoreFixture()
+            {
+                string character = "CatRuntime" + Guid.NewGuid().ToString("N");
+                const byte witchRow = 1;
+                PlayerInventories.SetClass(character, witchRow);
+                CharacterSaves.Write(character, new(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>(),
+                    Experience: CharacterStats.ExperienceFor(100)));
+                var schedule = new CatClockSchedule { At = 100 };
+                var updates = new PlayerUpdatesState(lifetime, schedule);
+                var previousContext = Game.AreaUpdateContext.Value;
+                Game.AreaUpdateContext.Value = updates;
+                using var catWire = new Wire();
+                ClientState? catConnection = null;
+                ClientState? restoredConnection = null;
+                try
+                {
+                    catConnection = new ClientState(conn.Layout, 0xC470, 1)
+                    {
+                        Character = character, CharacterId = Guid.NewGuid(), Account = "cat-core-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
+                        Experience = CharacterStats.ExperienceFor(100), LeagueModule = conn.LeagueModule,
+                        Wire = ("cat-core", catWire.Stream, catWire.Ciphers), Pools = new(100, 1, 1, 0, 0),
+                    };
+                    var catConn = catConnection;
+                    Assert.Empty(catConn.PlayerStats);
+
+                    var inventory = Game.ItemsOf(catConn);
+                    void Clear(byte row)
+                    {
+                        foreach (var old in inventory.Items(row)) inventory.Remove(row, old.Id);
+                    }
+                    Clear(PlayerInventories.Weapon1);
+                    Clear(PlayerInventories.Helmet);
+                    Clear(PlayerInventories.BodyArmour);
+                    Clear(5);
+                    Clear(6);
+                    Clear(7);
+
+                    Item Gem(string name, int level)
+                    {
+                        var type = Program.Items.FindGem(name)!.Value;
+                        return ItemCatalog.Create(type.Type) with
+                        {
+                            GemVariant = type.Variant.Index,
+                            GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(level),
+                        };
+                    }
+                    var bow = ItemCatalog.Create(Program.Items.Find(
+                        "Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with
+                    {
+                        Sockets = [new(SocketColour.White, Gem("Tornado Shot", 1)),
+                            new(SocketColour.White, Gem("Fireball", 1))],
+                        Links = [2],
+                    };
+                    inventory.Add(PlayerInventories.Weapon1, 0, 0, bow);
+                    var astramentis = new UniqueCatalog(Program.Items).Create("Astramentis", new Random(504))!;
+                    var amulet = inventory.Add(5, 0, 0, astramentis);
+                    inventory.Add(6, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(504))!);
+                    inventory.Add(7, 0, 0, new UniqueCatalog(Program.Items).Create("Le Heup of All", new Random(505))!);
+                    catConn.Pools = Game.PoolsFor(catConn, 100);
+                    catConn.PlayerLife = catConn.Pools.Life;
+                    catConn.PlayerMana = catConn.Pools.Mana;
+                    Assert.Empty(catConn.PlayerStats);
+                    Assert.Equal(100, catConn.Pools.Level);
+
+                    var fur = new UniqueCatalog(Program.Items).Create("Farrul's Fur", new Random(504))!;
+                    var furPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, fur);
+                    Game.ReconcileOwnAuras(catConn, validateSkills: true);
+                    Assert.DoesNotContain(Game.WornGrantedSkillsOf(catConn),
+                        grant => grant.EffectId == "AspectOfTheCat");
+                    Assert.False(Game.IsInactive(catConn, furPlacement.Id));
+                    inventory.Remove(PlayerInventories.BodyArmour, furPlacement.Id);
+
+                    var bite = new UniqueCatalog(Program.Items).Create("Farrul's Bite", new Random(504))!;
+                    var bitePlacement = inventory.Add(PlayerInventories.Helmet, 0, 0, bite);
+                    catConn.Pools = Game.PoolsFor(catConn, 100);
+                    catConn.PlayerLife = catConn.Pools.Life;
+                    catConn.PlayerMana = catConn.Pools.Mana;
+                    Game.ReconcileOwnAuras(catConn, validateSkills: true);
+                    var catGrant = Assert.Single(Game.WornGrantedSkillsOf(catConn),
+                        grant => grant.EffectId == "AspectOfTheCat");
+                    Assert.Equal(20, catGrant.Level);
+                    var catSource = Assert.Single(Game.GemSkillEffects(catConn), gem =>
+                        Game.SkillsFor(catConn).EffectId(gem.Effect) == "AspectOfTheCat");
+                    Assert.True(Game.SupportedSkill(catConn, catSource.Id).RequirementsMet);
+                    Assert.False(Program.Skills.IsAura(catSource.Effect));
+                    Assert.True(Program.Skills.HasType(catSource.Effect, "HasReservation"));
+                    Assert.Equal(1036, AuraCatalog.BuffRow("AspectOfTheCat"));
+                    Assert.Equal(1037, Game.CatAspectPhaseRow(ReservationState.CatPhase.Stealth));
+                    Assert.Equal(1038, Game.CatAspectPhaseRow(ReservationState.CatPhase.Agility));
+                    using (var definitions = JsonDocument.Parse(File.ReadAllBytes("data/tables/BuffDefinitions.json")))
+                    {
+                        Assert.False(definitions.RootElement[1037].GetProperty("IsRecovery").GetBoolean());
+                        Assert.False(definitions.RootElement[1038].GetProperty("IsRecovery").GetBoolean());
+                        Assert.Equal(new[] { 556, 7521, 12561 },
+                            definitions.RootElement[1037].GetProperty("StatsKeys").EnumerateArray()
+                                .Select(v => v.GetInt32()).ToArray());
+                        Assert.Equal(new[] { 70, 218 },
+                            definitions.RootElement[1038].GetProperty("StatsKeys").EnumerateArray()
+                                .Select(v => v.GetInt32()).ToArray());
+                    }
+
+                    ushort attackSource = Assert.Single(Game.GemSkillEffects(catConn), gem =>
+                        Game.SkillsFor(catConn).EffectId(gem.Effect) == "TornadoShot").Id;
+                    ushort fireball = Assert.Single(Game.GemSkillEffects(catConn), gem =>
+                        Game.SkillsFor(catConn).EffectId(gem.Effect) == "Fireball").Id;
+                    var tornado = Game.SupportedSkill(catConn, attackSource);
+                    var fireballSkill = Game.SupportedSkill(catConn, fireball);
+                    Assert.True(tornado.RequirementsMet);
+                    Assert.True(fireballSkill.RequirementsMet);
+                    Assert.Null(Game.GemSkillInstanceDisabled(catConn, tornado.Effect, attackSource));
+                    Assert.Null(Game.GemSkillInstanceDisabled(catConn, fireballSkill.Effect, fireball));
+                    uint biteCritKey = Program.Stats.Key("additional_base_critical_strike_chance")!.Value;
+                    int attackChanceOff = Game.SupportedCriticalChance(catConn, attackSource);
+                    int castMsOff = Game.CastMs(catConn, Game.SupportedSkill(catConn, fireball).Effect, fireball)!.Value;
+                    var catCost = Game.SupportedReservationCost(catConn, catSource.Id)!.Value;
+                    Assert.Equal(2500, catCost.ManaPercent);
+                    Assert.Equal(0, catCost.LifePercent);
+
+                    Game.CatAspectPhaseStats CurrentCat()
+                    {
+                        var sources = Game.CharacterStatSources(catConn).Stats;
+                        return Game.CatAspectPhaseStatsLocked(catConn, catConn.Pools.AuraEffectPct, name =>
+                            Program.Stats.Key(name) is uint key
+                                ? catConn.PlayerStats.TryGetValue(key, out int replacement)
+                                    ? replacement : sources.GetValueOrDefault(key) : 0);
+                    }
+                    // These phase values describe the UI stats and server calculations, not the non-recovery buff payload.
+                    IReadOnlyList<uint> PhaseValues() => Game.CatAspectPhaseValues(catConn.Reservations.Cat, CurrentCat());
+                    byte[] PhasePacket(ushort instance, double remaining) => InstanceEntities.AddBuff(Program.PlayerId,
+                        instance, Game.CatAspectPhaseRow(catConn.Reservations.Cat), Program.PlayerId,
+                        catConn.Reservations.CatOwner!.Value.Skill,
+                        u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)));
+                    static int Occurrences(IEnumerable<byte[]> packets, byte[] needle)
+                    {
+                        int count = 0;
+                        foreach (var packet in packets)
+                            for (int at = 0; at <= packet.Length - needle.Length;)
+                                if (packet.AsSpan(at, needle.Length).SequenceEqual(needle)) { count++; at += needle.Length; }
+                                else at++;
+                        return count;
+                    }
+                    async Task<List<byte[]>> Capture(Func<Task> action)
+                    {
+                        var sent = new List<byte[]>();
+                        var previous = Program.Outgoing;
+                        Program.Outgoing = (ciphers, bytes) =>
+                        {
+                            if (ReferenceEquals(ciphers, catWire.Ciphers)) sent.Add(bytes.ToArray());
+                            previous?.Invoke(ciphers, bytes);
+                        };
+                        try { await action(); }
+                        finally { Program.Outgoing = previous; }
+                        return sent;
+                    }
+
+                    var catState = catConn.Reservations;
+                    var initial = await Capture(async () => Assert.True(await Game.ToggleAura("test", catWire.Stream,
+                        catWire.Ciphers, catConn, catSource.Id, catSource.Effect, catSource.Name, catCost,
+                        catGrant.Level, 0)));
+                    var catAura = Assert.Single(catConn.Auras.Values, aura => aura.EffectId == "AspectOfTheCat");
+                    Assert.Equal(1036, catAura.BuffRow);
+                    Assert.Equal(catAura.Buff, catState.CatOwner!.Value.RootBuff);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(100, catState.CatPhaseStartedAt, 3);
+                    Assert.Equal(104, catState.CatPhaseDeadline, 3);
+                    Assert.Equal(3, PhaseValues().Count);
+                    var initialPhasePacket = PhasePacket(catState.CatPhaseBuff,
+                        catState.CatPhaseDeadline - schedule.At);
+                    Assert.Equal(31, initialPhasePacket.Length);
+                    Assert.Equal(new byte[4], initialPhasePacket[^4..]);
+                    Assert.Equal(1, Occurrences(initial, initialPhasePacket));
+                    Assert.Equal((int)Math.Ceiling(catConn.Pools.Mana * 0.25),
+                        AuraCatalog.ReservedMana(catConn.Pools, catConn.Auras.Values));
+
+                    var stealthStats = Game.CharacterPlayerStats(catConn);
+                    int Stat(IReadOnlyDictionary<uint, int> stats, string name) =>
+                        stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                    Assert.Equal(1, Stat(stealthStats, "has_cat_aspect"));
+                    Assert.Equal(1, Stat(stealthStats, "has_cats_stealth"));
+                    Assert.Equal(0, Stat(stealthStats, "has_cats_agility"));
+                    Assert.True(Stat(stealthStats, "critical_strike_chance_+%") >= 100);
+                    Assert.Equal(15, PlayerDamageTaken.AvoidPct(DamageType.Physical,
+                        name => Stat(stealthStats, name)));
+                    Assert.True(Game.CharacterStatSources(catConn).Stats.GetValueOrDefault(biteCritKey) >= 100);
+                    Assert.True(Game.SupportedCriticalChance(catConn, attackSource) > attackChanceOff);
+                    var flags = Game.ItemConditionFlags(catConn, catConn.Clock.Elapsed.TotalSeconds);
+                    Assert.True(flags["has_cat_aspect"]);
+                    Assert.True(flags["has_cats_stealth"]);
+                    Assert.False(flags["has_cats_agility"]);
+                    Assert.Equal(StatConditions.State.Holds,
+                        StatConditions.Of("movement_speed_+%_while_you_have_cats_stealth",
+                            new StatConditions.Subject(Flags: flags)));
+                    Assert.Equal(StatConditions.State.Holds,
+                        StatConditions.Of("_while_affected_by_cats_stealth", new StatConditions.Subject(Flags: flags)));
+                    Assert.Equal(StatConditions.State.Fails,
+                        StatConditions.Of("_while_affected_by_cats_agility", new StatConditions.Subject(Flags: flags)));
+                    int attackMsStealth = (int)Math.Round(Game.SupportedAttackSeconds(catConn, attackSource) * 1000);
+
+                    var monster = new SpawnedMonster("cat-hit", new(100, 100, 1), 100, 8, 1_000_000);
+                    var spell = new MonsterAttack(0x4000, 1, 100, DamagePacket.Of(DamageType.Physical, 100, 100))
+                        { Spell = true };
+                    Game.MonsterHitOutcome? Hit(int seed)
+                    {
+                        catConn.IncomingHitRandom = new Random(seed);
+                        catConn.PlayerLife = catConn.Pools.Life;
+                        catConn.PlayerMana = catConn.Pools.Mana;
+                        lock (catConn.Monsters)
+                            return Game.CommitMonsterHitLocked("cat-hit", catConn, 0xC470, monster, spell,
+                                catConn.Clock.Elapsed.TotalSeconds,
+                                (100, 100), (100, 100), false);
+                    }
+                    int avoidSeed = Enumerable.Range(0, 1000).First(seed => Hit(seed) is { RawDamage: 0 });
+                    Assert.Equal(0, Hit(avoidSeed)!.RawDamage);
+
+                    var preMagnitude = CurrentCat();
+                    ushort oldPhaseInstance = catState.CatPhaseBuff;
+                    double phaseStart = catState.CatPhaseStartedAt;
+                    double phaseDeadline = catState.CatPhaseDeadline;
+                    var amuletMod = Program.Items.Mods.ById("TalismanEnchantCatAspectBuffEffect")!;
+                    inventory.Change(5, amulet.Id, item => item with
+                    {
+                        Mods = [.. item.Mods, new ItemMod(ModSection.Enchant, amuletMod.Hash, [100])],
+                    });
+                    catConn.Pools = Game.PoolsFor(catConn, catConn.Pools.Level);
+                    var republished = await Capture(() => Game.SendOwnAuraChanges("cat-core", catWire.Stream,
+                        catWire.Ciphers, catConn));
+                    var postMagnitude = CurrentCat();
+                    Assert.Equal(preMagnitude.CriticalStrikeChancePct * 2, postMagnitude.CriticalStrikeChancePct);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(phaseStart, catState.CatPhaseStartedAt);
+                    Assert.Equal(phaseDeadline, catState.CatPhaseDeadline);
+                    Assert.NotEqual(oldPhaseInstance, catState.CatPhaseBuff);
+                    Assert.Equal(1, Occurrences(republished, InstanceEntities.RemoveBuff(Program.PlayerId, oldPhaseInstance)));
+                    Assert.Equal(1, Occurrences(republished, PhasePacket(catState.CatPhaseBuff,
+                        catState.CatPhaseDeadline - schedule.At)));
+
+                    double stealthDeadline = catState.CatPhaseDeadline;
+                    ushort stealthInstance = catState.CatPhaseBuff;
+                    schedule.At = stealthDeadline - .001;
+                    var beforeStealthBoundary = await Capture(() => Game.ReservationSkillsTick("test",
+                        catWire.Stream, catWire.Ciphers, catConn, schedule.At));
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(0, Occurrences(beforeStealthBoundary,
+                        PhasePacket(catState.CatPhaseBuff, catState.CatPhaseDeadline - schedule.At)));
+                    schedule.At = stealthDeadline;
+                    var atStealthBoundary = await Capture(() => Game.ReservationSkillsTick("test",
+                        catWire.Stream, catWire.Ciphers, catConn, schedule.At));
+                    Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
+                    Assert.Equal(104, catState.CatPhaseStartedAt, 3);
+                    Assert.Equal(110, catState.CatPhaseDeadline, 3);
+                    Assert.Equal(2, PhaseValues().Count);
+                    Assert.Equal(1, Occurrences(atStealthBoundary,
+                        InstanceEntities.RemoveBuff(Program.PlayerId, stealthInstance)));
+                    Assert.Equal(1, Occurrences(atStealthBoundary, PhasePacket(catState.CatPhaseBuff, 6)));
+                    var agilityStats = Game.CharacterPlayerStats(catConn);
+                    Assert.Equal(1, Stat(agilityStats, "has_cat_aspect"));
+                    Assert.Equal(0, Stat(agilityStats, "has_cats_stealth"));
+                    Assert.Equal(1, Stat(agilityStats, "has_cats_agility"));
+                    Assert.True(Stat(agilityStats, "attack_speed_+%") >= 20);
+                    Assert.True(Stat(agilityStats, "base_cast_speed_+%") >= 20);
+                    Assert.True((int)Math.Round(Game.SupportedAttackSeconds(catConn, attackSource) * 1000) < attackMsStealth);
+                    Assert.True(Game.CastMs(catConn, Game.SupportedSkill(catConn, fireball).Effect, fireball)!.Value < castMsOff);
+                    Assert.Equal(0, PlayerDamageTaken.AvoidPct(DamageType.Physical,
+                        name => Stat(agilityStats, name)));
+                    Assert.True(Hit(avoidSeed)!.RawDamage > 0);
+
+                    double agilityDeadline = catState.CatPhaseDeadline;
+                    schedule.At = agilityDeadline - .001;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Agility, catState.Cat);
+                    schedule.At = agilityDeadline;
+                    var atAgilityBoundary = await Capture(() => Game.ReservationSkillsTick("test",
+                        catWire.Stream, catWire.Ciphers, catConn, schedule.At));
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(10, catState.CatPhaseStartedAt - 100, 3);
+                    Assert.Equal(1, Occurrences(atAgilityBoundary, PhasePacket(catState.CatPhaseBuff, 4)));
+
+                    schedule.At = 1101;
+                    await Game.ReservationSkillsTick("test", catWire.Stream, catWire.Ciphers, catConn, schedule.At);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(1100, catState.CatPhaseStartedAt, 3);
+                    Assert.Equal(1104, catState.CatPhaseDeadline, 3);
+
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
+                        catSource.Effect, catSource.Name, catCost, catGrant.Level, 0));
+                    Assert.DoesNotContain(catConn.Auras.Values, aura => aura.EffectId == "AspectOfTheCat");
+                    Assert.Equal(ReservationState.CatPhase.None, catState.Cat);
+                    Assert.Equal(0, catState.PresentedCatPhaseBuff);
+                    Assert.DoesNotContain("AspectOfTheCat", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                    var offStats = Game.CharacterPlayerStats(catConn);
+                    Assert.Equal(0, Stat(offStats, "has_cat_aspect"));
+                    Assert.Equal(0, Stat(offStats, "has_cats_stealth"));
+                    Assert.Equal(0, Stat(offStats, "has_cats_agility"));
+
+                    furPlacement = inventory.Add(PlayerInventories.BodyArmour, 0, 0, fur);
+                    Game.EnsureOwnAuraPools(catConn);
+                    var freeCatCost = Game.SupportedReservationCost(catConn, catSource.Id)!.Value;
+                    Assert.Equal(0, freeCatCost.ManaPercent);
+                    Assert.Equal(0, freeCatCost.ManaFlat);
+                    catConn.PlayerMana = 123;
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn, catSource.Id,
+                        catSource.Effect, catSource.Name, freeCatCost, catGrant.Level, 0));
+                    Assert.Equal(123u, catConn.PlayerMana);
+                    Assert.Equal(ReservationState.CatPhase.Stealth, catState.Cat);
+                    Assert.Equal(6, catState.CatPhaseDeadline - catState.CatPhaseStartedAt, 3);
+                    Assert.Equal(1036, catConn.PresentedAuras[catSource.Id].BuffRow);
+
+                    inventory.Remove(PlayerInventories.BodyArmour, furPlacement.Id);
+                    Game.EnsureOwnAuraPools(catConn);
+                    var repriced = catConn.Auras[catSource.Id];
+                    Assert.Equal(2500, repriced.ManaPercent);
+                    Assert.Equal(123u, catConn.PlayerMana);
+                    Assert.Equal(0, repriced.LifePercent);
+
+                    var savedCatIntent = CharacterSaves.Load(character)!.ActiveAuras!.ToArray();
+                    Assert.True(await Game.ToggleAura("test", catWire.Stream, catWire.Ciphers, catConn,
+                        catSource.Id, catSource.Effect, catSource.Name, catCost, catGrant.Level, 0));
+                    Assert.Equal(ReservationState.CatPhase.None, catState.Cat);
+                    CharacterSaves.SetAuraActive(character, "AspectOfTheCat", true);
+
+                    using var restoredWire = new Wire();
+                    restoredConnection = new ClientState(conn.Layout, 0xC471, 1)
+                    {
+                        Character = character, CharacterId = Guid.NewGuid(), Account = "cat-core-account",
+                        League = "Standard", LeagueForm = "Standard", ClassRow = witchRow, Instance = new(),
+                        PlayerSent = true, PlayerObjectCreated = true, PlayerUpdatesState = updates,
+                        Experience = CharacterStats.ExperienceFor(100), LeagueModule = conn.LeagueModule,
+                        Wire = ("cat-restored", restoredWire.Stream, restoredWire.Ciphers), Pools = new(100, 1, 1, 0, 0),
+                    };
+                    var restoredConn = restoredConnection;
+                    restoredConn.Pools = Game.PoolsFor(restoredConn, 100);
+                    restoredConn.PlayerLife = restoredConn.Pools.Life;
+                    restoredConn.PlayerMana = restoredConn.Pools.Mana;
+                    var restoredCat = Game.RestoreRememberedAuras(restoredConn, savedCatIntent);
+                    Assert.Contains(restoredCat, aura => aura.EffectId == "AspectOfTheCat");
+                    Game.EnsureOwnAuraPools(restoredConn);
+                    Assert.True(Game.CatAspectRootActiveLocked(restoredConn));
+                    Assert.Equal(ReservationState.CatPhase.Stealth, restoredConn.Reservations.Cat);
+                    Assert.Contains("AspectOfTheCat", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+
+                    var town = new ClientState(AreaLayouts.For(AreaLayouts.LioneyesWatch, 1), 2, 1)
+                    {
+                        Character = character, ClassRow = witchRow, Experience = CharacterStats.ExperienceFor(100),
+                        Instance = new(), PlayerLife = 10000, PlayerMana = 10000,
+                        Pools = restoredConn.Pools, LeagueModule = conn.LeagueModule,
+                    };
+                    Assert.True(Game.InTown(town));
+                    Assert.Empty(Game.RestoreRememberedAuras(town, savedCatIntent));
+
+                    inventory.Remove(PlayerInventories.Helmet, bitePlacement.Id);
+                    Game.ReconcileOwnAuras(restoredConn, validateSkills: true);
+                    Assert.DoesNotContain(restoredConn.Auras.Values, aura => aura.EffectId == "AspectOfTheCat");
+                    Assert.Equal(ReservationState.CatPhase.None, restoredConn.Reservations.Cat);
+                    Assert.DoesNotContain("AspectOfTheCat", CharacterSaves.Load(character)!.ActiveAuras ?? []);
+                    bitePlacement = inventory.Add(PlayerInventories.Helmet, 0, 0,
+                        new UniqueCatalog(Program.Items).Create("Farrul's Bite", new Random(505))!);
+                    Game.ReconcileOwnAuras(restoredConn, validateSkills: true);
+                    Assert.DoesNotContain(restoredConn.Auras.Values, aura => aura.EffectId == "AspectOfTheCat");
+
+                    catSource = Assert.Single(Game.GemSkillEffects(restoredConn), gem =>
+                        Game.SkillsFor(restoredConn).EffectId(gem.Effect) == "AspectOfTheCat");
+                    Assert.True(await Game.ToggleAura("test", restoredWire.Stream, restoredWire.Ciphers, restoredConn,
+                        catSource.Id, catSource.Effect, catSource.Name,
+                        Game.SupportedReservationCost(restoredConn, catSource.Id)!.Value,
+                        Game.SupportedSkill(restoredConn, catSource.Id).Level, 0));
+                    restoredConn.PlayerLife = 0;
+                    await Game.EndAurasOnDeath("test", restoredWire.Stream, restoredWire.Ciphers, restoredConn);
+                    Assert.Equal(ReservationState.CatPhase.None, restoredConn.Reservations.Cat);
+                    Assert.Equal(0, restoredConn.Reservations.PresentedCatPhaseBuff);
+                    Assert.Empty(restoredConn.Auras);
+                }
+                finally
+                {
+                    if (restoredConnection is not null) restoredConnection.Closed = true;
+                    if (catConnection is not null) catConnection.Closed = true;
+                    Game.AreaUpdateContext.Value = previousContext;
+                    PlayerInventories.Forget(character);
+                }
+            }
+            await CatCoreFixture();
         }
         finally
         {
             conn.Closed = true; PlayerInventories.Forget(conn.Character!); lifetime.Stop(ex => throw ex);
             Game.CombatLifetime = previousLifetime; Program.SetGameLogic(previousLogic!); TestEnvironment.ReleaseSaves(path);
         }
+    }
+
+    sealed class CatClockSchedule : IPlayerUpdateSchedule
+    {
+        public double At;
+        public double Now(ClientState conn) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
     }
 
     sealed class Wire : IDisposable

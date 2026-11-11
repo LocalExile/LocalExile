@@ -103,6 +103,9 @@ public static class StatConditions
         "_if_golem_summoned_in_past_8_seconds",
         "_while_in_blood_stance", "_in_blood_stance", "_while_in_sand_stance", "_in_sand_stance",
         "_if_changed_stance_recently", "_while_changed_stance_recently",
+        "_if_you_have_cat_aspect", "_while_you_have_cat_aspect", "_while_have_cat_aspect",
+        "_if_you_have_cats_stealth", "_while_you_have_cats_stealth", "_while_have_cats_stealth",
+        "_if_you_have_cats_agility", "_while_you_have_cats_agility", "_while_have_cats_agility",
     ];
 
     const string MagicRingCondition = "_if_magic_ring_equipped";
@@ -193,6 +196,8 @@ public static class StatConditions
     /// </summary>
     public static string? Fold(string statId, Func<string, bool> exists)
     {
+        if (statId == "additional_critical_strike_chance_permyriad_while_affected_by_cat_aspect")
+            return exists("additional_base_critical_strike_chance") ? "additional_base_critical_strike_chance" : null;
         if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)
             || IncomingAilmentEffects.Expands(statId)) return null;
         if (PlainOf(statId) is not { } plain) return null;
@@ -329,6 +334,9 @@ public static class StatConditions
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
     {
+        if (CandidateCatFlag(statId) is { } catFlag)
+            return subject => subject.Flags is { } flags && flags.TryGetValue(catFlag, out bool active)
+                ? active ? State.Holds : State.Fails : State.NotModelled;
         if (IsActiveNonVaalSkillMinionCoefficient(statId))
             return subject => subject.Amounts is { } amounts
                 && amounts.ContainsKey(ActiveNonVaalSkillMinionCount) ? State.Holds : State.Fails;
@@ -606,6 +614,7 @@ public static class StatConditions
     {
         "clarity", "vitality", "precision", "haste", "determination", "grace", "discipline",
         "anger", "hatred", "wrath", "zealotry", "malevolence", "envy", "pride",
+        "cat_aspect",
         "purity_of_elements", "purity_of_fire", "purity_of_ice", "purity_of_lightning",
         "a_herald", "herald_of_ash", "herald_of_ice", "herald_of_thunder", "herald_of_purity", "herald_of_agony",
     };
@@ -619,14 +628,31 @@ public static class StatConditions
     public static string? StatNameOf(string effectId)
     {
         if (string.IsNullOrEmpty(effectId)) return null;
-        var snake = new System.Text.StringBuilder(effectId.Length + 4);
-        foreach (char c in effectId)
+        string family = AuraCatalog.Family(effectId);
+        var snake = new System.Text.StringBuilder(family.Length + 4);
+        foreach (char c in family)
         {
             if (char.IsUpper(c) && snake.Length > 0) snake.Append('_');
             snake.Append(char.ToLowerInvariant(c));
         }
         string name = snake.ToString();
         return ModelledAuras.Contains(name) ? name : null;
+    }
+
+    static string? CandidateCatFlag(string statId)
+    {
+        foreach (var (flag, tokens) in new[]
+        {
+            ("has_cat_aspect", new[] { "_while_you_have_cat_aspect", "_while_have_cat_aspect",
+                "_if_you_have_cat_aspect", "_while_affected_by_cat_aspect", "_if_affected_by_cat_aspect" }),
+            ("has_cats_stealth", new[] { "_while_you_have_cats_stealth", "_while_have_cats_stealth",
+                "_if_you_have_cats_stealth", "_while_affected_by_cats_stealth", "_if_affected_by_cats_stealth" }),
+            ("has_cats_agility", new[] { "_while_you_have_cats_agility", "_while_have_cats_agility",
+                "_if_you_have_cats_agility", "_while_affected_by_cats_agility", "_if_affected_by_cats_agility" }),
+        })
+            if (statId == flag || tokens.Any(token => statId.EndsWith(token, StringComparison.Ordinal)))
+                return flag;
+        return null;
     }
 
     /// <summary>Builds the aura set a stat's <c>while_affected_by_X</c> is answered from: every ordinary aura the given

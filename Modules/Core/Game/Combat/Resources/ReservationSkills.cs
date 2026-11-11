@@ -7,6 +7,7 @@ static partial class Game
 {
     static void EndReservationRuntimeLocked(ClientState conn, AuraCatalog.Aura aura)
     {
+        EndCatAspectRuntimeLocked(conn, aura);
         var state = conn.Reservations;
         var pending = state.Procs.Where(p => p.Skill != aura.SkillId).ToArray();
         state.Procs.Clear(); foreach (var proc in pending) state.Procs.Enqueue(proc);
@@ -189,10 +190,17 @@ static partial class Game
     internal static async Task ReservationSkillsTick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double now)
     {
         var summons = new List<AuraCatalog.Aura>();
+        bool catChanged = false;
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
             var state = conn.Reservations;
+            catChanged = CatAspectReconcileLocked(conn, now);
+            if (catChanged)
+            {
+                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                conn.ApplyMovementSpeed();
+            }
             for (int count = Math.Min(256, state.Procs.Count); count > 0; count--)
             {
                 var proc = state.Procs.Dequeue();
@@ -216,6 +224,7 @@ static partial class Game
             else if (ReservationAura(conn, "TemporalRift") is null) state.Echoes.Clear();
             ReservationArcticTrailLocked(conn, now);
         }
+        if (catChanged) await SendOwnAuraChanges(remote, stream, ciphers, conn);
         foreach (var aura in summons) await SummonReservationFighter(remote, stream, ciphers, conn, aura, "Purity");
         await ReservationFightersTick(remote, stream, ciphers, conn, now);
         await TickStrongestDots(remote, stream, ciphers, conn, m => m.HeraldBurns,

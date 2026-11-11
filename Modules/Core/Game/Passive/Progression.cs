@@ -782,6 +782,10 @@ static partial class Game
     {
         // The stat sources first: they decide which worn items are inactive, which the weapon profile reads.
         var snapshot = CharacterStatSources(conn, level: level);
+        // Cat starts its Stealth phase in the same build that first sees its accepted root aura. Re-read sources because
+        // Bite's conditional base critical chance becomes qualified only once the exact root owner exists.
+        if (CatAspectReconcileLocked(conn, AreaTime(conn), snapshot.Stats) && CatAspectRootActiveLocked(conn))
+            snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
         AddGolemStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
@@ -813,6 +817,9 @@ static partial class Game
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(conn), Stats);
+        int CatInput(string name) => Stats.Key(name) is uint key
+            ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
+        var cat = CatAspectPhaseStatsLocked(conn, bonus.AuraEffectPct, CatInput);
         // Match CharacterPlayerStats: a dev value replaces the complete raw passive/equipment/aura input.
         // Read raw replacements once, preserving independent mana and incoming-hit consumers.
         Dictionary<uint, int> devStats;
@@ -863,7 +870,7 @@ static partial class Game
             if (devStats.TryGetValue(key, out int value)) return value;
             return (long)sources.GetValueOrDefault(key) + (name switch
             {
-                "critical_strike_chance_+%" => aura.CriticalStrikeChancePct,
+                "critical_strike_chance_+%" => aura.CriticalStrikeChancePct + cat.CriticalStrikeChancePct,
                 "spell_critical_strike_chance_+%" => aura.SpellCriticalStrikeChancePct - aura.CriticalStrikeChancePct,
                 _ => 0,
             });
@@ -906,7 +913,7 @@ static partial class Game
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,
-            AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct,
+            AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct + cat.AttackSpeedPct,
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(conn, a, "shield_spell_block_%")).DefaultIfEmpty(0).Max() : 0),
             MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(conn)

@@ -86,6 +86,7 @@ static class AuraCatalog
         ["HeraldOfAgony"] = 1177,
         ["SummonSkitterbots"] = 1390,
         ["TemporalRift"] = 1915,
+        ["CatAspect"] = 1036,
     };
 
     /// <summary>Flesh and Stone's Blood Stance BuffDefinitions row: enemies nearby take more Physical Damage.</summary>
@@ -116,7 +117,8 @@ static class AuraCatalog
 
     public static string Family(string effectId) => effectId switch
     {
-        "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination", _ => effectId,
+        "GraceHardMode" => "Grace", "DeterminationHardMode" => "Determination",
+        "AspectOfTheCat" => "CatAspect", _ => effectId,
     };
 
     static string StatFamily(Aura aura) =>
