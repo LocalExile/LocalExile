@@ -167,7 +167,7 @@ public static partial class Game
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
-        KnockbackOnHitLocked(conn, m, player, now, random);
+        KnockbackOnHitLocked(conn, m, player, skill, now, random);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         OnslaughtOnHitLocked(conn, now);

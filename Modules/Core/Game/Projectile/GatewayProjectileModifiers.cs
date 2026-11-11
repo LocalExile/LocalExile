@@ -5,14 +5,15 @@ using GameServer.Core.Projectiles;
 public static class GatewayProjectileModifiers
 {
     public static ProjectileProfile Resolve(ProjectileProfile profile, Func<string, int> get, bool attack,
-        bool arrows = false, bool chainInputConsumed = false, bool intrinsicSplitCount = false)
+        bool arrows = false, bool chainInputConsumed = false, bool intrinsicSplitCount = false,
+        int skillExtraProjectiles = 0, int skillPierce = 0)
     {
         var p = profile;
         int splitTargets = Math.Max(get("projectile_number_to_split"), get("projectile_number_of_targets_to_split_to"));
-        int extra = get("number_of_additional_projectiles")
+        int extra = skillExtraProjectiles + get("number_of_additional_projectiles")
             + get(attack ? "attacks_number_of_additional_projectiles" : "spells_number_of_additional_projectiles")
             + (arrows ? AdditionalArrows(get) : 0);
-        int pierce = Math.Max(get("projectile_number_of_targets_to_pierce"), get("projectile_base_number_of_targets_to_pierce"));
+        int pierce = skillPierce + Math.Max(get("projectile_number_of_targets_to_pierce"), get("projectile_base_number_of_targets_to_pierce"));
         if (attack) pierce += Math.Max(get("arrow_number_of_targets_to_pierce"), get("arrow_base_number_of_targets_to_pierce"));
         if (get("always_pierce") != 0 || get("virtual_always_pierce") != 0
             || attack && (get("arrows_always_pierce") != 0 || get("base_arrows_always_pierce") != 0)) pierce = -1;
