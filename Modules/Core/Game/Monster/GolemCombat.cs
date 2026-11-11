@@ -369,7 +369,7 @@ static partial class Game
         if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
             (g.Monster.Mods.Effects["base_critical_strike_multiplier_+"] + g.Monster.Mods.Effects["critical_strike_multiplier_+"]
                 + target.Curses["enemy_additional_critical_strike_multiplier_against_self"]) / 100.0;
-        var rolled = a.Attack.Damage.Scale(factor).Roll(Random.Shared);
+        var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, Random.Shared);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects["hits_ignore_enemy_elemental_resistances_while_has_energy_shield"] != 0;
         var resistanceMods = new HitResistances.Mods(
@@ -412,6 +412,9 @@ static partial class Game
         double chance = (double)ability.Crit * Math.Max(0, 100L + increased) / 100.0;
         return (int)Math.Clamp(chance, 0, 10_000);
     }
+
+    internal static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random) =>
+        GamblerModifiers.From(name => effects[name]).ForSkill(_ => 0, spell).RollOutgoingHit(damage, random);
 
     internal static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll) =>
         mods.Effects["never_crit"] == 0 && (mods.Effects["always_crit"] != 0 || roll < GolemCriticalChance(ability, mods));
