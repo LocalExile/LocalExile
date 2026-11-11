@@ -29,6 +29,7 @@ public static class GameDataFiles
         ("data/tables/DelveUpgrades.json", "Delve equipment upgrade prices, limits and stats"),
         ("data/delve-paths.json", "authored Delve rail routes"),
         ("data/tables/DelveLevelScaling.json", "Delve trip costs and monster levels"),
+        ("data/tables/DelveResourcePerLevel.json", "sulphite deposits' native area-level rewards"),
         ("data/tables/DelveFlares.json", "Delve flare prices"),
         ("data/tables/DelveDynamite.json", "Delve dynamite prices"),
         ("data/tables/UniqueMaps.json", "unique map shop identities"),
