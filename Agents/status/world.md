@@ -90,26 +90,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
-  handles pickup/attack recovery, corpse collision and ground melee/chest approach, with current background-action
-  stats, actor-owned AI sequences and projectile-hit ownership; tutorial gems retain their initial recipient.
-  Ground/object spells retain fractional holds; Fireball/Freezing Pulse allow Move and early spell replacement.
-  Repeated uses hold through every cast, with first-cast early and final-repeat late cancellation windows.
-  Channels retain activity and releases; spell channels use cast speed without a frame cap.
-  Other players are copies stepped in the observer's own frames. Corpses block for their death clip's time, attack in
-  place, walks left under an in-place action, pick-up reach by item size, and phasing and immobile monster types
-  follow the client. Held walks and pack fights stay on the client's cells on the local bench; bosses with scripted
-  movement, the remaining skills and a real network link are not validated.
-  Instant replies share the player's sequence, suppress local action events and let native execution consume cooldowns.
-  The King's scripted actions share its swing sequence, and dashes carry the boss's origin in both modes.
-  Emerge timing follows the clip in both modes; predictive attack pursuit uses the client's retry interval without a timeout.
-  Predictive stops retain elapsed step time as the client does; full comparison of this correction remains pending.
-  Slums arrival and complete boss synchronization remain incomplete.
-  Earlier held-walk player and all-monster sync bars passed; the combined current changes still need those checks.
-  Complete nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
-  Held-walk player and all-monster sync bars pass; held, Mud Flats and charger checks show no reproduced predictive regression.
-  Explicit World records now sort at the frame delimiter; creations use the final phase and subsequent actions
-  wait for their birth delimiter. Gateway wire/lifecycle tests pass; live nonregression and coverage remain open ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
+- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
+  player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
+  orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
+  in the observer's own frames) follow the client's frame rules, and world messages go out as explicit records in the
+  client's key order. On the 3.29.3b client held walks and pack fights with a wand, a bow and a sword stayed on the
+  client's cells; this is not measured again on 3.29.3c. Not validated: bosses with scripted movement, most gem
+  skills, the encounters that still send their own objects' messages outside the frame's records, and a real
+  network link. In both modes the King's scripted actions share its swing sequence and its dashes carry its origin,
+  an emerge ends with its clip, and a predictive player's pursuit retries at the client's interval and keeps its
+  stop's step time ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.
