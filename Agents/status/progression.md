@@ -190,8 +190,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   The client's class selector opens with `0x7b` kind `0x4c` (first u32 = row) and Accept sends `0x3a`; both and the
   selector window were checked against the local 3.29.3c client.
   The tree panel reads the row from the Player component's `+0x1b0`, so the player object now carries it too.
+  The server records the selector it opened with `0x7b` kind `0x4c` and accepts `0x3a` only while it is open in the
+  same area;
+  a Wildwood row needs its Azmeri class flag, and a layer with allocated nodes must be refunded before another is chosen.
   The `gm-commands` mod's `/descendancy` selects or clears a row, sets the three Wildwood Azmeri flag groups and
-  reloads the area.
+  reloads the area; its selection is the unrestricted development path.
   Nodes allocate by the layer's own `DescendancyKey` tree, stay connected to its implicit start, save, and count
   against the shared ascendancy points; a live Primalist allocation was checked in the local client.
   The three Wildwood rows keep Affliction's separate eight points: `0x33` carries the earned points plus eight for

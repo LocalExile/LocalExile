@@ -795,6 +795,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public byte DescendancyRow;
     // The descendancy layer's allocated nodes (PassiveSkills rows with that DescendancyKey); sent in 0x33 with the rest.
     public HashSet<ushort> DescendancyNodes = [];
+    // The Descendancy row the server last offered with 0x7b kind 0x4c, and the area it offered it in. C->S 0x3a is
+    // accepted only for that row in that area, so a client cannot pick a row the server did not present.
+    public byte OfferedDescendancyRow;
+    public ushort OfferedDescendancyArea;
     public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
     // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
     public Dictionary<ushort, ushort> MasteryEffects = [];

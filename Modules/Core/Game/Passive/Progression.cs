@@ -1334,14 +1334,78 @@ public static partial class Game
     // The second ascendancy layer (Descendancy.dat): Affliction's Wildwood specialisations and the 3.29 Bloodline
     // classes. Its row is 0x33's spare byte, so the client draws that row's tree beside the main ascendancy; the
     // selection saves like the main one. The client's point budget sums both layers against the earned ascendancy points.
+    /// <summary>Whether the game may switch to <paramref name="row"/> now. A selector the server opened (0x7b kind 0x4c)
+    /// must still be active in this area; the client may choose any row it shows, so the row itself is checked for its
+    /// unlock flag and for a refunded layer. The GM mod's /descendancy bypasses this through
+    /// <see cref="SelectDescendancyForDevelopment"/>.
+    /// </summary>
+    public static bool CanSelectDescendancy(ClientState conn, byte row, out string? reason)
+    {
+        var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row);
+        if (row == 0 || definition is null) { reason = $"no Descendancy row {row}"; return false; }
+        if (conn.OfferedDescendancyRow == 0 || conn.OfferedDescendancyArea != conn.Layout.Hash)
+        {
+            reason = "No Descendancy selector is open in this area";
+            return false;
+        }
+        if (row != conn.DescendancyRow && conn.DescendancyNodes.Count > 0)
+        {
+            reason = "Refund the current Descendancy's points before choosing another";
+            return false;
+        }
+        if (DescendancyCatalog.UnlockFlag(row) is { } flag && !conn.HasQuestFlag(flag))
+        {
+            reason = $"{definition.Name} is locked";
+            return false;
+        }
+        reason = null;
+        return true;
+    }
+
+    /// <summary>Chooses the second ascendancy layer after an offer from the server; the caller reloads the area.</summary>
     public static void SelectDescendancy(ClientState conn, byte row)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CanSelectDescendancy(conn, row, out string? reason)) throw new AscendancyRuleException(reason!);
+            ApplyDescendancy(conn, row);
+        }
+    }
+
+    /// <summary>The GM mod's unrestricted selection: any existing row, without an offer or its unlock flag, and a switch
+    /// clears the old layer's nodes. Never used by a client packet.</summary>
+    public static void SelectDescendancyForDevelopment(ClientState conn, byte row)
     {
         if (row != 0 && Descendancies.Rows.All(r => r.Index != row))
             throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
-        if (CharacterName(conn) is { Length: > 0 } character) CharacterSaves.SetDescendancy(character, row);
+        lock (conn.Monsters) ApplyDescendancy(conn, row);
+    }
+
+    // Starts are implicit for both layers; an explicit start node would count as an allocated node and cost a point.
+    // The caller holds conn.Monsters: a switch saves the row and the cleared nodes before publishing them.
+    static void ApplyDescendancy(ClientState conn, byte row)
+    {
+        if (row == conn.DescendancyRow) return;
+        if (CharacterName(conn) is { Length: > 0 } character)
+            CharacterSaves.SetDescendancy(character, row, expectedRow: conn.DescendancyRow, expectedNodes: conn.DescendancyNodes);
         conn.DescendancyRow = row;
-        // Starts are implicit for both layers; an explicit start node would count as an allocated node and cost a point.
         conn.DescendancyNodes.Clear();
+    }
+
+    /// <summary>Offers a Descendancy row to the client (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) and records
+    /// it as the only row C→S 0x3a may accept in this area.</summary>
+    public static async Task OpenDescendancySelector(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row)
+            ?? throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
+        if (row == 0) throw new ArgumentOutOfRangeException(nameof(row), "no Descendancy row to offer");
+        lock (conn.Monsters)
+        {
+            conn.OfferedDescendancyRow = row;
+            conn.OfferedDescendancyArea = conn.Layout.Hash;
+        }
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.DescendancySelectUi, row),
+            $"0x007b kind 0x4c row {row} ({definition.Name})");
     }
 
     // C→S 0x3a: the Descendancy class selector (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) accepted a
@@ -1349,8 +1413,18 @@ public static partial class Game
     internal static async Task ChooseDescendancy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
     {
         Console.WriteLine($"[gateway] {remote} <= 0x003a descendancy row {row} chosen");
-        if (row == 0 || Descendancies.Rows.All(r => r.Index != row)) return;
-        SelectDescendancy(conn, row);
+        if (!CanSelectDescendancy(conn, row, out string? reason))
+        {
+            Console.WriteLine($"[gateway] {remote} 0x003a descendancy row {row} refused: {reason}");
+            return;
+        }
+        try { SelectDescendancy(conn, row); }
+        catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
+        {
+            Console.WriteLine($"[gateway] {remote} descendancy row {row} refused: {ex.Message}");
+            return;
+        }
+        conn.OfferedDescendancyRow = 0;
         await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
     }
 
@@ -1599,7 +1673,8 @@ public static partial class Game
                     CharacterSaves.SetMainAscendancy(CharacterName(conn), ascendancyNow, now, effectsNow, refundPoints ? refundsNow : null,
                         expected: expectedProgress);
                     if (conn.DescendancyRow != 0 || descendancyNext.Count > 0)
-                        CharacterSaves.SetDescendancy(CharacterName(conn), conn.DescendancyRow, descendancyNext);
+                        CharacterSaves.SetDescendancy(CharacterName(conn), conn.DescendancyRow, descendancyNext,
+                            expectedRow: conn.DescendancyRow, expectedNodes: conn.DescendancyNodes);
                     return null;
                 });
             if (error is null)

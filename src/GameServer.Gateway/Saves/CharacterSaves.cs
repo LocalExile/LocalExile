@@ -411,9 +411,17 @@ public static class CharacterSaves
         });
 
     /// <summary>The Descendancy.dat row the client draws as its second ascendancy layer (Affliction's Wildwood
-    /// specialisations, the 3.29 Bloodline classes); 0 clears it. The nodes belong to that row's tree.</summary>
-    public static void SetDescendancy(string character, byte row, IEnumerable<ushort>? nodes = null) =>
-        Update(character, s => s with { Descendancy = row, DescendancyNodes = [.. nodes ?? []] });
+    /// specialisations, the 3.29 Bloodline classes); 0 clears it. The nodes belong to that row's tree. The expected row
+    /// and nodes are the connection's copy: a newer selection or allocation makes this write fail like the main
+    /// ascendancy's snapshot, instead of replacing it.</summary>
+    public static void SetDescendancy(string character, byte row, IEnumerable<ushort>? nodes = null,
+        byte? expectedRow = null, IReadOnlySet<ushort>? expectedNodes = null) =>
+        Update(character, s =>
+        {
+            if (expectedRow is { } expected && (s.Descendancy ?? 0) != expected) throw new PassiveProgressConflictException();
+            if (expectedNodes is not null && !expectedNodes.SetEquals(s.DescendancyNodes ?? [])) throw new PassiveProgressConflictException();
+            return s with { Descendancy = row, DescendancyNodes = [.. nodes ?? []] };
+        });
 
     /// <summary>
     /// Main ascendancy identity, its own nodes/point awards and any associated ordinary-node/refund changes commit in

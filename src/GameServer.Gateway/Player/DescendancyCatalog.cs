@@ -25,6 +25,17 @@ public sealed class DescendancyCatalog(string folder = "data")
 
     public static int BonusPoints(byte row) => row is >= 1 and <= 3 ? WildwoodPoints : 0;
 
+    /// <summary>The quest flag that gates a row, or null when its <c>UnlockCondition</c> is empty. The three Wildwood
+    /// rows are switched at their Wildwood NPC, which sets the Azmeri class flag; the Bloodline rows carry no condition
+    /// in <c>Descendancy.dat</c>.</summary>
+    public static string? UnlockFlag(byte row) => row switch
+    {
+        1 => "AzmeriAreWarden",
+        2 => "AzmeriAreVoodooShaman",
+        3 => "AzmeriArePrimalist",
+        _ => null,
+    };
+
     readonly Lazy<IReadOnlyList<Row>> _rows = new(() => Load(folder));
 
     public IReadOnlyList<Row> Rows => _rows.Value;
