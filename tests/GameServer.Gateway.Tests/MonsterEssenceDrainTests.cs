@@ -26,6 +26,16 @@ public sealed class MonsterEssenceDrainTests
         Assert.Null(drain.Active);
         Assert.Equal(0, drain.Advance(7, 1).Damage);
 
+        // Leech goes to each dealing instance's own cast (its caster): the stronger one's while it deals, then the other's.
+        var owners = new MonsterEssenceDrain();
+        var first = new MonsterEssenceDrain.Cast(100, 1, 100);
+        var second = new MonsterEssenceDrain.Cast(10, 3, 100);
+        owners.Apply(0, first);
+        owners.Apply(0, second);
+        var credited = new List<(MonsterEssenceDrain.Cast Cast, double Life)>();
+        owners.Advance(2, 1, (cast, life) => credited.Add((cast, life)));
+        Assert.Equal([(first, 1.0), (second, 0.1)], credited);
+
         // A hit after the old instance expired (no advance between) counts only from when it landed: 100/s for 1 s, then
         // nothing for the 1 s gap, then 10/s for 1 s.
         var late = new MonsterEssenceDrain();

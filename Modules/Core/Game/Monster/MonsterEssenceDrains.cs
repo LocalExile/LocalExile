@@ -40,7 +40,7 @@ static partial class Game
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
         double seconds = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own)
             * Math.Max(0, 1 + Get("siphon_duration_+%") / 100.0);
-        return new(dps, seconds, Math.Max(0, Get("siphon_life_leech_from_damage_permyriad")), skillId);
+        return new(dps, seconds, Math.Max(0, Get("siphon_life_leech_from_damage_permyriad")), skillId, conn);
     }
 
     /// <summary>A projectile hit that the monster survived: puts the shot's Essence Drain debuff on it.</summary>
@@ -49,6 +49,20 @@ static partial class Game
         m.EssenceDrain.Apply(now, cast);
         Console.WriteLine($"[gateway] essence drain: hit 0x{id:x} ({m.Label}), {cast.DamagePerSecond:0.#}/s for " +
             $"{cast.Seconds:0.##} s, leech {cast.LeechPermyriad / 100.0:0.##}%");
+    }
+
+    // The debuff's leech goes to its caster only, if alive and still in this instance: on this connection directly, on
+    // another player's own frame (KillShares) so its pools are changed under its own lock.
+    static void CreditSiphonLeechLocked(ClientState runner, ClientState? caster, SpawnedMonster m, double life)
+    {
+        if (caster is null || caster.Closed || caster.LeavingArea || caster.PlayerLife == 0) return;
+        if (ReferenceEquals(caster, runner)) { SiphonLeechLocked(runner, m, life); return; }
+        if (caster.Instance is null || !ReferenceEquals(caster.Instance, runner.Instance)) return;
+        caster.KillShares.Enqueue((_, _, _) =>
+        {
+            using (ProjectileMutation(caster)) SiphonLeechLocked(caster, m, life);
+            return Task.CompletedTask;
+        });
     }
 
     // The debuff's life leech: a leech instance like a hit's (same caps and rate), with no gain on hit.
@@ -83,9 +97,9 @@ static partial class Game
                     m.EssenceDrain.Clear();
                     continue;
                 }
-                var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
+                var (damage, leech) = m.EssenceDrain.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now),
+                    (cast, life) => CreditSiphonLeechLocked(conn, cast.Caster, m, life));
                 if (damage <= 0) continue;
-                SiphonLeechLocked(conn, m, leech);
                 leeched += leech;
                 (m.Life, bool stageStarts) = TakeOwnerDamageLocked(conn, m, damage);
                 m.Aggro = m.Life > 0;
@@ -102,8 +116,8 @@ static partial class Game
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
-                await Send(remote, stream, ciphers, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
-            await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(id, life),
+                await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StatsUpdate(id, [(StatKeys.HideMiniLifeBar, 1)]), null);
+            await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, life),
                 life == 0 ? $"0x01b1 monster 0x{id:x} ({m.Label}) died of essence drain" : null);
             if (life == 0)
             {

@@ -7,8 +7,10 @@
 public sealed class MonsterEssenceDrain
 {
     /// <summary>What one hit put on the monster: damage per second before the monster's mitigation, duration, the share of
-    /// the damage dealt that the caster leeches as life (siphon_life_leech_from_damage_permyriad) and the caster's skill id.</summary>
-    public sealed record Cast(double DamagePerSecond, double Seconds, int LeechPermyriad = 0, ushort SkillId = 0);
+    /// the damage dealt that the caster leeches as life (siphon_life_leech_from_damage_permyriad), the caster's skill id and
+    /// the caster: only that player leeches, also from a Contagion spread of it.</summary>
+    public sealed record Cast(double DamagePerSecond, double Seconds, int LeechPermyriad = 0, ushort SkillId = 0,
+        ClientState? Caster = null);
 
     // Each hit's instance counts from Start (when it landed) to Until.
     readonly List<(Cast Cast, double Start, double Until)> instances = [];
@@ -39,8 +41,9 @@ public sealed class MonsterEssenceDrain
 
     /// <summary>The whole chaos damage dealt from the last advance to <paramref name="now"/> by the strongest instance at
     /// each moment, multiplied by the monster's chaos mitigation <paramref name="factor"/>; the fraction carries to the next
-    /// advance. Ended instances are dropped. Also returns the life the caster leeches from that damage.</summary>
-    public (int Damage, double Leech) Advance(double now, double factor)
+    /// advance. Ended instances are dropped. Also returns the life leeched from that damage, and hands each dealing
+    /// instance's cast and its leech to <paramref name="leeched"/> (instances may have different casters).</summary>
+    public (int Damage, double Leech) Advance(double now, double factor, Action<Cast, double>? leeched = null)
     {
         if (instances.Count == 0 || !(now > last)) return (0, 0);
         double damage = carry, leech = 0, t = last;
@@ -57,8 +60,10 @@ public sealed class MonsterEssenceDrain
             if (Strongest(t) is { } strongest)
             {
                 double dealt = strongest.Cast.DamagePerSecond * (next - t) * Math.Max(0, factor);
+                double share = dealt * strongest.Cast.LeechPermyriad / 10000.0;
                 damage += dealt;
-                leech += dealt * strongest.Cast.LeechPermyriad / 10000.0;
+                leech += share;
+                if (share > 0) leeched?.Invoke(strongest.Cast, share);
             }
             t = next;
         }
