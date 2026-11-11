@@ -305,6 +305,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   While Mageblood is worn, the leftmost 2–4 magic utility flasks in the flask bar apply their effects permanently without
   charges or a timer, and using them is refused (client mod, server backstop); the stats refresh when the belt or the
   flask bar changes. Its flasks keep their buffs on the client without a timer (not seen live yet).
+  Bound By Destiny checks its 2/4/6 thresholds against active influenced equipment; dual-influenced items count
+  once toward each matching influence. Qualified stats enter attributes and combat through the normal item sources.
   Headhunter: killing a rare gives each of its rolled affixes as a stack of character stats for 60 s (the same one resets
   its time), with one Headhunter buff showing the count and the longest time, and
   its rolled increased damage against rares (not seen live yet; they end on an area change, where the game keeps them).
