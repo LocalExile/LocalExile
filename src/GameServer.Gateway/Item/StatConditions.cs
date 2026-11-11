@@ -212,14 +212,29 @@ public static class StatConditions
         {
             "evasion_+%" => "evasion_rating_+%",
             "evasion_rating_plus" => "base_evasion_rating",
+            "evasion_rating_+" => "base_evasion_rating",
             "armour_+%" => "physical_damage_reduction_rating_+%",
+            "armour" or "armour_+" or "X_armour" => "base_physical_damage_reduction_rating",
+            "physical_damage_reduction_rating_%" => "physical_damage_reduction_rating_+%",
+            "maximum_es_+%" => "maximum_energy_shield_+%",
             "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
             "life_regeneration_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_rate_per_minute" => "base_life_regeneration_rate_per_minute",
+            "life_regeneration_per_minute_%" => "life_regeneration_rate_per_minute_%",
+            "energy_shield_regeneration_%_per_minute" or "energy_shield_regeneration_rate_per_minute_%"
+                => "base_energy_shield_regeneration_rate_per_minute_%",
             "life_gain_per_target" => "base_life_gain_per_target",
             "damage_taken_+%" => "base_damage_taken_+%",
             "critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
+            "additional_critical_strike_chance_permyriad" => "additional_base_critical_strike_chance",
+            "critical_strike_chance_+%_for_spells" => "spell_critical_strike_chance_+%",
+            "critical_strike_multiplier_+_for_spells" => "spell_critical_strike_multiplier_+",
             "physical_damage_%_to_gain_as_chaos" => "physical_damage_%_to_add_as_chaos",
+            "physical_damage_%_to_add_as_fire_damage" => "physical_damage_%_to_add_as_fire",
+            "physical_damage_%_to_add_as_lightning_damage" => "physical_damage_%_to_add_as_lightning",
+            "fire_penetration_%" => "base_reduce_enemy_fire_resistance_%",
+            "elemental_penetration_%" => "base_penetrate_elemental_resistances_%",
+            "block_%" => "additional_block_%",
             "area_of_effect_+%" => "base_skill_area_of_effect_+%",
             "chaos_resistance_+" => "base_chaos_damage_resistance_%",
             "spell_block_%" or "chance_to_block_spells_%" => "base_spell_block_%",
@@ -247,6 +262,8 @@ public static class StatConditions
             return [.. new[] { "attack_speed_+%", "base_movement_velocity_+%" }.Where(exists)];
         if (statId == "avoid_freeze_and_chill_%_if_you_have_used_a_fire_skill_recently")
             return [.. new[] { "base_avoid_freeze_%", "base_avoid_chill_%" }.Where(exists)];
+        if (PlainOf(statId) == "all_resistances_%")
+            return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
         return Fold(statId, exists) is { } plain ? [plain] : [];
     }
 

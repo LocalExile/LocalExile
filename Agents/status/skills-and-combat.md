@@ -561,6 +561,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   active ring-rarity predicates now feed cold/suppression, signed incoming rolls and drop quantity/rarity consumers
   under automated lifecycle checks; native unique admission remains pending. Other ailment families, conditional ES
   delay and actual ailment execution remain separate.
+  Conditional defence, recovery, spell-critical and penetration aliases reach existing consumers; automated checks pass.
   Block Recovery now adds base and raw direct Stun Recovery once from the same snapshot, including already expanded
   per-charge recovery. Life/Mana/ES on-kill amounts and the flask-duration coefficient include their real per-player-level
   inputs, using the actual character level and wide arithmetic. Thirty new panel/source cases cover both modes.

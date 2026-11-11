@@ -33,6 +33,7 @@ public class ConditionalItemStatsTests
         Per_charge_leaves_reach_existing_final_consumers();
         Per_rage_item_coefficients_reach_existing_final_consumers();
         Ordinary_slot_conditions_reach_existing_consumers();
+        Canonical_condition_aliases_reach_defence_recovery_and_spell_consumers();
         Worn_item_grants_run_real_auras_with_host_identity_and_source_lifecycle();
         Archery_equipment_hardening_owns_dash_travel_and_conditional_consumers();
         Existing_owner_predicates_wire_exact_events_and_final_consumers();
@@ -44,6 +45,86 @@ public class ConditionalItemStatsTests
     }
 
     static ModCatalog.Mod Mod(string id) => Program.Items.Mods.All.Single(m => m.Id == id);
+
+    void Canonical_condition_aliases_reach_defence_recovery_and_spell_consumers()
+    {
+        string[] flags = ["_while_stationary", "_while_not_moving", "_while_frozen", "_while_shocked",
+            "_when_on_full_life", "_when_on_low_life", "_while_chilled"];
+        var cases = new (string Source, string Target)[]
+        {
+            ("X_armour_if_you_have_blocked_recently", "base_physical_damage_reduction_rating"),
+            ("armour_+_while_affected_by_determination", "base_physical_damage_reduction_rating"),
+            ("armour_while_stationary", "base_physical_damage_reduction_rating"),
+            ("physical_damage_reduction_rating_%_while_not_moving", "physical_damage_reduction_rating_+%"),
+            ("evasion_rating_+_when_on_full_life", "base_evasion_rating"),
+            ("evasion_rating_+_when_on_low_life", "base_evasion_rating"),
+            ("life_regeneration_per_minute_%_while_frozen", "life_regeneration_rate_per_minute_%"),
+            ("energy_shield_regeneration_%_per_minute_while_shocked", "base_energy_shield_regeneration_rate_per_minute_%"),
+            ("energy_shield_regeneration_rate_per_minute_%_while_affected_by_discipline", "base_energy_shield_regeneration_rate_per_minute_%"),
+            ("additional_critical_strike_chance_permyriad_while_affected_by_hatred", "additional_base_critical_strike_chance"),
+            ("critical_strike_chance_+%_for_spells_if_you_have_killed_recently", "spell_critical_strike_chance_+%"),
+            ("critical_strike_multiplier_+_for_spells_if_you_havent_killed_recently", "spell_critical_strike_multiplier_+"),
+            ("physical_damage_%_to_add_as_fire_damage_while_affected_by_anger", "physical_damage_%_to_add_as_fire"),
+            ("physical_damage_%_to_add_as_lightning_damage_while_affected_by_wrath", "physical_damage_%_to_add_as_lightning"),
+            ("fire_penetration_%_if_you_have_blocked_recently", "base_reduce_enemy_fire_resistance_%"),
+            ("elemental_penetration_%_while_chilled", "base_penetrate_elemental_resistances_%"),
+            ("block_%_while_affected_by_determination", "additional_block_%"),
+        };
+        var output = new Dictionary<string, Dictionary<string, int>>();
+        foreach (var (source, target) in cases)
+        {
+            var row = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == source && !s.Local));
+            var item = WithMod(row.Id, 11);
+            bool negative = source.Contains("havent_killed", StringComparison.Ordinal);
+            var on = new StatConditions.Subject(
+                Recent: negative ? new HashSet<string>() : new HashSet<string> { StatConditions.Blocked, StatConditions.KilledEnemy },
+                Auras: new HashSet<string> { "determination", "discipline", "hatred", "anger", "wrath" },
+                Flags: flags.ToDictionary(s => s, _ => true));
+            var off = new StatConditions.Subject(
+                Recent: negative ? new HashSet<string> { StatConditions.KilledEnemy } : new HashSet<string>(),
+                Auras: new HashSet<string>(), Flags: flags.ToDictionary(s => s, _ => false));
+            Assert.Equal(StatConditions.State.Holds, StatConditions.Of(source, on));
+            Assert.Equal(StatConditions.State.Fails, StatConditions.Of(source, off));
+            var held = ItemModStats.Sum([item], Program.Items.Mods, subject: on, statExists: Program.Stats.Has);
+            Assert.Equal(11, held.GetValueOrDefault(target));
+            Assert.False(held.ContainsKey(source));
+            Assert.Equal(0, ItemModStats.Sum([item], Program.Items.Mods, subject: off, statExists: Program.Stats.Has).GetValueOrDefault(target));
+            // Unknown state and a catalogue without the destination must retain the original row.
+            Assert.Equal(11, ItemModStats.Sum([item], Program.Items.Mods).GetValueOrDefault(source));
+            Assert.Equal(11, ItemModStats.Sum([item], Program.Items.Mods, subject: on, statExists: _ => false).GetValueOrDefault(source));
+            output[source] = held;
+        }
+        int Read(string source, string name) => output[source].GetValueOrDefault(name);
+        Assert.Equal(555, SpellCriticalStrike.Chance(500,
+            name => Read("critical_strike_chance_+%_for_spells_if_you_have_killed_recently", name)));
+        Assert.Equal(511, SpellCriticalStrike.Chance(500,
+            name => Read("additional_critical_strike_chance_permyriad_while_affected_by_hatred", name)));
+        Assert.Equal(110, EnergyShield.RegenPerMinute(1000,
+            name => Read("energy_shield_regeneration_%_per_minute_while_shocked", name)));
+        var penetration = output["fire_penetration_%_if_you_have_blocked_recently"]
+            .Where(p => Program.Stats.Key(p.Key) is not null).ToDictionary(p => Program.Stats.Key(p.Key)!.Value, p => p.Value);
+        Assert.Equal(11, Penetration.Of(penetration, Program.Stats, attack: false).Fire);
+        Assert.Equal(0, Penetration.Of(penetration, Program.Stats, attack: false).Cold);
+
+        foreach (var (source, target) in new[]
+                 {
+                     ("maximum_es_+%_per_equipped_corrupted_item", "maximum_energy_shield_+%"),
+                     ("all_resistances_%_per_equipped_corrupted_item", "base_resist_all_elements_%"),
+                 })
+        {
+            var row = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == source && !s.Local));
+            var item = WithMod(row.Id, 11);
+            foreach (int count in new[] { 0, 1, 3, 0 })
+            {
+                var values = ItemModStats.Sum([item], Program.Items.Mods,
+                    subject: new(Value: name => name == "equipped_corrupted" ? count : null), statExists: Program.Stats.Has);
+                Assert.Equal(11 * count, values.GetValueOrDefault(target));
+                Assert.False(values.ContainsKey(source));
+                if (source.StartsWith("all_resistances", StringComparison.Ordinal))
+                    Assert.Equal(11 * count, values.GetValueOrDefault("base_chaos_damage_resistance_%"));
+            }
+        }
+    }
 
     void Yriel_beast_source_owns_real_ursa_condition_and_physical_consumer()
     {
