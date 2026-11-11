@@ -31,13 +31,15 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | Windows 10/11 x64, or Linux ([below](#linux)) | the steps below are written for Windows | |
 | [.NET 10 SDK](https://dotnet.microsoft.com/download) | builds and runs the servers | `dotnet --version` prints `10.x` |
 | PowerShell 5.1+ | runs `live.ps1` | `$PSVersionTable.PSVersion` |
-| Path of Exile **3.29.3c**, standalone install | the client you play with | a folder with `PathOfExile.exe` and `Content.ggpk` |
+| Path of Exile **3.29.3c**, standalone or Steam install | the client you play with | standalone: a folder with `PathOfExile.exe` and `Content.ggpk`; Steam: `PathOfExileSteam.exe` and `Bundles2\` |
 | [Node.js](https://nodejs.org) (Node 24) + `npm install` in `Tools\ooz` (npm package `ooz-wasm` 2.x) | decompresses the game's bundles for the data extraction (step 7) | `node --version`; `Tools\ooz\node_modules\ooz-wasm` exists |
 | Python 3.9+ | the full data extraction (maintainers, step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
 
-**Steam installs do not work as is.** The Steam layout has no `Content.ggpk`, and its executables have other names.
-Use the standalone layout.
+**Steam installs:** only Steam's 3.29.3c (the 2026-11-09 hotfix, 3.29.3.5) works; LocalExile checks its
+`Bundles2\_.index.bin`. The Steam layout keeps the game files loose in `Bundles2\` instead of a `Content.ggpk`, and
+`PathOfExileSteam.exe` is the same executable as the standalone `PathOfExile.exe`. The client still runs in standalone
+mode: step 5 patches it to read the loose files, and Steam is never started or needed.
 
 **Getting 3.29.3c:** this repository cannot provide the client. The official launcher always updates to the newest
 version, so you need a copy that is still at 3.29.3c. Never let a newer launcher touch your copy.
@@ -149,9 +151,10 @@ Then give the main executable the name the tools use:
 ```powershell
 robocopy "D:\Games\Path of Exile" Client /E      # your install path
 Copy-Item Client\PathOfExile.exe Client\Game.exe
+# a Steam install instead: Copy-Item Client\PathOfExileSteam.exe Client\Game.exe
 ```
 
-Success: `Client\Game.exe` (about 79 MB) and `Client\Content.ggpk` exist.
+Success: `Client\Game.exe` (about 79 MB) and `Client\Content.ggpk` (Steam: `Client\Bundles2\_.index.bin`) exist.
 
 - `robocopy` exit codes below 8 mean success (1 = copied, 3 = copied plus extra files). Copying ~70 GB takes a few
   minutes.
@@ -181,6 +184,9 @@ dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.pa
 
 Success: `[auth] login key blobs at file offset 0x...` then `[auth] wrote Client/Game.patched.exe`.
 
+- In a Steam install it also prints `Steam install: the copy reads the loose game files instead of Content.ggpk`.
+  A `Game.patched.exe` made without that line creates an empty `Content.ggpk` and asks to download everything: delete
+  both and run this step again.
 - If you regenerate the keys (by deleting `data/login-keys.json` and running step 4 again), run this step again too.
 - Antivirus software may flag or quarantine the patched executable, because it is a modified binary. If
   `Game.patched.exe` disappears, allow it in your antivirus.
@@ -194,9 +200,10 @@ dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493
 Success: `[patch] gateway_list.txt now points at 127.0.0.1:20493 (original saved to data/gateway_list.original.txt)`.
 The lines printed after it all contain `127.0.0.1:20493`.
 
-- The client must be closed (the GGPK is locked while it runs).
+- The client must be closed (it locks its files while it runs). In a Steam install the list is the loose
+  `Client\gateway_list.txt`.
 - To undo: `dotnet run --project src/GameServer.Patch -- gateway --restore`.
-- `no gateway_list.txt in the GGPK` means `Client\Content.ggpk` is missing or not a standalone client's.
+- `no gateway_list.txt in the client's files` means `Client\` holds neither a standalone nor a Steam client.
 
 ## 7. Extract the game data
 

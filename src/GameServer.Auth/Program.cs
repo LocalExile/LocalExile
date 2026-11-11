@@ -2,13 +2,15 @@ using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol;
 using GameServer.Core.Protocol.Login;
 using GameServer.Storage;
 using GameServer.Core;
 
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
-//   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys
+//   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys; in a Steam install's
+//                                          folder the copy also reads the loose game files (LooseFilesPatch)
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
 //   accounts                               print how many accounts there are
 //   register <account>                     create an account; its password is the first line of standard input
@@ -70,6 +72,12 @@ switch (cmd)
         var image = new ClientImage(File.ReadAllBytes(args[1]));
         Console.WriteLine($"[auth] login key blobs at file offset 0x{image.Offset:x}");
         image.Patch(keys);
+        string folder = Path.GetDirectoryName(Path.GetFullPath(args[2]))!;
+        if (GameServer.Data.Ggpk.ClientFiles.Resolve(folder)?.Layout == GameServer.Data.Ggpk.ClientLayout.Steam)
+        {
+            LooseFilesPatch.Apply(image.Bytes);
+            Console.WriteLine("[auth] Steam install: the copy reads the loose game files instead of Content.ggpk");
+        }
         File.WriteAllBytes(args[2], image.Bytes);
         Console.WriteLine($"[auth] wrote {args[2]}");
         return 0;

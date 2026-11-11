@@ -13,7 +13,7 @@ using GameServer.Core.Protocol.Login;
 // a busy instance's monster AI with its swings and projectiles, the AI planner alone, one player's memory through the
 // town, a combat area and a boss area, and one idle player's per-connection loops. One scenario per process
 // (catalogues load once per process). Results go to stdout and as JSON lines to artifacts/perf/bench.jsonl
-// (Game_PERF_LABEL names the run). The level generation needs Client/Content.ggpk and Node (Tools/ooz), as the
+// (Game_PERF_LABEL names the run). The level generation needs the client in Client/ (either layout) and Node (Tools/ooz), as the
 // Gateway's own. Not a test: it waits on real time and measures this machine.
 static class PerfBenchMain
 {

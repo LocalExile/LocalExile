@@ -25,6 +25,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
+- Steam's 3.29.3c (3.29.3.5, loose `Bundles2\`) as the client: data extraction, `live.ps1` and the player launcher take
+  either layout, and the client runs in standalone mode without Steam (`LooseFilesPatch` in `Game.patched.exe`); login,
+  character select and entering the game live 2026-11-11. Its 942 tables decode identical to the standalone client's.
+  Code: `ClientFiles.cs`, `LooseFilesPatch.cs`. Docs: [GettingStarted](../GettingStarted.md) "What you need", step 5.
 - Local patching server: the client never contacts the official patch servers. A GGPK whose root hash is zero (the
   client then always patches and times out at "Checking resources") gets one on each start (`root-hash --repair`).
   Code: `GameServer.Patch`, `GgpkMaintenance.RepairRootHash`.

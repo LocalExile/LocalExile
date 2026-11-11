@@ -25,7 +25,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 ROOT = REPO
 sys.path.insert(0, os.path.join(REPO, "scripts", "dev"))
 import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
-GGPK = os.path.join(ROOT, "Client", "Content.ggpk")
+GGPK = os.path.join(ROOT, "Client")  # the client folder, standalone or Steam layout
 CACHE = os.path.join(ROOT, "Tools", "re", "out", "ot")
 REGISTRY = os.path.join(REPO, "Agents", "docs", "re", "components.json")
 RAW_DATS = ["Data/MonsterVarieties.datc64", "Data/Chests.datc64"]
