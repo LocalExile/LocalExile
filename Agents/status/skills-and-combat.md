@@ -1306,13 +1306,13 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Native checks verify phases, pools, timed barriers, physical-hit loss and unequip cleanup; visuals remain unverified.
   Equipment self-Vulnerability supplies curse effects and Coward's Life predicates, with limited native verification.
   Madness has qualified toggles, Touch penalties, three Beacon profiles and earned chaos explosions.
-  Native checks cover Beacon stats, Touches, cooldown and cleanup; explosion geometry/art remain unverified.
+  Native checks cover Beacon stats, Touches, cooldown, cleanup and earned explosions; retail geometry/art remain open.
   Spider applies timed webs, damage taken, Hinder, Shroud effects and webbed-hit recovery/charge rewards.
   Native checks cover four webs, recipient stats/buffs, reservation and earned expiry after source removal.
   Avian shares sender-scaled phases with nearby players/minions using immutable peer snapshots.
   Sharing stacking and cleanup have automated checks; retail ranges and multiparty visuals remain unverified.
-  Weave selects target-relative raw hit/ailment profiles; native damage acceptance is pending.
-  Twister has source-owned Avian-gain admission and Spark tornado flights; native acceptance is pending.
+  Weave selects target-relative raw hit/ailment profiles, with native webbed-Fireball damage verification.
+  Twister has native triggered tornado combat and source cleanup in predictive and lockstep modes.
   Spider range is a local fallback; Twister repeat timing awaits an official contact trace.
   Permanent spell buffs, five heralds, Skitterbots and Temporal Rift share source/reservation reconciliation.
   Purity grants elemental-ailment immunity; Arctic Armour gives stationary hit mitigation, freeze immunity and chilled
