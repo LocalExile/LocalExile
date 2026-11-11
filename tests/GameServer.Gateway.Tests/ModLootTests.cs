@@ -111,6 +111,7 @@ public sealed class ModLootTests
         Assert.True(await f.Loot.PickUp(goldId, f.Mod, 1)); // gold does not need an inventory cell
         Assert.False(await f.Loot.PickUp(goldId, f.Mod, 1));
         Assert.Null(f.Conn.Instance.Ground.Get(goldId));
+        using var wire = new PartyFollowerTests.Wire();
         foreach (bool manual in new[] { true, false })
         {
             uint failed = f.Conn.Instance.Ground.Add(gold);
@@ -119,7 +120,7 @@ public sealed class ModLootTests
             try
             {
                 if (manual)
-                    await Assert.ThrowsAsync<IOException>(() => Game.PickUpGold("test", null!, null!, f.Conn, failed, gold, "test"));
+                    await Assert.ThrowsAsync<IOException>(() => Game.PickUpGold("test", wire.Stream, wire.Ciphers, f.Conn, failed, gold, "test"));
                 else
                     await Assert.ThrowsAsync<IOException>(() => f.Loot.PickUp(failed, f.Mod, 1));
                 Assert.Same(gold, f.Conn.Instance.Ground.Get(failed));
