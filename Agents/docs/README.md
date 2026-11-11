@@ -103,6 +103,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [game/phrecia-ascendancies.md](game/phrecia-ascendancies.md) | what makes a Phrecia class complete, per-class acceptance |
 | [game/juggernaut.md](game/juggernaut.md) | Juggernaut node checklist |
 | [game/slayer.md](game/slayer.md) | Slayer node checklist |
+| [game/hierophant.md](game/hierophant.md) | Hierophant node checklist |
 | [game/harbinger.md](game/harbinger.md) | the Phrecia Harbinger opt-in on the Occultist graph |
 | [game/labyrinth-trials.md](game/labyrinth-trials.md) | Trials of Ascendancy and the Labyrinth: the objects, room links, traps, the Lord's Labyrinth quest, Izaro's arenas |
 | [game/phrecia-modules.md](game/phrecia-modules.md) | optional Phrecia class sources, league composition and reload ownership |
