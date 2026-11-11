@@ -32,8 +32,7 @@ Nothing yet.
   [15](../docs/protocol/15-progression.md) §3).
   The pool is the quest reward gems, the starting gems and the drop-only exceptional supports; the data's Graft,
   item-granted/legacy (Envy, Death Aura, Quickstep) and placeholder ("...") rows never drop.
-  `GemDropsTests` cover the pool, the level gate and the unlevelled gem. The rate is our own until the game's drop pools
-  are known.
+  The rate is our own until the game's drop pools are known.
   Live: rare monsters dropped normal skill and support gems. The first attempt used the data's ShopTag gems, which
   include the item-granted/legacy rows, so the pool was narrowed to the quest/starting/exceptional sets.
 

@@ -120,39 +120,37 @@ public static class PassiveBuffAuras
 
     static Dictionary<ushort, Aura[]> Load(string folder, bool ruthless)
     {
-        string Table(string name) => Path.Combine(folder, "tables", $"{name}.json");
         var result = new Dictionary<ushort, Aura[]>();
-        if (new[] { "PassiveSkills", "BuffTemplates", "BuffDefinitions" }.Any(t => !ClientTables.Exists(Table(t)))) return result;
-        using var passives = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("PassiveSkills")));
-        using var templates = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("BuffTemplates")));
-        using var definitions = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("BuffDefinitions")));
+        if (new[] { "PassiveSkills", "BuffTemplates", "BuffDefinitions" }.Any(t => !ClientTables.Has(t))) return result;
+        var passives = ClientTables.Table("PassiveSkills");
+        var templates = ClientTables.Table("BuffTemplates");
+        var definitions = ClientTables.Table("BuffDefinitions");
         var cache = new Dictionary<int, Aura?>();
         Aura? Template(int row)
         {
             if (cache.TryGetValue(row, out var known)) return known;
             Aura? aura = null;
-            if (row >= 0 && row < templates.RootElement.GetArrayLength()
-                && templates.RootElement[row] is var t && t.GetProperty("Id").GetString() is { } id
-                && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } key
-                && key.GetInt32() is >= 0 and <= ushort.MaxValue and var definition && definition < definitions.RootElement.GetArrayLength())
+            if (row >= 0 && row < templates.Count
+                && templates[row] is var t && t.Text("Id") is { } id
+                && t.IntOrNull("BuffDefinitionsKey") is >= 0 and <= ushort.MaxValue and int definition && definition < definitions.Count)
             {
-                var granted = definitions.RootElement[definition].GetProperty("GrantedStats").EnumerateArray().Select(s => s.GetInt32()).ToList();
-                var values = t.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()).ToList();
+                var granted = definitions[definition].Ints("GrantedStats");
+                var values = t.Ints("Buff_StatValues");
                 // A template whose values do not line up with its definition's stats is left out rather than misapplied.
-                if (granted.Count == values.Count)
-                    aura = new(row, id, (ushort)definition, t.GetProperty("AuraRadius").GetInt32(),
-                        [.. t.GetProperty("__col4").EnumerateArray().Select(v => v.GetInt32())],
+                if (granted.Length == values.Length)
+                    aura = new(row, id, (ushort)definition, t.Int("AuraRadius"),
+                        [.. t.Ints("__col4")],
                         [.. granted.Zip(values, (stat, value) => ((uint)(stat + 1), value))]);
             }
             return cache[row] = aura;
         }
-        foreach (var row in passives.RootElement.EnumerateArray())
+        foreach (var row in passives)
         {
-            if (row.GetProperty("PassiveSkillGraphId").GetInt32() is not (> 0 and <= ushort.MaxValue and var node)) continue;
-            bool alternate = ruthless && row.TryGetProperty("HasHardmodeAlternate", out var hardmode) && hardmode.GetBoolean();
-            if (!row.TryGetProperty(alternate ? "BuffsHardmode" : "PassiveSkillBuffs", out var buffs)
-                || buffs.ValueKind != JsonValueKind.Array) continue;
-            if (buffs.EnumerateArray().Select(b => Template(b.GetInt32())).OfType<Aura>().ToArray() is { Length: > 0 } auras)
+            if (row.Int("PassiveSkillGraphId") is not (> 0 and <= ushort.MaxValue and var node)) continue;
+            bool alternate = ruthless && row.BoolOrNull("HasHardmodeAlternate") == true;
+            string column = alternate ? "BuffsHardmode" : "PassiveSkillBuffs";
+            if (!row.Has(column) || row.IsNull(column)) continue;
+            if (row.Ints(column).Select(Template).OfType<Aura>().ToArray() is { Length: > 0 } auras)
                 result.TryAdd((ushort)node, auras);
         }
         return result;

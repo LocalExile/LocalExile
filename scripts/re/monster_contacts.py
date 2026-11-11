@@ -20,13 +20,12 @@ import json, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ot_components import REPO, amd_map, animation_controller, extends_of, fetch, first_contact, read_text, rig_clips  # noqa: E402
 from anim_contacts import act_tokens, closing_brace  # noqa: E402
-
-TABLES = os.path.join(REPO, "data", "tables")
+import clientdb  # noqa: E402  (on the path through ot_components)
 NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*")
 
 
 def table(name):
-    return json.load(open(os.path.join(TABLES, name + ".json"), encoding="utf-8"))
+    return clientdb.table(name)
 
 
 def animation_keys():

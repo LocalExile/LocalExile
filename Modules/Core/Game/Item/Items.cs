@@ -612,6 +612,9 @@ public static partial class Game
         // A survivors run keeps the ground clear: no loot reaches the client at all.
         if (!GameEvents.AllowsLoot(conn)) return;
         conn.Instance.Ground.Observe(conn);
+        // The character's own unshared items, put down on an earlier connection (it left and came back), are its again.
+        if (conn.Character is not null) conn.Instance.Ground.Reassign(by => by is ClientState earlier
+            && string.Equals(earlier.Character, conn.Character, StringComparison.OrdinalIgnoreCase), conn);
         foreach (var (id, ground) in conn.Instance.Ground.All())
         {
             await SendGroundItem(remote, stream, ciphers, conn, id, ground,
@@ -717,7 +720,7 @@ public static partial class Game
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
-        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
+        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground, conn) is not { } id) return;
         await SendGroundItem(remote, stream, ciphers, conn, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
     }

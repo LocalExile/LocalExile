@@ -587,7 +587,7 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
 if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
 # The game data the servers read from the GGPK (data/game-files.zip, the local root hash): before they start. The client
-# tables and generated files come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
+# tables and the generated ones come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
 if (-not $NoExtract) {
     Step 'checking game data (a first run extracts it from the client, which takes a few minutes) ...'
     & (Join-Path $PSScriptRoot 'extract-data.ps1') -Servers

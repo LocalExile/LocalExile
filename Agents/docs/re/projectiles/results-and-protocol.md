@@ -283,7 +283,7 @@ The actual client world tables `0x1435da318` and `0x14346e0c8` bind `+0x1b0` to 
 return 1 + (world.byte984 == 2)
 ```
 
-[07 — network modes](../../protocol/07-latency-visibility-movement.md#6-lockstep-not-served-yet) identifies raw
+[07 — network modes](../../protocol/07-latency-visibility-movement.md#6-lockstep) identifies raw
 world `+0x984 == 2` as Lockstep.
 These concrete client getters therefore return 2 for that state and 1 otherwise, including ordinary Predictive.
 Neither returns zero; the getter result is not the same enumeration as the raw field.

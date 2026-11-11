@@ -135,12 +135,11 @@ public static class ItemCrafter
 
     static Dictionary<string, string> LoadClassNames(string folder)
     {
-        string path = Path.Combine(folder, "tables", "ItemClasses.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("ItemClasses")) return [];
+        var d = ClientTables.Table("ItemClasses");
         var names = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var r in d.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { Length: > 0 } id) names.TryAdd(id, r.GetProperty("Name").GetString() ?? id);
+        foreach (var r in d)
+            if (r.Text("Id") is { Length: > 0 } id) names.TryAdd(id, r.Text("Name") ?? id);
         return names;
     }
 

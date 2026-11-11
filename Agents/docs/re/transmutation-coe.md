@@ -50,23 +50,6 @@ The local client already marks the inspected Uber-map bases unmodifiable.
 Special CoE class overrides, unsupported grafts, influences, memory mechanics and other crafting systems are not added.
 Different RNGs and source data versions mean equal seeds are not expected to produce equal items.
 
-## Automated coverage
-
-`TransmutationTests` uses small synthetic tables to exercise base/class restrictions, missing bases/pools,
-both missing Mods checks, corrupted/mirrored/non-normal refusal, count frequencies, non-uniform weights,
-level/domain/tag/essence filtering, family exclusion, one-sided pools and preserved properties.
-The first admission run failed seven regressions against the old implementation before the fix.
-
-`TransmutationDataTests` checks representative supported native equipment, jewellery, jewels, maps and flasks.
-It also pins the two independently queried CoE pools.
-The initial branch refused generic `MapKey` bases because their component was not serializable.
-Upstream PR #351 supplied that serializer; after synchronizing to `b2737133`, the regression now checks that a generic
-map upgrades and serializes using upstream's implementation, without a currency-specific layout workaround.
-
-`TransmutationGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`.
-It checks inventory/stash currency and targets, exactly one orb spent, saved mod values after cache eviction,
-refused repeat use and unmodifiable-target refusal without spending.
-
 ## Real-client checks
 
 Verified on 2026-10-29 with the copied 3.29.3b client, launched only through `scripts/dev/live.ps1`.
@@ -88,7 +71,7 @@ This is framed bridge evidence, not a mouse/tooltip or native currency-writer/UI
 A read-only Frida probe observed `0x142208700` completing each upgrade's magic-properties read.
 The wand's wire flags were 57, the flask's 41, and the stored native rarity at ObjectMagicProperties +0x7c was 1.
 The client remained in an active area after the checks and relog.
-Shift and stash combinations have automated production-dispatch coverage; they were not rechecked natively here.
+Shift and stash combinations were not rechecked natively here.
 The bridge has no native currency UI operation; no unknown Shift-writer trailer or mouse input was invented.
 No official-server distribution parity or full manual UI verification is claimed.
 
