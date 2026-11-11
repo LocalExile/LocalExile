@@ -35,7 +35,7 @@ public static partial class Game
                     ? width / 10.869565 : 60 / 10.869565,
                 FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
                 SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
-                Nova = get("projectiles_nova") != 0
+                Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
             }
         };
     }

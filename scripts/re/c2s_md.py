@@ -3,12 +3,13 @@
 #   bash scripts/re/ghidra/g.sh SendSites.java 'C:\...\Tools\re\out\sendsites.json'
 # Also reads Tools/re/out/decomp-all (writer lengths), Tools/re/out/readschema.json (shared S->C classes) and
 # Client/Game.exe (vtable slots). Exits 1 if an exact length disagrees with the Gateway's KnownClientLength.
-import collections, json, os, re, struct, sys
+import argparse, collections, json, os, re, struct, sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 OUTDIR = os.path.join(REPO, "Tools", "re", "out")
-SRC = sys.argv[1] if len(sys.argv) > 1 else os.path.join(OUTDIR, "sendsites.json")
+DEFAULT_SENDSITES = os.path.join(OUTDIR, "sendsites.json")
 OUT = os.path.join(REPO, "Agents", "docs", "protocol", "c2s.md")
+SNAPSHOT = OUT[:-3] + ".json"
 EXE = os.path.join(REPO, "Client", "Game.exe")
 D = os.path.join(OUTDIR, "decomp-all")
 
@@ -57,12 +58,6 @@ HAND = [
     ("patch", 0x8, "0x1436496f8", "0x1428f3230", "u8 id, u16 length, bytes. The class is S→C 0xa's"),
 ]
 
-import pefile
-pe = pefile.PE(EXE, fast_load=True)
-data = open(EXE, "rb").read()
-def slot(vt, i):
-    return struct.unpack_from("<Q", data, pe.get_offset_from_rva(int(vt, 16) + 8 * i - pe.OPTIONAL_HEADER.ImageBase))[0]
-
 def src(a):
     p = os.path.join(D, a[2:5], "FUN_%s.c" % a)
     return open(p, encoding="utf-8", errors="replace").read() if os.path.exists(p) else None
@@ -79,32 +74,143 @@ def writer(fa):
     branch = re.search(r"\b(if|for|while|do)\b", body)
     return fixed, not var and not calls and not branch
 
-def gateway_lengths():
-    """KnownClientLength: id -> fixed length (the variable-length cases of SplitClientMessages are left out)."""
-    consts = {}
-    for root, _, fs in os.walk(os.path.join(REPO, "src")):
-        for f in fs:
-            if not f.endswith(".cs"): continue
-            t = open(os.path.join(root, f), encoding="utf-8").read()
-            cls = re.search(r"\b(?:class|struct)\s+(\w+)", t)
-            for m in re.finditer(r"const\s+(?:ushort|int|byte)\s+([^;]+);", t):
-                for part in m.group(1).split(","):
-                    kv = re.match(r"\s*(\w+)\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*$", part)
-                    if kv:
-                        consts[kv.group(1)] = int(kv.group(2), 0)
-                        if cls: consts[cls.group(1) + "." + kv.group(1)] = int(kv.group(2), 0)
-    val = lambda x: int(x, 0) if re.fullmatch(r"0x[0-9a-fA-F]+|\d+", x) else consts.get(x, consts.get(x.split(".")[-1]))
-    t = open(os.path.join(REPO, "src", "GameServer.Core", "Protocol", "Instance", "InstanceProtocol.cs"), encoding="utf-8").read()
-    table = t[t.index("KnownClientLength(ushort id) => id switch"):]
-    table = table[:table.index("};")]
-    out = {}
-    for k, l in re.findall(r"([\w.]+)\s*=>\s*([\w.]+)", table):
-        if k != "_" and val(k) is not None and val(l) is not None: out[val(k)] = val(l)
-    return out
+def gateway_framing():
+    """Read the fixed table and the instance IDs with their own framing."""
+    constants = {}
+    for root, _, files in os.walk(os.path.join(REPO, "src")):
+        for name in files:
+            if not name.endswith(".cs"):
+                continue
+            with open(os.path.join(root, name), encoding="utf-8") as source:
+                text = re.sub(r"//[^\n]*", "", source.read())
+            cls = re.search(r"\b(?:class|struct)\s+(\w+)", text)
+            if not cls:
+                continue
+            for declaration in re.findall(r"\bconst\s+(?:ushort|int|byte)\s+([^;]+);", text):
+                for part in declaration.split(","):
+                    pair = re.fullmatch(r"\s*(\w+)\s*=\s*(0x[0-9a-fA-F]+|\d+)\s*", part)
+                    if pair:
+                        constants[f"{cls[1]}.{pair[1]}"] = int(pair[2], 0)
+
+    def resolve(token):
+        if re.fullmatch(r"0x[0-9a-fA-F]+|\d+", token):
+            return int(token, 0)
+        qualified = token if "." in token else f"InstanceProtocol.{token}"
+        if qualified not in constants:
+            raise ValueError(f"cannot resolve Gateway constant {token}")
+        return constants[qualified]
+
+    protocol = os.path.join(REPO, "src", "GameServer.Core", "Protocol", "Instance", "InstanceProtocol.cs")
+    with open(protocol, encoding="utf-8") as source:
+        text = re.sub(r"//[^\n]*", "", source.read())
+
+    def section(start, end):
+        _, start_found, rest = text.partition(start)
+        body, end_found, _ = rest.partition(end)
+        if not (start_found and end_found):
+            raise ValueError(f"cannot locate {start} in InstanceProtocol")
+        return body
+
+    _, opening, table = section("KnownClientLength(ushort id) => id switch", "};").partition("{")
+    if not opening:
+        raise ValueError("cannot locate the KnownClientLength switch body")
+    fixed = {}
+    for part in table.split(","):
+        if not part.strip():
+            continue
+        arm = re.fullmatch(r"([\w.]+)\s*=>\s*([\w.]+)", part.strip())
+        if not arm:
+            raise ValueError(f"unsupported KnownClientLength arm {part.strip()}")
+        key, length = arm.groups()
+        if (key, length) == ("_", "null"):
+            continue
+        packet_id = resolve(key)
+        if packet_id in fixed:
+            raise ValueError(f"duplicate Gateway fixed length for {packet_id:#06x}")
+        fixed[packet_id] = resolve(length)
+
+    framers = section("int? known =", ": KnownClientLength(id);")
+    patterns = re.findall(r"(?m)^\s*:?\s*id\s+(?:==|is)\s+([\w.]+(?:\s+or\s+[\w.]+)*)\s*\?", framers)
+    if len(patterns) != len(re.findall(r"(?<!\?)\?(?!\?)", framers)):
+        raise ValueError("unsupported SplitClientMessages framing condition")
+    excluded = {resolve("TicketId"), resolve("HelloId")}
+    excluded.update(resolve(token) for pattern in patterns for token in re.split(r"\s+or\s+", pattern))
+    return fixed, excluded
 
 
-def main():
-    sites = json.load(open(SRC, encoding="utf-8"))["sites"]
+def compare_lengths(gateway, instance):
+    agree, bad, missing, nolen = 0, [], [], []
+    for packet_id, gateway_length in sorted(gateway.items()):
+        if packet_id not in instance:
+            missing.append(packet_id)
+        elif instance[packet_id] is None:
+            nolen.append(packet_id)
+        elif instance[packet_id] == gateway_length:
+            agree += 1
+        else:
+            bad.append((packet_id, gateway_length, instance[packet_id]))
+    return agree, bad, missing, nolen
+
+
+def snapshot_instance_lengths(rows):
+    """Use only the instance namespace and require evidence for each exact length."""
+    lengths = {}
+    for row in rows:
+        if row["protocol"] != "instance":
+            continue
+        packet_id = int(row["id"], 0)
+        if not 0 <= packet_id <= 0xffff or packet_id in lengths:
+            raise ValueError(f"invalid or duplicate instance ID {packet_id:#06x}")
+        length = row["length"]
+        if length is not None:
+            writers = row["classes"]
+            if row.get("inline"):
+                exact = not writers and length == 2
+            else:
+                exact = writers and all(c.get("exact") is True and c.get("fixed") == length for c in writers)
+            if type(length) is not int or length < 2 or not exact:
+                raise ValueError(f"invalid exact length for instance ID {packet_id:#06x}")
+        lengths[packet_id] = length
+    return lengths
+
+
+def emit_instance_candidates():
+    with open(SNAPSHOT, encoding="utf-8") as source:
+        instance = snapshot_instance_lengths(json.load(source))
+    gateway, excluded = gateway_framing()
+    agree, bad, missing, nolen = compare_lengths(gateway, instance)
+    print(f"{len(gateway)} Gateway fixed lengths: {agree} agree, {len(bad)} disagree, "
+          f"{len(missing)} missing, {len(nolen)} lack an exact snapshot length", file=sys.stderr)
+    for packet_id, gateway_length, snapshot_length in bad:
+        print(f"{packet_id:#06x}: Gateway {gateway_length}, snapshot {snapshot_length}", file=sys.stderr)
+    for packet_id in missing:
+        print(f"{packet_id:#06x}: absent from the instance snapshot", file=sys.stderr)
+    if nolen:
+        print("No exact snapshot length: " + ", ".join(f"{i:#06x}" for i in nolen), file=sys.stderr)
+    if bad or missing:
+        return 1
+
+    candidates = {i: n for i, n in instance.items() if n is not None and i not in excluded}
+    print(f"{len(candidates)} exact candidates, {len(candidates.keys() - gateway.keys())} outside the fixed table",
+          file=sys.stderr)
+    for packet_id, length in sorted(candidates.items()):
+        print(f"{packet_id:#06x} => {length},")
+    return 0
+
+
+def generate(sendsites):
+    import pefile
+
+    pe = pefile.PE(EXE, fast_load=True)
+    with open(EXE, "rb") as binary:
+        data = binary.read()
+
+    def slot(vt, i):
+        rva = int(vt, 16) + 8 * i - pe.OPTIONAL_HEADER.ImageBase
+        return struct.unpack_from("<Q", data, pe.get_offset_from_rva(rva))[0]
+
+    with open(sendsites, encoding="utf-8") as source:
+        sites = json.load(source)["sites"]
     s2c = collections.defaultdict(list)
     names = {"0x1421bc5b0": "instance", "0x1421ccac0": "world", "0x1421a2cc0": "login", "0x1428ff920": "patch"}
     for m in json.load(open(os.path.join(OUTDIR, "readschema.json"), encoding="utf-8"))["messages"]:
@@ -142,15 +248,9 @@ def main():
         rows.append(r)
 
     # Validation against the Gateway's hand table.
-    gw = gateway_lengths()
-    inst = {r["id"]: r for r in rows if r["protocol"] == "instance"}
-    agree, bad, missing, nolen = 0, [], [], []
-    for i, n in sorted(gw.items()):
-        r = inst.get(i)
-        if r is None: missing.append(i); continue
-        if r["length"] is None: nolen.append(i); continue
-        if r["length"] == n: agree += 1
-        else: bad.append((i, n, r["length"]))
+    gw, _ = gateway_framing()
+    inst = {r["id"]: r["length"] for r in rows if r["protocol"] == "instance"}
+    agree, bad, missing, nolen = compare_lengths(gw, inst)
 
     L = ["# Client → server messages (generated)", "",
          "Generated by `scripts/re/ghidra/SendSites.java` and `python -I scripts/re/c2s_md.py`. Do not edit by hand.",
@@ -198,10 +298,27 @@ def main():
         L.append("")
     open(OUT, "w", encoding="utf-8", newline="\n").write("\n".join(L))
     for r in rows: r["id"] = hex(r["id"])
-    json.dump(rows, open(OUT[:-3] + ".json", "w", encoding="utf-8", newline="\n"), ensure_ascii=False, indent=0)
+    json.dump(rows, open(SNAPSHOT, "w", encoding="utf-8", newline="\n"), ensure_ascii=False, indent=0)
     cnt = collections.Counter(r["protocol"] for r in rows)
     print(f"{OUT}: {dict(cnt)}; Gateway lengths {agree} agree, {len(bad)} disagree, {len(missing)} missing")
     return 1 if bad or missing else 0
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate the C-to-S inventory or list exact instance length candidates.")
+    parser.add_argument("sendsites", nargs="?", help="Ghidra SendSites JSON input for regenerating the inventory")
+    parser.add_argument("--instance-length-candidates", action="store_true",
+                        help="audit the checked-in snapshot and emit C# switch arms without the client")
+    args = parser.parse_args()
+    if args.instance_length_candidates:
+        if args.sendsites is not None:
+            parser.error("sendsites is only used for regenerating the inventory")
+        try:
+            return emit_instance_candidates()
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            print(f"c2s_md: {error}", file=sys.stderr)
+            return 1
+    return generate(args.sendsites or DEFAULT_SENDSITES)
 
 
 if __name__ == "__main__":

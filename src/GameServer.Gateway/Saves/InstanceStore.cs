@@ -94,17 +94,21 @@ public sealed partial class InstanceState
         lock (_states) return _states.Contains(state);
     }
 
-    readonly HashSet<(int X, int Y)> _openedChests = [];
+    readonly HashSet<(int X, int Y, string? Owner)> _openedChests = [];
 
     /// <summary>Opens the quest chest standing at this cell (a Rhoa Nest): true the first time in this instance.</summary>
-    public bool OpenChest(int x, int y)
+    public bool OpenChest(int x, int y) => OpenChest(x, y, null);
+
+    public bool OpenChest(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Add((x, y));
+        lock (_openedChests) return _openedChests.Add((x, y, owner));
     }
 
-    public bool ChestOpened(int x, int y)
+    public bool ChestOpened(int x, int y) => ChestOpened(x, y, null);
+
+    public bool ChestOpened(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Contains((x, y));
+        lock (_openedChests) return _openedChests.Contains((x, y, owner));
     }
 
     readonly HashSet<(string Type, int X, int Y)> _transitioned = [];

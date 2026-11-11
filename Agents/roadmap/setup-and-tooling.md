@@ -10,8 +10,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Standard startup must preserve the installed 3.29.3c client archive.
   Any client archive mutation requires separate maintainer agreement; automatic graph installation is not approved.
   Analysis artifacts alone provide no installed gameplay support or native proof.
-- Generate the Gateway's C→S length table from [c2s.md](../docs/protocol/c2s.md) (285 ids with an exact length;
-  `KnownClientLength` has 66).
+- Integrate the reviewed C→S length candidates into the Gateway after native verification.
+  The [offline export](../docs/re/tooling.md) audits the current table and lists candidates from the checked-in inventory.
   `SplitClientMessages` drops the rest of a read at an unknown id, so every message after it in that read is lost.
 - Mods: the rest after the [mod host](../status/setup-and-tooling.md) ([modding](../docs/dev/modding.md)).
   Catalog overrides (a mod replacing rows of the Gateway's catalogs) are the hook the host does not have yet.
