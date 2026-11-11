@@ -80,8 +80,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Program.Items.cs` (`ClusterJewelSocketed`, `ClusterNodeBudget`, `CreateClusterJewel`, `CreateVoices`),
   `ClusterJewelStats.cs`, Gateway (`ChangeClusterPassive`). Docs: [cluster-jewels](../docs/game/cluster-jewels.md).
 
-- Timeless jewels (Legion; server and live client check 2026-10-29): `/timeless <name> [displayed seed] [conqueror]`
-  creates the six unique jewels with the client's `UniqueJewelAlternateTreeInRadius*` mod. The client itself draws the
+- Timeless jewels roll a faction seed and current conqueror in ordinary unique generation.
+  `/timeless <name> [displayed seed] [conqueror]` creates the six unique jewels with the client's `UniqueJewelAlternateTreeInRadius*` mod. The client itself draws the
   conquered radius from those stats; the server reproduces the same alternate tree with the TinyMT32 generator, the
   `AlternateTreeVersions` flags, `AlternatePassiveSkills` and `AlternatePassiveAdditions`, and applies replacement or
   added stats to allocated ordinary nodes in the fixed 0..1500 radius. The RNG and generated values match Path of
@@ -152,13 +152,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Impossible Escape (generated special): `/impossible_escape <keystone>|list` creates the 48-variant Viridian Jewel
   (Small, limit 1, corrupted). The item mod stores the keystone's `PassiveSkillGraphId` and display base radius 800;
   the effect radius is Path of Building 3_16's Small **960**. Legacy items with the Maven table row are migrated on
-  load. `AllocationBypassNodes` uses the allocated keystone as the centre and the jewel socket as provider. Live: Versatile Combatant (row 2444,
-  graph 50679) drew the client ring; node 29547 (Life Leech, 293 units away) was accepted without a path, pickup was
-  refused until it was refunded, then both were removed. Supreme Ego (row 2312, graph 49639) showed no ring until the
-  keystone was allocated; after allocation the ring appeared and Dire Torment (9015) next to it was accepted.
-  Replenishing Remedies (50690, 953.7 units from Supreme Ego) is inside the client ring and is now accepted too. The
-  command now warns when the chosen keystone is not allocated; the five legacy row-valued items were migrated on load
-  and their tooltips now show Supreme Ego/Versatile Combatant. Rational Doctrine (`/unique_jewel`) creates
+  load. The allocated socket grants disconnected passives around the named keystone, excluding the keystone itself.
+  A live Witch allocated Dire Torment (9015) without taking Supreme Ego (49639). Earlier client checks also placed
+  Replenishing Remedies (50690) within the ring and refused pickup while a disconnected node depended on the jewel. Rational Doctrine (`/unique_jewel`) creates
   consecrated ground while stationary with Strength highest and profane ground on a critical strike with Intelligence
   highest; both effects linger for 4 seconds, and hits against enemies on profane ground have 100% increased critical
   chance. The profane-ground debuff and its critical-chance consumer have automated coverage. Live 2026-11-01 (the

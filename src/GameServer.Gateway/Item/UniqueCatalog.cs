@@ -112,6 +112,15 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
+        if (definition.BaseTypeId == TimelessJewelCatalog.BaseId)
+        {
+            var legion = TimelessJewelCatalog.All.FirstOrDefault(entry => entry.Name == definition.Name);
+            if (legion is null || legion.Conquerors.Length == 0) return null;
+            var conqueror = legion.Conquerors[random.Next(legion.Conquerors.Length)];
+            var seeded = TimelessJewelCatalog.Create(items, legion.Name, conquerorIndex: conqueror.Index,
+                folder: folder, random: random);
+            return seeded is null ? null : item with { Mods = seeded.Mods };
+        }
         var mods = item.Mods.ToList();
         if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
         {
