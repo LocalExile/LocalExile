@@ -91,7 +91,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
-- Conditional item gates include flat Mana costs, qualified equipment counts and maximum block; other consumers are partial.
+- Conditional item gates include flat Mana costs, equipment counts, maximum block and Travel recovery per Frenzy Charge.
+  Other consumers remain partial.
   Docs: [13](../docs/protocol/13-items.md).
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling and Instilling enchantments; incoming Bleed and Poison sources are absent.

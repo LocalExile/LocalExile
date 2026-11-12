@@ -34,6 +34,16 @@ public static partial class Game
         var own = supported.Stats;
         if (skills.EffectId(effect) is "Convocation" or "ConvocationOld" && Stats.Key("base_cooldown_speed_+%") is uint recovery)
             own = new(own) { [recovery] = own.GetValueOrDefault(recovery) + GolemStat(player, "convocation_cooldown_speed_+%") };
+        // There is no plain Travel-recovery stat: fold the scoped coefficient into this skill's own input.
+        // The published standard count includes minimum charges and excludes converted Affliction Charges.
+        if (skills.IsTravel(effect) && Stats.Key("base_cooldown_speed_+%") is uint travelRecovery)
+        {
+            long coefficient = (long)GolemStat(player, "travel_skills_cooldown_speed_+%_per_frenzy_charge")
+                + GolemStat(own, "travel_skills_cooldown_speed_+%_per_frenzy_charge");
+            if (coefficient != 0)
+                own = new(own) { [travelRecovery] = ActorScale.Saturate((long)own.GetValueOrDefault(travelRecovery)
+                    + coefficient * Math.Max(0, GolemStat(player, "current_frenzy_charges"))) };
+        }
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, player, own) is not { } plan) return null;
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(conn))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
