@@ -82,7 +82,9 @@ public sealed class SpellTotemExecutionTests
                 conn.Monsters[900] = new("spark-target", new(120, 20, 0), 0, 0, 10000);
                 var actions = new List<byte>();
                 Game.TickSpellTotemsLocked("spark-totem", wire.Stream, wire.Ciphers, conn, actions);
-                session.AdvanceTo(ProjectileRuntime.Time(2));
+                // Inspect the release itself. By two seconds a random Spark can already have hit or expired.
+                Assert.True(totem.NextCast > 0);
+                session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
                 var emitted = session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == 777).ToArray();
                 Assert.NotEmpty(emitted);
                 Assert.All(emitted, p => { Assert.NotNull(p.Profile.Legs); Assert.Equal(150, p.Profile.LegLeash);
