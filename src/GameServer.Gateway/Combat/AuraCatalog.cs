@@ -11,7 +11,7 @@ public static class AuraCatalog
         int ManaFlat, int ManaPercent, int LifeFlat = 0, int LifePercent = 0, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
         WornGrantedSkills.Grant? WornGrant = null, IReadOnlyList<(uint Key, int Value)>? SkillStats = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
-        bool ReservesLife = false, int ReservationEfficiencyPct = 0)
+        bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false)
     {
         public object? StanceOwner { get; init; }
     }
@@ -449,7 +449,7 @@ public static class AuraCatalog
                 {
                     if (stats.Key(name) is not uint key) return;
                     int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
-                        IsHerald(aura.EffectId) ? heraldEffectPct : 0);
+                        aura.IsHerald ? heraldEffectPct : 0);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
                 }
             }
@@ -457,9 +457,6 @@ public static class AuraCatalog
         }
         return result.Select(kv => (kv.Key, kv.Value));
     }
-
-    // "Herald of Ash"/"Herald of Ice"/"Herald of Thunder"/"Herald of Purity"/"Herald of Agony".
-    static bool IsHerald(string effectId) => effectId.StartsWith("Herald", StringComparison.Ordinal);
 
     private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct,
         int extraEffectPct = 0)

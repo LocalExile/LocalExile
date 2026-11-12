@@ -174,7 +174,7 @@ public static partial class Game
                     {
                         int walkAction = 0;
                         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                            CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                            CooldownForSkill(conn, use.SkillId), false,
                             () => { at = Math.Max(at, ProjectileWorldTime(conn)); walkAction = Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
                         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
@@ -215,7 +215,7 @@ public static partial class Game
                 }
                 if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
                 {
-                    if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at))
+                    if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at, flags: use.Flags))
                     {
                         Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: Dash refused before action admission " +
                             $"at ({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
@@ -259,7 +259,7 @@ public static partial class Game
                     else if (flicker && flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
                     else if (gem.Name is not null && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)) && LandsAtAim(conn, gem.Effect))
                     {
-                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
+                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         conn.Walk.Teleport(landing.X, landing.Y, at);
                     }
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
@@ -277,7 +277,7 @@ public static partial class Game
                 if (cast && gem.Name is not null)
                 {
                     if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                        CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+                        CooldownForSkill(conn, use.SkillId),
                         false, StartAction, out cooldownUse, requestedAt: at, admit: flicker ? FlickerAdmit : null))
                     {
                         if (noFlickerTarget) await FlickerRefused(remote, stream, ciphers, conn, gem.Name);
@@ -306,11 +306,15 @@ public static partial class Game
                     (px, py), (use.X, use.Y), sequence: use.Slot, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
                 Mark("cast");
                 bool acknowledged = false;
-                Func<Task> echo = () => Send(remote, stream, ciphers,
+                Func<Task> echo = async () =>
+                {
+                    await Send(remote, stream, ciphers,
                     [.. InstanceProtocol.ActionStarted(PlayerId, px, py, use.X, use.Y, use.SkillId, use.Slot, use.Flags), .. cast ? InstanceProtocol.ActionEnded(PlayerId) : []],
                     $"0x01ab action started {use} at ({px}, {py}){(cast ? " (gem skill cast)" : $", walk ends at {conn.Walk.Destination} in {conn.Walk.ArrivesAt - at:0.00} s")} (t={at:0.000})",
                     still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                         () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+                    if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+                };
                 if (projectileRuntime) ProjectilesFor(remote, stream, ciphers, conn).Enqueue(echo);
                 else await echo();
                 Mark("echo");

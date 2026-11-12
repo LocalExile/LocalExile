@@ -87,11 +87,6 @@ public static partial class Game
         return [.. bytes];
     }
 
-    /// <summary>How far a skill that travels a set distance along the aimed line goes, whatever the target's distance
-    /// (live 2026-11-01; no stat carries it); 0 for one that goes to the aimed cell.</summary>
-    static int TravelCells(string? effect) =>
-        effect is null ? 0 : effect.StartsWith("WhirlingBlades", StringComparison.Ordinal) ? 40
-            : IsDashEffect(effect) ? 33 : 0;
 
     // ActiveSkillType Movement also covers these, which leave the player where it stands when used: the estimate must stay
     // too, or a resync would teleport the client to the aimed cell.
@@ -102,14 +97,24 @@ public static partial class Game
         SkillsFor(conn).IsMovement(effect) && !SkillsFor(conn).IsChannelled(effect)
         && !(SkillsFor(conn).EffectId(effect) is { } id && MovementInPlace.Any(name => id.StartsWith(name, StringComparison.Ordinal)));
 
-    /// <summary>Where a movement skill ends: the aimed cell, or the last walkable cell of the line to it. One that travels a
-    /// set distance goes on past the target and stops at the first cell it cannot walk.</summary>
-    public static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim)
+    public static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim) =>
+        MovementLanding(conn, effect, from, aim, 0, 0);
+
+    static (int X, int Y) MovementLanding(ClientState conn, int effect, (int X, int Y) from, (int X, int Y) aim, ushort skill, ushort flags)
     {
         if (conn.Layout.Walkable is not { } floor) return aim;
         bool walkable(int x, int y) => floor(x, y) && !conn.Barrier.Contains((x, y));
-        if (TravelCells(SkillsFor(conn).EffectId(effect)) is > 0 and var cells && aim != from)
+        string? id = SkillsFor(conn).EffectId(effect);
+        if (id is "Dash" or "DashHardMode")
         {
+            const string distanceStat = "skill_travel_distance_+%";
+            int travel = GolemStat(CharacterPlayerStats(conn), distanceStat);
+            if (skill != 0) travel += GolemStat(SupportedSkill(conn, skill).Stats, distanceStat);
+            return DashLanding(conn.Layout, conn.Barrier, from, aim, travel, (flags & 1) != 0);
+        }
+        if (id?.StartsWith("WhirlingBlades", StringComparison.Ordinal) == true && aim != from)
+        {
+            const int cells = 40;
             double f = cells / Math.Sqrt((double)(aim.X - from.X) * (aim.X - from.X) + (double)(aim.Y - from.Y) * (aim.Y - from.Y));
             var end = ((int)Math.Round(from.X + (aim.X - from.X) * f), (int)Math.Round(from.Y + (aim.Y - from.Y) * f));
             var last = from;
@@ -125,10 +130,48 @@ public static partial class Game
         return from;
     }
 
-    // Dash uses its ordinary 33-cell landing and resync path. Resolve it before payment and commit it in the same
+    // Dash crosses open gaps. Only the landing needs walking clearance. If the direct landing fails,
+    // the native fallback keeps the last standable cell until its stricter sight test fails (07 §5).
+    public static (int X, int Y) DashLanding(AreaLayout layout, IReadOnlySet<(int X, int Y)> barriers,
+        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse)
+    {
+        if (from == aim) return from;
+        float dx = (float)aim.X - from.X, dy = (float)aim.Y - from.Y;
+        long distance = Math.Max(0L, 30L * (100L + travelPercent) / 100);
+        float scale = distance / MathF.Sqrt(dx * dx + dy * dy);
+        int direction = reverse ? -1 : 1;
+        var end = (X: from.X + direction * (int)MathF.Floor(dx * scale + .5f),
+                   Y: from.Y + direction * (int)MathF.Floor(dy * scale + .5f));
+        bool floor(int x, int y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH
+            && layout.WalkableFor(x, y, 1) && !barriers.Contains((x, y));
+        var last = from;
+        if (layout.Sight is not { } sight)
+        {
+            foreach (var cell in ClientPathfinder.Line(from, end))
+            {
+                if (!floor(cell.X, cell.Y)) break;
+                last = cell;
+            }
+            return last;
+        }
+
+        bool direct = floor(end.X, end.Y);
+        bool fallback = true;
+        foreach (var cell in ClientPathfinder.Line(from, end))
+        {
+            int clearance = sight(cell.X, cell.Y);
+            if (clearance < 1 || barriers.Contains(cell)) return last;
+            fallback &= clearance >= 2;
+            if (fallback && floor(cell.X, cell.Y)) last = cell;
+            if (!fallback && !direct) break;
+        }
+        return direct ? end : last;
+    }
+
+    // Resolve Dash through the current terrain-aware landing before payment and commit it in the same
     // admission transaction: a blocked endpoint or a stale action cannot displace the player without a paid use.
     public static bool TryDashLanding(ClientState conn, int effect, (int X, int Y) aim,
-        out (int X, int Y) from, out (int X, int Y) to, double? acceptedAt = null)
+        out (int X, int Y) from, out (int X, int Y) to, double? acceptedAt = null, ushort skill = 0, ushort flags = 0)
     {
         to = from = default;
         if (!IsDashEffect(SkillsFor(conn).EffectId(effect)) || !SkillsFor(conn).IsTravel(effect)
@@ -139,11 +182,11 @@ public static partial class Game
             return false;
         double now = acceptedAt ?? ProjectileWorldTime(conn);
         from = conn.Walk.Position(now);
-        // Bound the raw client aim before MovementLanding subtracts coordinates or projects the 33-cell vector.
+        // Bound the raw client aim before MovementLanding subtracts coordinates or projects the native distance.
         if (aim == from || aim.X < 0 || aim.Y < 0 || aim.X >= conn.Layout.GridW || aim.Y >= conn.Layout.GridH
             || from.X < 0 || from.Y < 0 || from.X >= conn.Layout.GridW || from.Y >= conn.Layout.GridH
             || !walkable(from.X, from.Y) || conn.Barrier.Contains(from)) return false;
-        var landing = MovementLanding(conn, effect, from, aim);
+        var landing = MovementLanding(conn, effect, from, aim, skill, flags);
         to = landing;
         if (landing == from || landing.X < 0 || landing.Y < 0 || landing.X >= conn.Layout.GridW
             || landing.Y >= conn.Layout.GridH || !walkable(landing.X, landing.Y) || conn.Barrier.Contains(landing))

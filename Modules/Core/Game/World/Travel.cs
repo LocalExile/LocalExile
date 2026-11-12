@@ -70,7 +70,7 @@ public static partial class Game
             double at = conn.Clock.Elapsed.TotalSeconds;
             (int X, int Y) self = default;
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
                 () =>
                 {
                     Interlocked.Increment(ref conn.ActionCount);

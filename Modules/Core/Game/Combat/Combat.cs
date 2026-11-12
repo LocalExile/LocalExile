@@ -631,7 +631,7 @@ public static partial class Game
             double arrive = now;
             bool atOnce = false;
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                CooldownForSkill(conn, use.SkillId), false,
                 () =>
                 {
                     now = ProjectileWorldTime(conn);
@@ -670,7 +670,7 @@ public static partial class Game
                 return;
             }
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                CooldownForSkill(conn, use.SkillId), false,
                 () => { }, out var cooldownUse, actionToken: action))
             {
                 LockstepAttackOver(conn, action);
@@ -691,6 +691,7 @@ public static partial class Game
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on monster 0x{use.TargetId:x} ({m.Label}) from ({stop.X}, {stop.Y}) to ({target.X}, {target.Y}), flags 0x{use.Flags:x4} (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+            if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
             if (!projectileRuntime && !acknowledged) return;
             if (!projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target, use.TargetId, sequence: use.Sequence,
                 actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
@@ -705,7 +706,7 @@ public static partial class Game
         {
             (int X, int Y) dashAim;
             lock (conn.Monsters) dashAim = m.Walk.Position(ProjectileWorldTime(conn));
-            if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, dashAim, out var dashUse, requestedAt))
+            if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, dashAim, out var dashUse, requestedAt, flags: use.Flags))
             {
                 Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: Dash refused before object admission");
                 return;
@@ -740,7 +741,7 @@ public static partial class Game
             return !noFlickerTarget;
         }
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-            gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+            gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
             () =>
             {
                 castAt = ProjectileWorldTime(conn);
@@ -757,7 +758,7 @@ public static partial class Game
                 }
                 else if (moves && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
                 {
-                    landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    landing = MovementLanding(conn, gem.Effect, stand, aim, use.SkillId, use.Flags);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
             }, out var spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null))
@@ -782,6 +783,7 @@ public static partial class Game
                 $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
         }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
+        if (spellAcknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, struckId,
@@ -797,6 +799,7 @@ public static partial class Game
         SingleUseCooldownState Cooldown, int UseVersion, uint ManaCost, uint LifeCost)
     {
         bool paymentPublished, completed, nativeCommitted;
+        public IReadOnlyList<(SingleUseCooldownState State, int Version, ushort Skill)> SharedUses { get; init; } = [];
 
         public bool Matches(ushort skillId, int effect) => SkillId == skillId && Effect == effect;
 
@@ -827,6 +830,8 @@ public static partial class Game
             {
                 if (nativeCommitted || !CurrentLocked(conn)) return false;
                 Cooldown.ConfirmNativeUse(UseVersion, SkillId, synchronizeProgress: false);
+                foreach (var (state, version, skill) in SharedUses)
+                    state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
                 nativeCommitted = true;
                 return true;
             }
@@ -870,7 +875,7 @@ public static partial class Game
     // accepted use. Resolve the exact current source, landing, readiness and cost first; only then spend cooldown and
     // resources and commit displacement plus its original-time recents in the same Monsters critical section.
     public static bool TryCommitDashUse(ClientState conn, ushort skillId, int effect, (int X, int Y) aim,
-        out DashUseReceipt? receipt, double? requestedAt = null, bool beginAction = true)
+        out DashUseReceipt? receipt, double? requestedAt = null, bool beginAction = true, ushort flags = 0)
     {
         receipt = null;
         using (ProjectileMutation(conn))
@@ -882,28 +887,29 @@ public static partial class Game
                 return false;
             var source = CurrentDashSourceLocked(conn, skillId, effect, out var supported);
             if (source is null) return false;
-            var cooldown = CooldownFor(conn, effect, supported.Level, supported.Quality);
+            var cooldown = CooldownPlan(conn, supported, CharacterPlayerStats(conn));
             int key = CooldownKey(conn, effect, skillId);
             double acceptedAt = ProjectileWorldTime(conn);
-            if (!TryDashLanding(conn, effect, aim, out var from, out var to, acceptedAt)) return false;
+            if (!TryDashLanding(conn, effect, aim, out var from, out var to, acceptedAt, skillId, flags)) return false;
 
-            conn.SingleUseCooldowns.TryGetValue(key, out var state);
-            state?.Refresh(acceptedAt, cooldown?.RecoveryRate ?? state.Rate);
-            if (cooldown is not { } plan || state is not null && !state.Ready
+            if (cooldown is not { } plan || !CanPaySkillCost(conn, skillId)) return false;
+            var state = CooldownStateLocked(conn, key, plan, acceptedAt);
+            if (!state.Ready
                 || acceptedAt < conn.SkillReadyAt.GetValueOrDefault(key))
                 return false;
+            var peers = SharedCooldownPeers(conn, effect, key, plan, acceptedAt);
             if (!PayMana(conn, skillId, out uint manaCost, out uint lifeCost)) return false;
 
             // Nothing below can refuse: payment, cooldown use, action, displacement and recents are one commit.
-            state = CooldownStateLocked(conn, key, plan, acceptedAt);
             _ = state.TryUse(acceptedAt, plan);
             conn.SkillReadyAt[key] = acceptedAt + state.RemainingSeconds;
+            var sharedUses = SpendSharedCooldownPeers(conn, key, effect, skillId, plan, acceptedAt, peers);
             int action = beginAction ? Interlocked.Increment(ref conn.ActionCount) : conn.ActionCount;
             if (beginAction) conn.Walk.Order(from.X, from.Y, acceptedAt);
             conn.Walk.Teleport(to.X, to.Y, acceptedAt);
             RecordAcceptedGemUseAt(conn, effect, acceptedAt);
             receipt = new(conn, CombatLifetime!, skillId, effect, source.Identity, action, conn.ProjectileEpoch,
-                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost);
+                acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost) { SharedUses = sharedUses };
             return true;
         }
     }
@@ -1021,7 +1027,7 @@ public static partial class Game
             }
             if (!Current()) return false;
         }
-        else if (gem.Name is not null && CooldownFor(conn, gem.Effect, gem.Level, gem.Quality) is not null)
+        else if (gem.Name is not null && CooldownForSkill(conn, skillId) is not null)
             return false;
         // Multi-use and unsupported cooldown mechanics retain their existing raw-deadline behavior.
         else if (gem.Name is not null && SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) is int cooldown and > 0)
@@ -1280,7 +1286,7 @@ public static partial class Game
             if (!conn.ProjectileActive(epoch) || conn.Paused || !conn.PlayerSent || conn.PendingTransfer is not null) return;
         }
         if (!TryBeginSkillCooldownUse(conn, skillId, gem.Effect,
-            CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+            CooldownForSkill(conn, skillId),
             true, () => { }, out var cooldownUse)) return;
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
         {
@@ -1336,7 +1342,7 @@ public static partial class Game
             else if (!InstantLocationSkill.TryResolve(conn, epoch, aim, InTown(conn), CurrentStats(), out from, out to)) return;
         }
         if (!TryBeginSkillCooldownUse(conn, skillId, gem.Effect,
-            CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+            CooldownForSkill(conn, skillId),
             true, () => { }, out var cooldownUse)) return;
         if (!await CastGemSkill(remote, stream, ciphers, conn, skillId, from, to, cooldownUse: cooldownUse, locationInstant: true)) return;
         bool accepted = false;
@@ -1421,7 +1427,7 @@ public static partial class Game
                     SourceBuff: conn.NextBuff++, WornGrant: supported.WornGrant,
                     SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency);
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId));
                 var proposedAuras = conn.Auras.Values.Append(aura).ToArray();
                 long reserved = (long)AuraCatalog.RequiredMana(conn.Pools, proposedAuras)
                     + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
@@ -2783,10 +2789,14 @@ public static partial class Game
             RecoverOnKill(conn, m);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
             bool corpseConsumed;
-            lock (conn.Monsters) corpseConsumed = ConsumeCorpseOnKillLocked(conn, id, m, now);
-            await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
-            if (corpseConsumed)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+            lock (conn.Monsters)
+            {
+                now = conn.Clock.Elapsed.TotalSeconds;
+                corpseConsumed = ConsumeCorpseOnKillLocked(conn, id, m, now);
+            }
+            bool explodedCorpse = await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
+            if (corpseConsumed && !explodedCorpse)
+                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id,
                     $"0x02bd corpse 0x{id:x} ({m.Label}) consumed by the killing blow");
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.

@@ -2632,8 +2632,12 @@ public partial class ConditionalItemStatsTests
                 lock (conn.Monsters)
                 {
                     int key = global::Game.CooldownKey(conn, effect, level);
-                    conn.SingleUseCooldowns.Remove(key);
-                    conn.SkillReadyAt.Remove(key);
+                    foreach (int peer in conn.CooldownGroups.Where(p => p.Value == 9).Select(p => p.Key).Append(key).Distinct().ToArray())
+                    {
+                        conn.SingleUseCooldowns.Remove(peer);
+                        conn.SkillReadyAt.Remove(peer);
+                        conn.CooldownGroups.Remove(peer);
+                    }
                 }
             }
             int CooldownVersion() => conn.SingleUseCooldowns.Values.Sum(s => s.UseVersion);
@@ -3363,8 +3367,10 @@ public partial class ConditionalItemStatsTests
             Assert.Equal(2, purities.Length);
             var gemOwned = purities.Single(g => global::Game.SupportedSkill(gemOwner, g.Id).WornGrant is null);
             Assert.Single(purities, g => global::Game.SupportedSkill(gemOwner, g.Id).WornGrant is not null);
+            Assert.True(global::Game.TryBeginSkillCooldownUse(gemOwner, gemOwned.Id, gemOwned.Effect,
+                global::Game.CooldownForSkill(gemOwner, gemOwned.Id), false, () => { }, out var gemAuraUse));
             Assert.True(global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, gemOwner, gemOwned.Id,
-                (0, 0), (0, 0)).GetAwaiter().GetResult());
+                (0, 0), (0, 0), cooldownUse: gemAuraUse).GetAwaiter().GetResult());
             Assert.Null(Assert.Single(gemOwner.Auras.Values,
                 a => a.EffectId == "PurityOfLightning").WornGrant);
             uint gemOwnerMana = gemOwner.PlayerMana;

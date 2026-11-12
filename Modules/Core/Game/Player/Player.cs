@@ -71,7 +71,8 @@ public static partial class Game
                     Level: supported.Level, Quality: supported.Quality, SourceBuff: conn.NextBuff++,
                     WornGrant: supported.WornGrant, SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency);
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
+                    IsHerald: IsHeraldAura(effectId));
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }

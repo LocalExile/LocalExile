@@ -39,7 +39,7 @@ public static partial class Game
         }
         // Tattoos are saved apart from allocation, so refunding the node must remove its trigger: only allocated nodes
         // count. A timeless jewel that replaces an allocated node disables its tattoo in the stat pass; its trigger
-        // stops with it.
+        // stops with it, while an augmenting or unaffected node in the radius keeps its tattoo and trigger.
         var allocatedNodes = allocated.ToHashSet();
         var replaced = new HashSet<ushort>();
         var catalog = ItemsFor(conn);
@@ -47,7 +47,11 @@ public static partial class Game
         {
             if (tree.JewelNodeForSlot(jewel.X) is not { } socket || !allocatedNodes.Contains(socket)) continue;
             if (TimelessJewelCatalog.Read(jewel.Item, catalog.Mods) is not { } spec) continue;
-            replaced = [.. tree.NodesInRadius(socket, spec.Radius)];
+            var inRadius = tree.NodesInRadius(socket, spec.Radius).ToHashSet();
+            foreach (ushort node in allocatedNodes)
+                if (inRadius.Contains(node) && tree.Find(node) is { } passive
+                    && TimelessJewels.Alternate(passive, spec, node) is { Replaces: true })
+                    replaced.Add(node);
             break;
         }
         foreach (var (node, name) in tattoos)

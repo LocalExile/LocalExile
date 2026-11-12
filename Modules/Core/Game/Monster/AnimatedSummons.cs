@@ -84,7 +84,7 @@ public static partial class Game
         var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId);
         if (skill.Name is null || SummonData.Find(SkillsFor(conn).EffectId(skill.Effect)) is not { Family: "AnimatedWeapon" or "AnimatedGuardian" }) return false;
         var here = conn.Walk.Position(AreaTime(conn)); var aim = (ground.GridX, ground.GridY);
-        if (!TryBeginSkillCooldownUse(conn, use.SkillId, skill.Effect, CooldownFor(conn, skill.Effect, skill.Level, skill.Quality), false,
+        if (!TryBeginSkillCooldownUse(conn, use.SkillId, skill.Effect, CooldownForSkill(conn, use.SkillId), false,
             () => { Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(here.X, here.Y, AreaTime(conn)); }, out var accepted, requestedAt: requestedAt)) return true;
         bool acknowledged = false;
         await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () =>

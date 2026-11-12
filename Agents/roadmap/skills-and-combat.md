@@ -263,7 +263,7 @@ remaining native checks are recorded in [the port record](../docs/dev/issue75-po
 - **Impale:** conditional weapon/Pride chance, extra applications and consumption overrides, Impaler mechanics,
   native count/visual publication, corpse consumers and official duration rounding ([20](../docs/protocol/20-damage.md)
   §3a).
-- **Cooldowns:** multi-use recharge, shared groups, typed/conditional/more recovery and official tick boundaries
+- **Cooldowns:** remaining stored-use sources, conditional recovery modifiers and official tick boundaries
   ([11](../docs/protocol/11-skills.md) §9).
 - **Attack timing:** an attack longer than its clip stretches the clip's slow span, which `AttackContactDelay` does not
   model; the arrow arrives about 25 ms after the muzzle flash, with a fixed 60 ms lead tuned on localhost rather than

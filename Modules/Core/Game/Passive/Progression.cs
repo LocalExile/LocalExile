@@ -332,6 +332,12 @@ public static partial class Game
                     nodeStats[node] = !tattooActive ? [] : name == "Journey Tattoo of Makanui"
                         ? tattooStats : TattooEffect(node, tattooStats);
                 }
+        // A random tattoo's pick replaces its node's stats with the granted passive's. If that passive is also
+        // allocated on the tree, its own node would add the same stats a second time: the granted node keeps none.
+        foreach (var (node, _) in tattoos)
+            if (allocated.Contains(node) && tattooKeystones.TryGetValue(node, out ushort granted)
+                && granted != node && nodeStats.ContainsKey(granted))
+                nodeStats[granted] = [];
         var conquered = new HashSet<ushort>();
         if (timeless.Spec is { } timelessSpec)
         {

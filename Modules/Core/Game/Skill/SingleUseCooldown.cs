@@ -6,6 +6,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     SingleUseCooldownState? State = null, int UseVersion = 0, Game.StanceUseReceipt? Stance = null)
 {
     bool consumed;
+    public IReadOnlyList<(SingleUseCooldownState State, int Version, ushort Skill)> SharedUses { get; init; } = [];
     // The cost paid when the use was accepted (mana, life), as the client pays it at the start of the use; null when the
     // admission paid nothing and the cast pays when its effect starts.
     public (uint Mana, uint Life)? Paid { get; init; }
@@ -21,9 +22,12 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
         lock (conn.Monsters)
         {
             if (!Current(conn)) return false;
-            // A lockstep instant consumes its use when the queued action executes. An immediate state
-            // snapshot can arrive first and make that action fail its native available-use check.
-            if (Reserved) State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
+            if (Reserved)
+            {
+                State?.ConfirmNativeUse(UseVersion, skillId, synchronizeProgress: Instant && !conn.LockstepClient);
+                foreach (var (state, version, skill) in SharedUses)
+                    state.ConfirmNativeUse(version, skill, synchronizeProgress: true);
+            }
             return true;
         }
     }
