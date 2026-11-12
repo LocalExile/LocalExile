@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using GameServer.Core;
 
 /// <summary>
 /// The effects of Izaro's arena mechanics (LabyrinthSecretEffects: <c>&lt;Mechanic&gt;&lt;Tier&gt;_&lt;Element&gt;</c>, and
@@ -51,27 +52,26 @@ public static partial class IzaroEffects
         var all = new List<Effect>();
         try
         {
-            using var effects = GameTables.Open("data/tables/LabyrinthSecretEffects.json");
-            using var buffs = GameTables.Open("data/tables/BuffDefinitions.json");
-            using var stats = GameTables.Open("data/tables/Stats.json");
-            using var varieties = GameTables.Open("data/tables/MonsterVarieties.json");
-            var buffRows = buffs.RootElement.EnumerateArray().ToList();
-            var statRows = stats.RootElement.EnumerateArray().ToList();
-            var varietyRows = varieties.RootElement.EnumerateArray().ToList();
-            foreach (var r in effects.RootElement.EnumerateArray())
+            var effects = ClientTables.Table("LabyrinthSecretEffects");
+            var buffs = ClientTables.Table("BuffDefinitions");
+            var stats = ClientTables.Table("Stats");
+            var varieties = ClientTables.Table("MonsterVarieties");
+            var buffRows = buffs.ToList();
+            var statRows = stats.ToList();
+            var varietyRows = varieties.ToList();
+            foreach (var r in effects)
             {
-                string id = r.GetProperty("Id").GetString() ?? "";
+                string id = r.Text("Id") ?? "";
                 if (IdPattern().Match(id) is not { Success: true } m) continue;
-                if (r.GetProperty("Buff_BuffDefinitionsKey").ValueKind != System.Text.Json.JsonValueKind.Number) continue;
-                int buff = r.GetProperty("Buff_BuffDefinitionsKey").GetInt32();
-                int[] values = [.. r.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32())];
-                string[] keys = [.. buffRows[buff].GetProperty("StatsKeys").EnumerateArray()
-                    .Select(k => statRows[k.GetInt32()].GetProperty("Id").GetString() ?? "")];
+                if (r.IsNull("Buff_BuffDefinitionsKey")) continue;
+                int buff = r.Int("Buff_BuffDefinitionsKey");
+                int[] values = [.. r.Ints("Buff_StatValues")];
+                string[] keys = [.. buffRows[buff].Ints("StatsKeys").Select(k => statRows[k].Text("Id") ?? "")];
                 var map = new Dictionary<string, int>(StringComparer.Ordinal);
                 for (int i = 0; i < Math.Min(keys.Length, values.Length); i++) map[keys[i]] = values[i];
-                string type = (r.GetProperty("OTFile").GetString() ?? "").Replace(".ot", "", StringComparison.Ordinal);
-                string variety = r.GetProperty("MonsterVarietiesKey") is { ValueKind: System.Text.Json.JsonValueKind.Number } v
-                    && v.GetInt32() < varietyRows.Count ? varietyRows[v.GetInt32()].GetProperty("Id").GetString() ?? "" : "";
+                string type = (r.Text("OTFile") ?? "").Replace(".ot", "", StringComparison.Ordinal);
+                string variety = r.IntOrNull("MonsterVarietiesKey") is int v
+                    && v < varietyRows.Count ? varietyRows[v].Text("Id") ?? "" : "";
                 int tier = m.Groups["t"].Value.ToLowerInvariant() switch { "normal" => 1, "cruel" => 2, "merciless" => 3, _ => 4 };
                 int element = m.Groups["e"].Value.ToLowerInvariant() switch { "fire" => 0, "cold" => 1, _ => 2 };
                 all.Add(new Effect(id, m.Groups["m"].Value, tier, element, m.Groups["r"].Success, variety, type, (ushort)buff, map));

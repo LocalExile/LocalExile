@@ -6,7 +6,8 @@ namespace GameServer.Modules.Delve;
 
 /// <summary>Account/league progress; coordinates describe the chart, not a particular area's terrain cells.</summary>
 sealed record DelveMine(int Version, uint Seed, DelveMine.Point Current, IReadOnlyList<DelveMine.Point> Opened, DelveMine.Plan? Pending = null,
-    IReadOnlyList<DelveMine.Edge>? Links = null)
+    IReadOnlyList<DelveMine.Edge>? Links = null, IReadOnlyList<uint>? SeenTerrain = null,
+    IReadOnlyList<string>? SeenRoutes = null, DelveMine.Plan? LastScene = null, IReadOnlyList<uint>? SceneSeeds = null)
 {
     public const string Key = "delve.mine.v1";
     public sealed record Edge(Point A, Point B);
@@ -25,6 +26,11 @@ sealed record DelveMine(int Version, uint Seed, DelveMine.Point Current, IReadOn
     }
     public sealed record Plan(Guid Id, IReadOnlyList<Point> Route, int Cost, bool Reward = true)
     {
+        public uint SceneSeed { get; init; }
+        public byte[]? Terrain { get; init; }
+        public uint TerrainHash { get; init; }
+        public string? RailShape { get; init; }
+        public byte DestinationFeature { get; init; } = 7;
         public Point From => Route[0];
         public Point To => Route[^1];
         public int Depth => To.Depth;
@@ -91,6 +97,9 @@ sealed record DelveMine(int Version, uint Seed, DelveMine.Point Current, IReadOn
     {
         Current = Pending.To, Opened = [.. Opened.Concat(Pending.Route).Distinct()], Pending = null,
         Links = [.. (Links ?? []).Concat(Pending.Route.Zip(Pending.Route.Skip(1), (a, b) => new Edge(a, b))).Distinct()],
+        SeenTerrain = Pending.SceneSeed == 0 ? SeenTerrain : [.. (SeenTerrain ?? []).Append(Pending.TerrainHash).Distinct()],
+        SeenRoutes = Pending.RailShape is null ? SeenRoutes : [.. (SeenRoutes ?? []).Append(Pending.RailShape).Distinct()],
+        LastScene = Pending.SceneSeed == 0 ? LastScene : Pending,
     };
 
     public IReadOnlyList<InstanceDelve.Cell> Chart()
@@ -102,12 +111,16 @@ sealed record DelveMine(int Version, uint Seed, DelveMine.Point Current, IReadOn
             // The entrance is implicitly open. Marking it completed makes the native block disappear.
             blocks[block] = blocks.GetValueOrDefault(block) | (p == new Point(2, 0) ? 0 : 1UL << (wire.CellY * 8 + wire.CellX));
         }
-        foreach (var p in new[] { Current, new(Current.X - 2, Current.Y), new(Current.X + 2, Current.Y), new(Current.X, checked(Current.Y + 2)) })
-            blocks.TryAdd((p.Wire.BlockX, p.Wire.BlockY), 0);
+        // The native mask reaches five cells and crosses all eight neighbours. A complete 8-cell block halo
+        // keeps its fade inside available data, including when a completed point lies on a block corner.
+        foreach (var (x, y) in blocks.Keys.ToArray())
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (y + dy >= 0) blocks.TryAdd((x + dx, y + dy), 0);
         // The wire count is u16: retain the complete account graph, send a bounded window nearest its Crawler.
         var current = Current.Wire;
         return blocks.OrderBy(b => Math.Abs((long)b.Key.BlockX - current.BlockX) + Math.Abs((long)b.Key.BlockY - current.BlockY))
-            .Take(ushort.MaxValue).Select(b => new InstanceDelve.Cell(unchecked((ushort)b.Key.BlockX),
+            .Take(ushort.MaxValue).OrderBy(b => b.Value != 0).Select(b => new InstanceDelve.Cell(unchecked((ushort)b.Key.BlockX),
                 unchecked((ushort)b.Key.BlockY), b.Value, 0, 0)).ToArray();
     }
 }

@@ -168,10 +168,13 @@ Part of [Status](../Status.md); what to build next in this area is in
     Equipment stats are sent in Delve areas; darkness damage and consumable use remain unimplemented.
   - Delve chart routes now persist completed points/edges and the last successful checkpoint per account/league.
     The entrance layout is used only for the first trip; later edges connect two mine checkpoint rooms in the selected
-    direction, using captured native terrain. Physical biome variety remains unfinished. Successful destinations expand
-    chart blocks down and sideways. Each confirmation reaches its selected node, then the Crawler parks.
+    direction. Later trips generate fresh native Mines windows with new seeds, varied rooms and authored rail shapes;
+    account history rejects repeated geometry/routes and prevents minimap reuse. Other biomes remain unfinished. Successful destinations expand
+    chart blocks down and sideways. A complete neighbour halo preserves the native five-cell fog fade across block corners.
+    Each confirmation reaches its selected node, then the Crawler parks.
     Intermediate corridor cells are part of that journey and never become separate checkpoint stops.
-    Killing all destination defenders saves the point and refreshes the chart, including while the chart is open.
+    Arrival starts three defence waves over five unpaused seconds, using the route's monster pool. Only after every
+    wave has spawned and all destination defenders are dead does the point save and refresh the chart.
     Tunnel stragglers do not block completion; the next direction requires a new selection.
     Death, leaving or module reload discards the unfinished trip, retains spent sulphite and restores the saved point.
     The Crawler follows authored rails, waits at 70 cells (resumes below 60), and speeds up along the rails when led.
@@ -184,7 +187,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     Native walking/Kinetic Blast completed a route with exact 24 sulphite debit and one reward. Native checks also
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
     Chart continuity inside the mine requires the now-sent DelveOwner flag.
-    General biome/encounter parity, darkness damage, consumable use and physical terrain diversity remain partial.
+    General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
     The Sarn Encampment has them at (295, 423) and (285, 418), facing 28° (2026-11-04).

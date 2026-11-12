@@ -1324,7 +1324,7 @@ public static class KingInMists
             int ox = _origin.X - 162, oy = _origin.Y - 174;
             async Task Add(int roomX, int roomY, string type, string model, float scale = 1)
             {
-                uint id = conn.NextObjectId++;
+                uint id = conn.TakeObjectId();
                 var obj = new EffectObject(ox + roomX, oy + roomY, model) { Scale = scale };
                 await Game.SendWorldCreate(remote, stream, ciphers, conn, id,
                     InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), obj.Blob()),
@@ -1347,7 +1347,7 @@ public static class KingInMists
         {
             if (_centralShrine is not null) return;
             var (x, y) = conn.Layout.Near((_origin.X, _origin.Y - 12));
-            uint shrineId = conn.NextObjectId++;
+            uint shrineId = conn.TakeObjectId();
             var states = new StateMachineData([0], 0, ["active_pillars"]);
             _centralShrine = shrineId;
             _centralShrineStates = states;
@@ -1576,7 +1576,7 @@ public static class KingInMists
 
         async Task<uint> SpawnEffect(int x, int y, string ao, float scale)
         {
-            uint effectId = conn.NextObjectId++;
+            uint effectId = conn.TakeObjectId();
             var effect = new EffectObject(x, y, ao) { Scale = scale };
             await Game.SendWorldCreate(remote, stream, ciphers, conn, effectId,
                 InstanceEntities.CreateObject(effectId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()),

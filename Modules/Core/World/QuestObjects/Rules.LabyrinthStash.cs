@@ -16,7 +16,7 @@ static partial class QuestobjectsRules
         var placed = new Dictionary<uint, (int X, int Y)>();
         foreach (var at in all.Where(o => o.Type == StashObject.MetadataPath))
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             byte[] create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath),
                 new StashObject(at.X, at.Y, at.Angle).Blob());
             await global::Game.SendWorldCreate(conn, id, () => create, $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})", wake: true,

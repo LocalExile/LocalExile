@@ -37,17 +37,15 @@ public static class JourneyMakanuiCatalogue
     static List<Entry> Load()
     {
         var result = new List<Entry>();
-        string path = Path.Combine("data", "tables", "PassiveSkillOverrides.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var row in document.RootElement.EnumerateArray())
+        if (!ClientTables.Has("PassiveSkillOverrides")) return result;
+        foreach (var row in ClientTables.Table("PassiveSkillOverrides"))
         {
-            if (row.GetProperty("Type").GetInt32() != 15) continue;
-            if (row.GetProperty("AllocatedPassiveSkill") is not { ValueKind: JsonValueKind.Number } allocated) continue;
-            int passiveRow = allocated.GetInt32();
+            if (row.Int("Type") != 15) continue;
+            if (row.IntOrNull("AllocatedPassiveSkill") is not int allocated) continue;
+            int passiveRow = allocated;
             if (Program.Passives.GraphIdForRow(passiveRow) is not ushort graphId) continue;
             if (Program.Passives.Find(graphId) is not { IsKeystone: true } keystone) continue;
-            ushort hash = (ushort)row.GetProperty("HASH16").GetInt32();
+            ushort hash = (ushort)row.Int("HASH16");
             result.Add(new Entry(graphId, keystone.Name, passiveRow, hash));
         }
         return [.. result.DistinctBy(entry => entry.GraphId)];

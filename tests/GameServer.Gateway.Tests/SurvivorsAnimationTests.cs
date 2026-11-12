@@ -32,7 +32,7 @@ public sealed class SurvivorsAnimationTests
 
     public void Every_class_and_weapon_resolves_a_cast_clip_and_the_projectile_impact()
     {
-        var contacts = new AnimationContacts("data");
+        var contacts = new AnimationContacts();
         foreach (string ao in Classes)
             foreach (var (weaponName, weapon) in Weapons)
                 foreach (CastAnimationKind kind in Enum.GetValues<CastAnimationKind>())
@@ -80,7 +80,7 @@ public sealed class SurvivorsAnimationTests
         try
         {
             var catalog = SurvivorsSkills.SurvivorsCatalogFor(conn);
-            var contacts = new AnimationContacts("data");
+            var contacts = new AnimationContacts();
             string ao = Game.SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
             var unarmed = new WeaponProfile(false, false, false, false, false, Unarmed: true);
             Assert.True(catalog.Count >= 25, $"only {catalog.Count} run skills");

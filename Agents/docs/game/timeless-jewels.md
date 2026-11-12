@@ -91,8 +91,8 @@ conquerors (Zerphi, Kiloava, Deshret, Venarius, Chitus) are legacy items and are
 
 ## How the client replaces nodes
 
-The game tables are `AlternateTreeVersions.json`, `AlternatePassiveSkills.json` and
-`AlternatePassiveAdditions.json`. Vilsol's Go implementation (`https://github.com/Vilsol/timeless-jewels`) reproduces
+The game tables are `AlternateTreeVersions`, `AlternatePassiveSkills` and
+`AlternatePassiveAdditions`. Vilsol's Go implementation (`https://github.com/Vilsol/timeless-jewels`) reproduces
 the client's generation; the same algorithm is used by Path of Building's precomputed LUTs
 (`src/Data/TimelessJewelData/`).
 
@@ -218,8 +218,8 @@ The client must be launched only through `scripts/dev/live.ps1`; the verificatio
 
 ## References
 
-- Client data: `data/tables/Mods.json`, `AlternateTreeVersions.json`, `AlternatePassiveSkills.json`,
-  `AlternatePassiveAdditions.json`, `PassiveSkills.json`, `PassiveJewelSlots.json`, `UniqueJewelLimits.json`.
+- Client tables: `Mods`, `AlternateTreeVersions`, `AlternatePassiveSkills`,
+  `AlternatePassiveAdditions`, `PassiveSkills`, `PassiveJewelSlots`, `UniqueJewelLimits`.
 - Client code: `0x141f09e50` (reads the item's tree stats and iterates the tree), `0x141f0e8e0` (alternate passive
   generation), `0x1421e6050` (Mods component reader).
 - Path of Building: `src/Modules/DataLegionLookUpTableHelper.lua`, `src/Classes/PassiveSpec.lua`,

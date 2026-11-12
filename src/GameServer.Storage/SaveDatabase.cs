@@ -121,7 +121,14 @@ public sealed class SaveDatabase : IDisposable
             catch (Exception e) { Console.WriteLine($"[saves] undoing a failed save: {ServerLog.Describe(e)}"); }
     }
 
-    /// <summary>The save stored under <paramref name="key"/>, or null when there is none.</summary>
+    /// <summary>The meta key set once the JSON saves were moved into the save tables (the Gateway's SaveRows.Migrate).</summary>
+    public const string RelationalKey = "relational_saves";
+
+    /// <summary>Whether the JSON saves were moved into the save tables (character_saves, stash_saves, items ...).</summary>
+    public bool Relational => GetMeta(RelationalKey) is not null;
+
+    /// <summary>The JSON save stored under <paramref name="key"/> in the tables from before the save tables (characters,
+    /// stashes), or null when there is none. Only the import of older saves and the move into the save tables use them.</summary>
     public string? Get(Table table, string key)
     {
         lock (_gate)
@@ -131,7 +138,8 @@ public sealed class SaveDatabase : IDisposable
         }
     }
 
-    /// <summary>Stores <paramref name="save"/> under <paramref name="key"/>, replacing what was there.</summary>
+    /// <summary>Stores a JSON <paramref name="save"/> under <paramref name="key"/> in the tables from before the save
+    /// tables, replacing what was there (the import of older saves).</summary>
     public void Put(Table table, string key, string save) => Atomically(() =>
     {
         using var c = Command($"INSERT INTO {Name(table)} ({KeyColumn(table)}, save) VALUES ($key, $save) " +
@@ -157,10 +165,15 @@ public sealed class SaveDatabase : IDisposable
         c.ExecuteNonQuery();
     });
 
-    /// <summary>Moves a deleted character's save to deleted_characters, so a new character of that name starts over and
-    /// the old one can still be put back by hand. False when it had no save.</summary>
+    /// <summary>Sets a deleted character's save aside (character_saves.deleted_utc), so a new character of that name starts
+    /// over and the old one can still be put back by hand. Before the saves were moved into the save tables, the JSON save
+    /// goes to deleted_characters instead. False when it had no save.</summary>
     public bool SetAside(string character) => Atomically(() =>
     {
+        using (var mark = Command("UPDATE character_saves SET deleted_utc = $at WHERE name = $name AND deleted_utc IS NULL",
+                   ("$name", character), ("$at", DateTime.UtcNow.ToString("O"))))
+            if (mark.ExecuteNonQuery() > 0) return true;
+        if (Relational) return false;
         using var copy = Command("INSERT INTO deleted_characters (name, deleted_utc, save) SELECT name, $at, save FROM characters WHERE name = $name",
             ("$name", character), ("$at", DateTime.UtcNow.ToString("O")));
         if (copy.ExecuteNonQuery() == 0) return false;
@@ -189,13 +202,43 @@ public sealed class SaveDatabase : IDisposable
     static string Name(Table t) => t switch { Table.Characters => "characters", Table.Stashes => "stashes", _ => throw new ArgumentOutOfRangeException(nameof(t)) };
     static string KeyColumn(Table t) => t == Table.Characters ? "name" : "account";
 
+    /// <summary>A text column of a character's save (a column of character_saves, or a JSON property before the move into
+    /// the save tables), or null: Auth's reads of what the Gateway saved.</summary>
+    public string? CharacterText(string character, string column, string property) => Read(() =>
+    {
+        if (column is not ("selected_hideout")) throw new ArgumentException($"no text column {column}", nameof(column));
+        using (var c = Command($"SELECT {column}, 1 FROM character_saves WHERE name = $name AND deleted_utc IS NULL", ("$name", character)))
+        using (var r = c.ExecuteReader())
+            if (r.Read()) return r.IsDBNull(0) ? null : r.GetString(0);
+        if (Relational || Get(Table.Characters, character) is not { } json) return null;
+        using var doc = System.Text.Json.JsonDocument.Parse(json);
+        return doc.RootElement.TryGetProperty(property, out var value) && value.ValueKind == System.Text.Json.JsonValueKind.String
+            ? value.GetString() : null;
+    });
+
+    /// <summary>The id of a character's main ascendancy (Ascendancy.dat Id), or null when it has none.</summary>
+    public string? Ascendancy(string character) => Read(() =>
+    {
+        using (var c = Command("SELECT a.ascendancy, 1 FROM character_saves s LEFT JOIN character_ascendancies a ON a.save = s.id " +
+                               "WHERE s.name = $name AND s.deleted_utc IS NULL", ("$name", character)))
+        using (var r = c.ExecuteReader())
+            if (r.Read()) return r.IsDBNull(0) ? null : r.GetString(0);
+        if (Relational || Get(Table.Characters, character) is not { } json) return null;
+        using var save = System.Text.Json.JsonDocument.Parse(json);
+        return save.RootElement.TryGetProperty("MainAscendancy", out var progress) && progress.ValueKind == System.Text.Json.JsonValueKind.Object
+            && progress.TryGetProperty("Selection", out var selection) && selection.ValueKind == System.Text.Json.JsonValueKind.Object
+            && selection.TryGetProperty("Id", out var id) ? id.GetString() : null;
+    });
+
     /// <summary>Runs a read under the connection's lock (inside a transaction, it sees that transaction's writes).</summary>
-    internal T Read<T>(Func<T> read)
+    public T Read<T>(Func<T> read)
     {
         lock (_gate) return read();
     }
 
-    internal SqliteCommand Command(string sql, params (string Name, object Value)[] parameters)
+    /// <summary>A command on the connection, in the current transaction. Use it under <see cref="Read{T}"/> or
+    /// <see cref="Atomically{T}"/>, which hold the connection's lock.</summary>
+    public SqliteCommand Command(string sql, params (string Name, object Value)[] parameters)
     {
         var c = _db.CreateCommand();
         c.CommandText = sql;
