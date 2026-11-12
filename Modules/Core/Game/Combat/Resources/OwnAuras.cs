@@ -55,7 +55,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             sources ??= CharacterStatSources(conn).Stats;
-            UtilityFlasks.AddRawStats(sources,
+            AddItemUtilityFlaskRawStats(sources,
                 conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
             return OwnAuraRestriction.Value(sources, conn.PlayerStats);
         }

@@ -44,7 +44,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
-        var (stats, seconds) = UtilityFlasks.For(utility, flask.Item, local, Get, playerLevel);
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, Get, playerLevel);
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt.Value;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.

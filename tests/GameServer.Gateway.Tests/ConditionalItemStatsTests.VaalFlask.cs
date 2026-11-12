@@ -52,6 +52,47 @@ public partial class ConditionalItemStatsTests
         }
         Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of(minimum, StatConditions.Subject.Unknown));
         inventory.Remove(PlayerInventories.Boots, boots.Id); Game.CharacterPlayerStats(conn);
+        Actual_atziri_flask_coefficients_reach_chaos_damage_and_leech();
+    }
+
+    void Actual_atziri_flask_coefficients_reach_chaos_damage_and_leech()
+    {
+        var flask = new UniqueCatalog(Program.Items).Create("Atziri's Promise", new Random(504))!;
+        var local = ItemModStats.Local(flask, Program.Items.Mods);
+        var utility = Program.Items.UtilityFlaskOf(Program.Items.ByHash(flask.TypeHash)!)!;
+        var rows = new[]
+        {
+            ("local_unique_flask_physical_damage_%_to_add_as_chaos_while_healing", "physical_damage_%_to_add_as_chaos"),
+            ("local_unique_flask_elemental_damage_%_to_add_as_chaos_while_healing", "elemental_damage_%_to_add_as_chaos"),
+            ("local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing", "base_life_leech_from_chaos_damage_permyriad"),
+        };
+        Assert.InRange(local[rows[0].Item1], 5, 8); Assert.InRange(local[rows[1].Item1], 5, 8);
+        Assert.Equal(200, local[rows[2].Item1]);
+        foreach (int increased in new[] { 0, 50 })
+        {
+            int Character(string name) => name == "flask_effect_+%" ? increased
+                : name == "magic_utility_flask_effect_+%" ? 100 : 0;
+            var effect = Game.ItemUtilityFlaskFor(utility, flask, local, Character, 100);
+            var running = new UtilityFlasks.Effects();
+            running.Start(new(504, 2, "Atziri's Promise", utility, 1, null, effect.Stats, 10, 10 + effect.Seconds));
+            var raw = new Dictionary<uint, int>();
+            // Repeated snapshots of one effect cannot stack it twice.
+            Game.AddItemUtilityFlaskRawStats(raw,
+                UtilityFlasks.Strongest(running.Sources().Concat(running.Sources())), Program.Stats);
+            int Get(string name) => Program.Stats.Key(name) is uint key ? raw.GetValueOrDefault(key) : 0;
+            foreach (var (source, target) in rows)
+                Assert.Equal((int)(local[source] * (100 + increased) / 100d), Get(target));
+            foreach (bool attack in new[] { false, true })
+            {
+                var packet = DamagePacket.Of(DamageType.Physical, 100, 100).Add(DamageType.Fire, new(100, 100));
+                var converted = packet.Convert(DamageStats.Conversion(raw, Program.Stats, attack));
+                Assert.Equal(Get(rows[0].Item2) + Get(rows[1].Item2), converted[DamageType.Chaos].Min, 6);
+                Assert.Equal(Get(rows[2].Item2), LeechSources.From(Get, attack).Life[DamageType.Chaos].Min);
+            }
+            Assert.Single(running.End(10 + effect.Seconds, false, out _));
+            raw.Clear(); Game.AddItemUtilityFlaskRawStats(raw, running.Stats(), Program.Stats);
+            Assert.All(rows, row => Assert.Equal(0, Get(row.Item2)));
+        }
     }
 
     async Task Projectile_kills_publish_current_vaal_budgets_at_the_output_gate(ClientState conn)

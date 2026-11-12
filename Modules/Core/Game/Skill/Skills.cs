@@ -281,7 +281,7 @@ public static partial class Game
             // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
             // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
             int FlaskGet(string name) => Stats.Key(name) is uint k ? built.GetValueOrDefault(k) : 0;
-            UtilityFlasks.AddRawStats(built, UtilityStats(conn, FlaskGet)
+            AddItemUtilityFlaskRawStats(built, UtilityStats(conn, FlaskGet)
                 .Concat(conn.FlaskGrounds.PlayerStats(FlaskGet("consecrated_ground_effect_+%"))), Stats);
             AddSelfVulnerabilityStats(conn, built);
             if (Stats.Key("currently_has_onslaught") is uint onslaughtFlag)

@@ -87,7 +87,7 @@ public static partial class Game
         var recovery = new Dictionary<uint, int>(sources);
         lock (conn.Monsters)
             foreach (var (key, value) in conn.PlayerStats) recovery[key] = value;
-        UtilityFlasks.AddRawStats(recovery,
+        AddItemUtilityFlaskRawStats(recovery,
             conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
         ConfigureFortificationRecovery(conn, maximumLife,
             name => Stats.Key(name) is uint key ? recovery.GetValueOrDefault(key) : 0);

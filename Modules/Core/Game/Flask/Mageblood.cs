@@ -59,7 +59,7 @@ public static partial class Game
         List<UtilityFlasks.Source> sources = [];
         foreach (var flask in MagebloodFlasks(ItemsOf(conn).Items(PlayerInventories.Flask), count, items))
             if (items.ByHash(flask.Item.TypeHash) is { } type && items.UtilityFlaskOf(type) is { } utility)
-                sources.AddRange(UtilityFlasks.For(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? conn.Pools.Level).Stats);
+                sources.AddRange(ItemUtilityFlaskFor(utility, flask.Item, ItemModStats.Local(flask.Item, items.Mods), character, playerLevel ?? conn.Pools.Level).Stats);
         return sources;
     }
 
