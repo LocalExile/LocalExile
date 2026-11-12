@@ -552,6 +552,8 @@ public static partial class Game
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
             await GameEvents.RunTick(conn, seconds);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncExpandedInventory(conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)

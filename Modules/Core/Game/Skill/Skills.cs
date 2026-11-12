@@ -135,6 +135,7 @@ public static partial class Game
     // The final stats from a character snapshot already worked out (PlayerSkills reuses its own).
     public static IEnumerable<(uint, int)> FinalPlayerStatsFrom(ClientState conn, Dictionary<uint, int> stats)
     {
+        KeepExpandedInventoryVisible(conn, stats);
         // Both hands' native weapon types and whether they dual wield (a value /set_stat set stays). The client derives none
         // of them from network stats: quivers need a bow's 9 in the main hand, and without is_dual_wielding it held 1,
         // which greyed out Shield Charge beside a one-handed weapon (13-items.md "Client weapon-type stats").
