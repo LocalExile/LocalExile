@@ -159,7 +159,7 @@ public static class CharacterStats
             + (fullEnergyShield ? p.SpellSuppressionWhileFullEnergyShield : 0),
             0L, DamageModel.SpellSuppressionChanceCap);
 
-    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null, string folder = "data")
+    public static Pools For(SkillCatalog.ClassInfo c, int level, Bonus? bonus = null)
     {
         var b = bonus ?? Bonus.None;
         level = Math.Clamp(level, 1, Progression.MaxLevel);
@@ -281,7 +281,7 @@ public static class CharacterStats
             ((1 + (b.AttackSpeedPct + accuracy / 150 * b.AttackSpeedPer150Accuracy) / 100.0) * (1 + b.AttackSpeedMorePct / 100.0) - 1) * 100,
             MidpointRounding.AwayFromZero);
         attackSpeedPct = Math.Max(-99, attackSpeedPct);
-        return new(level, life, mana, accuracy, ExperienceFor(level, folder),
+        return new(level, life, mana, accuracy, ExperienceFor(level),
             Armour: armour, ArmourPct: armourPct, Evasion: evasion, EvasionPct: evasionPct,
             EnergyShieldPct: energyShieldPct, EnergyShield: energyShield,
             MeleePhysicalDamagePct: (int)Math.Clamp((b.NoStrengthBonuses ? 0L : str / 5L)
@@ -326,24 +326,19 @@ public static class CharacterStats
             { AttributesResolved = true, AccuracyBase = accuracyBase };
     }
 
-    private static readonly Lazy<uint[]> Experience = new(() => LoadExperience("data"));
+    private static readonly Lazy<uint[]> Experience = new(LoadExperience);
 
     /// <summary>Every level's starting experience (index = level − 1), ExperienceLevels.dat.</summary>
     public static IReadOnlyList<uint> LevelStarts => Experience.Value;
 
     /// <summary>The experience at the start of a level (ExperienceLevels.dat; level 37: 12 361 842). The client derives
     /// the level from the Player component's experience (04 §4).</summary>
-    public static uint ExperienceFor(int level, string folder = "data")
+    public static uint ExperienceFor(int level)
     {
-        var table = folder == "data" ? Experience.Value : LoadExperience(folder);
+        var table = Experience.Value;
         return level >= 1 && level <= table.Length ? table[level - 1] : 0;
     }
 
-    private static uint[] LoadExperience(string folder)
-    {
-        string path = Path.Combine(folder, "tables", "ExperienceLevels.json");
-        if (!ClientTables.Exists(path)) return [0];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Level").GetInt32()).Select(r => (uint)r.GetProperty("Experience").GetInt64())];
-    }
+    private static uint[] LoadExperience() => ClientTables.TableOrNull("ExperienceLevels") is { } levels
+        ? [.. levels.OrderBy(r => r.Int("Level")).Select(r => (uint)r.Long("Experience"))] : [0];
 }

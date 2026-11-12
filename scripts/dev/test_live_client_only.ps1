@@ -88,7 +88,7 @@ try {
     Run
     Assert (($script:events -join ',') -eq 'gateway-read,gateway-write,launch:default') "gateway must be selected before a closed client launches: $($script:events -join ',')"
     Assert ($script:gatewayArgs[0] -eq (Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll')) 'wrong patch executable'
-    Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + (Join-Path $repo 'Client\Content.ggpk') + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
+    Assert (($script:gatewayArgs[1..4] -join '|') -eq ('gateway|' + (Join-Path $repo 'Client') + '|--login|127.0.0.1:20493')) 'gateway must target this checkout and local Auth'
     # A Release stack's client-only run uses its Release Patch tool, including the gateway-list check.
     $configuration = 'Release'
     Run
@@ -440,11 +440,11 @@ finally {
 # client. Select-LocalGateway is not run against it: it may write. The mocked checks above cover its logic.
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $patchDll = Join-Path $repo 'src\GameServer.Patch\bin\Debug\net10.0\GameServer.Patch.dll'
-$ggpk = Join-Path $repo 'Client\Content.ggpk'
+$ggpk = Join-Path $repo 'Client'
 if ($env:Game_TEST_SHARED_GGPK -eq '1' -and (Test-Path $patchDll) -and (Test-Path $ggpk)) {
     Remove-Item function:dotnet
     $listed = @(& dotnet $patchDll gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
     Assert ($LASTEXITCODE -eq 0 -and $listed.Count -gt 0) "the gateway list must be readable while clients hold the GGPK (exit $LASTEXITCODE)"
 }
-else { Write-Output 'skipped the real gateway-list read (set Game_TEST_SHARED_GGPK=1; needs a built GameServer.Patch and Client\Content.ggpk)' }
+else { Write-Output 'skipped the real gateway-list read (set Game_TEST_SHARED_GGPK=1; needs a built GameServer.Patch and a client in Client\)' }
 Write-Output 'live.ps1 client, port and ownership checks passed (mocked; no client or server started, nothing written).'

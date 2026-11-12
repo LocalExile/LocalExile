@@ -3,16 +3,14 @@ using GameServer.Core;
 
 /// <summary>
 /// Stat names and the client's stat keys: key = Stats.dat row + 1 (Agents/docs/protocol/11-skills.md §5). Reads
-/// data/tables/Stats.json (game data, loaded on first use); without it only numeric keys work.
+/// the Stats client table (loaded on first use); without it only numeric keys work.
 /// </summary>
-public sealed class StatCatalog(string folder = "data")
+public sealed class StatCatalog
 {
     private readonly Lazy<List<string>> _names = new(() =>
     {
-        string path = Path.Combine(folder, "tables", "Stats.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var d = GameTables.Open(path);
-        return [.. d.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
+        if (!ClientTables.Has("Stats")) return [];
+        return [.. ClientTables.Table("Stats").Select(r => r.Text("Id") ?? "")];
     });
 
     // Name -> key, built once; also caches names that are absent (null), because DamageStats asks for ~100 names per

@@ -1,4 +1,4 @@
-"""Campaign quest step files: one module per quest, `quests/<Quest Id>.py` (Ids from data/tables/Quest.json).
+"""Campaign quest step files: one module per quest, `quests/<Quest Id>.py` (Ids from the Quest table in client.db).
 
 The runner loads them by file name (this package is not imported), runs them in `order.ORDER`, and reports a quest
 without a file as "not implemented". Files starting with `_` are ignored. A module defines:

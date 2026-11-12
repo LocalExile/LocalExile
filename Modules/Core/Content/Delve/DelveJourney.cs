@@ -11,12 +11,31 @@ sealed class DelveJourney
     public bool Finished => Travelled >= Length;
     public int Charged { get; private set; }
     public int Depth { get; }
+    public const float StartRadius = 90f;
+    public bool Started { get; private set; }
+    public bool TryStart((int X, int Y) player) => Started || (Started = DelveRailRoute.Distance(points[0], player) > StartRadius);
     int completed;
     public bool Completed => Volatile.Read(ref completed) != 0;
     public HashSet<uint> EncounterMonsters { get; } = [];
     public HashSet<uint> DestinationMonsters { get; } = [];
-    public bool DestinationCleared(Func<uint, bool> alive) => !DestinationMonsters.Any(alive);
-    public bool TryComplete(bool enemiesAlive) => Finished && !enemiesAlive && Interlocked.CompareExchange(ref completed, 1, 0) == 0;
+    public const int FinaleWaveCount = 3;
+    public const double FinaleDuration = 5;
+    public double FinaleElapsed { get; private set; }
+    public int WavesScheduled { get; private set; }
+    public int WavesSpawned { get; private set; }
+    public bool FinaleReady => Finished && FinaleElapsed >= FinaleDuration && WavesSpawned == FinaleWaveCount;
+    public int AdvanceFinale(double seconds)
+    {
+        if (!Finished || !double.IsFinite(seconds) || seconds < 0) return 0;
+        FinaleElapsed = Math.Min(FinaleDuration, FinaleElapsed + seconds);
+        int due = Math.Min(FinaleWaveCount, 1 + (int)Math.Floor(FinaleElapsed * (FinaleWaveCount - 1) / FinaleDuration));
+        int added = due - WavesScheduled;
+        WavesScheduled = due;
+        return added;
+    }
+    public void WaveSpawned() => WavesSpawned = Math.Min(WavesScheduled, WavesSpawned + 1);
+    public bool DestinationCleared(Func<uint, bool> alive) => FinaleReady && !DestinationMonsters.Any(alive);
+    public bool TryComplete(bool enemiesAlive) => FinaleReady && !enemiesAlive && Interlocked.CompareExchange(ref completed, 1, 0) == 0;
     public float Heading(double travelled)
     {
         int i = 1;
@@ -52,7 +71,7 @@ sealed class DelveJourney
 
     public double EscortStep((int X, int Y) player, double seconds, bool moving)
     {
-        if (seconds <= 0) return 0;
+        if (!Started || seconds <= 0) return 0;
         var projected = Project(player);
         bool leading = projected.Along > Travelled + 8 && projected.Away <= 70;
         double separation = DelveRailRoute.Distance(At(Travelled).At, player);

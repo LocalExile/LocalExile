@@ -14,7 +14,7 @@ public static partial class Game
         public double At;
         public object? Pools;
         public long NextBuff, Life, Mana;
-        public long Golems, Slayer, Hierophant;
+        public long Golems, Slayer, Offerings, Hierophant;
         public bool ArcaneSurge;
         public int Overrides, Auras, ResistancePenalty;
         public bool Moving;
@@ -43,7 +43,7 @@ public static partial class Game
         {
             At = now, Pools = conn.Pools, NextBuff = conn.NextBuff, Life = (long)conn.PlayerLife, Mana = (long)conn.PlayerMana,
             Overrides = overrides, Auras = conn.Auras.Count, Moving = conn.Walk.Moving(now), Golems = conn.Golems.Version,
-            Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
+            Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
         };
@@ -52,7 +52,7 @@ public static partial class Game
     static bool SameInputs(PlayerStatsEntry a, PlayerStatsEntry b) =>
         b.At - a.At is >= 0 and < PlayerStatsLifetime && Equals(a.Pools, b.Pools) && a.NextBuff == b.NextBuff
         && a.Life == b.Life && a.Mana == b.Mana && a.Overrides == b.Overrides && a.Auras == b.Auras && a.Moving == b.Moving && a.Golems == b.Golems
-        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
+        && a.Slayer == b.Slayer && a.Offerings == b.Offerings && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty;
 
     public static Dictionary<uint, int> CachedPlayerStats(ClientState conn, out double baselineLifePerSecond)

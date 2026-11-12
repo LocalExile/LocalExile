@@ -654,7 +654,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// StateMachine needs the type's shared states and timers (<see cref="StateMachineData"/>).
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
         components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => Extras.Contains(c) && (c != "StateMachine" || haveStateMachine));
+        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone") && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {
@@ -710,7 +710,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
-                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass, DiesAfterTime, Timer: no data.
+                // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
+                // Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
         }
         w.U8(0);            // tasks
@@ -795,6 +796,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
     int? Height = null)
 {
     public string? AnimatedObject { get; init; }
+    public StateMachineData? StateMachine { get; init; }
     /// <summary>Animated in the object's component order (Positioned, Animated, BaseEvents).</summary>
     public const byte AnimatedComponentIndex = 1;
 
@@ -809,6 +811,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
         if (Height is int h) w.I32(-h).F32(h * 7.8125f);           // h = z / 7.8125 (z points down): i32 -h, f32 z
         if (AnimatedObject is null) w.U8(0x40);                    // Animated: Projectiles.dat AOFiles
         else w.U8(1).WStr32(AnimatedObject);                        // Explicit art, the same Animated reader as effects.
+        StateMachine?.Write(w);                                    // Derived projectile types may append this component.
         w.U8(0);                                                   // tasks
         return w.ToArray();
     }

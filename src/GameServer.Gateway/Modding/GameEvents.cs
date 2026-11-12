@@ -294,16 +294,6 @@ public static class GameEvents
     public static readonly GameEvent<Func<string, NetworkStream, ConnectionCiphers, ClientState, double, Task>> CompanionTick = new();
     public static readonly GameEvent<Func<ClientState, string, bool>> GrantedSkillExecutable = new();
     public static readonly GameEvent<Action<ClientState>> TransientClosing = new();
-    public static readonly GameEvent<Func<ClientState, IPlayerPets?>> PetControls = new();
-    public static readonly GameEvent<Func<ClientState, IPlayerLoot?>> GroundLoot = new();
-
-    public static IPlayerLoot? GroundLootFor(ClientState conn) =>
-        GroundLoot.For(conn).Select(provider => provider(conn)).FirstOrDefault(loot => loot is not null);
-
-    public static IPlayerPets? WornPetsFor(ClientState conn) =>
-        PetControls.For(conn).Select(provider => provider(conn)).FirstOrDefault(pets => pets is not null);
-    // The provider validates its current control lease while the pickup commit holds the connection's combat lock.
-    public static readonly GameEvent<Func<ClientState, uint, GameServer.Modding.IModuleLifetime, (int X, int Y)?>> PetCollector = new();
     public static readonly GameEvent<Action<ClientState, bool>> PauseChanged = new();
     public static readonly GameEvent<Func<ClientState, string?, ushort, (int X, int Y), Func<bool>, bool?>> SkillCastAt = new();
     public static readonly GameEvent<Action<KillContext>> Kill = new();

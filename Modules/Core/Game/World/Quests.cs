@@ -195,6 +195,7 @@ public static partial class Game
     // they do not, so a league without them has the layout as generated.
     public static bool TransitionShown(ClientState conn, uint id, AreaTransitionObject transition)
     {
+        if (Sirus.GateShown(conn, transition) is bool sirusShown) return sirusShown;
         if (DepravedTrinity.GateShown(conn, id, transition) is bool shown) return shown;
         if (KitavaActFive.GateShown(conn, transition) is bool kitavaShown) return kitavaShown;
         if (KitavaActTen.GateShown(conn, transition) is bool finalKitavaShown) return finalKitavaShown;

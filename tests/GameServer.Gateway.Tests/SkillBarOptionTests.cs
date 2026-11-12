@@ -4,6 +4,22 @@ namespace GameServer.Gateway.Tests;
 
 public class SkillBarOptionTests
 {
+    [Fact]
+    public void Manual_clear_survives_auto_placement_and_can_be_rebound()
+    {
+        string character = "ManualBar" + Guid.NewGuid().ToString("N");
+        CharacterSaves.SetSkillBar(character, 2, "IceShot");
+        SkillBarLayout.Bind(character, 2, "");
+        var save = CharacterSaves.Load(character)!;
+        var hidden = SkillBarLayout.Unassigned(save);
+        var added = SkillBarLayout.Fill(save.SkillBar!, "PlayerMelee",
+            new[] { "IceShot", "SplitArrow" }.Where(s => !hidden.Contains(s)), _ => true);
+        Assert.Contains((3, "SplitArrow"), added);
+        Assert.DoesNotContain(added, s => s.Slot == 2 || s.Entry == "IceShot");
+        SkillBarLayout.Bind(character, 5, "IceShot");
+        Assert.DoesNotContain("IceShot", SkillBarLayout.Unassigned(CharacterSaves.Load(character)));
+    }
+
     // C→S 0x4f is framed, saved per slot, and goes back in 0x53's raw (little-endian) +0x2a mask; a bar sent with 0 there
     // cleared the player's "Always Attack Without Moving".
     [Fact]

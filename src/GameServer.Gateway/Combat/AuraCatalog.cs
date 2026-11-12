@@ -10,7 +10,7 @@ public static class AuraCatalog
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
         int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
-        bool ReservesLife = false, int ReservationEfficiencyPct = 0);
+        bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false);
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -281,9 +281,11 @@ public static class AuraCatalog
                 yield return (to, value);
     }
 
-    /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura effect.</summary>
+    /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura
+    /// effect. Heralds' buff stats are scaled by <paramref name="heraldEffectPct"/> instead ("X% increased Effect of
+    /// Herald Buffs on you"); the character's own stat value is passed by the caller.</summary>
     public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
-        SkillCatalog skills, StatCatalog stats)
+        SkillCatalog skills, StatCatalog stats, int heraldEffectPct = 0)
     {
         var result = new Dictionary<uint, int>();
         foreach (var group in auras.GroupBy(a => Family(a.EffectId)))
@@ -393,7 +395,8 @@ public static class AuraCatalog
                 void Add(string name, string? source = null)
                 {
                     if (stats.Key(name) is not uint key) return;
-                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct);
+                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
+                        aura.IsHerald ? heraldEffectPct : 0);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
                 }
             }
@@ -402,11 +405,14 @@ public static class AuraCatalog
         return result.Select(kv => (kv.Key, kv.Value));
     }
 
-    private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct)
+    private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct,
+        int extraEffectPct = 0)
     {
         if (stats.Key(name) is not uint key) return 0;
         auraEffectPct = aura.ExternalEffectPct ?? auraEffectPct;
         if (!skills.IsAura(aura.Effect)) auraEffectPct = 0;
+        // Herald buff effect is its own source, not the aura effect it must not inherit.
+        auraEffectPct += extraEffectPct;
         int value = skills.EffectStats(aura.Effect, aura.Level, aura.Quality).FirstOrDefault(kv => kv.Item1 == key).Item2;
         // PoB ModStore.ScaleAddList truncates these integer defence-aura stats before character-wide scaling.
         // Decimal preserves the exact hundredths from the integer aura-effect percentage.

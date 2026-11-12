@@ -481,7 +481,7 @@ public static partial class Game
             if (conn.RighteousFire is not null || conn.PlayerLife == 0) return;
             buff = conn.NextBuff++;
             aura = conn.NextBuff++;
-            ring = conn.NextObjectId++;
+            ring = conn.TakeObjectId();
             at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             conn.RighteousFire = new RighteousFireState(buff, aura, ringAo is null ? null : ring, skillId,
                 DamagePctPerMinute: Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),
@@ -552,6 +552,8 @@ public static partial class Game
             if (conn.LeavingArea || conn.Paused || seconds <= 0) continue;
             await GameEvents.RunTick(conn, seconds);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncExpandedInventory(conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
@@ -614,6 +616,8 @@ public static partial class Game
                 await BurnIgnited(remote, stream, ciphers, conn);
                 await BleedMonsters(remote, stream, ciphers, conn);
                 await TickPoisons(remote, stream, ciphers, conn);
+                await TickContagions(remote, stream, ciphers, conn);
+                await TickEssenceDrains(remote, stream, ciphers, conn);
             }
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             var rf = conn.RighteousFire;
@@ -836,6 +840,8 @@ public static partial class Game
                     bool survived = CompleteResourceRecoveryLocked(conn, recoveryFrom, now, recoveryStats,
                         mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds), manaBefore, manaCap, ref manaCarry);
                     lifeAfter = conn.PlayerLife;
+                    // The once-per-transition Loyalty triggers: Energy Shield Recharge started, Low Life reached.
+                    lock (conn.Monsters) LoyaltyResourceStateLocked(conn, recoveryStats, now);
                     if (!survived)
                     {
                         ailmentDeathEpoch = conn.IncomingHitEpoch; dead = true;
@@ -1203,6 +1209,7 @@ public static partial class Game
     {
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);
+        PrepareKaruiBridgeGates(conn);
         var (layout, name, classRow) = (conn.Layout, conn.Character, conn.ClassRow);
         var cls = SkillsFor(conn).ClassFor(classRow);
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);

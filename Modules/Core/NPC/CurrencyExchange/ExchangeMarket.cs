@@ -23,16 +23,16 @@ sealed class ExchangeItems
 
     static IReadOnlyList<(string, uint, bool)> Load()
     {
-        using var types = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/BaseItemTypes.json"));
-        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/CurrencyExchange.json"));
+        var types = ClientTables.Table("BaseItemTypes");
+        var rows = ClientTables.Table("CurrencyExchange");
         var list = new List<(string, uint, bool)>();
-        foreach (var row in rows.RootElement.EnumerateArray())
+        foreach (var row in rows)
         {
-            if (row.GetProperty("Item").ValueKind != JsonValueKind.Number) continue;
-            if (!row.GetProperty("EnabledInStandardLeague").GetBoolean() && !row.GetProperty("EnabledInChallengeLeague").GetBoolean()) continue;
-            int item = row.GetProperty("Item").GetInt32();
-            if (types.RootElement[item].GetProperty("Id").GetString() is { } id)
-                list.Add((id, row.GetProperty("GoldPurchaseFee").GetUInt32(), row.GetProperty("__col6").GetBoolean()));
+            if (row.IsNull("Item")) continue;
+            if (!row.Bool("EnabledInStandardLeague") && !row.Bool("EnabledInChallengeLeague")) continue;
+            int item = row.Int("Item");
+            if (types[item].Text("Id") is { } id)
+                list.Add((id, row.UInt("GoldPurchaseFee"), row.Bool("__col6")));
         }
         return list;
     }

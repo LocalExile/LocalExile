@@ -23,14 +23,14 @@ public sealed class TattooKnockbackTests
         Assert.Null(Game.KnockbackDestination((0, 0), (0, 5), 2, (_, _) => false));
         Assert.Null(Game.KnockbackDestination((3, 3), (3, 3), 2, (_, _) => true));
 
-        // A player hit with the tattoo's 10% chance made certain shoves a monster two cells away from the player.
+        // A player hit with the tattoo's 10% chance made certain shoves a monster the wiki's minimum 0.4 m (four cells) away.
         var conn = new ClientState(new(1, "tattoo-knockback", 1000, 1000, 100, 100, null, []), 1, 1);
         conn.Monsters[1] = new SpawnedMonster("kb", conn.NewMonsterWalk(1, 105, 100, 30, 1, false), 0, 0, 100);
         var stats = new Dictionary<uint, int> { [Program.Stats.Key("base_global_chance_to_knockback_%")!.Value] = 100 };
         var target = conn.Monsters[1];
-        Assert.True(Game.KnockbackOnHitLocked(conn, target, stats, 0, new Random(1)));
-        Assert.Equal((107, 100), target.Walk.Position(0));
-        Assert.Equal((107, 100), target.KnockbackPending);
+        Assert.True(Game.KnockbackOnHitLocked(conn, target, stats, null, 0, new Random(1)));
+        Assert.Equal((109, 100), target.Walk.Position(0));
+        Assert.Equal((109, 100), target.KnockbackPending);
 
         // The next AI tick presents it as a Teleport and clears the pending cell.
         var packets = Game.MonsterAilmentChangesLocked(conn, 0);

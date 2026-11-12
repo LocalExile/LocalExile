@@ -199,6 +199,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
+    public readonly MonsterContagion Contagion = new();
+    // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), under the Monsters lock.
+    public readonly MonsterEssenceDrain EssenceDrain = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
     public readonly MonsterRuptures Ruptures = new();
     // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
@@ -237,6 +241,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
+    // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
+    public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
+    public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
@@ -246,6 +254,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double ExcommunicatedUntil = double.NegativeInfinity;
     // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
     public int KilledWithItemQuantityPct;
+    // The same kill's increased rarity of dropped items from the skill of the last player hit (Item Rarity Support).
+    public int KilledWithItemRarityPct;
     // Blinded by his hits until when, one more source of his Blind (Game.Blinded), shown with its own blinded buff.
     public double BlindedUntil = double.NegativeInfinity, BlindShownUntil;
     public ushort BlindBuff;
@@ -643,8 +653,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// A key lives only while its full target remains present; retired keys are never reassigned on this connection.</summary>
     public Dictionary<uint, InstanceMicrotransactions.SkillSlot> SkillSlots = [];
     public uint NextSkillCosmeticKey = InstanceMicrotransactions.SlotCount;
-    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; the cosmetic player tick walks them.</summary>
+    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; RunPetFollow walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
+    public bool PetFollowRunning;
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,
     /// which rebuilds the portals that already stand.</summary>
     public float PortalRotationDegrees;
@@ -666,6 +677,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         set { if (Instance is { } i) i.World.NextObjectId = value; else ownNextObjectId = value; }
     }
     uint ownNextObjectId = 0x3000;
+    public uint TakeObjectId() => Instance is { } instance ? instance.World.TakeObjectId() : Interlocked.Increment(ref ownNextObjectId) - 1;
     // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
     // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
     // without a current action and crashed StartChannelling (0xc0000005 at 0x19e37bf, live 2026-10-31).
@@ -898,6 +910,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
+    // Low Life reached): Game.LoyaltyResourceStateLocked.
+    public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
     // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
     // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
     public double TrapDegenPerSecond;
@@ -1185,17 +1200,11 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     }
 }
 
-/// <summary>A worn pet the server walks after the player (the cosmetic player tick): its walk estimate, which side of the player it
+/// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it
 /// keeps (+1 or −1) and where it was last sent.</summary>
 public sealed class SpawnedPet(WalkEstimator walk, int side)
 {
     public WalkEstimator Walk { get; } = walk;
     public int Side { get; } = side;
     public (int X, int Y)? Target { get; set; }
-    public GameServer.Modding.IModuleLifetime? ControlOwner { get; set; }
-    public IDisposable? ControlHandle { get; set; }
-    public GameServer.Modding.IModuleLifetime? ControlProvider { get; set; }
-    public IDisposable? ControlProviderHandle { get; set; }
-    public double ControlUntil { get; set; }
-    public bool ReturnToOwner { get; set; }
 }
