@@ -574,7 +574,7 @@ public static partial class Game
             double arrive = now;
             bool atOnce = false;
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                CooldownForSkill(conn, use.SkillId), false,
                 () =>
                 {
                     now = ProjectileWorldTime(conn);
@@ -613,7 +613,7 @@ public static partial class Game
                 return;
             }
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                CooldownForSkill(conn, use.SkillId), false,
                 () => { }, out var cooldownUse, actionToken: action))
             {
                 LockstepAttackOver(conn, action);
@@ -634,6 +634,7 @@ public static partial class Game
                 $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on monster 0x{use.TargetId:x} ({m.Label}) from ({stop.X}, {stop.Y}) to ({target.X}, {target.Y}), flags 0x{use.Flags:x4} (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
                 still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
                     () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+            if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
             if (!projectileRuntime && !acknowledged) return;
             if (!projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, target, use.TargetId, sequence: use.Sequence,
                 actionToken: action, cooldownUse: cooldownUse, swingAt: swingAt);
@@ -660,7 +661,7 @@ public static partial class Game
             return !noFlickerTarget;
         }
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-            gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+            gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
             () =>
             {
                 castAt = ProjectileWorldTime(conn);
@@ -702,6 +703,7 @@ public static partial class Game
                 $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
         }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
+        if (spellAcknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         if (moves) ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name!);
         if (!spellProjectileRuntime && !spellAcknowledged) return;
         if (!spellProjectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, flicker ? landing : stand, aim, struckId,
@@ -762,7 +764,7 @@ public static partial class Game
             }
             if (!Current()) return false;
         }
-        else if (gem.Name is not null && CooldownFor(conn, gem.Effect, gem.Level, gem.Quality) is not null)
+        else if (gem.Name is not null && CooldownForSkill(conn, skillId) is not null)
             return false;
         // Multi-use and unsupported cooldown mechanics retain their existing raw-deadline behavior.
         else if (gem.Name is not null && SkillsFor(conn).CooldownMs(gem.Effect, gem.Level) is int cooldown and > 0)
@@ -951,7 +953,7 @@ public static partial class Game
             if (!conn.ProjectileActive(epoch) || conn.Paused || !conn.PlayerSent || conn.PendingTransfer is not null) return;
         }
         if (!TryBeginSkillCooldownUse(conn, skillId, gem.Effect,
-            CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+            CooldownForSkill(conn, skillId),
             true, () => { }, out var cooldownUse)) return;
         if (await CastGemSkill(remote, stream, ciphers, conn, skillId, at, at, targetId, cooldownUse: cooldownUse))
         {
@@ -1007,7 +1009,7 @@ public static partial class Game
             else if (!InstantLocationSkill.TryResolve(conn, epoch, aim, InTown(conn), CurrentStats(), out from, out to)) return;
         }
         if (!TryBeginSkillCooldownUse(conn, skillId, gem.Effect,
-            CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
+            CooldownForSkill(conn, skillId),
             true, () => { }, out var cooldownUse)) return;
         if (!await CastGemSkill(remote, stream, ciphers, conn, skillId, from, to, cooldownUse: cooldownUse, locationInstant: true)) return;
         bool accepted = false;

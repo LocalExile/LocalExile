@@ -1236,7 +1236,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Evidence: `logs/instant-location-live-default.json` in the integration validation checkout.
   Production ground Frostblink use during an active walk has not been measured;
   the walking evidence is manual native RE.
-  Departure/arrival damage, chilled ground, nearby-enemy cooldown recovery, shared Blink cooldown groups,
+  Departure/arrival damage, chilled ground, nearby-enemy cooldown recovery,
   other location instant skills and complete movement restriction/terrain searches remain unimplemented.
 - **Hit reaction.** A surviving monster receives S→C **0x1d1**, `ActorAnimation` type 5 (`TakeHit`), for recovery.
   A hit must pass the stun roll and needs a known TakeHit profile, no stun immunity and expiry of its previous recovery.
@@ -1491,10 +1491,14 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   A projectile's creation gate ends action cancellation; released flights continue with their existing area lifetime.
   Ordinary stored uses and Second Wind share the recovery state; spent uses recover one at a time.
   The first native queue entry retains progress, while later entries retain their full base-time budget.
-  Duplicate same-effect gems, other extra-use sources, flat/override and pause-while-active mechanics retain legacy
-  `SkillReadyAt` raw deadlines.
-  Shared cooldown groups, bypass, conditional/enemy recovery, typed/more recovery and official tick equivalence are
-  outside this generic one-use implementation.
+  Same-effect gems retain shared recharge debt; recovery/capacity use the actual admitted socket instance.
+  Blink (GEPL group 9) and Guard (10) debit each available member once. Warcries (1) share only with
+  `warcry_skills_share_cooldowns`. Stances (11) and ordinary per-skill records (36) keep their own uses. The client reads
+  `skill_cooldown_group_override` before its GEPL group at `0x141ef27e0`. Without an override of 36 a second
+  independent warcry never sends its request. Peer progress is published only
+  after the admitted use acknowledgement. Equipping a new group member inherits outstanding recovery debt.
+  Unpayable ordinary uses are rejected before cooldown reservation and movement. Other extra-use sources,
+  flat/override, pause-while-active, bypass, conditional/enemy recovery and official tick equivalence remain partial.
   A zero recovery rate stalls a spent use.
   Extreme input sums are bounded to avoid signed native `percent + 100` overflow.
 
