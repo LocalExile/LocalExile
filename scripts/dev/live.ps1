@@ -380,6 +380,12 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     # --repair gives a zero root hash a value (the client never skips patching with one).
     & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash $client --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
+    # Which allowed client build this is, and the versions LocalExile supports (ClientBuilds).
+    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
+    if (Test-Path $authTool) {
+        & dotnet $authTool build (Join-Path $client 'Game.exe') 2>$null | Where-Object { $_ -like 'This client is *' } |
+            ForEach-Object { Write-Host $_ }
+    }
     $folder = $client
     if ($session -ne 'default') {
         $folder = Join-Path $clients $session

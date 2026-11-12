@@ -47,6 +47,12 @@ public class ClientBuildsTests
             }
         });
         Assert.Equal(ClientBuilds.Allowed.Count, ClientBuilds.Allowed.Select(b => b.ExecutableSha256).Distinct().Count());
+        // What a person starting a client is told names their own build and every supported version.
+        Assert.All(ClientBuilds.Allowed, b =>
+        {
+            Assert.Contains(b.ToString(), ClientBuilds.SupportNote(b));
+            Assert.All(ClientBuilds.Allowed, other => Assert.Contains(other.Version, ClientBuilds.SupportNote(b)));
+        });
         var steam = ClientBuilds.Allowed.Where(b => b.SteamIndexSha256 is not null).Select(b => b.SteamIndexSha256).ToList();
         Assert.Equal(steam.Count, steam.Distinct().Count());
         Assert.All(steam, index => Assert.Single(ClientBuilds.WithSteamIndex(index!)));

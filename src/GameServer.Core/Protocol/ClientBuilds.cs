@@ -38,18 +38,23 @@ public static class ClientBuilds
 
     public static IReadOnlyList<ClientBuild> Allowed { get; } =
     [
+        // Its executables are depot 238962 manifest 6963407386864245615; its Steam game files were never checked.
         new("3.29.3c", "release, build 327984",
             "cc8aa38345be2a837575215d2ce142ebecf7b007345843265b335ebb8ac5964c", 0x142feaed0),
         new("3.29.3c", "3.29.3.5 hotfix of 2026-11-09, build 328126",
             "01a22facf36886b39bca74793c0d8c7295b1495f1625b4ebc7b23c2de32a70cf", 0x142feaed0,
-            // Its game files are depot 238961 manifest 2467965126630699088; the manifest of its executables is not known here.
-            SteamIndexSha256: "d23c78997206716586041a3e47a89dde0eb516f1488df4a1ccf39b0d51be54d0"),
+            SteamIndexSha256: "d23c78997206716586041a3e47a89dde0eb516f1488df4a1ccf39b0d51be54d0",
+            SteamManifests: [new(238961, 2467965126630699088), new(238962, 1925736551784903498)]),
         new("3.29.3d", "release of 2026-11-10, build 328228",
             "e9ba3d31c4d922e1826ef01d02fd22178a001b29e17264b68fc2446efd41f53d", 0x142feaeb0,
             // Steam build 26554937: the index and PathOfExileSteam.exe are byte-identical to the standalone client's.
             SteamIndexSha256: "53560cc6391d2b11276f480ce5ebe86eb75a26935064c846aa99499f376bac29",
             SteamManifests: [new(238961, 5379264335337066375), new(238962, 8687196073893351989)]),
     ];
+
+    /// <summary>For the person starting a client: which build theirs is, and the versions LocalExile supports.</summary>
+    public static string SupportNote(ClientBuild build) =>
+        $"This client is Path of Exile {build}. LocalExile supports {string.Join(" and ", Allowed.Select(b => b.Version).Distinct())}.";
 
     /// <summary>The versions of <see cref="Allowed"/>, for messages: "3.29.3c", or "3.29.3c or 3.29.3d".</summary>
     public static string Versions => VersionsOf(Allowed);

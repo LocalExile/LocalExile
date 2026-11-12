@@ -71,6 +71,7 @@ static class ClientInstall
         string? exe = FindExecutable(folder, out string problem, out var build);
         if (exe is null) throw new LauncherException(ExitCode.Client, problem);
         log.Value("client", $"{exe} is the {build!.Version} client ({build.Name})");
+        log.Info(ClientBuilds.SupportNote(build));
     }
 
     /// <summary>Client\ holds the checked client when this returns.</summary>
@@ -79,10 +80,11 @@ static class ClientInstall
         log.Step("client-check", "checking the client ...");
         if (Directory.Exists(Folder))
         {
-            string? exe = FindExecutable(Folder, out string problem);
+            string? exe = FindExecutable(Folder, out string problem, out var current);
             if (exe is null) throw new LauncherException(ExitCode.Client, $"{problem} (remove the Client folder to choose another)");
             EnsureGameExe(exe);
             log.Info($"using {Path.GetFullPath(Folder)}");
+            log.Info(ClientBuilds.SupportNote(current!));
             WarnIfLinked(log);
             return;
         }
@@ -91,6 +93,7 @@ static class ClientInstall
         string? found = FindExecutable(source, out string why, out var build);
         if (found is null) throw new LauncherException(ExitCode.Client, why);
         log.Info($"{found} is the {build!.Version} client ({build.Name})");
+        log.Info(ClientBuilds.SupportNote(build));
 
         // Always a copy unless a developer asks for the link: only a copy is safe from an update of the player's game, and
         // leaves their install as it is.

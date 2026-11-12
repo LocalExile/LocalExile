@@ -9,6 +9,7 @@ using GameServer.Core;
 
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
+//   build  <Game.exe>                      say which allowed client build the executable is (ClientBuilds)
 //   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys; in a Steam install's
 //                                          folder the copy also reads the loose game files (LooseFilesPatch)
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
@@ -59,11 +60,17 @@ switch (cmd)
         string outPath = args.Length > 2 ? args[2] : DefaultKeys;
         if (File.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
         byte[] executable = File.ReadAllBytes(args[1]);
-        ClientBuilds.Require(executable);
+        Console.WriteLine($"[auth] {ClientBuilds.SupportNote(ClientBuilds.Require(executable))}");
         var keys = LoginServerKeys.Generate(new ClientImage(executable));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, keys.ToJson());
         Console.WriteLine($"[auth] wrote {outPath}");
+        return 0;
+    }
+    case "build" when args.Length >= 2:
+    {
+        // For live.ps1: which allowed build the executable is, and the versions LocalExile supports.
+        Console.WriteLine(ClientBuilds.SupportNote(ClientBuilds.Require(File.ReadAllBytes(args[1]))));
         return 0;
     }
     case "patch" when args.Length >= 3:
@@ -72,7 +79,7 @@ switch (cmd)
         { Console.Error.WriteLine("[auth] refusing to overwrite the input; give a different output path."); return 1; }
         var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
         byte[] original = File.ReadAllBytes(args[1]);
-        Console.WriteLine($"[auth] {args[1]} is {ClientBuilds.Require(original)}");
+        Console.WriteLine($"[auth] {ClientBuilds.SupportNote(ClientBuilds.Require(original))}");
         var image = new ClientImage(original);
         Console.WriteLine($"[auth] login key blobs at file offset 0x{image.Offset:x}");
         image.Patch(keys);
