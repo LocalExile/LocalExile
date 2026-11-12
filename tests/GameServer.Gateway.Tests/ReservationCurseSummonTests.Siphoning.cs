@@ -34,8 +34,8 @@ public sealed partial class ReservationCurseSummonTests
                 var mod = Program.Items.Mods.ById(id)!;
                 return new(ModSection.Explicit, mod.Hash, [.. mod.Stats.Select(s => s.Min)]);
             }
-            // Disintegrator's base is absent from this client. Use the actual SQL mod rows on a supported diagnostic
-            // staff, without adding a counterfeit Disintegrator factory profile or replacing chance/condition inputs.
+            // Retain the original minimum-roll diagnostic's exact lifecycle arithmetic. The now-available canonical
+            // factory source is also bound below, with its original rolled values and qualification.
             var item = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff1")!) with
             {
                 Influences = ItemInfluence.Elder | ItemInfluence.Shaper,
@@ -152,6 +152,36 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(0u, conn.PlayerLife);
             Assert.Equal(0, Stat("current_siphoning_charges"));
             Assert.False(Game.SiphoningDegenerationActive(conn));
+
+            foreach (var equipped in inventory.Items(PlayerInventories.Weapon1)) inventory.Remove(PlayerInventories.Weapon1, equipped.Id);
+            var uniques = new UniqueCatalog(Program.Items);
+            inventory.Add(PlayerInventories.Belt, 0, 0, uniques.Create("Perandus Blazon", new Random(504))!);
+            var canonical = uniques.Create("Disintegrator", new Random(504))!;
+            Assert.NotNull(canonical); Assert.Equal("Metadata/Items/Weapons/TwoHandWeapons/Staves/Staff17", Program.Items.ByHash(canonical.TypeHash)!.Id);
+            // A legal diagnostic source state: this dual-influenced item contributes one maximum charge.
+            var canonicalStaff = inventory.Add(PlayerInventories.Weapon1, 0, 0, canonical with { Influences = ItemInfluence.Elder | ItemInfluence.Shaper });
+            conn.Pools = Game.PoolsFor(conn, 100); conn.PlayerLife = conn.Pools.Life; schedule.At = 300;
+            Assert.False(Game.IsInactive(conn, canonicalStaff.Id));
+            int physicalMin = Stat("attack_and_spell_minimum_added_physical_damage_per_siphoning_charge");
+            int physicalMax = Stat("attack_and_spell_maximum_added_physical_damage_per_siphoning_charge");
+            Assert.InRange(physicalMin, 20, 24); Assert.InRange(physicalMax, 26, 32);
+            Game.SiphoningSkillUsedLocked(conn, 300, new AspectRoll(0));
+            Assert.Equal(1, Stat("current_siphoning_charges"));
+            foreach (bool spell in new[] { false, true })
+            {
+                var added = DamageStats.RawAdded(DamagePacket.Empty, Stat, spell)[DamageType.Physical];
+                Assert.Equal(physicalMin, added.Min); Assert.Equal(physicalMax, added.Max);
+            }
+            conn.EnergyShield.Empty(); before = conn.PlayerLife; schedule.At = 301;
+            Assert.Equal(150, Game.AdvanceSiphoningDamageLocked(conn, 301, Game.CharacterPlayerStats(conn)));
+            Assert.Equal(before - 150, conn.PlayerLife);
+            conn.Experience = CharacterStats.ExperienceFor(1); conn.Pools = Game.PoolsFor(conn, 1);
+            Assert.True(Game.IsInactive(conn, canonicalStaff.Id)); Assert.Equal(0, Stat("current_siphoning_charges"));
+            conn.Experience = CharacterStats.ExperienceFor(100); conn.Pools = Game.PoolsFor(conn, 100);
+            Game.SiphoningSkillUsedLocked(conn, 301, new AspectRoll(0)); Assert.Equal(1, Stat("current_siphoning_charges"));
+            inventory.Remove(PlayerInventories.Weapon1, canonicalStaff.Id);
+            Assert.Equal(0, Stat("current_siphoning_charges")); Assert.Equal(0, Stat("virtual_maximum_siphoning_charges"));
+            Assert.Empty(conn.PlayerStats);
         }
         finally
         {
