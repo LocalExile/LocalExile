@@ -41,6 +41,55 @@ public class SacrificeSupportTests
         Assert.Equal(0u, c.VaalSouls.Read().Single().Current);
     }
 
+    [Theory]
+    [InlineData(0, 100)]
+    [InlineData(20, 102)]
+    public async Task Vaal_spark_releases_one_timed_wandering_stream(int quality, int count)
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("VaalSpark");
+        var c = fixture.Conn;
+        Game.ItemsOf(c).Change(PlayerInventories.Weapon1, fixture.Host, host => host with
+        {
+            Sockets = host.Sockets.Select((socket, index) => index == 0
+                ? socket with { Gem = socket.Gem! with { Quality = (byte)quality } } : socket).ToArray()
+        });
+        c.Clock.Restart();
+        var gem = Game.GemSkillEffects(c).Single(g => Game.SkillsFor(c).EffectId(g.Effect) == "VaalSpark");
+        c.PlayerStats[Program.Stats.Key("skill_effect_duration_+%")!.Value] = 20;
+        bool Admit() => Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, null, false, () => c.ActionCount++, out _);
+        Game.RefreshVaalSouls(c);
+        Assert.False(Admit());
+        for (int i = 0; i < 30; i++) Assert.True(c.VaalSouls.Gain());
+        double at = Game.ProjectileWorldTime(c);
+        Assert.True(Admit());
+        Assert.InRange(c.VaalPreventionUntil - at, 5.99, 6.2);
+        Assert.True(await Game.CastGemSkill("spiral", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        Assert.False(await Game.CastGemSkill("duplicate", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        long start = fixture.Session.Runtime.Now;
+        var seen = new Dictionary<long, ProjectileVector>();
+        var groups = new HashSet<long>();
+        for (int i = 0; i <= 85; i++)
+        {
+            fixture.Session.AdvanceTo(start + ProjectileRuntime.Time(i * .05));
+            foreach (var shot in fixture.Session.Runtime.Projectiles)
+            {
+                Assert.NotNull(shot.Profile.Legs);
+                groups.Add(shot.EmissionId);
+                seen.TryAdd(shot.Id, shot.Direction);
+            }
+            if (i == 20) Assert.InRange(seen.Count, 1, count - 1);
+        }
+        Assert.Equal(count, seen.Count);
+        Assert.Single(groups);
+        Assert.Contains(seen.Values, v => v.X > 0);
+        Assert.Contains(seen.Values, v => v.X < 0);
+        Assert.Contains(seen.Values, v => v.Y > 0);
+        Assert.Contains(seen.Values, v => v.Y < 0);
+        Assert.Equal(0u, c.VaalSouls.Read().Single().Current);
+        Assert.Equal(ProjectileRuntime.Time(3d / count), fixture.Session.Runtime.Projectiles.Last().Profile.SequentialDelay);
+    }
+
     [Fact]
     public async Task Projectile_cast_sacrifices_once_at_release_and_added_chaos_uses_common_damage_rules()
     {
