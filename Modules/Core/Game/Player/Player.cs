@@ -416,7 +416,19 @@ public static partial class Game
             life = (int)Math.Min(cost, int.MaxValue);
             cost = 0;
         }
-        else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
+        else
+        {
+            int lifeBasis = (int)Math.Min(cost, int.MaxValue);
+            if (conn.PetrifiedBlood.Active && Stats.Key(ItemChargeCosts.ManaEfficiency) is uint efficiency
+                && player.GetValueOrDefault(efficiency) != 0)
+            {
+                var costStats = player;
+                lifeBasis = ManaRecoveryRules.Cost(own.GetValueOrDefault(Stats.Key("mana_cost") ?? 0),
+                    name => Stats.Key(name) is uint key ? costStats.GetValueOrDefault(key) : 0,
+                    SkillsFor(conn).IsChannelled(SupportedSkill(conn, skillId).Effect), SkillCostMore(conn, own), applyManaEfficiency: false);
+            }
+            life = PetrifiedBlood.LifeCost(conn, lifeBasis);
+        }
         return conn.PlayerMana >= cost && !(life > 0 && conn.PlayerLife <= (uint)life);
     }
 
