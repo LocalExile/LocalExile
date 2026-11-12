@@ -25,6 +25,7 @@ public sealed class GameModule : IModule
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DoedreSewers.Leaving(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::BrineKing.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::AtlasBosses.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
@@ -41,6 +42,7 @@ public sealed class GameModule : IModule
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);

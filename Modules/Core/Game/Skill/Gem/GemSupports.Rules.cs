@@ -87,7 +87,7 @@ public static partial class Game
             {
                 string stat = Stats.Name(key) ?? "";
                 if (stat is "base_spell_cast_time_ms" or "virtual_base_spell_cast_time_ms" or "hundred_times_casts_per_second"
-                    or "casting_spell" or "base_mana_cost" or "mana_cost" or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
+                    or "casting_spell" or "base_life_cost" or "life_cost" or "base_mana_cost" or "mana_cost" or "base_mana_cost_per_minute" or "mana_cost_per_minute") continue;
                 own[key] = stat.EndsWith("_final", StringComparison.Ordinal) && own.TryGetValue(key, out int previous)
                     ? (int)Math.Round(100 * ((1 + previous / 100.0) * (1 + value / 100.0) - 1))
                     : own.GetValueOrDefault(key) + value;
@@ -106,7 +106,7 @@ public static partial class Game
                     own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
-        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
+        foreach (string stat in new[] { "mana_cost", "base_mana_cost", "life_cost", "base_life_cost", "mana_cost_per_minute", "base_mana_cost_per_minute", "base_rage_cost", "total_base_rage_cost" })
             if (Stats.Key(stat) is uint k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
         // Global added damage on support gems applies to this skill, not to the character or other link groups.
         foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
@@ -155,7 +155,7 @@ public static partial class Game
         foreach (var (key, value) in own)
         {
             string stat = Stats.Name(key) ?? "";
-            bool replace = stat is "mana_cost" or "base_mana_cost" or "casting_spell" or "virtual_base_spell_cast_time_ms"
+            bool replace = stat is "base_life_cost" or "life_cost" or "mana_cost" or "base_mana_cost" or "casting_spell" or "virtual_base_spell_cast_time_ms"
                 or "base_spell_cast_time_ms" or "hundred_times_casts_per_second" || stat.Contains("_base_", StringComparison.Ordinal)
                 && (stat.StartsWith("spell_minimum", StringComparison.Ordinal) || stat.StartsWith("spell_maximum", StringComparison.Ordinal));
             result[key] = replace ? value : ArcaneMight.IsGrant(key)
@@ -163,6 +163,12 @@ public static partial class Game
         }
         if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
             result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0);
+        if (Stats.Key("life_cost") is uint life && own.TryGetValue(life, out int nativeLife))
+        {
+            int Read(string name) => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0;
+            result[life] = (int)Math.Clamp(decimal.Floor(nativeLife * Math.Max(0m,
+                100m + Read("base_cost_+%") + Read("base_life_cost_+%") + Read("life_cost_+%")) / 100m), 0, int.MaxValue);
+        }
         return result;
     }
 

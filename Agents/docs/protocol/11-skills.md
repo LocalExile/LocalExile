@@ -1382,9 +1382,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   (0.25 s with `skill_art_variation` 3) × `active_skill_area_of_effect_radius` (`0x141c02ec0`) and hits every target
   within it, so a victim at the edge is hit 0.2 s after one at the centre. `AreaSkillHit` sorts the victims by
   distance and waits for each (`IceNovaRing`); once released, the ring no longer depends on the player's action.
-  Not modelled: `spell_repeat_count` repeats (0.3 s apart in the same update, each with `ice_nova_radius_+%_per_repeat`;
-  the server sends Ice Nova no count, see Spell repeats)
-  and Frostbolt casting (`active_skill_area_of_effect_+%_final_when_cast_on_frostbolt`).
+  Ordinary Ice Nova with level-one Spell Echo starts one ring per animation replay. Three 3.29.3c casts
+  had two ring starts apiece, 542–546 ms apart, with the remaining repeat count falling from one to zero.
+  None incremented the internal ring counter. Frostbolt casting remains unverified.
 - **Cast speed (#192).** Genuine Spell/non-Attack skills keep the catalog milliseconds in both
   `base_spell_cast_time_ms` and `virtual_base_spell_cast_time_ms`. The native spell action already divides that
   virtual base by `1 + cast_speed_+% / 100`; pre-dividing it on the server applied cast speed twice.
@@ -1430,8 +1430,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   (`0x141bb3e30`: [sequence, +0x11c, +0x458, +0x2d0, owner]) and the return roll's fourth.
   `SpellRepeats` sends the count with the skill and the server repeats its releases (`ScheduleGemProjectile`) and
   area hits (`LaunchProjectile`) a cast time apart, with the use's one cost and critical roll; a new action cancels the
-  rest. Ice Nova's action (`0x141c02c10`) also reads 0x912 for rings 0.3 s apart (only while bytes +0x2b8 and +0x2b9
-  are equal), and its slot 0x460 thunks to the base replay; it gets no count until a trace shows how the two combine.
+  rest. The ordinary Ice Nova replay uses the same timing; see “Ice Nova's ring” above.
   Not modelled: the final-repeat and per-repeat stats (Greater and Awakened Spell Echo), and whether a repeat re-aims
   at a moving target.
   Lockstep holds a repeated use through all casts; ordinary Fireball/Freezing Pulse cancellation uses the first

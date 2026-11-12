@@ -36,10 +36,12 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     private readonly Lazy<Dictionary<ushort, (double X, double Y)>> _positions = new(() => LoadPositions(folder));
 
     /// <summary>The PassiveJewels1 pane cells: the ordinary sockets (0..20, six of which also take large cluster
-    /// jewels), the cluster expansion cells and the parent/child links between them.</summary>
+    /// jewels), the cluster expansion cells and the parent/child links between them, and the three Wildwood Primalist
+    /// charm sockets.</summary>
     public sealed record JewelSockets(Dictionary<int, ushort> BySlot, Dictionary<ushort, int> ByNode,
         HashSet<int> Large, Dictionary<int, ushort> Cluster, Dictionary<int, int[]> Children, Dictionary<int, int> Parents,
-        Dictionary<int, int> Sizes, Dictionary<int, int[]> Starts, Dictionary<int, int> ClusterIndexes);
+        Dictionary<int, int> Sizes, Dictionary<int, int[]> Starts, Dictionary<int, int> ClusterIndexes,
+        Dictionary<int, ushort> CharmBySlot, Dictionary<ushort, int> CharmByNode);
 
     public Node? Find(ushort graphId) => _nodes.Value.GetValueOrDefault(graphId);
 
@@ -62,6 +64,13 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         _jewelSockets.Value.ByNode.TryGetValue(graphId, out int slot) ? slot : null;
 
     public bool IsJewelSocket(ushort graphId) => _jewelSockets.Value.ByNode.ContainsKey(graphId);
+
+    /// <summary>The PassiveJewels1 pane cell (57..59) of a Wildwood Primalist charm socket, or null. The cell accepts a
+    /// charm (ItemClasses AnimalCharm) only while its Charm Socket node is allocated.</summary>
+    public ushort? CharmNodeForSlot(int slot) =>
+        _jewelSockets.Value.CharmBySlot.TryGetValue(slot, out ushort node) ? node : null;
+
+    public bool IsCharmSocket(ushort graphId) => _jewelSockets.Value.CharmByNode.ContainsKey(graphId);
 
     /// <summary>A tree socket that accepts a large cluster jewel (PassiveJewelSlots' ClusterJewelSize 2), not only a
     /// normal jewel.</summary>
@@ -308,7 +317,8 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     /// first column (<c>Slot</c>) is that row index; the ordinary tree's 21 jewel sockets are slots 0..20 (six of them
     /// large, which also accept a large cluster jewel), and the rows with a <c>ReplacesSlot</c> are the expansion cells
     /// a cluster jewel in the parent socket creates (large 11/12/13/15/17/20 -> three medium sockets each, a medium ->
-    /// one small). The three ascendancy charm sockets (`__col6`) are not part of this pane's tree sockets.
+    /// one small). The rows with <c>__col6</c> are the three Wildwood Primalist charm sockets (57..59); they hold a
+    /// charm, not a jewel, and are gated by their Charm Socket node.
     /// </summary>
     private static JewelSockets LoadJewelSockets(string folder)
     {
@@ -320,8 +330,10 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         var children = new Dictionary<int, List<(int Index, int Cell)>>();
         var starts = new Dictionary<int, int[]>();
         var clusterIndexes = new Dictionary<int, int>();
+        var charmBySlot = new Dictionary<int, ushort>();
+        var charmByNode = new Dictionary<ushort, int>();
         if (!ClientTables.Has("PassiveJewelSlots") || !ClientTables.Has("PassiveSkills"))
-            return new(bySlot, byNode, large, cluster, [], [], [], [], []);
+            return new(bySlot, byNode, large, cluster, [], [], [], [], [], charmBySlot, charmByNode);
         var slots = ClientTables.Table("PassiveJewelSlots");
         var rows = ClientTables.Table("PassiveSkills").ToArray();
         int slot = 0;
@@ -331,9 +343,15 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
             int passiveRow = row.Int("Slot");
             if (passiveRow < 0 || passiveRow >= rows.Length) continue;
             var passive = rows[passiveRow];
-            if (!passive.Bool("IsJewelSocket")) continue;
             int graphId = passive.Int("PassiveSkillGraphId");
             if (graphId is <= 0 or > ushort.MaxValue) continue;
+            if (row.Bool("__col6"))
+            {
+                charmBySlot[index] = (ushort)graphId;
+                charmByNode[(ushort)graphId] = index;
+                continue;
+            }
+            if (!passive.Bool("IsJewelSocket")) continue;
             if (!row.IsNull("StartIndices"))
                 starts[index] = row.Ints("StartIndices");
             if (row.IntOrNull("ClusterIndex") is int clusterIndex)
@@ -348,7 +366,6 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
                 list.Add((order, index));
                 continue;
             }
-            if (row.Bool("__col6")) continue;
             bySlot[index] = (ushort)graphId;
             byNode[(ushort)graphId] = index;
             int cellSize = row.IntOrNull("ClusterJewelSize") ?? -1;
@@ -359,7 +376,7 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
             children.ToDictionary(kv => kv.Key, kv => kv.Value.OrderBy(c => c.Index).Select(c => c.Cell).ToArray()),
             children.SelectMany(kv => kv.Value.Select(c => (Cell: c.Cell, Parent: kv.Key)))
                 .ToDictionary(x => x.Cell, x => x.Parent),
-            sizes, starts, clusterIndexes);
+            sizes, starts, clusterIndexes, charmBySlot, charmByNode);
     }
 
     private static Dictionary<int, MasteryEffect> LoadEffects(string folder)

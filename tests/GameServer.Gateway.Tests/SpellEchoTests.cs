@@ -27,10 +27,10 @@ public sealed class SpellEchoTests
     }
 
     // Spell Echo (base_spell_repeat_count 1, 40% more cast speed at level 1) repeats Fireball once;
-    // Ice Nova gets no repeat until its own repeated rings are modelled, but still casts faster.
+    // ordinary Ice Nova likewise releases one ring on each cast.
     [Theory]
     [InlineData("Metadata/Items/Gems/SkillGemFireball", "Fireball", 1, 536)]
-    [InlineData("Metadata/Items/Gems/SkillGemIceNova", "IceNova", 0, 500)]
+    [InlineData("Metadata/Items/Gems/SkillGemIceNova", "IceNova", 1, 500)]
     public void Spell_Echo_repeats_a_supported_spell_and_casts_it_faster(string gemType, string effectId, int repeats, int castMs)
     {
         string path = Path.Combine(Path.GetTempPath(), $"localexile-spell-echo-{Guid.NewGuid():N}.db");
@@ -59,7 +59,7 @@ public sealed class SpellEchoTests
             Assert.Equal(repeats, Game.SpellRepeats(conn, skill.Id, skill.Effect));
             Assert.Equal(castMs, Game.CastMs(conn, skill.Effect, skill.Id)); // 750 and 700 ms at 40% more
             conn.LockstepClient = true;
-            Assert.Equal(effectId == "Fireball" ? 1.5 / 1.4 : .5,
+            Assert.Equal(effectId == "Fireball" ? 1.5 / 1.4 : 1.0,
                 Game.LockstepActionHold(conn, skill.Id, 0x8001), 6);
             // A target changes the aim, not the native cast duration or the held spell's repeat gate.
             foreach (uint? target in new uint?[] { null, 0x3001 })

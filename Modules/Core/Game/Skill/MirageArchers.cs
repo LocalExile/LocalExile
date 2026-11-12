@@ -9,10 +9,14 @@ public static partial class Game
     static ProjectileOffense MirageOffense(ClientState conn, ProjectileOffense shot)
     {
         double factor = MirageDamageFactor(shot.SkillStats);
+        var caster = new Dictionary<uint, int>(CharacterPlayerStats(conn));
+        // These restrictions belong to the player using the skill himself, not to the mirage.
+        foreach (string name in new[] { "keystone_ancestral_bond", "deal_no_damage_yourself" })
+            if (Stats.Key(name) is uint key) caster.Remove(key);
         return shot with
         {
             MirageSource = null, CriticalTrigger = null, ClientPredicted = false,
-            ActualCaster = CharacterPlayerStats(conn), Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
+            ActualCaster = caster, Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
             Hit = shot.Hit.Scale(factor), AreaHit = shot.AreaHit?.Scale(factor),
             Ignite = shot.Ignite with { Min = shot.Ignite.Min * factor, Max = shot.Ignite.Max * factor,
                 CriticalMin = shot.Ignite.CriticalMin * factor, CriticalMax = shot.Ignite.CriticalMax * factor },

@@ -24,6 +24,10 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
 public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
+/// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
+/// tables make it wait between two uses (0: the plain attack every monster has).</summary>
+public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds);
+
 public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range, DamagePacket Damage)
 {
     public bool Ranged { get; init; }
@@ -131,7 +135,14 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double RecipientDebuffRate = 1;
     /// <summary>Sent out of the wake zone (S→C 0x1aa): the client no longer ticks it.</summary>
     public bool Asleep;
-    public MonsterAttack? Attack { get; init; }
+    /// <summary>The action it takes now. A boss with a kit of its own swaps this for the chosen skill of that kit each
+    /// AI pass (BossKits.Choose); everything downstream — the walk-up, the swing's clip, its hit — reads this one.</summary>
+    public MonsterAttack? Attack { get; set; }
+    /// <summary>The rest of a boss's skills (BossKits): the effect each one comes from, its action and its cooldown.
+    /// Empty for every monster that swings one attack.</summary>
+    public IReadOnlyList<MonsterKitSkill> Kit { get; init; } = [];
+    /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), under the Monsters lock.</summary>
+    public readonly Dictionary<int, double> KitReadyAt = [];
     public bool Hostile { get; init; } = true;
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
@@ -299,6 +310,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public ClientState? LastHitBy;
     // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
+    // A warcry's Howl of the Wolf already rerolled this corpse's loot: one reroll per corpse, like another use of it.
+    // Guarded by the Monsters lock.
+    public bool CorpseLooted;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;

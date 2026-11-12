@@ -237,6 +237,10 @@ public static partial class Game
     public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" or "AbyssJewel" } type
         && !type.Id.StartsWith("Metadata/Items/Jewels/JewelPassiveTreeExpansion", StringComparison.Ordinal);
 
+    /// <summary>A Wildwood charm (ItemClasses AnimalCharm): a single-modifier magic item that goes in one of the
+    /// Primalist's three charm sockets, not in an ordinary jewel socket.</summary>
+    public static bool IsCharm(Item item) => Items.ByHash(item.TypeHash) is { Class: "AnimalCharm" };
+
     /// <summary>The Large Cluster Jewel base type: the only cluster jewel the tree sockets take so far (Voices).</summary>
     public const string LargeClusterJewelId = "Metadata/Items/Jewels/JewelPassiveTreeExpansionLarge";
 
@@ -365,6 +369,18 @@ public static partial class Game
     public static string? PassiveJewelRefusal(ClientState conn, int x, int y, Item? item)
     {
         if (y != 0) return "a passive jewel socket is one cell";
+        if (Passives.CharmNodeForSlot(x) is { } charmNode)
+        {
+            if (item is null) return "no held item";
+            if (ItemsFor(conn).ByHash(item.TypeHash) is not { } charmType) return "unknown item type";
+            if (charmType.Class != "AnimalCharm") return "only a Wildwood charm goes in a charm socket";
+            lock (conn.Monsters)
+                if (!conn.Passives.Contains(charmNode) && !conn.DescendancyNodes.Contains(charmNode))
+                    return "the charm socket is not allocated";
+            int charmNeeds = ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(conn).Mods);
+            return conn.Pools.Level < charmNeeds
+                ? $"{charmType.Name} requires level {charmNeeds} (character is {conn.Pools.Level})" : null;
+        }
         bool expansion = Passives.ClusterNodeForSlot(x) is not null;
         if (!expansion && Passives.JewelNodeForSlot(x) is not { } node) return "not a passive jewel socket";
         if (expansion)
@@ -585,12 +601,14 @@ public static partial class Game
     {
         var items = ItemsOf(conn);
         HashSet<ushort> allocated;
-        lock (conn.Monsters) allocated = [.. conn.Passives];
+        lock (conn.Monsters) allocated = [.. conn.Passives, .. conn.DescendancyNodes];
         foreach (var item in items.Items(PlayerInventories.PassiveJewels).ToArray())
         {
-            bool valid = Passives.ClusterNodeForSlot(item.X) is not null
-                ? ClusterSlotOpen(conn, item.X) && JewelFitsCell(item.X, item.Item)
-                : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
+            bool valid = Passives.CharmNodeForSlot(item.X) is { } charmNode
+                ? IsCharm(item.Item) && allocated.Contains(charmNode)
+                : Passives.ClusterNodeForSlot(item.X) is not null
+                    ? ClusterSlotOpen(conn, item.X) && JewelFitsCell(item.X, item.Item)
+                    : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
             if (valid) continue;
             var removed = items.Remove(PlayerInventories.PassiveJewels, item.Id);
             if (removed is null) continue;

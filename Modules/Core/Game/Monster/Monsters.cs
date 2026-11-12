@@ -163,7 +163,12 @@ public static partial class Game
         // itself. Every other monster takes its combat effect (MavenNucleus.CombatEffect).
         bool kingActor = KingInMists.IsActor(variety);
         bool brine = BrineKing.IsBoss(variety);
-        int effect = brine ? BrineKing.MeleeEffect : !kingActor ? MavenNucleus.CombatEffect(catalog, variety)
+        // The Shaper, the Elder and Sirus are scripted fights too (AtlasBosses.cs, ShaperFight.cs, ElderFight.cs,
+        // SirusFight.cs): their record's swing is their basic skill, and every other skill of their kit is played by their
+        // controller through its own id.
+        bool atlas = AtlasBosses.IsBoss(variety);
+        int effect = brine ? BrineKing.MeleeEffect : atlas ? AtlasBosses.BasicEffect(variety)
+            : !kingActor ? MavenNucleus.CombatEffect(catalog, variety)
             : variety.GrantedEffects is [int firstEffect, ..] ? firstEffect : -1;
         bool rangedAttack = kingActor
             ? effect >= 0 && (catalog.IsRangedAttack(effect) || variety.RangedWeapon && catalog.IsAttack(effect))
@@ -197,7 +202,7 @@ public static partial class Game
             mods.Effects.Hit(DamagePacket.Of(DamageType.Physical, baseMin, baseMax)))
         {
             Spell = spell,
-            Scripted = kingActor || brine,
+            Scripted = kingActor || brine || atlas,
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
@@ -209,7 +214,7 @@ public static partial class Game
                 attack.Projectile is null ? WithBehaviourVariation(conn, effect, attack.SkillStats()) : MonsterProjectileSkillStats(conn, effect, level, attack)) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights). A scripted
         // encounter drives its own phases: the built-in stage would heal it and fight the controller for its actions.
-        var stage = scripted ? null : BossFights.For(variety.Id);
+        var stage = scripted || atlas ? null : BossFights.For(variety.Id);
         // Its stats as the attack's (skill_is_non_pathing above all, and the stage's own time): without them the client sent
         // the action through its pathing step, played nothing and kept the monster in it (live 2026-10-21).
         var stageSkill = skill is not null && stage is not null
@@ -220,8 +225,16 @@ public static partial class Game
         // names one of these ids (KingInMists.cs). The three Mystic Fetishes likewise need their hazard list, because the
         // official server sends those actions to the fetish actor.
         var kingSkills = Sirus.SkillsFor(conn, variety, level) ?? KitavaActFive.SkillsFor(conn, variety, level) ?? KitavaActTen.SkillsFor(conn, variety, level) ?? DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? KingInMists.SkillsFor(conn, variety, level, attack)
+            ?? AtlasBosses.SkillsFor(conn, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(conn, variety, level, attack) : null);
+        // A monster the campaign places as a boss, or one with a bar of its own, and that has no encounter controller:
+        // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
+        // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
+        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
+        // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
+            : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
@@ -306,16 +319,18 @@ public static partial class Game
             MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
-                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
-                Scripted = !friendly && scripted,
+                Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
+                Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
+                Scripted = !friendly && (scripted || atlas),
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(conn).ThresholdOf(conn.Layout.Id, variety.Id),
-                CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted),
+                CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted || atlas),
                 KingPhaseLocked = !friendly && KingInMists.IsBoss2(variety),
                 KingGrace = !friendly && KingInMists.IsBoss(variety),
                 FetishGrace = !friendly && KingInMists.IsFetish(variety),
-                LifePhases = !friendly && brine ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
+                // The three thresholds the Atlas bosses change phase at (a quarter of their life each, three times).
+                LifePhases = !friendly && (brine || atlas) ? new([75, 50, 25]) : !friendly && DepravedTrinity.IsBoss(variety) ? new([66, 33]) : !friendly ? (Sirus.Phases(variety) ?? KitavaActFive.Phases(variety) ?? KitavaActTen.Phases(variety)) : null,
                 EntranceGrace = !friendly && (Sirus.IsActor(variety) || KitavaActFive.IsActor(variety) || KitavaActTen.IsActor(variety) || DepravedTrinity.IsBoss(variety) || VaalOversoul.IsBoss(variety) || DoedreSewers.IsBoss(variety)),
             }, emerge, waits);
             if (owned is not null && conn.Monsters.TryGetValue(id, out var added)) owned(id, added);
@@ -579,13 +594,16 @@ public static partial class Game
                 // damage through MonsterSwing/MonsterAreaContact. Its Mystic Fetishes are stationary shrines the
                 // controller activates; the ordinary chase would slowly drag them toward the player.
                 if (Sirus.IsActor(m.Variety) || KitavaActFive.IsActor(m.Variety) || KitavaActTen.IsActor(m.Variety) || DepravedTrinity.IsBoss(m.Variety) || VaalOversoul.IsBoss(m.Variety) || DoedreSewers.IsBoss(m.Variety) || BrineKing.IsBoss(m.Variety) || KingInMists.IsBoss(m.Variety) || KingInMists.IsFetish(m.Variety)
-                    || KingInMists.IsGuidingLight(m.Variety)) continue;
+                    || KingInMists.IsGuidingLight(m.Variety) || AtlasBosses.IsBoss(m.Variety)) continue;
                 if (m.Hostile && protectedEntry) continue;
                 var (mx, my) = m.Walk.Position(now);
                 double d = Math.Sqrt((double)(mx - px) * (mx - px) + (double)(my - py) * (my - py));
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
                 if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
+                // A boss's kit (BossKits): the skill that is ready and reaches the player, else its default swing. Never
+                // while a swing still runs: the attack an order names must stay the one its hit is applied with.
+                if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d);
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -762,6 +780,8 @@ public static partial class Game
                     m.LastTarget = null;
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);
+                    // The order names this attack's skill: what it used now goes on cooldown.
+                    BossKits.Consume(m, a, now);
                     plan.Swings.Add((id, m, m.ActionGeneration));
                     continue;
                 }
