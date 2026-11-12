@@ -45,6 +45,10 @@ PathOfExile*.exe
 .env.*
 *secret*
 !**/*Secret*.cs
+# The client's Labyrinth secret tables are game data: client-sql.ps1 writes them to sql/ (LabyrinthSecrets,
+# LabyrinthSecretEffects). Without this the generated update file is dropped silently and every checkout
+# starts without those tables, so Izaro's trials and the Labyrinth's secret rooms cannot form.
+!**/*LabyrinthSecret*.sql
 
 # --- Machine-local tool config (absolute paths to this PC) ---
 .mcp.json
