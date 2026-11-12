@@ -1112,8 +1112,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// (cyclone_movement_speed_+%_final): the walk goes at it while <see cref="ChannelSkill"/> is that skill.</summary>
     public (ushort Skill, int Percent) ChannelMovement;
     public int ChannelGeneration;
-    /// <summary>The last passive and equipment stat sum and its inputs (CharacterStatSources).</summary>
-    public volatile object? StatSourcesCacheState;
     /// <summary>The channelled skill's action sequence, so its 0x1af hit result names the action it belongs to.</summary>
     public ushort ChannelSkillSequence;
     public double NextChannelHitAt;

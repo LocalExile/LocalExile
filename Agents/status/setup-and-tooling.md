@@ -124,8 +124,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
   dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
   context being freed.
-  Live (2026-11-11, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules and
-  freed every old one, five times in a row; movement went on and a buried monster rose for the new rules afterwards.
+  Live (2026-11-12, #822): a rebuild of the Game module with a player in The Twilight Strand reloaded the 24 modules and
+  freed every old one, seven times in a row: at rest, in a fight, and after a death and a new entry into the same
+  instance; movement went on and a buried monster rose for the new rules afterwards.
   Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
   remain free, and collected contexts release their copied files.
   Unit-tested: the copies' cleanup (`ModCopyTests`), user settings over the declared defaults (`ModSettingsTests`), a
