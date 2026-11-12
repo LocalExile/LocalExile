@@ -29,30 +29,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: dying monsters drop currency, gems, flasks and equipment around the corpse, rolled in stages like the game's
-  with our own numbers: how many (by monster rarity, times item quantity: the league's, a mod's, the player's
-  increased quantity including an Item Quantity-supported last hit, no cap), the kind, for equipment the slot (armour
-  often, jewellery seldom) and then any base the level allows, and last the rarity: unique (one of that base's uniques,
-  else rare), rare, magic, each chance raised by item rarity from the player and an Item Rarity-supported last hit. Bases
-  tagged not_for_sale (unique-only bases like "Ring", Stygian Vise, Heist, Ritual, Expedition
-  bases) are left out, the atlas bases kept. Currency runs from Scrolls of Wisdom down to the Mirror, each from its
-  DropLevel. A unique's weight is the inverse of its disenchant value (`VillageUniqueDisenchantValues`, Ruthless has its
-  own column), so a Mageblood is about 840 times as rare as a Wanderlust, and a base whose uniques add up to less than 1
-  mostly gives a rare instead. The 1,527 weights are world.db's `unique_weights`, with `unique_weight_overrides` on top; the
-  table's CHECK keeps a weight in 0..1. The client table is the fallback only while world.db is not open.
-  The core currency weights also live in `drop_currency_weights` (written from the compiled table with the client's
-  DropLevels); `ItemDrops.Build` prefers them and keeps the compiled table as the fallback, still gated by each
-  base's DropLevel. Cards and scarabs follow the poedata.dev community weights (`drop_item_weights`: 422 cards, 109
-  scarabs), and a map kill rolls our own base `drop_card_chance_pct`/`drop_scarab_chance_pct`; both settings are
-  editable live. The boss and divination-card area tables are seeded (630 bosses, 108 boss items, 555 area/card pairs) but
-  no roll reads them yet; [drop-data-schema](../docs/dev/drop-data-schema.md) has the schema and the next steps.
-  Mod affix spawn/generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are still
-  loaded from JSON; moving them would also require clearing the affix-pool cache on reload. Drops have the monster's level as item level, +1 from magic, +2 from rare and +3 from unique
-  monsters. One drop event's stackable items of one type become stacks up to its `CurrencyItems` StackSize (twenty-one
-  divine orbs lie as 10, 10 and 1), instead of one world item per unit (`ItemDrops.Stacked`).
-  Code: `ItemDrops.cs`, Gateway (`DropLoot`, `CommitProjectileKill`).
-  Docs: [15](../docs/protocol/15-progression.md) §3.
-- Loot: currency, gems, flasks, equipment and uniques by weight, cards and scarabs in maps, stacked drops.
 - Loot: currency, gems, flasks, equipment and uniques by weight, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
