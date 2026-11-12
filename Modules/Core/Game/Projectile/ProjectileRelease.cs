@@ -232,7 +232,7 @@ public static partial class Game
 
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null, int repeat = 0, bool groundArrow = false)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null, int repeat = 0)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -244,7 +244,7 @@ public static partial class Game
         int Get(string key) => Stats.Key(key) is uint k ? merged.GetValueOrDefault(k) : 0;
         int Player(string key) => Stats.Key(key) is uint k ? player.GetValueOrDefault(k) : 0;
         int Own(string key) => Stats.Key(key) is uint k ? own.GetValueOrDefault(k) : 0;
-        var definition = groundArrow ? GroundArrow : ResolveProjectileDefinition(gem.Effect)
+        var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)) ? GroundArrow : null)
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(conn).Projectile(metadata)?.Speed ?? 1000;

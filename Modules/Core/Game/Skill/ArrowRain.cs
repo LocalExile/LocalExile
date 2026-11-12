@@ -36,7 +36,7 @@ public static partial class Game
     {
         var conn = session.Conn;
         string id = SkillsFor(conn).EffectId(gem.Effect)!;
-        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence, groundArrow: true);
+        var use = CaptureGemProjectile(conn, session, skill, gem, aim, critical, sequence);
         var shot = (ProjectileOffense)use.Payload!;
         if (mirage) shot = MirageOffense(conn, shot);
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true } };

@@ -1150,13 +1150,9 @@ public static partial class Game
     {
         var gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
-        // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
-        if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
-        // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
-        if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
-        criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         if (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)))
         {
+            var rainCritical = criticalRoll ?? CaptureSkillCriticalRoll(conn, skillId);
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             session.Advance();
             lock (conn.Monsters)
@@ -1166,12 +1162,17 @@ public static partial class Game
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, GameServer.Core.Projectiles.ProjectileRuntime.Time(release)), () =>
                 {
                     if (session.Active && conn.PlayerLife > 0 && conn.ActionInterruptionGeneration == recoveryGeneration
-                        && SameTriggerSource(source, SupportedSkill(conn, skillId)))
-                        ReleaseArrowRain(session, skillId, gem, to, criticalRoll, sequence);
+                        && SameTriggerSource(source, SupportedSkill(conn, skillId)) && GemSkillInstanceDisabled(conn, gem.Effect, skillId) is null)
+                        ReleaseArrowRain(session, skillId, gem, to, rainCritical, sequence);
                 });
             }
             return Task.CompletedTask;
         }
+        // Shield Charge hits along its own walk and where it ends (RunShieldCharge), not once where it started.
+        if (ShieldChargeBonusPct(conn, skillId, gem.Effect) != 0) return Task.CompletedTask;
+        // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
+        if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
+        criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,

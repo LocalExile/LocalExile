@@ -62,7 +62,7 @@ public class ArrowRainAndMirageTests
         Assert.Equal(100000u, b.Enemy.Life);
         b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
         // Put the target under a known pod to verify the fractional DoT and the terminal burst.
-        var use = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1), groundArrow: true);
+        var use = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(1));
         b.Session.PlaceToxicPod(use, aim, 18, 1, 100, 5, 30, null);
         Assert.InRange(Game.ToxicWalkFactor(b.Enemy), .7, .95);
         Assert.Equal(1, Game.ToxicWalkFactor(b.Ally));
