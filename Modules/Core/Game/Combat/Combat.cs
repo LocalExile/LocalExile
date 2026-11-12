@@ -1155,6 +1155,23 @@ public static partial class Game
         // Winter Orb's orb fires its own volleys while the channel runs (WinterOrb.cs), not once at the cast.
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
+        if (ArrowRain(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            var session = ProjectilesFor(remote, stream, ciphers, conn);
+            session.Advance();
+            lock (conn.Monsters)
+            {
+                var source = SupportedSkill(conn, skillId);
+                double release = (swingAt ?? conn.Clock.Elapsed.TotalSeconds) + AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false));
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, GameServer.Core.Projectiles.ProjectileRuntime.Time(release)), () =>
+                {
+                    if (session.Active && conn.PlayerLife > 0 && conn.ActionInterruptionGeneration == recoveryGeneration
+                        && SameTriggerSource(source, SupportedSkill(conn, skillId)))
+                        ReleaseArrowRain(session, skillId, gem, to, criticalRoll, sequence);
+                });
+            }
+            return Task.CompletedTask;
+        }
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
