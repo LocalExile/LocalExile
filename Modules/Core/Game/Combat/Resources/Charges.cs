@@ -142,6 +142,8 @@ public static partial class Game
         var finalAdded = new Dictionary<string, int>(added, StringComparer.Ordinal);
         foreach (var (stat, value) in ItemChargeDefences.Expand(Coefficient, t => held[t], t => converted[t]))
             finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
+        foreach (var (stat, value) in ItemChargeDamage.Expand(Coefficient, t => held[t], t => converted[t]))
+            finalAdded[stat] = ActorScale.Saturate((long)finalAdded.GetValueOrDefault(stat) + value);
         int poisonStacks;
         lock (conn.Monsters) poisonStacks = conn.IncomingAilments.PoisonStacks(conn.Clock.Elapsed.TotalSeconds);
         foreach (var (stat, value) in IncomingAilmentEffects.Expand(Coefficient, poisonStacks))

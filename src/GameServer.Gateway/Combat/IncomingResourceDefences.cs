@@ -34,7 +34,7 @@ public static class IncomingResourceDefences
         int typedIncreasedPct = 0, int reductionPct = 0, int finalTakenPct = 0)
     {
         double earned = Math.Max(0, damage)
-            * Math.Max(0, 1 + (get("damage_taken_+%") + typedIncreasedPct) / 100.0)
+            * Math.Max(0, 1 + ((long)get("base_damage_taken_+%") + typedIncreasedPct) / 100.0)
             * Math.Max(0, 1 - Math.Clamp(reductionPct, 0, 100) / 100.0)
             * Math.Max(0, 1 + get(TakenStat) / 100.0)
             * Math.Max(0, 1 + get(ConditionalTakenStat) / 100.0)
