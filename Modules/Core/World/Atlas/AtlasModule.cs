@@ -215,10 +215,11 @@ static class AtlasFeature
         ApplyLeagueFlags(conn);
         var player = PlayerOf(conn);
         var data = module.World(player).CharacterData;
-        AtlasProgress.Complete(data, AtlasProgress.Maps);
         var completed = AtlasProgress.Completed(data);
+        // The saved set is what the client draws. Filling it with every map here marked the whole Atlas completed at
+        // every entry, so a map boss's death could never complete its node (AtlasProgress.Complete changes nothing)
+        // and /atlas_reset was undone by the next area. See 21-hideouts.md §4.
         // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
-        // is restored above, so a character whose Atlas was filled before the award existed gets its points too.
         bool pointsChanged = false;
         if (Math.Min(AtlasModule.MapCompletionPoints, completed.Count) is int earned and > 0 && earned > conn.AtlasPassivePoints)
         {

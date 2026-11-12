@@ -33,7 +33,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
   map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion (the completed set still starts filled, see below, so the derivation is what a character sees). The Atlas
+  completion. The Atlas
   graph itself is still the client's, so connectivity is left to it.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
@@ -41,8 +41,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
   character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one filled 0x1a3 with the 0x3d
   presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
-  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
-  real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
+  Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest. A map boss's death now completes
+  its node for real: area entry used to fill the saved set with every map, so `AtlasProgress.Complete` never changed
+  anything, the 0x1a4 and the passive point never fired, and `/atlas_reset` was undone by the next area
+  (2026-11-12; a save filled by that bug stays full until `/atlas_reset`). Bonus objectives, Voidstones, map stash
+  placement and official drop pools remain open.
   Code: `AtlasCatalog.cs`, `AtlasPassives.cs`, `AtlasProgress.cs`, `MapDevice.cs`, `ItemDrops.cs`, `InstanceItems.cs`.
   Docs: [21](../docs/protocol/21-hideouts.md), [re/013](../docs/re/013-atlas-progress.md), [maps](../docs/game/maps.md), [05](../docs/protocol/05-inventories-and-ui.md).
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
