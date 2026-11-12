@@ -125,20 +125,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
 - Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
-
-- Act bosses' own row mods decide four things the tables state outright, and only these four are read so far:
-  a boss whose row names `ImmuneToKnockback` (Dominus, both Malachai forms, Avarius, Vilenta, Piety's beast …) is no
-  longer shoved — that used to be asked of the client's component list, which falls back to the eight base components
-  and so never carried it — and the death of a stage whose row names `MonsterNoDropsOrExperience` (Malachai's first
-  form, Shakari, Piety's escape) gives no items and no experience, while `MonsterNoDrops` (Abberath, Shavronne's tower,
-  Maligaro's souls) gives no items and keeps its experience. The same rows state the repeat-stun immunity
-  (`StunRepeatImmunityActBoss`: 2000 ms after a stun ends), which now replaces the wiki's 4 s for uniques — Brutus,
-  Dominus, Malachai, Piety's beast and the rest of the act bosses share it. A row that names
-  `CannotBeSlowedBelowValueBosses` states a floor under its action speed as a stat value (`-50`, half speed) — the Shaper,
-  the Elder, their guardians, Atziri and a few act bosses carry it — and its slow is capped there instead of at the .25
-  every monster has. `BossHealOnPlayerDeath` and its Minor form are not read:
-  the extracted stat it uses is 0 for both, so the two tiers cannot be told apart. Code: `BossMods.cs`,
-  `Knockback.cs`, `HitReaction.cs`, `Curses.cs`, `Combat.cs`, `MinionOutcomes.cs`. Not yet played against the real client.
+- Act bosses' own row mods (not yet played against the real client): `ImmuneToKnockback` stops knockback;
+  `MonsterNoDropsOrExperience` and `MonsterNoDrops` take a stage's rewards on the player's own melee and area kills,
+  not yet on projectile or party-share kills; `StunRepeatImmunity*` sets the repeat-stun immunity (2 s for act
+  bosses); `CannotBeSlowedBelowValueBosses` floors Temporal Chains at half speed. `BossHealOnPlayerDeath` is not
+  read. Code: `BossMods.cs`.
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
   Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is
