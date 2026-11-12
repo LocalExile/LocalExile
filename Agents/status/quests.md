@@ -119,8 +119,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god
   Sins appear where the gods die. `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
-  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); its escort radius and
-  encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
+  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); the escort uses the payload's displayed ring and current rail leg. Encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
