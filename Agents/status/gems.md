@@ -87,7 +87,7 @@ Nothing yet.
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Devour, Sacrifice, Spellblade, Hallow and
-  Excommunicate apply too ([25](../docs/protocol/25-gem-supports.md)).
+  Excommunicate apply too. Sacrifice adds chaos damage at a valid spell release, including projectile hits and poison ([25](../docs/protocol/25-gem-supports.md)).
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
   Blaze scales ignite damage and hit damage by enemies ignited recently
   ([25](../docs/protocol/25-gem-supports.md)).

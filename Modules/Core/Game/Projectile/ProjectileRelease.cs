@@ -99,10 +99,11 @@ public static partial class Game
             : attack ? AttackReleaseDelay(AttackContactDelay(conn, SupportedAttackSeconds(conn, skillId), false))
             : cast.Value / 1000d * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject);
         int epoch = conn.ProjectileEpoch;
+        var sacrifice = new SacrificeUse(conn, skillId, gem.Effect, gem.Gem);
         // Paid attacks survive Move unless their recipe opts into cancellable windup (e.g. release-time costs).
         // Spells and cooldown tickets retain action cancellation.
         // Epoch, death and hit recovery still cancel unreleased attacks.
-        bool Valid() => conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
+        bool Valid() => sacrifice.Current && conn.ProjectileActive(epoch) && conn.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(conn) ?? (cancelOnNewAction
             ? PlayerActionCurrent(conn, action)
             : conn.PlayerLife > 0 && conn.ElementalAilments.ActionFactor(conn.Clock.Elapsed.TotalSeconds) > 0 && !conn.HitRecovery.Active(conn.Clock.Elapsed.TotalSeconds)))
@@ -117,7 +118,7 @@ public static partial class Game
             int ordinal = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay, repeat: ordinal),
+                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay, sacrifice: sacrifice, repeat: ordinal),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -232,7 +233,7 @@ public static partial class Game
 
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null, int repeat = 0)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null, SacrificeUse? sacrifice = null, int repeat = 0)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -287,12 +288,13 @@ public static partial class Game
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
-        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand", projectile: true);
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn, player),
+        int addedChaos = sacrifice?.AddedChaos(() => session.Packet(sacrifice.LifePacket)) ?? 0;
+        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand", projectile: true, addedChaos: addedChaos);
+        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false, addedChaos: addedChaos), spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
-            AreaHit = SupportedProjectileHit(conn, skillId, area: true),
+            AreaHit = SupportedProjectileHit(conn, skillId, area: true, addedChaos: addedChaos),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(player),
