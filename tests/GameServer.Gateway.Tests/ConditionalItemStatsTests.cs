@@ -3064,9 +3064,9 @@ public partial class ConditionalItemStatsTests
                 var supported = global::Game.SupportedSkill(target, skillId);
                 var cooldown = global::Game.CooldownFor(target, supported.Effect, supported.Level, supported.Quality);
                 CooldownUseTicket? ticket = null;
-                if (cooldown is not null)
-                    Assert.True(global::Game.TryBeginSkillCooldownUse(target, skillId, supported.Effect, cooldown,
-                        instant: true, () => { }, out ticket));
+                if (cooldown is not null
+                    && !global::Game.TryBeginSkillCooldownUse(target, skillId, supported.Effect, cooldown,
+                        instant: true, () => { }, out ticket)) return false;
                 return global::Game.CastGemSkill("test", wire.Stream, wire.Ciphers, target, skillId,
                     (0, 0), (0, 0), cooldownUse: ticket).GetAwaiter().GetResult();
             }
