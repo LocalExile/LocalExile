@@ -53,6 +53,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `ItemDrops.cs`, Gateway (`DropLoot`, `CommitProjectileKill`).
   Docs: [15](../docs/protocol/15-progression.md) §3.
 - Loot: currency, gems, flasks, equipment and uniques by weight, cards and scarabs in maps, stacked drops.
+- Loot: currency, gems, flasks, equipment and uniques by weight, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
