@@ -198,7 +198,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   generation then apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet
   room, 2026-11-02). The day is the official one: the seed (the UTC day number, `Game_LAB_SEED`) and the room areas
   match poelab.com's layouts (re/011). A room's tile seed is ours. `/lab_layout [tier] [yyyy-mm-dd]` lists a day.
-  The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet.
+  The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet. Izaro's three arenas
+  (`1_Labyrinth_boss_1`, `1_Labyrinth_boss_2`, `2_Labyrinth_boss_2_end`) are listed by hand in the world update's
+  area list: the level snapshot drops them, and without a row the room is never built (live, three seeds each: the
+  room generates and places its three Izaros).
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
 - **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
