@@ -3,15 +3,15 @@
 State of 2026-10-18, verified live in The Coast (seed 1): on entering, the Gateway fills the area with monster packs
 from the game tables: normal, magic and rare packs scattered over the walk map; cannibal packs at the bonfires; the
 unique boss **Fire Fury** and her guards at the cannibal camp, next to its campfire. Code: `src/GameServer.Gateway/Monster/MonsterPacks.cs`
-(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Program.Monsters.cs`.
+(`PackCatalog`, `AreaPopulation`), `PopulateArea` and `SpawnMonster` in `Modules/Core/Game/Monster/Monsters.cs`.
 
 ## 1. The data
 
-| Table (`data/tables/`) | What it gives |
+| Client table (client.db) | What it gives |
 |---|---|
-| `MonsterPacks.json` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
-| `MonsterPackEntries.json` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
-| `WorldAreas.json` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
+| `MonsterPacks` | one row per pack: `Id`, `WorldAreasKeys` and their weights (`__col9`: one weight per area, or one for all), `MinCount`/`MaxCount`, `BossMonsterSpawnChance`, `BossMonsterCount`, `BossMonster_MonsterVarietiesKeys`, `Grounds` |
+| `MonsterPackEntries` | the pack's varieties: `MonsterPacksKey`, `MonsterVarietiesKey`, `Weight` |
+| `WorldAreas` | `AreaLevel` (the monsters' level) and `Bosses_MonsterVarietiesKeys` (the area's unique boss) |
 
 The Coast (`1_1_2`, WorldAreas row 6, level 2):
 
@@ -164,9 +164,6 @@ So:
    room the layout did not place has no points or objects even if its doodads fit: sibling rooms share their doodads
    (The Broken Bridge's `broken_bridge` and `broken_bridge_left`, The Wetlands' four `bandit_boss_*` rooms) and the
    unplaced sibling's fit on the placed one was a second Kraityn, a third Oak.
-   `CampaignBossPlacementTests` (`$env:Game_BOSS_CHECK='1'`, needs the game files; skipped otherwise) generates every
-   act 1–10 area with Bosses at seeds 1, 2, 3 and 7 (`Game_BOSS_CHECK_SEEDS`) and fails when a boss is missing without
-   a listed reason, a unique stands twice or beyond the area's bosses, or the monster blob cannot write one.
    Doing so for every room would change
    other areas: it adds twelve nest packs around a1q4's Rhoa Nests and moves the start points of The Coast's
    `to_coast` and The Tidal Island's `toislandcliff`, so other rooms keep the fit.
@@ -205,8 +202,15 @@ placement algorithms remain unknown.
   ordinary monsters and are placed now (before, every "Emerge" Id was skipped; e.g. PusElementalEmerge in 1_4_6_3
   stands as usual); the 63 whose type waits to rise are placed waiting; the 13 whose Transitionable is something else
   (it sets `num_states`, or pauses no clip) are still skipped.
-- Fire Fury uses only her first granted effect. Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
+- A campaign boss plays its whole kit, not just its first granted effect (an act boss, or any variety with
+  `BossHealthBar`, whose row grants more than one attack, spell or projectile; `Modules/Core/Game/Monster/BossKits.cs`).
+  The skill it always had stands first and still chooses on a tie, a ready skill with a cooldown goes before one without,
+  the rest rotate by least recently used, and a skill that reaches nothing in range waits while the boss walks in.
+  Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
   extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md §6).
+- A layout whose room fit finds no boss room at all still places the area's unique bosses: each stands at the walk map's
+  deepest cell from the entrance (clear of the area transitions), the place a boss room would be. Our fallback, chosen so
+  a seed nobody recorded has its boss; the room itself stays unplaced.
 - **Rarity life:** a magic, rare or unique monster has `monster_life_+%_final_from_rarity` of its rarity's monster mod
   (Mods.dat MonsterMagic2 148, MonsterRare2 390, MonsterUnique2 698) on top of its base life; the Gateway applies it
   and sends the stat and the final `maximum_life` in the monster's Stats (the client applies no modifier itself: with
@@ -230,8 +234,7 @@ placement algorithms remain unknown.
 ## 5. Mods
 
 State of 2026-10-25, verified live (The Twilight Strand, The Coast). Code: `MonsterMods.cs` (`MonsterModCatalog`,
-`MonsterModEffects`), `Program.MonsterMods.cs` (the hooks), `MagicProperties.cs` (Core). Tests: `MonsterModsTests`,
-`InstanceEntitiesTests.Monster_mods_and_rare_name_go_in_the_magic_property_lists`.
+`MonsterModEffects`), `Modules/Core/Game/Monster/Mods/MonsterMods.cs` (the hooks), `MagicProperties.cs` (Core).
 
 **Rolling.** An affix is a Mods.dat row with the monster Domain (3) and GenerationType 1 (prefix) or 2 (suffix); 111
 rows have a spawn weight. It can roll when its `Level` is at most the monster's level and the first of its SpawnWeight
@@ -322,6 +325,14 @@ resistances cannot be penetrated; no monster energy shield and no auras on their
 whether the real server sends the rarity's own mods, and in which list. The monster's attack stats on the client
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
+
+## ControlZone and Orion's projection
+
+The 3.29.3c ControlZone vtables `0x1435a86b0`, `0x1435a8840`, `0x1435a2078` and `0x1435a7218`
+all use `0x1400f1180` for slot 17: `ret 0`, with no component bytes.
+`AtlasExile5ApparitionDetached` therefore adds nothing after its StateMachine data.
+Orion's ACT maps animation types 36/37/38 to the meteor-maze start/hold/end sequence in both stances.
+His BeamBomb stat set gives separate per-type degeneration; its hit conversion does not convert that degeneration.
 
 ## Maps
 

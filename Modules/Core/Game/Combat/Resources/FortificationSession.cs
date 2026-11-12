@@ -1,10 +1,13 @@
 
 
+using GameServer.Core.Protocol.Instance;
+
 /// <summary>Serialized by the owner's combat lock. All deadlines and recovery use that owner's game clock.</summary>
 public sealed class FortificationSession
 {
     public const string OnMeleeHit = "fortify_on_hit";
     public const string ChanceOnMeleeHit = "chance_to_fortify_on_melee_hit_+%";
+    public const string ChanceOnStun = "chance_to_fortify_on_melee_stun_%";
     public const string CannotGain = "cannot_gain_fortification_from_hits";
     public const string Current = "current_fortification", Uncapped = "uncapped_current_fortification";
     public const string Maximum = "virtual_max_fortification";
@@ -90,6 +93,24 @@ public sealed class FortificationSession
         int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
             FortificationGainModel.Modifiers.From(get));
         if (!State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
+        Revision++;
+        Read(now);
+        return true;
+    }
+
+    /// <summary>"Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): one roll on a successful melee
+    /// stun; the stacks use <see cref="FortificationGainModel"/> with the hit's raw damage and the target's life and
+    /// rarity, as <see cref="Hit"/> does.</summary>
+    public bool FortifyFromStun(double now, decimal rawDamage, decimal maximumLife, MonsterRarity rarity,
+        Func<string, int> get, Random random)
+    {
+        Observe(now, get);
+        if (get(CannotGain) != 0) return false;
+        int chance = Math.Clamp(get(ChanceOnStun), 0, 100);
+        if (chance == 0 || random.Next(100) >= chance) return false;
+        int count = FortificationGainModel.Calculate(rawDamage, maximumLife, rarity, Value.Maximum,
+            FortificationGainModel.Modifiers.From(get));
+        if (count <= 0 || !State.TryGrantFromHit(now, count, get(FortificationState.DurationStat))) return false;
         Revision++;
         Read(now);
         return true;

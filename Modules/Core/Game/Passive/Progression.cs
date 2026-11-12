@@ -17,13 +17,19 @@ public static partial class Game
     {
         // Without the tree the saved passives can't be checked; dropping them would lose them at the next save.
         if (save?.Passives is { Count: > 0 } && !PassivesFor(conn).Loaded)
-            throw new UnknownSavedItemException("allocated passives, but the passive tree (data/tables/PassiveSkills.json) is not loaded");
+            throw new UnknownSavedItemException("allocated passives, but the passive tree (the PassiveSkills client table) is not loaded");
         var ordinary = save?.Passives ?? [];
         var ascendancy = save?.MainAscendancy ?? new();
         AscendancyPolicies.RequireAvailable(conn, ascendancy.Selection);
         if (ordinary.Any(n => PassivesFor(conn).Find(n) is not { IsAscendancy: false }))
             throw new UnknownSavedItemException("unknown or ascendancy nodes in the ordinary passive allocation; the save was retained");
         Game.AscendancyRules.Validate((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
+        if (save?.Descendancy is { } descRow && descRow != 0)
+        {
+            int mainSpent = Game.AscendancyRules.SpentPoints((byte)SkillsFor(conn).ClassFor(conn.ClassRow).IntegerId, ascendancy);
+            Game.Descendancies.Validate(descRow, save.DescendancyNodes ?? [], mainSpent, ascendancy.EarnedPoints,
+                DescendancyCatalog.BonusPoints(descRow));
+        }
         ValidateOrdinaryPassives(conn, ordinary, ascendancy);
     }
 
@@ -58,6 +64,10 @@ public static partial class Game
         lock (conn.Monsters)
         {
             conn.MainAscendancy = ascendancy;
+            conn.DescendancyRow = save?.Descendancy ?? 0;
+            // The layer's start is implicit, like an ascendancy start: sending it in 0x33 would allocate it and spend a point.
+            conn.DescendancyNodes.Clear();
+            foreach (ushort n in save?.DescendancyNodes ?? []) conn.DescendancyNodes.Add(n);
             AscendancyPolicies.SelectionChanged(conn);
             conn.Passives = [.. ordinary];
             var atlasPresets = save?.AtlasPassivePresets ?? [];
@@ -94,12 +104,20 @@ public static partial class Game
                 .ToDictionary(kv => kv.Key, kv => kv.Value);
             conn.Tattoos = (save?.Tattoos ?? []).Where(kv => PassivesFor(conn).Find(kv.Key) is not null
                 && TattooCatalogue.Find(kv.Value) is not null).ToDictionary(kv => kv.Key, kv => kv.Value);
+            // A random tattoo (Journey Makanui's keystone, a Forbidden ascendancy notable) keeps its saved pick; one
+            // whose pick did not survive validation is dropped with the tattoo.
+            bool RandomPickSaved(ushort node, ushort chosen)
+            {
+                if (conn.Tattoos.GetValueOrDefault(node) is not { } name) return false;
+                if (name == "Journey Tattoo of Makanui") return JourneyMakanuiCatalogue.FindByGraphId(chosen) is not null;
+                return ForbiddenTattoo.IsForbidden(name) && ForbiddenTattoo.Pool(name)?.Contains(chosen) == true;
+            }
             conn.TattooKeystones = (save?.TattooKeystones ?? [])
-                .Where(kv => conn.Tattoos.GetValueOrDefault(kv.Key) == "Journey Tattoo of Makanui"
-                    && JourneyMakanuiCatalogue.FindByGraphId(kv.Value) is not null)
+                .Where(kv => RandomPickSaved(kv.Key, kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value);
             foreach (ushort node in conn.Tattoos
-                .Where(kv => kv.Value == "Journey Tattoo of Makanui" && !conn.TattooKeystones.ContainsKey(kv.Key))
+                .Where(kv => kv.Value == "Journey Tattoo of Makanui" || ForbiddenTattoo.IsForbidden(kv.Value))
+                .Where(kv => !conn.TattooKeystones.ContainsKey(kv.Key))
                 .Select(kv => kv.Key).ToList())
                 conn.Tattoos.Remove(node);
             conn.TattooRevision++;
@@ -164,7 +182,7 @@ public static partial class Game
         AscendancyIdentity? selection;
         lock (conn.Monsters)
         {
-            nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).ToArray();
+            nodes = (nodes ?? conn.Passives).Concat(conn.MainAscendancy.Allocated).Concat(conn.DescendancyNodes).ToArray();
             masteries = conn.MasteryEffects;
             tattoos = new(conn.Tattoos);
             tattooKeystones = new(conn.TattooKeystones);
@@ -185,9 +203,16 @@ public static partial class Game
             .Where(i => IsNormalJewel(i.Item)
                 && (PassivesFor(conn).JewelNodeForSlot(i.X) is { } node && allocated.Contains(node) || ClusterSlotOpen(conn, i.X)))
             .ToList();
+        // A Wildwood charm in one of the Primalist's three charm sockets counts like a worn item: its one Domain 35
+        // modifier reaches the stats while its Charm Socket descendancy node is allocated.
+        var charms = items.Items(PlayerInventories.PassiveJewels)
+            .Where(i => IsCharm(i.Item)
+                && PassivesFor(conn).CharmNodeForSlot(i.X) is { } charmNode && allocated.Contains(charmNode))
+            .ToList();
         int adorned = AdornedPercent(treeJewels);
         var worn = equipment.Select(e => e.Item)
             .Concat(treeJewels.Select(i => i with { Item = AdornedJewel(i.Item, adorned) }))
+            .Concat(charms)
             .ToArray();
         var before = InactiveItems.GetValueOrDefault(CharacterName(conn));
         var exemptions = GameEvents.ExemptItems(conn);
@@ -251,7 +276,7 @@ public static partial class Game
         foreach (var (socket, conversion) in radiusJewels)
             if (conversion.TattooEffectPct != 0)
                 foreach (ushort node in tree.NodesInRadius(socket, conversion.Radius))
-                    if (tattoos.ContainsKey(node))
+                    if (tattoos.TryGetValue(node, out string? tattooName) && tattooName != "Journey Tattoo of Makanui")
                         tattooEffect[node] = tattooEffect.GetValueOrDefault(node) + conversion.TattooEffectPct;
         IReadOnlyList<(uint Key, int Value)> TattooEffect(ushort node, IReadOnlyList<(uint Key, int Value)> stats) =>
             tattooEffect.TryGetValue(node, out int pct) ? ScaleStats(stats, pct) : stats;
@@ -259,10 +284,11 @@ public static partial class Game
         // wins (the tattoo is disabled); an augmenting timeless jewel adds its stats to the tattoo stats.
         // Makanga/Honoured Makanga tattoos are conditional on the number of allocated direct neighbours: when the
         // condition is not met the replacement grants nothing, but the tattoo stays applied and can activate later.
+        var grantedReplacements = new HashSet<ushort>();
         if (tattoos.Count > 0)
             foreach (var (node, name) in tattoos)
                 if (allocated.Contains(node) && nodeStats.ContainsKey(node)
-                    && tree.Find(node) is { IsAscendancy: false }
+                    && (tree.Find(node) is { IsAscendancy: false } || ForbiddenTattoo.IsForbidden(name))
                     && TattooCatalogue.Find(name) is { } entry)
                 {
                     IReadOnlyList<(uint Key, int Value)>? tattooStats = TattooStats.For(name);
@@ -270,13 +296,27 @@ public static partial class Game
                         tattooStats = tattooKeystones.TryGetValue(node, out ushort chosen)
                             && tree.Find(chosen) is { IsKeystone: true } chosenKeystone
                                 ? chosenKeystone.Stats : [];
+                    else if (ForbiddenTattoo.IsForbidden(name) && tattooKeystones.TryGetValue(node, out ushort granted)
+                        && tree.Find(granted) is { IsAscendancy: true } grantedPassive)
+                        // The granted notable replaces this node's stats, so it goes through the same ascendancy
+                        // policy as a normally allocated ascendancy node (per-node choices included).
+                        tattooStats = selectedDefinition is not null
+                            ? AscendancyPolicies.NodeStats(conn, selectedDefinition, granted, grantedPassive.Stats)
+                            : grantedPassive.Stats;
                     if (tattooStats is null) continue;
                     int adjacent = OrdinaryPassives.Adjacent(node, family).Count(allocated.Contains);
                     bool tattooActive = entry.RequiresAdjacent > 0
                         ? adjacent >= entry.RequiresAdjacent
                         : entry.MaxAdjacent <= 0 || adjacent <= entry.MaxAdjacent;
-                    nodeStats[node] = !tattooActive ? [] : name == "Journey Tattoo of Makanui"
-                        ? tattooStats : TattooEffect(node, tattooStats);
+                    if (!tattooActive)
+                    {
+                        nodeStats[node] = [];
+                        continue;
+                    }
+                    nodeStats[node] = tattooStats;
+                    // Remember only a replacement that actually went in: an inactive tattoo must not silence the
+                    // allocated copy of its granted passive.
+                    if (tattooKeystones.TryGetValue(node, out ushort appliedGrant)) grantedReplacements.Add(appliedGrant);
                 }
         var conquered = new HashSet<ushort>();
         if (timeless.Spec is { } timelessSpec)
@@ -289,9 +329,18 @@ public static partial class Game
                 {
                     nodeStats[node] = alternate.Replaces
                         ? alternate.Stats
-                        : [.. nodeStats[node], .. alternate.Stats];
+                        : [.. TattooEffect(node, nodeStats[node]), .. alternate.Stats];
+                    tattooEffect.Remove(node);
                 }
         }
+        // A random tattoo's pick replaces its node's stats with the granted passive's. If that passive is also
+        // allocated, its own node must not add the same stats a second time: the granted node keeps none. A granted
+        // node a timeless jewel replaced has already lost its stats, and a node with its own tattoo was replaced by
+        // that tattoo, so both are left alone.
+        foreach (ushort grantedNode in grantedReplacements)
+            if (allocated.Contains(grantedNode) && !conquered.Contains(grantedNode)
+                && !tattoos.ContainsKey(grantedNode) && nodeStats.ContainsKey(grantedNode))
+                nodeStats[grantedNode] = [];
         // Radius jewels run in Path of Building's order: the first pass applies conversions, notable replacements,
         // passive additions and resistance additions; Might of the Meek's effect/suppression are collected here and
         // applied after the pass; the second pass computes the per-node scaling from the resulting stats. A passive
@@ -300,7 +349,7 @@ public static partial class Game
         // The first pass matches Path of Building's "Other" radius jewels: conversions, notable replacements,
         // passive additions and resistance-scaled additions. Might of the Meek's effect and suppression are
         // collected here and applied after the pass, so a later replacement cannot survive suppression.
-        var effectPct = new Dictionary<ushort, int>();
+        var effectPct = new Dictionary<ushort, int>(tattooEffect);
         var suppressedNotables = new HashSet<ushort>();
         var suppressedSmalls = new HashSet<ushort>();
         foreach (var (socket, conversion) in radiusJewels)
@@ -401,7 +450,7 @@ public static partial class Game
             if (suppressedNotables.Contains(node)) return [];
             // Unnatural Instinct grants a tattoo on an unallocated small passive, not the original passive.
             var stats = tattoos.TryGetValue(node, out string? tattooName) && TattooStats.For(tattooName) is { } tattoo
-                ? TattooEffect(node, tattoo) : passive.Stats;
+                ? tattoo : passive.Stats;
             return effectPct.TryGetValue(node, out int pct) && pct != 0 && !passive.IsKeystone
                 ? ScaleStats(stats, pct) : stats;
         }
@@ -452,7 +501,7 @@ public static partial class Game
                     passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
             }
         }
-        foreach (var (key, value) in TattooCountingStats(tattoos, allocated, tattooEffect))
+        foreach (var (key, value) in TattooCountingStats(tattoos, allocated.Where(n => !suppressedNotables.Contains(n) && !suppressedSmalls.Contains(n)).ToHashSet(), effectPct))
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
         foreach (var (key, value) in scalingStats)
             passives[key] = ActorScale.Add(key, passives.GetValueOrDefault(key), value);
@@ -719,6 +768,7 @@ public static partial class Game
         var snapshot = CharacterStatSources(conn, level: level);
         var sources = new Dictionary<uint, int>(snapshot.Stats);
         AddGolemStats(conn, sources);
+        AddSelfOfferingStats(conn, sources);
         // Detach forbidden self auras before any pool bonus is sampled. No restoration here: it needs completed pools.
         SuspendRestrictedOwnAuras(conn, new(sources));
         var weapons = WeaponProfileFor(conn);
@@ -1193,7 +1243,7 @@ public static partial class Game
             bypass.Keys.ToHashSet(), bypass);
     }
 
-    // Allocated passives that a socketed Intuitive Leap/Thread of Hope lets stand without a path to the class start,
+    // Allocated passives that Intuitive Leap, Thread of Hope or Impossible Escape lets stand without a path to the class start,
     // with the socket(s) of the jewels that grant each one. The candidate set decides whether the jewel's own socket
     // is still allocated; skipItemId simulates taking that jewel out before the item move validates the remaining
     // tree.
@@ -1321,6 +1371,103 @@ public static partial class Game
         return next.EarnedPoints;
     }
 
+    // The second ascendancy layer (Descendancy.dat): Affliction's Wildwood specialisations and the 3.29 Bloodline
+    // classes. Its row is 0x33's spare byte, so the client draws that row's tree beside the main ascendancy; the
+    // selection saves like the main one. The client's point budget sums both layers against the earned ascendancy points.
+    /// <summary>Whether the game may switch to <paramref name="row"/> now. A selector the server opened (0x7b kind 0x4c)
+    /// must still be active in this area; the client may choose any row it shows, so the row itself is checked for its
+    /// unlock flag and for a refunded layer. The GM mod's /descendancy bypasses this through
+    /// <see cref="SelectDescendancyForDevelopment"/>.
+    /// </summary>
+    public static bool CanSelectDescendancy(ClientState conn, byte row, out string? reason)
+    {
+        var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row);
+        if (row == 0 || definition is null) { reason = $"no Descendancy row {row}"; return false; }
+        if (conn.OfferedDescendancyRow == 0 || conn.OfferedDescendancyArea != conn.Layout.Hash)
+        {
+            reason = "No Descendancy selector is open in this area";
+            return false;
+        }
+        if (row != conn.DescendancyRow && conn.DescendancyNodes.Count > 0)
+        {
+            reason = "Refund the current Descendancy's points before choosing another";
+            return false;
+        }
+        if (DescendancyCatalog.UnlockFlag(row) is { } flag && !conn.HasQuestFlag(flag))
+        {
+            reason = $"{definition.Name} is locked";
+            return false;
+        }
+        reason = null;
+        return true;
+    }
+
+    /// <summary>Chooses the second ascendancy layer after an offer from the server; the caller reloads the area.</summary>
+    public static void SelectDescendancy(ClientState conn, byte row)
+    {
+        lock (conn.Monsters)
+        {
+            if (!CanSelectDescendancy(conn, row, out string? reason)) throw new AscendancyRuleException(reason!);
+            ApplyDescendancy(conn, row);
+        }
+    }
+
+    /// <summary>The GM mod's unrestricted selection: any existing row, without an offer or its unlock flag, and a switch
+    /// clears the old layer's nodes. Never used by a client packet.</summary>
+    public static void SelectDescendancyForDevelopment(ClientState conn, byte row)
+    {
+        if (row != 0 && Descendancies.Rows.All(r => r.Index != row))
+            throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
+        lock (conn.Monsters) ApplyDescendancy(conn, row);
+    }
+
+    // Starts are implicit for both layers; an explicit start node would count as an allocated node and cost a point.
+    // The caller holds conn.Monsters: a switch saves the row and the cleared nodes before publishing them.
+    static void ApplyDescendancy(ClientState conn, byte row)
+    {
+        if (row == conn.DescendancyRow) return;
+        if (CharacterName(conn) is { Length: > 0 } character)
+            CharacterSaves.SetDescendancy(character, row, expectedRow: conn.DescendancyRow, expectedNodes: conn.DescendancyNodes);
+        conn.DescendancyRow = row;
+        conn.DescendancyNodes.Clear();
+    }
+
+    /// <summary>Offers a Descendancy row to the client (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) and records
+    /// it as the only row C→S 0x3a may accept in this area.</summary>
+    public static async Task OpenDescendancySelector(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        var definition = Descendancies.Rows.FirstOrDefault(r => r.Index == row)
+            ?? throw new ArgumentOutOfRangeException(nameof(row), $"no Descendancy row {row}");
+        if (row == 0) throw new ArgumentOutOfRangeException(nameof(row), "no Descendancy row to offer");
+        lock (conn.Monsters)
+        {
+            conn.OfferedDescendancyRow = row;
+            conn.OfferedDescendancyArea = conn.Layout.Hash;
+        }
+        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceWaypoints.DescendancySelectUi, row),
+            $"0x007b kind 0x4c row {row} ({definition.Name})");
+    }
+
+    // C→S 0x3a: the Descendancy class selector (S→C 0x7b kind 0x4c, DescendancyClassSelectorWindow) accepted a
+    // Descendancy.dat row. The second ascendancy layer: selects it, saves, and reloads so the client builds its tree.
+    internal static async Task ChooseDescendancy(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
+    {
+        Console.WriteLine($"[gateway] {remote} <= 0x003a descendancy row {row} chosen");
+        if (!CanSelectDescendancy(conn, row, out string? reason))
+        {
+            Console.WriteLine($"[gateway] {remote} 0x003a descendancy row {row} refused: {reason}");
+            return;
+        }
+        try { SelectDescendancy(conn, row); }
+        catch (Exception ex) when (ex is AscendancyRuleException or PassiveProgressConflictException)
+        {
+            Console.WriteLine($"[gateway] {remote} descendancy row {row} refused: {ex.Message}");
+            return;
+        }
+        conn.OfferedDescendancyRow = 0;
+        await ChangeArea(remote, stream, ciphers, conn, new PendingTransfer(conn.Layout.Hash, 0, false), $"descendancy row {row} chosen");
+    }
+
     // C→S 0x39: the Ascendancy Chamber's class selector (opened by its font, InstanceWaypoints.AscendancySelectUi) chose an
     // Ascendancy.dat row. Only in a Labyrinth's last room, for an unascended character; the area reloads with the new class.
     public static async Task ChooseAscendancyClass(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, byte row)
@@ -1407,16 +1554,23 @@ public static partial class Game
                         && conn.TattooKeystones.TryGetValue(kv.Key, out ushort chosen)
                         && JourneyMakanuiCatalogue.FindByGraphId(chosen) is { } keystone)
                         hash = keystone.OverrideHash;
+                    // A Forbidden tattoo sends the granted ascendancy notable's own HASH16 (its PassiveSkillGraphId),
+                    // the same value the client's random override row carries.
+                    else if (ForbiddenTattoo.IsForbidden(kv.Value) && conn.TattooKeystones.TryGetValue(kv.Key, out ushort notable))
+                        hash = notable;
                     return (Node: kv.Key, Hash: hash, Entry: entry);
                 })
                 .Where(pair => pair.Entry is not null)
                 .ToDictionary(pair => pair.Node, pair => pair.Hash);
-            return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated],
-                    questPoints: clientExtra, refundPoints: refundPoints, ascendancyPoints: (ushort)conn.MainAscendancy.EarnedPoints, masteryEffects: masteries,
-                    clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos),
+            int descendancyPoints = DescendancyCatalog.BonusPoints(conn.DescendancyRow);
+            return (InstanceEntities.CharacterPassives((byte)conn.Pools.Level, PackedClass(conn), [.. nodes, .. conn.MainAscendancy.Allocated, .. conn.DescendancyNodes],
+                    questPoints: clientExtra, refundPoints: refundPoints,
+                    ascendancyPoints: (ushort)(conn.MainAscendancy.EarnedPoints + descendancyPoints), masteryEffects: masteries,
+                    clusterNodes: [.. conn.ClusterPassives], tattoos: tattoos, descendancy: conn.DescendancyRow),
                 $"0x0033 passive skill tree: level {conn.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
                 $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
-                $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes");
+                $"ascendancy {conn.MainAscendancy.Selection?.Family}/{conn.MainAscendancy.Selection?.Id}, {conn.MainAscendancy.EarnedPoints} earned, {conn.MainAscendancy.Allocated.Count} nodes" +
+                (descendancyPoints > 0 ? $" + {descendancyPoints} descendancy points (row {conn.DescendancyRow})" : ""));
         }
     }
 
@@ -1463,6 +1617,7 @@ public static partial class Game
             var ascendancy = conn.MainAscendancy;
             expectedProgress = conn.SavedPassiveProgress;
             var ascendancyNodes = new List<ushort>();
+            var descendancyChanges = new List<ushort>();
             foreach (var n in nodes)
             {
                 if (PassivesFor(conn).Find(n) is not { } node) { error = $"unknown passive {n}"; break; }
@@ -1470,6 +1625,7 @@ public static partial class Game
                 {
                     if (goldRespec || !allocate && !refundPoints) { error = "Ascendancy passives require refund points, not gold or a free reset"; break; }
                     if (masteryEffect is not null) { error = "An ascendancy passive is not an ordinary mastery"; break; }
+                    if (node.DescendancyKey > 0) { descendancyChanges.Add(n); continue; }
                     ascendancyNodes.Add(n);
                     continue;
                 }
@@ -1512,6 +1668,28 @@ public static partial class Game
                 try { ValidateOrdinaryPassives(conn, next, ascendancy); }
                 catch (AscendancyRuleException e) { error = e.Message; }
             }
+            // The second ascendancy layer shares the same earned points; its nodes count against them.
+            var descendancyNext = new HashSet<ushort>(conn.DescendancyNodes);
+            if (error is null && descendancyChanges.Count > 0)
+            {
+                foreach (ushort n in descendancyChanges)
+                {
+                    if (allocate) descendancyNext.Add(n);
+                    else if (!descendancyNext.Remove(n)) { error = $"descendancy passive {n} is not allocated"; break; }
+                }
+                if (error is null)
+                {
+                    try
+                    {
+                        int mainSpent = Game.AscendancyRules.SpentPoints(baseClass, ascendancy);
+                        Game.Descendancies.Validate(conn.DescendancyRow, descendancyNext, mainSpent, ascendancy.EarnedPoints,
+                            DescendancyCatalog.BonusPoints(conn.DescendancyRow));
+                        if (refundPoints && !allocate)
+                            refundsSpent += descendancyChanges.Count * AscendancyRules.RefundPointsPerAscendancyPoint;
+                    }
+                    catch (AscendancyRuleException e) { error = e.Message; }
+                }
+            }
             // A socketed jewel would be left behind by a refund: the client has no automatic return, so it must be taken
             // out (into the cursor or the inventory) first.
             if (error is null && !allocate
@@ -1538,12 +1716,16 @@ public static partial class Game
                     }
                     CharacterSaves.SetMainAscendancy(CharacterName(conn), ascendancyNow, now, effectsNow, refundPoints ? refundsNow : null,
                         expected: expectedProgress);
+                    if (conn.DescendancyRow != 0 || descendancyNext.Count > 0)
+                        CharacterSaves.SetDescendancy(CharacterName(conn), conn.DescendancyRow, descendancyNext,
+                            expectedRow: conn.DescendancyRow, expectedNodes: conn.DescendancyNodes);
                     return null;
                 });
             if (error is null)
             {
                 conn.Passives = now;
                 conn.MainAscendancy = ascendancyNow;
+                conn.DescendancyNodes = descendancyNext;
                 AscendancyPolicies.SelectionChanged(conn);
                 conn.MasteryEffects = effectsNow;
                 conn.RefundPoints = refundsNow;

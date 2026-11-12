@@ -24,10 +24,11 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
 
-try:
-    import frida
-except ImportError:
-    sys.exit("walkmaps: the frida package is missing. Install it with:  python -m pip install frida")
+if sys.platform != "linux":
+    try:
+        import frida
+    except ImportError:
+        sys.exit("walkmaps: the frida package is missing. Install it with:  python -m pip install frida")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -57,6 +58,17 @@ def main():
     ap.add_argument("--wait", type=int, default=600, help="seconds to wait for the client to start")
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
+
+    if sys.platform == "linux":
+        import proton
+        record = args.record or os.path.join(REPO, "data", "clients", "default.json")
+        try:
+            proton.listen(record, args.out, on_message, args.wait)
+        except KeyboardInterrupt:
+            pass
+        except (RuntimeError, OSError) as error:
+            sys.exit("walkmaps: " + str(error))
+        return
 
     session = attach(args.process, args.wait, args.record)
     with open(os.path.join(HERE, "walkmaps.js"), encoding="utf-8") as f:

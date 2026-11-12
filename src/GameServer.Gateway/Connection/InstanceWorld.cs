@@ -26,6 +26,7 @@ public sealed class InstanceWorld
     /// wake zone"), broke its object list and crashed it (live 2026-11-05). Above the player (0x1000), the lockstep tick
     /// order (ascending ids: LivingCollision.StepFrames) is kept.</summary>
     public uint NextObjectId = 0x04000000;
+    public uint TakeObjectId() => Interlocked.Increment(ref NextObjectId) - 1;
 
     /// <summary>Buff instances (S→C 0x1c1) of everyone in the instance (ClientState.NextBuff).</summary>
     public ushort NextBuff = 1;

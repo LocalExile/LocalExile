@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 
@@ -11,6 +12,8 @@ public interface IGameLogic
     /// <summary>A server frame of the connection ended (Program.RunWorldFrames); the next one starts at
     /// <paramref name="nextFrameStart"/>, on the connection's clock.</summary>
     Task WorldFrameEnded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, double nextFrameStart) => Task.CompletedTask;
+    /// <summary>Prepare immutable item-value rules for this game generation, or null for the existing calculation.</summary>
+    ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) => null;
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
     Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt);
     /// <summary>A connection is about to be prepared; it may fail after this, and <see cref="Left"/> still runs.</summary>

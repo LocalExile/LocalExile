@@ -18,7 +18,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [01](../docs/protocol/01-login.md), [re/008](../docs/re/008-login-handshake.md),
   [re/009](../docs/re/009-login-messages.md).
 - Saving characters: items, equipment, sockets and the skill bar per character in `data/characters.db` (a new bar: the
-  default attack on the left mouse button, gem skills into empty slots only, right mouse button first);
+  default attack on the left mouse button, new gem skills into available slots, preserving manual clears, right mouse button first);
   the bar is restored with S→C 0x53 after login and area changes (binds are C→S 0x4e).
   Code: `CharacterSaves.cs`, `PlayerInventories.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §11, [13](../docs/protocol/13-items.md) §7.
@@ -34,7 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `LeagueCatalog.cs`, `LoginServerSession.cs`, Auth, Gateway.
   Docs: [01](../docs/protocol/01-login.md) §7.
 - Character deletion on the character screen (C→S 0x0c → new list 0x15 + result 0x0d);
-  the save is set aside in `data/characters.db` (`deleted_characters`).
+  the save is set aside in `data/characters.db` (`character_saves.deleted_utc`).
   Code: `LoginServerSession`, Auth.
   Docs: [01](../docs/protocol/01-login.md) §5.
 - Every class in game: the Characters.dat row's object type and model, class byte, attributes, unarmed attack and
@@ -47,6 +47,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   connection; playable characters can enter again.
   Code: Gateway.
   Docs: [09](../docs/protocol/09-area-change.md) §6.
+- Item filters added to `My Games\Path of Exile` appear without a restart: login 0x04's data carries the account name,
+  so opening Options fetches the online filter list (from GGG's `web.poecdn.com`) and then rescans the folder.
+  Code: `LoginServerSession.cs`.
+  Docs: [01](../docs/protocol/01-login.md) §4.
 
 ## Partly working
 
@@ -66,8 +70,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/01-login.md.
 - **Saves in SQLite (tested, not yet checked with the real client).** Accounts are rows in `data/auth.db`; characters,
   character saves and stashes in `data/characters.db` (WAL, synchronous=FULL), both built from `sql/`
-  ([databases](../docs/dev/databases.md); the first server start splits an old `data/saves.db`); a stash is a header row and
-  one row per tab.
+  ([databases](../docs/dev/databases.md); the first server start splits an old `data/saves.db`). A save is rows and
+  columns: `character_saves` and its tables, `stash_saves` with its tab headers, and `items`/`item_mods` for every item
+  (`SaveRows`); the first Gateway start moves the JSON saves over after a copy, reading each one back before it commits.
+  The move was checked on a copy of a real save (a character and a 211-tab stash), not yet played on.
   Every item, stash, gold, passive, quest flag and waypoint change is saved at once in a transaction.
   Stash moves, purchases, sales, currency used on items, gold respec, the map device and character deletion save all
   their parts in one transaction or none; a failed save rolls back, reloads what it changed and closes the connection.

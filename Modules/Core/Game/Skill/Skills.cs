@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.World;
 using System.Collections.Frozen;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -134,6 +135,7 @@ public static partial class Game
     // The final stats from a character snapshot already worked out (PlayerSkills reuses its own).
     public static IEnumerable<(uint, int)> FinalPlayerStatsFrom(ClientState conn, Dictionary<uint, int> stats)
     {
+        KeepExpandedInventoryVisible(conn, stats);
         // Both hands' native weapon types and whether they dual wield (a value /set_stat set stays). The client derives none
         // of them from network stats: quivers need a bow's 9 in the main hand, and without is_dual_wielding it held 1,
         // which greyed out Shield Charge beside a one-handed weapon (13-items.md "Client weapon-type stats").
@@ -409,11 +411,17 @@ public static partial class Game
     public static IEnumerable<(uint, int)> BaseStats(ClientState conn)
     {
         var seen = new HashSet<uint>();
-        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with { Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn) })) if (seen.Add(k)) yield return (k, v);
+        foreach (var (k, v) in ClassAttributes(conn.ClassRow, conn.Pools with
+        {
+            Accuracy = PlayerAccuracy(conn), Evasion = PlayerEvasion(conn),
+            FireResistance = Resistance(conn, DamageType.Fire), ColdResistance = Resistance(conn, DamageType.Cold),
+            LightningResistance = Resistance(conn, DamageType.Lightning), ChaosResistance = Resistance(conn, DamageType.Chaos),
+        })) if (seen.Add(k)) yield return (k, v);
         List<ushort> nodes;
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
         AddGolemStats(conn, extra);
+        AddSelfOfferingStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
         foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))
             if (Stats.Key(stat) is uint key) extra[key] = value;
@@ -426,7 +434,10 @@ public static partial class Game
         }
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
-        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
+        // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
+        int heraldEffectPct = RawDefault("herald_effect_on_self_+%");
+        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats,
+                     heraldEffectPct).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
@@ -523,7 +534,6 @@ public static partial class Game
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in player) playerStats[key] = value;
         var gems = GemSkillEffects(conn).ToArray();
-        var singleSources = gems.GroupBy(g => g.Effect).Where(g => g.Count() == 1).Select(g => g.Key).ToHashSet();
         var skillCosmetics = CharacterSaves.SkillCosmetics(string.IsNullOrEmpty(character) ? "Exile" : character);
         foreach (var (id, effect, name, _, quality, gem) in gems)
         {
@@ -542,10 +552,13 @@ public static partial class Game
             }
             if (Stats.Key("virtual_extra_critical_rolls") is uint criticalRolls)
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
-            if (singleSources.Contains(effect) && WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own)) is { } cooldown
+            if (CooldownPlan(conn, supported, playerStats) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
             {
                 stats[recoveryKey] = cooldown.RecoveryPercent;
+                // Otherwise the client propagates the use to the GEPL group before the second key can send its request.
+                if (SkillsFor(conn).CooldownGroup(effect, level) is 1 or 11 && Stats.Key("skill_cooldown_group_override") is uint group)
+                    stats[group] = cooldown.SharedGroup ?? 36;
                 if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
             }
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
@@ -851,10 +864,12 @@ public static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || HardcoreProgressBlocked(conn)) return false;
             string character = CharacterName(conn);
-            var bar = CharacterSaves.Load(character)?.SkillBar ?? [];
+            var save = CharacterSaves.Load(character);
+            var bar = save?.SkillBar ?? [];
+            var unassigned = SkillBarLayout.Unassigned(save);
             string attack = SkillEffectId(conn, SkillCatalog.FirstSkillId)!;
             var gems = GemSkillEffects(conn).Select(g => SkillsFor(conn).EffectId(g.Effect)).OfType<string>().ToList();
-            var added = SkillBarLayout.Fill(bar, attack, gems, entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
+            var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g)), entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
             foreach (var (slot, entry) in added) CharacterSaves.SetSkillBar(character, (byte)slot, entry);
             if (added.Count > 0)
                 Console.WriteLine($"[gateway] {character} skill bar: {string.Join(", ", added.Select(a => $"{a.Entry} on slot {a.Slot}"))}");

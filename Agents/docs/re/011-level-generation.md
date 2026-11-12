@@ -1462,6 +1462,17 @@ the target open, so the recorder's write of the fourth object threw and left the
 
 ## 8. Tooling
 
+On Linux/Proton, Gum must initialize and discover libc in the preload constructor, before Wine replaces the ELF main
+image with the PE image. Attaching after that failed in the Linux Frida bootstrapper; loading Gadget late could not
+identify its range. The recorder instead finds the copied PE image in `/proc/self/maps` and checks its hook bytes.
+PE hooks still use Windows x64 arguments (`rcx`, `rdx`, `r8`, `r9`, then stack +40); the height sampler needs an
+`ms_abi` call from the Linux helper. Captures use the same writer and file formats as Windows.
+The verified client PID/start time and a private Unix socket bind each stream to its checkout.
+PowerShell passes `$null` to `SetEnvironmentVariable` as an empty string; .NET on Linux keeps that value.
+Use `[NullString]::Value` to unset it: an empty `Game_PATCH_WEB_ROOT` advertises `/`, which the gate's log parser
+correctly excludes because it cannot identify the client version.
+This enables manual recording and Gateway `/tour`; `tourloop.py` and `client_control.py` still require Windows.
+
 - **Trace:** `live.ps1 -Walkmaps` also hooks the generator (`scripts/walkmaps/walkmaps.js`, `hookGeneration`) and
   writes `data/walkability/<area>_seed<seed>.gen.json`: every draw on the generating thread as
   `[kind, caller VA, argument, result]` (`n` = `Next`, `u` = `Uniform` called directly, `r` = raw draw from elsewhere,
@@ -1511,9 +1522,16 @@ the target open, so the recorder's write of the fourth object threw and left the
   against its own trace (every logged load has one since the capture tours), for its draws and first difference. It
   also prints the work queue: seed-1 traces grouped by the client's caller at the first difference, every wrong
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
-  the change); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  the change). The servers do not read the baseline: they read world.db's `server_level_areas` (the areas they
+  generate, and the seed in place of seed 1), so a baseline that gains or loses an area also needs a world update
+  of those rows (`ServerLevelAreas`' rules); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
   An area with no seed-1 trace (the client fails seed 1) has each traced load at another seed checked as fully as a
   seed-1 capture, as `load <area> <seed>` (§7: what makes such an area supported).
+  Three Labyrinth boss rooms are listed by hand in a world update (`pending_world/1_labyrinth_boss_rooms.sql`) because
+  the snapshot drops them: `1_Labyrinth_boss_1` and `1_Labyrinth_boss_2` for one logged load the port cannot build
+  (its oracle entry all 0/-1), and `2_Labyrinth_boss_2_end` for two transition objects more than its capture. Every
+  captured seed of each room matches, and the Gateway builds all three at seed 1 and at random seeds, placing the
+  three Izaros `WorldAreas.json` lists for them. Regenerating the list drops them again.
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a
   traced grid. `… generate <area> <seed> [trace.gen.json]` runs the port and, with a trace, compares draw by draw
   (kind, argument, result; the first difference names the client's caller; the object scripts' LCG draws,

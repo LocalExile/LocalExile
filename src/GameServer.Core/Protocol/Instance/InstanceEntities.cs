@@ -174,10 +174,10 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
@@ -633,6 +633,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
+    /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
+    public bool HasDialogue { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
@@ -657,7 +659,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// StateMachine needs the type's shared states and timers (<see cref="StateMachineData"/>).
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
         components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => Extras.Contains(c) && (c != "StateMachine" || haveStateMachine));
+        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone") && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {
@@ -705,7 +707,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
                 // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
                 // no component that must be alive (+0x21 0xff), 17-npcs.md.
-                case "NPC": w.U8(0).U8(0xff); break;
+                case "NPC": w.U8(HasDialogue ? (byte)1 : (byte)0).U8(0xff); break;
                 // 0x141e218a0: u8 flags (bit 2 adds a u8 and a u16); 0, as NpcObject and AreaTransitionObject write it.
                 case "InteractionAction": w.U8(0); break;
                 // Timer (0x1435ab790): slot 17 is `ret`, nothing to write.
@@ -713,7 +715,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
-                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass, DiesAfterTime, Timer: no data.
+                // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
+                // Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
         }
         w.U8(0);            // tasks
@@ -799,6 +802,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
     int? Height = null)
 {
     public string? AnimatedObject { get; init; }
+    public StateMachineData? StateMachine { get; init; }
     /// <summary>Animated in the object's component order (Positioned, Animated, BaseEvents).</summary>
     public const byte AnimatedComponentIndex = 1;
 
@@ -813,6 +817,7 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
         if (Height is int h) w.I32(-h).F32(h * 7.8125f);           // h = z / 7.8125 (z points down): i32 -h, f32 z
         if (AnimatedObject is null) w.U8(0x40);                    // Animated: Projectiles.dat AOFiles
         else w.U8(1).WStr32(AnimatedObject);                        // Explicit art, the same Animated reader as effects.
+        StateMachine?.Write(w);                                    // Derived projectile types may append this component.
         w.U8(0);                                                   // tasks
         return w.ToArray();
     }
@@ -827,6 +832,8 @@ public sealed record ProjectileObject(string TypePath, int GridX, int GridY, flo
 public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 {
     public const string TypePath = "Metadata/Effects/PermanentServerEffect";
+    /// <summary>World facing for effects whose mesh contains an oriented area or beam.</summary>
+    public float Rotation { get; init; }
     const string RootBone = "<root>";
     // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5f300).
     // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
@@ -881,7 +888,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
         var w = new BlobWriter();
         bool scaled = Scale != 1;
         w.U8(0).U8(0);                                              // object flags, base data entry count
-        w.I32(GridX).I32(GridY).F32(0).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
+        w.I32(GridX).I32(GridY).F32(Rotation).U16(0).U8((byte)((Flags0 & 0x85) | (scaled ? 0x20 : 0))).U8(0x02);   // Positioned: on the terrain, shown
         if ((Flags0 & 4) != 0) w.U32(AnimationWord).F32(AnimationValue);    // flags0 0x04's native animation fields
         if (scaled) w.F32(Scale).F32(1).F32(1);                     // uniform scale, x and y stretch
         w.U8(0).U8(1);
@@ -1128,6 +1135,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public byte PantheonMajor { get; init; }
     public byte PantheonMinor { get; init; }
 
+    /// <summary>The Descendancy.dat row the client's tree panel draws as the second ascendancy layer (Player +0x1b0):
+    /// Affliction's Wildwood specialisations and the 3.29 Bloodline classes, 0 = none.</summary>
+    public byte Descendancy { get; init; }
+
     /// <summary>The Inventories component's index in the player object's component order (04 §3).</summary>
     public const byte InventoriesComponentIndex = 8;
 
@@ -1194,7 +1205,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8((byte)(WashedUp ? 1 : 0)) // +0x1b1 (non-zero → "WashedUp" state)
          .U8(PantheonMajor)  // +0x1ae: the major Pantheon god, PantheonPanelLayout row + 1 (0 = none; campaign/pantheon.md §5)
          .U8(PantheonMinor)  // +0x1ad: the minor god, the same way
-         .U8(0).U8(0).U8(0)  // +0x1b0, +0x1af, +0x238
+         .U8(Descendancy)    // +0x1b0: the Descendancy.dat row (the Bloodline/Wildwood second ascendancy layer, 0 = none)
+         .U8(0)              // +0x1af
+         .U8(0)              // +0x238
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears

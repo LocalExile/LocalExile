@@ -1,6 +1,6 @@
 # Side quests (bot guide)
 
-The optional quests (passive points, rewards, Pantheon gods). A bot does each one when its act comes up, after the main quests before it in the same act. Source: the quests of the game data (`data/tables/Quest.json`, the client's own Quest.dat) in the usual levelling route through each act, as the project's campaign driver plays it (`scripts/dev/campaign/order.py`).
+The optional quests (passive points, rewards, Pantheon gods). A bot does each one when its act comes up, after the main quests before it in the same act. Source: the quests of the game data (the `Quest` table, the client's own Quest.dat) in the usual levelling route through each act, as the project's campaign driver plays it (`scripts/dev/campaign/order.py`).
 
 The bots read the table below in order: one row is one quest. `Town` is the WorldAreas id of the act town the bot
 returns to between quests (and where players see it). Do not change the column order.

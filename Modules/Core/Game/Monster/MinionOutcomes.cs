@@ -87,13 +87,14 @@ public static partial class Game
         }
         state.FlaskRewards.Add(new(monster.Rarity));
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
+        if (BossMods.GivesNoItems(variety)) return;
         var balance = LeagueFor(conn).Rules;
         var modded = GameEvents.RunDrops(ConnOf(killer), modMonster);
         var drops = new List<ItemDrops.Drop>();
         if (modded is not { Cancel: true })
         {
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn),
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));
@@ -104,6 +105,7 @@ public static partial class Game
         foreach (string query in modded?.Items ?? [])
             if (ModDrop(conn, query, monster.Level) is { } extra) drops.Add(extra);
             else Console.WriteLine($"[mods] a mod's drop \"{query}\" is no item type or unique the server can create");
+        if (modded is not { Cancel: true }) drops.AddRange(Sirus.Rewards(conn, monster));
         foreach (var drop in ItemDrops.Stacked(drops))
         {
             double angle = Random.Shared.NextDouble() * Math.Tau, radius = 3 + Random.Shared.NextDouble() * 3;
@@ -111,9 +113,8 @@ public static partial class Game
             if (conn.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = at;
             var ground = new WorldItemObject(x, y, drop.Item);
             uint id = conn.Instance.Ground.Add(ground, conn);
-            state.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
-                $"0x02bb create world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})", WorldId: id, CreatesObject: true));
-            state.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id));
+            state.OutputQueue.Add(new([], $"world item 0x{id:x} {drop.Type.Name} dropped by {monster.Label} at ({x}, {y})",
+                TargetId: id, Kind: PlayerMinions.OutputKind.GroundItem));
         }
     }
 
@@ -179,6 +180,21 @@ public static partial class Game
                     notification = GameEvents.RunMonsterKilled(new(conn, output.Kill!));
                 }
                 await notification;
+                continue;
+            }
+            if (output.Kind == PlayerMinions.OutputKind.GroundItem)
+            {
+                uint groundId = output.TargetId!.Value;
+                await SendWorldCreate(conn, groundId, () =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Current() || conn.Closed || conn.LeavingArea || state.OutputQueue.Count == 0
+                            || !ReferenceEquals(state.OutputQueue[0], output)) return null;
+                        state.OutputQueue.RemoveAt(0);
+                        return GroundItemPresentation(conn, groundId, conn.Instance.Ground.IsNewFor(conn, groundId), includeWake: false);
+                    }
+                }, output.Log, wake: true, transport: (remote, stream, ciphers));
                 continue;
             }
             byte[][]? actionRecords = null;

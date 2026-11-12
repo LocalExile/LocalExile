@@ -407,7 +407,7 @@ public static class VaalOversoul
         static (int X, int Y) Floor(ClientState c, (int X, int Y) at) => c.Layout.Walkable is { } walk && !walk(at.X, at.Y) ? c.Layout.Near(at) : at;
         async Task<uint> Effect(ClientState c, (int X, int Y) at, string art, double expires, uint animation, float scale = 1)
         {
-            uint fx; lock (c.Monsters) fx = c.NextObjectId++;
+            uint fx; lock (c.Monsters) fx = c.TakeObjectId();
             await All(InstanceEntities.CreateObject(fx, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, art) { Scale = scale }.Blob()));
             await All(InstanceProtocol.EnterWakeZone(fx));
             await All(InstanceProtocol.AnimationUpdate(fx, 0, animation, 1));

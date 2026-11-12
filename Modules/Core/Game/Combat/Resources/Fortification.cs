@@ -72,6 +72,18 @@ public static partial class Game
             target.Rarity, Get, random ?? Random.Shared);
     }
 
+    /// <summary>A successful melee stun (HitReaction.TryFlinch): roll the character's chance to Fortify and grant the
+    /// hit's damage-based stacks. Called under the owner's Monsters lock.</summary>
+    internal static bool FortificationFromMeleeStun(ClientState conn, decimal rawDamage, decimal maximumLife,
+        MonsterRarity rarity, Random? random = null)
+    {
+        if (conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return false;
+        var player = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        return FortificationOf(conn).FortifyFromStun(conn.Clock.Elapsed.TotalSeconds, rawDamage, maximumLife, rarity,
+            Get, random ?? Random.Shared);
+    }
+
     public static int FortificationDamageTaken(ClientState conn, int damage)
     {
         lock (conn.Monsters)

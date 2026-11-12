@@ -65,6 +65,12 @@ public static partial class Game
                     : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(conn).HardMode, EnemyAuraActs);
                 var auras = current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
                 int? blindRadius = PassiveBuffAuras.BlindRadius(current);
+                var player = CharacterPlayerStats(conn);
+                // The influenced blind and unique intimidate BuffTemplates use 35 and 25 cells respectively.
+                if (StatOf(player, "virtual_nearby_enemies_are_blinded") > 0)
+                    blindRadius = Math.Max(blindRadius ?? 0, 35);
+                if (StatOf(player, "virtual_nearby_enemies_are_intimidated") > 0)
+                    auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
                 var here = conn.Walk.Position(now);
@@ -154,6 +160,7 @@ public static partial class Game
                     Timed(id, living, ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
                     Timed(id, living, ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
                     Timed(id, living, ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
+                    Timed(id, living, ref m.HinderedUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null);
                     Timed(id, living, ref m.BlindedUntil, ref m.BlindShownUntil, ref m.BlindBuff, FlaskGrounds.BlindedBuffRow, null);
                     for (int i = 0; i < ExposureTypes.Length; i++)
                         if (!Timed(id, living, ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i],

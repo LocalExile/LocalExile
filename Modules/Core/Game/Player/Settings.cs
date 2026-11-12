@@ -101,6 +101,8 @@ public static partial class Game
     public static readonly TimelessJewelEngine TimelessJewels = new();
     public static readonly OrdinaryPassiveRules OrdinaryPassives = new();
     public static readonly AscendancyCatalog Ascendancies = new();
+    // The Descendancy.dat rows (Affliction's Wildwood and 3.29's Bloodline second ascendancy layer).
+    public static readonly DescendancyCatalog Descendancies = new();
     public static readonly AscendancyRules AscendancyRules = new(Ascendancies);
     // How close (cells) the player must be to a dying monster to gain its experience. Game_XP_RANGE overrides it.
     public const int GodRegenPerSecond = 10_000;

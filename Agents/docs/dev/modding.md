@@ -63,7 +63,8 @@ puts it there when the mod has no release); `src/GameServer.Modding/Mod.props`, 
 imports for a project under `Mods/Source/`, builds `<Name>.csproj` into `Mods/Binaries/<id>/` as `<id>.dll`, with the
 `mod.json` and `settings.json` beside it, and compiles against `GameServer.Modding` without copying it. `Mods/` is
 gitignored: what is in it is the user's.
-To make a new one, copy one of LocalExile-Mods' examples (`example`, `hello`), rename the folder and the `.csproj`, and set
+To make a new one, copy a small mod of LocalExile-Mods (`itemquantity`: a `.csproj`, one class, `mod.json` and
+`settings.json`), rename the folder and the `.csproj`, and set
 the id in its `mod.json` to the new folder's name in lower case.
 
 ```csharp
@@ -163,7 +164,7 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
 | `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them) |
 | `Experience` | its experience, after the level penalty, before the character and gems gain it | `Experience` |
-| `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like `/god`'s: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
+| `Stats` | whenever the server rebuilds the character's stats | stats added by `Stats.dat` id, like the `gm-commands` mod's `/god`: life and mana pools are not rebuilt from them, and the panel shows them at its next refresh |
 | `PlayerLeaving`, `HideoutReady`, `EnterMessages`, `AreaHeader`, `NpcOption` | the connection closing, the hideout loaded, the messages sent on entering an area, the area header, a picked NPC option | |
 
 The other `GameEvents` entries (kills, damage, skills, items, travel, …) are the game module's hand-overs to the other

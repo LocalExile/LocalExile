@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 using Rules = global::Game;
@@ -12,6 +13,10 @@ public sealed class GameModule : IModule
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallMirror());
         module.Lifetime.Own(RuleTables.EmptyOnUnload());
@@ -22,16 +27,24 @@ public sealed class GameModule : IModule
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DoedreSewers.Leaving(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::BrineKing.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::AtlasBosses.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DepravedTrinity.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DepravedTrinity.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DepravedTrinity.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::KitavaActFive.Tick(conn));
+        module.Lifetime.Own(global::KitavaActFive.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActFive.Leaving(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::KitavaActTen.Tick(conn));
+        module.Lifetime.Own(global::KitavaActTen.CleanupOnUnload());
+        GameEvents.PlayerLeaving.Add(id, (conn, _) => global::KitavaActTen.Leaving(conn));
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
@@ -50,6 +63,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
+    public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
+        HeistModifierMagnitudes.For(item, mods);
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);
@@ -69,6 +84,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.RefuseInterruptedHardcoreDeath(conn);
         level = Rules.PrepareCharacterForArea(remote, conn, level);
+        global::KitavaActTen.ConfigurePortal(conn);
         // Restore mode vitals before any admitted-area send can fail and enter save cleanup.
         Rules.InitializeCharacterVitals(conn);
         return level;

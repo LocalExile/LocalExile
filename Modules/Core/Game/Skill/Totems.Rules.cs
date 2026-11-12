@@ -19,46 +19,36 @@ public static partial class Game
 
     // GrantedEffects row → MonsterVarieties row of its default skin: ActiveSkills.SkillTotemId is SkillTotemVariations'
     // SkillTotemsKey, TotemSkinId 0 (Rejuvenation Totem: 4 → Metadata/Monsters/Totems/LifeRegenTotem).
-    static readonly Lazy<Dictionary<int, int>> TotemVarieties = new(() => LoadTotemVarieties("data/tables"));
+    static readonly Lazy<(Dictionary<int, int> Effects, Dictionary<int, int> Skins)> TotemVarieties =
+        new(LoadTotemVarieties);
 
     // The totem auras' BuffDefinitions stats (172: base_life_regeneration_rate_per_minute and five more); the totem's
     // skill gives their values.
     static readonly Lazy<Dictionary<ushort, uint[]>> TotemBuffStats = new(() =>
     {
         var result = new Dictionary<ushort, uint[]>();
-        string path = System.IO.Path.Combine("data/tables", "BuffDefinitions.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var definitions = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("BuffDefinitions")) return result;
+        var definitions = ClientTables.Table("BuffDefinitions");
         foreach (var (row, _) in TotemAuras.Values)
-            if (row < definitions.RootElement.GetArrayLength()
-                && definitions.RootElement[row].TryGetProperty("StatsKeys", out var keys) && keys.ValueKind == JsonValueKind.Array)
-                result[row] = [.. keys.EnumerateArray().Select(k => (uint)(k.GetInt32() + 1))];
+            if (row < definitions.Count && !definitions[row].IsNull("StatsKeys"))
+                result[row] = [.. definitions[row].Ints("StatsKeys").Select(k => (uint)(k + 1))];
         return result;
     });
 
-    static Dictionary<int, int> LoadTotemVarieties(string tables)
+    static (Dictionary<int, int> Effects, Dictionary<int, int> Skins) LoadTotemVarieties()
     {
-        string Path(string name) => System.IO.Path.Combine(tables, name + ".json");
         var result = new Dictionary<int, int>();
-        if (!ClientTables.Exists(Path("GrantedEffects")) || !ClientTables.Exists(Path("ActiveSkills")) || !ClientTables.Exists(Path("SkillTotemVariations"))) return result;
-        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("GrantedEffects")));
-        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("ActiveSkills")));
-        using var variations = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("SkillTotemVariations")));
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("SkillTotemVariations")) return (result, []);
         var skins = new Dictionary<int, int>();
-        foreach (var v in variations.RootElement.EnumerateArray())
-            if (v.GetProperty("TotemSkinId").GetInt32() == 0 && v.GetProperty("MonsterVarietiesKey") is { ValueKind: JsonValueKind.Number } row)
-                skins.TryAdd(v.GetProperty("SkillTotemsKey").GetInt32(), row.GetInt32());
-        var skills = active.RootElement.EnumerateArray().ToArray();
-        int i = 0;
-        foreach (var e in effects.RootElement.EnumerateArray())
-        {
-            if (e.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && a.GetInt32() < skills.Length
-                && skills[a.GetInt32()].TryGetProperty("SkillTotemId", out var totem) && totem.ValueKind == JsonValueKind.Number
-                && skins.TryGetValue(totem.GetInt32(), out int variety))
-                result[i] = variety;
-            i++;
-        }
-        return result;
+        foreach (var v in ClientTables.Table("SkillTotemVariations"))
+            if (v.Int("TotemSkinId") == 0 && v.IntOrNull("MonsterVarietiesKey") is int row)
+                skins.TryAdd(v.Int("SkillTotemsKey"), row);
+        var skills = ClientTables.Table("ActiveSkills");
+        foreach (var e in ClientTables.Table("GrantedEffects"))
+            if (e.IntOrNull("ActiveSkill") is int a && a < skills.Count
+                && skills[a].IntOrNull("SkillTotemId") is int totem && skins.TryGetValue(totem, out int variety))
+                result[e.Index] = variety;
+        return (result, skins);
     }
 
     /// <summary>The totem variety a gem skill with a totem executor summons, or null.</summary>
@@ -68,17 +58,14 @@ public static partial class Game
     public static MonsterCatalog.Variety? TotemVariety(ClientState conn, int effect)
     {
         if (SkillsFor(conn).EffectId(effect) is { } id && TotemAuras.ContainsKey(id)
-            && TotemVarieties.Value.TryGetValue(effect, out int native))
+            && TotemVarieties.Value.Effects.TryGetValue(effect, out int native))
             return Monsters.Find(native.ToString()) is { Supported: true } aura ? aura : null;
         if (!SpellTotemEffect(conn, effect) && !BallistaEffect(conn, effect)) return null;
         // Prefer a dedicated native skin; generic spell/ballista proxies use intelligence/dexterity skins 3/2.
-        if (TotemVarieties.Value.TryGetValue(effect, out int specific)
+        if (TotemVarieties.Value.Effects.TryGetValue(effect, out int specific)
             && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
-        using var variations = GameTables.Open("data/tables/SkillTotemVariations.json");
-        var skin = variations.RootElement.EnumerateArray().FirstOrDefault(v => v.GetProperty("SkillTotemsKey").GetInt32() == (BallistaEffect(conn, effect) ? 2 : 3)
-            && v.GetProperty("TotemSkinId").GetInt32() == 0);
-        return skin.ValueKind == JsonValueKind.Object
-            && Monsters.Find(skin.GetProperty("MonsterVarietiesKey").GetInt32().ToString()) is { Supported: true } spell ? spell : null;
+        return TotemVarieties.Value.Skins.TryGetValue(BallistaEffect(conn, effect) ? 2 : 3, out int generic)
+            && Monsters.Find(generic.ToString()) is { Supported: true } spell ? spell : null;
     }
 
     public static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
@@ -104,17 +91,23 @@ public static partial class Game
         var source = SupportedSkill(conn, skillId);
         bool SourceCurrent() => SupportedSkill(conn, skillId) is var live && live.Host == source.Host
             && SameTotemSource(source, live) && IsTotemSkill(conn, skillId);
-        double release = conn.Clock.Elapsed.TotalSeconds + seconds;
-        while (conn.Paused || conn.Clock.Elapsed.TotalSeconds < release)
+        bool Valid() => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && SourceCurrent()
+            && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0;
+        double start = AreaTime(conn), placedAt = start + seconds;
+        async Task<bool> WaitUntil(double at)
         {
-            if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || !SourceCurrent()
-                || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-            await AreaWait(PlayerUpdateRole.Minions, 25);
+            while (conn.Paused || AreaTime(conn) < at)
+            {
+                if (!Valid()) return false;
+                await AreaWait(PlayerUpdateRole.Minions, 25);
+            }
+            return Valid();
         }
-        if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || !SourceCurrent()
-            || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
-        await CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, at,
-            () => ReferenceEquals(lifetime, CombatLifetime) && current() && SourceCurrent());
+        bool spell = SpellTotemEffect(conn, effect);
+        double contact = spell ? start + seconds * Animations.SpellRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject) : placedAt;
+        if (await WaitUntil(contact))
+            await CreateTotem(remote, stream, ciphers, conn, skillId, effect, level, variety, at, Valid,
+                spell ? () => WaitUntil(placedAt) : null);
     }
 
     /// <summary>
@@ -124,8 +117,13 @@ public static partial class Game
     /// and the skill's), replacing the oldest. Its aura's stats and radius are the skill's at this moment. Null when the
     /// limit is below one (the client refuses the use itself then) or the player is gone.
     /// </summary>
-    public static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null)
+    public static Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null) =>
+        CreateTotem(remote, stream, ciphers, conn, skillId, effect, gemLevel, variety, at, current, null);
+
+    internal static async Task<uint?> CreateTotem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
+        Func<Task<bool>>? finishPlacement)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea) return null;
         var stats = SupportedStats(conn, skillId);
@@ -156,32 +154,44 @@ public static partial class Game
         var sourceGem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(conn, skillId) : null;
         if (spellTotem && proxy is null) return null;
+        bool Valid() => CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0 && current?.Invoke() != false;
+        (int X, int Y) ClearPosition(uint objectId)
+        {
+            if (bodySize < 0) return place;
+            bool Floor(int x, int y) => conn.Layout.WalkableFor(x, y, bodySize) && !conn.Barrier.Contains((x, y));
+            return CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterPlacementBlockers(objectId),
+                moverSize: bodySize) ?? place;
+        }
+        void Activate(uint objectId, WorldRecordBuilder bytes)
+        {
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
+            { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
+                SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
+            int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed")
+                + (GolemStat(playerStats, "keystone_ancestral_bond") != 0 ? 1 : 0), 0, int.MaxValue);
+            placed.Ballista = ballista;
+            placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
+            if (spellTotem) BindTotemSource(conn, placed);
+            var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
+            if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
+            // A totem blocks paths on the client as any body does.
+            if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
+            TotemRecords(conn, bytes);
+            Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
+                + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
+                + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}"));
+        }
+
         uint? created = null;
         // Registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
         await SendWorldBatch(conn, [], admission =>
         {
             lock (conn.Monsters)
             {
-                if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || current?.Invoke() == false) return null;
-                uint objectId = conn.NextObjectId++;
-                if (bodySize >= 0)
-                {
-                    bool Floor(int cx, int cy) => conn.Layout.WalkableFor(cx, cy, bodySize) && !conn.Barrier.Contains((cx, cy));
-                    if (CollisionEscape.Find(place, conn.Layout.GridW, conn.Layout.GridH, Floor, conn.MonsterPlacementBlockers(objectId),
-                        moverSize: bodySize) is { } clear) place = clear;
-                }
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura)
-                { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
-                    SourceHost = SupportedSkill(conn, skillId).Host, SourceItem = SupportedSkill(conn, skillId).SourceGem };
-                int ordinaryLimit = (int)Math.Clamp((long)BaseTotemsAllowed + GolemStat(playerStats, "number_of_additional_totems_allowed"), 0, int.MaxValue);
-                placed.Ballista = ballista;
-                placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
-                if (spellTotem) BindTotemSource(conn, placed);
-                var replaced = conn.Totems.Place(placed, limit, now, ordinaryLimit);
-                if (replaced.Count > 0) TotemsDiedLocked(conn, now, playerStats);
-                // A totem blocks paths on the client as any body does.
-                if (bodySize >= 0) conn.SetBlocker(objectId, place.X, place.Y, bodySize);
+                if (!Valid()) return null;
+                uint objectId = conn.TakeObjectId();
+                place = ClearPosition(objectId);
                 var bytes = new WorldRecordBuilder(conn, admission);
                 if (conn.MonsterTypes.Add((variety.Row, level)))
                     bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
@@ -194,15 +204,48 @@ public static partial class Game
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
-                TotemRecords(conn, bytes);
-                Console.WriteLine($"[gateway] {CharacterName(conn)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
-                    + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
-                    + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}"));
+                if (finishPlacement is null) Activate(objectId, bytes);
                 created = objectId;
                 return bytes.Build();
             }
         }, transport: (remote, stream, ciphers));
-        return created;
+        if (created is not uint pendingId || finishPlacement is null) return created;
+        bool active = false;
+        try
+        {
+            while (await finishPlacement())
+            {
+                bool paused = false;
+                await SendWorldBatch(conn, [conn.WorldOutput.PublishedObject(pendingId)], admission =>
+                {
+                    lock (conn.Monsters)
+                    {
+                        if (!Valid()) return null;
+                        if (conn.Paused) { paused = true; return null; }
+                        limit = TotemLimit(conn, skillId);
+                        if (limit < 1) return null;
+                        playerStats = CharacterPlayerStats(conn);
+                        var bytes = new WorldRecordBuilder(conn, admission);
+                        var clear = ClearPosition(pendingId);
+                        if (clear != place)
+                        {
+                            place = clear;
+                            bytes.World(pendingId, InstanceProtocol.Teleport(pendingId, place.X, place.Y));
+                        }
+                        Activate(pendingId, bytes);
+                        active = true;
+                        return bytes.Build();
+                    }
+                }, transport: (remote, stream, ciphers));
+                if (!paused) break;
+            }
+            return active ? pendingId : null;
+        }
+        finally
+        {
+            if (!active && !conn.Closed && !conn.LeavingArea)
+                await SendWorldRemoval(remote, stream, ciphers, conn, pendingId, "cancelled totem placement");
+        }
     }
 
     /// <summary>
@@ -232,11 +275,8 @@ public static partial class Game
     // has_trigger_on_totem_death_in_presence_of_unique; the shared Spirit cooldown decides).
     static void TotemsDiedLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.PlayerLife == 0) return;
-        var here = conn.Walk.Position(now);
-        if (conn.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0 && m.Rarity == MonsterRarity.Unique
-            && Dist(m.Walk.Position(now), here) <= PresenceRadius))
-            TriggerSpiritChieftainLocked(conn, TotemDeathInPresenceOfUniqueTrigger, stats);
+        if (conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return;
+        TriggerSpiritChieftainLocked(conn, TotemDeathInPresenceOfUniqueTrigger, stats);
     }
 
     // The aura of the totem covering the living player joins his stats (CharacterPlayerStatsCore), with his aura effect.

@@ -28,9 +28,9 @@ public enum EmergeKind
 /// They are created in state 1; when the player comes within <see cref="Range"/> cells (or their aggro range, if
 /// shorter), or a lurking one is hit, they rise: the Emerge action (S→C 0x1ab, the .act's Emerge clip),
 /// Transitionable → 2 (0x2bc; on_transition runs EnableTargetable) and 0x1ac, which lets the clip play; until it has
-/// played they are busy, so the AI neither moves them nor attacks with them. Data: object-types.json (<c>basic_actions</c>,
-/// <c>client_transitionable</c>, <c>client_targetable</c>: scripts/re/ot_components.py), monster-takehit.json
-/// (<c>emerge</c>: the clip's length, scripts/re/monster_takehit.py), ActionTypes.json.
+/// played they are busy, so the AI neither moves them nor attacks with them. Data: client.db's object_types
+/// (<c>basic_actions</c>, <c>client_transitionable_*</c>, <c>client_targetable</c>: scripts/re/ot_components.py),
+/// monster_takehit (<c>emerge_*</c>: the clip's length, scripts/re/monster_takehit.py) and ActionTypes.
 /// </summary>
 public sealed class MonsterEmerge(string folder = "data")
 {
@@ -53,8 +53,8 @@ public sealed class MonsterEmerge(string folder = "data")
     /// <summary>The Transitionable state a monster waiting to rise is created in (untransitioned).</summary>
     public const byte UnrisenState = 1;
 
-    private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(() => LoadTypes(folder));
-    private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(() => LoadClips(folder));
+    private readonly Lazy<Dictionary<string, EmergeKind>> _types = new(LoadTypes);
+    private readonly Lazy<Dictionary<string, (double Seconds, int Index)>> _clips = new(LoadClips);
     private readonly Lazy<ushort?> _action = new(() => LoadAction(folder));
 
     /// <summary>The Emerge basic action's skill id (ActionTypes HASH16 &amp; 0x3fff: 0x0101), null without the table.</summary>
@@ -188,58 +188,45 @@ public sealed class MonsterEmerge(string folder = "data")
     /// Under the Monsters lock.</summary>
     public static bool Waiting(ClientState conn, uint id) => conn.EmergeGround.Lurking.Contains(id);
 
-    /// <summary>The kind of one object-types.json entry (see <see cref="EmergeKind"/>); used by the loader and tests.</summary>
-    public static EmergeKind KindOf(JsonElement t)
+    /// <summary>The kind of one object_types row (see <see cref="EmergeKind"/>); used by the loader and tests.</summary>
+    public static EmergeKind KindOf(ClientRow t)
     {
-        if (!t.TryGetProperty("basic_actions", out var actions) || actions.ValueKind != JsonValueKind.Array
-            || !actions.EnumerateArray().Any(a => a.ValueKind == JsonValueKind.String && a.GetString() == "Emerge")) return EmergeKind.None;
-        int read = t.GetProperty("read").GetInt32();
-        if (!t.GetProperty("components").EnumerateArray().Take(read).Any(c => c.GetString() == "Transitionable")) return EmergeKind.None;
-        if (t.TryGetProperty("transitionable", out var tr) && tr.TryGetProperty("num_states", out var n) && n.GetInt32() > 1) return EmergeKind.None;
-        string start = t.TryGetProperty("client_transitionable", out var ct) && ct.ValueKind == JsonValueKind.Object
-            && ct.TryGetProperty("create_untransitioned", out var cu) && cu.ValueKind == JsonValueKind.String ? cu.GetString()! : "";
+        if (!t.Texts("basic_actions").Contains("Emerge")) return EmergeKind.None;
+        if (!ObjectTypes.Components(t).Contains("Transitionable")) return EmergeKind.None;
+        if (t.IntOrNull("transitionable_num_states") > 1) return EmergeKind.None;
+        string start = t.TextOrNull("client_transitionable_create_untransitioned") ?? "";
         // Only a type that waits in a paused clip rises: others (Hillock's sword stage) use the Transitionable otherwise.
         if (!start.Contains("PauseAnimation", StringComparison.Ordinal)) return EmergeKind.None;
-        bool untargetable = t.TryGetProperty("client_targetable", out var tg) && tg.ValueKind == JsonValueKind.False
-            || start.Contains("DisableTargetable", StringComparison.Ordinal);
+        bool untargetable = t.BoolOrNull("client_targetable") == false || start.Contains("DisableTargetable", StringComparison.Ordinal);
         return untargetable ? EmergeKind.Buried : EmergeKind.Lurking;
     }
 
-    static Dictionary<string, EmergeKind> LoadTypes(string folder)
+    static Dictionary<string, EmergeKind> LoadTypes()
     {
-        string path = Path.Combine(folder, "object-types.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = GameTables.Open(path);
         var types = new Dictionary<string, EmergeKind>();
-        foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
+        foreach (var (type, t) in ObjectTypes.All())
             if (KindOf(t) is var kind and not EmergeKind.None)
-                types[t.GetProperty("type").GetString()!] = kind;
+                types[type] = kind;
         return types;
     }
 
-    // monster-takehit.json: each variety's "emerge" clip length (ms) → seconds.
-    static Dictionary<string, (double Seconds, int Index)> LoadClips(string folder)
+    // monster_takehit: each variety's emerge clip length (ms) → seconds.
+    static Dictionary<string, (double Seconds, int Index)> LoadClips()
     {
-        string path = Path.Combine(folder, "monster-takehit.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var doc = GameTables.Open(path);
         var clips = new Dictionary<string, (double, int)>();
-        foreach (var p in doc.RootElement.EnumerateObject())
-            if (p.Value.ValueKind == JsonValueKind.Object && p.Value.TryGetProperty("emerge", out var e) && e.ValueKind == JsonValueKind.Object
-                && e.TryGetProperty("length", out var l) && l.ValueKind == JsonValueKind.Number)
-                clips[p.Name] = (l.GetDouble() / 1000, e.TryGetProperty("index", out var i) && i.ValueKind == JsonValueKind.Number ? i.GetInt32() : -1);
+        foreach (var r in ClientTables.TableOrEmpty("monster_takehit"))
+            if (r.RealOrNull("emerge_length") is double length)
+                clips[r.Text("variety")!] = (length / 1000, r.IntOrNull("emerge_index") ?? -1);
         return clips;
     }
 
-    // ActionTypes.json: the Emerge row's HASH16.
+    // ActionTypes: the Emerge row's HASH16.
     static ushort? LoadAction(string folder)
     {
-        string path = Path.Combine(folder, "tables", "ActionTypes.json");
-        if (!ClientTables.Exists(path)) return null;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (r.TryGetProperty("Id", out var id) && id.GetString() == "Emerge" && r.TryGetProperty("HASH16", out var h) && h.ValueKind == JsonValueKind.Number)
-                return (ushort)h.GetInt32();
+        if (!ClientTables.Has("ActionTypes")) return null;
+        foreach (var r in ClientTables.Table("ActionTypes"))
+            if (r.TextOrNull("Id") == "Emerge" && r.IntOrNull("HASH16") is int h)
+                return (ushort)h;
         return null;
     }
 }

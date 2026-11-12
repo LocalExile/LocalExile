@@ -13,6 +13,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ot_components import REPO, amd_animations, amd_map, extends_of, fetch, read_text  # noqa: E402
+import clientdb  # noqa: E402  (on the path through ot_components)
 
 DEFAULT = re.compile(r'default_animation\s*=\s*"([^"]+)"')
 
@@ -54,10 +55,8 @@ def default_animation(ao):
 
 
 def main():
-    tables = os.path.join(REPO, "data", "tables")
     dest = os.path.join(REPO, "data", "projectile-clips.json")
-    with open(os.path.join(tables, "Projectiles.json"), encoding="utf-8") as f:
-        rows = json.load(f)
+    rows = clientdb.table("Projectiles")
     aos = sorted({row["AOFiles"][0] for row in rows if row.get("AOFiles")})
     print(f"fetching {len(aos)} .ao and their extends chains", file=sys.stderr, flush=True)
     fetch_ao_chain(aos)

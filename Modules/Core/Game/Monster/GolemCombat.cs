@@ -6,15 +6,17 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
+    internal static bool GolemCurrent(ClientState conn, GolemState.Golem g) => CurrentGameWork && !conn.Closed && !conn.LeavingArea
         && (conn.Golems.All.GetValueOrDefault(g.Id) == g || conn.Reservations.Fighters.GetValueOrDefault(g.Id) == g || conn.Summons.Fighters.GetValueOrDefault(g.Id) == g)
         && conn.Monsters.GetValueOrDefault(g.Id) == g.Monster;
 
-    static void GolemStepLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
+    internal static void GolemStepLocked(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, GolemState.Golem g, double now)
     {
         var m = g.Monster;
         if (!GolemCurrent(conn, g) || m.Dead || conn.PlayerLife == 0) return;
-        double elapsed = Math.Max(0, now - g.LastStep); g.LastStep = now;
+        double elapsed = Math.Max(0, now - g.LastStep);
+        g.Regeneration += Math.Max(0, Math.Min(now, g.RecallUntil) - g.LastStep) * m.MaxLife * g.RecallRate / 6000d;
+        g.LastStep = now;
         int Own(string n) => GolemStat(g.Own, n);
         int Player(string n) => GolemStat(g.Player, n);
         double regen = (g.Definition.IsGolem ? g.Definition.Kind == "Stone" ? .02 : .01 : 0) +
@@ -22,7 +24,8 @@ public static partial class Game
                 + (g.Definition.IsGolem ? Player("golem_life_regeneration_per_minute_%") : 0)) / 6000.0;
         g.Regeneration += elapsed * (m.MaxLife * regen + Player("minion_base_life_regeneration_rate_per_minute") / 60.0
             + Player("minion_life_regeneration_rate_per_second") + m.Mods.Effects["base_life_regeneration_rate_per_minute"] / 60.0
-            + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0));
+            + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
+            + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects["life_regeneration_rate_per_minute_%_if_blocked_recently"] / 6000d : 0));
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         if (heal > 0 && m.Life < m.MaxLife)
         {
@@ -227,7 +230,7 @@ public static partial class Game
         }
         if (a.Effect == 5908)
         {
-            uint obj = conn.NextObjectId++;
+            uint obj = conn.TakeObjectId();
             var orb = new EffectObject(action.Aim.X, action.Aim.Y, "Metadata/Effects/Spells/monsters_effects/lightning_elemental/orb/orb.ao");
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), orb.Blob()), "lightning golem orb", WorldId: obj, CreatesObject: true));
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));

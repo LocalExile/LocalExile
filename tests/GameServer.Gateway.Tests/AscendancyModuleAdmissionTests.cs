@@ -14,9 +14,11 @@ public sealed class AscendancyModuleAdmissionTests
         admitted.MainAscendancy = progress;
         const string original = "{\"MainAscendancy\":{\"Selection\":{\"Family\":\"Phrecia\",\"Id\":\"Gladiator\",\"Revision\":\"3.29.3b\",\"future\":7},\"Nodes\":[19],\"Awards\":[\"normal\"]},\"Gold\":83,\"future\":{\"keep\":true}}";
         Saves.Put(SaveDatabase.Table.Characters, "admitted", original);
+        string stored = Saves.Get(SaveDatabase.Table.Characters, "admitted")!;
+        Assert.Contains("\"future\":7", stored);
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.RequirePlayable(admitted, identity));
         Assert.True(AscendancyPolicies.Available(admitted, normal));
-        Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
+        Assert.Equal(stored, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
 
         // A stale ordinary area's admission cannot authorize an award to the latest durable optional selection.
         Assert.Throws<PassiveProgressConflictException>(() => CharacterSaves.ChangeMainAscendancy("admitted", latest =>
@@ -24,7 +26,7 @@ public sealed class AscendancyModuleAdmissionTests
             AscendancyPolicies.RequireCurrentSelection(normal, latest.Selection);
             return latest with { Awards = [.. latest.EarnedAwards, "cruel"] };
         }));
-        Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
+        Assert.Equal(stored, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
         AscendancyPolicies.RequireCurrentSelection(identity with { Unknown = [] }, identity);
 
         var owner = new ModuleLifetime("PhreciaAscendancies");
@@ -36,7 +38,7 @@ public sealed class AscendancyModuleAdmissionTests
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.RequirePlayable(admitted, identity with { Revision = "future" }));
         policy.RejectGraph = true;
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.RequirePlayable(admitted, identity));
-        Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
+        Assert.Equal(stored, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
         policy.RejectGraph = false;
         AscendancyPolicies.RequirePlayable(admitted, identity);
         AscendancyPolicies.SelectionChanged(admitted);
@@ -73,7 +75,7 @@ public sealed class AscendancyModuleAdmissionTests
         Assert.False(AscendancyPolicies.Available(admitted, identity));
         Assert.Throws<AscendancyRuleException>(() => AscendancyPolicies.AreaStats(admitted, identity));
         Assert.Equal(progress, admitted.MainAscendancy);
-        Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
+        Assert.Equal(stored, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
 
         var replacement = new ModuleLifetime("PhreciaAscendancies");
         using var current = AscendancyPolicies.Register(replacement, new Policy(identity));
@@ -85,7 +87,7 @@ public sealed class AscendancyModuleAdmissionTests
         Assert.True(AscendancyPolicies.Available(reentered, identity));
         Assert.False(reentered.Closed);
         Assert.Null(AscendancyPolicies.AreaStats(changedToNormal, normal));
-        Assert.Equal(original, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
+        Assert.Equal(stored, Saves.Get(SaveDatabase.Table.Characters, "admitted"));
         replacement.Stop(ex => throw ex);
     }
 

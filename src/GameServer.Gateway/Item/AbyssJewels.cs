@@ -12,6 +12,23 @@ public static class AbyssJewels
         return item with { Sockets = [.. Enumerable.Repeat(new ItemSocket(SocketColour.Abyss), count)], Links = null };
     }
 
+    public static Item EquipmentSockets(Item item, ItemCatalog.BaseType type, ItemCatalog catalog,
+        IReadOnlyDictionary<string, int> local, Random random)
+    {
+        int capacity = CurrencyEffects.SocketCapacity(item, type);
+        int eyes = Math.Clamp(local.GetValueOrDefault("local_has_X_abyss_sockets"), 0, capacity);
+        var sockets = new List<ItemSocket>();
+        if (!local.ContainsKey("local_cannot_have_non_abyssal_sockets"))
+        {
+            var ordinary = catalog.DefaultSockets(type, item.ItemLevel, item.Quality, random,
+                local.ContainsKey("local_sockets_cannot_be_white")).Sockets;
+            sockets.AddRange(ordinary.Take(Math.Max(0, Math.Min(capacity, ordinary.Count) - eyes)));
+        }
+        int normal = sockets.Count;
+        sockets.AddRange(Enumerable.Repeat(new ItemSocket(SocketColour.Abyss), eyes));
+        return item with { Sockets = sockets, Links = normal > 1 ? [(byte)normal, .. Enumerable.Repeat((byte)1, eyes)] : null };
+    }
+
     // Equipment and its socket contents share activation. The projected rolls never change the saved jewel.
     public static IEnumerable<Item> Sources(IEnumerable<Item> active, ItemCatalog catalog)
     {

@@ -149,11 +149,13 @@ public static partial class Game
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
-        KnockbackOnHitLocked(conn, m, player, now, random);
+        KnockbackOnHitLocked(conn, m, player, skill, now, random);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         OnslaughtOnHitLocked(conn, now);
         if (spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
+        // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
+        if (critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
@@ -238,7 +240,11 @@ public static partial class Game
                     $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
             }
             var a = m.Ailments;
-            if (a.Idle && now >= m.ReceivedActionUntil) continue;
+            double vines = ToxicWalkFactor(m);
+            // Maim and Hinder raise no ailment magnitude, so an idle monster with only them would never get its walk
+            // factor recomputed; they are checked before the idle skip (the knockback above stays first: an idle
+            // monster still moves).
+            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1 && !TimedWalkDebuff(now, m)) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
@@ -247,8 +253,9 @@ public static partial class Game
             double action = m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
                 : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
             double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
-            // Maim: 30% reduced movement speed while maimed (PoB: MovementSpeed INC -30 with the Maimed condition).
-            if (m.MaimedUntil > now) walk *= 0.7;
+            // Maim (30% reduced movement speed) and Hinder (30%) add; they are both "reduced movement speed".
+            walk = TimedDebuffWalkFactor(m, now, walk);
+            if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
             if (walk != a.WalkFactor)
             {
                 if (m.Walk.Speed > 0) m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);

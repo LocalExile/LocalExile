@@ -56,13 +56,14 @@ public sealed partial class InstanceState
 
     /// <summary>Puts a character's start weapon (<see cref="PlayerInventories.StartWeapon"/>) on this instance's ground
     /// once: its ground id, or null when this weapon was put here before (it is still on the ground, or was picked up).
-    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too.</summary>
-    public uint? PlaceStartWeapon(string character, WorldItemObject weapon)
+    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too. <paramref name="by"/> is the
+    /// connection it is for: an unshared ground item is shown only to the one that owns it.</summary>
+    public uint? PlaceStartWeapon(string character, WorldItemObject weapon, object? by = null)
     {
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(character, out var placed) && ReferenceEquals(placed.Weapon, weapon.Item)) return null;
-            uint id = Ground.Add(weapon, null, shared: false, justDropped: false);
+            uint id = Ground.Add(weapon, by, shared: false, justDropped: false);
             _startWeapons[character] = (id, weapon.Item);
             return id;
         }
@@ -94,17 +95,21 @@ public sealed partial class InstanceState
         lock (_states) return _states.Contains(state);
     }
 
-    readonly HashSet<(int X, int Y)> _openedChests = [];
+    readonly HashSet<(int X, int Y, string? Owner)> _openedChests = [];
 
     /// <summary>Opens the quest chest standing at this cell (a Rhoa Nest): true the first time in this instance.</summary>
-    public bool OpenChest(int x, int y)
+    public bool OpenChest(int x, int y) => OpenChest(x, y, null);
+
+    public bool OpenChest(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Add((x, y));
+        lock (_openedChests) return _openedChests.Add((x, y, owner));
     }
 
-    public bool ChestOpened(int x, int y)
+    public bool ChestOpened(int x, int y) => ChestOpened(x, y, null);
+
+    public bool ChestOpened(int x, int y, string? owner)
     {
-        lock (_openedChests) return _openedChests.Contains((x, y));
+        lock (_openedChests) return _openedChests.Contains((x, y, owner));
     }
 
     readonly HashSet<(string Type, int X, int Y)> _transitioned = [];
@@ -165,9 +170,17 @@ public sealed class InstanceGround
         lock (_items) return births.GetValueOrDefault(id) > observers.GetValue(observer, _ => new(birthVersion)).Since;
     }
 
-    public void Restore(uint id, WorldItemObject item)
+    public void Restore(uint id, WorldItemObject item) => Restore(id, item, null, true);
+
+    public void Restore(uint id, WorldItemObject item, object? by, bool shared)
     {
-        lock (_items) { _items[id] = item; births.Remove(id); }
+        lock (_items)
+        {
+            _items[id] = item;
+            if (by is not null) _by[id] = by;
+            if (!shared) _private.Add(id);
+            births.Remove(id);
+        }
     }
 
     // Who put each item down (the client already shown it) and the items only that player sees (quest items, the start
@@ -191,6 +204,15 @@ public sealed class InstanceGround
     }
 
     /// <summary>Who put the item down (null when unknown) and whether the other players see it.</summary>
+    /// <summary>Makes <paramref name="owner"/> the owner of every item one of its earlier selves put down (<paramref name="earlier"/>):
+    /// a player back in the instance on a new connection sees its own unshared items (the start weapon, quest items) again.</summary>
+    public void Reassign(Func<object, bool> earlier, object owner)
+    {
+        lock (_items)
+            foreach (var (id, by) in _by.ToList())
+                if (!ReferenceEquals(by, owner) && earlier(by)) _by[id] = owner;
+    }
+
     public (object? By, bool Shared) Origin(uint id)
     {
         lock (_items) return (_by.GetValueOrDefault(id), !_private.Contains(id));
@@ -199,6 +221,12 @@ public sealed class InstanceGround
     public WorldItemObject? Get(uint id)
     {
         lock (_items) return _items.GetValueOrDefault(id);
+    }
+
+    /// <summary>An id this ground issued whose item has since gone; permits repairing an older client's stale label.</summary>
+    public bool WasTaken(uint id)
+    {
+        lock (_items) return id >= FirstItemId && id < _nextId && !_items.ContainsKey(id);
     }
 
     /// <summary>Removes the item: only one caller gets it, so a pickup can never duplicate it.</summary>

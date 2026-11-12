@@ -267,11 +267,28 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         return item with { Mods = mods, FracturedCount = 1 };
     }
 
-    /// <summary>Mirror of Kalandra: a mirrored copy of a non-unique equipment item that is not corrupted, mirrored or
+    HashSet<uint>? _mirrorMapTypes;
+
+    bool MirrorTarget(ItemCatalog.BaseType type)
+    {
+        if (type.CanBeMirrored || type.Components.Contains("Flask")) return true;
+        if (!type.Components.Contains("Map") && !type.Components.Contains("MapKey")) return false;
+        return LazyInitializer.EnsureInitialized(ref _mirrorMapTypes, () =>
+        {
+            // Older instances predate the primary-constructor field added by hot reload.
+            string mapFolder = folder ?? "data";
+            var atlas = new AtlasCatalog(catalog, mapFolder);
+            var maps = MapDevice.Load(mapFolder, row => catalog.Row(row)?.Hash, catalog);
+            return [.. catalog.All.Where(t => (atlas.TierOf(t.Hash) ?? maps.AreaOf(t.Hash)?.Tier) is >= 1 and <= 16)
+                .Select(t => t.Hash)];
+        }).Contains(type.Hash);
+    }
+
+    /// <summary>Mirror of Kalandra: a mirrored copy of non-unique equipment, a flask or a tier 1-16 map, not corrupted, mirrored or
     /// unmodifiable, with every property kept (mods and their values, fractured mods, quality, sockets, links, socketed
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
-        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && type.CanBeMirrored
+        item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
             ? item with { Mirrored = true } : null;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
@@ -343,12 +360,18 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         var result = item with { Rarity = rarity, Mods = kept, NameWords = [] };
         if (catalog.ByHash(item.TypeHash) is not { } t || !t.Components.Contains("Mods") || rarity is not (ItemRarity.Magic or ItemRarity.Rare))
             return result;
+        // A Wildwood charm is magic with one modifier (Affliction): its three bases each open one attribute's charm mods.
+        if (t.Class == "AnimalCharm")
+        {
+            rarity = ItemRarity.Magic;
+            result = result with { Rarity = rarity };
+        }
         // CoE beta rare counts: affixNumberGeneration[6] = [2/3, 1/4, 1/12] for 4, 5 or 6 affixes.
         // Jewel classes cap at 4 (2 per side), affixNumberGeneration[4] = [.65,.35] for 3 or 4 affixes.
         var (count, maxPrefix, maxSuffix) = shape is { } fixedShape
             ? (fixedShape.Count, fixedShape.MaxEach, fixedShape.MaxEach)
             : rarity == ItemRarity.Magic
-                ? (rng.Next(1, 3), 1, 1)
+                ? t.Class == "AnimalCharm" ? (1, 1, 1) : (rng.Next(1, 3), 1, 1)
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences)
@@ -530,27 +553,22 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
     static Dictionary<(int Class, int Influence), string> LoadInfluenceTags(string folder)
     {
         var result = new Dictionary<(int, int), string>();
-        string path = Path.Combine(folder, "tables", "InfluenceTags.json"), tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (!ClientTables.Exists(path) || !ClientTables.Exists(tagsPath)) return result;
-        using var tags = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath));
-        using var rows = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in rows.RootElement.EnumerateArray())
-            result[(r.GetProperty("ItemClass").GetInt32(), r.GetProperty("Influence").GetInt32())] =
-                tags.RootElement[r.GetProperty("Tag").GetInt32()].GetProperty("Id").GetString() ?? "";
+        if (!ClientTables.Has("InfluenceTags") || !ClientTables.Has("Tags")) return result;
+        var tags = ClientTables.Table("Tags");
+        foreach (var r in ClientTables.Table("InfluenceTags"))
+            result[(r.Int("ItemClass"), r.Int("Influence"))] =
+                tags[r.Int("Tag")].Text("Id") ?? "";
         return result;
     }
 
     static List<Word> LoadWords(string folder)
     {
-        string path = Path.Combine(folder, "tables", "Words.json"), tagsPath = Path.Combine(folder, "tables", "Tags.json");
-        if (!ClientTables.Exists(path) || !ClientTables.Exists(tagsPath)) return [];
+        if (!ClientTables.Has("Words") || !ClientTables.Has("Tags")) return [];
         List<string> tags;
-        using (var t = JsonDocument.Parse(ClientTables.ReadAllBytes(tagsPath)))
-            tags = [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray().Select(r => new Word(r.GetProperty("HASH32").GetUInt32(), r.GetProperty("Text").GetString() ?? "",
-            r.GetProperty("Wordlist").GetInt32(),
-            [.. r.GetProperty("SpawnWeight_Tags").EnumerateArray().Zip(r.GetProperty("SpawnWeight_Values").EnumerateArray(),
-                (k, v) => (k.GetInt32() < tags.Count ? tags[k.GetInt32()] : "", v.GetInt32()))]))];
+        tags = [.. ClientTables.Table("Tags").Select(r => r.Text("Id") ?? "")];
+        return [.. ClientTables.Table("Words").Select(r => new Word(r.UInt("HASH32"), r.Text("Text") ?? "",
+            r.Int("Wordlist"),
+            [.. r.Ints("SpawnWeight_Tags").Zip(r.Ints("SpawnWeight_Values"),
+                (k, v) => (k < tags.Count ? tags[k] : "", v))]))];
     }
 }

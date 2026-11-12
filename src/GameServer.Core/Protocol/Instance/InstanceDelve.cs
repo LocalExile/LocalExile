@@ -3,10 +3,8 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Core.Protocol.Instance;
 
 /// <summary>
-/// The Delve chart (Agents/docs/protocol/21-hideouts.md, Niko): the client opens it on S→C 0x7b kind 0x1c, then asks for
-/// its data with C→S 0x23f (just the id). S→C 0x240 (class 0x1435e6e80, read 0x1421ba670) answers: u32 (+0x10), u16
-/// (+0x14), u16 n, then n × (u16, u16, u64, u8, u32). What the fields mean is being worked out live; an empty chart
-/// first.
+/// The native Subterranean Chart requests 0x23f and receives 0x240. See 21-hideouts.md: block coordinates use
+/// network byte order, while the eight completed-cell bitmap bytes are copied in little-endian order.
 /// </summary>
 public static class InstanceDelve
 {
@@ -59,10 +57,16 @@ public static class InstanceDelve
     /// (WorldAreas type 27) only in the Subterranean Chart window (0x7b kind 0x1c), which sets its flag +0x2f1.
     /// </summary>
     public static byte[] DelveData(ushort sulphite, uint azurite = 0, byte flares = 0, byte dynamite = 0,
-        IReadOnlyList<byte>? upgrades = null)
+        IReadOnlyList<byte>? upgrades = null) => DelveData(sulphite, azurite, flares, dynamite, upgrades, 0, 0);
+
+    /// <summary>The resource snapshot with the account's saved chart focus (native i16 X / u16 Y).</summary>
+    public static byte[] DelveData(ushort sulphite, uint azurite, byte flares, byte dynamite,
+        IReadOnlyList<byte>? upgrades, short chartX, ushort chartY)
     {
         var raw20 = new byte[20];
         var raw14 = new byte[14];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(raw14.AsSpan(4), chartY);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt16LittleEndian(raw14.AsSpan(6), chartX);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(raw20, azurite);
         if (upgrades is { Count: > 10 }) throw new ArgumentOutOfRangeException(nameof(upgrades));
         for (int i = 0; i < (upgrades?.Count ?? 0); i++) raw20[6 + i] = upgrades![i];
@@ -71,13 +75,18 @@ public static class InstanceDelve
         return new LoginWriter().U16(DelveDataId).U8(0).Bytes(raw20).Bytes(raw14).ToArray();
     }
 
-    /// <summary>One chart entry as the reader takes it: u16, u16, u64, u8, u32 (meaning being worked out).</summary>
+    /// <summary>Block X/Y, completed-cell bitmap, byte and u32 auxiliary fields.</summary>
     public readonly record struct Cell(ushort A, ushort B, ulong C, byte D, uint E);
 
     public static byte[] Chart(uint a = 0, ushort b = 0, IReadOnlyList<Cell>? cells = null)
     {
         var w = new LoginWriter().U16(ChartId).U32(a).U16(b).U16((ushort)(cells?.Count ?? 0));
-        foreach (var c in cells ?? []) w.U16(c.A).U16(c.B).U32((uint)(c.C >> 32)).U32((uint)c.C).U8(c.D).U32(c.E);
+        foreach (var c in cells ?? [])
+        {
+            var mask = new byte[8];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(mask, c.C);
+            w.U16(c.A).U16(c.B).Bytes(mask).U8(c.D).U32(c.E);
+        }
         return w.ToArray();
     }
 }
@@ -105,7 +114,7 @@ public sealed record DelveGeneratorCablesObject(int GridX, int GridY, float Rota
         .U8(0).ToArray();
 }
 
-/// <summary>The stationary hub Crawler uses the native Delve map viewer's targeting and interaction components,
+/// <summary>The parked Crawler uses the native Delve map viewer's targeting and interaction components,
 /// with the Crawler's model. The roaming DelveRobot type itself has no Targetable component.</summary>
 public sealed record DelveMapViewerObject(int GridX, int GridY, float Rotation)
 {
@@ -115,9 +124,20 @@ public sealed record DelveMapViewerObject(int GridX, int GridY, float Rotation)
         .I32(GridX).I32(GridY).F32(Rotation).U16(0).U8(EffectObject.FixedRotation).U8(0)
         .U8(1).WStr32(DelveRobotObject.Model)
         .U8(1) // Transitionable
-        .U8(0) // MinimapIcon
+        .U8(1).U16(154) // MinimapIcons.DelveRobot, rather than the map viewer's waypoint circle
         .U8(0) // InteractionAction
         .U8(0).ToArray(); // tasks
+}
+
+/// <summary>A stationary mine checkpoint, with the native floor model, circular marker and chart interaction.</summary>
+public sealed record DelveCheckpointObject(int GridX, int GridY, bool Completed)
+{
+    public byte[] Blob() => new BlobWriter().U8(0).U8(0)
+        .I32(GridX).I32(GridY).F32(0).U16(0).U8(0).U8(0)
+        .U8(0) // native DelveWaypointObject model
+        .U8(Completed ? (byte)2 : (byte)1) // Transitionable
+        .U8(0) // native DelveWaypoint circle
+        .U8(0).U8(0).ToArray(); // InteractionAction, tasks
 }
 
 /// <summary>A stationary Crawler's wheel or powered lamp, attached to a bone of its interactive body.
@@ -156,7 +176,7 @@ public sealed record DelveCrawlerAttachmentObject(int GridX, int GridY, uint Par
 /// <summary>
 /// The Delve Crawler, <c>Metadata/Terrain/Leagues/Delve/Objects/DelveRobot</c> (the cart by the mine entrance). Its .ot
 /// deserializes 11 components (Positioned, BaseEvents, Animated, Transitionable, Stats, Buffs, Life, DelveLight,
-/// MinimapIcon, SectorEvents, StateMachine; Render and Wheels are client-only). DelveLight (0x1415dab80) reads u32, u32 n,
+/// MinimapIcon, SectorEvents, StateMachine; Render and Wheels are client-only). DelveLight (0x1415dab80) reads f32 radius, u32 n,
 /// u8, u8, the Crawler's u32 variation, n × u32; SectorEvents reads nothing; StateMachine has the shared states sector and mtx_variation.
 /// </summary>
 public sealed record DelveRobotObject(int GridX, int GridY, float Rotation)
@@ -177,7 +197,7 @@ public sealed record DelveRobotObject(int GridX, int GridY, float Rotation)
         // DelveLight (0x1415dab80): u32, u32 n, u8, u8; for a type with flag +0xa7 (the Crawler) a u32 variation, an index
         // into DelveRobotVariations.dat (0 Default, 1 DelveBear) read by 0x1415d9880; then n × u32. Without the variation
         // the client read the next bytes as it and crashed out of range (live 2026-10-29).
-        w.U32(0).U32(0).U8(0).U8(0).U32(0);
+        w.F32(60).U32(0).U8(1).U8(0).U32(0);
         w.U8(0);                                                                          // MinimapIcon
         w.U8(2).U8(0).CompactI(0).U8(0x02).CompactI(0).U8(0x02);                          // StateMachine: sector, mtx_variation
         w.U8(0);                                                                          // tasks

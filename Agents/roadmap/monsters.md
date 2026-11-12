@@ -16,6 +16,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   emerge monsters rise near the player ([10](../docs/protocol/10-chat-and-commands.md) §5).
   Act 2's Oversoul has its campaign attack set and altar/exit lifecycle; official decision weights/cooldowns still need
   a reference capture ([status](../status/monsters.md#partly-working)).
+  Act 10 has three heart intervals and the allied finale; calibrate HP thresholds, AI weights and hazard geometry.
+  Act 5 Kitava has the body/heart and rescue sequence; calibrate phase thresholds and AI weights against a reference.
+  Normal Sirus has its laboratory and four-phase controller; calibrate official decision weights and reward chances.
   Hits can make monsters flee ([11](../docs/protocol/11-skills.md) §6); a live check should settle the flee distance
   and whether the real server walks a fleeing monster with Monster.ot's `Flee` action instead of Move.
   Inherited Life corpse/sinking flags and the source eligibility predicate are implemented for ordinary creation
@@ -28,7 +31,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Start:** the systems the 74 unsupported monster mods need (auras on allies, retaliation and on-death skills, ailments and
   curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), stages of other bosses (`BossFights.cs` has Hillock's
   and `KingInMists.cs` the two-form Ritual pinnacle), pack
-  `Grounds`, the varieties with ControlZone / BlightTower / Mercenary … components (each needs its deserializer,
+  `Grounds`, the varieties with BlightTower / Mercenary … components (each needs its deserializer,
   schema.md; NPC, InteractionAction and Timer are written), the bandit lords' help-or-kill dialogue, bosses' later
   forms (Abberath2, Shakari2, Malachai's second form) created by their fight, tile spawner bosses
   (Marceus).

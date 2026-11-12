@@ -427,7 +427,7 @@ public static class BrineKing
             if (waveId == 0)
             {
                 var conn = players[0];
-                lock (conn.Monsters) waveId = conn.NextObjectId++;
+                lock (conn.Monsters) waveId = conn.TakeObjectId();
                 foreach (var player in players) { await CreateWave(player); waveViews.Add(player); }
             }
             else await All(waveId, InstanceEntities.TransitionableUpdate(waveId, 3, state));
@@ -564,7 +564,7 @@ public static class BrineKing
         async Task<uint> Effect(ClientState conn, (int X, int Y) at, string ao, double expires)
         {
             uint effect;
-            lock (conn.Monsters) effect = conn.NextObjectId++;
+            lock (conn.Monsters) effect = conn.TakeObjectId();
             var obj = new EffectObject(at.X, at.Y, ao);
             await All(effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()), create: true);
             await All(effect, InstanceProtocol.EnterWakeZone(effect));

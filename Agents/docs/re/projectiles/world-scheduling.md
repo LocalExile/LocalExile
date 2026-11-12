@@ -167,7 +167,7 @@ Outer World scheduler `0x142183930..0x142183cd5` branches on raw World `+0x984`:
   World `+0x11c` supplies a fallback frame length when needed.
 - `+0x368` has a separate accumulated budget; its existence does not identify an authoritative projectile tick.
 
-[Protocol 07](../../protocol/07-latency-visibility-movement.md#6-lockstep-not-served-yet) supplies the raw-mode names.
+[Protocol 07](../../protocol/07-latency-visibility-movement.md#6-lockstep) supplies the raw-mode names.
 The zero branch is Predictive; raw two is Lockstep.
 The scheduler itself distinguishes zero/nonzero, not a recovered universal two-value mode enum.
 

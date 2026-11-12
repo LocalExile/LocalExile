@@ -16,7 +16,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
   into Lioneye's Watch (the Gateway checks the flag too); Portal Scrolls do nothing on the Strand (its area mod
   MapNoPortals); no Resurrect in Town before a town.
-  Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `AreaModCatalog.cs`.
+  Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `Rules.AreaModCatalog.cs` (Portals module).
   Docs: [12](../docs/protocol/12-quests.md) §5–6.
 - a1q4 "Breaking Some Eggs" in The Mud Flats (played through live, seed 1): the three Rhoa Nests stand at the captured
   tile records and each drops its glyph once per instance while the character still needs it.
@@ -57,9 +57,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
-  sources. `QuestSimulator` plays an act's events through the engine; `QuestEngineTests` checks Acts 1–6 against
-  `Act1Complete`, `Act2CompleteEramir`, `Act3Complete`, `Act4Complete` and every Act 5 and 6 quest's "complete" row,
-  and Acts 7–10 and the Epilogue after them against `E3EndOfAct8` and `EpilogueAtlasDemo`.
+  sources. `QuestSimulator` plays an act's events through the engine; no test runs it since the Gateway tests were wiped.
   What existing saves see: a character with `a10q3-SeenBoss` but without `EndGameAvailable` earned no longer has the
   Act 10 −30% resistance penalty (it follows `EndGameAvailable`, QuestStaticRewards 39); a second copy of a quest book
   (from `/item`) is used up without its points once the first was used; a quest item lying on the ground after its
@@ -96,7 +94,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the gem), a2q8 (the Ancient Seal, the Dark Altar, the Vaal Oversoul, the pyramid's exit), a3q1–a3q5, a3q8, a3q9,
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
-  Act 2/3 quest log at "Quest Complete".
+  Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
+  are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.
@@ -114,14 +113,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   guardians' organs in one click, the Black Core), a4q1 (Malachai's second form, the withered Dialla opening the Ascent,
   her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
   burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
-  a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
-  −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama), a6q2
+  a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
+  −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama and the two bridges to his keep), a6q2
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god
   Sins appear where the gods die. `a4q1-KillGuardians` is not set. The Beacon now has both proximity-escorted fuel
-  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); its escort radius and
-  encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
+  carts, route encounters, staged refuelling and separate ignition/flag use (live 2026-11-06); the escort uses the payload's displayed ring and current rail leg. Encounter counts still need comparison with the original server. The Brine King now has a separate staged controller
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.

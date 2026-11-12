@@ -31,7 +31,7 @@ public static class DepravedTrinity
             var w = c.Wire;
             if (Id == 0)
             {
-                lock (c.Monsters) Id = c.NextObjectId++;
+                lock (c.Monsters) Id = c.TakeObjectId();
                 open = wanted;
                 await Send(w.Remote, w.Stream, w.Ciphers, [.. InstanceEntities.CreateObject(Id, InstanceEntities.ObjectTypeHash(SeedType),
                     new QuestObject(point.X, point.Y, info.Components, point.Rotation, point.Z, point.Model, (byte)(open ? 2 : 1)).Blob()),
@@ -519,7 +519,7 @@ public static class DepravedTrinity
         }
         async Task Fx(ClientState c, (int X, int Y) at, string model, double until, uint animation = 0)
         {
-            uint fx; lock (c.Monsters) fx = c.NextObjectId++;
+            uint fx; lock (c.Monsters) fx = c.TakeObjectId();
             var visual = new Visual(fx, at, model, until, animation); effects.Add(visual);
             foreach (var p in Present) await CreateFx(p, visual);
         }

@@ -29,7 +29,8 @@ public static partial class Game
 
     public static void AimChannelTriggers(ClientState conn, (int X, int Y) aim)
     {
-        if (ChannelTriggers.TryGetValue(conn, out var state)) state.Aim = aim;
+        lock (conn.Monsters)
+            if (ChannelTriggers.TryGetValue(conn, out var state)) state.Aim = aim;
     }
 
     // Runs on the existing projectile pump, independently of channel attack/cast speed and monster contact.

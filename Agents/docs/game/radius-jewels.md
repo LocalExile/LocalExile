@@ -75,7 +75,7 @@ read **unallocated** nodes:
 - `PassiveTree` has node positions from `passive-graphs` v5 and `NodesInRadius` for the timeless 0..1500 disc.
 - `TimelessJewels.Alternate` and `EquipmentStatSources` show the per-node override pattern: build a `nodeStats` map for
   allocated nodes, replace or append stats, and let the pools/panels consume the result.
-- `Program.PassiveJewelRefusal`, `PlayerInventories.PassiveJewels`, the item limits and `CharacterSaves` are shared.
+- `Game.PassiveJewelRefusal`, `PlayerInventories.PassiveJewels`, the item limits and `CharacterSaves` are shared.
 - `UniqueJewelVisuals.cs` already contains the art for all 190 unique jewels, so a radius item can use the correct icon
   without new art work.
 - The 42 "Global" unique jewels have a dev source (`/unique_jewel`); the six attribute-conversion, five
@@ -317,7 +317,7 @@ the flat stat model has no condition flag). Cluster passives are never in a radi
 ### Impossible Escape (generated special, implemented)
 
 A generated Viridian Jewel (Small, limit 1, corrupted) whose variant is one of the client's 48 keystones
-(`MavenJewelRadiusKeystones.json`). The item mod `JewelUniqueAllocateDisconnectedPassivesAroundKeystone` stores the
+(`MavenJewelRadiusKeystones`). The item mod `JewelUniqueAllocateDisconnectedPassivesAroundKeystone` stores the
 keystone's `PassiveSkillGraphId` in `local_unique_jewel_disconnected_passives_can_be_allocated_around_keystone_hash`
 and the display base radius 800; the effect uses Path of Building 3_16's Small radius **960** (the client's
 `PassiveJewelRadii` row is the 800 display/base value). The Maven table row is used only to choose/name the keystone.
@@ -439,7 +439,7 @@ per-node effect.
 |---|---|
 | 40 Strength | Divine Inferno, Overwhelming Odds, Rapid Expansion, Shattered Chains, The Vigil, Weight of the Empire, Wildfire, Winter Burial |
 | 40 Dexterity | Collateral Damage, Fight for Survival, Growing Agony, Might and Influence, Omen on the Winds, Ring of Blades, Spirit Guards, Steel Spirit, Volley Fire |
-| 40 Intelligence | Dead Reckoning, Endless Misery, First Snow, Frozen Trail, Hazardous Research, Inevitability, Rolling Flames, Spirited Response, Spreading Rot, The Long Winter, Unending Hunger, Violent Dead, Winter's Bounty |
+| 40 Intelligence | legacy Dead Reckoning, Endless Misery, First Snow, Frozen Trail, Hazardous Research, Inevitability, Rolling Flames, Spirited Response, Spreading Rot, The Long Winter, Unending Hunger, Violent Dead, Winter's Bounty |
 | 40 Strength + Intelligence | Combat Focus (Crimson) |
 | 40 Intelligence + Dexterity | Combat Focus (Cobalt) |
 | 40 Dexterity + Strength | Combat Focus (Viridian) |
@@ -622,9 +622,9 @@ are ordinary global stats and the radius label is unused.
 - Path of Building: `src/Data/Uniques/jewel.lua` (the 78 rows), `src/Modules/ModParser.lua` (`jewelOtherFuncs`,
   `jewelSelfFuncs`, `jewelSelfUnallocFuncs`, `jewelThresholdFuncs`), `src/Classes/PassiveSpec.lua`
   (`NodesInIntuitiveLeapLikeRadius`, the radius-jewel rebuild).
-- Client data: `data/tables/PassiveJewelRadii.json`, `PassiveJewelSlots.json`, `UniqueJewelLimits.json`,
-  `BaseItemTypes.json`, `Mods.json`, `Stats.json`.
-- Server: `PassiveTree.cs` (`NodesInRadius`), `TimelessJewels`/`Program.Progression.cs` (per-node override and pools),
-  `Program.Items.cs` (passive-jewel socket/refusal), `UniqueJewelVisuals.cs`, `UniqueJewelCatalogue.cs`.
+- Client tables: `PassiveJewelRadii`, `PassiveJewelSlots`, `UniqueJewelLimits`,
+  `BaseItemTypes`, `Mods`, `Stats`.
+- Server: `PassiveTree.cs` (`NodesInRadius`), `TimelessJewels`/`Modules/Core/Game/Passive/Progression.cs` (per-node override and pools),
+  `Modules/Core/Game/Item/Items.cs` (passive-jewel socket/refusal), `UniqueJewelVisuals.cs`, `UniqueJewelCatalogue.cs`.
 - Wiki list: [List of unique jewels](https://www.poewiki.net/wiki/List_of_unique_jewels) (the current wiki is
   bot-protected; the Path of Building data is the current reference).

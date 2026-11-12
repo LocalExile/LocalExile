@@ -53,14 +53,16 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   - Delve (82): the mine cells and biomes (`Delve_*`); the client needs the server's cell data.
     An initial Delve_Main block, hub entrance and mine return gate now work with native generation and captured movement.
     The initial Crawler has attached wheels, engine idle and a torch; the hub's native equipment console is placed.
-    Equipment purchases/upgrades have account/league persistence. The first quest trip has a bounded authored-rail
-    implementation with gradual exact-total debit, escort pacing and tutorial pack reveals. Native checks confirmed movement/light/combat and exact debit using assisted escort.
-    Remaining: validate/price general routes against a persistent mine graph, original biome population and encounter
-    wave scripts, darkness stacks/resistance and flare/dynamite use. Initial victory rewards and highest completed
-    depth now persist; general node-specific rewards and the mine graph still need implementation. Finish chart continuity inside the mine
-    restore laid lamp/cable trails on re-entry, and verify a continuous walking escort without debug teleports.
-    Also finish shared sulphite migration, equipment cable visual tiers and other biome sections.
-    This does not add Delve to the server level generator's supported areas.
+    Equipment and completed chart points/edges persist per account/league; each trip saves one destination and parks
+    for manual selection. Unfinished trips reset on interruption/death.
+    Escort pacing, depth levels/packs/rewards, exact gradual
+    sulphite debit, native walking/combat and the full chart inside the mine are implemented.
+    Fresh server-generated Mines checkpoint windows replace the entrance layout after the first trip, with durable
+    scene/route history and five-second final waves gating checkpoint saves.
+    Remaining: native topology validation and physical biomes beyond the procedural Mines rooms,
+    original biome populations, node-specific rewards, darkness stacks/resistance and consumable use.
+    Restore laid trails on reentry, finish shared sulphite migration and equipment cable visual tiers.
+    The ordinary Mines cell pass is ported; the initial entrance still uses its capture.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
   - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded
@@ -104,6 +106,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   gate.
   Other one-way links fall back to the area's spawn until their named entrance points are added.
 
+### The Wildwood (Affliction) league
+
+- **Known:** the 3.29.3c client keeps the Wildwood league's data and UI: the Wisp mechanic (the Primalist's
+  `azmeri_primalist_wisps_found_+%` is one of its consumers), the three Wildwood Descendancy rows
+  ([status](../status/progression.md), "Descendancy") and the `AnimalCharm` item class. The server implements none of
+  the league: no Wisps spawn, and there is no Wildwood area, NPC or reward flow.
+- **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
+  feeds `azmeri_primalist_wisps_found_+%` into that system.
+
 ### The Labyrinth
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
@@ -114,7 +125,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
   fought ([status](../status/world.md), "A Labyrinth run";
   [labyrinth-trials](../docs/game/labyrinth-trials.md), "Izaro's arenas").
-  The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
+  The tables are extracted (the `Labyrinth*` client tables): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
   `AreaTransitionCatalog` does not know the Labyrinth areas yet.
@@ -127,10 +138,20 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's arenas' other mechanics (Toggle Statues and Gargoyles are done: `Rules.IzaroArena.cs` places them and
-     what they leave), one at a time, and the Goddess of Justice.
+  1. Izaro's own fight: his skills are in (`IzaroSkills.cs`; `LbBossShield`, in his row, was not seen in the original's
+     fight, so it is left out). Left: his taunt, the Spikes' slow, the
+     cooldowns against the original (ours; no `.ais`), and set-backs of his model after an order
+     (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
+     not live-checked).
+     Normal's five arena mechanics are done (Toggle Statues, Gargoyles, Portals, Chrono Statues, Lieutenants:
+     `Rules.IzaroArena.cs` places them and what they leave); the Goddess of Justice is left. Ours, not the original's:
+     the lieutenants' Storm Call is a skill of its own (the data casts it on an attack's hit), `bull_thorns` returns no
+     damage (no values in the data), the circles' and their skills' radii.
+     Her Guardians' circles are done without her (`IzaroGoddess.cs`): when she exists they become her skill, with its
+     mortars flying from her. As the original plays (live, the user): the gargoyles' beam ends on her, above Izaro, not
+     on him (ours ends on him: move it to her too).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
-  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,

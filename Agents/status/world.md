@@ -60,7 +60,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
   Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
-  Code: `AreaLayout.Arrival`, `TeleportTargets.cs`, Gateway.
+  Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
   Docs: [09](../docs/protocol/09-area-change.md) §4.
 - Instances: one per town (all 12 act towns from WorldAreas `IsTown`);
   other areas get private instances that live 6 minutes once empty.
@@ -131,12 +131,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
   an attack follows its target to the swing; totems and the tutorial chest block paths.
+  Dash can cross visible gaps in either direction and continues walking from its landing on the far side.
   Melee hits land at the swing clip's contact keyframe.
   Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
-  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Program.LivingCollision.cs`, `InstancePlayers.cs`.
+  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
   ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.
@@ -197,7 +198,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   generation then apply the room's overrides and secret rooms alike (live: `1_Labyrinth_OH_quad_#` with its Gauntlet
   room, 2026-11-02). The day is the official one: the seed (the UTC day number, `Game_LAB_SEED`) and the room areas
   match poelab.com's layouts (re/011). A room's tile seed is ours. `/lab_layout [tier] [yyyy-mm-dd]` lists a day.
-  The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet.
+  The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet. Izaro's three arenas
+  (`1_Labyrinth_boss_1`, `1_Labyrinth_boss_2`, `2_Labyrinth_boss_2_end`) are listed by hand in the world update's
+  area list: the level snapshot drops them, and without a row the room is never built (live, three seeds each: the
+  room generates and places its three Izaros).
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
 - **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
@@ -219,12 +223,19 @@ Part of [Status](../Status.md); what to build next in this area is in
   Checked live 2026-11-07 (trial 1).
   Two arena mechanics, Toggle Statues and Gargoyles, with what they leave on him shown and active in the later
   trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
-  stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08: a whole run on 3.29.3c, the
-  gargoyles' beam on 3.29.3b.
-  Not yet: the other arena mechanics, the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
+  stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08 on 3.29.3c.
+  A third mechanic, Portals, brings guardians until destroyed and returns the same way; the Bronze Inscription before
+  his arena reads, and the Goddess's Guardians come in circles (without her yet). Checked live 2026-11-09.
+  He holds the day's official weapon and uses its skills (Ground Slam, Spikes, Leap Slam, Sunder, Divine Slash, Shield
+  Bash) with their art and damage, and walks through his minions; cooldowns and hit shapes are ours. Checked live
+  2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
+  Normal's last two mechanics: the Chrono Statues' idols rise with him, fill and cast their circles, and go down when he
+  leaves; the Lieutenants rise one at a time with their weapons and skills. Checked live 2026-11-11.
+  Not yet: the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
-  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`), `Act3.cs`, `Act8.cs`.
+  `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
+  `Rules.IzaroChronos.cs`, `Rules.IzaroLieutenants.cs`), Game `IzaroIdols.cs`, `Act3.cs`, `Act8.cs`.
 - **Trials of Ascendancy.** In each LabyrinthTrials area the Gateway places the trial rooms' door, levers, Locked
   Doors, plaque and portal back, and the Bronze Monograph at the door, which reads at once when clicked.
   The door opens, a lever opens what its room's links name (the `.arm` files' link section), the plaque sets the trial's quest flag and its league quest

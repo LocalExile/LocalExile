@@ -20,7 +20,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   `MtxTypeGameSpecific` row); the Microtransactions panel (N), the store's ALREADY OWNED marks and the Cosmetics tab
   (K) load (C→S 0x1f2 → S→C 0x1f4, hideout and guild lists empty via 0x1f5 / 0x1f4);
   a pick in the Cosmetics tab (C→S 0x1f9) is saved per character and worn (S→C 0x1f3, also on every area entry);
-  in the world: equipment skins, weapon effects, attachments and character effects on the model (Inventories component
+  in the world: equipment skins and weapon effects (including the bow in its left-hand model slot), attachments and character effects on the model (Inventories component
   references), footprints and apparitions through the stats, portals (the map device's), cursors and flask skins.
   Verified live 2026-10-23.
   Built, awaiting live verification: pets (spawned beside the player, following it, not blocking;

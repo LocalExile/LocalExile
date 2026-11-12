@@ -43,7 +43,7 @@ public static partial class Game
             // S→C 0x1af before the life update, as the melee default attack sends it: an immediate package (kind 3) for the
             // shot's action with blood (0x0001), the generic particles (0x4000) of its largest damage type, the critical
             // bit when it crit, and the main-hand bit (0x0200: the weapon's own effect and stat selection), which GGG's
-            // server sets on every bow hit (live capture 2026-10-29, ranged-monster-actions-port.md "Live reference").
+            // server sets on every bow hit (live capture 2026-10-29, Agents/docs/protocol/11-skills.md §17).
             // Live also sends skill index 2 and a filled object header; their meanings are unknown, so they stay zero.
             var direction = contact.Projectile.Direction;
             ushort flags = (ushort)(0x4201 | (critical ? 0x0020 : 0));
@@ -123,7 +123,7 @@ public static partial class Game
             if (OnslaughtOnKill(conn)) session.Enqueue(() => SendKillOnslaught(session.remote, session.stream, session.ciphers, conn));
             ChargesOnKill(conn, monster);
             RecoverOnKill(conn, monster);
-            session.Enqueue(() => ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
+            session.Enqueue(async () => await ExplodeOnKill(session.remote, session.stream, session.ciphers, conn, id, monster, position));
         }
         SoulEaterSoul(conn, id, position);
         if (CommitQuestFlags(conn, QuestsOf(conn).OnMonsterKilled(conn.Layout.Id, variety.Id)) is { } quest)
@@ -184,7 +184,7 @@ public static partial class Game
         {
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));

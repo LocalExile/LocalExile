@@ -11,8 +11,45 @@ const FUNCTIONS = ['0x1413c9340', '0x1413c9540', '0x141b59550', '0x141b59840', '
   '0x141248740', '0x1419ffd70', '0x141a6fd50', '0x141a70e20'];
 const SNAPSHOT_BYTES = 0x300, SNAPSHOT_MS = 3000;
 const m = Process.getModuleByName('Game.patched.exe');
-const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
-const va = p => (p.compare(m.base) >= 0 && p.compare(m.base.add(m.size)) < 0) ? '0x' + p.sub(m.base).add(ptr('0x140000000')).toString(16) : p.toString();
+// Data addresses here are the 3.29.3c release's (build 327984). Its 3.29.3.5 hotfix and 3.29.3d have the same code
+// and move data (Agents/docs/re/tooling.md section 11): MOVED lists where each data address this script uses sits in
+// them, so that the script and its output stay in release addresses on every build.
+const MOVED = {
+  '3.29.3.5': {
+    '0x14332f508':'0x14332f508'},
+  '3.29.3d': {
+    '0x14332f508':'0x14332f488'}};
+// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
+const LINK_TIME = m.base.add(m.base.add(0x3c).readU32() + 8).readU32();
+const BUILD = ({0x6aed1652: '3.29.3c', 0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[LINK_TIME] || '';
+// Not a refusal: the script runs, with every data address read as the release's.
+if (!BUILD) send({notice: 'this script does not know this client build (link time 0x' + LINK_TIME.toString(16) +
+  '): its data addresses are used as the 3.29.3c release\'s'});
+const moved = MOVED[BUILD] || {};
+const movedBack = Object.fromEntries(Object.entries(moved).map(([from, to]) => [to, from]));
+// Only data moves between builds, and the image's data starts where .text ends.
+const DATA_START = (() => {
+  const pe = m.base.add(m.base.add(0x3c).readU32()), text = pe.add(24 + pe.add(20).readU16());
+  return text.add(12).readU32() + text.add(8).readU32();
+})();
+const isMovableData = rva => BUILD in MOVED && rva >= DATA_START;
+const unlisted = {};
+// A data address MOVED does not list was never checked for this build: it is used as written, and said once.
+const listed = key => {
+  if (isMovableData(ptr(key).sub(ptr('0x140000000')).toUInt32()) && !(key in moved) && !unlisted[key]) {
+    unlisted[key] = true;
+    send({notice: 'data address ' + key + ' is not in MOVED for ' + BUILD + ': it is used as the 3.29.3c release\'s. ' +
+      'List it with scripts/re/port/compare_builds.py --data-map'});
+  }
+  return moved[key] || key;
+};
+const at = va => m.base.add(ptr(typeof va === 'string' ? listed(va.toLowerCase()) : va).sub(ptr('0x140000000')));
+const va = p => {
+  if (p.compare(m.base) < 0 || p.compare(m.base.add(m.size)) >= 0) return p.toString();
+  const rva = p.sub(m.base), s = '0x' + rva.add(ptr('0x140000000')).toString(16);
+  // A data address this script cannot give back as the release's carries the build it was read on.
+  return movedBack[s] || (isMovableData(rva.toUInt32()) ? s + '@' + BUILD : s);
+};
 const words = p => { try { return Array.from(new Uint32Array(p.readByteArray(SNAPSHOT_BYTES))); } catch (e) { return null; } };
 let watching = null, counts = {};
 for (const f of FUNCTIONS)

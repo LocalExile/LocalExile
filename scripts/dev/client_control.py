@@ -47,6 +47,8 @@ import time
 
 import frida
 
+import clientdb
+
 ROOT = Path(__file__).resolve().parents[2]
 CLIENT = ROOT / "Client" / "Game.patched.exe"
 AGENT = Path(__file__).with_name("client-control.js")
@@ -299,16 +301,12 @@ def flask_packet(request):
     return list(struct.pack(">HI", 0x70, slot)), slot
 
 
-TABLES = ROOT / "data" / "tables"
-_tables = {}
+CLIENT_DB = ROOT / "data" / "client.db"
 
 
-def table(name, folder=None):
-    """An extracted game-data table (data/tables/<name>.json), cached per folder."""
-    path = (folder or TABLES) / f"{name}.json"
-    if path not in _tables:
-        _tables[path] = json.loads(path.read_text(encoding="utf-8"))
-    return _tables[path]
+def table(name, db=None):
+    """A client table's rows from client.db (clientdb.table), cached per database."""
+    return clientdb.table(name, db or CLIENT_DB)
 
 
 # S→C 0x13 / 0x0d results: BackendErrors rows + 1 (Agents/docs/protocol/01-login.md §7).
@@ -326,19 +324,19 @@ def character_name(name):
     return name
 
 
-def start_state(request, folder=None):
+def start_state(request, db=None):
     """The CharacterStartStates Id for a create request: `startState` as given, or the default (set 0, level 1)
     start state of the Characters row named `class` (Witch → IntDefault)."""
     if ("class" in request) == ("startState" in request):
         raise ValueError("character:create needs exactly one of class or startState")
-    states = table("CharacterStartStates", folder)
+    states = table("CharacterStartStates", db)
     if "startState" in request:
         value = request["startState"]
         if not isinstance(value, str) or not any(row["Id"] == value for row in states):
             raise ValueError(f"Unknown CharacterStartStates Id: {value!r}")
         return value
     name = request["class"]
-    classes = table("Characters", folder)
+    classes = table("Characters", db)
     index = next((i for i, row in enumerate(classes)
                   if isinstance(name, str) and row["Name"].lower() == name.lower()), None)
     if index is None:
@@ -349,15 +347,15 @@ def start_state(request, folder=None):
     raise ValueError(f"No default start state for class {name!r}")
 
 
-def create_fields(request, folder=None):
+def create_fields(request, db=None):
     """Validated (name, league, start state) of a character:create request."""
     league = request.get("league", "Standard")
     if not isinstance(league, str) or not 1 <= len(league) <= 64 or "\0" in league:
         raise ValueError("league must contain 1..64 characters")
-    return character_name(request.get("name")), league, start_state(request, folder)
+    return character_name(request.get("name")), league, start_state(request, db)
 
 
-def area_row(request, folder=None):
+def area_row(request, db=None):
     """(WorldAreas Id or None, HASH16) for a request naming the area Id (`area`) or its HASH16 (`hash`)."""
     if ("area" in request) == ("hash" in request):
         raise ValueError("waypoint:travel needs exactly one of area (WorldAreas Id) or hash")
@@ -366,12 +364,12 @@ def area_row(request, folder=None):
         if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= 0xffff:
             raise ValueError("hash must be a WorldAreas HASH16 (1..65535)")
         try:
-            area = next((row["Id"] for row in table("WorldAreas", folder) if row["HASH16"] == value), None)
-        except OSError:
+            area = next((row["Id"] for row in table("WorldAreas", db) if row["HASH16"] == value), None)
+        except (OSError, KeyError):
             area = None
         return area, value
     area = request["area"]
-    rows = table("WorldAreas", folder) if isinstance(area, str) else []
+    rows = table("WorldAreas", db) if isinstance(area, str) else []
     row = next((row for row in rows if row["Id"] == area), None)
     if row is None:
         raise ValueError(f"Unknown WorldAreas Id: {area!r}")

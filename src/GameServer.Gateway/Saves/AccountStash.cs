@@ -142,7 +142,7 @@ public sealed partial class AccountStash
                 var tab = new TabState(headers[i] with { Items = [] });
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
-                var items = Saves.LoadStashTab<List<CharacterSaves.SavedPlacement>>(name, i, Opts);
+                var items = Saves.LoadStashTab(name, i);
                 if (items is null && headers[i].Items.Count > 0) stash._itemsInHeader = true;
                 foreach (var p in items ?? headers[i].Items)
                     tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, CharacterSaves.FromSaved(p.Item, catalog)));
@@ -164,12 +164,13 @@ public sealed partial class AccountStash
                 stash.Persist([.. repaired]);
             // A map tab gets a page per tier (#477): the client shows a map only on a page of its own.
             stash.EnsureMapChildren();
+            stash.EnsureUniqueChildren();
             return stash;
         });
 
     // A stash that can't be read throws UnreadableSaveException and stays as it is, instead of becoming the starter tabs,
     // which For would write over it.
-    static Save? Load(string account) => Saves.Load<Save>(SaveDatabase.Table.Stashes, account, Opts);
+    static Save? Load(string account) => Saves.LoadStash(account);
 
     /// <summary>Saves the stash's header (tabs, last tab, next item id, gold: small) and the items of the tabs that
     /// changed, in one transaction: a click in one tab writes that tab, not the whole stash.</summary>
@@ -184,21 +185,57 @@ public sealed partial class AccountStash
         });
         // Copied under the stash's lock, inside the transaction: an older copy never lands after a newer one.
         Save header;
-        List<(int Tab, string Items)> tabs;
+        List<(int Tab, List<CharacterSaves.SavedPlacement> Items)> tabs;
         lock (_lock)
         {
             header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
                 [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
-            tabs = [.. write.Select(i => (i, JsonSerializer.Serialize(
-                _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList(), Opts)))];
+            tabs = [.. write.Select(i => (i,
+                _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList()))];
             _itemsInHeader = false;   // a rollback drops this whole copy
         }
-        Saves.Put(SaveDatabase.Table.Stashes, _account, JsonSerializer.Serialize(header, Opts));
+        Saves.PutStash(_account, header);
         foreach (var (tab, items) in tabs) Saves.PutStashTab(_account, tab, items);
     });
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
+
+    /// <summary>The tabs the player sees: the roots only. A map tab's 191 hidden pages are children with a unique
+    /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
+    public int VisibleCount
+    {
+        get { lock (_lock) return _tabs.Count(t => t.Saved.Parent == ushort.MaxValue && t.Saved.UniqueCategory == 0); }
+    }
+
+    /// <summary>Appends <paramref name="count"/> tabs of one type and saves the header (the new tabs have no items, so no
+    /// tab row is written). What a tab is called and its colour are the caller's: the stash appends what it is given and
+    /// makes the names unique. The client's tab list (0x21, sent on entering an area) shows them next time.</summary>
+    public IReadOnlyList<int> AddTabs(byte type, int count, string namePrefix, byte r, byte g, byte b)
+    {
+        if (!Types.ContainsKey(type)) throw new ArgumentOutOfRangeException(nameof(type), $"no stash type {type}");
+        if (count < 1) throw new ArgumentOutOfRangeException(nameof(count), "at least one tab");
+        if (string.IsNullOrWhiteSpace(namePrefix)) throw new ArgumentException("a tab name prefix", nameof(namePrefix));
+        List<int> added;
+        lock (_lock)
+        {
+            if (_stale) throw new InvalidOperationException($"stash of {_account}: changed on a copy dropped after a failed save");
+            if (_tabs.Count + count > ushort.MaxValue) throw new InvalidOperationException("the tab list is full");
+            string prefix = namePrefix.Trim();
+            var names = _tabs.Select(t => t.Saved.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            added = new List<int>(count);
+            for (int i = 0; i < count; i++)
+            {
+                int n = 1;
+                string name;
+                do name = $"{prefix} {n++}"; while (!names.Add(name));
+                _tabs.Add(new TabState(new SavedTab(name, type, r, g, b, [])));
+                added.Add(_tabs.Count - 1);
+            }
+        }
+        Persist();
+        return added;
+    }
 
     /// <summary>The account's gold (S→C 0x2aa).</summary>
     public uint Gold { get { lock (_lock) return _gold; } }

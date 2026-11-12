@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>Player summon identities, independent of the golem limit and golem revival policy.</summary>
 public sealed class SummonCatalog(string folder = "data")
@@ -11,14 +12,14 @@ public sealed class SummonCatalog(string folder = "data")
 
     static IReadOnlyDictionary<string, Definition> Load(string folder)
     {
-        using var effects = GameTables.Open(Path.Combine(folder, "tables", "GrantedEffects.json"));
-        using var skills = GameTables.Open(Path.Combine(folder, "tables", "ActiveSkills.json"));
+        var effects = ClientTables.Table("GrantedEffects");
+        var skills = ClientTables.Table("ActiveSkills");
         var result = new Dictionary<string, Definition>(StringComparer.Ordinal);
         var definitions = new Definition[] {
             new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", "base_number_of_zombies_allowed", "active_zombie_count", true, true),
             new("RaiseSpectre", "Spectre", "", "base_number_of_spectres_allowed", "active_spectre_count", true, true),
             new("SummonSkeletons", "Skeleton", "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonStandard", "base_number_of_skeletons_allowed", "active_skeleton_count", Follows: false),
-            new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", "base_number_of_raging_spirits_allowed", "active_raging_spirit_count", Targetable: false),
+            new("SummonRagingSpirit", "RagingSpirit", "Metadata/Monsters/SummonedSkull/SummonedSkull", "base_number_of_raging_spirits_allowed", "active_raging_spirit_count", Follows: false, Targetable: false),
             new("SummonReaper", "Reaper", "Metadata/Monsters/SummonedReaper/SummonedReaper", "base_number_of_reapers_allowed", "active_reaper_count", true),
             new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", "base_number_of_relics_allowed", "number_of_active_relics", true, Targetable: false),
             new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", "base_number_of_animated_weapons_allowed", "active_animated_weapon_count"),
@@ -26,12 +27,12 @@ public sealed class SummonCatalog(string folder = "data")
             new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
             new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
         };
-        foreach (var row in effects.RootElement.EnumerateArray())
+        foreach (var row in effects)
         {
-            string id = row.GetProperty("Id").GetString()!;
+            string id = row.Text("Id")!;
             var template = definitions.FirstOrDefault(d => id == d.Id || id == d.Id + "AltX" || id == d.Id + "AltY");
-            if (template is null || row.GetProperty("ActiveSkill") is not { ValueKind: JsonValueKind.Number } key) continue;
-            string name = skills.RootElement[key.GetInt32()].GetProperty("DisplayedName").GetString() ?? "";
+            if (template is null || row.IntOrNull("ActiveSkill") is not int key) continue;
+            string name = skills[key].Text("DisplayedName") ?? "";
             if (name.StartsWith("[", StringComparison.Ordinal)) continue;
             var definition = template with { Id = id };
             if (id == "SummonSkeletonsAltX") definition = definition with { Variety = "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonRanged1Quality" };
@@ -52,6 +53,12 @@ public sealed class SummonedMinions
     public readonly Dictionary<uint, double> Until = [];
     public readonly Dictionary<uint, SummonCatalog.Definition> Definitions = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.Item> Weapons = [];
+    public sealed record Offering(string Effect, double Until, ushort Buff, ushort Source,
+        Dictionary<string, int> Stats, Dictionary<string, int> BaseStats, int EffectIncrease);
+    public readonly List<Offering> Offerings = [];
+    public Dictionary<uint, int> PlayerOfferingStats = [];
+    public readonly Dictionary<ushort, (Offering Offering, ushort Instance)> PlayerOfferingBuffs = [];
+    public long OfferingRevision;
     public double RefreshAt;
     public bool Restored;
     public double HolyRegenerationUntil;
@@ -59,7 +66,7 @@ public sealed class SummonedMinions
     public ushort HolyBuff;
     public readonly Queue<uint> Corpses = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];
-    public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null);
+    public sealed record Saved(string Effect, ushort Source, string Variety, double Life, Dictionary<byte, GameServer.Core.Protocol.Instance.Item>? Equipment = null, uint? Host = null, int? Socket = null);
 }
 
 public sealed partial class ClientState

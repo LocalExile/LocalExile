@@ -36,7 +36,8 @@ static partial class TattoosRules
             "Notable (+30 to Intelligence)" => node.IsNotable && Has("base_intelligence", 30),
             "Keystone" => node.IsKeystone,
             "Mastery" => node.IsMastery,
-            "Ascendancy Notable" => node.IsAscendancy,
+            // A Forbidden tattoo replaces an ascendancy notable, not a small ascendancy node.
+            "Ascendancy Notable" => node.IsAscendancy && node.IsNotable,
             _ => false,
         };
     }
