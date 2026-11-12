@@ -78,7 +78,7 @@ C#: `LoginWire.cs` (`LoginWriter`, `LoginReader`), `LoginMessages.cs` (records +
 |---|---|---|---|
 | C→S | 0x01 | — | keepalive, sent repeatedly while the login socket is open (class `0x1431768d8`) |
 | C→S | 0x03 | u32 version (2), str account, bytes[32] machine id A, bytes[32] **password digest**, bytes[32] machine id B, bool, bool, u8 realm\|0x40, u8 | account login. Digest = unsalted SHA-256 of the UTF-16LE password (`0x140d060a0` → `0x140e21b30`) |
-| S→C | 0x04 | u16 result, wstr name, bytes[32], u8 flags0, u8 flags1, blob | result 0 → logged-in state 3. A non-empty name pops up a message box. Flags0 bit5 → `+0xea8` "email verified" (without it the character screen shows the "account not verified" panel) |
+| S→C | 0x04 | u16 result, wstr name, bytes[32], u8 flags0, u8 flags1, blob | result 0 → logged-in state 3. A non-empty name pops up a message box. Flags0 bit5 → `+0xea8` "email verified" (without it the character screen shows the "account not verified" panel). The blob (→ `+0xe30`) is the **account name** in UTF-8 for the item filters (below) |
 | S→C | 0x1b | raw64 server time, vec32⟨LeagueEntry⟩, u8 flags | push after login: **the league list** (§7). The client then moves to the character screen |
 | C→S | 0x12 | wstr name, wstr league, u32, u32, wstr start state, bytes[32] | **create character** (§7) |
 | S→C | 0x13 | u16 result, bool | create-character result (§7) |
@@ -90,6 +90,13 @@ C#: `LoginWire.cs` (`LoginWriter`, `LoginReader`), `LoginMessages.cs` (records +
 | C→S | 0x0e | u8 realm, u32 | **Play**. The client shows "Contacting Server..." until 0x14 |
 | S→C | 0x14 | str host, u16 port, u32, u16 area hash, u32 ticket, bytes[64] key, bytes[8], u8 | instance assignment (below) |
 | S→C | 0x17 | u16 reason | disconnect |
+
+**Item filters and the 0x04 data.** Listener `0x140d0fd50` stores the data blob as the account name of the item
+filter manager (global `0x14475ea00`, name at `+0x4f0`, manager at `+0x548`). The client lists `My Games\Path of Exile\`
+and `OnlineFilters\` once at startup (`0x14192eef0`). Showing Options (`0x1419167d0`) then fetches
+`https://<GGG_BASE_WEB_CDN_URL, default web.poecdn.com>/api/client-item-filter?accountName=…&realm=pc`, only with a
+non-empty account name and no fetch running (cooldown `+0x194`, reset from `+0x190` = 1.0). When the fetch ends, ok or failed (`0x141933f00`), the folders are
+listed again: that is how new `.filter` files appear without a restart. Live 2026-11-12.
 
 **Entry15** (0x50 bytes, wire order): wstr name `+0x00`, wstr text `+0x20` (the character's league), u8
 `+0x49` (red marker), u8 `+0x4d`, u8 `+0x48` **level**, u32 `+0x40`, u8 `+0x4a` **class** (3 = Witch in this enum, Scion = 0
@@ -122,7 +129,7 @@ password digests, tokens, tickets and machine ids redacted.
 
 | Receives | Sends |
 |---|---|
-| 0x03 | `AccountService.LoginWithClientDigest`. Unknown account → 0x04 result 5, wrong password → 6, then the server **closes** the connection (the client ignores Log In while a failed connection stays open). Good → 0x04 result 0, Flags0 0x20, then 0x1b with the leagues (`LeagueCatalog`) |
+| 0x03 | `AccountService.LoginWithClientDigest`. Unknown account → 0x04 result 5, wrong password → 6, then the server **closes** the connection (the client ignores Log In while a failed connection stays open). Good → 0x04 result 0, Flags0 0x20, the account name as data, then 0x1b with the leagues (`LeagueCatalog`) |
 | 0x18 | 0x15 with the account's characters (level, class, league) and 24 character slots |
 | 0x12 | creates the character (§7): 0x15, then 0x13 result 0; or 0x13 with an error |
 | 0x19 | 0x1a result 0, no leagues |

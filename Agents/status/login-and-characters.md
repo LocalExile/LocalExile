@@ -47,6 +47,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   connection; playable characters can enter again.
   Code: Gateway.
   Docs: [09](../docs/protocol/09-area-change.md) §6.
+- Item filters added to `My Games\Path of Exile` appear without a restart: login 0x04's data carries the account name,
+  so opening Options fetches the online filter list (from GGG's `web.poecdn.com`) and then rescans the folder.
+  Code: `LoginServerSession.cs`.
+  Docs: [01](../docs/protocol/01-login.md) §4.
 
 ## Partly working
 
