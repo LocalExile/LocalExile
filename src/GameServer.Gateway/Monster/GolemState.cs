@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>Host-owned, callback-free golem state survives Game replacement; guarded by the area's Monsters lock.</summary>
 public sealed class GolemState
 {
-    public sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0);
+    public sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0, uint? Host = null, int? Socket = null);
     public sealed record Awaiting(Saved Saved, double At);
     public sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source)
     {
