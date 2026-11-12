@@ -187,7 +187,11 @@ public static class StatConditions
         foreach (var expression in new[] { AttributeComparisonId, EquipmentAmountId })
         {
             var match = expression.Match(statId);
-            if (match.Success) return statId[..match.Index];
+            if (match.Success)
+            {
+                string prefix = statId[..match.Index];
+                return PlainOf(prefix) ?? prefix;
+            }
         }
         foreach (string suffix in WeaponSuffixes)
         {
@@ -548,7 +552,9 @@ public static class StatConditions
         if (equippedAmount.Success)
         {
             string countKey = "equipped_" + equippedAmount.Groups["kind"].Value;
-            return subject => subject.Value?.Invoke(countKey) is not null ? State.Holds : State.NotModelled;
+            string prefix = statId[..equippedAmount.Index];
+            return subject => And(Of(prefix, subject),
+                subject.Value?.Invoke(countKey) is not null ? State.Holds : State.NotModelled);
         }
         if (TryRecentAmount(statId, out string amountKey, out _, out _))
             return subject => subject.Amounts is { } amounts && amounts.ContainsKey(amountKey) ? State.Holds : State.NotModelled;
@@ -670,7 +676,7 @@ public static class StatConditions
     static readonly System.Text.RegularExpressions.Regex EquipmentThresholdId =
         new(@"_if_(?<n>\d+)_(?<kind>[a-z_]+)_items$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex EquipmentAmountId =
-        new(@"_per_equipped_(?<kind>[a-z_]+?)(?:_item)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"_(?:per|for_each)_equipped_(?<kind>[a-z_]+?)(?:_item)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex AttributeComparisonId =
         new(@"_if_(?<left>strength|dexterity|intelligence)_(?<op>higher|lower|equal)_than_(?<right>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
