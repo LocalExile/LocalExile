@@ -321,8 +321,17 @@ public static class AreaPopulation
             for (int i = 0; i < rest.Count; i++)
                 Bosses((arrival.X + (i + 1) * 4, arrival.Y), "mapboss", [rest[i]]);
         }
-        else if (rest.Count > 0 && bossPoints.Count > 0)
-            notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}");
+        else if (rest.Count > 0)
+        {
+            // The layout gave no free boss point at all (a sparse boss room the doodad fit misses on a seed nobody
+            // recorded, or points whose boss already stands elsewhere): the area's unique boss still stands, deep in the
+            // area. Before, it stood nowhere and the area had no boss, which is why a new area needed a walk map visit for
+            // its boss.
+            var deep = Farthest(w, h, walkable, arrival, transitions);
+            notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: standing at ({deep.X}, {deep.Y})");
+            for (int i = 0; i < rest.Count; i++)
+                Bosses((deep.X + (i + 1) * 4, deep.Y), "mapboss", [rest[i]]);
+        }
 
         // The scattered packs: random deep cells away from the arrival, the area transitions and other packs.
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
@@ -473,6 +482,35 @@ public static class AreaPopulation
             if (best is not null) return best;
         }
         return null;
+    }
+
+    /// <summary>The walkable cell farthest (in steps) from the arrival, clear of the area transitions: where the layout
+    /// placed no boss room, its unique boss stands deep in the area rather than nowhere.</summary>
+    static (int X, int Y) Farthest(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions)
+    {
+        bool Clear((int X, int Y) at) =>
+            !transitions.Any(t => Math.Abs(t.X - at.X) < TransitionClearance && Math.Abs(t.Y - at.Y) < TransitionClearance);
+        var dist = new Dictionary<(int X, int Y), int>(w * h / 4 + 16) { [arrival] = 0 };
+        var queue = new Queue<(int X, int Y)>([arrival]);
+        (int X, int Y) best = arrival;
+        int bestDistance = -1;
+        (int X, int Y)[] steps = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        while (queue.Count > 0)
+        {
+            var at = queue.Dequeue();
+            int d = dist[at];
+            if (d > bestDistance && Clear(at)) { bestDistance = d; best = at; }
+            foreach (var step in steps)
+            {
+                var next = (at.X + step.X, at.Y + step.Y);
+                if (next.Item1 < 0 || next.Item1 >= w || next.Item2 < 0 || next.Item2 >= h) continue;
+                if (dist.ContainsKey(next) || !walkable(next.Item1, next.Item2)) continue;
+                dist[next] = d + 1;
+                queue.Enqueue(next);
+            }
+        }
+        return best;
     }
 
     static MonsterRarity RollRarity(int roll) =>
