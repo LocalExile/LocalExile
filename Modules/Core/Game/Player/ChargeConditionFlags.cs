@@ -7,7 +7,7 @@ public static partial class Game
         int standard = converted ? 0 : effective;
         flags[$"_while_no_{name}_charges"] = flags[$"_while_you_have_no_{name}_charges"] = alive && standard == 0;
         flags[$"_while_have_any_{name}_charges"] = alive && standard > 0;
-        flags[$"_while_at_maximum_{name}_charges"] = alive && !converted && maximum > 0 && effective >= maximum;
+        flags[$"_while_at_maximum_{name}_charges"] = alive && !converted && maximum >= 0 && effective >= maximum;
     }
 
     static Dictionary<string, bool> RequalifyChargeConditions(ClientState conn,

@@ -5,6 +5,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> overrides, IReadOnlySet<string> recent,
         IReadOnlySet<string> auras, double now)
     {
+        captured = RequalifyChargeOnslaught(conn, captured, sources, overrides);
         int Get(string name) => Stats.Key(name) is uint key
             ? overrides.TryGetValue(key, out int replacement) ? replacement : sources.GetValueOrDefault(key) : 0;
         bool source = CurrentGameWork && !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0

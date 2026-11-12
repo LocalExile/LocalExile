@@ -181,6 +181,7 @@ public partial class ConditionalItemStatsTests
             Qualified_maximum_block_flags_reach_pools_and_real_blocks(conn, Wear);
             Blinded_item_conditions_use_the_existing_timed_owner_and_charge_consumer(conn, Wear);
             Qualified_item_ignore_resistance_reaches_hit_mitigation(conn);
+            Maximum_endurance_source_owns_onslaught_and_zero_maximum(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

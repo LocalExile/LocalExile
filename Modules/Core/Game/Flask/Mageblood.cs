@@ -76,12 +76,15 @@ public static partial class Game
         int? playerLevel = null) =>
         CombineUtilitySources(conn.UtilityFlaskEffects.Sources()
             .Concat(KillOnslaughtSources(conn, character))
-            .Concat(CatOnslaughtSources(conn, character)),
+            .Concat(CatOnslaughtSources(conn, character))
+            .Concat(ChargeOnslaughtSources(conn, character)),
             MagebloodSources(conn, character, playerLevel));
 
     /// <summary>Whether any modelled source currently grants Onslaught. Cat's owned effect is independent of the
     /// kill/flask state and therefore remains true when either of those ends.</summary>
-    public static bool HasOnslaught(ClientState conn)
+    public static bool HasOnslaught(ClientState conn) => HasIndependentOnslaught(conn) || ChargeOnslaughtActive(conn);
+
+    public static bool HasIndependentOnslaught(ClientState conn)
     {
         lock (conn.Monsters)
             return conn.UtilityFlaskEffects.ShowsOnslaught

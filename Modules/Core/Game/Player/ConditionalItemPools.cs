@@ -85,7 +85,8 @@ public static partial class Game
         flags["_while_bleeding"] = conn.IncomingAilments.Bleeding(now);
         flags["_while_poisoned"] = conn.IncomingAilments.PoisonStacks(now) > 0;
         flags["_while_on_consecrated_ground"] = conn.FlaskGrounds.Consecrated;
-        bool onslaught = HasOnslaught(conn);
+        bool onslaught = HasIndependentOnslaught(conn);
+        flags["independent_onslaught"] = onslaught;
         flags["_while_onslaught_is_active"] = onslaught;
         flags["_while_have_onslaught"] = onslaught;
         flags["_while_channelling"] = conn.ChannelSkill != 0;
