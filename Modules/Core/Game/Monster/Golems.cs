@@ -55,8 +55,9 @@ public static partial class Game
         RestoredMinionSource(conn, saved.Effect, saved.Skill, saved.Host, saved.Socket);
 
     internal static Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current) =>
-        RepeatSummonCast(conn, source, recovery, current, async () =>
+        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
+        bool triggered = false) =>
+        RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
         {
             await SummonGolem(remote, stream, ciphers, conn, source, definition, aim, current: current);
             return true;

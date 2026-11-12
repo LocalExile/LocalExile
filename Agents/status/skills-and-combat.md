@@ -238,7 +238,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §4–5, [20](../docs/protocol/20-damage.md) §2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
   Docs: [11](../docs/protocol/11-skills.md) §4, [13](../docs/protocol/13-items.md) §2.
-- Gem skills, their projectiles and triggered releases.
+- Gem skills, their projectiles and triggered releases, including linked summons and Desecrate.
   Docs: [11](../docs/protocol/11-skills.md) §9–10, [25](../docs/protocol/25-gem-supports.md).
 - Resistances, with the Kitava penalties. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) §12.

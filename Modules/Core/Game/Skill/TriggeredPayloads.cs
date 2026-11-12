@@ -9,7 +9,8 @@ public static partial class Game
 
     public static bool TriggerPayloadAvailable(ClientState conn, SupportedGem gem)
     {
-        if (TriggerGuardSpell(conn, gem) || MinionUtility(SkillsFor(conn).EffectId(gem.Effect))) return true;
+        if (TriggerGuardSpell(conn, gem) || TriggerSummonSpell(conn, gem)
+            || MinionUtility(SkillsFor(conn).EffectId(gem.Effect))) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(conn, gem))
@@ -26,6 +27,8 @@ public static partial class Game
         if (TriggerGuardSpell(conn, gem))
             return TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)
                 ? () => StartTriggeredGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds) : null;
+        if (TriggerSummonSpell(conn, gem))
+            return () => session.Enqueue(() => ReleaseTriggeredSummon(conn, session, id, aim, current));
         if (UsesProjectileRuntime(gem.Effect))
         {
             var sacrifice = new SacrificeUse(conn, id, skill.Effect, skill.Gem, triggered: true);
