@@ -127,6 +127,17 @@ public sealed class OpenShop(SpawnedNpc npc, Dictionary<uint, (uint Tab, Invento
     readonly Dictionary<uint, uint> _revisions = [];
 }
 
+/// <summary>How a monster moves and closes in where its variety's row does not say: what an encounter that spawns it knows of its
+/// object type and skills (SpawnMonster's <c>movement</c>). The default is the row's.</summary>
+public sealed record MonsterMovement
+{
+    public static readonly MonsterMovement Default = new();
+
+    /// <summary>Its reach as a share of the variety's attack distance, in place of the aggro range a ranged spell keeps (a
+    /// skill's <c>spell_maximum_action_distance_+%</c>: -60 is 0.4), so it walks up before it casts; null keeps the row's.</summary>
+    public double? Reach { get; init; }
+}
+
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
     public double ReceivedActionFactor = 1;

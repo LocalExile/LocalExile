@@ -9,15 +9,16 @@ using GameServer.Core;
 /// </summary>
 public static partial class IzaroEffects
 {
-    /// <summary>A row: its Id, mechanic (ToggleStatues, Gargoyles …), tier (1 Normal … 4 Endgame), element (0 fire, 1 cold,
-    /// 2 lightning), whether it is the "…2" one, its monster variety's Id or object type (empty when none), Izaro's buff row
-    /// and the buff's stats.</summary>
+    /// <summary>A row: its Id, mechanic (ToggleStatues, Gargoyles, Portals …), tier (1 Normal … 4 Endgame; 0 every tier: the
+    /// portals' <c>PortalSummon&lt;n&gt;_&lt;element&gt;</c>), element (0 fire, 1 cold, 2 lightning), whether it is the "…2" one, its
+    /// monster variety's Id or object type (empty when none), Izaro's buff row (a portal that has not returned has none:
+    /// 0, with no stats) and the buff's stats.</summary>
     public sealed record Effect(string Id, string Mechanic, int Tier, int Element, bool Returning, string Variety, string Type,
         ushort Buff, IReadOnlyDictionary<string, int> Stats);
 
     /// <summary>A mechanic's three effects of a tier (fire, cold, lightning), or their "…2" ones.</summary>
     public static IReadOnlyList<Effect> Of(string mechanic, int tier, bool returning) =>
-        [.. All.Value.Where(e => e.Mechanic == mechanic && e.Tier == tier && e.Returning == returning).OrderBy(e => e.Element)];
+        [.. All.Value.Where(e => e.Mechanic == mechanic && (e.Tier == tier || e.Tier == 0) && e.Returning == returning).OrderBy(e => e.Element)];
 
     public static Effect? Find(string id) => All.Value.FirstOrDefault(e => e.Id == id);
 
@@ -47,6 +48,9 @@ public static partial class IzaroEffects
     [GeneratedRegex("^(?<m>[A-Za-z]+?)(?<t>Normal|Cruel|Merciless|Endgame)_(?<e>Fire|Cold|Lightning)(?<r>2)?$", RegexOptions.IgnoreCase)]
     private static partial Regex IdPattern();
 
+    [GeneratedRegex("^PortalSummon(?<n>[12])_(?<e>Fire|Cold|Lightning)$")]
+    private static partial Regex PortalPattern();
+
     static readonly Lazy<List<Effect>> All = new(() =>
     {
         var all = new List<Effect>();
@@ -62,19 +66,27 @@ public static partial class IzaroEffects
             foreach (var r in effects)
             {
                 string id = r.Text("Id") ?? "";
-                if (IdPattern().Match(id) is not { Success: true } m) continue;
-                if (r.IsNull("Buff_BuffDefinitionsKey")) continue;
-                int buff = r.Int("Buff_BuffDefinitionsKey");
-                int[] values = [.. r.Ints("Buff_StatValues")];
-                string[] keys = [.. buffRows[buff].Ints("StatsKeys").Select(k => statRows[k].Text("Id") ?? "")];
+                var portal = PortalPattern().Match(id);
+                var m = portal.Success ? portal : IdPattern().Match(id);
+                if (!m.Success) continue;
+                bool buffed = !r.IsNull("Buff_BuffDefinitionsKey");
+                if (!buffed && !portal.Success) continue;
+                int buff = buffed ? r.Int("Buff_BuffDefinitionsKey") : 0;
                 var map = new Dictionary<string, int>(StringComparer.Ordinal);
-                for (int i = 0; i < Math.Min(keys.Length, values.Length); i++) map[keys[i]] = values[i];
+                if (buffed)
+                {
+                    int[] values = [.. r.Ints("Buff_StatValues")];
+                    string[] keys = [.. buffRows[buff].Ints("StatsKeys").Select(k => statRows[k].Text("Id") ?? "")];
+                    for (int i = 0; i < Math.Min(keys.Length, values.Length); i++) map[keys[i]] = values[i];
+                }
                 string type = (r.Text("OTFile") ?? "").Replace(".ot", "", StringComparison.Ordinal);
                 string variety = r.IntOrNull("MonsterVarietiesKey") is int v
                     && v < varietyRows.Count ? varietyRows[v].Text("Id") ?? "" : "";
-                int tier = m.Groups["t"].Value.ToLowerInvariant() switch { "normal" => 1, "cruel" => 2, "merciless" => 3, _ => 4 };
                 int element = m.Groups["e"].Value.ToLowerInvariant() switch { "fire" => 0, "cold" => 1, _ => 2 };
-                all.Add(new Effect(id, m.Groups["m"].Value, tier, element, m.Groups["r"].Success, variety, type, (ushort)buff, map));
+                all.Add(portal.Success
+                    ? new Effect(id, IzaroPortals.Mechanic, 0, element, m.Groups["n"].Value == "2", variety, type, (ushort)buff, map)
+                    : new Effect(id, m.Groups["m"].Value, m.Groups["t"].Value.ToLowerInvariant() switch { "normal" => 1, "cruel" => 2, "merciless" => 3, _ => 4 },
+                        element, m.Groups["r"].Success, variety, type, (ushort)buff, map));
             }
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)

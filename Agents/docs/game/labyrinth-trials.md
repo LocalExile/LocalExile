@@ -99,7 +99,7 @@ puzzles and traps there (`RoomFile.Links`, `ServerLevels.Level.RoomLinks`):
 | `next` | lever → door, gears; gear → gear; door → door; rail → rail; spike → spike; `Trigger_*` → spike; plate → `_Triggered` dart |
 | `counter` | lever, crank, gear → `Counter_Handler`, `Counter_Handler_Any`, `Door_Counter` |
 | `transition1`–`4` | `Counter_Handler(_Any)`, `Switch_Once_Multi`, `Switch_Multi`, `PressurePlate_ResetMulti_4` → doors, cranks, rail switches, darts |
-| `disable`, `disable1`–`3` | door → its levers; lever → the other lever of a pair |
+| `disable`, `disable1`–`3` | door → its levers (numbered); lever → the other lever of a pair (`disable`). EH `bottleneck_06`'s lever (839, 586) also has the door's `disable3`, not followed: it would leave the door shut for good |
 | `previous`, `left`, `right`, `teleport` | rails and swap pieces |
 | `reset`, `reset1`, `reset2` | plate → roomba, roomba → rail |
 | `delay`, `delayed` | dart → dart |
@@ -152,6 +152,8 @@ Its room line is `Metadata/NPC/Labyrinth/LabyrinthTrialGlyph<Prison|Sins|Church|
 `Metadata/Terrain/Doodads/Labyrinth/StoryGlyph.ao`: an NPCs.dat row (136–141) with no `.ot` of its own, filed on its
 `Metadata` `.ot`, `StoryGlyphBase` (Positioned, Animated, BaseEvents, InteractionAction, NPC, MinimapIcon).
 The Gateway places it as an NPC (`NpcCatalog`, `SpawnNpc`) with the room line's model.
+So too the Bronze Inscription in the room before Izaro's arena (`LabyrinthGlyph1`–`4`, NPCTalk 784–787; `LabyrinthGlyph0`
+is the Bronze Plaque).
 Each has one NPCTalk row, index 0 "Read" (777–782, NPCTextAudio 929–934).
 In the original it reads at once on the click, and the voice goes on as the player walks away, so a click sends
 **S→C 0x84 with that index**, which opens the talk on the row instead of the option list (live 2026-10-31).
@@ -657,13 +659,27 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   3 raised, 4 lowering, 5 `elevator_down_idle`, the state a new one is in) rise together, stand 5 s, then one at a
   time a 10 s beam to Izaro (MiscBeams `IzaroGargoyleBeam`, `awaken_gargoyle` on the gargoyle; the Beam's end follows
   its object, its start stays where it began, so the start is the gargoyle) and it awakens (its Emerge, `awaken`), its
-  buff on Izaro until it dies (live). Before its beam it takes little damage, from the beam on all of it (live). Elevators cannot be stood on while they move (live).
-- What is left when a trial ends (a statue on or not risen, a gargoyle alive) comes back in later trials whose room
+  buff on Izaro until it dies (live). Before its beam it takes little damage, from the beam on all of it (live). Elevators cannot be stood on while they move (live), and what rises can be hit only once it is up (live).
+  What rises on a small elevator faces Izaro's (live).
+  The portals (IzaroPortal.ot: 1 lowered, 2 raising, 3 raised, 4 lowering, 5 lowered, the state a new one is in) rise
+  one at a time; `elevator_ascend` is the .ot's server event (0x1b2, rig clip 0). Each brings one guardian
+  (`IzaroSummonSkeletonCaster*`, `alternate_minion` 63–65) about every 5 s, 10 of its own at most (live; the skill: 2.17 s
+  cast). It comes out of the portal and walks a little before it fights (live: the skill's offset, 114 units). The
+  guardians walk the arena: their skills' `spell_maximum_action_distance_+%` -60 keeps them from casting at their
+  200-cell aggro range. When he leaves the portals stay up and bring no more, and the guardians fight on (live).
+  The Goddess's Guardians (`IzaroSummonSkeletonGhostflame`): six circles at random places every 20 s, two in each
+  (`skill_repeat_count` 6, 20 s cooldown, two monsters). They die after 30 s (IzaroSkeleton.ot `time_until_death`), not
+  by a cap; the casters' .ot has no such time. Ours removes them then, with no death clip (live), and the corpse of one killed sooner.
+  `PortalSummon1_*` have no tier and no buff; the "…2" ones (IzaroPortal2.ot, untargetable, `base_cannot_be_damaged`)
+  give Izaro `izaro_buff_loot_bonus`. A new IzaroPortal2 is in state 3, whose create event plays the closing clip, so the
+  server sends 1 and its idle clip.
+- What is left when a trial ends (a statue on or not risen, a gargoyle alive, a portal not destroyed) comes back in later trials whose room
   has the mechanic's "…2" secret: in the arena behind an alcove's railing (`BossObjectiveBlocker`: 1 up, 2 down in
   3.3 s; its three `BossObjectiveMarker`) and on a ledge of the room before it (`BossEntryObjectiveMarker`, in threes).
   The original (live): the first trial's on the right ledge, the second's on the left. The final arena has two
   alcoves; which trial takes which is ours (the first the one with the least y). Statues stand as StatueDoodad1-3 and
-  keep their buff; gargoyles (IzaroGargoyle2) come out with all their buffs when the railing lowers as he fights.
+  keep their buff; gargoyles (IzaroGargoyle2) come out with all their buffs when the railing lowers as he fights, and
+  portals bring their guardians from the alcove once it lowers.
   The arena's gargoyles rise with Izaro; their `ascending_elevator` is the .ot's server event, so the server plays it
   (0x1b2, rig clip 0) or the client leaves them in the hole (live).
 - The room before each arena and the Ascendancy Chamber have the account's stash (their `Stash` room object). The
