@@ -179,6 +179,7 @@ public partial class ConditionalItemStatsTests
             Each_equipped_item_uses_qualified_counts_for_cost_and_recovery(conn);
             Equipment_collections_reach_actual_helmet_life_and_regeneration(conn);
             Qualified_maximum_block_flags_reach_pools_and_real_blocks(conn, Wear);
+            Blinded_item_conditions_use_the_existing_timed_owner_and_charge_consumer(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

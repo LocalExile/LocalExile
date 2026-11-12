@@ -689,6 +689,8 @@ public static partial class Game
             ["cursed_by_vulnerability"] = cursed,
             ["_while_cursed"] = conn.PlayerLife > 0 && cursed,
             ["_while_not_cursed"] = conn.PlayerLife > 0 && !cursed,
+            ["_while_blinded"] = conditionFlags.GetValueOrDefault("_while_blinded")
+                && !(Stats.Key("cannot_be_blinded") is uint blindImmunity && curseInputs.GetValueOrDefault(blindImmunity) != 0),
         };
         var phaseInputs = curseInputs;
         conditionFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
