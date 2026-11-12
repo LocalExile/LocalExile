@@ -156,6 +156,25 @@ public static class StatConditions
         System.Threading.LazyInitializer.EnsureInitialized(ref PlainNames,
             static () => new(StringComparer.Ordinal)).GetOrAdd(statId, ParsePlainName);
 
+    /// <summary>A module-supplied trailing named fact, recognized only when the subject explicitly carries it.</summary>
+    public static string? PlainOf(string statId, in Subject subject)
+    {
+        if (PlainOf(statId) is { } known) return PlainOf(known, subject) ?? known;
+        if (TrailingNamedState(statId) is not { } named || subject.NamedConditions?.Contains(named.Suffix) != true
+            || subject.Flags?.ContainsKey(named.Suffix) != true) return null;
+        string prefix = statId[..named.At];
+        return PlainOf(prefix, subject) ?? prefix;
+    }
+
+    static (int At, string Suffix)? TrailingNamedState(string id)
+    {
+        int at = Math.Max(id.LastIndexOf("_if_", StringComparison.Ordinal), id.LastIndexOf("_while_", StringComparison.Ordinal));
+        if (at < 0) return null;
+        string suffix = id[at..];
+        string name = suffix[(suffix.StartsWith("_if_", StringComparison.Ordinal) ? 4 : 7)..];
+        return name.Length > 0 && name.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '_') ? (at, suffix) : null;
+    }
+
     static string? ParsePlainName(string statId)
     {
         var property = EquipmentPropertyThresholdId.Match(statId);
@@ -259,13 +278,15 @@ public static class StatConditions
     /// name is not a stat of this build — a caller then keeps the id as it is, exactly as before.
     /// </para>
     /// </summary>
-    public static string? Fold(string statId, Func<string, bool> exists)
+    public static string? Fold(string statId, Func<string, bool> exists) => FoldFromPlain(statId, exists, PlainOf(statId));
+
+    static string? FoldFromPlain(string statId, Func<string, bool> exists, string? candidate)
     {
         if (statId == "additional_critical_strike_chance_permyriad_while_affected_by_cat_aspect")
             return exists("additional_base_critical_strike_chance") ? "additional_base_critical_strike_chance" : null;
         if (DedicatedConsumers.Contains(statId) || ChargeEffects.Expands(statId)
             || IncomingAilmentEffects.Expands(statId)) return null;
-        if (PlainOf(statId) is not { } plain) return null;
+        if (candidate is not { } plain) return null;
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
@@ -291,6 +312,7 @@ public static class StatConditions
             "mana_recharge_rate_per_minute" when EquipmentCollectionId.IsMatch(statId)
                 => "base_mana_regeneration_rate_per_minute",
             "life_gain_per_target" => "base_life_gain_per_target",
+            "maximum_life_+" => "base_maximum_life",
             "damage_taken_+%" => "base_damage_taken_+%",
             "deal_no_damage" => "base_deal_no_damage",
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
@@ -365,7 +387,13 @@ public static class StatConditions
     }
 
     /// <summary>The real consumer names for a conditional stat that expands to more than one pool input.</summary>
-    public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists)
+    public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists) =>
+        FoldAllFromPlain(statId, exists, PlainOf(statId));
+
+    public static IReadOnlyList<string> FoldAll(string statId, Func<string, bool> exists, in Subject subject) =>
+        FoldAllFromPlain(statId, exists, PlainOf(statId, subject));
+
+    static IReadOnlyList<string> FoldAllFromPlain(string statId, Func<string, bool> exists, string? plainName)
     {
         if (statId == AllResistancesPerActiveNonVaalMinion)
             return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
@@ -375,21 +403,21 @@ public static class StatConditions
             return [.. new[] { "attack_speed_+%", "base_movement_velocity_+%" }.Where(exists)];
         if (statId == "avoid_freeze_and_chill_%_if_you_have_used_a_fire_skill_recently")
             return [.. new[] { "base_avoid_freeze_%", "base_avoid_chill_%" }.Where(exists)];
-        if (PlainOf(statId) == "avoid_elemental_damage_%")
+        if (plainName == "avoid_elemental_damage_%")
             return [.. new[] { "avoid_fire_damage_%", "avoid_cold_damage_%", "avoid_lightning_damage_%" }.Where(exists)];
-        if (PlainOf(statId) == "all_resistances_%")
+        if (plainName == "all_resistances_%")
             return [.. new[] { "base_resist_all_elements_%", "base_chaos_damage_resistance_%" }.Where(exists)];
-        if (PlainOf(statId) == "life_and_energy_shield_recovery_rate_+%")
+        if (plainName == "life_and_energy_shield_recovery_rate_+%")
             return [.. new[] { "life_recovery_rate_+%", "energy_shield_recovery_rate_+%" }.Where(exists)];
-        if (PlainOf(statId) == "unaffected_by_ignite_and_shock")
+        if (plainName == "unaffected_by_ignite_and_shock")
             return [.. new[] { "unaffected_by_ignite", "unaffected_by_shock" }.Where(exists)];
-        if (PlainOf(statId) == "immune_to_freeze_and_chill")
+        if (plainName == "immune_to_freeze_and_chill")
             return [.. new[] { "base_immune_to_freeze", "base_immune_to_chill" }.Where(exists)];
-        if (PlainOf(statId) == "cannot_be_chilled_or_frozen")
+        if (plainName == "cannot_be_chilled_or_frozen")
             return [.. new[] { "base_cannot_be_chilled", "base_cannot_be_frozen" }.Where(exists)];
-        if (PlainOf(statId) == "cannot_be_shocked_or_ignited")
+        if (plainName == "cannot_be_shocked_or_ignited")
             return [.. new[] { "base_cannot_be_shocked", "base_cannot_be_ignited" }.Where(exists)];
-        return Fold(statId, exists) is { } plain ? [plain] : [];
+        return FoldFromPlain(statId, exists, plainName) is { } plain ? [plain] : [];
     }
 
     public static int ValueForFold(string statId, int value) => PlainOf(statId) switch
@@ -494,6 +522,21 @@ public static class StatConditions
 
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
+    {
+        var legacy = ParseKnownCondition(statId);
+        if (TrailingNamedState(statId) is not { } named) return legacy;
+        string prefix = statId[..named.At];
+        return subject =>
+        {
+            var known = legacy(subject);
+            if (known is not State.NotModelled) return known;
+            return subject.NamedConditions?.Contains(named.Suffix) == true
+                && subject.Flags is { } flags && flags.TryGetValue(named.Suffix, out bool active)
+                ? And(Of(prefix, subject), active ? State.Holds : State.Fails) : known;
+        };
+    }
+
+    static Func<Subject, State> ParseKnownCondition(string statId)
     {
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
@@ -947,7 +990,8 @@ public static class StatConditions
         IReadOnlySet<string>? KnownRecent = null,
         IReadOnlyDictionary<string, bool>? Flags = null,
         IReadOnlyDictionary<string, long>? Amounts = null,
-        Func<Item, string, int?>? ItemValue = null)
+        Func<Item, string, int?>? ItemValue = null,
+        IReadOnlySet<string>? NamedConditions = null)
     {
         /// <summary>Nothing known: every condition is NotModelled and no stat changes.</summary>
         public static Subject Unknown => new();

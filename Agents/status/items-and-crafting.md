@@ -95,6 +95,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conditional item gates include flat Mana costs, equipment counts, maximum block and Travel recovery per Frenzy Charge.
   Qualified attribute coefficients reach accuracy, armour, block, bleeding and Physical weapon damage; others remain partial.
   Living totem/minion coefficients feed armour, block, attack/cast speed and regeneration.
+  Named Core facts gate Glitterdisc's always-Ignite and the Hunger chest's Life bonus from qualified equipment tags.
   Infernal Mantle's low-Mana condition reaches incoming Spell hits through the canonical Spell damage-taken input.
   Rathpith and Scales of Justice scale Spell offence and added Fire from completed full maximum Life and Mana.
   Wyrmsign's standard Endurance efficiency reduces ordinary Mana costs independently of converted or additional Life costs.

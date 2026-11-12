@@ -55,6 +55,8 @@ public static partial class Game
             ["_while_phasing"] = conn.IsPhasing,
             ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
             ["_while_ignited"] = ailments.Ignite, ["_while_you_are_ignited"] = ailments.Ignite,
+            [BurningItemCondition] = alive && (ailments.Ignite
+                || conn.RighteousFire is { } rf && RighteousFireOwnerCurrentLocked(conn, rf)),
             ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_blinded"] = alive && conn.ResourceEffectsState is ResourceEffectsState blindOwner
@@ -124,8 +126,9 @@ public static partial class Game
             SetChargeConditionFlags(flags, type, charges.Effective(type), charges.Limits(type).Maximum,
                 charges.Converted(type), alive);
         }
+        var equipmentFlags = QualifiedEquipmentItemFlags(flags, ItemsOf(conn).EquipmentSnapshot(), ItemsFor(conn), activeRings);
         var avatarFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
-            RequalifyHerEmbrace(conn, flags, activeItems), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
+            RequalifyHerEmbrace(conn, equipmentFlags, activeItems), lowLifeSources, activeItems), lowLifeSources, conn.PlayerStats, activeItems);
         return RequalifySourcePhasing(conn, avatarFlags, lowLifeSources, conn.PlayerStats, conn.RecentEvents.Snapshot(now),
             StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId)), now);
     }

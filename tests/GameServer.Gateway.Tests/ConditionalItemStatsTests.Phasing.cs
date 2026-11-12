@@ -190,6 +190,7 @@ public partial class ConditionalItemStatsTests
             Qualified_low_mana_spell_damage_taken_reaches_incoming_hits(conn, Wear);
             Qualified_maximum_pool_coefficients_reach_offence(conn, Wear);
             Qualified_endurance_mana_efficiency_reaches_payment(conn, Wear);
+            Qualified_named_facts_reach_life_and_ignite_consumers(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

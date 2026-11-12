@@ -637,6 +637,7 @@ public static partial class Game
             var attributes = AttributeInputs(raw, dev).Apply(c.Strength + (conn.God ? 1000 : 0),
                 c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
             var equipmentValues = EquipmentConditionValues(equipment, catalog, activeItems);
+            var itemFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, activeItems);
             var weapons = WeaponProfileFor(conn);
             bool offHandEmpty = equipment.All(e => e.Row != PlayerInventories.Offhand1);
             bool axe = activeItems is null ? weapons.Axe : equipment.Any(e =>
@@ -650,8 +651,8 @@ public static partial class Game
                     "strength" => attributes.Strength, "dexterity" => attributes.Dexterity, "intelligence" => attributes.Intelligence,
                     "life" => life, "mana" => mana, "energy_shield" => energyShield,
                     _ => equipmentValues.TryGetValue(name, out int count) ? count : null,
-                }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags, Amounts: recentAmounts,
-                ItemValue: ConditionalRings(equipment, activeItems).Value);
+                }, KnownRecent: TrackedItemRecentEvents, Flags: itemFlags, Amounts: recentAmounts,
+                ItemValue: ConditionalRings(equipment, activeItems).Value, NamedConditions: NamedItemConditionSuffixes);
         }
 
         Dictionary<string, long> RawAttributes(IEnumerable<Item> active)
@@ -747,6 +748,7 @@ public static partial class Game
         conditionFlags = RequalifyAvatarOfFire(conn, RequalifyElusive(conn,
             RequalifyHerEmbrace(conn, conditionFlags, active), phaseInputs, active), phaseInputs, dev, active);
         conditionFlags = RequalifySourcePhasing(conn, conditionFlags, phaseInputs, dev, recentEvents, auraEffects, conditionNow);
+        conditionFlags = QualifiedEquipmentItemFlags(conditionFlags, equipment, catalog, active);
         int qualifiedItemReservationPercent = Stats.Key(LifeReservation.ItemPercentStat) is uint itemReservationKey
             ? dev.TryGetValue(itemReservationKey, out int replacement) ? replacement
                 : ItemModStats.Sum(active, ItemsFor(conn).Mods).GetValueOrDefault(LifeReservation.ItemPercentStat)

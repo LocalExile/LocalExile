@@ -110,7 +110,7 @@ public static class ItemModStats
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
                         if (state is StatConditions.State.Holds) value = StatConditions.ApplyRecentAmount(row.Stats[s].Id, value, subject);
                         if (state is StatConditions.State.Holds && statExists is not null
-                            && StatConditions.FoldAll(id, statExists) is { Count: > 0 } targets)
+                            && StatConditions.FoldAll(id, statExists, subject) is { Count: > 0 } targets)
                         {
                             value = StatConditions.ValueForFold(id, value);
                             foreach (string target in targets) yield return (target, value);
