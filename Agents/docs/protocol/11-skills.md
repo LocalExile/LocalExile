@@ -1493,7 +1493,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   The first native queue entry retains progress, while later entries retain their full base-time budget.
   Same-effect gems retain shared recharge debt; recovery/capacity use the actual admitted socket instance.
   Blink (GEPL group 9) and Guard (10) debit each available member once. Warcries (1) share only with
-  `warcry_skills_share_cooldowns`. Stances (11) and ordinary per-skill records (36) keep their own uses. Peer progress is published only
+  `warcry_skills_share_cooldowns`. Stances (11) and ordinary per-skill records (36) keep their own uses. The client reads
+  `skill_cooldown_group_override` before its GEPL group at `0x141ef27e0`. Without an override of 36 a second
+  independent warcry never sends its request. Peer progress is published only
   after the admitted use acknowledgement. Equipping a new group member inherits outstanding recovery debt.
   Unpayable ordinary uses are rejected before cooldown reservation and movement. Other extra-use sources,
   flat/override, pause-while-active, bypass, conditional/enemy recovery and official tick equivalence remain partial.

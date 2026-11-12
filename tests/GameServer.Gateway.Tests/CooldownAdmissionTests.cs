@@ -80,10 +80,15 @@ public sealed class CooldownAdmissionTests
         bool Use(ushort id) => Game.TryBeginSkillCooldownUse(c, id, Game.SupportedSkill(c, id).Effect,
             Game.CooldownForSkill(c, id), false, () => { }, out _);
 
+        uint groupKey = Program.Stats.Key("skill_cooldown_group_override")!.Value;
+        int NativeGroup(ushort id) => Game.PlayerSkills(c).Single(skill => skill.Id == id)
+            .Stats!.Single(stat => stat.Key == groupKey).Value;
         var cries = f.Equip(PlayerInventories.Helmet, "Enduring Cry", "Seismic Cry", "Rallying Cry", "Infernal Cry");
+        Assert.Equal(36, NativeGroup(cries[0]));
         Assert.True(Use(cries[0]));
         Assert.True(Use(cries[1]));
         c.PlayerStats[Program.Stats.Key("warcry_skills_share_cooldowns")!.Value] = 1;
+        Assert.Equal(1, NativeGroup(cries[0]));
         Assert.False(Use(cries[0])); // Turning sharing on cannot spread an earlier independent use.
         Assert.True(Use(cries[2]));
         Assert.False(Use(cries[3]));
@@ -94,6 +99,7 @@ public sealed class CooldownAdmissionTests
         c.PlayerStats[Program.Stats.Key("convocation_cooldown_speed_+%")!.Value] = 35;
         Assert.Equal(recovery + 35, Game.CooldownForSkill(c, recall)!.Value.RecoveryPercent);
 
+        Assert.Equal(36, NativeGroup(stances[0]));
         Assert.True(Use(stances[0]));
         Assert.True(Use(stances[1]));
         var guards = f.Equip(PlayerInventories.Offhand1, "Steelskin", "Molten Shell");

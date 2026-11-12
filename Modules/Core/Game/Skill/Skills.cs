@@ -556,6 +556,9 @@ public static partial class Game
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
             {
                 stats[recoveryKey] = cooldown.RecoveryPercent;
+                // Otherwise the client propagates the use to the GEPL group before the second key can send its request.
+                if (SkillsFor(conn).CooldownGroup(effect, level) is 1 or 11 && Stats.Key("skill_cooldown_group_override") is uint group)
+                    stats[group] = cooldown.SharedGroup ?? 36;
                 if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
             }
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);
