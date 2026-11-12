@@ -37,15 +37,14 @@ sealed class ShockNovaEffect : IShrineEffect
     /// <summary>Stat 16700 <c>base_damage_taken_+%_from_shock</c>, the shocked ground's own value (15% base).</summary>
     internal const int ShockPct = 15;
 
-    /// <summary>The client's Shock Nova art, its two halves: MiscAnimated 3350 `ShockNovaScaledEffect` (the ring the
-    /// skill's own area covers, `__col4` 359 world units at scale 1) and 3351 `ShockNovaAlsoScaledEffect` (the wider
-    /// donut past it, 283). The gem draws both. `shock_nova/new/shock_nova.ao` was not it: that file is MiscAnimated 2546
-    /// `BetrayalTaserNet`, whose two arcs are what a shrine used to show.</summary>
-    internal const string NovaArt = "Metadata/Effects/Spells/shock_nova_accurate/shock_nova_accurate.ao";
+    /// <summary>The cast's two arts as the client draws them for a MONSTER's Shock Nova, which is what a shrine casts:
+    /// MiscAnimated 5745 `MonsterShockNovaOuter` (the wide ring) and 5746 `MonsterShockNovaInner` (its inner pass). The
+    /// player gem's pair (`ShockNovaScaledEffect` 3350 / `ShockNovaAlsoScaledEffect` 3351) is a different look, and
+    /// `shock_nova/new/shock_nova.ao` was not Shock Nova at all: that file is 2546 `BetrayalTaserNet`.</summary>
+    internal const string NovaArt = "Metadata/Effects/Spells/monsters_effects/act1/goatman/shock_nova_accurate.ao";
 
-    /// <summary>The second half of the cast's art, the donut beyond the ring (<see cref="NovaArt"/>). Not drawn: the pair
-    /// is one create a second more than the ring alone.</summary>
-    internal const string NovaDonutArt = "Metadata/Effects/Spells/shock_nova_accurate/shock_nova_donut.ao";
+    /// <summary>The inner pass of that pair (<see cref="NovaArt"/>), drawn with the outer ring.</summary>
+    internal const string NovaDonutArt = "Metadata/Effects/Spells/monsters_effects/act1/goatman/shock_nova_02.ao";
 
     /// <summary>How long the nova art plays, from the client's own rig: `Art/Models/Effects/shock_nova_accurate/shock_nova.amd`
     /// has one `animate` clip of 1000 ms, played once (the donut's `shock_donut.amd` is the same). It is very nearly the
@@ -183,12 +182,19 @@ sealed class ShockNovaEffect : IShrineEffect
             int damage = (int)((packet.MinTotal + packet.MaxTotal) / 2);
             if (damage <= 0) return;
             long before = conn.PlayerLife;
-            DamagePlayerHitTyped(conn, 0, damage, 0, now, CharacterPlayerStats(conn), packet);
+            // DamagePlayerHitTyped only decides what reaches Life (it drains Ward, Energy Shield and Mana itself); the
+            // caller applies the returned amount, exactly as a monster hit does. Discarding it is why a hit that emptied
+            // the player's shield never touched his life.
+            int lifeDamage = DamagePlayerHitTyped(conn, 0, damage, 0, now, CharacterPlayerStats(conn), packet);
+            conn.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
             Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine Shock Nova at ({statue.X}, {statue.Y}) hits the player for " +
                 $"{damage}: life {before} -> {conn.PlayerLife}");
             if (conn.PlayerLife != (uint)before)
                 conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
                     "0x01b1 player hit by a shrine Shock Nova"));
+            // The hit is not the player's own, so tell the client what it did to the shield pool as well: without this the
+            // shield never moves on the panel and a hit that only drained energy shield looked like it did nothing.
+            await SendPlayerEnergyShield(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
             return;
         }
         if (packet.MaxTotal > 0)
@@ -243,20 +249,24 @@ sealed class ShockNovaEffect : IShrineEffect
     /// then it is removed. Called under the connection's monsters lock.</summary>
     uint Nova(ClientState conn, (int X, int Y) at, double radius, double now)
     {
-        // One art per cast: the ring, scaled by the radius it covers. The gem also draws the donut beyond it, and both
-        // objects were sent while the client was already desyncing on the shrine's stream, so the pair is not used until
-        // the cause of that is known: one create per cast instead of two.
-        uint id = conn.NextObjectId++;
-        var art = new EffectObject(at.X, at.Y, NovaArt)
+        // The monster skill's two arts at the cast's radius. These rows carry no `__col4` radius (0), so they are not
+        // scaled to the area the way the gem's pair is: `Art.ArtRadius` returns null and the art plays at its own size.
+        uint first = 0;
+        foreach (string piece in (string[])[NovaArt, NovaDonutArt])
         {
-            Flags0 = EffectObject.FixedRotation,
-            Scale = Art.ArtRadius(NovaArt) is int native and > 0 ? (float)(radius * (250d / 23) / native) : 1,
-        };
-        conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
-            art.Blob()), null));
-        conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
-        _novas.Add(new() { Object = id, Until = now + NovaArtMs / 1000.0 + NovaArtMargin });
-        return id;
+            uint id = conn.NextObjectId++;
+            var art = new EffectObject(at.X, at.Y, piece)
+            {
+                Flags0 = EffectObject.FixedRotation,
+                Scale = Art.ArtRadius(piece) is int native and > 0 ? (float)(radius * (250d / 23) / native) : 1,
+            };
+            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+                art.Blob()), null));
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
+            _novas.Add(new() { Object = id, Until = now + NovaArtMs / 1000.0 + NovaArtMargin });
+            if (first == 0) first = id;
+        }
+        return first;
     }
 
     /// <summary>The five patches around the caster (the skill's <c>shock_nova_places_X_ground_lightning_patches</c>); a
