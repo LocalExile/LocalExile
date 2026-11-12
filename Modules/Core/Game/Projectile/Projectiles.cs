@@ -408,14 +408,16 @@ public static partial class Game
             if (!immune)
                 AilmentsOnHitLocked(Conn, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
-                    sourceSkill: shot.SourceSkill, blind: shot.Blind);
+                    sourceSkill: shot.SourceSkill, blind: shot.Blind,
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
                 IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at,
-                    playerIgnite: shot.ActualCaster is null);
+                    playerIgnite: shot.ActualCaster is null,
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
                     BleedReflected(CharacterPlayerStats(Conn)));

@@ -521,10 +521,10 @@ public static partial class Game
                 if (life == 0) { m.Aggro = false; m.Dead = true; CollectVaalSoulAtDeathLocked(conn, m); }
                 AilmentsOnHitLocked(conn, targetId, m, mitigated, spell: false, critical, criticalMultiplier, player,
                     ownPenetration, at, Random.Shared, poison: prehit.Poison,
-                    blind: BlindHitInput.Capture(player));
+                    blind: BlindHitInput.Capture(player), attackGains: AttackAilmentGains.Capture(player, attack: true));
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(conn, targetId, m, prehit.Ignite,
-                        critical, at) is { } packets)
+                        critical, at, attackGains: AttackAilmentGains.Capture(player, attack: true)) is { } packets)
                     (ignited, igniteLog) = (packets, IgnitedLog(targetId, m, critical, at));
                 if (life > 0 && ownRolled[DamageType.Physical].Max > 0
                     && BleedOnHitLocked(conn, targetId, m, prehit.Bleed, critical, at,
@@ -2236,12 +2236,14 @@ public static partial class Game
                         // Devour: a killing blow recovers the support's life/mana.
                         if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
-                            Random.Shared, reflected, profile.Poison, sourceSkill: skillId,
-                            blind: BlindHitInput.Capture(player, skillStats));
+                            Random.Shared, reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
+                            blind: BlindHitInput.Capture(player, skillStats),
+                            attackGains: AttackAilmentGains.Capture(player, SkillsFor(conn).IsAttack(gem.Effect)));
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                         // physical damage bleed it.
                         if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
-                            && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, at) is { } packets)
+                            && IgniteOnHitLocked(conn, id, m, profile.Ignite, critical, at,
+                                attackGains: AttackAilmentGains.Capture(player, SkillsFor(conn).IsAttack(gem.Effect))) is { } packets)
                             (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
                         if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
                             && BleedOnHitLocked(conn, id, m, profile.Bleed, critical, at,

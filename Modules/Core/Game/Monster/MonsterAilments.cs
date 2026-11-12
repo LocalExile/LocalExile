@@ -165,6 +165,13 @@ public static partial class Game
     public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default) =>
+        AilmentsOnHitLocked(conn, targetId, m, mitigated, spell, critical, criticalMultiplier, player, skill,
+            now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind);
+
+    public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+        bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
+        double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
@@ -188,7 +195,12 @@ public static partial class Game
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
             name => m.Effects[name], random, AilmentArea(Player, Skill, spell));
         foreach (var effect in added)
-            if (effect.Kind == Kind.Freeze) conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
+            if (effect.Kind == Kind.Freeze)
+            {
+                conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
+                if (m.Hostile) GainFromAttackAilmentLocked(conn, attackGains.FreezeEndurance,
+                    ChargeType.Endurance, EnduranceOnAttackFreeze);
+            }
             else if (effect.Kind == Kind.Shock) conn.RecentEvents.Record(StatConditions.ShockedEnemy, now);
         if (m.Dead || m.Life == 0)
         {

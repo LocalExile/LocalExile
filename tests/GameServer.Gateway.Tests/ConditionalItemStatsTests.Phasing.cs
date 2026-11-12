@@ -191,6 +191,7 @@ public partial class ConditionalItemStatsTests
             Qualified_maximum_pool_coefficients_reach_offence(conn, Wear);
             Qualified_endurance_mana_efficiency_reaches_payment(conn, Wear);
             Qualified_named_facts_reach_life_and_ignite_consumers(conn, Wear);
+            Attack_ailment_sources_grant_charges_only_after_accepted_effects(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);
