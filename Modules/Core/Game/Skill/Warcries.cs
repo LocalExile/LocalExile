@@ -8,7 +8,8 @@ public static partial class Game
     // What every warcry does at its release besides its own effect, within its own radius around where it was used: the
     // client's warcry action (0x141abfb30) scans that radius for Chest objects and corpses when Deathrattle's stats are set.
     public const string CorpseExplosionStat = "nearby_corpses_explode_dealing_%_maximum_life_physical_damage_on_warcry",
-        OpenChestsStat = "open_nearby_chests_on_warcry";
+        OpenChestsStat = "open_nearby_chests_on_warcry",
+        CorpseLootStat = "corpses_drop_loot_again_on_warcry_chance_%";
 
     // Path of Building's EnemyExplode radius (skill("radius", 22)), grown by area of effect.
     const int CorpseExplosionRadius = 22;
@@ -34,6 +35,27 @@ public static partial class Game
         bool current;
         lock (conn.Monsters) current = conn.ProjectileActive(epoch) && conn.PlayerLife > 0;
         if (current && Get(OpenChestsStat) != 0) await OpenChestsInRadius(conn, at, radius);
+        if (current && Get(CorpseLootStat) is int lootChance and > 0)
+            await DropCorpseLoot(remote, stream, ciphers, conn, at, radius, epoch, lootChance);
+    }
+
+    // Howl of the Wolf: each corpse within the warcry's radius drops its loot again with that chance. The corpse stays
+    // usable (its explosion, consumption or removal is another effect's).
+    static async Task DropCorpseLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        (int X, int Y) at, int radius, int epoch, int chance)
+    {
+        List<(SpawnedMonster Monster, (int X, int Y) At)> corpses;
+        lock (conn.Monsters)
+        {
+            if (conn.Closed || conn.LeavingArea || !conn.ProjectileActive(epoch) || conn.PlayerLife == 0) return;
+            double now = ProjectileWorldTime(conn);
+            corpses = [.. conn.Monsters.Values
+                .Where(m => IsCorpse(m) && !m.NoRewards && Dist(m.Walk.Position(now), at) <= radius)
+                .Select(m => (m, m.Walk.Position(now)))];
+        }
+        foreach (var (monster, corpseAt) in corpses)
+            if (Random.Shared.Next(100) < Math.Min(100, chance))
+                await DropLoot(remote, stream, ciphers, conn, monster, corpseAt);
     }
 
     // A corpse the engine has: a monster killed in this area visit whose Life type allows corpse use, not yet consumed.

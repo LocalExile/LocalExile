@@ -106,6 +106,15 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   gate.
   Other one-way links fall back to the area's spawn until their named entrance points are added.
 
+### The Wildwood (Affliction) league
+
+- **Known:** the 3.29.3c client keeps the Wildwood league's data and UI: the Wisp mechanic (the Primalist's
+  `azmeri_primalist_wisps_found_+%` is one of its consumers), the three Wildwood Descendancy rows
+  ([status](../status/progression.md), "Descendancy") and the `AnimalCharm` item class. The server implements none of
+  the league: no Wisps spawn, and there is no Wildwood area, NPC or reward flow.
+- **Done when:** the Wildwood's Wisp collection and its areas exist server-side, and the Primal Wisps found node
+  feeds `azmeri_primalist_wisps_found_+%` into that system.
+
 ### The Labyrinth
 
 - **Known:** the server port generates the Labyrinth's rooms (249 of 257 match), and the gate baseline lists the
