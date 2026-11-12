@@ -199,6 +199,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
+    public readonly MonsterContagion Contagion = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
     public readonly MonsterRuptures Ruptures = new();
     // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.

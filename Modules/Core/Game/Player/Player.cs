@@ -614,6 +614,7 @@ public static partial class Game
                 await BurnIgnited(remote, stream, ciphers, conn);
                 await BleedMonsters(remote, stream, ciphers, conn);
                 await TickPoisons(remote, stream, ciphers, conn);
+                await TickContagions(remote, stream, ciphers, conn);
             }
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             var rf = conn.RighteousFire;
