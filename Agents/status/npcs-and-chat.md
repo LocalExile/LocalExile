@@ -59,6 +59,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Kick and cancel invitation (C→S 0x94) remove a member or drop a pending invitation: the removed player is told (S→C
   0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
   Decline and disconnects are open.
+  Decline and human-only disconnect cleanup remain open.
   See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.
@@ -122,6 +123,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
   Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
   Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
+  Human friends and town-invited bots share one six-member roster, including kicks, leader handover and area changes.
   Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
   trade, chat, ascendancy builds and advanced tactical AI remain open.
   See [player bots](../docs/dev/player-bots.md).
