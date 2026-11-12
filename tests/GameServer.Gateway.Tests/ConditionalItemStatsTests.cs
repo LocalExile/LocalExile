@@ -1480,6 +1480,12 @@ public partial class ConditionalItemStatsTests
             Assert.Equal((int)Math.Floor(snakeDamage.MinTotal), snakeStats[StatKeys.MainHandMinTotal]);
             Assert.Equal((int)Math.Floor(snakeDamage.MaxTotal), snakeStats[StatKeys.MainHandMaxTotal]);
 
+            // Drive flight explicitly; the production pump can otherwise finish a short shot before assertions.
+            var snakeSession = new global::Game.ProjectileSession(
+                "test", wire.Stream, wire.Ciphers, snakeConn);
+            snakeConn.ProjectileRuntime = snakeSession;
+            snakeSession.AdvanceTo(ProjectileRuntime.Time(snakeConn.Clock.Elapsed.TotalSeconds));
+
             async Task SwingOn(ClientState targetConn, PlayerMinions.Attack pending)
             {
                 var start = global::Game.ProjectileWorldTime(targetConn);
@@ -1526,7 +1532,6 @@ public partial class ConditionalItemStatsTests
             int minionOutputs = snakeConn.Minions.OutputQueue.Count;
             var firstSnakeAttack = AcceptedAttack(snakeTargetId, snakeTarget);
             Swing(firstSnakeAttack);
-            var snakeSession = global::Game.ProjectilesFor("test", wire.Stream, wire.Ciphers, snakeConn);
             Assert.Single(snakeSession.Runtime.Projectiles);
             Assert.False(snakeConn.Minions.Attacks.ContainsKey(snakeActive.Id));
             Assert.Equal(50_000u, snakeTarget.Life);
