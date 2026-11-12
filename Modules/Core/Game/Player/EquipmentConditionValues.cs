@@ -9,6 +9,7 @@ public static partial class Game
         var qualified = equipment.Where(e => active is null
             || active.Any(item => ReferenceEquals(item, e.Item.Item))).ToArray();
         var result = new Dictionary<string, int>();
+        result["equipped_total"] = qualified.Length;
         foreach (var influence in Enum.GetValues<ItemInfluence>().Where(i => i != ItemInfluence.None))
             result["equipped_" + influence.ToString().ToLowerInvariant()] = qualified.Count(e => e.Item.Item.Influences.HasFlag(influence));
         foreach (var rarity in new[] { ItemRarity.Normal, ItemRarity.Magic, ItemRarity.Rare, ItemRarity.Unique })

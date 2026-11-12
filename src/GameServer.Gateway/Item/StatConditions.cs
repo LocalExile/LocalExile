@@ -184,6 +184,12 @@ public static class StatConditions
             string prefix = statId[..equipment.Index];
             return PlainOf(prefix) ?? prefix;
         }
+        var collection = EquipmentCollectionId.Match(statId);
+        if (collection.Success)
+        {
+            string prefix = statId[..collection.Index];
+            return PlainOf(prefix) ?? prefix;
+        }
         foreach (var expression in new[] { AttributeComparisonId, EquipmentAmountId })
         {
             var match = expression.Match(statId);
@@ -267,12 +273,18 @@ public static class StatConditions
             "local_chance_to_bleed_%" => "local_chance_to_bleed_on_hit_%",
             "physical_damage_reduction_rating_%" => "physical_damage_reduction_rating_+%",
             "maximum_es_+%" => "maximum_energy_shield_+%",
+            "life_+%" => "maximum_life_+%",
             "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
             "life_regeneration_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_rate_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_per_minute_%" => "life_regeneration_rate_per_minute_%",
             "energy_shield_regeneration_%_per_minute" or "energy_shield_regeneration_rate_per_minute_%"
                 => "base_energy_shield_regeneration_rate_per_minute_%",
+            // The historical "recharge" ids on equipment collection conditions describe flat regeneration.
+            "energy_shield_recharge_rate_per_minute" when EquipmentCollectionId.IsMatch(statId)
+                => "base_energy_shield_regeneration_rate_per_minute",
+            "mana_recharge_rate_per_minute" when EquipmentCollectionId.IsMatch(statId)
+                => "base_mana_regeneration_rate_per_minute",
             "life_gain_per_target" => "base_life_gain_per_target",
             "damage_taken_+%" => "base_damage_taken_+%",
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
@@ -513,6 +525,23 @@ public static class StatConditions
         if (CandidateCatFlag(statId) is { } catFlag)
             return subject => subject.Flags is { } flags && flags.TryGetValue(catFlag, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
+        var collection = EquipmentCollectionId.Match(statId);
+        if (collection.Success)
+        {
+            string prefix = statId[..collection.Index], countKey = "equipped_" + collection.Groups["kind"].Value;
+            bool all = collection.Groups["mode"].Value == "all";
+            return subject =>
+            {
+                State state = State.NotModelled;
+                if (subject.Value?.Invoke(countKey) is int count)
+                {
+                    if (!all) state = count == 0 ? State.Holds : State.Fails;
+                    else if (subject.Value("equipped_total") is int total)
+                        state = total > 0 && count == total ? State.Holds : State.Fails;
+                }
+                return And(Of(prefix, subject), state);
+            };
+        }
         if (IsActiveNonVaalSkillMinionCoefficient(statId))
             return subject => subject.Amounts is { } amounts
                 && amounts.ContainsKey(ActiveNonVaalSkillMinionCount) ? State.Holds : State.Fails;
@@ -677,6 +706,8 @@ public static class StatConditions
         new(@"_if_(?<n>\d+)_(?<kind>[a-z_]+)_items$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex EquipmentAmountId =
         new(@"_(?:per|for_each)_equipped_(?<kind>[a-z_]+?)(?:_item)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+    static readonly System.Text.RegularExpressions.Regex EquipmentCollectionId =
+        new(@"_with_(?<mode>no|all)_(?<kind>[a-z_]+?)_equipped_items$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex AttributeComparisonId =
         new(@"_if_(?<left>strength|dexterity|intelligence)_(?<op>higher|lower|equal)_than_(?<right>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 

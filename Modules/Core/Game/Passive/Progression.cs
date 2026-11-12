@@ -1083,7 +1083,10 @@ public static partial class Game
         {
             BlockChanceBase = shieldBlock,
             BlockChanceUncapped = Math.Max(0, totalAttack),
-            BlockChance = Math.Min(Math.Max(0, totalAttack), pools.BlockChanceMax),
+            AttackBlockAtMaximum = EquipmentInput("max_chance_to_block_attacks_if_not_blocked_recently") > 0,
+            SpellBlockAtMaximum = EquipmentInput("spell_block_is_maximum_if_not_blocked_recently") > 0,
+            BlockChance = EquipmentInput("max_chance_to_block_attacks_if_not_blocked_recently") > 0
+                ? pools.BlockChanceMax : Math.Min(Math.Max(0, totalAttack), pools.BlockChanceMax),
             SpellBlockChanceUncapped = Math.Max(0, totalSpell),
             SpellBlockChance = Math.Min(Math.Max(0, totalSpell), pools.SpellBlockChanceMax)
         };
@@ -1105,6 +1108,9 @@ public static partial class Game
                     SpellBlockChance = Math.Min(pools.SpellBlockChance + 2 * overcap, pools.SpellBlockChanceMax)
                 };
         }
+        // The source's condition has already been evaluated from the captured blocked history. The Replica's
+        // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
+        if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
         conn.Ward.SetMaximum(conn.PlayerLife > 0 ? pools.Ward : 0);
         conn.AppliedAdrenaline = conn.Antiquarian.Adrenaline(conn.Clock.Elapsed.TotalSeconds);
         ConfigureFortificationRecovery(conn, pools.Life, sources);

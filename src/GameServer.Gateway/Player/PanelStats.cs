@@ -406,11 +406,13 @@ public static class PanelStats
         var result = new List<(string, int)>();
         int projectileBlock = get("additional_block_chance_against_projectiles_%");
         if (projectileBlock != 0)
-            result.Add(("projectile_attack_block_%", Math.Clamp(pools.BlockChanceUncapped + projectileBlock, 0, pools.BlockChanceMax)));
+            result.Add(("projectile_attack_block_%", pools.AttackBlockAtMaximum ? pools.BlockChanceMax
+                : Math.Clamp(pools.BlockChanceUncapped + projectileBlock, 0, pools.BlockChanceMax)));
         int spellProjectileBlock = get("base_spell_projectile_block_%");
         if (spellProjectileBlock != 0)
         {
-            result.Add(("spell_projectile_block_%", Math.Clamp(pools.SpellBlockChance + spellProjectileBlock, 0, pools.SpellBlockChanceMax)));
+            result.Add(("spell_projectile_block_%", pools.SpellBlockAtMaximum ? pools.SpellBlockChanceMax
+                : Math.Clamp(pools.SpellBlockChance + spellProjectileBlock, 0, pools.SpellBlockChanceMax)));
             result.Add(("spell_block_differs_against_projectiles", 1));
         }
         int chaosDot = get("additional_chaos_resistance_against_damage_over_time_%");

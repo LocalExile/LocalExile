@@ -177,6 +177,8 @@ public partial class ConditionalItemStatsTests
             Explicit_curse_cast_histories_reach_actual_item_consumers(conn, Wear);
             Qualified_flat_cost_sources_reach_skill_panels_and_payment(conn);
             Each_equipped_item_uses_qualified_counts_for_cost_and_recovery(conn);
+            Equipment_collections_reach_actual_helmet_life_and_regeneration(conn);
+            Qualified_maximum_block_flags_reach_pools_and_real_blocks(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);
