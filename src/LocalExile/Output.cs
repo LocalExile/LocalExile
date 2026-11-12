@@ -57,6 +57,29 @@ sealed class Output
         else Console.WriteLine(value);
     }
 
+    /// <summary>One client build LocalExile runs (the builds command). Steam's ids are text: a manifest id is larger than
+    /// a JSON reader's exact numbers.</summary>
+    public void Build(GameServer.Core.Protocol.ClientBuild build)
+    {
+        if (Json)
+        {
+            Event("build", new()
+            {
+                ["version"] = build.Version, ["name"] = build.Name, ["executableSha256"] = build.ExecutableSha256,
+                ["steamIndexSha256"] = build.SteamIndexSha256,
+                ["steamApp"] = build.SteamManifests is null ? null : GameServer.Core.Protocol.ClientBuilds.SteamApp.ToString(),
+                ["steamManifests"] = build.SteamManifests?.Select(m => new Dictionary<string, string>
+                    { ["depot"] = m.Depot.ToString(), ["manifest"] = m.Manifest.ToString() }).ToList(),
+            });
+            return;
+        }
+        Console.WriteLine(build);
+        Console.WriteLine($"  executable SHA-256  {build.ExecutableSha256}");
+        Console.WriteLine($"  Steam install       {(build.SteamIndexSha256 is null ? "not accepted" : "accepted")}");
+        if (build.SteamManifests is { } manifests)
+            Console.WriteLine($"  Steam download      app {GameServer.Core.Protocol.ClientBuilds.SteamApp}: {string.Join(", ", manifests.Select(m => $"depot {m.Depot} manifest {m.Manifest}"))}");
+    }
+
     /// <summary>--json never asks: the program runs again with the option this names.</summary>
     public LauncherException NeedsInput(string option, string message, string? suggestion = null)
     {

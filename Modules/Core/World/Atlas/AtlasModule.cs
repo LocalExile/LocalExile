@@ -36,7 +36,7 @@ public sealed class AtlasModule : IModule
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
         GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (conn, args) =>
         {
-            int n = await AtlasFeature.EnsureUnlocked(conn, explicitGrant: true);
+            int n = await AtlasFeature.EnsureUnlocked(conn);
             await PlayerOf(conn).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
         GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
@@ -173,9 +173,8 @@ static class AtlasFeature
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    internal static async Task<int> EnsureUnlocked(ClientState conn, bool explicitGrant = false)
+    internal static async Task<int> EnsureUnlocked(ClientState conn)
     {
-        if (!explicitGrant && !conn.EarnedQuestFlag(Quests.EndGameAvailable)) return 0;
         var missing = UnlockFlags.Where(f => !ClientHasQuestFlag(conn, f)).ToList();
         bool leagueChanged = ApplyLeagueFlags(conn);
         if (!conn.PlayerSent) return missing.Count + (leagueChanged ? 1 : 0);
@@ -199,7 +198,7 @@ static class AtlasFeature
     /// League flags are put on the connection here, before <c>PlayerForCreation</c> reads them.</summary>
     internal static IEnumerable<(string Log, byte[] Message)> Restore(ClientState conn)
     {
-        if (conn.EarnedQuestFlag(Quests.EndGameAvailable)) ApplyLeagueFlags(conn);
+        ApplyLeagueFlags(conn);
         var player = PlayerOf(conn);
         var data = WorldOf(player).CharacterData;
         var completed = AtlasProgress.Completed(data);
