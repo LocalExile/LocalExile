@@ -47,6 +47,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
     public bool Spell { get; init; }
+    /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
+    /// from that hand's own stats (11-skills.md, "A dual-wielded attack has two hands").</summary>
+    public bool DualWielding { get; init; }
 
     /// <summary>The attack's final stats (the client derives none, 11-skills.md §4): the swing time, reach and damage.
     /// These also go on the monster's Stats component.</summary>
@@ -55,7 +58,7 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
         int ms = (int)Math.Round(Seconds * 1000);
         var physical = Damage[DamageType.Physical];
         int min = (int)Math.Floor(physical.Min), max = (int)Math.Floor(physical.Max);
-        return
+        List<(uint, int)> stats =
         [
             (StatKeys.MainHandMinPhysical, min), (StatKeys.MainHandMaxPhysical, max),
             (StatKeys.MainHandMinTotal, min), (StatKeys.MainHandMaxTotal, max),
@@ -63,6 +66,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
             (StatKeys.HundredTimesAttacksPerSecond, (int)Math.Round(100 / Seconds)),
             (StatKeys.MainHandBaseMaxAttackDistance, (int)Range), (StatKeys.MainHandMaxAttackDistance, (int)Range),
         ];
+        if (DualWielding)
+            stats.AddRange(
+            [
+                (StatKeys.OffHandMinPhysical, min), (StatKeys.OffHandMaxPhysical, max),
+                (StatKeys.OffHandMinTotal, min), (StatKeys.OffHandMaxTotal, max),
+                (StatKeys.OffHandAttackDurationMs, ms), (StatKeys.OffHandTotalAttackDurationMs, ms),
+                (StatKeys.OffHandBaseMaxAttackDistance, (int)Range), (StatKeys.OffHandMaxAttackDistance, (int)Range),
+            ]);
+        return stats;
     }
 
     /// <summary>An actor whose actions a controller plays (KingInMists.cs): every skill starts at once, none walks it up.</summary>
@@ -136,10 +148,23 @@ public sealed record MonsterMovement
     /// <summary>Its reach as a share of the variety's attack distance, in place of the aggro range a ranged spell keeps (a
     /// skill's <c>spell_maximum_action_distance_+%</c>: -60 is 0.4), so it walks up before it casts; null keeps the row's.</summary>
     public double? Reach { get; init; }
+
+    /// <summary>What its object type adds to its walk speed by itself, which the client applies on its own (an .ot's
+    /// <c>base_movement_velocity_+%</c>): it scales only the server's walk estimate and is never sent.</summary>
+    public double SpeedFactor { get; init; } = 1;
+
+    /// <summary>Its walk goes through living bodies (a monster that walks through its own minions).</summary>
+    public bool ThroughBodies { get; init; }
+
+    /// <summary>While it walks up to a melee target it is ordered again at most this often, and only with its attack (an
+    /// order restarts its walk clip, so a frequent one makes it walk in steps); null is the ordinary cadence.</summary>
+    public double? ReorderSeconds { get; init; }
 }
 
 public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange, int stopRange, uint maxLife)
 {
+    /// <summary>How it moves where its variety's row does not say (SpawnMonster's <c>movement</c>).</summary>
+    public MonsterMovement Movement { get; init; } = MonsterMovement.Default;
     public double ReceivedActionFactor = 1;
     public double ReceivedActionUntil;
     public bool ReceivedActionFloor;

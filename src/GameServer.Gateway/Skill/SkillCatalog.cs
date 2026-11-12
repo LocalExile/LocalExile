@@ -234,6 +234,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return max > 0 ? max : 1;
     }
 
+    /// <summary>The level of a monster's effect for the monster's level: the highest whose PlayerLevelReq it meets, else its
+    /// lowest (Izaro's Leap Slam: levels 1, 2, 3 at 33, 68, 75; his Spikes: 30 levels, 22-33 damage at 32).</summary>
+    public int MonsterEffectLevel(int effectRow, int monsterLevel)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 1;
+        var levels = t.LevelReqsOf(t.StatSets[effectRow]);
+        int met = levels.Where(l => l.PlayerLevelReq <= monsterLevel).Select(l => l.GemLevel).DefaultIfEmpty(0).Max();
+        return met > 0 ? met : levels.Select(l => l.GemLevel).DefaultIfEmpty(1).Min();
+    }
+
     /// <summary>The character level a gem needs at this level (GrantedEffectStatSetsPerLevel PlayerLevelReq): the
     /// highest requirement of its levels at or below it, 0 when the skill has none.</summary>
     public int PlayerLevelReq(int effectRow, int level)
@@ -319,6 +329,24 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
     /// </summary>
     public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+
+    /// <summary>The effect's art (GrantedEffects <c>__col23</c>), the number the client takes as <c>skill_art_variation</c>:
+    /// SkillArtVariations' Variants of its skill (Izaro's Leap Slam 5 LabyrinthBoss, his Upheaval 5 Ornaments). Sent only on
+    /// the records that ask for it: without it the Upheaval drew Glacial Cascade's ice (live, Izaro).</summary>
+    public int ArtVariation(int effectRow) => _artVariations.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, int>> _artVariations = new(() =>
+    {
+        var result = new Dictionary<int, int>();
+        if (!ClientTables.Has("GrantedEffects")) return result;
+        int row = 0;
+        foreach (var effect in ClientTables.Table("GrantedEffects"))
+        {
+            int index = row++;
+            if (effect.IntOrNull("__col23") is int value && value > 0) result[index] = value;
+        }
+        return result;
+    });
 
     private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
     {

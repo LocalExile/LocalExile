@@ -108,6 +108,19 @@ public sealed class LabyrinthLayoutTests
         Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
     }
 
+    // Izaro's weapon as poelab.com's archived layouts of those days give it (all tiers): 0 mace, 1 sword and shield, 2 two swords.
+    [Theory]
+    [InlineData("2026-07-09", 1, 1)]
+    [InlineData("2026-07-09", 4, 0)]
+    [InlineData("2026-06-03", 2, 2)]
+    [InlineData("2026-06-03", 4, 1)]
+    [InlineData("2026-05-06", 1, 2)]
+    [InlineData("2026-04-08", 1, 0)]
+    [InlineData("2026-03-04", 2, 0)]
+    [InlineData("2025-01-11", 3, 2)]
+    public void IzarosWeaponIsTheOfficialOne(string day, int tier, int weapon) =>
+        Assert.Equal(weapon, IzaroFights.WeaponOf(LabyrinthDay.SeedOf(DateOnly.Parse(day)), tier));
+
     // EH bottleneck_06: lever 0's numbered disable to lever 1 of the same counter would leave the door shut for good. A
     // lever's plain disable (a pair) and a door's numbered one count.
     [Fact]
