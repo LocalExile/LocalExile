@@ -89,6 +89,16 @@ public partial class ConditionalItemStatsTests
             ("number_of_additional_chains_for_projectiles_while_phasing", "number_of_chains"),
             ("gain_iron_reflexes_while_stationary", "keystone_iron_reflexes"),
             ("you_have_zealots_oath_if_you_havent_been_hit_recently", "keystone_zealots_oath"),
+            ("chaos_damage_resistance_%_when_on_low_life", "base_chaos_damage_resistance_%"),
+            ("chaos_damage_resistance_%_while_affected_by_herald_of_agony", "base_chaos_damage_resistance_%"),
+            ("chaos_damage_resistance_%_while_affected_by_purity_of_elements", "base_chaos_damage_resistance_%"),
+            ("cold_damage_resistance_%_while_affected_by_herald_of_ice", "base_cold_damage_resistance_%"),
+            ("fire_damage_resistance_%_when_on_low_life", "base_fire_damage_resistance_%"),
+            ("fire_damage_resistance_%_while_affected_by_herald_of_ash", "base_fire_damage_resistance_%"),
+            ("lightning_damage_resistance_%_while_affected_by_herald_of_thunder", "base_lightning_damage_resistance_%"),
+            ("maximum_cold_damage_resistance_%_while_affected_by_herald_of_ice", "base_maximum_cold_damage_resistance_%"),
+            ("maximum_fire_damage_resistance_%_while_affected_by_herald_of_ash", "base_maximum_fire_damage_resistance_%"),
+            ("maximum_lightning_damage_resistance_%_while_affected_by_herald_of_thunder", "base_maximum_lightning_damage_resistance_%"),
         };
         var output = new Dictionary<string, Dictionary<string, int>>();
         foreach (var (source, target) in cases)
@@ -99,7 +109,8 @@ public partial class ConditionalItemStatsTests
             bool negative = notHit || source.Contains("havent_killed", StringComparison.Ordinal);
             var on = new StatConditions.Subject(
                 Recent: negative ? new HashSet<string>() : new HashSet<string> { StatConditions.Blocked, StatConditions.KilledEnemy, StatConditions.IgnitedEnemy },
-                Auras: new HashSet<string> { "determination", "discipline", "hatred", "anger", "wrath", "malevolence", "clarity", "herald_of_purity" },
+                Auras: new HashSet<string> { "determination", "discipline", "hatred", "anger", "wrath", "malevolence", "clarity",
+                    "herald_of_purity", "herald_of_agony", "herald_of_ice", "herald_of_ash", "herald_of_thunder", "purity_of_elements" },
                 Flags: flags.ToDictionary(s => s, _ => true), Value: _ => 10000);
             var off = new StatConditions.Subject(
                 Recent: negative ? new HashSet<string> { notHit ? StatConditions.BeenHit : StatConditions.KilledEnemy } : new HashSet<string>(),
@@ -114,6 +125,23 @@ public partial class ConditionalItemStatsTests
             Assert.Equal(11, ItemModStats.Sum([item], Program.Items.Mods).GetValueOrDefault(source));
             Assert.Equal(11, ItemModStats.Sum([item], Program.Items.Mods, subject: on, statExists: _ => false).GetValueOrDefault(source));
             output[source] = held;
+            if (target.EndsWith("_damage_resistance_%", StringComparison.Ordinal))
+            {
+                var inputs = held.Where(p => Program.Stats.Key(p.Key) is not null)
+                    .ToDictionary(p => Program.Stats.Key(p.Key)!.Value, p => p.Value);
+                var bonus = Game.PassiveBonus(inputs, default, default);
+                Assert.Equal(11, target switch
+                {
+                    "base_fire_damage_resistance_%" => bonus.FireResistance,
+                    "base_cold_damage_resistance_%" => bonus.ColdResistance,
+                    "base_lightning_damage_resistance_%" => bonus.LightningResistance,
+                    "base_chaos_damage_resistance_%" => bonus.ChaosResistance,
+                    "base_maximum_fire_damage_resistance_%" => bonus.FireMaxResistance,
+                    "base_maximum_cold_damage_resistance_%" => bonus.ColdMaxResistance,
+                    "base_maximum_lightning_damage_resistance_%" => bonus.LightningMaxResistance,
+                    _ => throw new InvalidOperationException(target),
+                });
+            }
         }
         int Read(string source, string name) => output[source].GetValueOrDefault(name);
         var iron = output["gain_iron_reflexes_while_stationary"].Where(p => Program.Stats.Key(p.Key) is not null)
