@@ -95,11 +95,11 @@ public static partial class Game
     {
         if (aura.EffectId == "TempestShield") return SupportedHitFor(conn, aura.SkillId, suppress: false);
         var skill = SupportedSkill(conn, aura.SkillId);
-        return ReservationSecondaryProfiles(conn, aura, skill, CharacterPlayerStats(conn))(0, 0, false, false).Hit;
+        return ReservationSecondaryProfiles(conn, aura, skill, CharacterPlayerStats(conn))(0, 0, false, false, false).Hit;
     }
 
     // One proc captures the raw secondary packet and its source modifiers before selecting any target.
-    static Func<long, int, bool, bool, ReservationDamageProfile> ReservationSecondaryProfiles(ClientState conn, AuraCatalog.Aura aura,
+    static Func<long, int, bool, bool, bool, ReservationDamageProfile> ReservationSecondaryProfiles(ClientState conn, AuraCatalog.Aura aura,
         SupportedGem skill, IReadOnlyDictionary<uint, int> player)
     {
         var stats = MergeSkillStats(player, skill.Stats);
@@ -116,9 +116,9 @@ public static partial class Game
         var modifiers = skill.Supports.SelectMany(s => s.Stats)
             .Select(s => (Stats.Name(s.Key) ?? "", s.Value)).ToArray();
         var types = Supports.Of(aura.Effect)?.Types.ToHashSet();
-        return (increased, webs, ignited, bleeding) =>
+        return (increased, webs, ignited, bleeding, lowLife) =>
         {
-            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding);
+            int TargetStat(string name) => TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife);
             increased += SpiderDamageIncrease(Get, webs);
             var woven = SpiderRawDamage(raw, Get, webs, AddedEffectiveness(conn, aura.Effect, aura.Level));
             var hit = PlayerHitDamage.Resolve(woven, TargetStat, conversion,
@@ -154,7 +154,7 @@ public static partial class Game
         long additionalIncreased = Stats.Key(PlayerHitDamage.VsBlindedDamageStat) is uint key
             ? (long)player.GetValueOrDefault(key) + skill.Stats.GetValueOrDefault(key) : 0;
         ReservationDamageProfile normalProfile, blindedProfile;
-        Func<long, int, bool, bool, ReservationDamageProfile> targetProfile;
+        Func<long, int, bool, bool, bool, ReservationDamageProfile> targetProfile;
         if (aura.EffectId == "TempestShield")
         {
             if (SupportedHitInputsFor(conn, aura.SkillId, capturedGem: skill) is not { } inputs) return;
@@ -169,18 +169,18 @@ public static partial class Game
             normalProfile = Profile(0);
             blindedProfile = additionalIncreased == 0 ? normalProfile : Profile(additionalIncreased);
             var spider = CaptureSpiderDamage(conn, inputs, AddedEffectiveness(conn, aura.Effect, aura.Level), context: true);
-            targetProfile = (increase, webs, ignited, bleeding) =>
+            targetProfile = (increase, webs, ignited, bleeding, lowLife) =>
             {
                 if (spider is null) return increase == 0 ? normalProfile : blindedProfile;
-                var woven = SpiderDamageProfile(spider, webs, increase != 0, ignited, bleeding);
+                var woven = SpiderDamageProfile(spider, webs, increase != 0, ignited, bleeding, lowLife);
                 return new(woven.Hit, woven.Ignite, woven.Bleed, woven.Poison);
             };
         }
         else
         {
             var secondary = ReservationSecondaryProfiles(conn, aura, skill, player);
-            normalProfile = secondary(0, 0, false, false);
-            blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false);
+            normalProfile = secondary(0, 0, false, false, false);
+            blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false);
             targetProfile = secondary;
         }
         double radius = ReservationRadius(conn, aura, aura.EffectId == "TempestShield" ? 60 : 32);
@@ -200,7 +200,7 @@ public static partial class Game
                 // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
                 bool targetWasBlinded = Blinded(conn, id);
                 var profile = targetProfile(targetWasBlinded ? additionalIncreased : 0, m.SpiderWebs.Count(now),
-                    m.Ignites.Burning, m.Bleeds.Burning);
+                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
                 var targetPacket = profile.Hit;
                 bool spell = aura.EffectId == "TempestShield";
                 int Player(string n) => GolemStat(player, n);

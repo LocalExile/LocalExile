@@ -27,10 +27,10 @@ public static partial class Game
     }
 
     public static PlacedSkills.DamageProfile SpiderDamageProfile(SpiderDamageSource source, int webs, bool blinded,
-        bool ignited = false, bool bleeding = false)
+        bool ignited = false, bool bleeding = false, bool lowLife = false)
     {
         int RawStat(string name) => Stats.Key(name) is uint key ? source.Stats.GetValueOrDefault(key) : 0;
-        int Get(string name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding);
+        int Get(string name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife);
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
         var hit = PlayerHitDamage.Resolve(raw, Get, source.Conversion, spell: !source.Attack && !source.Secondary,

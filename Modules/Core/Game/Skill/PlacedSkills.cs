@@ -343,7 +343,7 @@ public static partial class Game
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
             if (placed.Offense?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(conn, id),
-                    m.Ignites.Burning, m.Bleeds.Burning);
+                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
             var rolled = profile.Hit.Scale(more).Roll(Random.Shared);
             var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
             int damage = MonsterTakesMitigated(m, mitigated, spell, now);
