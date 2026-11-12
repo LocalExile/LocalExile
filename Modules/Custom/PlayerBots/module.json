@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "kind": "feature",
   "depends": [
-    "Game"
+    "Game",
+    "Social"
   ],
   "assembly": "bin/playerbots.dll"
 }

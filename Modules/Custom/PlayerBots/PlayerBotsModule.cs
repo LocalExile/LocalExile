@@ -23,11 +23,9 @@ public sealed class PlayerBotsModule : IModule
         AppContext.SetData(Running, (Action)director.Stop);
         module.Lifetime.Own(new StopOnDispose(director.Stop));
         director.Start();
-        // Parties with bots (BotParty): the Social module passes on the invites and parties that are not its own.
+        // Social owns the shared roster; this module resolves town actors that have no human socket.
         GameEvents.Packet(InstanceSocial.PartyInviteId).Add(module.Manifest.Id, async (conn, bytes) =>
             await director.Invite(conn, InstanceSocial.ReadPartyInvite(bytes)) != BotInvite.NotFound);
-        GameEvents.Packet(InstanceSocial.PartyLeaveId).Add(module.Manifest.Id, (conn, bytes) => director.Leave(conn, InstanceSocial.ReadPartyAccept(bytes)));
-        GameEvents.Packet(InstanceSocial.PartyKickId).Add(module.Manifest.Id, (conn, bytes) => director.Kick(conn, InstanceSocial.ReadPartyKick(bytes.AsSpan())));
         // The party panel's invite box reaches a bot by name (C→S 0x93 is passed on to this module), but a player who
         // types a command instead needs the same path: '/botinvite' takes the invite, '/botleave' takes the party away,
         // so a bot can be tried out without opening the social panel.
@@ -39,7 +37,7 @@ public sealed class PlayerBotsModule : IModule
             await director.Tell(Program.PlayerOf(conn), result switch
             {
                 BotInvite.Joined => $"{name} joined your party.",
-                BotInvite.Refused => $"Five bots already follow you, so {name} stayed behind.",
+                BotInvite.Refused => $"Your party is full or unavailable, so {name} stayed behind.",
                 _ => $"No bot you can see is called \"{name}\" (names are in Modules/Custom/PlayerBots/state/bots.json).",
             });
         });

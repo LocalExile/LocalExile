@@ -17,6 +17,9 @@ public static class ClientTables
     /// <summary>When client.db was last written (a cache key for a parse of one of its tables).</summary>
     public static DateTime Written => File.Exists(DefaultPath) ? File.GetLastWriteTimeUtc(DefaultPath) : default;
 
+    /// <summary>Identity for derived immutable caches: this flow's override, otherwise the database path and revision.</summary>
+    public static object CacheKey => (object?)Override.Value ?? (DefaultPath, Written);
+
     /// <summary>Whether client.db (or the tables a test gave <see cref="Use"/>) has the table.</summary>
     public static bool Has(string table)
     {

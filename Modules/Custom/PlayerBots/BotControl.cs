@@ -1,3 +1,4 @@
+using GameServer.Modules.Social;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -70,6 +71,8 @@ sealed partial class BotDirector
                     controller = bot.Control?.Controller, leaseSecondsLeft = bot.Control?.Remaining ?? 0,
                     party = _bots.Where(b => b.Party == bot.Party && b.LeaderName == bot.LeaderName).Select(b => new
                         { botId = b.CharacterId, name = b.Name, peerId = b.PeerId, controller = b.Control?.Controller }).ToArray(),
+                    players = PartyRoster.Players(bot.Party).Select(c => new
+                        { name = Program.CharacterName(c), peerId = c.PeerId, leader = ReferenceEquals(c, bot.Leader) }).ToArray(),
                     observation = CommandRules.ObserveControlledPlayer(bot.Combat!, bot.Leader!) };
             }
             if (tool == "claim_bot")
@@ -113,7 +116,8 @@ sealed partial class BotDirector
             if (action == "move" || action == "cast" && target == 0)
             { _ = BotMcpProtocol.Integer(args, "x", 0, int.MaxValue); _ = BotMcpProtocol.Integer(args, "y", 0, int.MaxValue); }
             if (action == "cast" && target != 0 && target != bot.Combat!.PeerId && target != bot.Leader!.PeerId
-                && !_bots.Any(b => b.Party == bot.Party && ReferenceEquals(b.Leader, bot.Leader) && b.PeerId == target))
+                && !PartyRoster.Players(bot.Party).Any(c => c.PeerId == target)
+                && !_bots.Any(b => b.Party == bot.Party && b.Phase == BotPhase.Following && b.PeerId == target))
             {
                 lock (bot.Combat.Monsters)
                     if (!bot.Combat.Monsters.TryGetValue(target, out var hostile) || !hostile.Hostile)
@@ -133,7 +137,7 @@ sealed partial class BotDirector
         }
     }
 
-    static bool Ready(Bot b) => Program.GameLogicOrNull is IControlledPlayerCommands && b.Phase == BotPhase.Following && b.Leader is { Controlled: false, Closed: false, LeavingArea: false, PlayerSent: true }
+    static bool Ready(Bot b) => PartyRoster.ContainsCompanion(b.Party, b.Account) && Program.GameLogicOrNull is IControlledPlayerCommands && b.Phase == BotPhase.Following && b.Leader is { Controlled: false, Closed: false, LeavingArea: false, PlayerSent: true }
         && b.Combat is { Closed: false, LeavingArea: false, ControlledPrepared: true, PlayerSent: true }
         && ReferenceEquals(b.Combat.Instance, b.Leader.Instance);
 

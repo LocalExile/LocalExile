@@ -175,6 +175,7 @@ public sealed partial class DelveModule
     {
         var conn = ConnOf(player);
         if ((state.Rail ??= DelveRailRoute.Load(player.AreaId, conn.Seed)) is not { } rail) return;
+        if (state.Trail.Contains(state.DestinationLight)) state.DestinationLight = 0;
         foreach (uint id in state.Trail) await RemoveSceneObject(player, id);
         state.Trail.Clear();
         bool completed = state.Journey?.Completed == true || conn.Instance.HasState(DestinationFlag(player));
