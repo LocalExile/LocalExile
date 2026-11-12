@@ -90,6 +90,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- **Map shrines.** A generated map's shrine room lines (`Metadata/Shrines/Shrine`) become shrine objects on walkable
+  ground, typed from the area seed; a click in walk-up range grants that Shrines row's buff for its duration (45 s,
+  the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
+  click's animation. The fifteen basic types are what a map rolls; the guard packs and monster buffs of the boss and
+  influence rows come from the data. The Lightning shrine's Shock Novas and shocked ground run while its buff is up,
+  and `/shrines [Id …]` places types around the player for checking.
+  Code: `Modules/Core/World/Shrines` (`ShrinesModule.cs`, `ShrineManager.cs`, `ShrineBehaviour.cs`, `ShrineRegistry.cs`,
+  `Effects/ShockNovaEffect.cs`), `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`, `ShrinePlacement.cs`),
+  `src/GameServer.Core/Protocol/Instance/ShrineObject.cs`.
+  Not verified with the client yet. The other types' active effects (Freezing and Burning novae, Skeletal summons,
+  Smoke's cloud) are not built, and the tables carry no activated statue state for the standard rows, so a used shrine
+  is consumed rather than dimmed.
+
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
   orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped

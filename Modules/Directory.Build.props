@@ -48,6 +48,7 @@
     <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
+    <InternalsVisibleTo Include="shrines" />
     <InternalsVisibleTo Include="social" />
     <InternalsVisibleTo Include="survivorsskills" />
     <InternalsVisibleTo Include="survivorsrewards" />
