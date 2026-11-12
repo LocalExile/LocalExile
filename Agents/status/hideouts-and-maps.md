@@ -145,7 +145,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     map quantity and the owner's legacy scarab bonus, cap at equipment capacity, and survive reentry/module reload.
     Fumes adds mine guards and a native enrage visual with +50% item quantity on affected monsters; its radius,
     guard placement and exact official combat tuning remain server approximations.
-    Full resource snapshots are followed by 0x226 gauge updates on entry and chart opening.
+    Entry sends a full snapshot without a zero-gain event; chart opening refreshes its gauge with 0x226.
     Two unchanged-value updates settle the paused chart and invalidate its label position; the number follows the fill edge.
     A third update suppresses the native invalidation. Both the fill and label were verified without client changes.
   - The native HUD gauge is permanent in mine areas (type 27). Niko maps now keep its transient display visible
@@ -178,6 +178,8 @@ Part of [Status](../Status.md); what to build next in this area is in
     Tunnel stragglers do not block completion; the next direction requires a new selection.
     Death, leaving or module reload discards the unfinished trip, retains spent sulphite and restores the saved point.
     The Crawler follows authored rails, waits at 70 cells (resumes below 60), and speeds up along the rails when led.
+    Departure waits for the player to leave a 180-cell-diameter native circle, with no travel debit while waiting.
+    Completion keeps a permanent endpoint light and plays the native checkpoint activation animation with its success sound.
     The Crawler's own forward axis leads each rail segment; rounded cells do not change its heading, and only clear
     sleeve connections are smoothed. Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
     Supported Weta/Spider packs
@@ -186,7 +188,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     Newly opened destinations receive one completion reward; revisiting opened points cannot farm free rewards.
     Native walking/Kinetic Blast completed a route with exact 24 sulphite debit and one reward. Native checks also
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
-    Chart continuity inside the mine requires the now-sent DelveOwner flag.
+    DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
     General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).

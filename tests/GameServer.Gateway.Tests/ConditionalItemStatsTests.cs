@@ -337,9 +337,10 @@ public class ConditionalItemStatsTests
             {
                 Pools = new(1, 1000, 100, 2, 0), PlayerLife = 900,
             };
+            // Cold catalogue setup can outlast Recently; observe the contact at its captured game time.
+            double now = conn.Clock.Elapsed.TotalSeconds;
             Assert.True(Game.TrySyntheticEnemyHit(conn, GameServer.Core.World.DamageType.Physical, 1,
                 block: false, spell: false, suppress: false, out _));
-            double now = conn.Clock.Elapsed.TotalSeconds;
             Assert.Equal(1, conn.RecentEnemyHits.Count(now));
             Assert.True(conn.RecentEvents.Happened(StatConditions.BeenHit, now));
             conn.InvalidateIncomingHits(clear: false);
