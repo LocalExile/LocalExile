@@ -43,10 +43,11 @@ PathOfExile*.exe
 *.pem
 .env
 .env.*
-*secret*
-!**/*Secret*.cs
-# The client tables LabyrinthSecrets and LabyrinthSecretEffects are game data, not secrets.
-!/sql/**/*LabyrinthSecret*.sql
+# The servers' keys by name, wherever Game_INSTANCE_SECRET points (data/ is ignored above). Named rather than a
+# *secret* pattern: Git on Windows ignores case, and that matched client tables such as LabyrinthSecrets.
+instance-secret*.bin
+login-keys*.json
+*.secret
 
 # --- Machine-local tool config (absolute paths to this PC) ---
 .mcp.json
