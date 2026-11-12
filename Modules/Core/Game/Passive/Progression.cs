@@ -733,6 +733,10 @@ public static partial class Game
             if (Stats.Key(name) is uint key) sources[key] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
         var attributes = AttributeInputs(rawAttributes, dev);
+        var finalAttributes = attributes.Apply(c.Strength + (conn.God ? 1000 : 0),
+            c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
+        AttributeOffenceSources.Apply(sources, Stats,
+            finalAttributes.Strength, finalAttributes.Dexterity, finalAttributes.Intelligence);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);
