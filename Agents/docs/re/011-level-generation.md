@@ -1462,6 +1462,17 @@ the target open, so the recorder's write of the fourth object threw and left the
 
 ## 8. Tooling
 
+On Linux/Proton, Gum must initialize and discover libc in the preload constructor, before Wine replaces the ELF main
+image with the PE image. Attaching after that failed in the Linux Frida bootstrapper; loading Gadget late could not
+identify its range. The recorder instead finds the copied PE image in `/proc/self/maps` and checks its hook bytes.
+PE hooks still use Windows x64 arguments (`rcx`, `rdx`, `r8`, `r9`, then stack +40); the height sampler needs an
+`ms_abi` call from the Linux helper. Captures use the same writer and file formats as Windows.
+The verified client PID/start time and a private Unix socket bind each stream to its checkout.
+PowerShell passes `$null` to `SetEnvironmentVariable` as an empty string; .NET on Linux keeps that value.
+Use `[NullString]::Value` to unset it: an empty `Game_PATCH_WEB_ROOT` advertises `/`, which the gate's log parser
+correctly excludes because it cannot identify the client version.
+This enables manual recording and Gateway `/tour`; `tourloop.py` and `client_control.py` still require Windows.
+
 - **Trace:** `live.ps1 -Walkmaps` also hooks the generator (`scripts/walkmaps/walkmaps.js`, `hookGeneration`) and
   writes `data/walkability/<area>_seed<seed>.gen.json`: every draw on the generating thread as
   `[kind, caller VA, argument, result]` (`n` = `Next`, `u` = `Uniform` called directly, `r` = raw draw from elsewhere,
