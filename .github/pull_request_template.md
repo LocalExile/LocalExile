@@ -16,7 +16,7 @@ Closes #
 - Head commit:
 - [ ] `dotnet build GameServer.slnx`
 - [ ] Core, Data and Gateway test suites, with their counts:
-- [ ] Seen in the client, or why not:
+- [ ] Seen in the client (optional):
 
 ## For the reviewer
 
