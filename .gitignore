@@ -45,6 +45,8 @@ PathOfExile*.exe
 .env.*
 *secret*
 !**/*Secret*.cs
+# The client tables LabyrinthSecrets and LabyrinthSecretEffects are game data, not secrets.
+!/sql/**/*LabyrinthSecret*.sql
 
 # --- Machine-local tool config (absolute paths to this PC) ---
 .mcp.json
