@@ -1,7 +1,7 @@
 # Agent instructions
 
-LocalExile is a local server for the Path of Exile 3.29.3c client, built by people and AI agents working together.
-All agent and contributor documentation is in [Agents/](Agents/). Read these first:
+LocalExile is a local server for the Path of Exile 3.29.3c and 3.29.3d clients, built by people and AI agents working
+together. All agent and contributor documentation is in [Agents/](Agents/). Read these first:
 
 1. [Agents/GettingStarted.md](Agents/GettingStarted.md): setup from a fresh clone, the rules for running the client,
    the third-party tools, troubleshooting.
@@ -46,6 +46,14 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
 - **Start the client only through `scripts/dev/live.ps1`, and only one at a time unless each has its own session**
   (`-Session`; checkouts' servers side by side need `-PortBase`: [live testing](Agents/docs/dev/live-testing.md)).
   Any other launch contacts the official patch servers and can update the client, which breaks the setup.
+- **Only the client builds in `src/GameServer.Core/Protocol/ClientBuilds.cs` run; any other is refused.** A new Path
+  of Exile patch becomes a row only when `scripts/re/port/compare_builds.py` and the table comparison show the same
+  code and data and a live run passes ([tooling](Agents/docs/re/tooling.md) §11). A build that differs needs a port.
+  Never loosen the check, and never add a row without that evidence in the pull request.
+- **Addresses in the docs and scripts are the 3.29.3c client's.** Code addresses and message ids hold for every
+  allowed build; addresses of data (globals, vtables, strings) do not. A tool that must work on every allowed build
+  reads a global through an instruction that uses it (`globalAt` in `scripts/dev/client-control.js`); the
+  reverse-engineering scripts in `scripts/re` fit 3.29.3c only.
 - **Run commands from the repository root.**
 - **Keep production game-data paths relative to the repository root (`data/`).** Do not add parent-directory
   searching, an absolute `DataFolder`, or catalog-path changes to accommodate tests or one machine.
