@@ -498,6 +498,7 @@ public static partial class Game
         bool WieldingWand = false, bool WieldingBow = false)
     {
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
+        public int WeaponIncreased { get; init; }
     }
 
     public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
@@ -551,7 +552,11 @@ public static partial class Game
         return new(raw, Get, DamageStats.Conversion(stats, Stats, attack), attack,
             Melee: attack && types.Contains(19), Area: attack ? types.Contains(7) : Get("is_area_damage") != 0,
             Projectile: attack ? types.Contains(2) : Get("base_is_projectile") != 0, modifiers, types, plan, caster,
-            WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true) { FrozenStats = new Dictionary<uint, int>(stats) };
+            WieldingWand: attackWeapon?.WieldingWand == true, WieldingBow: attackWeapon?.Bow == true)
+        {
+            FrozenStats = new Dictionary<uint, int>(stats),
+            WeaponIncreased = attackWeapon is null ? 0 : SupportedAttackDamage.WeaponIncrease(attackWeapon, Get),
+        };
     }
 
     public static GameServer.Core.World.DamagePacket SupportedHitFor(ClientState conn, ushort skillId, bool suppress, bool? area = null,
@@ -567,7 +572,7 @@ public static partial class Game
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
             wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),
-            additionalIncreased: additionalIncreased);
+            additionalIncreased: additionalIncreased + (inputs.Attack ? inputs.WeaponIncreased : 0));
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }

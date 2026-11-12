@@ -483,6 +483,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Stormheart/Stormwall Shock avoidance and Guise's toggle/hit-corpse destruction have separate d lifecycle controls.
   Replica Ambu's recent-hit Life loss consumes its qualified coefficient independently of damage and recovery scaling;
   automated controls cover interval overlap, source changes, pending fractions, loading and lethal resource ordering.
+  Qualified low-Life claw damage reaches that hand's hits and frozen target profiles; the negative-Life damage
+  prohibition reaches existing hit/ailment consumers. Claw-only hit increases do not change spells or ailments.
   Farrul's Chase's native warcry trigger, self movement expiry, Double Strike and source removal pass; allies are automated.
   Block Recovery now adds base and raw direct Stun Recovery once from the same snapshot, including already expanded
   per-charge recovery. Life/Mana/ES on-kill amounts and the flask-duration coefficient include their real per-player-level

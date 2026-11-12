@@ -423,7 +423,7 @@ public static partial class Game
         int Get(string name) => RageStat(stats, name);
         var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
-            additionalIncreased: additionalIncreased);
+            additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get));
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
     }
 

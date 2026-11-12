@@ -17,6 +17,7 @@ public static class AttackSkillHit
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
         return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, Get,
             DamageStats.Conversion(conversionInputs, catalog, attack: true), spell: false,
-            melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand), Get), Get);
+            melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
+            additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get)), Get), Get);
     }
 }

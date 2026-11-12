@@ -1159,6 +1159,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         public DamagePacket? LocalDamage { get; init; }
         /// <summary>Raw local modifiers captured with this weapon, including penetration and impale chance.</summary>
         public IReadOnlyDictionary<string, int>? LocalSources { get; init; }
+        public string? ItemClass { get; init; }
         public static readonly Unarmed Witch = new(833, 2, 5, 8);
 
         /// <summary>The weapon's own added elemental/chaos damage (its local added damage mods, ItemWeapons), added to

@@ -3,11 +3,16 @@ using GameServer.Core.World;
 
 public static class SupportedAttackDamage
 {
+    // ModParser's "with Claws" is Claw + Hit, not an ailment increase. This belongs to the attacking hand.
+    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<string, int> get) =>
+        weapon.ItemClass == "Claw" ? get("claw_damage_+%") : 0;
+
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {
         return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
-            wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120));
+            wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
+            additionalIncreased: WeaponIncrease(weapon, get));
     }
 
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a

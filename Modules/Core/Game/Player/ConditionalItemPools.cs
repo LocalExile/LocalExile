@@ -71,7 +71,7 @@ public static partial class Game
         foreach (var (key, value) in ConditionalRings(ItemsOf(conn).EquipmentSnapshot(), activeRings).Flags) flags[key] = value;
         flags["_while_you_have_fortify"] = flags["_while_fortified"];
         // The uniques spell the life/mana states with "when"; the same state answers both keys.
-        foreach (string state in new[] { "_on_full_life", "_on_low_life", "_on_full_mana", "_on_low_mana" })
+        foreach (string state in new[] { "_on_full_life", "_on_low_life", "_not_on_low_life", "_on_full_mana", "_on_low_mana" })
             flags["_when" + state] = flags["_while" + state];
         var weapons = WeaponProfileFor(conn);
         flags["_while_unarmed"] = weapons.Unarmed;

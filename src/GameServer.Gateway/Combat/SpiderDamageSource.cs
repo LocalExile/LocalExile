@@ -5,4 +5,5 @@ public sealed record SpiderDamageSource(DamagePacket Raw, DamageConversion Conve
     IReadOnlyDictionary<uint, int> Caster, bool Attack, bool Melee, bool Area, bool Projectile,
     IReadOnlyList<(string Name, int Value)> Modifiers, IReadOnlySet<int> Types, double Effectiveness,
     bool WieldingWand = false, bool Context = false, bool Secondary = false, bool Volatile = true,
-    IReadOnlyDictionary<string, int>? Local = null, bool Bow = false, double IgniteFactor = 1, double PoisonFactor = 1);
+    IReadOnlyDictionary<string, int>? Local = null, bool Bow = false, double IgniteFactor = 1, double PoisonFactor = 1,
+    int WeaponIncreased = 0);
