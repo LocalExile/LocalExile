@@ -225,7 +225,7 @@ public static partial class Game
                     }
                     else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     {
-                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
+                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         conn.Walk.Teleport(landing.X, landing.Y, at);
                     }
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
