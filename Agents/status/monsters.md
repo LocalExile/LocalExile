@@ -244,10 +244,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
   the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
   other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
-  a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
+  a layout that gives an area no boss room point stands its unique boss at the walk map's deepest cell from the
+  entrance, so a new (area, seed) has its boss; the room points themselves are still what `-Walkmaps` captures
+  ([14](../docs/protocol/14-monster-packs.md) §4).
   Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
   A boss's later form is created where its act forms one: the quest's second-form rule spawns it on the boss's death
   (Merveil's twisted form, Abberath2, Shakari2, Malachai's second form; `Act1.cs`, `Act4.cs`, `Act6.cs`, `Act9.cs`).
+  Marceus the Defaced (a tile's statue spawner) and Thistlesage (no room names his pack) have no boss room point of
+  their own: the deepest-cell fallback above is where they stand, not at the statue or the pack room
+  ([14](../docs/protocol/14-monster-packs.md) §3).
+  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
+  that does not create it yet.

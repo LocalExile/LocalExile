@@ -204,6 +204,9 @@ placement algorithms remain unknown.
   (it sets `num_states`, or pauses no clip) are still skipped.
 - Fire Fury uses only her first granted effect. Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
   extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md §6).
+- A layout whose room fit finds no boss room at all still places the area's unique bosses: each stands at the walk map's
+  deepest cell from the entrance (clear of the area transitions), the place a boss room would be. Our fallback, chosen so
+  a seed nobody recorded has its boss; the room itself stays unplaced.
 - **Rarity life:** a magic, rare or unique monster has `monster_life_+%_final_from_rarity` of its rarity's monster mod
   (Mods.dat MonsterMagic2 148, MonsterRare2 390, MonsterUnique2 698) on top of its base life; the Gateway applies it
   and sends the stat and the final `maximum_life` in the monster's Stats (the client applies no modifier itself: with
