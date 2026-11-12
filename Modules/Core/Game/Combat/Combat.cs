@@ -646,6 +646,17 @@ public static partial class Game
         bool flicker = moves && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
         // The monster Flicker Strike goes to, which may not be the clicked one (FlickerStrike.Pick): its strike's target.
         uint struckId = use.TargetId;
+        (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
+        bool noFlickerTarget = false;
+        // With no monster in range, Flicker Strike is not used: no cost, cooldown use or charge (the client may still
+        // send it for a monster it has not yet seen die).
+        bool FlickerAdmit()
+        {
+            double t = ProjectileWorldTime(conn);
+            flickerTo = FlickerDestination(conn, gem.Effect, use.SkillId, conn.Walk.Position(t), m.Walk.Position(t), use.TargetId, t);
+            noFlickerTarget = flickerTo is null;
+            return !noFlickerTarget;
+        }
         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
             () =>
@@ -657,22 +668,21 @@ public static partial class Game
                 conn.Walk.Order(stand.X, stand.Y, castAt);
                 // A movement skill aimed at a monster travels as one aimed at the ground does.
                 if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, aim.X, aim.Y, castAt);
-                else if (flicker)
+                else if (flicker && flickerTo is { } to)
                 {
-                    // With no monster in range it strikes in place, at no one (as on the ground).
-                    (landing, struckId) = (stand, 0);
-                    if (FlickerDestination(conn, gem.Effect, use.SkillId, stand, aim, use.TargetId, castAt) is { } to)
-                    {
-                        (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
-                        conn.Walk.Teleport(landing.X, landing.Y, castAt);
-                    }
+                    (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
+                    conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
                 else if (moves)
                 {
                     landing = MovementLanding(conn, gem.Effect, stand, aim);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
-            }, out var spellUse, requestedAt: requestedAt)) return;
+            }, out var spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null))
+        {
+            if (noFlickerTarget) await FlickerRefused(remote, stream, ciphers, conn, gem.Name!);
+            return;
+        }
         if (chargeToken != 0) _ = RunShieldCharge(remote, stream, ciphers, conn, chargeToken, conn.Walk.ArrivesAt,
             use.SkillId, use.Sequence, spellUse?.ActionToken ?? castAction, spellUse);
         bool spellAcknowledged = false;
@@ -794,10 +804,9 @@ public static partial class Game
             }
         }
         // A link gem (Soul Link …) links its target at the end of its cast; it has no upfront cost, only its cost over time.
-        if (gem.Name is not null && LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+        if (gem.Name is not null && IsLinkSkill(conn, gem.Effect))
             return await CastLink(remote, stream, ciphers, conn, skillId, gem.Effect, targetId, Current);
-        if (gem.Name is not null && PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false }
-            && SupportedReservation(conn, skillId) is { } reservation)
+        if (gem.Name is not null && ToggledReservation(conn, skillId) is { } reservation)
         {
             if (!Current()) return false;
             if (SkillsFor(conn).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
@@ -815,7 +824,9 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!Current()) return false;
-                paid = PayMana(conn, skillId, out cost, out lifeCost);
+                // A cooldown use paid when it was accepted (TryBeginCooldownUseCore) is not paid again.
+                if (cooldownUse?.Paid is { } prepaid) (paid, cost, lifeCost) = (true, prepaid.Mana, prepaid.Life);
+                else paid = PayMana(conn, skillId, out cost, out lifeCost);
                 if (paid) criticalRoll = CaptureSkillCriticalRoll(conn, skillId);
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true)
                 {
