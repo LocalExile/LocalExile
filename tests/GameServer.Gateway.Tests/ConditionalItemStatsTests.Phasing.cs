@@ -182,6 +182,7 @@ public partial class ConditionalItemStatsTests
             Blinded_item_conditions_use_the_existing_timed_owner_and_charge_consumer(conn, Wear);
             Qualified_item_ignore_resistance_reaches_hit_mitigation(conn);
             Maximum_endurance_source_owns_onslaught_and_zero_maximum(conn, Wear);
+            Chilled_staff_sources_reach_existing_shock_avoidance(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

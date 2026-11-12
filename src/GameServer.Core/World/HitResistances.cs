@@ -13,7 +13,7 @@ namespace GameServer.Core.World;
 /// such as the unconditional pen stats) and the pass subtracts the sum after the cap, as PoB's <c>resist − pen</c>
 /// without another floor. <c>cannot_penetrate_or_ignore_elemental_resistances</c> (row 12051, key 12052) suppresses
 /// both the ignore and every elemental penetration (PoB's <c>CannotElePenIgnore</c>). Physical and chaos are not
-/// elemental — chaos keeps its own attack-only penetration path — and a damage-over-time tick is not a strike: it
+/// elemental; chaos can have its own explicit ignore or penetration, independently of that prohibition. A DoT is not a strike: it
 /// can neither critically strike nor penetrate. A target's own "resistance cannot be penetrated" is a penetration
 /// guard only; nothing here treats it as ignore protection.
 ///
@@ -64,8 +64,7 @@ public static class HitResistances
     /// The suppressor zeroes the penetration (the target's and the conditional one) and keeps the plain capped
     /// value. Otherwise the non-critical hit's conditional penetration stacks with the target's own general one;
     /// a critical hit without the ignore takes no conditional penetration, because the stat's condition is a
-    /// negated CriticalStrike. A non-elemental part or a damage-over-time tick passes the target through untouched,
-    /// keeping its own penetration path.
+    /// negated CriticalStrike. Physical, unignored chaos and damage-over-time parts pass the target through untouched.
     /// </summary>
     public static double FinalValue(DamageType type, DamageModel.ResistanceValue target,
         in Strike strike, in Mods mods, bool invertElemental = false)
