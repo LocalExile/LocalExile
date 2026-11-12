@@ -27,9 +27,69 @@ that fails names itself and the error.
 ## Protected files
 
 `.github/CODEOWNERS` lists what only the maintainer can approve: agent instructions and guides, repository controls,
-build files and dependencies, the launcher, the patch server, mod loading, the SQL schema and the `auth` and
-`characters` updates, and legal files.
+build files and dependencies, the reviewer warnings script, the launcher, the patch server, mod loading, the SQL schema
+and the `auth` and `characters` updates, and legal files.
 Gateway and module code is not on the list and still runs on the machine of whoever launches it, so review it as code.
+
+## Reviewer warnings
+
+`scripts/dev/pr_warnings.py` lists what a reviewer has to look at by hand in what a pull request adds.
+It only warns: nothing it reports blocks a merge, and a quiet report does not show that a change is safe.
+It reads the diff, the title, the description and the commit messages, and never checks out or runs the pull request.
+Use the copy on `main`, not the pull request's own.
+
+```powershell
+python -I scripts/dev/pr_warnings.py 852                             # one pull request (needs gh)
+python -I scripts/dev/pr_warnings.py --all                           # every open one that is not a draft
+python -I scripts/dev/pr_warnings.py --base origin/main --head HEAD  # a local branch, the diff only
+```
+
+| Warning | Rules |
+|---|---|
+| project | a new project, solution or build file; a package, an assembly reference or a build step |
+| network | web clients and requests, DNS lookups, downloads from a script, an address outside the docs scan's hosts; sockets outside `tests/` |
+| process | a started process or shell, PowerShell from text, code loaded at run time, native calls, the registry, scheduled tasks |
+| filesystem | the user's profile, key and credential files; deletes outside `tests/` |
+| encoded | Base64 decoded at run time |
+| sql | `sql/base/`, an edited merged update, the `auth` and `characters` databases, `DROP`, `TRUNCATE`, `ATTACH`, `PRAGMA`, triggers, `DELETE` and `UPDATE` without `WHERE` |
+| injection, pr-text | the docs scan's phrasing rules on code and data outside comments, and on the title, description and commit messages |
+| binary, script, repository | an added binary, an added script, a change under `.github/` |
+
+The report names a rule and a place; `--show-lines` adds the line, cut short.
+Loopback sockets and deletes inside `tests/` are not reported: the tests work that way.
+A stacked pull request is read against the open one it sits on, so a warning shows once.
+The rules match text: they find the careless and the plain, not what was hidden on purpose.
+Offline checks: `python scripts/dev/test_pr_warnings.py`.
+
+## Labels and claiming
+
+| Label | Means |
+|---|---|
+| `needs-author` | waits on its author: a conflict with `main`, requested changes or a failing check |
+| `BLOCKED` | waits on another pull request, named in a comment |
+| `protected-files` | changes a path in `.github/CODEOWNERS`, so it needs that path's owner |
+
+A maintainer who starts on a pull request or an issue assigns themselves; one with no assignee is free.
+
+Nothing sets or clears these labels by itself. `scripts/dev/pr_queue.py` reads every open pull request and says where
+each stands, without changing anything:
+
+```powershell
+python -I scripts/dev/pr_queue.py          # every open one that is not a draft (needs gh)
+python -I scripts/dev/pr_queue.py 736 741  # only these
+```
+
+- A conflict is real when the merge into `main` fails locally, tried in memory with `main`'s rules for the lists
+  ("Merging lists" below). One that GitHub shows only in those lists is named apart and needs no label.
+- A pull request is stacked when it contains another open one's head commit. A conflict in the same files as the one
+  below it is fixed there, so it gets `BLOCKED` alone.
+- The protected paths come from `main`'s `.github/CODEOWNERS`, the last matching pattern, as GitHub reads it.
+
+It ends with the labels to add and the ones nothing was found for, each with its reason; for `needs-author`, whether
+the author has pushed or replied since it was set. A person may have set `needs-author` or `BLOCKED` for a reason Git
+does not show, so look before taking one off. Offline checks: `python scripts/dev/test_pr_queue.py`.
+
+Both scripts need Python 3.9 or newer. `pr_queue.py` also needs Git 2.41 or newer and says so on an older one.
 
 ## Merging lists
 
