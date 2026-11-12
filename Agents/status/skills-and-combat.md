@@ -62,6 +62,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Contagion and Contagion of Subsiding: a chaos damage over time with no hit; a monster that dies affected spreads
+  it for the time it had left. Not yet: the debuff icon (BuffDefinitions 504 crashes the client), Contagion of
+  Transference, a spread when a projectile or a minion makes the kill.
+- Essence Drain: a surviving hit leaves a chaos damage over time that recovers life for its caster, and
+  Contagion's spread carries it. Not yet: the debuff icon (503 crashes the client), Essence Drain of
+  Desperation's life loss, the debuff in Survivors.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
@@ -126,7 +132,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Totems: Rejuvenation, projectile spells and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
-- Rampage and Soul Eater from item stats. Docs: [11](../docs/protocol/11-skills.md) §12.
+- Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
+  Docs: [11](../docs/protocol/11-skills.md) §12.
 - Stats: the client's stat keys and the player's base pools. Docs: [11](../docs/protocol/11-skills.md) §4, §8, §14.
 - Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) §4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) §9.

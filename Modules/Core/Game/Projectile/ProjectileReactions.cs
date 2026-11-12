@@ -184,7 +184,7 @@ public static partial class Game
         {
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash
                 ? openMap.Area.Tier : 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn),
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             if (DropsFor(conn).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
             drops.AddRange(ExtraDropsFromMap(conn, monster.Level, monster.Rarity, random));

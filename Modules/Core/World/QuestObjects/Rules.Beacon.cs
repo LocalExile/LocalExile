@@ -144,7 +144,7 @@ static partial class QuestobjectsRules
                 var position = cart.Start with { X = (int)Math.Round(at.X), Y = (int)Math.Round(at.Y) };
                 lock (conn.QuestObjects)
                 {
-                    id = conn.NextObjectId++;
+                    id = conn.TakeObjectId();
                     conn.QuestObjects[id] = (new Quests.ObjectRule(Act6Areas.Beacon, Act6Objects.BeaconPayload, BeaconCartFlag(cart.Start)), position, info);
                 }
                 await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(Act6Objects.BeaconPayload),

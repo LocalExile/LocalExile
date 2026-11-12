@@ -36,6 +36,20 @@ public static class SavesMigration
         log ??= Console.WriteLine;
         using var claim = Claim(SaveDatabase.LegacyPath + ".migrating");
         if (!File.Exists(SaveDatabase.LegacyPath)) return;
+        // An interrupted first start may leave only an empty placeholder. Keep any journal
+        // with its database: a zero-byte main file alone cannot rule out recoverable pages.
+        string legacy = SaveDatabase.LegacyPath;
+        using (var file = new FileStream(legacy, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+        {
+            if (file.Length == 0 && !File.Exists(legacy + "-wal") && !File.Exists(legacy + "-journal")
+                && !File.Exists(legacy + "-shm"))
+            {
+                string aside = $"{legacy}.empty-{Guid.NewGuid():N}";
+                File.Move(legacy, aside);
+                log($"[migrate] preserved empty legacy database at {aside}");
+                return;
+            }
+        }
         if (File.Exists(Characters) || File.Exists(Auth))
             throw new SqlUpdateException($"{SaveDatabase.LegacyPath} is from before the player databases were split, and " +
                 $"{Characters} or {Auth} is already there. Move the new ones away to migrate " +
