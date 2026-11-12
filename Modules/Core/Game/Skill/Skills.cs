@@ -420,6 +420,7 @@ public static partial class Game
         lock (conn.Monsters) nodes = [.. conn.Passives];
         var extra = new Dictionary<uint, int>(CharacterStatSources(conn, nodes).Stats);
         AddGolemStats(conn, extra);
+        AddSelfOfferingStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
         foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))
             if (Stats.Key(stat) is uint key) extra[key] = value;

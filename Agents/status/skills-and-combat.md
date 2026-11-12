@@ -355,7 +355,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The player's debuffs on monsters: taunt, enemy auras, Intimidate, Unnerve and Wither.
   Docs: [11](../docs/protocol/11-skills.md) §12, [Paladin](../docs/game/paladin.md).
 - Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
-- Self-targeted spells. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
 

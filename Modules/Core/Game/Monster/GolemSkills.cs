@@ -17,7 +17,7 @@ public static partial class Game
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[name] = values.GetValueOrDefault(name) + value;
         }
-        foreach (var (name, value) in golem.Auras) values[name] = values.GetValueOrDefault(name) + value;
+        foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         int Get(string n) => GolemStat(player, n);
         if (!golem.Definition.IsGolem)
@@ -244,6 +244,7 @@ public static partial class Game
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Own.OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Auras.OrderBy(p => p.Key)) hash.Add(p);
+        foreach (var p in golem.Utility.OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Gear.OrderBy(p => p.Key)) hash.Add(p);
         int input = hash.ToHashCode();
         if (input == golem.InputHash) return;
