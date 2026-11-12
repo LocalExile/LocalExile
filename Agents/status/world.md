@@ -101,9 +101,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   past it rather than removed on the cast interval; the 3351 donut is not sent). The five ground patches are refreshed
   in place while they stay around the caster, and the player's Shocked Ground icon (BuffDefinitions 232) is not sent:
   that buff write desynced the client, while the ground, its monster shock and the nova hit are fine.
+  The Freezing shrine (the Cold row) has an effect of its own too: the Ice Nova of GrantedEffects 101 while it stands and
+  102 for the claimed buff is cast on the statue once a second, then follows the player, and it is two visuals from the
+  client's arts — the frozen ground the skill's `ice_nova_places_ground_ice` leaves (MiscAnimated 3871), placed once and
+  static, and the frost burst (MiscAnimated 14, `icenova_02`) over it, which lives its own 833 ms clip, so the burst is
+  the pulse. Both are drawn at the size their own art is made for (the meshes' ±244.4 and ±137.7 units, the burst ~12.7
+  cells), which is how the client shows them: enlarging them to the 30 cells the hit reaches (26 raised by the stat set's
+  15% final) drew a frozen floor across most of the screen.
   and `/shrines [Id …]` places types around the player for checking.
   Code: `Modules/Core/World/Shrines` (`ShrinesModule.cs`, `ShrineManager.cs`, `ShrineBehaviour.cs`, `ShrineRegistry.cs`,
-  `Effects/ShockNovaEffect.cs`), `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`, `ShrinePlacement.cs`),
+  `Effects/ShockNovaEffect.cs`, `Effects/IceNovaEffect.cs`), `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`,
+  `ShrinePlacement.cs`),
   `src/GameServer.Core/Protocol/Instance/ShrineObject.cs`.
   The on-kill explosion a shrine can promise (`explode_enemies_for_25%_life_as_chaos_on_kill_chance_%`, Gloom's 40%
   for 25% of the dead monster's maximum life as chaos) is the existing kill explosion (`Game.ExplodeOnKill`), which
@@ -113,9 +121,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   the shrine aura's EncounterStats: a monster already in the shrine's radius gets it on the next tick, as one that walks in does.
   The aura is server-side only: no 0x01c1 buff is sent for it, so the monsters around an unclaimed shrine wear no icon
   (the stats still apply, and are restored when they leave, the shrine is claimed or the area unloads).
-  Not verified with the client yet. The other types' active effects (Freezing and Burning novae, Skeletal summons,
-  Smoke's cloud) are not built, and the tables carry no activated statue state for the standard rows, so a used shrine
-  is consumed rather than dimmed.
+  The Lightning and Freezing effects were checked with the client (their art draws and their hits land); the claimed
+  buffs' versions are less exercised. The other types' active effects (the Burning nova, Skeletal summons, Smoke's
+  cloud) are not built, and the tables carry no activated statue state for the standard rows, so a used shrine is
+  consumed rather than dimmed.
 
 - Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
   player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'

@@ -195,6 +195,11 @@ sealed class ShockNovaEffect : IShrineEffect
             // The hit is not the player's own, so tell the client what it did to the shield pool as well: without this the
             // shield never moves on the panel and a hit that only drained energy shield looked like it did nothing.
             await SendPlayerEnergyShield(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
+            // A shrine nova can kill: at zero life the client needs the death screen, exactly as a monster hit's lethal
+            // damage does (PlayerDied). Without it the character stays standing at 0 life with no way to act or respawn.
+            if (conn.PlayerLife == 0)
+                await PlayerDied(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn,
+                    $"0x0055 death screen ({conn.League ?? "?"} league, a shrine Shock Nova)");
             return;
         }
         if (packet.MaxTotal > 0)

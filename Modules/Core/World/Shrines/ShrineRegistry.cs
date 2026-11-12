@@ -160,6 +160,17 @@ public static class ShrineRegistry
             BeforeActivation = [() => new MonsterAuraEffect()],
         });
 
+        // Cold (the Freezing shrine): Ice Nova on the statue while it stands unclaimed, then following the player for its
+        // 45 s buff. Shrines row Cold, BuffTemplates 394, GrantedEffects 101 ShrineIceNova and 102 ShrineIceNovaPlayer,
+        // daemon MonsterVarieties 2920.
+        Register(new ShrineDefinition
+        {
+            Id = "Cold",
+            Name = "Freezing Shrine",
+            BeforeActivation = [() => new IceNovaEffect()],
+            AfterActivation = [() => new IceNovaEffect()],
+        });
+
         // Lightning: Shock Novas and shocked ground around the shrine while it stands unclaimed, then around the player
         // while its buff is up.
         Register(new ShrineDefinition
