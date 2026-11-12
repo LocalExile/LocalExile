@@ -1821,6 +1821,7 @@ public static partial class Game
         VaalOversoul.LaserShock(conn, m, a, ailmentTaken, blocked, now, stats);
         conn.RecentEnemyHits.Record(now);
         conn.RecentEvents.Record(StatConditions.BeenHit, now);
+        RecentHitLifeLossOnHitLocked(conn, now);
         UnhingedHitRecoveryLocked(conn, now, stats);
         if (blocked)
         {

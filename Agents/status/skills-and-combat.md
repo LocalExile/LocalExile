@@ -479,6 +479,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Conditional defence, recovery, spell-critical and penetration aliases reach existing consumers; automated checks pass.
   Retaliation's Blind/Frenzy, Shroud/Dreadsurge hit resistance and maximum-charge Onslaught have d source controls.
   Stormheart/Stormwall Shock avoidance and Guise's toggle/hit-corpse destruction have separate d lifecycle controls.
+  Replica Ambu's recent-hit Life loss consumes its qualified coefficient independently of damage and recovery scaling;
+  automated controls cover interval overlap, source changes, pending fractions, loading and lethal resource ordering.
   Farrul's Chase's native warcry trigger, self movement expiry, Double Strike and source removal pass; allies are automated.
   Block Recovery now adds base and raw direct Stun Recovery once from the same snapshot, including already expanded
   per-charge recovery. Life/Mana/ES on-kill amounts and the flask-duration coefficient include their real per-player-level

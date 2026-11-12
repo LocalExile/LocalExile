@@ -146,6 +146,7 @@ public static partial class Game
         foreach (var (key, value) in MadnessRawStatsLocked(conn, sources))
             sources[key] = ActorScale.Saturate((long)sources.GetValueOrDefault(key) + value);
         lock (conn.Monsters) ConfigureChargeDegeneration(conn, worn, inactive);
+        lock (conn.Monsters) ConfigureRecentHitLifeLoss(conn, worn, inactive);
         sources = WithAvatarOfFire(conn, sources);
         sources = WithHerEmbrace(conn, sources);
         sources = WithElusive(conn, sources);

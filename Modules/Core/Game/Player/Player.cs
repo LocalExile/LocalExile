@@ -1259,7 +1259,7 @@ public static partial class Game
             if (ailmentDeathEpoch is int lethalEpoch)
                 await PlayerDiedAtEpoch(remote, stream, ciphers, conn,
                     trapDeath ? "0x0055 lethal trap degeneration"
-                        : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal elemental ailment", lethalEpoch);
+                        : pbDeath ? "0x0055 Petrified Blood life loss" : "0x0055 lethal resource loss", lethalEpoch);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendPlayerEnergyShield(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;

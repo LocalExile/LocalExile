@@ -93,6 +93,9 @@ public sealed class RecentEvents
     /// the set stays the size of what actually happened in the last four seconds.</summary>
     public bool Happened(string key, double now) => last.TryGetValue(key, out double at) && Recent(at, now, Window(key));
 
+    public (double From, double Until)? LastWindow(string key) => last.TryGetValue(key, out double at)
+        ? (at, at + Window(key)) : null;
+
     /// <summary>Every key that happened within the window, for a <c>StatConditions.Subject</c>. A key whose event never
     /// happened, or whose last one has aged out, is absent, which is what a "not X recently" stat reads as true.</summary>
     public IReadOnlySet<string> Snapshot(double now)

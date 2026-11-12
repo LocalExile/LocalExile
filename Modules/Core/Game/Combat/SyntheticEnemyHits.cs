@@ -64,6 +64,7 @@ public static partial class Game
             TrimLeechLocked(conn);
             conn.RecentEnemyHits.Record(now);
             conn.RecentEvents.Record(StatConditions.BeenHit, now);
+            RecentHitLifeLossOnHitLocked(conn, now);
             UnhingedHitRecoveryLocked(conn, now, stats);
             if (blocked)
             {

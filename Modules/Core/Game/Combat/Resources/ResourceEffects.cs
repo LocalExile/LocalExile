@@ -14,7 +14,8 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
     public sealed record Snapshot(ManaRecoupState.Carried Mana, (double Seconds, int Less)[] Blind,
         PhysicalAegisState.Carried? Aegis, Game.CarriedSiphoning? Siphoning, Game.CarriedAvatar? Avatar = null,
         Game.CarriedHerEmbrace? HerEmbrace = null, Game.CarriedElusive? Elusive = null,
-        Game.CarriedChargeDegeneration? ChargeDegeneration = null);
+        Game.CarriedChargeDegeneration? ChargeDegeneration = null,
+        Game.CarriedRecentHitLifeLoss? RecentHitLifeLoss = null);
     public Snapshot? TransferCheckpoint;
     public bool Loading;
     public IReadOnlyCollection<(uint Actor, ushort Buff)> RetiredBuffs => retired;
@@ -30,7 +31,8 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         connection is null ? null : Game.CaptureAvatarOfFire(connection, at),
         connection is null ? null : Game.CaptureHerEmbrace(connection, at),
         connection is null ? null : Game.CaptureElusive(connection, at),
-        connection is null ? null : Game.CaptureChargeDegeneration(connection, at));
+        connection is null ? null : Game.CaptureChargeDegeneration(connection, at),
+        connection is null ? null : Game.CaptureRecentHitLifeLoss(connection, at));
     public void CollectRetiredTargets(ClientState conn)
     {
         foreach (var (id, value) in Targets.ToArray())
@@ -41,7 +43,11 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
             }
         conn.RetiredResourceBuffs.UnionWith(retired); retired.Clear();
     }
-    public void Freeze(double at) => TransferCheckpoint = Capture(at);
+    public void Freeze(double at)
+    {
+        TransferCheckpoint = Capture(at);
+        if (connection is not null) Game.PauseRecentHitLifeLoss(connection, at);
+    }
     public void Resume(double at)
     {
         // A refused transfer resumes the live draft, discarding loading earnings rather than paying catch-up.
@@ -55,6 +61,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
             Game.RestoreElusive(connection, elusive, at);
         if (connection is not null && TransferCheckpoint?.ChargeDegeneration is { } degeneration)
             Game.RestoreChargeDegeneration(connection, degeneration, at);
+        if (connection is not null) Game.RestoreRecentHitLifeLoss(connection, TransferCheckpoint?.RecentHitLifeLoss, at);
         Mana.Take(at); Mana.DiscardRecoveryFraction(); PlayerBlind.Read(at); TransferCheckpoint = null;
     }
     public void Restore(Snapshot value, double at)
@@ -66,6 +73,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         if (connection is not null && value.HerEmbrace is { } embrace) Game.RestoreHerEmbrace(connection, embrace, at);
         if (connection is not null && value.Elusive is { } elusive) Game.RestoreElusive(connection, elusive, at);
         if (connection is not null && value.ChargeDegeneration is { } degeneration) Game.RestoreChargeDegeneration(connection, degeneration, at);
+        if (connection is not null) Game.RestoreRecentHitLifeLoss(connection, value.RecentHitLifeLoss, at);
     }
     public void Clear()
     {
@@ -73,6 +81,7 @@ public sealed class ResourceEffectsState(IModuleLifetime? rules, IModuleLifetime
         {
             Game.RetireAvatarOfFire(connection);
             Game.RetireHerEmbrace(connection);
+            Game.RetireRecentHitLifeLoss(connection);
             Game.RetireElusive(connection);
             if (Game.ChargeSessions.TryGetValue(connection, out var charges)) charges.Degeneration.Clear(Game.ResourceEffectsTime(connection));
             connection.RetiredPhysicalAegisBuffs.UnionWith(connection.PhysicalAegis.Retire());
@@ -151,6 +160,7 @@ public static partial class Game
         if (conn.PlayerLife > 0) AdvanceSiphoningDamageLocked(conn, now, stats);
         if (conn.PlayerLife > 0) AdvanceHerEmbraceDamageLocked(conn, now, stats);
         if (conn.PlayerLife > 0) AdvanceChargeDegenerationLocked(conn, now, stats);
+        if (conn.PlayerLife > 0) AdvanceRecentHitLifeLossLocked(conn, now);
         if (conn.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(conn).Clear(now); FortificationOf(conn).Clear();
