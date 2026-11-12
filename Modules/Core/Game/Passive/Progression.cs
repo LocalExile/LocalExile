@@ -737,6 +737,7 @@ public static partial class Game
             c.Dexterity + (conn.God ? 1000 : 0), c.Intelligence + (conn.God ? 1000 : 0));
         AttributeOffenceSources.Apply(sources, Stats,
             finalAttributes.Strength, finalAttributes.Dexterity, finalAttributes.Intelligence);
+        LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);
