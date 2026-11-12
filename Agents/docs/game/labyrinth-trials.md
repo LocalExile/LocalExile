@@ -481,6 +481,8 @@ monster skills of [roadmap/monsters](../../roadmap/monsters.md).
 **Mirrored rooms** (orientation codes 4–7) mirror a line's angle only, and the client draws a server object
 unmirrored, so a corner piece (`spinner_rail_corner`, `SpinnerStopper_Corner`) is sent a quarter turn back
 (`LabyrinthTrials.PlacedAngle`): a mirrored L is the L turned a quarter (live 2026-11-01: corners faced away).
+A line's own flip flag counts too, so a flipped line in a mirrored room is not mirrored: EH `secret_payload_01` has most
+of its track flipped (its links show where each corner leads; every room's corners agree with this rule).
 
 **Spinner rooms' swap piece.** Under each spinner of the Crypt set's two-lever rooms lies a
 `Rail_Visible_Swap_Anims10` (`SpinnerStopper_Corner2`; the `.ot` is `Anims01`'s with the clips the other way round),
