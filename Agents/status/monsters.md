@@ -124,6 +124,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
 - Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
+
+- Act bosses' own row mods decide two things the tables state outright, and only these two are read so far:
+  a boss whose row names `ImmuneToKnockback` (Dominus, both Malachai forms, Avarius, Vilenta, Piety's beast …) is no
+  longer shoved — that used to be asked of the client's component list, which falls back to the eight base components
+  and so never carried it — and the death of a stage whose row names `MonsterNoDropsOrExperience` (Malachai's first
+  form, Shakari, Piety's escape) gives no items and no experience, while `MonsterNoDrops` (Abberath, Shavronne's tower,
+  Maligaro's souls) gives no items and keeps its experience. `BossHealOnPlayerDeath` and its Minor form are not read:
+  the extracted stat it uses is 0 for both, so the two tiers cannot be told apart. Code: `BossMods.cs`,
+  `Knockback.cs`, `Combat.cs`, `MinionOutcomes.cs`. Not yet played against the real client.
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
   Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is
@@ -241,5 +250,5 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
-  that does not create it yet.
+  A boss's later form is created where its act forms one: the quest's second-form rule spawns it on the boss's death
+  (Merveil's twisted form, Abberath2, Shakari2, Malachai's second form; `Act1.cs`, `Act4.cs`, `Act6.cs`, `Act9.cs`).
