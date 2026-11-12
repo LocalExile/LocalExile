@@ -65,6 +65,7 @@ public static class CharacterSaves
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, bool? PetrifiedBlood = null,
         string? SelectedHideout = null, OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
+        byte? Descendancy = null, List<ushort>? DescendancyNodes = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
         Dictionary<string, List<SavedMonsterStatue>>? MonsterStatues = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
@@ -406,6 +407,19 @@ public static class CharacterSaves
         {
             Tattoos = new(tattoos),
             TattooKeystones = keystones is null ? s.TattooKeystones : new(keystones),
+        });
+
+    /// <summary>The Descendancy.dat row the client draws as its second ascendancy layer (Affliction's Wildwood
+    /// specialisations, the 3.29 Bloodline classes); 0 clears it. The nodes belong to that row's tree. The expected row
+    /// and nodes are the connection's copy: a newer selection or allocation makes this write fail like the main
+    /// ascendancy's snapshot, instead of replacing it.</summary>
+    public static void SetDescendancy(string character, byte row, IEnumerable<ushort>? nodes = null,
+        byte? expectedRow = null, IReadOnlySet<ushort>? expectedNodes = null) =>
+        Update(character, s =>
+        {
+            if (expectedRow is { } expected && (s.Descendancy ?? 0) != expected) throw new PassiveProgressConflictException();
+            if (expectedNodes is not null && !expectedNodes.SetEquals(s.DescendancyNodes ?? [])) throw new PassiveProgressConflictException();
+            return s with { Descendancy = row, DescendancyNodes = [.. nodes ?? []] };
         });
 
     /// <summary>

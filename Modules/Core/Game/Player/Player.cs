@@ -1195,6 +1195,7 @@ public static partial class Game
             // The saved Pantheon gods (campaign/pantheon.md §5): the Player component's two bytes.
             PantheonMajor = PantheonCatalog.Default.Value.Wire(conn.PantheonMajor),
             PantheonMinor = PantheonCatalog.Default.Value.Wire(conn.PantheonMinor),
+            Descendancy = conn.DescendancyRow,
             WashedUp = washedUp,
             Rotation = washedUp ? layout.SpawnRotation : 0,
         };
