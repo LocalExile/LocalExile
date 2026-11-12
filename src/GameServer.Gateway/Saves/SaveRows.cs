@@ -416,7 +416,7 @@ public static class SaveRows
                 var save = Parse<Save>(db, json, $"character {name}");
                 long id = Insert(db, "INSERT INTO character_saves (name, has_inventories) VALUES ($name, 0) RETURNING id", ("$name", name));
                 WriteCharacterRow(db, id, save);
-                Same(json, ReadCharacter(db, id), $"character {name}", save);
+                Same(json, ReadCharacter(db, id), $"character {name}");
                 count++;
             }
             foreach (var (name, deleted, json) in Triples(db, "SELECT name, deleted_utc, save FROM deleted_characters ORDER BY rowid"))
@@ -425,7 +425,7 @@ public static class SaveRows
                 long id = Insert(db, "INSERT INTO character_saves (name, deleted_utc, has_inventories) VALUES ($name, $at, 0) RETURNING id",
                     ("$name", name), ("$at", deleted));
                 WriteCharacterRow(db, id, save);
-                Same(json, ReadCharacter(db, id), $"deleted character {name}", save);
+                Same(json, ReadCharacter(db, id), $"deleted character {name}");
                 count++;
             }
             foreach (var (account, json) in Pairs(db, "SELECT account, save FROM stashes ORDER BY account"))
@@ -460,28 +460,43 @@ public static class SaveRows
     }
 
     /// <summary>Throws unless <paramref name="back"/> is the save of <paramref name="json"/>: the same JSON once object keys
-    /// are in order and a property that is null or an empty object is left out (an absent map and an empty one are the
-    /// same save). For old character JSON, supply its parsed save to fill only omitted schema defaults; raw unknown
-    /// fields are retained in the comparison so a field the row writer drops still refuses migration.</summary>
-    static void Same(string json, object? back, string what, object? parsed = null)
+    /// are in order, known fields use current defaults and scalar forms, and null or empty objects are left out.
+    /// Unknown input fields remain part of the comparison.</summary>
+    static void Same(string json, object? back, string what)
     {
-        var expected = JsonNode.Parse(json);
-        if (parsed is not null) FillMissing(expected, JsonSerializer.SerializeToNode(parsed, parsed.GetType(), Json));
-        string want = Canonical(expected), got = Canonical(back is null ? null : JsonSerializer.SerializeToNode(back, back.GetType(), Json));
+        var original = JsonNode.Parse(json);
+        if (back is not null)
+        {
+            var parsed = JsonSerializer.Deserialize(json, back.GetType(), Json);
+            original = WithDefaults(original, JsonSerializer.SerializeToNode(parsed, back.GetType(), Json));
+        }
+        string want = Canonical(original), got = Canonical(back is null ? null : JsonSerializer.SerializeToNode(back, back.GetType(), Json));
         if (want != got)
             throw new InvalidDataException($"{what} does not come back the same from the save tables; nothing was moved. " +
                 $"Saved: {Shorten(want)} Read: {Shorten(got)}");
         static string Shorten(string s) => s.Length > 400 ? s[..400] + "..." : s;
     }
 
-    static void FillMissing(JsonNode? saved, JsonNode? parsed)
+    // Known fields use the current record's defaults and scalar forms; unknown input fields stay in the loss guard.
+    static JsonNode? WithDefaults(JsonNode? original, JsonNode? parsed)
     {
-        if (saved is JsonObject original && parsed is JsonObject current)
-            foreach (var (key, value) in current)
-                if (!original.ContainsKey(key)) original.Add(key, value?.DeepClone());
-                else FillMissing(original[key], value);
-        if (saved is JsonArray items && parsed is JsonArray defaults && items.Count == defaults.Count)
-            for (int i = 0; i < items.Count; i++) FillMissing(items[i], defaults[i]);
+        if (original is JsonObject target && parsed is JsonObject model)
+        {
+            foreach (var field in model)
+                if (!target.ContainsKey(field.Key)) target[field.Key] = field.Value?.DeepClone();
+                else
+                {
+                    var normalized = WithDefaults(target[field.Key], field.Value);
+                    if (!ReferenceEquals(normalized, target[field.Key])) target[field.Key] = normalized;
+                }
+        }
+        else if (original is JsonArray targetArray && parsed is JsonArray modelArray)
+            for (int i = 0; i < Math.Min(targetArray.Count, modelArray.Count); i++)
+            {
+                var normalized = WithDefaults(targetArray[i], modelArray[i]);
+                if (!ReferenceEquals(normalized, targetArray[i])) targetArray[i] = normalized;
+            }
+        return original is JsonValue && parsed is JsonValue ? parsed.DeepClone() : original;
     }
 
     static string Canonical(JsonNode? node) => Normalize(node)?.ToJsonString() ?? "null";

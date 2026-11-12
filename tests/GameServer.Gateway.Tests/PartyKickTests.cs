@@ -41,15 +41,22 @@ public class PartyKickTests
         leader.Outbox = leaderOutbox;
         first.Outbox = firstOutbox;
         second.Outbox = secondOutbox;
-        const uint party = 0x9000_0101;
-        SocialFeature.Parties[party] = [leader, first, second];
+        uint party = 0;
+        leader.Controlled = first.Controlled = second.Controlled = false;
         try
         {
+            await PartyRoster.InviteHuman(leader, first.Character!);
+            party = PartyRoster.PartyOf(leader);
+            await PartyRoster.AcceptHuman(first, party);
+            await PartyRoster.InviteHuman(leader, second.Character!);
+            await PartyRoster.AcceptHuman(second, party);
+            leaderMessages.Clear(); firstMessages.Clear(); secondMessages.Clear();
             // The leader kicks one of three: it is told (0xaa) and the remaining two get the smaller party (0xa9).
-            Assert.True(await SocialFeature.KickOrCancelParty("kick-test", leader, "KickMemberA"));
+            Assert.True(await PartyRoster.Kick(leader, "KickMemberA"));
             var removed = Assert.Single(WithId(firstMessages, InstanceSocial.PartyRemoveId));
             Assert.Equal(party, PartyOf(removed));
-            Assert.True(SocialFeature.Parties.TryGetValue(party, out var left));
+            var left = PartyRoster.Players(party);
+            Assert.Equal(2, left.Length);
             Assert.Equal(["KickLeader", "KickMemberB"], left.Select(c => c.Character));
             foreach (var (to, messages) in new[] { (leader, leaderMessages), (second, secondMessages) })
             {
@@ -62,13 +69,17 @@ public class PartyKickTests
             leaderMessages.Clear();
             firstMessages.Clear();
             secondMessages.Clear();
-            Assert.True(await SocialFeature.KickOrCancelParty("kick-test", leader, "KickMemberB"));
-            Assert.False(SocialFeature.Parties.ContainsKey(party));
+            Assert.True(await PartyRoster.Kick(leader, "KickMemberB"));
+            Assert.Null(PartyRoster.Leader(party));
             Assert.Single(WithId(secondMessages, InstanceSocial.PartyRemoveId));
             var disbanded = Assert.Single(WithId(leaderMessages, InstanceSocial.PartyRemoveId));
             Assert.Equal(party, PartyOf(disbanded));
         }
-        finally { SocialFeature.Parties.TryRemove(party, out _); TestEnvironment.ReleaseSaves(saves); }
+        finally
+        {
+            foreach (var c in new[] { leader, first, second }) await PartyRoster.LeaveHuman(c, PartyRoster.PartyOf(c));
+            TestEnvironment.ReleaseSaves(saves);
+        }
     }
 
     [Fact]
@@ -81,32 +92,47 @@ public class PartyKickTests
         var invited = runtime.Connection(instance, wire, "CancelTarget");
         var (invitedMessages, invitedOutbox) = Capture();
         invited.Outbox = invitedOutbox;
-        const uint invite = 0x9000_0111, party = 0x9000_0112;
-        SocialFeature.PartyInvites[invite] = (leader, invited);
+        leader.Controlled = invited.Controlled = false;
+        await PartyRoster.InviteHuman(leader, invited.Character!);
+        uint invite = PartyRoster.PartyOf(leader);
+        invitedMessages.Clear();
         try
         {
             // The invited player never joined: the leader drops the invitation and that player is told (0xaa).
-            Assert.True(await SocialFeature.KickOrCancelParty("kick-test", leader, "CancelTarget"));
-            Assert.False(SocialFeature.PartyInvites.ContainsKey(invite));
+            Assert.True(await PartyRoster.Kick(leader, "CancelTarget"));
+            await PartyRoster.AcceptHuman(invited, invite);
+            Assert.Equal(0u, PartyRoster.PartyOf(invited));
             var dropped = Assert.Single(WithId(invitedMessages, InstanceSocial.PartyRemoveId));
             Assert.Equal(invite, PartyOf(dropped));
         }
-        finally { SocialFeature.PartyInvites.TryRemove(invite, out _); }
+        finally
+        {
+            await PartyRoster.LeaveHuman(leader, PartyRoster.PartyOf(leader));
+            await PartyRoster.LeaveHuman(invited, PartyRoster.PartyOf(invited));
+        }
 
         var member = runtime.Connection(instance, wire, "CancelMember");
         var (messages, outbox) = Capture();
         member.Outbox = outbox;
-        SocialFeature.Parties[party] = [leader, member];
+        member.Controlled = false;
+        await PartyRoster.InviteHuman(leader, member.Character!);
+        uint party = PartyRoster.PartyOf(leader);
+        await PartyRoster.AcceptHuman(member, party);
+        messages.Clear();
         try
         {
             // The client offers Kick only to the leader: a member's message changes nothing and sends nothing.
-            Assert.True(await SocialFeature.KickOrCancelParty("kick-test", member, "CancelLeader"));
-            Assert.Equal(2, SocialFeature.Parties[party].Count);
+            Assert.True(await PartyRoster.Kick(member, "CancelLeader"));
+            Assert.Equal(2, PartyRoster.Players(party).Length);
             Assert.Empty(messages);
         }
-        finally { SocialFeature.Parties.TryRemove(party, out _); }
+        finally
+        {
+            await PartyRoster.LeaveHuman(leader, PartyRoster.PartyOf(leader));
+            await PartyRoster.LeaveHuman(member, PartyRoster.PartyOf(member));
+        }
 
         // A player in no party is another module's (the PlayerBots one owns its bots' parties): leave it alone.
-        Assert.False(await SocialFeature.KickOrCancelParty("kick-test", member, "SomeBot"));
+        Assert.False(await PartyRoster.Kick(member, "SomeBot"));
     }
 }

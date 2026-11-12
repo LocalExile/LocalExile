@@ -178,10 +178,11 @@ Part of [Status](../Status.md); what to build next in this area is in
     Tunnel stragglers do not block completion; the next direction requires a new selection.
     Death, leaving or module reload discards the unfinished trip, retains spent sulphite and restores the saved point.
     The Crawler follows authored rails, waits at 70 cells (resumes below 60), and speeds up along the rails when led.
-    Departure waits for the player to leave a 180-cell-diameter native circle, with no travel debit while waiting.
+    Departure uses the visible native circle boundary, with no travel debit while waiting.
     Completion keeps a permanent endpoint light and plays the native checkpoint activation animation with its success sound.
     The Crawler's own forward axis leads each rail segment; rounded cells do not change its heading, and only clear
-    sleeve connections are smoothed. Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
+    sleeve connections are smoothed; each generated route stays on player-walkable cells. Lamps cover the exact start and finish.
+    Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
     Supported Weta/Spider packs
     scale with depth (up to 100 per authored pack); levels rise from 34 at depth 1 to 86 at depth 150, then stay 86.
     Kill rewards and 15–20 base completion items gain depth IIQ/IIR; the existing configurable item cap remains.
@@ -189,6 +190,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     Native walking/Kinetic Blast completed a route with exact 24 sulphite debit and one reward. Native checks also
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
     DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
+    Mine windows follow chart-cell origins so the underground position arrow follows the occupied checkpoint.
     General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).

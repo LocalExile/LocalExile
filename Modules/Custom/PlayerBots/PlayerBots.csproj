@@ -8,4 +8,8 @@
     <Using Remove="Game" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\Core\Player\Social\Social.csproj" Private="false" />
+  </ItemGroup>
+
 </Project>

@@ -14,6 +14,7 @@ public sealed class PartyFollowerTests
     public async Task Shared_deaths_reward_nearby_players_and_hide_each_observers_bar_once()
     {
         await PartyExperienceChecks.Verify();
+        await MixedPartyChecks.Verify();
         using var runtime = new Runtime();
         using var firstWire = new Wire();
         using var sleepingWire = new Wire();

@@ -2,6 +2,7 @@ using System.Text.Json;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
+using GameServer.Modules.Social;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -103,7 +104,11 @@ sealed partial class BotDirector
         Resume();
         foreach (string town in _route.Select(q => q.Town).Distinct(StringComparer.Ordinal))
             _townTargets[town] = _random.Next(2, 6);
-        _nextParty = (int)Math.Max(PartyIdBase, _bots.Select(b => (long)b.Party).DefaultIfEmpty(PartyIdBase).Max());
+        foreach (var bot in _bots.Where(b => b.Leader is not null))
+        {
+            if (PartyRoster.TryAddCompanion(bot.Leader!, Companion(bot), out uint party, restore: bot.Party)) bot.Party = party;
+            else Depart(bot, "группа недоступна");
+        }
         foreach (var party in _bots.Where(b => b.Leader is not null).GroupBy(b => b.Party))
             _ = SendPartyWhenReady(party.First().Leader!, party.Key);
         _running = Task.Run(Run);
@@ -152,7 +157,7 @@ sealed partial class BotDirector
             {
                 var leader = bot.Phase == BotPhase.Following ? Program.InGame.Keys.FirstOrDefault(c => !c.Controlled
                     && !c.Closed && !c.LeavingArea && Program.CharacterName(c) == s.LeaderName) : null;
-                if (leader is not null && s.Party >= PartyIdBase)
+                if (leader is not null && s.Party != 0)
                     (bot.Leader, bot.LeaderName, bot.Party) = (leader, s.LeaderName, s.Party);
                 else (bot.Phase, bot.Until, bot.Doing) = (BotPhase.Questing, DateTime.UtcNow, "идёт дальше по квестам");
             }
@@ -211,6 +216,13 @@ sealed partial class BotDirector
         _running?.GetAwaiter().GetResult();
         lock (_bots) foreach (var bot in _bots) { bot.Control = null; StopCombat(bot); Hide(bot); }
         try { SaveState(); } catch (IOException) { }
+        uint[] parties;
+        lock (_bots)
+        {
+            parties = [.. _bots.Where(b => b.Party != 0).Select(b => b.Party).Distinct()];
+            foreach (var bot in _bots.Where(b => b.Party != 0)) PartyRoster.RemoveCompanion(bot.Party, bot.Account);
+        }
+        foreach (uint party in parties) _ = PartyRoster.Publish(party);
     }
 
     async Task Run()
@@ -666,6 +678,7 @@ sealed partial class BotDirector
             var record = _accounts.GetCharacter(bot.CharacterId);
             if (record is null) return;
             var player = ControlledPlayers.Open(record, bot.Account, leader);
+            player.PartySize = PartyRoster.Size(bot.Party);
             bot.Combat = player;
             bot.ControlEpoch = Guid.NewGuid();
             await rules.InitializeControlled(player, leader);
@@ -675,10 +688,13 @@ sealed partial class BotDirector
         }
         var current = bot.Combat;
         if (current is null) return;
+        await Program.SetPartySize(current, PartyRoster.Size(bot.Party));
         await rules.StepControlled(current, leader);
         if (bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Combat, current)) return;
         var position = current.Walk.Position(current.Clock.Elapsed.TotalSeconds);
+        bool levelChanged = bot.Level != current.Pools.Level;
         (bot.X, bot.Y, bot.Level) = (position.X, position.Y, current.Pools.Level);
+        if (levelChanged) await SendParty(leader, bot.Party);
     }
 
     // The player object other clients create for the bot: its class's body, name and pools; no gear drawn yet.

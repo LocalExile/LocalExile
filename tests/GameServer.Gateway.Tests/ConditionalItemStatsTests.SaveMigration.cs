@@ -15,7 +15,8 @@ public partial class ConditionalItemStatsTests
                 using var db = new SaveDatabase(Path.Combine(folder, futureItemField ? "future.db" : "legacy.db"));
                 string extra = futureItemField ? ",\"FutureItemFlag\":7" : "";
                 string json = "{\"Inventories\":{\"1\":[{\"Id\":19,\"X\":2,\"Y\":3,\"Item\":{\"Type\":123,\"Sockets\":[{\"Colour\":0,\"Gem\":{\"Type\":124}}]" + extra
-                    + "}},{\"Id\":20,\"X\":3,\"Y\":4,\"Item\":{\"Type\":125,\"Foreseeing\":true,\"ForeseeSeed\":987}}]},\"FutureCharacterField\":{\"value\":8}}";
+                    + "}},{\"Id\":20,\"X\":3,\"Y\":4,\"Item\":{\"Type\":125,\"Foreseeing\":true,\"ForeseeSeed\":987}}]},\"FutureCharacterField\":{\"value\":8},"
+                    + "\"HideoutPlacements\":{\"h\":{\"p\":{\"X\":2,\"Y\":3,\"Rotation\":0.0}}}}";
                 using (var insert = db.Command("INSERT INTO characters (name,save) VALUES ('legacy',$json)", ("$json", json)))
                     insert.ExecuteNonQuery();
                 using (var insert = db.Command("INSERT INTO deleted_characters (name,deleted_utc,save) VALUES ('deleted','2026-11-01',$json)", ("$json", json)))
@@ -40,6 +41,7 @@ public partial class ConditionalItemStatsTests
                     Assert.True(items[1].Item.Foreseeing);
                     Assert.Equal((uint)987, items[1].Item.ForeseeSeed);
                     Assert.Equal(8, back.Unknown!["FutureCharacterField"].GetProperty("value").GetInt32());
+                    Assert.Equal(new HideoutPlacement(2, 3, 0), back.HideoutPlacements!["h"]["p"]);
                     Assert.Equal(0, SaveRows.Migrate(db, _ => { }));
                 }
                 using var original = db.Command("SELECT save FROM characters WHERE name='legacy'");

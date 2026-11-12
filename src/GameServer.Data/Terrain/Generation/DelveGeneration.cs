@@ -4,6 +4,7 @@ namespace GameServer.Data.Terrain.Generation;
 public sealed class DelveGeneration
 {
     public const string Main = "Metadata/Terrain/Leagues/Delve/Graphs/delve_main.dgr";
+    public const string EmptyCellGraph = "Metadata/Terrain/Leagues/Delve/Graphs/_delve_cell_empty.dgr";
     public const string CellGraph = "Metadata/Terrain/Leagues/Delve/Graphs/_delve_cell.dgr";
     const string MineMaster = "Metadata/Terrain/Leagues/Delve/Biomes/Mine/master.tsi";
     readonly byte[] terrain;
@@ -19,7 +20,7 @@ public sealed class DelveGeneration
         if (terrain.Length < 10 || terrain[0] != 0x20 || terrain[1] != 0 || Width == 0 || Height == 0
             || terrain.Length != 10 + Width * Height * 5) throw new ArgumentException("Invalid Delve terrain block");
         for (int i = 0; i < Width * Height; i++)
-            if ((terrain[11 + 5 * i] & 15) != 0 || terrain[10 + 5 * i] < 7)
+            if ((terrain[11 + 5 * i] & 15) != 0 || terrain[10 + 5 * i] is > 0 and < 7)
                 throw new NotSupportedException("The procedural Mines pass needs ordinary encounter cells");
     }
 
@@ -109,7 +110,7 @@ public sealed class DelveGeneration
             for (int y = 0; y < Height; y++)
                 for (int x = 0; x < Width; x++)
                     graph.Nodes.Add(new GraphNode { X = x * 23 + 11, Y = (Height - y - 1) * 23 + 11,
-                        Tag = "graph", Orientation = 0, Descriptions = [CellGraph, "1", "1"] });
+                        Tag = "graph", Orientation = 0, Descriptions = [(terrain[11 + (y * Width + x) * 5] & 0xf0) == 0 ? EmptyCellGraph : CellGraph, "1", "1"] });
             return;
         }
         if (path != CellGraph) return;

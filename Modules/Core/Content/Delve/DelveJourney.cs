@@ -11,7 +11,8 @@ sealed class DelveJourney
     public bool Finished => Travelled >= Length;
     public int Charged { get; private set; }
     public int Depth { get; }
-    public const float StartRadius = 90f;
+    // The authored circle bounds span its diameter; gameplay uses the visible radius.
+    public const float StartRadius = 81f / 2;
     public bool Started { get; private set; }
     public bool TryStart((int X, int Y) player) => Started || (Started = DelveRailRoute.Distance(points[0], player) > StartRadius);
     int completed;
@@ -43,6 +44,15 @@ sealed class DelveJourney
         while (i > 1 && points[i] == points[i - 1]) i--;
         var a = points[i - 1]; var b = points[i];
         return Facing(b.X - a.X, b.Y - a.Y);
+    }
+
+    public float CableHeading(double travelled)
+    {
+        double from = Math.Floor(Math.Clamp(travelled, 0, Length) / 30) * 30;
+        if (from >= Length) from = Math.Max(0, from - 30);
+        var a = At(from).At;
+        var b = At(Math.Min(Length, from + 30)).At;
+        return a == b ? Heading(travelled) : Facing(b.X - a.X, b.Y - a.Y);
     }
 
     // DelveTractor rig.ast has an inverse-bind Y of -50.029 for front_axle, +8.061 for rear_axle.
