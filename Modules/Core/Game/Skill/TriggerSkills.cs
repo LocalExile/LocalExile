@@ -17,7 +17,7 @@ public static partial class Game
         public double ReadyAt;
         public bool Pending;
     }
-    static readonly ConditionalWeakTable<ClientState, DamageTakenTriggers> DamageTriggers = new();
+    static readonly RuleTable<ClientState, DamageTakenTriggers> DamageTriggers = new();
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {

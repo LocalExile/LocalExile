@@ -30,7 +30,10 @@ public enum ItemInfluence : byte
 
 /// <summary>A mod on an item: a Mods.dat row by its HASH16 and one value per stat of that row (StatsKey1..8 in order,
 /// as many as the row has). The client counts the row's stats itself, so the count must match.</summary>
-public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int> Values);
+public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int> Values)
+{
+    public IReadOnlyList<int> Values { get; init => field = Owned.List(value); } = Owned.List(Values);
+}
 
 /// <summary>
 /// An item as the client deserializes it (Agents/docs/protocol/05-inventories-and-ui.md §6). The type is a BaseItemTypes
@@ -40,6 +43,8 @@ public sealed record ItemMod(ModSection Section, ushort Hash, IReadOnlyList<int>
 /// </summary>
 public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushort VisualIdentity)
 {
+    // Items stay in the servers' memory for as long as they run: their lists are the record's own (Owned).
+    public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public byte ItemLevel { get; init; } = 1;
     public byte Quality { get; init; }
 
@@ -61,13 +66,13 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     }
     public int Charges { get; init; }
     public ushort StackSize { get; init; } = 1;
-    public IReadOnlyList<ItemSocket> Sockets { get; init; } = [];
+    public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
     /// <summary>Transformed component's original item; null when an imported snapshot omits it.</summary>
     public Item? OriginalItem { get; init; }
 
     /// <summary>Link groups: the number of sockets in each, in socket order (null: every socket alone).</summary>
-    public IReadOnlyList<byte>? Links { get; init; }
+    public IReadOnlyList<byte>? Links { get; init => field = Owned.List(value); }
     public int GemExperience { get; init; }
 
     /// <summary>A gem's variant: its index in the SkillGems row's GemVariants (0 the normal gem, then the transfigured,
@@ -117,15 +122,15 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
         .Take(FracturedCount).Select(p => p.i).ToHashSet();
 
     /// <summary>Implicit, explicit and other mods, written into the Mods component per <see cref="ModSection"/>.</summary>
-    public IReadOnlyList<ItemMod> Mods { get; init; } = [];
+    public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A rare item's name: Words.dat keys (ObjectMagicProperties bit 8), prefix then suffix; only sent for
     /// identified items.</summary>
-    public IReadOnlyList<uint> NameWords { get; init; } = [];
+    public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
     /// in a shop.</summary>
-    public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init; } = [];
+    public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
 
     /// <summary>The four item types whose data ends with an extra u16 (0x1421f2800; the writer sends 1).</summary>
     static readonly uint[] TrailingU16 = [0x192c7aab, 0x365f206a, 0x503da850, 0x9aff2df6];

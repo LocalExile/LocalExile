@@ -498,7 +498,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             mod.Lifetime.Stop(error => Failed(mod, "Stop", error));
             Remove(mod);
             foreach (var disposable in mod.Entries.OfType<IDisposable>()) Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
-            _unloads[id] = Collect(Unload(mod));
+            _unloads[id] = Collect(id, Unload(mod));
             if (ex is TypeInitializationException or System.Reflection.TargetInvocationException && ex.InnerException is { } inner) ex = inner;
             Fail(id, ex is IOException and not FileNotFoundException ? $"busy: {ex.Message}"
                 : ex is ModScripts.CompileException ? ex.Message : $"{ex.GetType().Name}: {ex.Message}");
@@ -556,7 +556,7 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         Remove(mod);
         foreach (var disposable in mod.Entries.OfType<IDisposable>())
             Guard(mod, "Dispose", disposable.Dispose, allowUnloaded: true);
-        _unloads[id] = Collect(Unload(mod));
+        _unloads[id] = Collect(id, Unload(mod));
         Tell($"{Tag} unloaded {id}");
     }
 
@@ -570,9 +570,9 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         return (weak, mod.Context?.CopyDirectory ?? "");
     }
 
-    Task<bool> Collect((WeakReference Context, string CopyDirectory) unloaded) => UnloadCollector.Add(unloaded.Context, unloaded.CopyDirectory,
-        () => log($"{Tag} an unloaded {Noun} is still in memory after 2 s: a thread, timer or task of it still runs, or something outside it holds one of its objects"),
-        () => log($"{Tag} could not remove an unloaded {Noun}'s private copy"));
+    Task<bool> Collect(string id, (WeakReference Context, string CopyDirectory) unloaded) => UnloadCollector.Add(unloaded.Context, unloaded.CopyDirectory,
+        rounds => log($"{Tag} an unloaded {Noun} ({id}) is still in memory after {rounds} collections: a thread, timer or task of it still runs, or something outside it holds one of its objects"),
+        () => log($"{Tag} could not remove an unloaded {Noun}'s private copy ({id})"));
 
     void Remove(LoadedMod mod)
     {

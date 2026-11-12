@@ -703,9 +703,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// A key lives only while its full target remains present; retired keys are never reassigned on this connection.</summary>
     public Dictionary<uint, InstanceMicrotransactions.SkillSlot> SkillSlots = [];
     public uint NextSkillCosmeticKey = InstanceMicrotransactions.SlotCount;
-    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; RunPetFollow walks them.</summary>
+    /// <summary>The worn pets by object id (SpawnPets), replaced when a Pet slot changes; StepPetFollow walks them.</summary>
     public readonly Dictionary<uint, SpawnedPet> Pets = [];
-    public bool PetFollowRunning;
     /// <summary>How map portals are turned around the vertical axis (degrees; Positioned rotation). Dev: /portal_rotation,
     /// which rebuilds the portals that already stand.</summary>
     public float PortalRotationDegrees;
@@ -1113,8 +1112,6 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// (cyclone_movement_speed_+%_final): the walk goes at it while <see cref="ChannelSkill"/> is that skill.</summary>
     public (ushort Skill, int Percent) ChannelMovement;
     public int ChannelGeneration;
-    /// <summary>The last passive and equipment stat sum and its inputs (CharacterStatSources).</summary>
-    public volatile object? StatSourcesCacheState;
     /// <summary>The channelled skill's action sequence, so its 0x1af hit result names the action it belongs to.</summary>
     public ushort ChannelSkillSequence;
     public double NextChannelHitAt;
@@ -1138,6 +1135,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// Guarded by Monsters; rising transfers the same actor to the targetable roster.</summary>
     public SortedDictionary<uint, SpawnedMonster> DormantMonsters => Instance?.World.DormantMonsters ?? ownDormantMonsters;
     readonly SortedDictionary<uint, SpawnedMonster> ownDormantMonsters = [];
+    /// <summary>The instance's lurking monsters and emerge watch (InstanceWorld.EmergeGround); a connection outside an
+    /// instance (a test's) keeps its own.</summary>
+    public EmergeGround EmergeGround => Instance?.World.EmergeGround ?? ownEmergeGround;
+    readonly EmergeGround ownEmergeGround = new();
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
     IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
@@ -1259,7 +1260,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     }
 }
 
-/// <summary>A worn pet the server walks after the player (RunPetFollow): its walk estimate, which side of the player it
+/// <summary>A worn pet the server walks after the player (StepPetFollow): its walk estimate, which side of the player it
 /// keeps (+1 or −1) and where it was last sent.</summary>
 public sealed class SpawnedPet(WalkEstimator walk, int side)
 {

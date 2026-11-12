@@ -41,43 +41,40 @@ static class UniqueBeltsFeature
         return rolled.Scale((100.0 + Math.Max(0, increased) + against) / (100 + Math.Max(0, increased)));
     }
 
-    internal static async Task RunUniqueBeltEffects(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // Every player tick (GameEvents.Tick, 250 ms): Mageblood's flasks and the stolen modifiers of Headhunter and Inspired
+    // Learning. On the tick rather than a loop of the module's own, so a reload's new module steps them from its first tick
+    // and the old one stops.
+    internal static async Task StepUniqueBeltEffects(ClientState conn)
     {
-        const int StepMs = 250;
-        while (!conn.Closed && !conn.RageRetired)
+        var (remote, stream, ciphers) = conn.Wire;
+        try
         {
-            await Task.Delay(StepMs);
-            if (conn.Closed || conn.RageRetired) break;
-            if (conn.LeavingArea) continue;
-            try
+            foreach (var packet in StepMagebloodBuffs(conn))
+                await Send(remote, stream, ciphers, packet, "0x01c1/0x01c2 Mageblood flask buff");
+            if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0, out var belt, out var jewel) is null)
+                return;
+            List<byte[]> packets = [];
+            lock (conn.Monsters)
             {
-                foreach (var packet in StepMagebloodBuffs(conn))
-                    await Send(remote, stream, ciphers, packet, "0x01c1/0x01c2 Mageblood flask buff");
-                if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0, out var belt, out var jewel) is null)
-                    continue;
-                List<byte[]> packets = [];
-                lock (conn.Monsters)
-                {
-                    RecomputePoolsAndSpeed(conn);
-                    Update(ref conn.StolenModsBuff, StolenMods.BuffRow, belt);
-                    Update(ref conn.InspiredLearningBuff, StolenMods.InspiredLearningBuffRow, jewel);
-                }
-                foreach (var packet in packets)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, packet, "stolen modifier buff");
-                await SendCharacterStats(remote, stream, ciphers, conn, "stolen modifiers");
+                RecomputePoolsAndSpeed(conn);
+                Update(ref conn.StolenModsBuff, StolenMods.BuffRow, belt);
+                Update(ref conn.InspiredLearningBuff, StolenMods.InspiredLearningBuffRow, jewel);
+            }
+            foreach (var packet in packets)
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, packet, "stolen modifier buff");
+            await SendCharacterStats(remote, stream, ciphers, conn, "stolen modifiers");
 
-                void Update(ref ushort instance, ushort row, StolenMods.Buff state)
-                {
-                    if (instance != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, instance));
-                    instance = state.Count > 0 ? conn.NextBuff++ : (ushort)0;
-                    if (instance != 0) packets.Add(InstanceEntities.AddBuff(PlayerId, instance, row, PlayerId,
-                        u68: BitConverter.SingleToUInt32Bits((float)state.Remaining), stacks: (ushort)state.Count));
-                }
-            }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+            void Update(ref ushort instance, ushort row, StolenMods.Buff state)
             {
-                if (!conn.Closed) Console.WriteLine($"[gateway] {remote} unique belts: {ex.Message}");
+                if (instance != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, instance));
+                instance = state.Count > 0 ? conn.NextBuff++ : (ushort)0;
+                if (instance != 0) packets.Add(InstanceEntities.AddBuff(PlayerId, instance, row, PlayerId,
+                    u68: BitConverter.SingleToUInt32Bits((float)state.Remaining), stacks: (ushort)state.Count));
             }
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            if (!conn.Closed) Console.WriteLine($"[gateway] {remote} unique belts: {ex.Message}");
         }
     }
 }

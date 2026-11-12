@@ -10,7 +10,7 @@ static partial class Sirus
     const string PortalModel = "Metadata/Effects/Spells/portal/unstable_RED/AtlasExile5Portal.ao";
     const string IntroPortal = "Sirus.IntroPortal";
     static string Flag(string name) => Quests.InstanceFlag("Sirus-" + name);
-    static readonly ConditionalWeakTable<InstanceState, Scene> Scenes = new();
+    static readonly RuleTable<InstanceState, Scene> Scenes = new();
     sealed class Scene(ClientState c)
     {
         public readonly (int X, int Y)? Entry = EntryPoint(c);
