@@ -1919,6 +1919,10 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
   record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
   `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
+  Lightning Strike's row is `Metadata/Projectiles/LightningSlash` (1600), not `LightningStrike`.
+  The 3.29.3c client creates its three bolts locally: a server create duplicates them.
+  A Positioned trace aimed left from (391,352) starts all three at (388,352), rather than the sword's contact point.
+  The native flights have different durations; their per-projectile speed variation is not yet mirrored.
   Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
   0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
   (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a

@@ -268,7 +268,9 @@ public static partial class Game
         var release = spell ? null : Animations.AttackContactPoint(
             Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject,
             WeaponProfileFor(conn, activeSet: true));
-        double ahead = release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
+        // LightningSlash is released three cells ahead at ground level, not at the sword's contact point
+        // (3.29.3c Positioned trace: player (391,352), every bolt starts (388,352) aimed left).
+        double ahead = IsLightningStrike(gem.Effect) ? 3 : release is { ForwardCells: > 0 } point ? point.ForwardCells : 1.5;
         // A point closer than the muzzle must not end up behind the released projectile.
         if (totem is null) origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(conn).EffectId(gem.Effect), profile.Range,
@@ -285,7 +287,7 @@ public static partial class Game
         int variation = SkillArtVariation(conn, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
-        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand");
+        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand", projectile: true);
         var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false), spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
@@ -324,7 +326,7 @@ public static partial class Game
             // its payload arrow is not, so the server still sends that one object.
             // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
             ClientPredicted = totem is not null || spell
-                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY",
+                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY" || IsLightningStrike(gem.Effect),
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only
