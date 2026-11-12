@@ -101,7 +101,7 @@ public static class StatConditions
         "_while_no_life_is_reserved", "_while_no_mana_reserved",
         "_while_moving", "_while_stationary", "_while_not_moving", "_while_phasing", "_while_you_have_phasing",
         "_while_not_ignited_frozen_shocked", "_while_ignited", "_while_chilled", "_while_frozen", "_while_shocked", "_while_fortified", "_while_you_have_fortify",
-        "_while_blinded",
+        "_while_blinded", "_while_you_are_ignited",
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
@@ -292,6 +292,8 @@ public static class StatConditions
             "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
             "cooldown_recovery_+%" => "base_cooldown_speed_+%",
             "gain_frenzy_charge_on_hit_%" => "add_frenzy_charge_on_skill_hit_%",
+            "hits_ignore_enemy_fire_resistance" => "virtual_hits_ignore_enemy_fire_resistance",
+            "hits_ignore_enemy_chaos_resistance" => "virtual_hits_ignore_enemy_chaos_resistance",
             "action_speed_cannot_be_slowed_below_base" => "action_speed_cannot_be_reduced_below_base",
             "take_no_extra_damage_from_critical_strikes" => "self_take_no_extra_damage_from_critical_strikes",
             "extra_damage_taken_from_crit_+%" => "base_self_critical_strike_multiplier_-%",
@@ -709,7 +711,7 @@ public static class StatConditions
     static readonly System.Text.RegularExpressions.Regex EquipmentAmountId =
         new(@"_(?:per|for_each)_equipped_(?<kind>[a-z_]+?)(?:_item)?$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex EquipmentCollectionId =
-        new(@"_with_(?<mode>no|all)_(?<kind>[a-z_]+?)_equipped_items$", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"(?:_with_(?<mode>no|all)_(?<kind>[a-z_]+?)_equipped_items|_if_(?<mode>all)_(?<kind>[a-z_]+?)_items_equipped)$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex AttributeComparisonId =
         new(@"_if_(?<left>strength|dexterity|intelligence)_(?<op>higher|lower|equal)_than_(?<right>strength|dexterity|intelligence)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 

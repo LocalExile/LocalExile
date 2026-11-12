@@ -28,7 +28,8 @@ public static class HitResistances
     /// penetration. <see cref="Mods.UnconditionalIgnoreElemental"/> is an explicit hit fact for sources that ignore
     /// elemental resistance without requiring a critical strike; it is kept separate from the critical flags.</summary>
     public readonly record struct Mods(int CriticalIgnoreElemental, int AttackCriticalIgnoreElemental,
-        int NonCriticalPenetration, int CannotPenetrateOrIgnore, bool UnconditionalIgnoreElemental = false)
+        int NonCriticalPenetration, int CannotPenetrateOrIgnore, bool UnconditionalIgnoreElemental = false,
+        bool IgnoreFire = false, bool IgnoreChaos = false)
     {
         /// <summary>The four source stats by name, through the caller's name → key lookup (the client's stat key is the
         /// Stats.dat row + 1). A stat the source does not carry reads 0.</summary>
@@ -49,9 +50,11 @@ public static class HitResistances
 
     /// <summary>Whether the hit's ignore flags apply: an explicit unconditional elemental hit, a critical strike
     /// with the generic stat, or an attack with the attack-only one. A damage-over-time tick can meet none.</summary>
-    private static bool Ignored(in Strike strike, in Mods mods) => !strike.OverTime &&
-        (mods.UnconditionalIgnoreElemental || strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
-            (strike.Attack && mods.AttackCriticalIgnoreElemental != 0)));
+    private static bool Ignored(DamageType type, in Strike strike, in Mods mods) => !strike.OverTime &&
+        (type == DamageType.Chaos && mods.IgnoreChaos || DamageTypes.IsElemental(type) &&
+            (type == DamageType.Fire && mods.IgnoreFire || mods.UnconditionalIgnoreElemental
+                || strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
+                    (strike.Attack && mods.AttackCriticalIgnoreElemental != 0))));
 
     /// <summary>
     /// The resistance one type of the hit mitigates with, resolved for the pass that applies cap-then-pen
@@ -70,16 +73,18 @@ public static class HitResistances
         var effective = Effective(type, target, strike, mods);
         double resistance = DamageModel.Capped(effective.Value, effective.Maximum);
         if (invertElemental && !strike.OverTime && DamageTypes.IsElemental(type)
-            && !(mods.CannotPenetrateOrIgnore == 0 && Ignored(strike, mods))) resistance = -resistance;
+            && !(mods.CannotPenetrateOrIgnore == 0 && Ignored(type, strike, mods))) resistance = -resistance;
         return resistance - effective.Penetration;
     }
 
     public static DamageModel.ResistanceValue Effective(DamageType type, DamageModel.ResistanceValue target,
         in Strike strike, in Mods mods)
     {
-        if (!DamageTypes.IsElemental(type) || strike.OverTime) return target;
-        if (mods.CannotPenetrateOrIgnore != 0) return target with { Penetration = 0 };
-        if (Ignored(strike, mods)) return new(0);
+        if (strike.OverTime) return target;
+        bool elemental = DamageTypes.IsElemental(type);
+        if (elemental && mods.CannotPenetrateOrIgnore != 0) return target with { Penetration = 0 };
+        if (Ignored(type, strike, mods)) return new(0);
+        if (!elemental) return target;
         return target with { Penetration = target.Penetration + (strike.Critical ? 0 : mods.NonCriticalPenetration) };
     }
 
@@ -88,15 +93,16 @@ public static class HitResistances
     /// plainly (a rule that would not have changed the resistance names nothing).</summary>
     public static string? Describe(DamageType type, DamageModel.ResistanceValue target, in Strike strike, in Mods mods)
     {
-        if (!DamageTypes.IsElemental(type) || strike.OverTime) return null;
+        if (strike.OverTime) return null;
         string name = DamageTypes.Name(type).ToLowerInvariant();
         int capped = DamageModel.Capped(target.Value, target.Maximum);
-        if (mods.CannotPenetrateOrIgnore != 0)
+        if (DamageTypes.IsElemental(type) && mods.CannotPenetrateOrIgnore != 0)
         {
-            bool ignored = Ignored(strike, mods), held = !strike.Critical && mods.NonCriticalPenetration != 0;
+            bool ignored = Ignored(type, strike, mods), held = !strike.Critical && mods.NonCriticalPenetration != 0;
             return ignored || held ? $"{name} {capped} (cannot penetrate or ignore)" : null;
         }
-        if (Ignored(strike, mods)) return $"{name} {capped} ignored";
+        if (Ignored(type, strike, mods)) return $"{name} {capped} ignored";
+        if (!DamageTypes.IsElemental(type)) return null;
         int pen = target.Penetration + (strike.Critical ? 0 : mods.NonCriticalPenetration);
         return pen != 0 ? $"{name} {capped}→{capped - pen} (pen {pen})" : null;
     }

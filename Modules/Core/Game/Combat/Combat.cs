@@ -2400,7 +2400,12 @@ public static partial class Game
         var b = skill is null ? default : HitResistances.Mods.From(skill, Stats.Key);
         return new(a.CriticalIgnoreElemental | b.CriticalIgnoreElemental,
             a.AttackCriticalIgnoreElemental | b.AttackCriticalIgnoreElemental,
-            a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore);
+            a.NonCriticalPenetration + b.NonCriticalPenetration, a.CannotPenetrateOrIgnore | b.CannotPenetrateOrIgnore,
+            IgnoreFire: Has("virtual_hits_ignore_enemy_fire_resistance"),
+            IgnoreChaos: Has("virtual_hits_ignore_enemy_chaos_resistance"));
+
+        bool Has(string name) => Stats.Key(name) is uint key
+            && (player.GetValueOrDefault(key) != 0 || (skill?.GetValueOrDefault(key) ?? 0) != 0);
     }
 
     // The short state mutation is shared with projectile impact; no awaits under Monsters. A minion's hit (allyAt: where

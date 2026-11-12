@@ -54,7 +54,8 @@ public static partial class Game
             ["_while_moving"] = moving, ["_while_stationary"] = !moving, ["_while_not_moving"] = !moving,
             ["_while_phasing"] = conn.IsPhasing,
             ["_while_not_ignited_frozen_shocked"] = !ailments.Ignite && !ailments.Freeze && ailments.Shock == 0,
-            ["_while_ignited"] = ailments.Ignite, ["_while_chilled"] = ailments.Chill > 0,
+            ["_while_ignited"] = ailments.Ignite, ["_while_you_are_ignited"] = ailments.Ignite,
+            ["_while_chilled"] = ailments.Chill > 0,
             ["_while_frozen"] = ailments.Freeze, ["_while_shocked"] = ailments.Shock > 0,
             ["_while_blinded"] = alive && conn.ResourceEffectsState is ResourceEffectsState blindOwner
                 && ResourceEffectsCurrent(conn, blindOwner) && blindOwner.PlayerBlind.Read(now).Less > 0,
