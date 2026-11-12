@@ -273,6 +273,7 @@ public static partial class Game
             measured.TryAdd(StatConditions.SpentMana, 0);
             measured[StatConditions.ActiveNonVaalSkillMinionCount] =
                 ActiveNonVaalSkillMinionCountLocked(conn, conditionNow);
+            OwnedCountItemStats.Capture(conn, conditionNow, AreaTime(conn), measured);
             recentAmounts = measured;
         }
         // A deterministic test can interleave another owner update here, after this call has captured its condition view.
@@ -791,6 +792,7 @@ public static partial class Game
             finalAttributes.Strength, finalAttributes.Dexterity, finalAttributes.Intelligence);
         AttributeDefenceSources.Apply(sources, Stats, finalAttributes.Strength);
         LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
+        OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);

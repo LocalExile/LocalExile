@@ -234,7 +234,8 @@ public static partial class Game
                 ItemsFor(conn).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
                     && (s.Id.Contains("_if_", StringComparison.Ordinal)
                         || s.Id.Contains("_while_", StringComparison.Ordinal)
-                        || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id))) == true));
+                        || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id)
+                        || OwnedCountItemStats.IsCoefficient(s.Id))) == true));
             bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
                 == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
             if (sameElusive && sameHerEmbrace && sameOnslaughtEffect

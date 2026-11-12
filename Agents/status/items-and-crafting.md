@@ -94,6 +94,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
 - Conditional item gates include flat Mana costs, equipment counts, maximum block and Travel recovery per Frenzy Charge.
   Qualified attribute coefficients reach accuracy, armour, block, bleeding and Physical weapon damage; others remain partial.
+  Living totem/minion coefficients feed armour, block, attack/cast speed and regeneration.
   Infernal Mantle's low-Mana condition reaches incoming Spell hits through the canonical Spell damage-taken input.
   Rathpith and Scales of Justice scale Spell offence and added Fire from completed full maximum Life and Mana.
   Wyrmsign's standard Endurance efficiency reduces ordinary Mana costs independently of converted or additional Life costs.
