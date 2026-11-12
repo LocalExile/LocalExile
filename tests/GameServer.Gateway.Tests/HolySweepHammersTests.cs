@@ -41,12 +41,20 @@ public sealed class HolySweepHammersTests
         Assert.Equal(2.1112f, HolySweepHammers.SweepAngle(player, target, kept[0].At), 3);
         var picked = HolySweepHammers.Pick(kept, sweep.Count, 0xfffe, 0x1000, d => HolySweepHammers.SweepAngle(player, target, d.At));
         Assert.Equal([0x8000037u, 0x8000039u, 0x8000035u], picked.Select(p => p.Id));
-        // More struck enemies than hammers: as many different ones as hammers, the same for the same use.
-        var all = Drowned.ToList();
-        var some = HolySweepHammers.Pick(all, 3, 0x1234, 0x1000, d => HolySweepHammers.SweepAngle(player, target, d.At));
-        Assert.Equal(3, some.Select(p => p.Id).Distinct().Count());
-        Assert.Equal(some, HolySweepHammers.Pick(all, 3, 0x1234, 0x1000, d => HolySweepHammers.SweepAngle(player, target, d.At)));
-        Assert.Empty(HolySweepHammers.Pick(all.Take(0).ToList(), 3, 0x1234, 0x1000, _ => 0f));
+        // More struck enemies than hammers (live, use 0xffc0, 4 hammers): the 13 the client's roll kept, in its grid order
+        // (row 27 by entry, then row 28), drawn 10, 7, 6, 4 and dropped by angle.
+        (uint Id, (int X, int Y) At)[] struck =
+        [
+            (0x800002e, (290, 637)), (0x8000030, (281, 642)), (0x8000032, (281, 632)), (0x8000034, (294, 643)),
+            (0x800003c, (281, 625)), (0x800003d, (287, 625)), (0x800003e, (292, 629)), (0x8000040, (276, 624)),
+            (0x8000041, (292, 624)), (0x8000042, (298, 631)), (0x8000036, (287, 649)), (0x8000038, (276, 645)),
+            (0x800003f, (294, 648)),
+        ];
+        var some = HolySweepHammers.Pick(struck, 4, 0xffc0, 0x1000, d => HolySweepHammers.SweepAngle(player, target, d.At));
+        Assert.Equal([0x8000040u, 0x800003cu, 0x800003eu, 0x8000036u], some.Select(p => p.Id));
+        // A Multistrike repeat keys its draws by the repeats left, so it picks again.
+        Assert.NotEqual(some, HolySweepHammers.Pick(struck, 4, 0xffc0, 0x1000, d => HolySweepHammers.SweepAngle(player, target, d.At), 1));
+        Assert.Empty(HolySweepHammers.Pick(struck.Take(0).ToList(), 3, 0x1234, 0x1000, _ => 0f));
 
         // The client's sort: stable up to 32 entries, a full sort beyond.
         var small = Enumerable.Range(0, 20).Select(i => (Key: i % 3, Order: i)).ToList();

@@ -45,17 +45,21 @@ public static class HolySweepHammers
     /// Holy Sweep's hammers, as the client's 0x141b18a90 picks them at the swing's contact. <paramref name="ordered"/> are
     /// the enemies struck, in the client's grid order (ClientEntityGrid). With more of them than hammers it draws an index
     /// over 0 … n (n itself counting as 0) until <paramref name="count"/> different ones are flagged, from a TinyMT keyed
-    /// [sequence, 0, player id, 0, 0]; with as many or fewer, all. The hammers fall in the order of each enemy's angle
-    /// round the player, counted from 45° before his facing (<paramref name="angle"/>), sorted as the client sorts them.
+    /// [sequence, 0, player id, repeats left, 0, 0, 0, 0]; with as many or fewer, all. The hammers fall in the order of each enemy's
+    /// angle round the player, counted from 45° before his facing (<paramref name="angle"/>), sorted as the client sorts
+    /// them. <paramref name="repeatsLeft"/> is the swings the use still repeats after this one (Multistrike): the action's
+    /// +0x2d0, set to the repeat count (0x1419e5460) and lowered by each repeat (0x1419e6370).
     /// </summary>
-    public static List<T> Pick<T>(IReadOnlyList<T> ordered, int count, ushort sequence, uint playerId, Func<T, float> angle)
+    public static List<T> Pick<T>(IReadOnlyList<T> ordered, int count, ushort sequence, uint playerId, Func<T, float> angle,
+        int repeatsLeft = 0)
     {
         int n = ordered.Count;
         var flagged = new bool[n];
         if (count >= n) Array.Fill(flagged, true);
         else if (count > 0)
         {
-            var random = new AnimationVariantSelector.NativeRandom([sequence, 0u, playerId, 0u, 0u]);
+            // Its key is 8 words, the last four zero (0x1419c73c0 reads a 32-byte buffer).
+            var random = new AnimationVariantSelector.NativeRandom([sequence, 0u, playerId, (uint)repeatsLeft, 0u, 0u, 0u, 0u]);
             for (int left = count; left > 0;)
             {
                 int i = random.Uniform(0, n);
@@ -100,22 +104,24 @@ public static class HolySweepHammers
     /// One Hammerfalls wave (0-based <paramref name="wave"/>), as the client's 0x141b19980 lays it out. Its candidates are
     /// <paramref name="ordered"/> (the monsters in the client's grid order) whose distance from the swing's centre is at
     /// most the area's radius plus their size. They are shuffled front to back (each place drawn over the rest) from a
-    /// TinyMT keyed [sequence, 1, player id, 0, wave], then sorted by the hammers each took in earlier waves (fewest first,
-    /// the client's sort). Each hammer, from a TinyMT keyed [sequence, 1, player id, 0, wave, hammer], goes to the first
+    /// TinyMT keyed [sequence, repeats left + 1, player id, repeats left, wave] (the hammerfall copies its swing's repeats
+    /// left, 0x1419e5750, and is detached one level below it, 0x141943240), then sorted by the hammers each took in earlier
+    /// waves (fewest first, the client's sort). Each hammer, from a TinyMT keyed [the same five, hammer], goes to the first
     /// candidate not hammered yet this wave whose roll of 0-99 is under 100 halved once per hammer it took (100, 50, 25 …),
     /// or else to a point at an angle and a fraction of the radius from the centre, on walkable ground (up to 3 tries).
     /// <paramref name="taken"/> counts each monster's hammers across the waves.
     /// </summary>
     public static List<(uint? Id, (int X, int Y) At)> Wave(IReadOnlyList<(uint Id, (int X, int Y) At, int Size)> ordered,
         Dictionary<uint, int> taken, (int X, int Y) centre, int radius, int count, Func<int, int, bool> walkable,
-        ushort sequence, uint playerId, int wave)
+        ushort sequence, uint playerId, int wave, int repeatsLeft = 0)
     {
         var candidates = ordered.Where(m =>
         {
             long dx = m.At.X - centre.X, dy = m.At.Y - centre.Y, reach = radius + m.Size;
             return dx * dx + dy * dy <= reach * reach;
         }).Select(m => (m.Id, m.At, Taken: taken.GetValueOrDefault(m.Id))).ToList();
-        var shuffle = new AnimationVariantSelector.NativeRandom([sequence, 1u, playerId, 0u, (uint)wave]);
+        uint level = (uint)(byte)(repeatsLeft + 1), left = (uint)repeatsLeft;
+        var shuffle = new AnimationVariantSelector.NativeRandom([sequence, level, playerId, left, (uint)wave]);
         for (int i = 0; i < candidates.Count; i++)
         {
             int j = i + shuffle.Uniform(0, candidates.Count - 1 - i);
@@ -126,7 +132,7 @@ public static class HolySweepHammers
         var hammers = new List<(uint? Id, (int X, int Y) At)>();
         for (int h = 0; h < count; h++)
         {
-            var random = new AnimationVariantSelector.NativeRandom([sequence, 1u, playerId, 0u, (uint)wave, (uint)h]);
+            var random = new AnimationVariantSelector.NativeRandom([sequence, level, playerId, left, (uint)wave, (uint)h]);
             bool placed = false;
             for (int i = 0; i < candidates.Count && !placed; i++)
             {

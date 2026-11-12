@@ -1997,12 +1997,14 @@ public static partial class Game
             int Area(string name) => Stats.Key(name) is uint k ? areaStats.GetValueOrDefault(k) : 0;
             int radius = SkillArea.Radius(hammers.BaseRadius, Area, spell: false);
             var waves = new List<(double At, List<(int X, int Y)> Points)>();
+            // The swings this use repeats after this one (Multistrike), which the client's keys carry (HolySweepHammers).
+            int repeatsLeft = Math.Max(0, MeleeAttackRepeats(conn, skillId) - repeat);
             if (!hammers.Hammerfall)
             {
                 List<(uint Id, (int X, int Y) At)> ordered;
                 lock (conn.Monsters) ordered = ClientEntityGrid.Ordered(conn, struck, s => s.Id, s => s.At);
                 var picked = HolySweepHammers.Pick(ordered, hammers.Count, sequence, PlayerId,
-                    s => HolySweepHammers.SweepAngle(centre, facing, s.At));
+                    s => HolySweepHammers.SweepAngle(centre, facing, s.At), repeatsLeft);
                 if (picked.Count == 0) return;
                 waves.Add((HolySweepHammers.FallSeconds, [.. picked.Select(p => p.At)]));
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: {picked.Count} holy hammer(s) of "
@@ -2038,7 +2040,7 @@ public static partial class Game
                         monsters = ClientEntityGrid.Ordered(conn, monsters, m => m.Id, m => m.At);
                     }
                     var wave = HolySweepHammers.Wave(monsters, taken, centre, sweepRadius, hammers.Count, Walkable,
-                        sequence, PlayerId, index);
+                        sequence, PlayerId, index, repeatsLeft);
                     Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammer wave at {at:0.##} s: "
                         + string.Join(", ", wave.Select(h => h.Id is uint id ? $"0x{id:x}" : $"({h.At.X}, {h.At.Y})")));
                     if (!await WaitProjectileTime(conn, start + at + HolySweepHammers.HammerfallHitSeconds, epoch)) return;

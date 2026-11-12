@@ -75,7 +75,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
-  attack speed; Holy Sweep's hammers fall on the server's landed hits, where the client uses its own hit roll.
+  attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
+  hit roll and drops them along the swing.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).

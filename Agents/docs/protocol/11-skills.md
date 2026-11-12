@@ -1710,25 +1710,33 @@ The client picks and places every hammer itself, with draws the server repeats (
 session client; every integer draw replayed with `AnimationVariantSelector.NativeRandom`):
 - **Order.** Both scans list their candidates in the entity grid's order: 23-cell tiles row by row (x fastest), and in
   a tile the order the objects entered it (`0x141d7fb50` appends, `0x141d7fce0` keeps the rest in order, a tile change
-  from `0x141e32360` removes and appends, `0x141d878e0`). Six monsters spawned into one tile came in spawn order.
+  from `0x141e32360` removes and appends, `0x141d878e0`). Monsters spawned across two tile rows came row by row, each
+  row in spawn order.
 - **Holy Sweep** (`0x141b18a90`, at the swing's `0xC078` event): the monsters within its radius that pass a grid line
   test (`0x141d8a7f0`) and the client's own hit roll (`0x141940010` → `0x141ec38a0`, the target's attack entropy:
   [local hit prediction](../re/projectiles/local-hit-prediction.md)); 3 of 6 passed where the server's sweep landed on
   all 6. With more of them than `holy_sweep_number_of_holy_bolts_to_create` it draws indices over 0 … n (n counts as 0)
-  from a TinyMT keyed [sequence, 0, player id, 0, 0] until that many are flagged. All are sorted by
+  from a TinyMT keyed [sequence, 0, player id, repeats left, 0, 0, 0, 0] until that many are flagged (`0x1419c73c0`
+  reads 8 words; live: 13 candidates, 4 hammers, draws 10, 7, 6, 4). All are sorted by
   angle = atan2(offset) − atan2(target) + π/4 in 0 … 2π (`0x141b21c10`); flagged ones drop in that order, the first at
-  contact and the rest within the next 0.1 s (by swing progress; the per-frame rule is not read), each on its monster's
-  cell 0.25 s before it hits (`0x141b19250`, `DAT_1436adc54`). The server uses its own landed hits as the candidates.
-- **Hammerfalls** (`0x141b1a270` at the swing, a child action with `+0x11c` = 1): waves every
+  contact and the rest as the swing passes their angle (0.22 s for angles 1.0 to 6.2 live; the per-frame rule is not
+  read), each on its monster's cell 0.25 s before it hits (`0x141b19250`, `DAT_1436adc54`). The server uses its own
+  landed hits as the candidates and drops all its hammers at contact.
+- **Repeats** (Multistrike): an attack action's `+0x2d0` is its repeats left (set to the repeat count by
+  `0x1419e5460`, lowered by each repeat in `0x1419e6370`, copied to its clones by `0x1419e5750`), and both keys carry it,
+  so each repeat draws anew. A detached child's `+0x11c` is its parent's `+0x2d0` + 1 + `+0x11c` (`0x141943240`).
+- **Hammerfalls** (`0x141b1a270` at the swing, a child action: `+0x11c` = repeats left + 1): waves every
   `holy_sweep_hammerfall_rate_ms` / 1000 / (1 + `combined_main_hand_attack_speed_+%` / 100) (floats, `+0x350`) while
   `skill_effect_duration` lasts, around the player's cell. Network stats run no calculator, so the client reads that
   stat only from the skill's stats: unsent, 16% attack speed still gave 0.7 s; the Gateway sends it. A wave
   (`0x141b19980`) takes the living monsters within `active_skill_area_of_effect_radius` plus their size (no hit roll),
-  shuffles them front to back from a TinyMT keyed [sequence, 1, player id, 0, wave], then std::sorts them by hammers
-  taken (`0x141b22410`: insertion up to 32, else MSVC's introsort). Hammer h draws from [sequence, 1, player id, 0,
-  wave, h]: a 0-99 roll per free candidate against 100 halved per hammer taken, else up to 3 points at angle
-  Range(0, 6.28318) and distance Range(0, 1) × radius, (0, −d) turned and rounded half up (`0x1406654d0`), on
-  walkable ground. `+0x2d0` and `+0x2b8` were 0. Each hammer hits 0.1 s later in its secondary radius (`0x141b1a610`).
+  shuffles them front to back from a TinyMT keyed [sequence, left + 1, player id, left, wave], then std::sorts them
+  by hammers taken (`0x141b22410`: insertion up to 32, else MSVC's introsort). Hammer h draws from [the same five, h]:
+  a 0-99 roll per free candidate against 100 halved per hammer taken, else up to 3 points at angle Range(0, 6.28318)
+  and distance Range(0, 1) × radius, (0, −d) turned and rounded half up (`0x1406654d0`), on walkable ground.
+  `+0x2b8` was 0. Each hammer hits 0.1 s later in its secondary radius (`0x141b1a610`).
+  A use the server forces on the player (an echo with a negative sequence, 07 §5) runs without its repeats, so the
+  repeat keys are read from the code, not seen live.
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
