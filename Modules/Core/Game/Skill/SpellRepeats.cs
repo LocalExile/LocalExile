@@ -6,12 +6,10 @@ public static partial class Game
     // the animation again, so the contact and its projectiles come again every cast time. The count is the client's
     // calculator 0x1427eaec0: base_spell_repeat_count + skill_repeat_count, + skill_repeat_count_if_mined on a mined
     // skill, none with disable_skill_repeats. Network stats run no calculators, so the skill panel sends it.
-    // shortcut: Ice Nova's action reads the count again for further rings 0.3 s apart (0x141c02c10); it gets no repeats
-    // until that is read, so no nova is drawn that the server does not hit with. Game_ICE_NOVA_REPEATS=1 sends it anyway,
-    // for scripts/re/frida/trace-ice-nova-repeat.js only.
+    // Ordinary Ice Nova starts one native ring per cast replay. Transfigured actions can expand from Frostbolts.
     public static int SpellRepeats(ClientState conn, int effect, Func<string, int> get) =>
         !SkillsFor(conn).IsSpell(effect) || SkillsFor(conn).IsAttack(effect) || Supports.Of(effect)?.Types.Contains(47) == true
-            || SkillsFor(conn).ActionHash(effect) == IceNovaRing.Action && Environment.GetEnvironmentVariable("Game_ICE_NOVA_REPEATS") != "1"
+            || SkillsFor(conn).ActionHash(effect) == IceNovaRing.Action && SkillsFor(conn).EffectId(effect) is not ("IceNova" or "IceNovaHardMode")
             || get("disable_skill_repeats") != 0 ? 0
             : Math.Max(0, get("base_spell_repeat_count") + get("skill_repeat_count")
                 + (get("skill_is_mined") != 0 ? get("skill_repeat_count_if_mined") : 0));
