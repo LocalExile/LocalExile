@@ -11,8 +11,24 @@ const FUNCTIONS = ['0x1413c9340', '0x1413c9540', '0x141b59550', '0x141b59840', '
   '0x141248740', '0x1419ffd70', '0x141a6fd50', '0x141a70e20'];
 const SNAPSHOT_BYTES = 0x300, SNAPSHOT_MS = 3000;
 const m = Process.getModuleByName('Game.patched.exe');
-const at = va => m.base.add(ptr(va).sub(ptr('0x140000000')));
-const va = p => (p.compare(m.base) >= 0 && p.compare(m.base.add(m.size)) < 0) ? '0x' + p.sub(m.base).add(ptr('0x140000000')).toString(16) : p.toString();
+// Data addresses here are the 3.29.3c release's (build 327984). Its 3.29.3.5 hotfix and 3.29.3d have the same code
+// and move data (Agents/docs/re/tooling.md section 11): MOVED lists where each data address this script uses sits in
+// them, so that the script and its output stay in release addresses on every build.
+const MOVED = {
+  '3.29.3.5': {
+    },
+  '3.29.3d': {
+    '0x14332f508':'0x14332f488'}};
+// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
+const BUILD = ({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[m.base.add(m.base.add(0x3c).readU32() + 8).readU32()] || '';
+const moved = MOVED[BUILD] || {};
+const movedBack = Object.fromEntries(Object.entries(moved).map(([from, to]) => [to, from]));
+const at = va => m.base.add(ptr(typeof va === 'string' && moved[va.toLowerCase()] || va).sub(ptr('0x140000000')));
+const va = p => {
+  if (p.compare(m.base) < 0 || p.compare(m.base.add(m.size)) >= 0) return p.toString();
+  const s = '0x' + p.sub(m.base).add(ptr('0x140000000')).toString(16);
+  return movedBack[s] || (moved[s] ? s + '@' + BUILD : s);
+};
 const words = p => { try { return Array.from(new Uint32Array(p.readByteArray(SNAPSHOT_BYTES))); } catch (e) { return null; } };
 let watching = null, counts = {};
 for (const f of FUNCTIONS)

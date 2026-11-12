@@ -115,8 +115,18 @@ function hookRooms(exe) {
 //   record: i32 x, i32 y (tile-local cell), f32 z (+0x10), f32 angle (+0x14); +0x30 type, +0x38 .ao (handle+8 → path)
 // The client spawns only its own doodads from them; server types (AreaTransition …) are skipped there, so their
 // placement is computed here the way 0x142035a10 does it, with the constants read from the client.
+// The four data addresses below are the 3.29.3c release's (build 327984). Its 3.29.3.5 hotfix and 3.29.3d have the same
+// code and move data (Agents/docs/re/tooling.md section 11): MOVED lists where each of them sits there.
+const MOVED = {
+  '3.29.3.5': {
+    '0x142faa4d8':'0x142faa4d0','0x1436ae110':'0x1436ae0e0','0x1436ae46c':'0x1436ae43c','0x1436af6cc':'0x1436af69c'},
+  '3.29.3d': {
+    '0x1436ae110':'0x1436ae060','0x1436ae46c':'0x1436ae3bc','0x1436af6cc':'0x1436af61c'}};
+// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
+const movedData = exe => MOVED[({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[exe.base.add(exe.base.add(0x3c).readU32() + 8).readU32()]] || {};
 function hookTileObjects(exe) {
-  const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
+  const moved = movedData(exe);
+  const at = va => exe.base.add(ptr(moved[va] || va).sub(IMAGE_BASE));
   const hook = at('0x142047e30');
   const bytes = Array.from(new Uint8Array(hook.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (bytes !== '488bc448895808555657415441554156') {
