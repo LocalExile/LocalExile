@@ -1,3 +1,4 @@
+using GameServer.Core;
 /// <summary>
 /// Izaro's Gargoyles (LabyrinthSecrets <c>Gargoyles&lt;tier&gt;1</c>, room boss_gargoyles.arm). In that arena three
 /// gargoyles (LabyrinthSecretEffects <c>Gargoyles&lt;tier&gt;_&lt;element&gt;</c>: Granite-Imbued, damage taken;
@@ -43,11 +44,9 @@ public static class IzaroGargoyles
         ushort? awaken = null;
         try
         {
-            using (var beams = GameTables.Open("data/tables/MiscBeams.json"))
-                if (beams.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString()).ToList().IndexOf("IzaroGargoyleBeam") is int b and >= 0)
-                    beam = (ushort)b;
-            using var buffs = GameTables.Open("data/tables/BuffDefinitions.json");
-            if (buffs.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString()).ToList().IndexOf("awaken_gargoyle") is int a and >= 0)
+            if (ClientTables.Table("MiscBeams").Select(r => r.Text("Id")).ToList().IndexOf("IzaroGargoyleBeam") is int b and >= 0)
+                beam = (ushort)b;
+            if (ClientTables.Table("BuffDefinitions").Select(r => r.Text("Id")).ToList().IndexOf("awaken_gargoyle") is int a and >= 0)
                 awaken = (ushort)a;
         }
         catch (Exception ex) when (ex is IOException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)

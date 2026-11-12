@@ -8,6 +8,7 @@ using GameServer.Data.Terrain.Generation;
 using GgDump;
 using LevelGenTool;
 using static LevelGenTool.Shared;
+using GameServer.Core;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -184,7 +185,8 @@ static int Dispatch(string[] args)
                 break;
             case "generate":
                 // generate <area id> <seed> [trace.gen.json]: the server's generation, compared with a client trace when given.
-                Generate(args[1], uint.Parse(args[2]), args.Length > 3 ? args[3] : null);
+                Generate(args[1], uint.Parse(args[2]), args.Length > 3 ? args[3] : null,
+                    args.Length > 4 ? Convert.FromHexString(args[4]) : null);
                 break;
             case "walk":
                 // walk [<area id> <seed>]: the port's walkability and projectile grids against the walk-map capture
@@ -242,11 +244,11 @@ static void TourList(string outFile, int randomSeeds, bool supportedOnly)
         ? File.ReadLines(failures).Select(l => l.Split(' ')).Where(f => f.Length > 2).Select(f => $"{f[1]} {f[2].TrimEnd(':')}").ToHashSet()
         : [];
     // Towns and hideouts always get seed 1 (InstanceRegistry, Auth's SeedFor), so a tour stop at another seed never arrives.
-    string worldAreas = Path.Combine(root, "data", "tables", "WorldAreas.json");
-    var towns = File.Exists(worldAreas)
-        ? JsonDocument.Parse(File.ReadAllBytes(worldAreas)).RootElement.EnumerateArray()
-            .Where(r => r.GetProperty("IsTown").GetBoolean() || r.TryGetProperty("IsHideout", out var h) && h.ValueKind == JsonValueKind.True)
-            .Select(r => r.GetProperty("Id").GetString()!).ToHashSet()
+    string clientDb = Path.Combine(root, "data", "client.db");
+    var towns = File.Exists(clientDb)
+        ? ClientTable.Load(clientDb, "WorldAreas")
+            .Where(r => r.Bool("IsTown") || r.BoolOrNull("IsHideout") == true)
+            .Select(r => r.Text("Id")!).ToHashSet()
         : ["1_1_town"];
     var supported = supportedOnly
         ? GameServer.Core.World.ServerLevelAreas.Load(Path.Combine(root, GameServer.Core.World.ServerLevelAreas.BaselineFile))
@@ -394,9 +396,8 @@ static void QuestObjectsList(string filter, uint seed, bool rooms = false)
     var files = Files();
     string root = Root();
     var levels = new Dictionary<string, int>(StringComparer.Ordinal);
-    using (var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json"))))
-        foreach (var row in doc.RootElement.EnumerateArray())
-            if (row.GetProperty("Id").GetString() is { } id) levels.TryAdd(id, row.GetProperty("AreaLevel").GetInt32());
+    foreach (var row in ClientTable.Load(Path.Combine(root, "data", "client.db"), "WorldAreas"))
+        if (row.Text("Id") is { } id) levels.TryAdd(id, row.Int("AreaLevel"));
     static bool Plain(string type) => type.Length == 0 || type == "Metadata/MiscellaneousObjects/Doodad"
         || type.StartsWith("Metadata/MiscellaneousObjects/Environment/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Effects/", StringComparison.Ordinal)
@@ -758,7 +759,7 @@ static void WalkArea(GameFileSystem fs, TerrainCache files, string root, string 
     Compare("projectile", walk.Projectile, stem + ".projectile.bin");
 }
 
-static void Generate(string areaId, uint seed, string? tracePath)
+static void Generate(string areaId, uint seed, string? tracePath, byte[]? delveTerrain = null)
 {
     string root = Root();
     var fs = OpenGame();
@@ -803,7 +804,7 @@ static void Generate(string areaId, uint seed, string? tracePath)
         dungeonLayouts[^1] = (dungeonLayouts[^1].Stages, rooms);
         dungeonLayouts.Add(([], null));
     };
-    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode); }
+    try { result = LevelGenerator.Generate(files, area, seed, rng: rng, notes: notes, onStage: OnStage, labyrinthNode: labyrinthNode, delveTerrain: delveTerrain); }
     catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
     {
         foreach (var n in notes) Console.WriteLine("  " + n);

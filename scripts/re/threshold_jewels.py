@@ -13,10 +13,14 @@ Usage (repository root, with Tools/PathOfBuilding present):
     python scripts/re/threshold_jewels.py
 """
 import json
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 EXPORT = "Tools/PathOfBuilding/src/Export/Uniques/jewel.lua"
-MODS = "data/tables/Mods.json"
 OUT = "src/GameServer.Gateway/Item/ThresholdJewelCatalogue.cs"
 
 META = re.compile(
@@ -58,8 +62,8 @@ def main():
     threshold_names = {name for name, _base, _rest in blocks(section)} - set(EXCLUDED)
     threshold_names.update(ADDITIONAL)
 
-    mod_rows = {row["Id"]: row for row in json.load(open(MODS, encoding="utf-8"))}
-    stat_names = [row["Id"] for row in json.load(open("data/tables/Stats.json", encoding="utf-8"))]
+    mod_rows = {row["Id"]: row for row in clientdb.table("Mods")}
+    stat_names = [row["Id"] for row in clientdb.table("Stats")]
 
     def stats_of(mod_id):
         row = mod_rows.get(mod_id)

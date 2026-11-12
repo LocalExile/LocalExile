@@ -33,8 +33,7 @@ values were not used on the wire).
 
 **Issue #75 evidence scope:** test counts and native matrices imported with the completed jobs are historical
 LocalExile results. Standard/Ruthless observations do not add private game-mode support to this branch or certify
-its current native behavior. The [port record](../dev/issue75-port.md) identifies revisions, fresh automated
-results and remaining checks. Source `artifacts/issue75-completion/` paths remain in the LocalExile checkout.
+its current native behavior. Source `artifacts/issue75-completion/` paths remain in the LocalExile checkout.
 
 ```
 base skill/weapon damage by type
@@ -724,6 +723,13 @@ average range. The caller applies the target's resistance. The player's chill, f
 modelled ([below](#outgoing-chill-freeze-and-shock-on-monsters)), and so are his ignites and bleeds (below). Righteous
 Fire still uses its existing per-tick percentage-of-life burn; it is a fire DoT but not an ignite.
 
+Elementalist's Shaper of Flames: `always_ignite` adds 100% ignite chance; `all_damage_can_ignite` lets any hit ignite
+and puts every damage type into the ignite's base (fire scaling plus the types the portion visited, as poison's
+physical part), and the panel's ignite rows follow;
+`enemies_ignited_by_you_have_physical_damage_%_converted_to_fire` (40%) converts a burning monster's hits on the player
+through the Born under Fire hook (`EnemyAuraConversionLocked`), hits only. The golem and Abberath ignites still need
+fire damage.
+
 **The player's ignites on monsters** (`MonsterIgnites.cs`, the wiki's Ignite): `IgniteFromHit` decides a landed hit's
 ignite. A critical strike always ignites; otherwise `base_chance_to_ignite_%`, `chance_to_ignite_%` and
 `chance_to_freeze_shock_ignite_%` give the chance, and the ignite prohibitions (`CannotInflict`, below) stop it. The base is the hit's flat fire damage
@@ -764,7 +770,7 @@ support multiplier's flags. Not modelled: conditional sources and supports (Ruth
 weapon's `local_bleeding_ailment_dot_multiplier_+`, "as though dealing more", and the rows' native formatting.
 Burning Arrow's quality (`active_skill_ignite_damage_+%_final`, 1% per quality) multiplies the ignite rows.
 
-**Hit ignite on monsters (`MonsterIgnites`, `Program.MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
+**Hit ignite on monsters (`MonsterIgnites`, `Modules/Core/Game/Monster/MonsterIgnites.cs`).** A gem projectile or ordinary bow/wand
 shot captures its ignite at release, and the default attack and an area skill's sweep read the same when they hit
 (`SupportedIgnite`, `DefaultAttackIgnite`): chance `base_chance_to_ignite_%` + `chance_to_freeze_shock_ignite_%` from the caster
 and the skill (Burning Arrow's own 25%), the context's ignite rows above (main hand for attacks, spell for spells) as the
@@ -926,6 +932,7 @@ mechanics remain open; source IDs, support lifecycle and parsed contact tests ar
 - Critical elemental hits with `critical_strikes_ignore_elemental_resistances` use effective resistance zero,
   including when the target's resistance or maximum is negative; ignore overrides penetration.
   `attack_critical_strikes_ignore_elemental_resistances` covers attacks only.
+  Inevitable Judgement (graph node 48214) grants the generic ignore and 10 non-critical penetration.
   Non-critical elemental hits add `non_critical_strikes_penetrate_elemental_resistances_%` to general penetration.
   Player and skill contributions to the same key sum; the prohibition suppresses all elemental penetration and ignore.
   Physical, chaos and DoT keep their separate rules.
@@ -1039,7 +1046,7 @@ the capped leech contribution. Pinned PoB `CalcOffence.lua:3721` likewise derive
 and its base rate; instant portions and Ghost Reaver remain distinct conversions. Preserve these distinctions
 in gameplay rather than using a single regeneration rate or an amount-draining speed multiplier.
 
-`LeechSources`, `LeechRecoveryState`, `LeechSession` and `Program.Leech` now connect raw actor/qualified support/
+`LeechSources`, `LeechRecoveryState`, `LeechSession` and `Game.Leech` now connect raw actor/qualified support/
 attacking-hand inputs to accepted ordinary melee/bow, gem projectile and area contacts. Coefficients apply to final
 damage types after resistance, physical reduction and damage-taken modifiers. Misses, blocks, rejected owners and
 targets, DoT and reflected impales do not grant instances. A monster's `cannot_have_life_leeched_from` gates Life
@@ -1246,7 +1253,7 @@ The recovery writer advances the projectile horizon before consuming earned reco
 use that committed horizon, preventing late pump work from being aged prematurely to the wall clock.
 Decision: port these consumers into the new engine; keeping the removed flight task would duplicate execution paths
 and lose upstream continuation/secondary-area rules. The [framework guide](../game/projectile-framework.md#issue-75-integration)
-and [merge report](../dev/issue75-review.md#upstream-merge-resolution) record the contracts and validation.
+records the contracts.
 
 The later main integration also retains incoming ignite/shock and Hardcore death handling in the same resource
 writer, alongside leech, Energy Shield, Fortification and temporary recovery. Ruthless periodic pool persistence

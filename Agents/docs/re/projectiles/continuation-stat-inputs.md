@@ -14,7 +14,7 @@ action snapshots, counters, history or random gates with a single stat check.
 **S:** fifteen registered outputs cover Split, Chain, Fork and always/cannot-Pierce inputs.
 The registration index is a discovery aid; each selected key, callback pointer, registration call and
 callback body is independently checked against the pinned original PE.
-Native key `k` maps to `Stats.json[k-1].Id`; keys below are hexadecimal.
+Native key `k` maps to `Stats[k-1].Id`; keys below are hexadecimal.
 
 `S[k]` denotes a read in the native computation context: an available context/cache entry first,
 otherwise the selected provider's own record/parent path.

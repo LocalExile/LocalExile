@@ -20,7 +20,7 @@ is not in the client tables needs a source and a confidence note.
   `AtlasPrimordialBosses`, `AtlasExileBossArenas`, `MavenFights`.
 - [x] Boss inventory seeded from `WorldAreas` into `drop_bosses`, 997 areas / 630 boss
   varieties (394 campaign, 430 map, 140 unique-map, 24 Labyrinth, 9 other).
-- [x] Card area table seeded (`DropDataSeed.CardAreas`),
+- [x] Card area table seeded (world.db `drop_card_areas`),
   135 areas / 555 area-card pairs from PoEDB.
 - [ ] A single generated report that joins currency, cards and bosses with
   their known sources; the current files are separate.
@@ -63,7 +63,7 @@ is not in the client tables needs a source and a confidence note.
 - [x] Add the community scarab weights: 109 scarabs from the poedata.dev MLE
   calculation (3.28.0; two 3.28 names are gone from the 3.29 client), seeded into
   `drop_item_weights`; the scarab pick follows them.
-- [ ] Parse every boss page's unique tab into `DropDataSeed.BossItems` (major bosses done;
+- [ ] Parse every boss page's unique tab into world.db's `drop_boss_items` (major bosses done;
   430 map bosses and 140 unique-map bosses next).
 - [ ] Add the **boss-only currency** rows to the currency source model; do not
   put them in the global core table.
@@ -81,7 +81,7 @@ is not in the client tables needs a source and a confidence note.
 
 - [x] Document `DropLevel` for cards (The Doctor 75, House of Mirrors 80, The
   Apothecary 75, The Endless Darkness 81).
-- [x] Seed the PoEDB Areas table (`DropDataSeed.CardAreas`)
+- [x] Seed the PoEDB Areas table (world.db `drop_card_areas`)
   (135 areas, 555 pairs, minimum map tier).
 - [x] Add the community card weights: 422 cards from the poedata.dev MLE
   calculation (3.27.0), seeded into `drop_item_weights`; the card pick follows

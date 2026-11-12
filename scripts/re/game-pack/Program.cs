@@ -6,17 +6,20 @@ using GgDump;
 
 // What the servers need from the client as they run, so they never open Client/ (extract-data.ps1 runs both):
 //   constants   data/client-constants.json: the HNC mask of Client/Game.exe, the root hash of Client/Content.ggpk
+//               (zero for a Steam install, which has no GGPK: its patched client skips the compare, LooseFilesPatch)
 //   pack        data/game-files.zip: the game files GamePack covers
 //   stat-descriptions   data/stat-descriptions.txt: the English stat descriptions (StatDescriptions.cs), for tools
-const string Ggpk = "Client/Content.ggpk";
+const string Ggpk = "Client"; // either layout (ClientFiles)
 
 switch (args.FirstOrDefault())
 {
     case "constants":
         byte[] exe = File.ReadAllBytes("Client/Game.exe");
-        HncSender.LoadMask(exe); // Checks the mask against its known hash.
-        byte[] mask = PeImage.ReadAtVa(exe, HncSender.MaskVa, 64);
-        new ClientConstants(Convert.ToHexString(mask), Convert.ToHexString(GgpkMaintenance.RootHash(Ggpk))).Save();
+        byte[] mask = HncSender.ReadMask(exe, ClientBuilds.Require(exe)); // Only an allowed build's executable.
+        HncSender.UseMask(mask); // Checks the mask against its known hash.
+        string rootHash = ClientFiles.Resolve(Ggpk) is { Layout: ClientLayout.Standalone, Path: var ggpk }
+            ? Convert.ToHexString(GgpkMaintenance.RootHash(ggpk)) : new string('0', 64);
+        new ClientConstants(Convert.ToHexString(mask), rootHash).Save();
         Console.WriteLine($"wrote {ClientConstants.DefaultFile}");
         return 0;
     case "pack":
