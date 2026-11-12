@@ -376,4 +376,8 @@ Auth's `keygen` and `patch` and the constants extraction refuse any other. To ad
    `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 it is byte-identical to Steam's loose one.
 4. Add the row, then play the live checklist on that build.
 
+`client-control.js` and `nullifier.js` find their globals through the code that uses them (`globalAt`), so they
+follow such a build by themselves. Any other script with a fixed data address needs the new build's value: an
+instruction that refers to it sits at the same place in both builds, and its operand there gives the new address.
+
 A moved function or a changed table is a port: the five steps above.
