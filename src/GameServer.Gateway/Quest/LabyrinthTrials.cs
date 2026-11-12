@@ -105,14 +105,18 @@ public static class LabyrinthTrials
         return dx * fx + dy * fy >= dx * sx + dy * sy;
     }
 
+    /// <summary>Whether a room line is mirrored as placed: its room (orientation codes 4–7) or its own flip, not both
+    /// (ElegantHouse secret_payload_01 was laid out with most of its track flipped).</summary>
+    public static bool PlacedMirrored(int code, bool flip) => (code is >= 4 and < 8) != flip;
+
     /// <summary>A room line's angle as the Gateway sends it: a corner piece (<c>spinner_rail_corner</c>,
-    /// <c>SpinnerStopper_Corner</c>) in a mirrored room (orientation codes 4–7) turned a quarter back. The room's angle
+    /// <c>SpinnerStopper_Corner</c>) mirrored as placed (<see cref="PlacedMirrored"/>) turned a quarter back. The room's angle
     /// only mirrors the line's angle, and the client draws the piece unmirrored: a mirrored L is the L turned a quarter
     /// (live 2026-11-01: the Labyrinth's spinner rooms showed their corners facing away from the track).</summary>
-    public static float PlacedAngle(string model, float angle, int code)
+    public static float PlacedAngle(string model, float angle, bool mirrored)
     {
         string name = Path.GetFileName(model);
-        if (code is < 4 or >= 8 || !(name.StartsWith("spinner_rail_corner", StringComparison.OrdinalIgnoreCase)
+        if (!mirrored || !(name.StartsWith("spinner_rail_corner", StringComparison.OrdinalIgnoreCase)
             || name.StartsWith("SpinnerStopper_Corner", StringComparison.OrdinalIgnoreCase))) return angle;
         return (angle - MathF.PI / 2 + MathF.PI * 2) % (MathF.PI * 2);
     }

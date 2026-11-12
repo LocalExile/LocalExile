@@ -168,7 +168,7 @@ public static class InstanceStash
     public const ushort MoveToTabId = 0xe0, TakeFromTabId = 0xe3;
 
     /// <summary>C→S 0xe0: Ctrl + click on an inventory item while a stash tab is shown. Tab: the shown tab's index (the
-    /// stash page's +0x4a4); Kind: the page's stash kind (+0x491); Flags: bit 0, bit 1 (unknown, 0 live); Token: a u16
+    /// stash page's +0x4a4); Kind: the page's stash kind (+0x491); Flags: bit 0 (unknown, 0 live), <see cref="MoveAllOfType"/>; Token: a u16
     /// that changes per request; U64: the page's optional u64 (0 live).</summary>
     public sealed record MoveToTab(ushort Tab, uint ItemId, byte Flags, byte Kind, ushort Token, ulong U64);
 
@@ -228,7 +228,7 @@ public static class InstanceStash
     /// <summary>The length of a C→S 0xe1 at the start of <paramref name="m"/>, or null until its count arrived.</summary>
     public static int? MoveToAffinityTabLength(ReadOnlySpan<byte> m) => m.Length < 11 ? null : 11 + 3 * m[10];
 
-    /// <summary>C→S 0xe1 flags bit: Ctrl + right click (Ctrl + left click sends 0). Live 2026-10-23, one Ctrl + right click on
+    /// <summary>C→S 0xe0 and 0xe1 flags bit: Ctrl + right click (Ctrl + left click sends 0). Live 2026-10-23, one Ctrl + right click on
     /// an orb: <c>00E1 000037D5 02 00 6A7D 01 0005 03</c>. The server moves every stack of that type, as the player asked.</summary>
     public const byte MoveAllOfType = 0x02;
 

@@ -50,10 +50,10 @@ yet confirmed on screen).
   |---|---|---|
   | u16 | tree +0x270 | refund points (Orbs of Regret) |
   | u16 | +0x274 | `extra_skill_points` (quest points; dev extra points for now) |
-  | u16 | +0x27c | ascendancy points |
+  | u16 | +0x27c | ascendancy points; the three Wildwood Descendancy rows add their own eight points here, while the main ascendancy stays capped by its earned points |
   | u8 | +0x26c | **the level**: the client's `points_from_level` = (level − 1) × points per level |
   | u8 | +0x268 | class byte: base IntegerId + packed ClassNo (`CharacterClassByte`), the tree's start |
-  | u8 | +0x269 | |
+  | u8 | +0x269 | the second ascendancy layer's **Descendancy.dat row** (0 none): nodes whose `PassiveSkills.DescendancyKey` equals it are that layer's tree and spend the same earned points as the main ascendancy. The panel's own copy is the Player component's +0x1b0 ([04](04-player-entity.md) §4) |
   | u8 flags | | bit0 → +0x91, bit1 → no lists (then `0x141efdcb0` sets only the numbers) |
   | vec16 u16 | +0x180 | **allocated nodes**: PassiveSkills.dat `PassiveSkillGraphId`, raw (little-endian), **sorted** (§2 Gold respec) |
   | vec16 u16 | | (sent empty) |

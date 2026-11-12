@@ -381,9 +381,14 @@ public static partial class Game
         if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
         if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
         var jewelMods = ItemsFor(conn).Mods;
-        if (GrandSpectrum.IsSpectrum(item, jewelMods) && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
-            .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= 3)
-            return "only three Grand Spectrum jewels can be socketed";
+        bool spectrum = GrandSpectrum.IsSpectrum(item, jewelMods);
+        if (spectrum)
+        {
+            int limit = ItemsFor(conn).Limits.Get("grand_spectrum", 3);
+            if (limit > 0 && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+                .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= limit)
+                return $"only {limit} Grand Spectrum jewels can be socketed";
+        }
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {
             if (expansion) return "timeless jewels go in an ordinary passive tree socket";
@@ -398,7 +403,8 @@ public static partial class Game
                     : $"only {limit} Historic timeless jewels can be socketed";
             }
         }
-        if (item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
+        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
+        if (!spectrum && radius is not { TattooEffectPct: > 0 } && item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
         {
             var uniques = UniquesFor(conn);
             var limitedJewel = uniques.All.FirstOrDefault(d => d.JewelLimit > 0 && uniques.NameWord(d) == nameWord);
@@ -419,10 +425,13 @@ public static partial class Game
                     : $"only {limit} Impossible Escape can be socketed";
             }
         }
-        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
-        if (radius is { TattooEffectPct: > 0 } && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Any(placed =>
-            placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }))
-            return "only one Warrior's Tale can be socketed";
+        if (radius is { TattooEffectPct: > 0 })
+        {
+            int limit = ItemsFor(conn).Limits.Get("radius:Warrior's Tale", 1);
+            if (limit > 0 && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Count(placed =>
+                placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }) >= limit)
+                return $"only {limit} Warrior's Tale can be socketed";
+        }
         if (expansion && radius is not null)
             return "radius unique jewels go in an ordinary passive tree socket";
         if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)

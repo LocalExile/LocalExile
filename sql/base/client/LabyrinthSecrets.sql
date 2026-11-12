@@ -1,0 +1,25 @@
+-- Client table LabyrinthSecrets (new in 3.29.3c); its rows come from sql/updates/client/. Written by scripts/dev/client-sql.ps1.
+CREATE TABLE "LabyrinthSecrets" (
+    "_row" INTEGER PRIMARY KEY,
+    "Id" TEXT,
+    "Id2" TEXT,
+    "__col2" JSON,
+    "__col3" INTEGER,
+    "__col4" INTEGER,
+    "LabyrinthSecretEffectsKeys0" JSON,
+    "LabyrinthSecretEffectsKeys1" JSON,
+    "LabyrinthSecretEffectsKeys2" JSON,
+    "__col8" INTEGER,
+    "LabyrinthSecretEffectsKeys3" JSON,
+    "__col10" BOOLEAN,
+    "__col11" BOOLEAN,
+    "__col12" INTEGER,
+    "__col13" BOOLEAN,
+    "__col14" BOOLEAN,
+    "__col15" BOOLEAN,
+    "Name" TEXT,
+    "AchievementItemsKey" JSON,
+    "LabyrinthTierMinimum" INTEGER,
+    "LabyrinthTierMaximum" INTEGER,
+    "__col20" BOOLEAN
+);

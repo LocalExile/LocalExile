@@ -400,12 +400,20 @@ public static class RadiusJewelCatalogue
         AddMove(result, "melee_physical_damage_+%", "physical_bow_damage_+%");
         AddMove(result, "melee_attack_speed_+%", "bow_attack_speed_+%");
         AddMove(result, "melee_critical_strike_chance_+%", "bow_critical_strike_chance_+%");
-        AddMove(result, "melee_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
+        foreach (var prefix in new[] { "one_handed_melee_", "two_handed_melee_" })
+        {
+            AddMove(result, prefix + "physical_damage_+%", "physical_bow_damage_+%");
+            foreach (var stat in new[] { "attack_speed_+%", "accuracy_rating_+%", "critical_strike_chance_+%",
+                "critical_strike_multiplier_+", "stun_duration_+%" })
+                AddMove(result, prefix + stat, "bow_" + stat);
+            AddMove(result, prefix + "weapon_ailment_damage_+%", "bow_ailment_damage_+%");
+            AddMove(result, prefix + "weapon_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
+        }
+        AddMove(result, "critical_strike_multiplier_with_dagger_+", "bow_critical_strike_multiplier_+");
         AddMove(result, "mace_or_staff_hit_and_ailment_damage_+%", "bow_hit_and_ailment_damage_+%");
         AddMove(result, "axe_or_sword_ailment_damage_+%", "bow_ailment_damage_+%");
         AddMove(result, "melee_weapon_ailment_damage_+%", "bow_ailment_damage_+%");
         AddMove(result, "melee_weapon_critical_strike_multiplier_+", "bow_critical_strike_multiplier_+");
-        AddMove(result, "melee_skills_area_of_effect_+%", "area_of_effect_+%_with_bow_skills");
         AddMove(result, "melee_attacks_usable_without_mana_cost", "bow_attacks_usable_without_mana_cost");
         AddMove(result, "staff_block_%", "with_bow_additional_block_%");
         return result;

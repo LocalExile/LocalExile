@@ -218,7 +218,8 @@ static partial class QuestobjectsRules
         links.AddRange(level.RoomLinks);
         // The tiles' own (the doorways' rollers, the abyss edges' blades) after the rooms', whose indexes the links are.
         return [.. level.RoomObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y,
-            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, o.Code), o.Scale, float.IsNaN(o.Z) ? null : o.Z, o.Code is >= 4 and < 8)),
+            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, LabyrinthTrials.PlacedMirrored(o.Code, o.Flip)), o.Scale,
+            float.IsNaN(o.Z) ? null : o.Z, LabyrinthTrials.PlacedMirrored(o.Code, o.Flip))),
             .. level.TileLabyrinthObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Scale,
                 o.Z == 0 ? null : o.Z, o.Code is >= 4 and < 8))];
     }

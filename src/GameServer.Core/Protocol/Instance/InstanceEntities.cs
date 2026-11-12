@@ -174,10 +174,10 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
@@ -1118,6 +1118,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public byte PantheonMajor { get; init; }
     public byte PantheonMinor { get; init; }
 
+    /// <summary>The Descendancy.dat row the client's tree panel draws as the second ascendancy layer (Player +0x1b0):
+    /// Affliction's Wildwood specialisations and the 3.29 Bloodline classes, 0 = none.</summary>
+    public byte Descendancy { get; init; }
+
     /// <summary>The Inventories component's index in the player object's component order (04 §3).</summary>
     public const byte InventoriesComponentIndex = 8;
 
@@ -1184,7 +1188,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8((byte)(WashedUp ? 1 : 0)) // +0x1b1 (non-zero → "WashedUp" state)
          .U8(PantheonMajor)  // +0x1ae: the major Pantheon god, PantheonPanelLayout row + 1 (0 = none; campaign/pantheon.md §5)
          .U8(PantheonMinor)  // +0x1ad: the minor god, the same way
-         .U8(0).U8(0).U8(0)  // +0x1b0, +0x1af, +0x238
+         .U8(Descendancy)    // +0x1b0: the Descendancy.dat row (the Bloodline/Wildwood second ascendancy layer, 0 = none)
+         .U8(0)              // +0x1af
+         .U8(0)              // +0x238
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears

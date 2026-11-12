@@ -86,7 +86,7 @@ public static class GameDataCatalog
                 groups[key].Any() ? [.. groups[key].Select(g => new UniqueCatalog.RollGroup((int)Int(g, "count"),
                     [.. options[Key(g, "name", "base_type", "grp")].Select(o => Text(o, "mod"))],
                     IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count")))] : null,
-                (int)Int(row, "jewel_limit"));
+                (int)Int(row, "jewel_limit")) { EncounterItemLevelBonus = IntOrNull(row, "encounter_item_level_bonus") };
         })];
     }
 

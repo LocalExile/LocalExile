@@ -13,6 +13,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/18-stash.md.
 - **Currency withdrawal (#249).** Ctrl + left click takes at most one normal inventory stack from the clicked slot;
   Ctrl + right click uses the separate `0xe3` bulk boolean to take as much of that stack as fits.
+  Ctrl + right click on an inventory stack moves every stack of its type into the stash, to its affinity tab or the shown tab.
   Real-client/Gateway logs confirm bulk 0 takes 40 from 218, leaving 178;
   bulk 1 takes 178 as four stacks of 40 and one of 18.
   Automated tests cover quantity limits, existing-stack top-ups, partial/full inventory, rollback and save reloads.

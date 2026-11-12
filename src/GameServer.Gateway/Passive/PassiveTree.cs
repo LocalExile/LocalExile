@@ -16,7 +16,8 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 {
     public sealed record Node(ushort GraphId, string Id, string Name, IReadOnlyList<(uint Key, int Value)> Stats, int PointsGranted,
         bool IsAscendancy, bool IsStart, int MasteryGroup, int RespecMultiplier = 1, bool IsKeystone = false,
-        bool IsNotable = false, bool IsJewelSocket = false, bool IsProxy = false, bool IsExpansion = false)
+        bool IsNotable = false, bool IsJewelSocket = false, bool IsProxy = false, bool IsExpansion = false,
+        int DescendancyKey = 0)
     {
         public bool IsMastery => MasteryGroup >= 0;
     }
@@ -246,14 +247,18 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
                 : Flag(r, "IsMultipleChoice") ? 0 : 1;
             string name = r.Text("Name") ?? "";
             if (alternate && r.Text("NameHardmode") is { Length: > 0 } alternateName) name = alternateName;
+            int descendancyKey = r.IntOrNull("DescendancyKey") ?? 0;
+            // Descendancy nodes are the second ascendancy layer: not ordinary, even though they have no AscendancyKey.
+            bool ascendancyNode = !r.IsNull("AscendancyKey") || descendancyKey > 0;
             nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, r.Text("Id") ?? "", name,
-                stats, r.Int(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted"), !r.IsNull("AscendancyKey"),
+                stats, r.Int(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted"), ascendancyNode,
                 r.Ints("Characters").Length > 0, masteryGroup, respec,
                 IsKeystone: Flag(r, "IsKeystone"),
                 IsNotable: Flag(r, "IsNotable"),
                 IsJewelSocket: Flag(r, "IsJewelSocket"),
                 IsProxy: Flag(r, "IsProxyPassive"),
-                IsExpansion: Flag(r, "IsExpansion")));
+                IsExpansion: Flag(r, "IsExpansion"),
+                DescendancyKey: descendancyKey));
         }
         return nodes;
     }

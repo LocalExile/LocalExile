@@ -801,6 +801,15 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// </summary>
     public HashSet<ushort> ClusterPassives = [];
     public AscendancyProgress MainAscendancy = new();
+    // The Descendancy.dat specialisation row the client shows as a second ascendancy layer (0: none). 0x33 carries it in
+    // its spare byte; Affliction's Wildwood classes and the 3.29 Bloodline classes are rows of that table.
+    public byte DescendancyRow;
+    // The descendancy layer's allocated nodes (PassiveSkills rows with that DescendancyKey); sent in 0x33 with the rest.
+    public HashSet<ushort> DescendancyNodes = [];
+    // The Descendancy row the server last offered with 0x7b kind 0x4c, and the area it offered it in. C->S 0x3a is
+    // accepted only for that row in that area, so a client cannot pick a row the server did not present.
+    public byte OfferedDescendancyRow;
+    public ushort OfferedDescendancyArea;
     public CharacterSaves.PassiveProgressSnapshot? SavedPassiveProgress;
     // Selected mastery effects: mastery node (PassiveSkillGraphId) -> effect HASH16. Saved with the character.
     public Dictionary<ushort, ushort> MasteryEffects = [];
@@ -831,7 +840,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     /// <summary>What Headhunter took from slain rares (StolenMods).</summary>
     public StolenMods StolenMods { get; } = new();
     /// <summary>The Headhunter buff on the client, 0 for none (Monsters lock).</summary>
-    public ushort StolenModsBuff;
+    public ushort StolenModsBuff, InspiredLearningBuff;
     /// <summary>The flask buffs Mageblood has on the client, by flask item id (Program.StepMagebloodBuffs; Monsters lock).</summary>
     public Dictionary<uint, (byte Slot, ushort Buff, ushort? Extra)> MagebloodBuffs { get; } = [];
     /// <summary>The flasks' partial charges and the crit charge cooldown (FlaskCharges).</summary>
