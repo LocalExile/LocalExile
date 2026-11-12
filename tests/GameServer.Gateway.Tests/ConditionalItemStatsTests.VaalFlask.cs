@@ -28,6 +28,7 @@ public partial class ConditionalItemStatsTests
         stats = Game.CharacterPlayerStats(conn); charges.Die();
         conn.Clock.Start(); Game.GrantVaalUseChargesLocked(conn, Game.ResourceEffectsTime(conn)); conn.Clock.Stop();
         Assert.Equal(0, charges.Effective(ChargeType.Power));
+        Projectile_kills_publish_current_vaal_budgets_at_the_output_gate(conn).GetAwaiter().GetResult();
 
         var boots = wear("Dusktoe", PlayerInventories.Boots);
         var raw = ItemModStats.Sum([boots.Item], Program.Items.Mods);
@@ -51,5 +52,63 @@ public partial class ConditionalItemStatsTests
         }
         Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of(minimum, StatConditions.Subject.Unknown));
         inventory.Remove(PlayerInventories.Boots, boots.Id); Game.CharacterPlayerStats(conn);
+    }
+
+    async Task Projectile_kills_publish_current_vaal_budgets_at_the_output_gate(ClientState conn)
+    {
+        var inventory = Game.ItemsOf(conn);
+        foreach (byte slot in new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1 })
+            foreach (var item in inventory.Items(slot)) inventory.Remove(slot, item.Id);
+        var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemVaalGroundSlam")!);
+        var host = inventory.Add(PlayerInventories.Weapon1, 0, 0,
+            ItemCatalog.Create(Program.Items.Find("Driftwood Club")!) with
+                { Sockets = [new ItemSocket(SocketColour.White, gem)], Links = [1] });
+        Game.RefreshVaalSouls(conn); Game.VaalSoulChanges(conn);
+        var initial = Assert.Single(conn.VaalSouls.Read());
+        Assert.Equal(0u, initial.Current); Assert.True(initial.Capacity > 0);
+        var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
+        var variety = Game.Monsters.Find("Cannibal")!;
+        using var wire = new Wire();
+        var session = new Game.ProjectileSession("vaal-kill-publication", wire.Stream, wire.Ciphers, conn);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        conn.Clock.Start();
+        async Task Drain()
+        {
+            var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            session.Enqueue(() => { done.SetResult(true); return Task.CompletedTask; });
+            await done.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        void Kill(uint id)
+        {
+            var target = new SpawnedMonster("vaal publication", new(at.X, at.Y, 8), 60, 2, 1)
+                { Life = 1, Hostile = true, Variety = variety, Level = 1, NoRewards = true };
+            lock (conn.Monsters)
+            {
+                conn.Monsters[id] = target;
+                Assert.NotNull(Game.ApplyMonsterHitLocked(conn, target, 1));
+                Assert.True(target.SoulKillProcessed);
+                Game.CommitProjectileKill(session, id, target, 0, new Random(504));
+            }
+        }
+        try
+        {
+            Kill(0x50a0); await Drain();
+            Assert.Equal(1u, Assert.Single(conn.VaalSouls.Read()).Current);
+            Assert.Equal(1u, conn.SentVaalSouls[initial.ActiveSkillsRow].Current);
+            session.Enqueue(async () => await release.Task);
+            Kill(0x50a1);
+            Assert.Equal(2u, Assert.Single(conn.VaalSouls.Read()).Current);
+            inventory.Remove(PlayerInventories.Weapon1, host.Id);
+            release.SetResult(true); await Drain();
+            Assert.Empty(conn.VaalSouls.Read()); Assert.Empty(conn.SentVaalSouls);
+        }
+        finally
+        {
+            release.TrySetResult(true);
+            session.Invalidate(); await session.OutputCompleted;
+            conn.Clock.Stop();
+            conn.Monsters.Remove(0x50a0); conn.Monsters.Remove(0x50a1);
+            inventory.Remove(PlayerInventories.Weapon1, host.Id);
+        }
     }
 }

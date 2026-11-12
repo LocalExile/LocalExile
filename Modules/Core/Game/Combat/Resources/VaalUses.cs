@@ -180,6 +180,8 @@ public static partial class Game
             if (!Current()) return;
             await SendVaalSouls(remote, stream, ciphers, conn);
             if (!Current()) return;
+            await SendChargeStats(remote, stream, ciphers, conn, "accepted Vaal use");
+            if (!Current()) return;
             await SendSkillCost(remote, stream, ciphers, conn, paid.Life, "Vaal use paid");
         }
         finally { Program.ProjectileOutputGuard.Value = previous; }
