@@ -26,11 +26,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   clock, with pauses and default attacks between throws; then read every class and stance's Melee views from the ACT
   and .ao in `scripts/re/anim_contacts.py` instead of `SpectralThrowRelease`'s table.
   Done when: each hit lands as the drawn weapon reaches the monster, out and back, for every class and weapon.
-- **Ice Nova with Spell Echo:** the server sends Ice Nova no `spell_repeat_count`, so Spell Echo only speeds it up
-  (the action's two repeat paths are in [11](../docs/protocol/11-skills.md) §9).
-  Start: cast Ice Nova with Spell Echo linked under `scripts/re/frida/trace-ice-nova-repeat.js`, with
-  `Game_ICE_NOVA_REPEATS=1` set for the Gateway so it sends the count, then hit with each ring.
-  Done when: every Ice Nova ring drawn with Spell Echo deals damage once.
+- Verify transfigured Ice Nova repeats when the area expands from Frostbolts.
 - **Cyclone's area:** check the `/set_aoe` radius live.
 
 ### The player's real stats
