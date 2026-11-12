@@ -1902,20 +1902,26 @@ static class CommandsFeature
         })
         .Add("tp", "/tp <x> <y> | <+dx> <+dy> | <id> | <name> [n] | list [filter] (dev: teleport to a cell, a monster, NPC, transition, waypoint or captured object, e.g. /tp RhoaChest 2)",
             args => DevTeleport(remote, stream, ciphers, conn, args))
-        .Add("mobs", "/mobs (list spawned monsters)", async _ =>
+        .Add("mobs", "/mobs (list the monsters that are alive)", async _ =>
         {
             // Copied under the lock: the AI and the emerge watch change both lists.
             List<string> listed;
+            int corpses;
             lock (conn.Monsters)
             {
                 var buried = MonsterEmerge.Buried(conn);
                 var waiting = new HashSet<SpawnedMonster>(MonsterEmerge.Unrisen(conn), ReferenceEqualityComparer.Instance);
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                listed = [.. conn.Monsters.Concat(buried).Select(m =>
+                // Corpses stay in Monsters until the area is torn down: an area the player cleared would otherwise
+                // still list every monster it ever had, which reads as "they are still there".
+                var alive = conn.Monsters.Concat(buried).Where(m => !m.Value.Dead && m.Value.Life > 0).ToList();
+                corpses = conn.Monsters.Count - alive.Count;
+                listed = [.. alive.Select(m =>
                     $"0x{m.Key:x} {m.Value.Label} {m.Value.Walk.Position(now)}" +
                     (waiting.Contains(m.Value) ? buried.ContainsKey(m.Key) ? " (buried)" : " (lurking)" : m.Value.Aggro ? " (chasing)" : ""))];
             }
-            await conn.Commands!.Reply(listed.Count == 0 ? "No monsters." : string.Join(", ", listed));
+            await conn.Commands!.Reply(listed.Count > 0 ? string.Join(", ", listed)
+                : corpses > 0 ? $"No living monsters ({corpses} corpse(s) left)." : "No monsters.");
         })
         .Add("despawn", "/despawn [all | <id>] (default: the last one spawned)", async args =>
         {
