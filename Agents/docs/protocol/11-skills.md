@@ -2614,8 +2614,9 @@ buff's `ancestral_buff_cooldown_does_not_tick`.
 
 ## 10g. Totems
 
-A totem skill's ActiveSkills row names its totem (`SkillTotemId`); SkillTotemVariations maps that id and a skin to a
-MonsterVarieties row, and skin 0 is the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`).
+`SkillTotemId` names the sprite a skill's totem is drawn as, and SkillTotemVariations maps that id and a skin to a
+MonsterVarieties row, skin 0 being the default (Rejuvenation Totem: 4 → `Metadata/Monsters/Totems/LifeRegenTotem`). It
+is on every ActiveSkills row, so it cannot be what marks a skill as a totem; what does is at the end of this section.
 The totem base type (`Metadata/Monsters/Totems/Totem`) reads only components the monster blob writer already has.
 Its .ot files make it immobile with `set_is_totem_object`, play `Emerge` as its basic action, block movement and give
 it `monster_inherent_damage_taken_+%_final` -80.
@@ -2628,6 +2629,14 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   monsters as a spawn is.
   The server registers the type (S→C 0x20, `<Id>@<level>`), creates a team-0 monster object (0x2bb) and enters it
   in the wake zone (0x1a9) in one gated send, so a later Life update never precedes it.
+  It then plays the totem base's own Emerge basic action at once (0x1ab then 0x1ac with 0x0101): a totem has no
+  Transitionable component, so the monster rise's 0x2bc does not apply.
+  The wait is gated on the placement skill still being the same source (host, gem identity and supports) and is polled
+  rather than slept, so death, an area change, a closed connection, a re-socketed gem and the combat lifetime ending all
+  cancel it. It deliberately does NOT gate on the action token the ordinary cast path uses: live 2026-11-09 that clause
+  dropped six of seven placements while their mana stayed paid, because the client lets the player act before a 1.0 s
+  wait is over (it walked 0.38 s after the cast). The gate the caller passes keeps the skill's own cooldown ticket and
+  the Vaal/channel admission, so removing the token does not make the placement unconditional.
 - Level and Life: the totem's level is the gem level's `PlayerLevelReq`, as PoB's totem level.
   Its base Life is the variety's minion Life at that level (MonsterTypes `IsPlayerMinion`, `LifeMultiplier` 120:
   24 at gem level 1), times `1 + totem_life_+% / 100`; the maximum goes on the object's stats when it differs.
@@ -2649,22 +2658,41 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
   The client never reads that stat, nor `base_presence_radius` (0x3ee0): both are server-side.
 
-Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sourceSkill)`.
-Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
-`SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
-GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
-On 3.29.3c the proxy action alone does not draw Spark. Its Projectiles.dat flight clip on server-created objects displays the simulated sparks.
-The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
-Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
-owner offensive stats and type prohibitions. Ancestral Bond is `keystone_ancestral_bond` (key 5336), not
-`spell_skills_deal_no_damage` (5341, Gruthkul's Pelt); only the former's owner-only restriction is bypassed by proxies.
-The existing tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
-transfer and module retirement stop pending releases.
-Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
-their projectile rows are `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203.
-Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.35 s; `base_totem_range` is targeting range.
-Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
-before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
+A totem skill is one whose instance carries `is_totem`: either a dedicated totem skill (its ActiveSkills row carries
+the `SummonsTotem` ActiveSkillType — `SkillTotemId` names the sprite, but all 1941 rows carry one, so it cannot be the
+marker) or an ordinary skill that Spell Totem Support totemifies. The two are placed the same way and then diverge, and
+that split is the point of the rest of this section.
+- A dedicated totem skill uses its own skill locally. Its object carries a granted proxy `0x4000` (the id a placed
+  trap's proxy uses) built from the skill's stats and area radius with `skill_is_non_pathing`, so the client plays the
+  action. The use aims 0x1ab at the nearest living hostile monster within 60 cells (our number; `base_totem_range` is
+  the targeting range, not a placement range) and, at half the use's interval (the skill's CastTime, 0.3 s floor),
+  applies the hit captured from the player's stats at placement to every living hostile monster within the skill's
+  radius of the aimed point, with its ailments, as a trap's or mine's damage does; a monster outside the 60 cells is
+  never aimed at. Its kills give the player their experience but are not his for his on-kill effects. Nothing flies: a
+  Flame Totem's hit lands at the target. Decoy Totem is the totem whose effect is not a hit: the AI reads
+  `TotemTauntLocked` and walks monsters at it (`TotemAtLocked`), and their contact lands on the totem
+  (`TotemTakesMonsterHitLocked`), which takes its own `monster_inherent_damage_taken_+%_final` -80. Devouring Totem
+  eats the nearest corpse in range (`TotemDevourLocked`) for the gem's own `corpse_consumption_life_to_gain` /
+  `_mana_to_gain`.
+- A totemified projectile spell or a native ranged ballista FLIES: `SpellTotems.cs`/`BallistaTotems.cs` execute it
+  through the existing projectile runtime, from the totem entity, using a proxy Actor skill `0x4000` with
+  `Parent = (PlayerId, sourceSkill)`. Fireball's `SkillTotemId = 22` has no dedicated variation; the generic skins are
+  `SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273, and a dedicated spell/ballista skin is preferred where
+  the tables have one. The proxy carries the underlying skill's GEPL/statset and clears the placement flags; the
+  installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage,
+  `totem_support_gem_level` supplies the monster level, and only placement pays player costs. The actual caster inherits
+  the owner's offensive stats and type prohibitions with the owner's `spell_skills_deal_no_damage` removed (Ancestral
+  Bond), and the projectile's hit is marked the actual caster's, so it is not the player's hit, crit-flask, rage, charge
+  or kill. The tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
+  transfer and module retirement stop pending releases. Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun`
+  actions bypass the generic projectile lookup; their projectile rows are
+  `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203. Ranged placement is 0.5 s since 3.28,
+  despite older Totem references listing 0.35 s, and ballista-only bonus slots do not let an ordinary totem exceed its
+  own cap.
+- A totemified skill that is neither of the two — Arc, for one — is refused before action or cost admission, as are the
+  other unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate.
+Native client acceptance of both paths remains pending, and enemy targeting of totems, placement range and the aura
+buff's totem source remain unimplemented.
 
 ## 10h. Player minions that fight
 

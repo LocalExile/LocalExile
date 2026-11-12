@@ -804,6 +804,15 @@ public static partial class Game
                 // A melee monster chases as GGG's do: its attack aimed at the player, repeated, so the client walks it to
                 // where it really has the player. The estimate walks the same walk-up: until the distance is within the
                 // attack's reach (max range reach - 1, the player's size as the tolerance: 0x141e95400, 0x141e81950).
+                // A taunting totem near it (Decoy Totem) is what it goes for instead of the player: the same chase and the
+                // same orders, but at the totem's cell, so the client walks it there and swings at it (MonsterContact
+                // lands that hit on the totem). With no taunting totem in reach, goal is the player's cell and gd its
+                // distance, exactly as before.
+                uint taunt = m.Hostile && m.Attack is { InPlace: false } ? TotemTauntLocked(conn, (mx, my), now) ?? 0 : 0;
+                m.TauntTarget = taunt;
+                (int X, int Y) goal = taunt != 0 ? TotemAtLocked(conn, taunt, now) ?? (px, py) : (px, py);
+                double gd = taunt != 0
+                    ? Math.Sqrt((double)(mx - goal.X) * (mx - goal.X) + (double)(my - goal.Y) * (my - goal.Y)) : d;
                 if (m.Hostile && m.Attack is { InPlace: false } melee)
                 {
                     // A steady walker (MonsterMovement.ReorderSeconds): while it is on its way it is ordered again at most this
@@ -825,13 +834,13 @@ public static partial class Game
                     // Far off, a Move to the cell LegCells along the walk-up instead of the attack aimed at the player,
                     // ordered again on the same cadence; the attack's own walk-up from within a leg of the reach. An
                     // estimate that finds no way at all keeps the attack order: the client's own search may.
-                    if (!steady && d > melee.Range - 1 + LegCells)
+                    if (!steady && gd > melee.Range - 1 + LegCells)
                     {
-                        (int X, int Y) leg = (px, py), start = m.Walk.Position(now);
+                        (int X, int Y) leg = goal, start = m.Walk.Position(now);
                         bool placed = !double.IsNaN(plan.FrameStart);
                         if (!placed)
                         {
-                            m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
+                            m.Walk.Approach(goal.X, goal.Y, melee.Range - 1, now, LivingCollision.PlayerSize);
                             leg = m.Walk.Ahead(now, LegCells / m.Walk.Speed);
                             placed = leg != start;
                             if (placed) start = m.Walk.Order(leg.X, leg.Y, now);
@@ -848,7 +857,7 @@ public static partial class Game
                     (int X, int Y) here;
                     if (double.IsNaN(plan.FrameStart))
                     {
-                        var walk = m.Walk.Approach(px, py, melee.Range - 1, now, LivingCollision.PlayerSize);
+                        var walk = m.Walk.Approach(goal.X, goal.Y, melee.Range - 1, now, LivingCollision.PlayerSize);
                         here = walk.Here;
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) chase walk from {walk.Here} to {walk.Stop}, arrives in {walk.At - now:0.000} s, speed {m.Walk.Speed:0.#}, "
                             + $"reached goal {m.Walk.ReachedGoal}, player ({px}, {py}) {d:0.0} away (t={now:0.000})");
@@ -859,9 +868,9 @@ public static partial class Game
                         here = m.Walk.Position(now);
                         if (ServerTrace.Ai) Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) chase from {here}, placed at the gate: player ({px}, {py}) {d:0.0} away (t={now:0.000})");
                     }
-                    m.LastTarget = (px, py);
+                    m.LastTarget = goal;
                     m.SwingGeneration = null;
-                    plan.Chases.Add((id, m, NextPlannedAction(m), here, (px, py)));
+                    plan.Chases.Add((id, m, NextPlannedAction(m), here, goal));
                     continue;
                 }
                 // Bodies take distinct surround slots. A negative footprint does not collide with living actors,
@@ -1678,6 +1687,24 @@ public static partial class Game
         uint id, SpawnedMonster m, int action, ushort sequence = MonsterActionSequence, MonsterAttack? use = null)
     {
         if ((use ?? m.Attack) is not { } a) return;
+        // A taunted monster's contact (Decoy Totem) is the totem it was drawn to, not the player: the totem takes the
+        // rolled hit and no player state is touched. Its own .ot carries monster_inherent_damage_taken_+%_final -80, so
+        // it takes a fifth of it. A totem that is already gone clears the mark and the swing falls through to the player.
+        if (m.TauntTarget is var totemId && totemId != 0)
+        {
+            double at = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+            lock (conn.Monsters)
+            {
+                if (TotemAtLocked(conn, totemId, at) is not null)
+                {
+                    int damage = (int)Math.Max(1, Math.Round(a.Damage.Roll(Random.Shared).AverageTotal * .2));
+                    TotemTakesMonsterHitLocked(conn, totemId, damage, at, CharacterPlayerStats(conn));
+                    Console.WriteLine($"[gateway] monster 0x{id:x} ({m.Label}) hits the taunting totem 0x{totemId:x} for {damage} (t={at:0.000})");
+                    return;
+                }
+                m.TauntTarget = 0;
+            }
+        }
         MonsterHitOutcome? outcome = null;
         if (!await SendMonsterAction(remote, stream, ciphers, conn, id, m, action, () =>
         {

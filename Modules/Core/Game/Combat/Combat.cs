@@ -738,6 +738,18 @@ public static partial class Game
         bool Current() => (cooldownUse?.Current(conn) ?? (actionToken is null || PlayerActionCurrent(conn, action)))
             && (vaalUse is null || VaalAdmissionCurrent(conn, vaalUse))
             && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, action, generation));
+        // The placement's own gate: upstream's model (the polling wait, SourceCurrent(), the lifetime checks) is kept
+        // whole, and the one clause it must NOT inherit is the action token. That wait is 0.6-1.0 s and the client lets
+        // the player act long before it is over, so PlayerActionCurrent's `conn.ActionCount == action` cancelled
+        // placements whose mana had already been paid (live 2026-11-09: six of seven casts). "The player acted" is not
+        // "the placement skill went away". What still cancels a placement is everything else: the skill's own cooldown
+        // ticket and Vaal admission here, and inside PlaceTotem the combat lifetime, SourceCurrent() (the gem's host,
+        // supports and physical identity), CurrentGameWork, death, an area change and a closed connection. With no
+        // cooldown ticket this predicate is therefore true, and those checks are what hold the placement honest: it is
+        // not unconditional, it just no longer dies because the player moved.
+        bool TotemPlacementCurrent() => (cooldownUse?.Current(conn) ?? true)
+            && (vaalUse is null || VaalAdmissionCurrent(conn, vaalUse))
+            && (channelGeneration is not int generation || ChannelCurrent(conn, skillId, action, generation));
         if (!Current()) return false;
         if (gem.Name is not null && !ProjectilePathAvailable(remote, conn, skillId, gem.Effect)) return false;
         if (locationInstant && (gem.Name is null || !InstantLocationSkill.Supported(SkillsFor(conn), gem.Effect))) return false;
@@ -918,7 +930,7 @@ public static partial class Game
             return await Desecrate(remote, stream, ciphers, conn, skillId, to, Current);
         if (gem.Name is not null && IsTotemSkill(conn, skillId) && TotemVariety(conn, gem.Effect) is { } totem)
         {
-            _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, Current);
+            _ = PlaceTotem(remote, stream, ciphers, conn, skillId, gem.Effect, gem.Level, totem, to, TotemPlacementCurrent);
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(remote, stream, ciphers, conn, skillId, gem.Effect)) return true;

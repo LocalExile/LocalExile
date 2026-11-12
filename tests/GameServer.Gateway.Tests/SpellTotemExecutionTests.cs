@@ -114,7 +114,7 @@ public sealed class SpellTotemExecutionTests
             gem = Game.SupportedSkill(conn, skill);
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
             skill = Equip(conn, "SkillGemShockwaveTotem", "SupportGemSpellTotem");
-            Assert.False(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
+            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
             skill = Equip(conn, "SkillGemRejuvenationTotem", "SupportGemSpellTotem");
             Assert.NotNull(Game.TotemVariety(conn, Game.SupportedSkill(conn, skill).Effect));
             Assert.True(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
