@@ -11,6 +11,9 @@ sealed class DelveJourney
     public bool Finished => Travelled >= Length;
     public int Charged { get; private set; }
     public int Depth { get; }
+    public const float StartRadius = 90f;
+    public bool Started { get; private set; }
+    public bool TryStart((int X, int Y) player) => Started || (Started = DelveRailRoute.Distance(points[0], player) > StartRadius);
     int completed;
     public bool Completed => Volatile.Read(ref completed) != 0;
     public HashSet<uint> EncounterMonsters { get; } = [];
@@ -68,7 +71,7 @@ sealed class DelveJourney
 
     public double EscortStep((int X, int Y) player, double seconds, bool moving)
     {
-        if (seconds <= 0) return 0;
+        if (!Started || seconds <= 0) return 0;
         var projected = Project(player);
         bool leading = projected.Along > Travelled + 8 && projected.Away <= 70;
         double separation = DelveRailRoute.Distance(At(Travelled).At, player);

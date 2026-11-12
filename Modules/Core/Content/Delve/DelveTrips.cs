@@ -93,6 +93,7 @@ public sealed partial class DelveModule
             state.Journey = trip;
         }
         await ResetScene(module, player, state);
+        await ShowStartBoundary(player, state, trip.At(0).At);
         // Moving blockers are removed before departure. The authored Crawler type itself is nonblocking.
         foreach (uint blocker in state.Blockers)
         {
@@ -105,7 +106,6 @@ public sealed partial class DelveModule
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.Teleport(id, start.X, start.Y, 0x7fffffff), "Place Crawler at rail start");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler, InstanceProtocol.Orientation(state.Crawler, trip.Heading(0), locked: true), null);
-        await Send(remote, stream, ciphers, InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 0), "Close chart for Delve departure");
         Console.WriteLine($"[gateway] {remote} Delve trip armed (smooth motion + trail): {rail.Points.Count} rail points, {trip.Length:0.0} cells, cost {cost}, monster level {level}");
         _ = RunTrip(module, player, state, trip, level, rail.Encounters, attempt);
     }
@@ -146,6 +146,12 @@ public sealed partial class DelveModule
                 double departed = trip.Travelled;
                 (int X, int Y) position;
                 lock (conn.Monsters) position = conn.Walk.Position(now);
+                if (!trip.Started)
+                {
+                    if (!trip.TryStart(position)) continue;
+                    await RemoveStartBoundary(player, state);
+                    module.Log($"Delve trip started: player left the {DelveJourney.StartRadius}-cell starting circle");
+                }
                 double step = trip.EscortStep(position, seconds, moving);
                 bool advance = step > .001;
                 if (moving != advance)
@@ -334,7 +340,9 @@ public sealed partial class DelveModule
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, state.Crawler + 4, InstanceEntities.TransitionableUpdate(state.Crawler + 4, 3, 2),
             "Activate completed Delve checkpoint", valid);
         // The roaming native type has no Targetable. Once parked, give the same cart its stationary chart interaction.
+        await EnsureDestinationLight(player, state, state.CrawlerCell);
         await CreateCrawlerBody(player, state, state.CrawlerCell.X, state.CrawlerCell.Y, trip.Heading(trip.Length), roaming: false);
+        await PlayCompletionEffect(player, state, state.CrawlerCell);
         await PublishChart(module, player);
         foreach (var (id, ground) in groundItems)
         {

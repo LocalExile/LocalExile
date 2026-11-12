@@ -282,7 +282,7 @@ public static partial class Game
             await SpawnMonster(remote, stream, ciphers, conn, boss, m.Level, MonsterRarity.Unique, where.X, where.Y);
         }
         // Device-recipe phases (Maven's Nucleus, Sirus after the throne, Atziri): not quest flags, same spawn path.
-        if (MapBossFights.Current.FormsAfter(area, variety.Id, id =>
+        if (area != Sirus.Area && MapBossFights.Current.FormsAfter(area, variety.Id, id =>
             {
                 lock (conn.Monsters)
                     return conn.Monsters.Values.Any(o => o.Variety?.Id == id && !o.Dead && o.Life > 0);
