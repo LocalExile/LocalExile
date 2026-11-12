@@ -587,6 +587,40 @@ public sealed class ItemCatalog
                  new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
 
+    // Relative weights for natural equipment drops. The class and item level bound the roll.
+    static readonly (int Level, int Weight, int FourSocketWeight)[] DropSocketCounts =
+        [(1, 50, 100), (1, 120, 90), (2, 100, 80), (25, 30, 30), (35, 5, 0), (50, 1, 0)];
+
+    public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DropSockets(BaseType type, int level, Random random)
+    {
+        if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise)
+            return DefaultSockets(type, level, random: random);
+        int capacity = Math.Min(SystemSettings.Default.SocketMax(type.Class), DropSocketCounts.Length);
+        int total = 0, maximum = 0;
+        while (maximum < capacity && DropSocketCounts[maximum].Level <= level)
+        {
+            var entry = DropSocketCounts[maximum++];
+            total += capacity == 4 ? entry.FourSocketWeight : entry.Weight;
+        }
+        if (total == 0) return ([], null);
+        int roll = random.Next(total), count = 0;
+        do
+        {
+            var entry = DropSocketCounts[count++];
+            roll -= capacity == 4 ? entry.FourSocketWeight : entry.Weight;
+        } while (roll >= 0);
+        var sockets = new List<ItemSocket>(count);
+        var links = new List<byte>();
+        var requirements = Requirements(type);
+        for (int i = 0; i < count; i++)
+        {
+            sockets.Add(new(SocketColours.Roll(requirements, level, 0, random)));
+            if (i == 0 || random.Next(2) != 0) links.Add(1);
+            else links[^1]++;
+        }
+        return (sockets, links);
+    }
+
     private Lazy<Dictionary<string, (int Str, int Dex, int Int)>> _requirements = null!;
 
     /// <summary>The base's attribute requirements (ComponentAttributeRequirements), zero when it has none.</summary>
