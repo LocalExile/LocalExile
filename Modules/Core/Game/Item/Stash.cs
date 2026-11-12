@@ -190,11 +190,12 @@ public static partial class Game
         }
     }
 
-    /// <summary>The client's set of inventories: a tab switch unloads the other tabs (0xc1), and the panel can still show
-    /// one of them for a moment while the player clicks it. A 0xbf for an inventory the client no longer has aborts the
-    /// game ("Got an inventory set change for an inventory that isn't in the set", #605), and the panel had the tab marked
-    /// not loaded, so it drops that tab's 0xbfs until it is told the tab is loaded again. Both go out here, before the
-    /// 0xbf for the click.</summary>
+    /// <summary>The client's set of inventories: a tab switch unloads the other tabs (0xc1), but the panel keeps the page
+    /// of every tab it has shown and shows it again without asking (no 0xc7), so the player can act on a tab this
+    /// connection no longer has. A 0xbf for an inventory the client no longer has aborts the game ("Got an inventory set
+    /// change for an inventory that isn't in the set", #605, #710), and the panel had the tab marked not loaded, so it
+    /// drops that tab's 0xbfs until it is told the tab is loaded again. Both go out here, before the 0xbf
+    /// (SendTabChange).</summary>
     static async Task EnsureTabLoaded(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab)
     {
         var sent = TabsSentOf(conn, stash);
@@ -205,6 +206,17 @@ public static partial class Game
             $"0x00c0 stash tab {tab} inventory {stash.InventoryOf(tab)} (again: the panel still shows it)");
         await Send(remote, stream, ciphers, InstanceStash.TabLoaded((ushort)tab, stash.InventoryOf(tab),
             stash.IsGuild ? InstanceStash.Guild : InstanceStash.Personal), $"0x00c8 stash tab {tab} loaded again");
+    }
+
+    /// <summary>A change to a stash tab's items (S→C 0xbf). Every one goes out through here: the tab is loaded again first
+    /// when a tab switch unloaded it (EnsureTabLoaded), and the message names the server's inventory id for the tab, not
+    /// one the client sent.</summary>
+    public static async Task SendTabChange(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AccountStash stash, int tab,
+        IReadOnlyList<uint> gone, IReadOnlyList<InventoryItem> now, string? label)
+    {
+        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), gone, now,
+            stash.IsGuild ? InstanceStash.GuildManager : (byte)0), label);
     }
 
     // C→S 0x28 on a stash tab: the item leaves the tab for the (empty) cursor, keeping its id; both saves in one transaction
@@ -219,9 +231,7 @@ public static partial class Game
             return;
         }
         // The tab the click names, not the id the client sent: that id can be one it just unloaded (live 2026-11-06, #605).
-        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [held.Id], [], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
-            $"0x00bf stash tab {tab}: remove item {held.Id}");
+        await SendTabChange(remote, stream, ciphers, conn, stash, tab, [held.Id], [], $"0x00bf stash tab {tab}: remove item {held.Id}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id} (from the stash)");
     }
@@ -238,13 +248,11 @@ public static partial class Game
             return;
         }
         tab = done.Tab;
-        await EnsureTabLoaded(remote, stream, ciphers, conn, stash, tab);
         var (inTab, before) = (done.InTab, done.HeldBefore);
         if (done.Merged)
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), [inTab.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
-                $"0x00bf stash tab {tab}: stack {inTab.Id} now {inTab.Item.StackSize}");
+            await SendTabChange(remote, stream, ciphers, conn, stash, tab, [inTab.Id], [inTab], $"0x00bf stash tab {tab}: stack {inTab.Id} now {inTab.Item.StackSize}");
         else
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(tab), stash.NextRevision(tab), done.Displaced is null ? [] : [done.Displaced.Id], [inTab], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await SendTabChange(remote, stream, ciphers, conn, stash, tab, done.Displaced is null ? [] : [done.Displaced.Id], [inTab],
                 $"0x00bf stash tab {tab}: add item {inTab.Id} at ({inTab.X}, {inTab.Y})" + (done.Displaced is null ? "" : $", remove item {done.Displaced.Id}"));
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], done.Held is null ? [] : [done.Held]),
@@ -314,8 +322,8 @@ public static partial class Game
         await SendTransfer(remote, stream, ciphers, conn, items, stash, moved, tabFirst: true);
     }
 
-    // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab (only if
-    // this connection has the tab's contents: else it gets them whole when it asks, 0xc7).
+    // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab
+    // (SendTabChange).
     public static async Task SendTransfer(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items,
         AccountStash stash, ItemMoves.Transfer t, bool tabFirst)
     {
@@ -332,10 +340,9 @@ public static partial class Game
         async Task Tab()
         {
             if (tabGone.Count + tabNow.Count == 0) return;
-            // The tab may have been unloaded by a tab switch while the panel still shows it: load it again instead of
+            // The tab may have been unloaded by a tab switch while the panel still shows it: it is loaded again instead of
             // skipping the update, which left the moved item's icon in place until the panel asked again (#605).
-            await EnsureTabLoaded(remote, stream, ciphers, conn, stash, t.Tab);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(stash.InventoryOf(t.Tab), stash.NextRevision(t.Tab), tabGone, tabNow, stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await SendTabChange(remote, stream, ciphers, conn, stash, t.Tab, tabGone, tabNow,
                 $"0x00bf stash tab {t.Tab}: remove [{string.Join(", ", tabGone)}], add [{string.Join(", ", tabNow.Select(i => $"{i.Id} at ({i.X}, {i.Y}) x{i.Item.StackSize}"))}]");
         }
         if (tabFirst) { await Tab(); await Inventory(); }
