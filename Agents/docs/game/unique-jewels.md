@@ -149,7 +149,7 @@ conditional work, and no unique jewel has a normal drop or vendor source yet.
 ## How the current passive-jewel support works
 
 - The ordinary tree has 21 large jewel sockets, exposed by the client as the `PassiveJewels1` inventory (Inventories.dat row 23, inventory id 24, 60x1).
-- The pane cell `x` is the `PassiveJewelSlots.dat` row; that row's `Slot` column is the `PassiveSkills.dat` row of the socket node. Cluster expansion rows (21-56) and the three ascendancy charm sockets (57-59) are not ordinary sockets.
+- The pane cell `x` is the `PassiveJewelSlots.dat` row; that row's `Slot` column is the `PassiveSkills.dat` row of the socket node. Cluster expansion rows (21-56) are not ordinary sockets, and rows 57-59 are the three Wildwood Primalist charm sockets, which hold an AnimalCharm while their node is allocated.
 - A normal jewel (ItemClasses `Jewel`, not `Metadata/Items/Jewels/JewelPassiveTreeExpansion*`) can be placed into an allocated socket with C->S 0x2a, swapped with 0x4a, and picked up with 0x28. The server checks the socket is allocated and the level requirement, saves the jewel in the inventory, and applies its global mods like a worn item's (`ItemModStats`).
 - Refunding a socket that still holds a jewel is refused until the jewel is taken out. A level trim prefers other leaves; if a jewel socket must be removed, the jewel is returned to the main inventory.
 - Unique jewels use the same socket and stat path. The 42 Global rows have a dev source (`/unique_jewel`); there is no normal drop or vendor path yet. Radius and conditional rows are not active until their mechanics are modelled; timeless node stats are implemented, but the conqueror keystones are not.

@@ -193,6 +193,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   those rows, the main ascendancy stays capped at its own earned points and the layer at eight.
   A refused allocation now replies with its reason in chat; `/descendancy refund <node|all>` reverts the layer.
   Refunds charge the same five refund points per node; their stats are part of the passive stat list.
+  The Wildwood Primalist's nodes work: Might of the Bear grants the 4×5 native backpack (and its 5% size), the three
+  Charm Socket nodes take a Wildwood charm (one Domain 35 modifier, counted like a worn item), and Howl of the Wolf
+  opens nearby chests and rerolls corpse loot on a warcry. Primal Wisps found feeds
+  `azmeri_primalist_wisps_found_+%`, which waits for the Wildwood Wisp system: the 3.29.3c client keeps the league,
+  the server implements none of it ([roadmap](../roadmap/world.md), "The Wildwood (Affliction) league"). Charms roll
+  as single-modifier magic items.
 - Elementalist Shaper of Flames: all three stats work. `always_ignite` adds 100% ignite chance;
   `all_damage_can_ignite` lets any hit ignite and puts every damage type into the ignite's base (90% per second,
   fire scaling plus the types the portion visited, as poison's physical part); the panel's ignite rows follow.
