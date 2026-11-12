@@ -857,10 +857,12 @@ public static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || HardcoreProgressBlocked(conn)) return false;
             string character = CharacterName(conn);
-            var bar = CharacterSaves.Load(character)?.SkillBar ?? [];
+            var save = CharacterSaves.Load(character);
+            var bar = save?.SkillBar ?? [];
+            var unassigned = SkillBarLayout.Unassigned(save);
             string attack = SkillEffectId(conn, SkillCatalog.FirstSkillId)!;
             var gems = GemSkillEffects(conn).Select(g => SkillsFor(conn).EffectId(g.Effect)).OfType<string>().ToList();
-            var added = SkillBarLayout.Fill(bar, attack, gems, entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
+            var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g)), entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
             foreach (var (slot, entry) in added) CharacterSaves.SetSkillBar(character, (byte)slot, entry);
             if (added.Count > 0)
                 Console.WriteLine($"[gateway] {character} skill bar: {string.Join(", ", added.Select(a => $"{a.Entry} on slot {a.Slot}"))}");

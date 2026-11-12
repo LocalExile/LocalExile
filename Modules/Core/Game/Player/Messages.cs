@@ -344,7 +344,8 @@ public static partial class Game
                 var (slot, skill) = InstanceProtocol.ReadBindSkill(bytes);
                 string? entry = SkillBarEntry(conn, skill);
                 Console.WriteLine($"[gateway] {remote} <= 0x004e bind skill 0x{skill:x4} ({(entry is null ? "unknown, not saved" : entry == "" ? "empty" : entry)}) to slot {slot}: {Convert.ToHexString(bytes)}");
-                if (entry is not null) CharacterSaves.SetSkillBar(CharacterName(conn), slot, entry);
+                if (entry is not null && slot < InstanceProtocol.SkillBarSlots)
+                    lock (conn.Monsters) SkillBarLayout.Bind(CharacterName(conn), slot, entry);
             }
             else if (id is InstanceProtocol.AttackInPlaceId or InstanceProtocol.SlotMask52Id)
             {

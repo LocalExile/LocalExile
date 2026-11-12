@@ -2874,7 +2874,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **New skills go into empty slots only** (`SkillBarLayout`, `FillSkillBar`). A new character's bar gets the default
   attack on the left mouse button (slot 0) and its gem skill on the right one (slot 2). `SendSkills` runs it before it sends the saved bar
   again (#108), so a gem skill that is nowhere on the bar takes the first empty slot in this order: the right mouse button, Q W E R T (3–7), the
-  middle button, then the rest. An empty slot is one never set, cleared, or holding a skill whose gem left. Slots the
+  middle button, then the rest. Automatic placement skips manually cleared slots and skills removed from the bar. Slots the
   player set stay as they are, and a cleared left button stays cleared. Live 2026-10-20: a new Templar got the sword on
   the left button and Holy Strike on the right.
 

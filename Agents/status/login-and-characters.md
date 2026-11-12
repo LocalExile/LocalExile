@@ -18,7 +18,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [01](../docs/protocol/01-login.md), [re/008](../docs/re/008-login-handshake.md),
   [re/009](../docs/re/009-login-messages.md).
 - Saving characters: items, equipment, sockets and the skill bar per character in `data/characters.db` (a new bar: the
-  default attack on the left mouse button, gem skills into empty slots only, right mouse button first);
+  default attack on the left mouse button, new gem skills into available slots, preserving manual clears, right mouse button first);
   the bar is restored with S→C 0x53 after login and area changes (binds are C→S 0x4e).
   Code: `CharacterSaves.cs`, `PlayerInventories.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §11, [13](../docs/protocol/13-items.md) §7.
