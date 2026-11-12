@@ -110,6 +110,10 @@ public static partial class Game
         var inputs = RageStats.Inputs(name => RageStat(stats, name));
         var value = conn.Rage.Read(ProjectileWorldTime(conn), inputs);
         bool prevention = RageStat(stats, "has_soul_gain_prevention") != 0;
+        // "when you reach Maximum Rage while a Unique Enemy is in your Presence" (Loyalty Tattoo of Akoya).
+        if (value.Maximum > 0 && value.Current >= value.Maximum
+            && (conn.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
+            LoyaltyMaxRageLocked(conn, stats);
         if (conn.SentRage == value && conn.SentVaalPrevention == prevention) return [];
         var bytes = new List<byte>();
         if (conn.RageBuff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.RageBuff));

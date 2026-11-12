@@ -910,6 +910,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
+    // Low Life reached): Game.LoyaltyResourceStateLocked.
+    public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
     // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
     // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
     public double TrapDegenPerSecond;

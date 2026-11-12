@@ -154,6 +154,8 @@ public static partial class Game
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         OnslaughtOnHitLocked(conn, now);
         if (spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
+        // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
+        if (critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
