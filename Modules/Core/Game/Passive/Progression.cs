@@ -17,7 +17,7 @@ public static partial class Game
     {
         // Without the tree the saved passives can't be checked; dropping them would lose them at the next save.
         if (save?.Passives is { Count: > 0 } && !PassivesFor(conn).Loaded)
-            throw new UnknownSavedItemException("allocated passives, but the passive tree (data/tables/PassiveSkills.json) is not loaded");
+            throw new UnknownSavedItemException("allocated passives, but the passive tree (the PassiveSkills client table) is not loaded");
         var ordinary = save?.Passives ?? [];
         var ascendancy = save?.MainAscendancy ?? new();
         AscendancyPolicies.RequireAvailable(conn, ascendancy.Selection);

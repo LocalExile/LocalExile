@@ -23,19 +23,15 @@ public sealed class MonsterResistanceCatalog(string folder = "data")
 
     private static Tables? Load(string folder)
     {
-        string types = Path.Combine(folder, "tables", "MonsterTypes.json"),
-            levels = Path.Combine(folder, "tables", "DefaultMonsterStats.json"),
-            resistance = Path.Combine(folder, "tables", "MonsterResistances.json");
-        if (!ClientTables.Exists(types) || !ClientTables.Exists(levels) || !ClientTables.Exists(resistance)) return null;
-        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(types));
-        using var l = JsonDocument.Parse(ClientTables.ReadAllBytes(levels));
-        using var r = JsonDocument.Parse(ClientTables.ReadAllBytes(resistance));
+        if (!ClientTables.Has("MonsterTypes") || !ClientTables.Has("DefaultMonsterStats") || !ClientTables.Has("MonsterResistances")) return null;
+        var t = ClientTables.Table("MonsterTypes");
+        var l = ClientTables.Table("DefaultMonsterStats");
+        var r = ClientTables.Table("MonsterResistances");
         return new(
-            [.. t.RootElement.EnumerateArray().Select(row => row.TryGetProperty("Resistances", out var value)
-                && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : -1)],
-            [.. l.RootElement.EnumerateArray().Select(row => row.GetProperty("Difficulty").GetInt32())],
-            [.. r.RootElement.EnumerateArray().Select(row => (from difficulty in new[] { "Normal", "Cruel", "Merciless" }
+            [.. t.Select(row => row.IntOrNull("Resistances") ?? -1)],
+            [.. l.Select(row => row.Int("Difficulty"))],
+            [.. r.Select(row => (from difficulty in new[] { "Normal", "Cruel", "Merciless" }
                 from element in new[] { "Fire", "Cold", "Lightning", "Chaos" }
-                select row.GetProperty(element + difficulty).GetInt32()).ToArray())]);
+                select row.Int(element + difficulty)).ToArray())]);
     }
 }

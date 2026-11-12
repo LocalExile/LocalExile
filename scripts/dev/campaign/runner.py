@@ -18,6 +18,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import sqlite3
 import sys
 
 HERE = Path(__file__).resolve().parent
@@ -176,10 +177,9 @@ def load_quest(quest, quests_dir):
 
 def quest_names():
     try:
-        import json
-        rows = json.loads((ROOT / "data" / "tables" / "Quest.json").read_text(encoding="utf-8"))
-        return {r["Id"]: r.get("Name", "") for r in rows}
-    except (OSError, ValueError, KeyError):
+        import clientdb
+        return {r["Id"]: r.get("Name") or "" for r in clientdb.table("Quest")}
+    except (OSError, ValueError, KeyError, sqlite3.Error):
         return {}
 
 
@@ -596,15 +596,13 @@ ACT_PRESETS = {"Act1Complete": "a1q9", "Act2CompleteEramir": "a2q8", "Act3Comple
 
 
 def preset_flags():
-    """{preset Id: [QuestFlags Ids]} of ACT_PRESETS from the extracted tables ({} without them)."""
+    """{preset Id: [QuestFlags Ids]} of ACT_PRESETS from the client tables ({} without client.db)."""
     try:
-        import json
-        tables = ROOT / "data" / "tables"
-        flags = [r["Id"] for r in json.loads((tables / "QuestFlags.json").read_text(encoding="utf-8"))]
-        rows = json.loads((tables / "CharacterStartQuestState.json").read_text(encoding="utf-8"))
+        import clientdb
+        flags = [r["Id"] for r in clientdb.table("QuestFlags")]
         return {r["Id"]: [flags[i] for i in r.get("QuestFlags") or [] if 0 <= i < len(flags)]
-                for r in rows if r.get("Id") in ACT_PRESETS}
-    except (OSError, ValueError, KeyError, IndexError):
+                for r in clientdb.table("CharacterStartQuestState") if r.get("Id") in ACT_PRESETS}
+    except (OSError, ValueError, KeyError, IndexError, sqlite3.Error):
         return {}
 
 

@@ -48,6 +48,7 @@ public sealed class GroundDropSoundTests
         await Game.SyncSharedGround("sound-observer-repeat", wire.Stream, wire.Ciphers, viewer);
         Assert.Equal(1, Count(wire, sound));
         await Game.SendGroundItems("sound-reentry", lateWire.Stream, lateWire.Ciphers, joining);
+        await Game.SendGroundItems("sound-reentry-replay", lateWire.Stream, lateWire.Ciphers, joining);
         Assert.Equal(0, Count(lateWire, sound));
         Assert.Equal(1, Count(lateWire, Convert.ToHexString(InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), freshObject.Blob()))));

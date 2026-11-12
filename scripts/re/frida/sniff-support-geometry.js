@@ -35,7 +35,39 @@
 const image = Process.enumerateModules().find(m => /^(PathOfExileSteam|Game\.patched)\.exe$/i.test(m.name));
 if (!image) throw new Error('client image not found');
 const base = ptr('0x140000000');
-const at = va => image.base.add(ptr(va).sub(base));
+// Data addresses here are the 3.29.3c release's (build 327984). Its 3.29.3.5 hotfix and 3.29.3d have the same code
+// and move data (Agents/docs/re/tooling.md section 11): MOVED lists where each data address this script uses sits in
+// them, so that the script and its output stay in release addresses on every build.
+const MOVED = {
+  '3.29.3.5': {
+    '0x1435ab608':'0x1435ab5d8'},
+  '3.29.3d': {
+    '0x1435ab608':'0x1435ab568'}};
+// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
+const LINK_TIME = image.base.add(image.base.add(0x3c).readU32() + 8).readU32();
+const BUILD = ({0x6aed1652: '3.29.3c', 0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[LINK_TIME] || '';
+// Not a refusal: the script runs, with every data address read as the release's.
+if (!BUILD) send({notice: 'this script does not know this client build (link time 0x' + LINK_TIME.toString(16) +
+  '): its data addresses are used as the 3.29.3c release\'s'});
+const moved = MOVED[BUILD] || {};
+const movedBack = Object.fromEntries(Object.entries(moved).map(([from, to]) => [to, from]));
+// Only data moves between builds, and the image's data starts where .text ends.
+const DATA_START = (() => {
+  const pe = image.base.add(image.base.add(0x3c).readU32()), text = pe.add(24 + pe.add(20).readU16());
+  return text.add(12).readU32() + text.add(8).readU32();
+})();
+const isMovableData = rva => BUILD in MOVED && rva >= DATA_START;
+const unlisted = {};
+// A data address MOVED does not list was never checked for this build: it is used as written, and said once.
+const listed = key => {
+  if (isMovableData(ptr(key).sub(ptr('0x140000000')).toUInt32()) && !(key in moved) && !unlisted[key]) {
+    unlisted[key] = true;
+    send({notice: 'data address ' + key + ' is not in MOVED for ' + BUILD + ': it is used as the 3.29.3c release\'s. ' +
+      'List it with scripts/re/port/compare_builds.py --data-map'});
+  }
+  return moved[key] || key;
+};
+const at = va => image.base.add(ptr(typeof va === 'string' ? listed(va.toLowerCase()) : va).sub(base));
 
 const EXPECTED = {
   // 0x14219aa10  Actor 0x1ab handler (trace-actions.js).
@@ -183,7 +215,7 @@ if (check('0x141ec47e0')) {
               const meta = { p3: this.p3, p4: this.p4, p5: this.p5 };
               const sample = (tag, entity) => {
                 const info = { t: stamp(), kind: 'fx', tag, entity: entity.toString(), p3: meta.p3, p4: meta.p4, p5: meta.p5 };
-                const positionedVt = image.base.add(ptr('0x1435ab608').sub(base));
+                const positionedVt = at('0x1435ab608');
                 try {
                   const begin = entity.add(0x10).readPointer(), end = entity.add(0x18).readPointer();
                   const count = Math.min(24, end.sub(begin).toInt32() / 8);

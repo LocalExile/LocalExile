@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
@@ -167,14 +168,14 @@ public sealed class LabyrinthTrialTests
     [Fact]
     public void TrialsTakeTheirAreaAndCompletionFlag()
     {
-        const string json = """
-            [{"WorldAreas":1,"__col1":263,"__col7":2,"__col2":151},
-             {"WorldAreas":9,"__col1":264,"__col7":2},
-             {"WorldAreas":0,"__col1":265,"__col7":7}]
-            """;
+        var table = ClientTable.FromRows("LabyrinthTrials", [
+            new Dictionary<string, object?> { ["WorldAreas"] = 1, ["__col1"] = 263, ["__col7"] = 2, ["__col2"] = 151 },
+            new Dictionary<string, object?> { ["WorldAreas"] = 9, ["__col1"] = 264, ["__col7"] = 2 },
+            new Dictionary<string, object?> { ["WorldAreas"] = 0, ["__col1"] = 265, ["__col7"] = 7 },
+        ]);
         var flags = new Dictionary<int, string> { [2] = "NormalLabyrinthCompletedPrison" };
 
-        var trials = LabyrinthTrials.Parse(json, ["1_1_1", "1_1_7_1"], flags);
+        var trials = LabyrinthTrials.Parse(table, ["1_1_1", "1_1_7_1"], flags);
 
         Assert.Equal([new LabyrinthTrials.Trial("1_1_7_1", "NormalLabyrinthCompletedPrison", 263)], trials);
     }

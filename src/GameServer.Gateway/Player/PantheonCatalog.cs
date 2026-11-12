@@ -57,38 +57,33 @@ public sealed class PantheonCatalog
 
     public static PantheonCatalog Load(string folder = "data")
     {
-        string layout = Path.Combine(folder, "tables", "PantheonPanelLayout.json"), souls = Path.Combine(folder, "tables", "PantheonSouls.json"),
-            flagsFile = Path.Combine(folder, "tables", "QuestFlags.json");
-        if (!ClientTables.Exists(layout) || !ClientTables.Exists(flagsFile)) return new([]);
+        if (!ClientTables.Has("PantheonPanelLayout") || !ClientTables.Has("QuestFlags")) return new([]);
         try
         {
             List<string> flags;
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(flagsFile)))
-                flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
-            string? Flag(JsonElement v) => v.ValueKind == JsonValueKind.Number && v.GetInt32() is var i && i >= 0 && i < flags.Count
+            flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
+            string? Flag(int? v) => v is int i && i >= 0 && i < flags.Count
                 && flags[i] != "NEVER_SET" ? flags[i] : null;
             var upgradeFlags = new Dictionary<int, List<string?>>();
-            if (ClientTables.Exists(souls))
-                using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(souls)))
-                    foreach (var s in doc.RootElement.EnumerateArray())
-                        if (s.GetProperty("PanelLayout") is { ValueKind: JsonValueKind.Number } p)
-                        {
-                            if (!upgradeFlags.TryGetValue(p.GetInt32(), out var list)) upgradeFlags[p.GetInt32()] = list = [];
-                            list.Add(Flag(s.GetProperty("QuestFlagUpgrade")));
-                        }
+            if (ClientTables.Has("PantheonSouls"))
+                foreach (var s in ClientTables.Table("PantheonSouls"))
+                    if (s.IntOrNull("PanelLayout") is int p)
+                    {
+                        if (!upgradeFlags.TryGetValue(p, out var list)) upgradeFlags[p] = list = [];
+                        list.Add(Flag(s.IntOrNull("QuestFlagUpgrade")));
+                    }
             var gods = new List<God>();
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(layout)))
-                foreach (var r in doc.RootElement.EnumerateArray())
-                {
-                    IReadOnlyList<(uint, int)> Effect(int n) => r.TryGetProperty($"Effect{n}_StatsKeys", out var keys) && r.TryGetProperty($"Effect{n}_Values", out var values)
-                        ? [.. keys.EnumerateArray().Zip(values.EnumerateArray(), (k, v) => ((uint)k.GetInt32() + 1, v.GetInt32()))] : [];
-                    int row = gods.Count;
-                    var upgrades = Enumerable.Range(2, 3).Select((n, i) => (upgradeFlags.GetValueOrDefault(row)?.ElementAtOrDefault(i), Effect(n)))
-                        .Where(u => u.Item2.Count > 0).ToList();
-                    gods.Add(new God(row, r.GetProperty("Id").GetString() ?? "", r.TryGetProperty("GodName1", out var name) ? name.GetString() ?? "" : "",
-                        r.TryGetProperty("IsMajorGod", out var major) && major.ValueKind == JsonValueKind.True, Flag(r.GetProperty("QuestFlag")),
-                        r.TryGetProperty("IsDisabled", out var disabled) && disabled.ValueKind == JsonValueKind.True, Effect(1), upgrades));
-                }
+            foreach (var r in ClientTables.Table("PantheonPanelLayout"))
+            {
+                IReadOnlyList<(uint, int)> Effect(int n) =>
+                    [.. r.Ints($"Effect{n}_StatsKeys").Zip(r.Ints($"Effect{n}_Values"), (k, v) => ((uint)k + 1, v))];
+                int row = gods.Count;
+                var upgrades = Enumerable.Range(2, 3).Select((n, i) => (upgradeFlags.GetValueOrDefault(row)?.ElementAtOrDefault(i), Effect(n)))
+                    .Where(u => u.Item2.Count > 0).ToList();
+                gods.Add(new God(row, r.Text("Id") ?? "", r.TextOrNull("GodName1") ?? "",
+                    r.BoolOrNull("IsMajorGod") == true, Flag(r.IntOrNull("QuestFlag")),
+                    r.BoolOrNull("IsDisabled") == true, Effect(1), upgrades));
+            }
             return new(gods);
         }
         catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException)

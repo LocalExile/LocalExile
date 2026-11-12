@@ -61,7 +61,7 @@ static class QuestObjectsFeature
                 await SpawnTutorialZombie(remote, stream, ciphers, conn);
             else
             {
-                conn.TutorialSceneId = conn.NextObjectId++;
+                conn.TutorialSceneId = conn.TakeObjectId();
                 await global::Game.SendWorldCreate(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceEntities.CreateObject(conn.TutorialSceneId, InstanceEntities.ObjectTypeHash(TutorialObjects.Spawner),
                     TutorialObjects.SceneBlob(spawn.X,spawn.Y,spawn.Angle)), "0x02bb opening bite zombie scene");
                 await global::Game.SendWorldRecord(remote, stream, ciphers, conn, conn.TutorialSceneId, InstanceProtocol.EnterWakeZone(conn.TutorialSceneId), null);

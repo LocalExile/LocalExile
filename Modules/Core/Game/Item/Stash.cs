@@ -39,7 +39,7 @@ public static partial class Game
             : town is not null && StashCatalog.FromArrival(conn.Layout.Hash)
                 ? town with { X = conn.Layout.SpawnX + town.X, Y = conn.Layout.SpawnY + town.Y } : town;
         if (at is null || Environment.GetEnvironmentVariable("Game_STASH") == "0") return;
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         var stash = new StashObject(at.X, at.Y, at.Rotation);
         await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(StashObject.MetadataPath), stash.Blob()),
             $"0x02bb create stash 0x{id:x} at ({at.X}, {at.Y})");
@@ -59,7 +59,7 @@ public static partial class Game
         float guildRotation = SavedHideoutPlacements(conn)?.GetValueOrDefault("guild-stash")?.Rotation ?? townGuild?.Rotation ?? at.Rotation;
         if (!conn.Ssf)
         {
-            uint guild = conn.NextObjectId++;
+            uint guild = conn.TakeObjectId();
             await SendWorldCreate(remote, stream, ciphers, conn, guild, InstanceEntities.CreateObject(guild, InstanceEntities.ObjectTypeHash(StashObject.GuildMetadataPath),
                 new StashObject(gx, gy, guildRotation).Blob()), $"0x02bb create guild stash 0x{guild:x} at ({gx}, {gy})");
             await SendWorldRecord(remote, stream, ciphers, conn, guild, InstanceProtocol.EnterWakeZone(guild), null);

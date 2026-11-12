@@ -156,7 +156,7 @@ public static partial class Game
                     var c = (X: at.X + (int)Math.Round(Math.Cos(angle) * distance), Y: at.Y + (int)Math.Round(Math.Sin(angle) * distance));
                     if (conn.Layout.Walkable?.Invoke(c.X, c.Y) != false) { cell = c; break; }
                 }
-                uint id = conn.NextObjectId++;
+                uint id = conn.TakeObjectId();
                 created.Add((id, new GroundBladeObject(cell.X, cell.Y, (float)(random.NextDouble() * Math.Tau), row)));
                 state.Blades.Enqueue((id, now + lands, now + lasts));
                 while (state.Blades.Count > most) removed.Add(state.Blades.Dequeue().Id);

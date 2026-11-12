@@ -34,14 +34,13 @@ public static class BladefallVolleys
 
     static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
     {
-        const string file = "data/tables/BuffDefinitions.json";
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
-        if (!ClientTables.Exists(file)) return rows;
-        using var table = GameTables.Open(file);
+        if (!ClientTables.Has("BuffDefinitions")) return rows;
+        var table = ClientTables.Table("BuffDefinitions");
         int row = 0;
-        foreach (var buff in table.RootElement.EnumerateArray())
+        foreach (var buff in table)
         {
-            if (buff.GetProperty("Id").GetString() is { } id and (CostBuff or BladesBuff)) rows.TryAdd(id, (ushort)row);
+            if (buff.Text("Id") is { } id and (CostBuff or BladesBuff)) rows.TryAdd(id, (ushort)row);
             row++;
         }
         return rows;

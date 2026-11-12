@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 /// <summary>Player summon identities, independent of the golem limit and golem revival policy.</summary>
 public sealed class SummonCatalog(string folder = "data")
@@ -11,8 +12,8 @@ public sealed class SummonCatalog(string folder = "data")
 
     static IReadOnlyDictionary<string, Definition> Load(string folder)
     {
-        using var effects = GameTables.Open(Path.Combine(folder, "tables", "GrantedEffects.json"));
-        using var skills = GameTables.Open(Path.Combine(folder, "tables", "ActiveSkills.json"));
+        var effects = ClientTables.Table("GrantedEffects");
+        var skills = ClientTables.Table("ActiveSkills");
         var result = new Dictionary<string, Definition>(StringComparer.Ordinal);
         var definitions = new Definition[] {
             new("RaiseZombie", "Zombie", "Metadata/Monsters/RaisedZombies/RaisedZombieStandard", "base_number_of_zombies_allowed", "active_zombie_count", true, true),
@@ -26,12 +27,12 @@ public sealed class SummonCatalog(string folder = "data")
             new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
             new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", "base_number_of_mirror_arrow_clones_allowed", "", Follows: false),
         };
-        foreach (var row in effects.RootElement.EnumerateArray())
+        foreach (var row in effects)
         {
-            string id = row.GetProperty("Id").GetString()!;
+            string id = row.Text("Id")!;
             var template = definitions.FirstOrDefault(d => id == d.Id || id == d.Id + "AltX" || id == d.Id + "AltY");
-            if (template is null || row.GetProperty("ActiveSkill") is not { ValueKind: JsonValueKind.Number } key) continue;
-            string name = skills.RootElement[key.GetInt32()].GetProperty("DisplayedName").GetString() ?? "";
+            if (template is null || row.IntOrNull("ActiveSkill") is not int key) continue;
+            string name = skills[key].Text("DisplayedName") ?? "";
             if (name.StartsWith("[", StringComparison.Ordinal)) continue;
             var definition = template with { Id = id };
             if (id == "SummonSkeletonsAltX") definition = definition with { Variety = "Metadata/Monsters/RaisedSkeletons/RaisedSkeletonRanged1Quality" };
