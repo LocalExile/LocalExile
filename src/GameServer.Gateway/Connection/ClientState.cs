@@ -356,6 +356,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;
+    /// <summary>The taunting totem (Decoy Totem) it is drawn to and goes for instead of the player, or 0. Set by the AI
+    /// planner (PlanMonsterAi) while one is in reach, read at the contact so the hit lands on that totem, not the player.
+    /// Guarded by the Monsters lock.</summary>
+    public uint TauntTarget;
     // Lockstep (07 §5): the action generation of the chase order (the attack aimed at the player) whose walk-up the client
     // runs. The walk-up is open while that is still the current generation (Game.WalkUpOpen): a planned order, a give-up
     // and a freeze carry it along (Game.NextPlannedAction), while a swing order, a flinch, a stage and a transfer move the

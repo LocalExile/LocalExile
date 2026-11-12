@@ -137,6 +137,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Totems: Rejuvenation, Arc, projectile spells and ballistas; placement validates the linked source again at release.
   Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Totems: Rejuvenation, projectile spells and ballistas, and a dedicated totem skill also uses its own skill (aims, strikes at the contact, Devouring eats a corpse, Decoy taunts, and a monster can take a totem's life). Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
