@@ -107,4 +107,71 @@ public sealed class LabyrinthLayoutTests
         Assert.Single(trials.Select(t => t.Trial.Variety).Distinct());
         Assert.Equal(0b0000_0100, LabyrinthDay.Progress([], [2])[2]);
     }
+
+    // Izaro's weapon as poelab.com's archived layouts of those days give it (all tiers): 0 mace, 1 sword and shield, 2 two swords.
+    [Theory]
+    [InlineData("2026-07-09", 1, 1)]
+    [InlineData("2026-07-09", 4, 0)]
+    [InlineData("2026-06-03", 2, 2)]
+    [InlineData("2026-06-03", 4, 1)]
+    [InlineData("2026-05-06", 1, 2)]
+    [InlineData("2026-04-08", 1, 0)]
+    [InlineData("2026-03-04", 2, 0)]
+    [InlineData("2025-01-11", 3, 2)]
+    public void IzarosWeaponIsTheOfficialOne(string day, int tier, int weapon) =>
+        Assert.Equal(weapon, IzaroFights.WeaponOf(LabyrinthDay.SeedOf(DateOnly.Parse(day)), tier));
+
+    // EH bottleneck_06: lever 0's numbered disable to lever 1 of the same counter would leave the door shut for good. A
+    // lever's plain disable (a pair) and a door's numbered one count.
+    [Fact]
+    public void ALeverFollowsOnlyAPlainDisable()
+    {
+        const string lever = "Metadata/Terrain/Labyrinth/Objects/Puzzle_Parts/Switch_Once";
+        string[] types = [lever, lever, LabyrinthTrials.Door, lever];
+        var wiring = new LabyrinthWiring(types, [new(0, 1, "disable3"), new(2, 1, "disable3"), new(0, 3, "disable")]);
+        wiring.Turn(0, true);
+        Assert.False(wiring.IsDisabled(1));
+        Assert.True(wiring.IsDisabled(3));
+        wiring.Turn(2, true);
+        Assert.True(wiring.IsDisabled(1));
+    }
+
+    // PortalSummon rows have no tier, and only the returning ones have a buff; the portals and what they bring can be created.
+    [Fact]
+    public void IzarosPortalsAreEveryTiersAndCanBeCreated()
+    {
+        foreach (int tier in new[] { 1, 4 })
+        {
+            var own = IzaroEffects.Of(IzaroPortals.Mechanic, tier, returning: false);
+            Assert.Equal(["PortalSummon1_Fire", "PortalSummon1_Cold", "PortalSummon1_Lightning"], own.Select(e => e.Id));
+            Assert.All(own, e => Assert.Empty(e.Stats));
+            var returning = own.Select(e => IzaroEffects.ReturningOf(e.Id)!).ToList();
+            Assert.Equal(["PortalSummon2_Fire", "PortalSummon2_Cold", "PortalSummon2_Lightning"], returning.Select(e => e.Id));
+            Assert.All(returning, e => Assert.NotEmpty(e.Stats));
+            foreach (var effect in own.Concat(returning))
+            {
+                var portal = Game.Monsters.Find(effect.Variety)!;
+                Assert.True(portal.Supported, effect.Variety);
+                var summon = Program.Skills.MonsterSummon(portal.GrantedEffects![0], 33)!;
+                Assert.True(Game.Monsters.Find(summon.Variety.ToString())!.Supported, effect.Variety);
+            }
+        }
+    }
+
+    // The Chrono Statues' and the Lieutenants' rows have no tier either, in their lifts' order; their monsters can be created.
+    [Theory]
+    [InlineData("ChronoStatues", "ChronoStatues1_1", "ChronoStatues1_2", "ChronoStatues1_3")]
+    [InlineData("Lieutenants", "Lieutenants1_Bull", "Lieutenants1_Melee", "Lieutenants1_Ranged")]
+    public void IzarosIdolsAndLieutenantsAreEveryTiersAndCanBeCreated(string mechanic, string first, string second, string third)
+    {
+        foreach (int tier in new[] { 1, 4 })
+        {
+            var own = IzaroEffects.Of(mechanic, tier, returning: false);
+            Assert.Equal([first, second, third], own.Select(e => e.Id));
+            var returning = own.Select(e => IzaroEffects.ReturningOf(e.Id)!).ToList();
+            Assert.Equal(own.Select(e => e.Id.Replace("1_", "2_", StringComparison.Ordinal)), returning.Select(e => e.Id));
+            Assert.All(returning, e => Assert.NotEmpty(e.Stats));
+            foreach (var effect in own.Concat(returning)) Assert.True(Game.Monsters.Find(effect.Variety)!.Supported, effect.Variety);
+        }
+    }
 }

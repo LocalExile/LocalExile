@@ -138,10 +138,20 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   flag is saved for the account's league, so every character of it has the trial
   ([labyrinth-trials](../docs/game/labyrinth-trials.md)).
 - **Start**, one pull request per step, in this order:
-  1. Izaro's arenas' other mechanics (Toggle Statues and Gargoyles are done: `Rules.IzaroArena.cs` places them and
-     what they leave), one at a time, and the Goddess of Justice.
+  1. Izaro's own fight: his skills are in (`IzaroSkills.cs`; `LbBossShield`, in his row, was not seen in the original's
+     fight, so it is left out). Left: his taunt, the Spikes' slow, the
+     cooldowns against the original (ours; no `.ais`), and set-backs of his model after an order
+     (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
+     not live-checked).
+     Normal's five arena mechanics are done (Toggle Statues, Gargoyles, Portals, Chrono Statues, Lieutenants:
+     `Rules.IzaroArena.cs` places them and what they leave); the Goddess of Justice is left. Ours, not the original's:
+     the lieutenants' Storm Call is a skill of its own (the data casts it on an attack's hit), `bull_thorns` returns no
+     damage (no values in the data), the circles' and their skills' radii.
+     Her Guardians' circles are done without her (`IzaroGoddess.cs`): when she exists they become her skill, with its
+     mortars flying from her. As the original plays (live, the user): the gargoyles' beam ends on her, above Izaro, not
+     on him (ours ends on him: move it to her too).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
-  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet) and darkshrines, the Divine Font (LabyrinthCraftOptions),
+  3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).
      Those two have Sentinel traps (wiki, 2.3.0): monsters (`Metadata/Monsters/Totems/LabyrinthPopUpTotem*`, type
      `LabyrinthMonsterTotem`: Endless Pain, Hazard, Drought, Sting, Unending Lethargy, Frost, Fire, Storm, Vaal Totem,
