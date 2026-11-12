@@ -2,8 +2,9 @@ using Xunit;
 
 namespace GameServer.Gateway.Tests;
 
-/// <summary>The mods a monster's own row carries (BossMods) decide two things the client's tables state outright: an act
-/// boss that nothing shoves, and a boss's stage whose death gives no items or no experience.</summary>
+/// <summary>The mods a monster's own row carries (BossMods) decide what the client's tables state outright: an act boss
+/// that nothing shoves, a boss whose stage gives no items or no experience, and how far a slow may take a boss's action
+/// speed.</summary>
 public class BossModsTests
 {
     static MonsterCatalog.Variety Variety(string id) =>
@@ -38,6 +39,14 @@ public class BossModsTests
         Assert.False(BossMods.GivesNoItems(zombie));
         Assert.False(BossMods.KnockbackImmune(zombie));
         Assert.Null(BossMods.StunImmunityMilliseconds(zombie));
+
+        // A boss that states a floor under its action speed slows no further than that floor: Atziri's row names
+        // CannotBeSlowedBelowValueBosses, whose stat is -50% (Curses.cs caps the curse's slow at it instead of .25).
+        Assert.Equal(.5, BossMods.SlowestActionFactor(Variety("Metadata/Monsters/Atziri/Atziri")));
+
+        // A boss that states none keeps the .25 every monster had.
+        Assert.Equal(.25, BossMods.SlowestActionFactor(brutus));
+        Assert.Equal(.25, BossMods.SlowestActionFactor(zombie));
     }
 
     [Fact]
