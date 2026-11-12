@@ -220,7 +220,43 @@ The client converts its cursor into a world point every frame and publishes it a
 - `0x1421660b0` is where the client asks for the action, and its fourth argument points at the cell it resolved — the
   bridge's own record that the client aimed.
 - One click saturates: the target is `player_world + R(yaw)·v̂·(min(|v|,1)·150 + 30)` world units, so it reaches about
-  16.6 cells. `walkTo` therefore aims, clicks, waits for that walk to end and aims again.
+  16.6 cells. `walkTo` therefore aims, clicks, waits for that walk to end and aims again — aiming straight at a far cell
+  only saturates, so it aims at a waypoint one click away and repeats.
+
+### Acting on objects: useSkill, loot, interact
+
+```json
+{"command":"act","kind":"useSkill","x":352,"y":1327,"target":134217965}
+{"command":"act","kind":"loot","x":351,"y":1327,"object":1048576}
+{"command":"act","kind":"interact","x":388,"y":231,"object":8192}
+```
+
+All three name the **cell** the thing stands on; `target`/`object` is the server's id, echoed back for the caller's
+record only, because the client does not name its objects (its entity ids are not the server's). The bridge aims the
+cursor at that cell (the same free readback as `walkTo`, so no camera maths and no calibration constant), presses, and
+retries a few pixels higher each time — labels sit above the body — until the client asks for an action. `slot` picks
+what presses: `0` is the left button (move and the default attack, which is the game's own layout), `1`-`5` are the
+bar's Q/W/E/R/T; `frames` (default 3) is how many frames the press is held across, because the client reads the button
+per frame.
+
+The answer says what the client's own pick named and which order it produced, so the caller can tell a real action from
+a walk:
+
+```json
+{"ok":true,"kind":"loot","cell":[351,1327],"resolved":[350,1327],"target":1048576,"pressed":[345,284],
+ "attempts":1,"how":"left","sent":true,"order":{"cell":[0,0],"object":1048576,"walk":false,"from":"0x7ff6d13a8a8b"}}
+```
+
+`order.object` is the id the client put in the packet, `order.cell` is the cell it named (0,0 for an object), `order.walk`
+says whether the press came from the walk sender, and `order.from` is the caller's return address (the walk path is
+`0x14012461e`; the others are the skill paths). `loot` and `interact` fail with a sentence instead of a silent retry
+when the order came back aimed at the ground (`the client walked instead of acting on an object`), and every kind says
+`object <id> is not in the client's streamed set` when the label pass has not seen it yet — get closer, or look again.
+
+Live, on the 3.29.3c release build: a left click on a ground item sent `<= 0x0024` with the item's id and the ground
+lost it; a left click on the town's area transition sent its id and the character changed area; a left click on a
+monster under a wand sent `0x0102` (the default attack) on the monster's id and the server's projectile recorded
+`damage=7 life=16/23`. None of those writes a packet itself.
 
 ## Targeted development interactions
 

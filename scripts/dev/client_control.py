@@ -22,11 +22,17 @@
     echo '{"command":"character:create","name":"CampaignWitch","class":"Witch"}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
     echo '{"command":"inventory:pickup","inventoryId":1,"id":1027}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
     echo '{"command":"act","kind":"walkTo","x":512,"y":740}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
+    echo '{"command":"act","kind":"useSkill","target":8000001,"slot":0}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
+    echo '{"command":"act","kind":"loot","object":65536}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
 
 `act` is the primitive that moves the character the way a person does: a click into the client's own window, aimed
 from the client's own answers (the local player's cell, and the cell the client itself resolved the click to), never a
 walk packet written by the bridge. It exists for an outside operator (Agents/docs/dev/ai-operator.md), not for tests:
 the `move` command below writes the C→S walk packet itself, so the client predicts nothing.
+
+`act kind=walkTo` walks; `useSkill`, `loot` and `interact` put the cursor on an object the client can see and press
+the button or bar key that acts on it (`slot` 0 is the right button, 1-5 are the bar's own keys). Every answer says
+what the client's pick named and which order it sent, so a caller can tell "the client acted" from "nothing happened".
 
 Use --stdio for persistent JSON-lines RPC (one request/result per line). Each request is
 {"command":"character:play","name":"OfflineWitch"}; login takes account/password fields.
@@ -614,33 +620,40 @@ class ClientControl:
             time.sleep(.01)
         return value if value is not None else act.state()
 
-    def act_aim(self, act, goal, viewport, margin=12, tries=10):
+    def act_aim(self, act, goal, viewport, margin=12, tries=8, reach=24, step=12, limit=48):
         """Where to put the cursor so a click walks toward `goal`, from the client's own answers.
 
-        The cursor-to-cell mapping is measured with two free reads (it is the same everywhere in the view), then the
-        cursor is stepped toward the goal with a damped Newton step. Beyond the client's reach the resolved cell
-        saturates, so the best resolution seen is what the click gets; the character then walks that far and walksTo
-        aims again. Returns (point, cell the client resolved for it).
+        The client publishes the cell a click would walk to, but that mapping is only linear near the character: a
+        click saturates at about 17 cells (a cursor radius scaled by 150 world units plus 30), and beyond that the
+        client resolves a circle, not a plane. So the response is measured *locally*, around the cursor, every
+        iteration, and every read is checked against the character's own cell: a resolved cell farther than a click
+        can reach is a misread (a stale frame, or the cursor over the interface), never a target to chase. The cursor
+        is stepped with a damped Newton step capped at `limit` pixels. Returns (point, cell the client resolved for
+        it).
         """
-        limit = max(40, min(viewport) // 3)
         far = (max(margin, viewport[0] - margin - 1), max(margin, viewport[1] - margin - 1))
 
         def place(p):
             return (min(max(int(round(p[0])), margin), far[0]), min(max(int(round(p[1])), margin), far[1]))
 
+        def read(p):
+            """(character cell, resolved cell) for cursor `p`: one frame's read, no clicking."""
+            state = self.act_probe(act, p)
+            player = state.get("cell")
+            return (int(player[0]), int(player[1])) if player else None, self.act_target(state)
+
         point = place((viewport[0] / 2, viewport[1] / 2))
-        cell = self.act_target(self.act_probe(act, point))
+        player, cell = read(point)
         best = (self.act_gap(cell, goal), point, cell)
-        step = 16
-        right = self.act_target(self.act_probe(act, place((point[0] + step, point[1]))))
-        down = self.act_target(self.act_probe(act, place((point[0], point[1] + step))))
-        j = ((right[0] - cell[0]) / step, (down[0] - cell[0]) / step,
-             (right[1] - cell[1]) / step, (down[1] - cell[1]) / step)
-        det = j[0] * j[3] - j[1] * j[2]
-        if abs(det) < 1e-9:
-            return best[1], best[2]
         for unused in range(tries):
-            if cell == goal:
+            if self.act_gap(cell, goal) <= 1:
+                break
+            _, right = read(place((point[0] + step, point[1])))
+            _, down = read(place((point[0], point[1] + step)))
+            j = ((right[0] - cell[0]) / step, (down[0] - cell[0]) / step,
+                 (right[1] - cell[1]) / step, (down[1] - cell[1]) / step)
+            det = j[0] * j[3] - j[1] * j[2]
+            if abs(det) < 1e-6:
                 break
             dx, dy = goal[0] - cell[0], goal[1] - cell[1]
             offset = ((j[3] * dx - j[1] * dy) / det, (j[0] * dy - j[2] * dx) / det)
@@ -652,14 +665,16 @@ class ClientControl:
             moved = place((point[0] + offset[0], point[1] + offset[1]))
             if moved == point:
                 break
-            cell = self.act_target(self.act_probe(act, moved))
+            player, cell = read(moved)
             gap = self.act_gap(cell, goal)
             if gap < best[0]:
                 best = (gap, moved, cell)
-            elif gap > 2 * best[0] + 2:
+            elif gap > best[0] + 4:
                 break                                       # the step took us away from it: keep the best
             point = moved
-        return best[1], best[2]
+        # The click is built from the cell the client published on its last frame, so leave the cursor on the winning
+        # point and let a frame publish it before anything is pressed.
+        return best[1], self.act_target(self.act_probe(act, best[1]))
 
     def act_step(self, act, before, timeout=2.5):
         """After the button: wait for the client's own walk to end (the cell moved and the player stopped)."""
@@ -719,13 +734,133 @@ class ClientControl:
             if not all(viewport):
                 raise RuntimeError("The client reported no window size")
             before = value.get("clicks", 0)
-            point, resolved = self.act_aim(act, goal, viewport)
+            # One click walks about 15 cells at most: the reach is min(|cursor|,1)*150+30 world units of direction, so
+            # aiming straight at a far cell only saturates. Aim at a waypoint inside one reach, then click, look, and
+            # aim again -- the same thing a person does with a distant target.
+            step_cells = min(15.0, math.hypot(goal[0] - cell[0], goal[1] - cell[1]))
+            span = math.hypot(goal[0] - cell[0], goal[1] - cell[1])
+            waypoint = (int(round(cell[0] + (goal[0] - cell[0]) * step_cells / span)),
+                        int(round(cell[1] + (goal[1] - cell[1]) * step_cells / span)))
+            point, resolved = self.act_aim(act, waypoint, viewport)
             predicted = [int(v) for v in resolved]
+            # A read taken while the character is still moving is a frame behind, so accept a resolution that points
+            # the right way rather than demanding the exact cell: the click only needs a direction, the client caps
+            # the distance itself.
+            aim = (resolved[0] - cell[0], resolved[1] - cell[1])
+            want = (goal[0] - cell[0], goal[1] - cell[1])
+            dot = aim[0] * want[0] + aim[1] * want[1]
+            reach = math.hypot(*aim)
+            if self.act_gap(waypoint, resolved) > 10 and not (dot > 0 and reach > 5):
+                return self.act_result(False, cell, goal, used, predicted, None, started,
+                                       f"aim misread: the client resolved {predicted} for a waypoint {list(waypoint)} "
+                                       f"one click away from {list(cell)}, so the cursor is not reading the world "
+                                       "(a stale frame, or the pointer is over the interface); nothing was pressed")
             act.click(int(point[0]), int(point[1]))
             used += 1
             value = self.act_step(act, cell)
             if value.get("clicks", 0) > before and value.get("click"):
                 order = [int(v) for v in value["click"]]
+
+    ACT_SLOTS = {0: None, 1: 0x51, 2: 0x57, 3: 0x45, 4: 0x52, 5: 0x54}
+
+    def act_objects(self, radius=60):
+        """What the client's label pass has seen recently: {world, cell} per visible object inside `radius` cells."""
+        return self.act_rpc().objects(int(radius))
+
+    def act_wait_frames(self, act, frames=3, timeout=1.5):
+        """Wait for the client to draw frames, so a press and the order it produced are both visible."""
+        before, deadline, value = act.state().get("frame", 0), time.monotonic() + timeout, act.state()
+        while time.monotonic() < deadline:
+            value = act.state()
+            if value.get("frame", 0) - before >= int(frames):
+                break
+            time.sleep(.01)
+        return value
+
+    def act_point_at(self, act, cell, viewport, step=26):
+        """Aim the cursor so the client's own readback lands on `cell`.
+
+        The client publishes the cell under the cursor (its own conversion, so no calibration constant is baked in
+        here). `act_aim` measures the cursor-to-cell response on the fly and inverts it; when the exact cell cannot be
+        hit (rounding at a cell edge) the nearest one is used and reported, never assumed.
+        """
+        goal = (int(cell[0]), int(cell[1]))
+        point, resolved = self.act_aim(act, goal, viewport)
+        return point, resolved
+
+    def act_press(self, act, point, button="left", key=None, slot=None):
+        """Press what fires the skill: a bar key, the right button (the bar's second skill), or the left button.
+
+        The game's own layout: the left button is move and the default attack, the right button is the other skill.
+        """
+        if key is not None:
+            act.keyDown(int(key))
+            self.act_wait_frames(act, 2)
+            act.keyUp(int(key))
+            return "key"
+        if button == "right":
+            act.skill(int(point[0]), int(point[1]))
+            return "right"
+        act.click(int(point[0]), int(point[1]))
+        return "left"
+
+    @staticmethod
+    def act_action_result(ok, kind, started, reason=None, **fields):
+        result = {"ok": bool(ok), "kind": kind, "elapsedMs": round((time.monotonic() - started) * 1000)}
+        if reason is not None:
+            result["reason"] = reason
+        result.update(fields)
+        return result
+
+    def act_object_act(self, kind, cell, object_id=None, button="left", key=None, slot=None, frames=3, rise=12):
+        """One primitive aimed at a world cell: loot, interact, or a skill used on whatever stands there.
+
+        The aim is the client's own answer (the published cell under the cursor), and the result is the order the
+        client sent (`order.cell`, `order.object`, `order.walk`, `order.from`). Nothing is written to the socket and
+        nothing is teleported. A ground item and an interactable object start talking only when the cursor is on their
+        label, which sits above their cell, so the press is retried a few pixels higher until the client sends an
+        object-form order; a monster answers a cell-form order, which is the same order a human's click produces.
+        """
+        act = self.act_rpc()
+        started = time.monotonic()
+        state = act.state()
+        viewport = state.get("viewport") or [800, 600]
+        point, resolved = self.act_point_at(act, cell, viewport)
+        if point is None:
+            return self.act_action_result(False, kind, started,
+                                          "the client did not resolve a cell under the cursor; is the character in game?",
+                                          cell=list(cell))
+        attempts, last, sent, order = 0, None, False, {}
+        for lift in [0] + [int(rise) * step for step in (1, 2, 3, 4, -1)]:
+            spot = (int(point[0]), int(point[1]) - lift)
+            before = act.state()
+            how = self.act_press(act, spot, button=button, key=key, slot=slot)
+            after = self.act_wait_frames(act, frames)
+            sent = after.get("clicks", 0) > before.get("clicks", 0)
+            order = {"cell": after.get("click"), "object": int(after.get("clickObject", 0) or 0),
+                     "walk": bool(after.get("clickWalk")), "from": after.get("clickFrom")}
+            last = after
+            attempts += 1
+            if not sent:
+                continue
+            if kind == "useSkill" or order["object"]:
+                break
+        answer = self.act_action_result(
+            sent, kind, started,
+            None if sent else f"the client sent no order at {point}; the click landed on nothing",
+            cell=list(cell), resolved=list(resolved) if resolved else None, target=object_id,
+            pressed=list(point), attempts=attempts, how=how, sent=sent, order=order)
+        # A click reaches about 16 cells (the client clamps its aim to a screen's worth of ground), so a resolved cell
+        # far from the target means the cursor is pointing at ground between here and there, not at the thing itself.
+        if resolved and not order["object"] and self.act_gap(resolved, cell) > 1:
+            answer["ok"] = False
+            answer["reason"] = (f"the closest the cursor reaches is {resolved}, {self.act_gap(resolved, cell)} cells "
+                                f"short of {list(cell)}; a click reaches about 16 cells, so walk closer first")
+        elif sent and kind != "useSkill" and not order["object"]:
+            answer["ok"] = False
+            answer["reason"] = (f"the client walked instead of acting on an object ({kind}); "
+                                "the label was not under the cursor")
+        return answer
 
     def status(self):
         if self.script is None and self._find_client() is None:
@@ -977,20 +1112,40 @@ class ClientControl:
                 raise ValueError("Movement cells must be nonnegative int32 values")
             return self.rpc("interaction",bytes=list(struct.pack(">HIIHHH",0x25,x,y,0x2909,0,0x408)))
         if command == "act":
-            # The hands of an outside operator: one primitive, clicked through the client's own input, with the
-            # client's own answers as the result (Agents/docs/dev/ai-operator.md). Only walkTo exists yet.
+            # The hands of an outside operator: primitives clicked through the client's own input, with the client's
+            # own answers as the result (Agents/docs/dev/ai-operator.md).
             kind = request.get("kind")
-            if kind != "walkTo":
-                raise ValueError(f"Unknown act kind: {kind!r}; this bridge has walkTo")
-            for field in ("x", "y"):
-                if field not in request:
-                    raise ValueError(f"act walkTo needs {field} (a cell)")
-            x, y = int(request["x"]), int(request["y"])
-            if not -(2**31) <= x < 2**31 or not -(2**31) <= y < 2**31:
-                raise ValueError("Cell coordinates must be int32 values")
-            return self.act_walk_to(x, y, tolerance=int(request.get("tolerance", 1)),
-                                    timeout=float(request.get("timeout", 25)),
-                                    clicks=int(request.get("clicks", 30)))
+            if kind == "walkTo":
+                for field in ("x", "y"):
+                    if field not in request:
+                        raise ValueError(f"act walkTo needs {field} (a cell)")
+                x, y = int(request["x"]), int(request["y"])
+                if not -(2**31) <= x < 2**31 or not -(2**31) <= y < 2**31:
+                    raise ValueError("Cell coordinates must be int32 values")
+                return self.act_walk_to(x, y, tolerance=int(request.get("tolerance", 1)),
+                                        timeout=float(request.get("timeout", 25)),
+                                        clicks=int(request.get("clicks", 30)))
+            if kind in ("useSkill", "loot", "interact"):
+                # The aim is a cell: this client does not expose the object ids it draws, so the caller says where the
+                # thing stands (the world snapshot has the cell) and the client resolves what is there when clicked.
+                if "x" not in request or "y" not in request:
+                    raise ValueError(f"act {kind} needs x and y (the cell the thing stands on); "
+                                     "the client does not name its objects, so an id alone cannot be aimed")
+                slot, key = request.get("slot"), request.get("key")
+                if key is None and slot is not None and int(slot) != 0:
+                    key = self.ACT_SLOTS.get(int(slot))
+                    if key is None:
+                        raise ValueError(f"act useSkill slot {slot} is not on the bar; "
+                                         "slots are 0 (the right button) and 1-5")
+                # The game's own layout: the left button is move and the default attack, the right button is the
+                # second skill. Slots 1-5 are the bar's keys.
+                button = "left"
+                target = request.get("target", request.get("object"))
+                return self.act_object_act(kind, [int(request["x"]), int(request["y"])],
+                                           None if target is None else int(target),
+                                           button=str(request.get("button", button)), key=key, slot=slot,
+                                           frames=int(request.get("frames", 3)))
+            raise ValueError(f"Unknown act kind: {kind!r}; this bridge has walkTo, useSkill, loot and interact")
         if command == "npc:option":
             index = int(request["index"])
             if not 0 <= index <= 255:
