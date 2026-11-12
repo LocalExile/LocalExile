@@ -7,8 +7,12 @@ using Rules = global::Game;
 namespace GameServer.Modules.Game;
 
 /// <summary>The game's rules: gives the framework its <see cref="IGameLogic"/>.</summary>
-public sealed class GameModule : IModule
+public sealed class GameModule : IModule, IDisposable
 {
+    /// <summary>The end of an unload: the host disposes a module's entry after it stopped the module's lifetime, so the
+    /// clean-ups that lifetime owns (the fights' CleanupOnUnload) have read the rule tables by now.</summary>
+    public void Dispose() => RuleTables.Empty();
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
@@ -19,7 +23,6 @@ public sealed class GameModule : IModule
         module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         module.Lifetime.Own(Rules.InstallMirror());
-        module.Lifetime.Own(RuleTables.EmptyOnUnload());
         string id = module.Manifest.Id;
         GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);

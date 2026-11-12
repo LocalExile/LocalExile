@@ -10,7 +10,7 @@ public static partial class Game
     {
         public readonly int Slow = slow, Cap = cap;
     }
-    static readonly ConditionalWeakTable<SpawnedMonster, HashSet<ToxicPod>> ToxicVines = new();
+    static readonly RuleTable<SpawnedMonster, HashSet<ToxicPod>> ToxicVines = new();
 
     internal static double ToxicWalkFactor(SpawnedMonster m)
     {

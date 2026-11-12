@@ -13,11 +13,11 @@ static class KitavaActFive
     const string Sign = Root + "SignOfPurity/SignOfPurity", Art = "Metadata/Effects/Spells/monsters_effects/act10/Kitava/";
     internal const string Complete = "a5q6-CompletedBoss";
     static readonly int[] Effects = [6598, 6599, 6600, 6601, 6602, 6590, 6594, 6636, 6638, 6603, 6604, 6619, 6622, 6586];
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, Exposure> Exposures = new();
-    static readonly ConditionalWeakTable<AreaLayout, Anchor> Anchors = new();
-    static readonly ConditionalWeakTable<ClientState, DockCleanup> Docks = new();
-    static readonly ConditionalWeakTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, Exposure> Exposures = new();
+    static readonly RuleTable<AreaLayout, Anchor> Anchors = new();
+    static readonly RuleTable<ClientState, DockCleanup> Docks = new();
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
     sealed record Anchor(int X, int Y, float Rotation);
     sealed class Exposure { public double Dps; }
     sealed class DockCleanup { public double Next; }

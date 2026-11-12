@@ -617,7 +617,7 @@ public static partial class Game
     }
 
     // Only pending encounter chests need a transition when another player finishes the fight.
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState,
+    static readonly RuleTable<ClientState,
         System.Collections.Concurrent.ConcurrentDictionary<uint, Quests.ChestRule>> PendingEncounterChests = new();
 
     // Ordinary chests start untransitioned: FireflyChestBase disables targeting in create_transitioned.

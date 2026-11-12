@@ -20,7 +20,7 @@ static partial class Sirus
         7024, 7025, 7026, 7027, 7028, 7029, 7030, 7031, 9851, 10147, 8100, 10950, 10951, 10952, 10953,
         10973, 9690, 10141, 10945, 8099, 10991];
     static readonly int[] ApparitionEffects = [10967, 10968, 10969, 10954, 9849, 7032, 7033, 9685, 9687, 10956, 10946, 6832, 3629];
-    static readonly ConditionalWeakTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
     static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(ClientState c, int effect, byte level) =>
         Native.GetValue(Game.SkillsFor(c), _ => new()).GetOrAdd((effect, level), p => GolemData.Skill(Game.SkillsFor(c), p.Item1, p.Item2));
     static int Stat(ClientState c, int effect, byte level, string name) => Stats.Key(name) is uint key ? Data(c, effect, level).Stats.GetValueOrDefault(key) : 0;

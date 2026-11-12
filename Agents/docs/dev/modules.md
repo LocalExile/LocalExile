@@ -108,7 +108,7 @@ mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 resources registered through `Own`; it does not drain arbitrary tasks already running. Work a module does per connection
 runs on `GameEvents.Tick`, or waits on `Lifetime.Stopping`: a loop of its own that runs until the connection closes goes on
 running the old code after a reload, and holds the unloaded module in memory, until the player changes area. For the same
-reason the Game module's weak tables keyed by connections, instances or catalogs are `RuleTable`s, emptied when it unloads,
+reason the Game module's weak tables keyed by connections, instances or catalogs are `RuleTable`s, emptied last when it unloads (its clean-ups read them first),
 and the protocol records the servers keep (objects, skills, items) copy a list whose class is a module's: a collection
 expression written in a module for an `IReadOnlyList` is an object of a class the compiler puts in that module (`Owned`).
 The optional [Phrecia Ascendancies](../game/phrecia-modules.md) family uses this ownership for admission and reload.
