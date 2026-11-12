@@ -36,7 +36,7 @@ public sealed class AtlasModule : IModule
         GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => AtlasFeature.EnsureUnlocked(conn));
         GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (conn, args) =>
         {
-            int n = await AtlasFeature.EnsureUnlocked(conn);
+            int n = await AtlasFeature.EnsureUnlocked(conn, explicitGrant: true);
             await PlayerOf(conn).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
         GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
@@ -173,8 +173,9 @@ static class AtlasFeature
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    internal static async Task<int> EnsureUnlocked(ClientState conn)
+    internal static async Task<int> EnsureUnlocked(ClientState conn, bool explicitGrant = false)
     {
+        if (!explicitGrant && !conn.EarnedQuestFlag(Quests.EndGameAvailable)) return 0;
         var missing = UnlockFlags.Where(f => !ClientHasQuestFlag(conn, f)).ToList();
         bool leagueChanged = ApplyLeagueFlags(conn);
         if (!conn.PlayerSent) return missing.Count + (leagueChanged ? 1 : 0);
@@ -198,13 +199,12 @@ static class AtlasFeature
     /// League flags are put on the connection here, before <c>PlayerForCreation</c> reads them.</summary>
     internal static IEnumerable<(string Log, byte[] Message)> Restore(ClientState conn)
     {
-        ApplyLeagueFlags(conn);
+        if (conn.EarnedQuestFlag(Quests.EndGameAvailable)) ApplyLeagueFlags(conn);
         var player = PlayerOf(conn);
         var data = WorldOf(player).CharacterData;
-        AtlasProgress.Complete(data, AtlasProgress.Maps);
         var completed = AtlasProgress.Completed(data);
         // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
-        // is restored above, so a character whose Atlas was filled before the award existed gets its points too.
+        // is read from the save. Entering an area does not complete any new maps.
         bool pointsChanged = false;
         if (Math.Min(AtlasModule.MapCompletionPoints, completed.Count) is int earned and > 0 && earned > conn.AtlasPassivePoints)
         {
