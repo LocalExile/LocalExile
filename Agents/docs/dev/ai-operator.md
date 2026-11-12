@@ -146,3 +146,41 @@ Bridge, line-delimited JSON over stdio — `{"command":"act","kind":"walkTo","x"
 Mod, chat commands shaped like gm-commands: `/ai world [radius]` (area, pos, life, monsters, ground, exits),
 `/ai reach <x> <y>` (reachable, steps, blockedBy), `/ai item <id>` (dist, pickupRange, ok), `/ai why <id>` (one
 sentence). Every command carries a `session` field for later; v1 serves one character.
+
+## g) Routine scripts, model operations, and what decides between them
+
+The operator is not "an LLM pressing keys". Two kinds of work share the same hands and the same gate:
+
+| Work | Who runs it | Examples |
+|---|---|---|
+| Routine | a plain script loop, no model call | walk to a cell, engage the nearest hostile, pick up drops, clear an area, walk back |
+| Model operation | the LLM, one intent per turn | talk to an NPC, trade, take a transition, fight a boss, decide what to farm |
+
+The split is a budget rule, not a style choice: a model call costs a round trip of hundreds of milliseconds to
+seconds, and the world changes every frame. Anything whose next step is a pure function of the snapshot (distance,
+life, an exit index) must not wait for a model. Anything that needs an interpretation the snapshot does not contain
+(what the NPC is offering, whether the boss phase looks survivable, which of two exits leads to the quest) must not
+be guessed by a script.
+
+The routine loop, in the shape the brain already needs:
+
+1. read `/ai world` once, and again after every primitive that could change it materially (area, a kill, a pickup);
+2. pick the routine goal: the nearest hostile in reach, else the nearest ground item within the gate's pickup range,
+   else the exit the plan names;
+3. hand the primitive to the gate (`/ai reach`, `/ai item`, `/ai why`) and act only on a yes;
+4. report the result before the next primitive; two failures of the same kind hand the turn to the model.
+
+The model is called on exactly four events, and otherwise never: a routine goal is finished or impossible; the world
+changed in a way the routine cannot classify (a new quest object, an NPC, a transition the plan did not name); the
+same primitive failed twice; or the character died. Each model turn gets the compressed snapshot and returns one
+intent; the local loop compiles it into 1-5 primitives and executes them frame by frame.
+
+Both paths go through the same gate and the same bridge. A routine script that skips the gate is a bug, not an
+optimisation: the gate is what keeps "walk to the item, then take it" from becoming "press pickup at the air forty
+cells away".
+
+Layout for the brain and the routines (PR6, `tools/ai-operator/` in the mods repository): `hands.py` (the bridge's
+line protocol), `gate.py` (`/ai world`, `/ai reach`, `/ai item`, `/ai why` over the chat channel, parsed), `routine.py`
+(the deterministic loop above), `brain.py` (the model adapter: snapshot in, one intent out, the intent schema
+validated), `session.py` (the record of every intent, every primitive and its duration, and every refusal).
+`session.py` writes the three record types the acceptance needs; nothing else may write them.
