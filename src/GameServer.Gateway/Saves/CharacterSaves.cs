@@ -65,6 +65,7 @@ public static class CharacterSaves
         SavedItem? StartWeapon = null, ushort? PortalCosmetic = null, Dictionary<byte, SavedCosmetic>? Cosmetics = null,
         Dictionary<string, SavedCosmetic>? SkillCosmetics = null, List<string>? ActiveAuras = null, bool? PetrifiedBlood = null,
         string? SelectedHideout = null, OpeningTutorial? Tutorial = null, AscendancyProgress? MainAscendancy = null,
+        byte? Descendancy = null, List<ushort>? DescendancyNodes = null,
         Dictionary<string, Dictionary<string, HideoutPlacement>>? HideoutPlacements = null,
         Dictionary<string, List<SavedMonsterStatue>>? MonsterStatues = null,
         uint? Life = null, uint? Mana = null, VitalsSession? VitalsOwner = null, List<ushort>? ClusterPassives = null,
@@ -431,6 +432,19 @@ public static class CharacterSaves
             TattooKeystones = keystones is null ? s.TattooKeystones : new(keystones),
         });
 
+    /// <summary>The Descendancy.dat row the client draws as its second ascendancy layer (Affliction's Wildwood
+    /// specialisations, the 3.29 Bloodline classes); 0 clears it. The nodes belong to that row's tree. The expected row
+    /// and nodes are the connection's copy: a newer selection or allocation makes this write fail like the main
+    /// ascendancy's snapshot, instead of replacing it.</summary>
+    public static void SetDescendancy(string character, byte row, IEnumerable<ushort>? nodes = null,
+        byte? expectedRow = null, IReadOnlySet<ushort>? expectedNodes = null) =>
+        Update(character, s =>
+        {
+            if (expectedRow is { } expected && (s.Descendancy ?? 0) != expected) throw new PassiveProgressConflictException();
+            if (expectedNodes is not null && !expectedNodes.SetEquals(s.DescendancyNodes ?? [])) throw new PassiveProgressConflictException();
+            return s with { Descendancy = row, DescendancyNodes = [.. nodes ?? []] };
+        });
+
     /// <summary>
     /// Main ascendancy identity, its own nodes/point awards and any associated ordinary-node/refund changes commit in
     /// one transaction. Callers validate first and publish runtime state only after the outermost transaction commits.
@@ -571,6 +585,12 @@ public static class CharacterSaves
             var local = ItemModStats.Local(item, catalog.Mods);
             if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
                 item = AbyssJewels.StygianSockets(item, local);
+        }
+        else if (item.Rarity == ItemRarity.Unique && item.Sockets.Count == 0 && t.Components.Contains("Sockets"))
+        {
+            var local = ItemModStats.Local(item, catalog.Mods);
+            if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0 && !local.ContainsKey("local_has_no_sockets"))
+                item = AbyssJewels.EquipmentSockets(item, t, catalog, local, new Random(item.TypeHash.GetHashCode()));
         }
         return ImpossibleEscapeCatalogue.Migrate(item, catalog.Mods);
     }

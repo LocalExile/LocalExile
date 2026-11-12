@@ -101,6 +101,29 @@ public partial class ConditionalItemStatsTests
             conn.PlayerLife = conn.PlayerMaxLife;
             Assert.True(Game.PayMana(conn, skill, out manaPaid, out lifePaid));
             Assert.Equal((0u, (uint)lifetapCost), (manaPaid, lifePaid));
+            // Native Life costs keep their own resource scope after the upstream Reap integration.
+            Assert.NotNull(inventory.Change(PlayerInventories.Weapon1, weapon.Id, item => item with
+            {
+                Sockets = [new(SocketColour.White, Gem("Reap", 1))], Links = [1],
+            }));
+            skill = Game.GemSkillEffects(conn).Single().Id;
+            foreach (int blood in new[] { 0, 5 })
+            {
+                conn.BloodCharges = blood;
+                int expectedLife = blood == 0 ? 25 : 50;
+                foreach (int endurance in new[] { 0, 3 })
+                {
+                    Count(endurance); conn.PlayerLife = conn.PlayerMaxLife; conn.PlayerMana = conn.Pools.Mana;
+                    uint beforeLife = conn.PlayerLife, beforeMana = conn.PlayerMana;
+                    Assert.True(Game.PayMana(conn, skill, out manaPaid, out lifePaid));
+                    Assert.Equal((0u, (uint)expectedLife), (manaPaid, lifePaid));
+                    Assert.Equal(beforeLife - (uint)expectedLife, conn.PlayerLife); Assert.Equal(beforeMana, conn.PlayerMana);
+                    conn.PlayerLife = (uint)expectedLife;
+                    Assert.False(Game.CanPaySkillCost(conn, skill)); Assert.False(Game.PayMana(conn, skill, out _, out _));
+                    Assert.Equal((uint)expectedLife, conn.PlayerLife);
+                }
+            }
+            conn.BloodCharges = 0;
             conn.Experience = CharacterStats.ExperienceFor(1); conn.Pools = Game.PoolsFor(conn, 1);
             Assert.True(Game.IsInactive(conn, source.Id)); stats = Game.CharacterPlayerStats(conn);
             Assert.Equal(0, Get(ItemChargeCosts.ManaEfficiencyPerEndurance));
@@ -119,7 +142,7 @@ public partial class ConditionalItemStatsTests
         }
         finally
         {
-            conn.PlayerStats.Remove(minimum); conn.PetrifiedBlood.Suspend(); charges.Die();
+            conn.PlayerStats.Remove(minimum); conn.PetrifiedBlood.Suspend(); charges.Die(); conn.BloodCharges = 0;
             foreach (var (row, item) in inventory.EquipmentSnapshot()) inventory.Remove(row, item.Id);
             foreach (var (row, item) in saved) inventory.Add(row, item.X, item.Y, item.Item);
             conn.Experience = CharacterStats.ExperienceFor(100); conn.Pools = Game.PoolsFor(conn, 100);

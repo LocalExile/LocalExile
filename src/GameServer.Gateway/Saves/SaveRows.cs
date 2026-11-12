@@ -42,7 +42,7 @@ public static class SaveRows
         "refund_points", "portal_cosmetic", "active_auras", "petrified_blood", "selected_hideout", "life", "mana",
         "vitals_character", "vitals_session", "vitals_retired", "cluster_passives", "sulphite", "atlas_passive_presets",
         "atlas_passive_points", "selected_atlas_layout", "quest_refunds_credited", "pantheon_major", "pantheon_minor",
-        "attack_in_place_slots", "skill_bar_mask52", "stance", "unknown",
+        "attack_in_place_slots", "skill_bar_mask52", "stance", "descendancy", "descendancy_nodes", "unknown",
     ];
 
     static readonly string[] CharacterChildren =
@@ -61,7 +61,7 @@ public static class SaveRows
             s.SelectedHideout, s.Life, s.Mana, s.VitalsOwner?.CharacterId.ToString(), s.VitalsOwner?.SessionId.ToString(),
             s.VitalsOwner?.Retired, JsonOf(s.ClusterPassives), s.Sulphite, JsonOf(s.AtlasPassivePresets), s.AtlasPassivePoints,
             s.SelectedAtlasLayout, JsonOf(s.QuestRefundsCredited), s.PantheonMajor, s.PantheonMinor, s.AttackInPlaceSlots,
-            s.SkillBarMask52, s.Stance, JsonOf(s.Unknown),
+            s.SkillBarMask52, s.Stance, s.Descendancy, JsonOf(s.DescendancyNodes), JsonOf(s.Unknown),
         ];
         using (var update = db.Command($"UPDATE character_saves SET {string.Join(", ", CharacterColumns.Select((c, i) => $"{c} = $p{i}"))} WHERE id = $id",
                    [("$id", id), .. values.Select((v, i) => ($"$p{i}", Value(v)))]))
@@ -165,6 +165,7 @@ public static class SaveRows
             NullIfEmpty(Rows(db, "SELECT * FROM character_skill_cosmetics WHERE save = $s ORDER BY skill", id)
                 .ToDictionary(x => x.Text("skill")!, Cosmetic)),
             row.Json<List<string>>("active_auras"), row.Bool("petrified_blood"), row.Text("selected_hideout"), tutorial, ascendancy,
+            (byte?)row.Long("descendancy"), row.Json<List<ushort>>("descendancy_nodes"),
             NullIfEmpty(hideouts), NullIfEmpty(statues), (uint?)row.Long("life"), (uint?)row.Long("mana"),
             row.Text("vitals_character") is { } owner ? new VitalsSession(Guid.Parse(owner), Guid.Parse(row.Text("vitals_session")!),
                 row.Bool("vitals_retired") == true) : null,

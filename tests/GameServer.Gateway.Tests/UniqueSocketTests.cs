@@ -17,11 +17,22 @@ public class UniqueSocketTests
             Assert.All(item.Sockets, socket => Assert.Null(socket.Gem));
         }
         // These layouts need their own implementation; the ordinary fallback must not invent two gem sockets.
-        foreach (string name in new[] { "Kaom's Heart", "Actum", "Tombfist", "Mageblood" })
+        foreach (string name in new[] { "Kaom's Heart", "Actum", "Mageblood" })
         {
             var item = Assert.IsType<Item>(uniques.Create(name, new Random(17)));
             Assert.Empty(item.Sockets);
             Assert.Null(item.Links);
+        }
+        foreach (string name in new[] { "Tombfist", "Lightpoacher", "Bubonic Trail", "Shroud of the Lightless", "Hale Negator", "Command of the Pit" })
+        {
+            var item = Assert.IsType<Item>(uniques.Create(name, new Random(17)));
+            int expected = ItemModStats.Local(item, items.Mods)["local_has_X_abyss_sockets"];
+            Assert.True(expected > 0);
+            var legacy = CharacterSaves.ToSaved(item with { Sockets = [], Links = null }, items.Mods);
+            Assert.Equal(expected, CharacterSaves.FromSaved(legacy, items).Sockets.Count(s => s.Colour == SocketColour.Abyss));
+            var rerolled = CurrencyEffects.Jewellers(item, items.ByHash(item.TypeHash)!, new Random(22));
+            if (rerolled is not null) Assert.Equal(expected, rerolled.Sockets.Count(s => s.Colour == SocketColour.Abyss));
+            Assert.Equal(expected, item.Sockets.Count(socket => socket.Colour == SocketColour.Abyss));
         }
         // Skin of the Loyal is the six-linked random-colour layout, and in 3.29 it cannot roll a white socket.
         var loyal = Assert.IsType<Item>(uniques.Create("Skin of the Loyal", new Random(17)));

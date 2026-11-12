@@ -38,6 +38,63 @@ public sealed class SpellTotemExecutionTests
     }
 
     [Fact]
+    public void Arc_totem_chains_from_its_target_and_rejects_a_replaced_source()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"arc-totem-{Guid.NewGuid():N}.db");
+        var previous = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Saves.Open(path);
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var conn = Connection("ArcTotem");
+        using var wire = new Wire();
+        var session = Game.ProjectilesFor("arc", wire.Stream, wire.Ciphers, conn);
+        try
+        {
+            ushort skill = Equip(conn, "SkillGemArc", "SupportGemSpellTotem");
+            conn.PlayerStats[Program.Stats.Key("global_chance_to_blind_on_hit_%")!.Value] = 100;
+            var source = Game.SupportedSkill(conn, skill);
+            var gem = Game.GemSkillEffects(conn).Single();
+            var totem = new TotemState.Totem(777, skill, (100, 100), 100, 100, null)
+            { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = source.Host, SourceItem = source.SourceGem };
+            conn.Totems.Place(totem, 1, 0);
+            foreach (var (id, x, y) in new[] { (901u, 110, 100), (902u, 131, 100), (903u, 110, 126), (904u, 161, 100), (905u, 215, 100) })
+                conn.Monsters[id] = new("arc target", new(x, y, 0), 0, 0, 10000) { Hostile = true };
+            conn.Monsters[906] = new("ally", new(112, 100, 0), 0, 0, 10000) { Hostile = false };
+            var actions = new List<byte>();
+            Game.TickSpellTotemsLocked("arc", wire.Stream, wire.Ciphers, conn, actions);
+            Assert.NotEmpty(actions);
+            session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
+            foreach (uint id in new uint[] { 901, 902, 903, 904 })
+            {
+                Assert.True(conn.Monsters[id].Life < 10000);
+                double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                Assert.Equal(80, Game.MonsterBlindRating(conn, id, conn.Monsters[id], 100, now));
+            }
+            Assert.Equal(10000u, conn.Monsters[905].Life);
+            Assert.Equal(10000u, conn.Monsters[906].Life);
+            Assert.Empty(session.Runtime.Projectiles);
+            uint before = conn.Monsters[901].Life;
+            totem.NextCast = 0;
+            Game.TickSpellTotemsLocked("arc", wire.Stream, wire.Ciphers, conn, actions);
+            Equip(conn, "SkillGemFireball", "SupportGemSpellTotem");
+            session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)));
+            Assert.Equal(before, conn.Monsters[901].Life);
+        }
+        finally
+        {
+            session.Invalidate();
+            conn.Closed = true;
+            lifetime.Stop(_ => { });
+            Game.CombatLifetime = previousLifetime;
+            PlayerInventories.Forget(conn.Character!);
+            Program.SetGameLogic(previous!);
+            TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
+    [Fact]
     public void Native_spell_totem_admits_fireball_and_rejects_unimplemented_payloads()
     {
         string path = Path.Combine(Path.GetTempPath(), $"spell-totem-{Guid.NewGuid():N}.db");
@@ -61,7 +118,7 @@ public sealed class SpellTotemExecutionTests
             }
             skill = Equip(conn, "SkillGemArc", "SupportGemSpellTotem");
             gem = Game.SupportedSkill(conn, skill);
-            Assert.False(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
+            Assert.True(Game.ProjectilePathAvailable("test", conn, skill, gem.Effect));
             skill = Equip(conn, "SkillGemShockwaveTotem", "SupportGemSpellTotem");
             Assert.False(Game.ProjectilePathAvailable("test", conn, skill, Game.SupportedSkill(conn, skill).Effect));
             skill = Equip(conn, "SkillGemRejuvenationTotem", "SupportGemSpellTotem");
@@ -82,7 +139,9 @@ public sealed class SpellTotemExecutionTests
                 conn.Monsters[900] = new("spark-target", new(120, 20, 0), 0, 0, 10000);
                 var actions = new List<byte>();
                 Game.TickSpellTotemsLocked("spark-totem", wire.Stream, wire.Ciphers, conn, actions);
-                session.AdvanceTo(ProjectileRuntime.Time(2));
+                // Inspect the release itself. By two seconds a random Spark can already have hit or expired.
+                Assert.True(totem.NextCast > 0);
+                session.AdvanceTo(ProjectileRuntime.Time(totem.NextCast));
                 var emitted = session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == 777).ToArray();
                 Assert.NotEmpty(emitted);
                 Assert.All(emitted, p => { Assert.NotNull(p.Profile.Legs); Assert.Equal(150, p.Profile.LegLeash);

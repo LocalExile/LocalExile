@@ -64,6 +64,9 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
   Subjects follow Conventional Commits (`feat:`, `fix:`, `docs:`, ...): they become the
   [release](Agents/docs/dev/releases.md) notes.
 - **Write the pull request description from `.github/pull_request_template.md`, also when using `gh` or the API.**
+- **Prefer one pull request for many changes over many small ones,** even when the changes are unrelated to each
+  other: put your work in one branch and one pull request, one commit per change, and describe each in the
+  description. (Keeping other people's open pull requests out of your branch, below, still holds.)
 - **Verify the current integration base before declaring a PR ready.** Fetch the latest `main` and update the
   branch using the requested repository workflow; resolve shared code by preserving both mechanics.
   Re-run the solution build and all three required test suites, including regressions for the combined behavior.

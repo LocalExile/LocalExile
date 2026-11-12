@@ -219,5 +219,6 @@ public static partial class Game
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's
     /// on a spell.</summary>
     public static int HitDebuffTaken(SpawnedMonster m, bool spell, double now) =>
-        (spell ? m.UnnervedUntil : m.IntimidatedUntil) > now ? HitDebuffTakenPct : 0;
+        (spell ? m.UnnervedUntil > now : m.IntimidatedUntil > now
+            || m.PlayerAuras.Keys.Any(key => key.Definition == IntimidatedBuffRow)) ? HitDebuffTakenPct : 0;
 }

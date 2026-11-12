@@ -37,7 +37,9 @@ public class InspiredLearningTests
         var stolen = new StolenMods();
         stolen.StealRandom(set, mods, 1, 10, new Random(11));
         Assert.Equal(1, stolen.Count);
-        Assert.Equal(20, stolen.Step(10, false)!.Value.Remaining);
+        Assert.Equal(20, stolen.Step(10, false, out var beltBuff, out var jewelBuff)!.Value.Remaining);
+        Assert.Equal(0, beltBuff.Count);
+        Assert.Equal(1, jewelBuff.Count);
         Assert.Equal(0, stolen.Step(30, false)!.Value.Stacks);
         stolen.StealRandom(set, mods, 3, 30, new Random(11));
         Assert.Equal(2, stolen.Count);

@@ -40,6 +40,7 @@ import pathlib
 import re
 import sqlite3
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dev"))
@@ -72,6 +73,11 @@ ROLL = re.compile(r"\((-?\d+(?:\.\d+)?)-(-?\d+(?:\.\d+)?)\)|(?<![A-Za-z])(\d+(?:
 
 NAME_SPELLINGS = {"Rigwald's Charge": "Rigvald's Charge", "The Broken Elegy": "Broken Elegy",
                   "The Goddess Unleashed": "The GoddessUnleashed"}
+# Uniques the 3.29 client renamed and the export still has under the old name. Each new name's art
+# (UniqueStashLayout -> ItemVisualIdentity) and item class match the old one, and the old name is not in Words.
+RENAMED = {"Binds of Bloody Vengeance": "Lash of Retribution", "Fortified Legion": "Bulwark Legion",
+           "Hotheaded": "Hotfooted", "Ikiaho's Promise": "Arohongui's Tending", "Seething Fury": "Divide and Conquer",
+           "Utula's Hunger": "Kitava's Hunger", "Victario's Flight": "Ondar's Flight"}
 # Rolls the export gets wrong: Mods.dat's row and poedb agree against PoB's [min,max] (checked 2026-10-31).
 STALE_ROLLS = {
     ("Bino's Kitchen Knife", "ChaosResistUniqueDagger8"),
@@ -257,8 +263,13 @@ def text_map(path):
 
 def name_key(name):
     """As UniqueCatalog.NameKey: Words writes some apostrophes otherwise, and spells three names its own way."""
-    key = name.replace("\u2019", "'").replace("\u2018", "'").replace("\u02bc", "'")
+    key = name.strip().replace("\u2019", "'").replace("\u2018", "'").replace("\u02bc", "'")
     return NAME_SPELLINGS.get(key, key).lower()
+
+
+def fold(text):
+    """A name without its accents: Maelström and Maelstrom compare equal."""
+    return "".join(ch for ch in unicodedata.normalize("NFKD", text) if not unicodedata.combining(ch)).lower()
 
 
 def world_uniques():
@@ -307,9 +318,15 @@ def main():
     for row in base:
         by_name[row["Name"]].append(row)
 
+    by_folded = defaultdict(list)
+    for row in base:
+        by_folded[fold(row["Name"])].append(row)
+
     def candidates(name):
-        # Some newer bases carry a parenthesised subtype in PoB but not in the client table.
-        return by_name.get(name) or by_name.get(name.split(" (", 1)[0]) or []
+        # Some newer bases carry a parenthesised subtype in PoB but not in the client table; the client spells some with
+        # accents PoB drops (Maelström Staff).
+        name = name.split(" (", 1)[0] if name not in by_name else name
+        return by_name.get(name) or by_folded.get(fold(name)) or []
 
     rows = []
     skipped = []
@@ -318,6 +335,7 @@ def main():
         if path.name == "ModTextMap.lua":
             continue
         for name, lines in blocks(path):
+            name = RENAMED.get(name, name)
             if name_key(name) not in client_names:
                 skipped.append(f"{path.name}: {name} (no unique name in Words)")
                 continue

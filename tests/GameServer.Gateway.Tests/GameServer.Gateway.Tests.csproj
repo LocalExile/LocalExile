@@ -29,6 +29,9 @@
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <!-- The real skill-cosmetic handler and its RF relight contract (GolemTests). -->
     <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />
+
+    <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
   </ItemGroup>

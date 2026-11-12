@@ -298,6 +298,9 @@ public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
     public const string MetadataPath = "Metadata/MiscellaneousObjects/WorldItem";
 
+    /// <summary>The player placed this item on the ground, rather than a monster or script drop.</summary>
+    public bool PlayerDropped { get; init; }
+
     public byte[] Blob() => Blob(justDropped: false);
 
     public byte[] Blob(bool justDropped)

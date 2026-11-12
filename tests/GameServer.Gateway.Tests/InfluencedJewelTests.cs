@@ -21,6 +21,25 @@ public class InfluencedJewelTests
         var elder = baseItem with { Influences = ItemInfluence.Elder };
         var warlord = baseItem with { Influences = ItemInfluence.Warlord };
         uint life = Program.Stats.Key("maximum_life_+%")!.Value;
+        var nearby = jewel with { Mods = [
+            new(ModSection.Explicit, items.Mods.ById("NearbyEnemiesAreBlinded2RedeemerItemsUnique__1")!.Hash, [1]),
+            new(ModSection.Explicit, items.Mods.ById("NearbyEnemiesAreIntimidated2WarlordItemsUnique__1")!.Hash, [1]),
+            new(ModSection.Explicit, items.Mods.ById("RegenerateLifeOver1Second2HunterItemsUnique__1")!.Hash, [2100]),
+        ] };
+        var influenced = baseItem with { Influences = ItemInfluence.Redeemer | ItemInfluence.Warlord | ItemInfluence.Hunter };
+        var active = ItemModStats.Global([influenced, influenced, nearby], items.Mods, Program.Stats);
+        var inactive = ItemModStats.Global([influenced, nearby], items.Mods, Program.Stats);
+        foreach (var (stat, value) in new[] { ("virtual_nearby_enemies_are_blinded", 1),
+            ("virtual_nearby_enemies_are_intimidated", 1), ("virtual_gain_life_regeneration_per_minute_%_for_1_second_every_4_seconds", 2100) })
+        {
+            uint key = Program.Stats.Key(stat)!.Value;
+            Assert.Equal(value, active.GetValueOrDefault(key));
+            Assert.Equal(0, inactive.GetValueOrDefault(key));
+        }
+        Assert.Equal(0, Game.PeriodicRegenSeconds(3.9));
+        Assert.Equal(0.5, Game.PeriodicRegenSeconds(4.5));
+        Assert.Equal(1, Game.PeriodicRegenSeconds(8));
+        Assert.Equal(2, Game.PeriodicRegenSeconds(10));
         var oneEach = ItemModStats.Global([both, jewel], items.Mods, Program.Stats);
         Assert.Equal(0, oneEach.GetValueOrDefault(life));
         var twoElder = ItemModStats.Global([both, elder, jewel], items.Mods, Program.Stats);

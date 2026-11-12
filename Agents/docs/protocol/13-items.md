@@ -282,6 +282,10 @@ Two historical stat names are misleading: Malachai's Vision's collection-gated E
 rows describe flat regeneration, not recharge speed. Replica Mistwall's `spell_block_is_maximum` row retains the
 unscalable value 75, but means the current maximum spell-block chance, including changes to that maximum.
 
+Heist magnitude enchantments travel in the enchant list alongside the original explicit rolls.
+The native item tooltip scales eligible explicit values from those rolls.
+[#565](https://github.com/LocalExile/LocalExile/issues/565)
+
 Local mods on the active main hand (row 2 after weapon-set swapping) change the weapon profile through the shared
 `ItemWeaponStats` calculator (also used by `ItemWeapons`): `local_physical_damage_+%`,
 `local_minimum/maximum_added_physical_damage` and item quality on the weapon's physical damage (quality is a separate

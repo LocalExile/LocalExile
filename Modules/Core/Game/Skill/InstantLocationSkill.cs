@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 
 /// <summary>The bounded instant movement path: ordinary Frostblink's distance calculation on a captured grid.
-/// Terrain endpoint searches, other movement skills and Frostblink's damage/chilled ground are not modelled here.</summary>
+/// Terrain endpoint searches and other movement skills are not modelled here.</summary>
 public static class InstantLocationSkill
 {
     public static bool Supported(SkillCatalog skills, int effect) =>

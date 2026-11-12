@@ -105,6 +105,30 @@ public class SacrificeSupportTests
             $"Sacrificed life must reach area poison base damage: life={player.PlayerLife}, target={victim.Life}, dps={victim.Poisons.TotalDps(victim.Poisons.Until - .5)}, until={victim.Poisons.Until}");
     }
 
+    [Fact]
+    public async Task Frostblink_hits_and_chills_both_committed_endpoints_with_one_sacrifice()
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("Frostblink");
+        var conn = fixture.Conn;
+        var gem = Game.GemSkillEffects(conn).Single(g => g.Gem != 0);
+        var use = new CooldownUseTicket(gem.Effect, conn.ActionCount, conn.ProjectileEpoch, Instant: true);
+        foreach (var (id, x) in new[] { (101u, 100), (102u, 160), (103u, 130) })
+            conn.Monsters[id] = new("frostblink target", new(x, 100, 0), 0, 0, 100000) { Hostile = true };
+        await Game.FrostblinkAreas("blink", fixture.Stream, fixture.Ciphers, conn, gem, (100, 100), (160, 100), use);
+        Assert.True(conn.Monsters[101].Life < 100000);
+        Assert.True(conn.Monsters[102].Life < 100000);
+        Assert.Equal(100000u, conn.Monsters[103].Life);
+        Assert.Equal(800u, conn.PlayerLife);
+        Assert.Collection(conn.Reservations.Trail,
+            ice => { Assert.Equal((100, 100), ice.At); Assert.Equal(16, ice.Radius); },
+            ice => { Assert.Equal((160, 100), ice.At); Assert.Equal(16, ice.Radius); });
+        Assert.Equal(conn.Reservations.Trail[0].Until, conn.Reservations.Trail[1].Until);
+        await Game.FrostblinkAreas("stale", fixture.Stream, fixture.Ciphers, conn, gem, (0, 0), (20, 0),
+            use with { ProjectileEpoch = use.ProjectileEpoch - 1 });
+        Assert.Equal(2, conn.Reservations.Trail.Count);
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"sacrifice-{Guid.NewGuid():N}.db");

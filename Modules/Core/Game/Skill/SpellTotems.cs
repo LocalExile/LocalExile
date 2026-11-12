@@ -9,8 +9,8 @@ public static partial class Game
     static readonly ConditionalWeakTable<TotemState.Totem, SupportedGem> TotemSources = new();
     public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
-        && Supports.Of(effect)?.Types.Contains(47) != true && UsesProjectileRuntime(effect)
-        && ResolveProjectileDefinition(effect) is not null
+        && Supports.Of(effect)?.Types.Contains(47) != true
+        && (SkillsFor(conn).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
         && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
     static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
         && a.Effect == b.Effect && a.Quality == b.Quality
@@ -119,9 +119,20 @@ public static partial class Game
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
+            bool arc = SkillsFor(conn).EffectId(gem.Effect) == "Arc";
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
-                0x4000, sequence, 0x0408));
+                0x4000, sequence, 0x0408, targetObjectId: arc ? target.Key : null));
             var lifetime = CombatLifetime;
+            if (arc)
+            {
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem)
+                        && conn.Monsters.GetValueOrDefault(target.Key) == target.Value)
+                        ReleaseArcTotem(conn, session, totem, target.Key, sequence);
+                });
+                continue;
+            }
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),
                 () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem),
                 () =>

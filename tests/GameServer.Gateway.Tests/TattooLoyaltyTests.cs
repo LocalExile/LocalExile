@@ -108,4 +108,25 @@ public sealed class TattooLoyaltyTests
             TestEnvironment.ReleaseSaves(path);
         }
     }
+
+    [Fact]
+    public void The_ancestral_spirit_nodes_keep_their_stored_use()
+    {
+        // The five Ancestral Spirit options grant the same TriggerSummonedAncestor skills as the Loyalty tattoos.
+        // They are Spells, so IsSpell alone admits their stored use after the src/ name rule was removed.
+        var skills = Program.Skills;
+        var grants = new PassiveGrantedSkills(skills).For(new ushort[] { 59500, 17140, 17511, 16639, 62534 });
+        Assert.Equal(5, grants.Count);
+        foreach (var grant in grants)
+        {
+            Assert.StartsWith("TriggerSummonedAncestor", grant.EffectId);
+            Assert.True(skills.IsSpell(grant.Effect), grant.EffectId);
+            var own = skills.EffectStats(grant.Effect, grant.Level).ToDictionary(stat => stat.Item1, stat => stat.Item2);
+            var plan = SingleUseCooldown.ForSkill(skills, Program.Stats, grant.Effect, grant.Level,
+                new Dictionary<uint, int>(), own);
+            Assert.NotNull(plan);
+            Assert.Equal(20000, plan!.Value.BaseMilliseconds);
+            Assert.Equal(1, plan.Value.Uses);
+        }
+    }
 }

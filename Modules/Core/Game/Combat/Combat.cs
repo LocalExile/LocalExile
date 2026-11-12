@@ -1185,8 +1185,7 @@ public static partial class Game
                 _ = RunChannel(remote, stream, ciphers, conn, skillId, gem, action);
             }
         }
-        // Location instant acceptance handles only Frostblink's repositioning, without inventing its departure/arrival
-        // hits or chilled ground. In particular do not route it through the generic single-area hit approximation.
+        // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
         if (locationInstant) return true;
         if (gem.Name is not null && (SkillsFor(conn).EffectId(gem.Effect) is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines"))
         { lock (conn.Monsters) DetonateMinesLocked(conn, AreaTime(conn)); return true; }
@@ -1349,21 +1348,22 @@ public static partial class Game
         // Keep the raw aim: IceDash resolves it from the client's position when 0x1ce runs. Sending an already rounded
         // endpoint can normalize a short diagonal twice and move another cell. Resolve the server copy at this gate too.
         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, [],
-            $"0x01ce player skill 0x{skillId:x4}: instant {(targetObjectId is uint id ? $"on 0x{id:x}" : $"location ({aim.X}, {aim.Y})")}, movement only", atGate: () =>
+            $"0x01ce player skill 0x{skillId:x4}: instant {(targetObjectId is uint id ? $"on 0x{id:x}" : $"location ({aim.X}, {aim.Y})")}", atGate: () =>
             {
                 using (ProjectileMutation(conn))
                 {
                     var current = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId);
                     if (current != gem || GemSkillInstanceDisabled(conn, gem.Effect, skillId) is not null) return null;
                     (int X, int Y) rawAim;
+                    from = conn.Walk.Position(ProjectileWorldTime(conn));
                     if (targetObjectId is uint target)
                     {
                         if (!InstantLocationSkill.TryCommitObject(conn, epoch, target, InTown(conn), CurrentStats(),
-                            out rawAim, out _)) return null;
+                            out rawAim, out to)) return null;
                     }
                     else
                     {
-                        if (!InstantLocationSkill.TryCommit(conn, epoch, aim, InTown(conn), CurrentStats(), out _)) return null;
+                        if (!InstantLocationSkill.TryCommit(conn, epoch, aim, InTown(conn), CurrentStats(), out to)) return null;
                         rawAim = ((int)aim.X, (int)aim.Y);
                     }
                     if (cooldownUse?.CommitNativeUse(conn, skillId) == false) return null;
@@ -1375,8 +1375,35 @@ public static partial class Game
         {
             RecordAcceptedGemUse(conn, gem.Effect);
             if (SkillsFor(conn).IsTravel(gem.Effect)) { QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.Travel); LoyaltyTravelSkillTriggered(conn); }
+            await FrostblinkAreas(remote, stream, ciphers, conn, gem, from, to, cooldownUse);
             await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
         }
+    }
+
+    public static async Task FrostblinkAreas(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
+        CooldownUseTicket? use)
+    {
+        var own = SupportedSkill(conn, gem.Id).Stats;
+        var player = CharacterPlayerStats(conn);
+        int Own(string name) => GolemStat(own, name);
+        int Player(string name) => GolemStat(player, name);
+        int Area(string name) => Own(name) + Player(name);
+        int groundRadius = SkillArea.Radius(16, Area, spell: true);
+        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
+        var crit = CaptureSkillCriticalRoll(conn, gem.Id);
+        var sacrifice = new SacrificeUse(conn, gem.Id, gem.Effect, gem.Gem);
+        lock (conn.Monsters)
+        {
+            if (use?.Current(conn) != true) return;
+            double until = AreaTime(conn) + duration;
+            const string art = "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd.ao";
+            AddChilledGroundLocked(conn, from, until, groundRadius, art);
+            AddChilledGroundLocked(conn, to, until, groundRadius, art);
+        }
+        foreach (var centre in new[] { from, to })
+            await AreaSkillHit(remote, stream, ciphers, conn, gem.Id, gem, centre, centre,
+                immediate: true, cooldownUse: use, criticalRoll: crit, sacrifice: sacrifice);
     }
 
     // Aura skills toggle: the first cast reserves their mana and puts their buff on the player, the next cast turns them
@@ -1878,7 +1905,7 @@ public static partial class Game
         }
         criticalRoll ??= CaptureSkillCriticalRoll(conn, skillId);
         var weapon = WeaponFor(conn);
-        int? castDuration = spell ? CastMs(conn, gem.Effect, skillId) : 0;
+        int? castDuration = spell && !immediate ? CastMs(conn, gem.Effect, skillId) : 0;
         if (castDuration is null) return;
         // Ruthless: whether this use is its skill's Ruthless Blow, counted as it starts.
         ruthlessMore ??= spell ? 1 : RuthlessBlowMore(conn, skillId, Stat);

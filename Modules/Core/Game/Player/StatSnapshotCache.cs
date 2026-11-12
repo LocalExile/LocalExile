@@ -243,6 +243,11 @@ public static partial class Game
         }
         if (stage == StatSnapshotStage.Offence)
         {
+            // Release calculations and the panel use the same active-hand types, including after weapon swaps.
+            if (Stats.Key("main_hand_weapon_type") is uint mainType)
+                stats.TryAdd(mainType, WeaponTypeStats.Of(ActiveMainHand()?.Type?.Class));
+            if (Stats.Key("off_hand_weapon_type") is uint offType)
+                stats.TryAdd(offType, WeaponTypeStats.Of(ActiveOffHand()?.Type?.Class));
             // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
             // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
             if (Stats.Key(SkillDurationModifiers.IncreasedDuration) is uint durationKey && !devSet.Contains(durationKey))

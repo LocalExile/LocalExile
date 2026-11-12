@@ -232,7 +232,11 @@ public sealed class GameDataStore : IDisposable
                 SELECT d.boss_id, d.item_id, d.item_kind, d.chance, d.confidence, d.source, d.notes, o.chance
                 FROM drop_boss_items AS d LEFT JOIN encounter_jewel_drop_overrides AS o
                   ON d.boss_id = o.boss_id AND d.item_id = o.item_id
-                ORDER BY d.boss_id, d.item_kind, d.item_id
+                UNION ALL
+                SELECT o.boss_id, o.item_id, 'unique', NULL, 'unknown', 'operator override', NULL, o.chance
+                FROM encounter_jewel_drop_overrides AS o
+                WHERE NOT EXISTS (SELECT 1 FROM drop_boss_items AS d WHERE d.boss_id = o.boss_id AND d.item_id = o.item_id)
+                ORDER BY 1, 3, 2
                 """);
             using var reader = command.ExecuteReader();
             var rows = new List<BossItemRow>();

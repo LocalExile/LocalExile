@@ -20,6 +20,9 @@ public sealed class MonsterCatalog(string folder = "data")
     {
         public MonsterLifeData LifeData { get; init; } = new(null, null, null);
         public bool RangedWeapon { get; init; }
+        /// <summary>What its row says it holds (Weapon1, Weapon2: the first of each, with the MainHand and OffHand classes), as
+        /// the Inventories component lists it. Only an encounter that passes it on sends it (Izaro's).</summary>
+        public IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons { get; init; } = [];
         /// <summary>Native Positioned.blocking, independent of targetability. Missing optional metadata retains
         /// the earlier living-body assumption; the extracted resolved type supplies explicit false values.</summary>
         public bool PositionedBlocking { get; init; } = true;
@@ -308,6 +311,21 @@ public sealed class MonsterCatalog(string folder = "data")
             .Any(name => row.Ints(name).Any(rangedVisuals.Contains));
         static int Column(ClientRow row, string name) =>
             (row.IntOrNull(name) ?? 0);
+        var (visualHashes, classStances) = WeaponTables();
+        IReadOnlyList<GameServer.Core.Protocol.Instance.VisibleItem> Weapons(ClientRow row)
+        {
+            var held = new List<GameServer.Core.Protocol.Instance.VisibleItem>();
+            void Hold(byte slot, string visuals, string itemClass)
+            {
+                int visual = row.Ints(visuals).FirstOrDefault(-1);
+                if (visual < 0 || row.IntOrNull(itemClass) is not int type) return;
+                if (visual < visualHashes.Count && type < classStances.Count && type < 255)
+                    held.Add(new(slot, visualHashes[visual], classStances[type], (byte)(type + 1)));
+            }
+            Hold(0, "Weapon1_ItemVisualIdentityKeys", "MainHand_ItemClassesKey");
+            Hold(1, "Weapon2_ItemVisualIdentityKeys", "OffHand_ItemClassesKey");
+            return held;
+        }
         var rows = new List<Variety>();
         var varieties = ClientTables.Table("MonsterVarieties");
         {
@@ -335,7 +353,7 @@ public sealed class MonsterCatalog(string folder = "data")
                     r.Int("DamageMultiplier"), r.Int("ExperienceMultiplier"),
                     r.BoolOrNull("BossHealthBar") == true, speciesMods)
                     {
-                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r),
+                        LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
@@ -347,6 +365,14 @@ public sealed class MonsterCatalog(string folder = "data")
         if (components.Count > 0)
             rows = [.. rows.Select(v => v.Components is null ? v with { Components = [] } : v)];
         return (rows, null);
+    }
+
+    // ItemVisualIdentity HASH16 by row and ItemClasses ItemStance by row (0xff without one).
+    static (List<ushort> Visuals, List<byte> Stances) WeaponTables()
+    {
+        if (!ClientTables.Has("ItemVisualIdentity") || !ClientTables.Has("ItemClasses")) return ([], []);
+        return ([.. ClientTables.Table("ItemVisualIdentity").Select(r => (ushort)r.Int("HASH16"))],
+            [.. ClientTables.Table("ItemClasses").Select(r => r.IntOrNull("ItemStance") is int s ? (byte)s : (byte)0xff)]);
     }
 
     static HashSet<int> RangedWeaponVisuals(string folder)

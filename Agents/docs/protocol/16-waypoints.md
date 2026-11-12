@@ -67,6 +67,14 @@ and sets its travel mode (`0x140aafe50` → `0x140aa2b10`, panel +0x522). The u3
 sends the waypoint object id. The panel's Hideout button sends C→S 0x17a (character name, waypoint object id), which
 takes the player to the hideout ([21](21-hideouts.md) §3).
 
+**Kind 0x4c** opens the Bloodline/Wildwood class selector (`DescendancyClassSelectorWindow`, `0x140b6f610`; its row
+loader is `0x140b686f0`). The first u32 is the 0-based `Descendancy.dat` row to preview (0 = None); the handler reads
+that row and notifies instance +0x1af8. The selector's NEXT/Accept sends C→S 0x3a with the row. The tree keeps the row
+in its spare `0x33` byte, so the two layers share the ascendancy point pool. The server records the selector it opened
+and its area: 0x3a is accepted only while that selector is open in the same area, the chosen row's unlock gate must be
+met (the Wildwood Azmeri flag; the Bloodline rows carry no condition), and a layer with allocated nodes must be refunded
+before another is chosen. The `gm-commands` mod's `/descendancy` is the unrestricted development path.
+
 ### C→S 0x4d — travel (9 bytes)
 
 Class `0x1435cb2f0`, write `0x141f99750`, sent by the pin click `0x140aa6d60` (travel mode only): u16 BE destination

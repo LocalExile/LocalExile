@@ -133,6 +133,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
+        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
@@ -233,6 +234,16 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return max > 0 ? max : 1;
     }
 
+    /// <summary>The level of a monster's effect for the monster's level: the highest whose PlayerLevelReq it meets, else its
+    /// lowest (Izaro's Leap Slam: levels 1, 2, 3 at 33, 68, 75; his Spikes: 30 levels, 22-33 damage at 32).</summary>
+    public int MonsterEffectLevel(int effectRow, int monsterLevel)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return 1;
+        var levels = t.LevelReqsOf(t.StatSets[effectRow]);
+        int met = levels.Where(l => l.PlayerLevelReq <= monsterLevel).Select(l => l.GemLevel).DefaultIfEmpty(0).Max();
+        return met > 0 ? met : levels.Select(l => l.GemLevel).DefaultIfEmpty(1).Min();
+    }
+
     /// <summary>The character level a gem needs at this level (GrantedEffectStatSetsPerLevel PlayerLevelReq): the
     /// highest requirement of its levels at or below it, 0 when the skill has none.</summary>
     public int PlayerLevelReq(int effectRow, int level)
@@ -318,6 +329,24 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     /// GeometryChannelBase::StartChannelling (0xc0000005 at 0x1419e37bf, the null row's +0x28).
     /// </summary>
     public int BehaviourVariation(int effectRow) => _skillIds.Value.GetValueOrDefault(effectRow);
+
+    /// <summary>The effect's art (GrantedEffects <c>__col23</c>), the number the client takes as <c>skill_art_variation</c>:
+    /// SkillArtVariations' Variants of its skill (Izaro's Leap Slam 5 LabyrinthBoss, his Upheaval 5 Ornaments). Sent only on
+    /// the records that ask for it: without it the Upheaval drew Glacial Cascade's ice (live, Izaro).</summary>
+    public int ArtVariation(int effectRow) => _artVariations.Value.GetValueOrDefault(effectRow);
+
+    private readonly Lazy<Dictionary<int, int>> _artVariations = new(() =>
+    {
+        var result = new Dictionary<int, int>();
+        if (!ClientTables.Has("GrantedEffects")) return result;
+        int row = 0;
+        foreach (var effect in ClientTables.Table("GrantedEffects"))
+        {
+            int index = row++;
+            if (effect.IntOrNull("__col23") is int value && value > 0) result[index] = value;
+        }
+        return result;
+    });
 
     private readonly Lazy<Dictionary<int, int>> _skillIds = new(() =>
     {
@@ -1352,7 +1381,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
-        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
+        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
@@ -1409,6 +1438,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
+            var life = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
@@ -1424,6 +1454,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
                 int i = Array.IndexOf(types, 0);
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
+                int lifeIndex = Array.IndexOf(types, 1);
+                life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
@@ -1461,7 +1493,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
-            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
+            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute);
         }

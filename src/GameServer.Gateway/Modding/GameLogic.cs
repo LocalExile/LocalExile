@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 
@@ -8,6 +9,8 @@ public interface IGameLogic
 {
     /// <summary>Claim this already active area's player updates after entry or game replacement.</summary>
     void ResumePlayerUpdates(ClientState conn) { }
+    /// <summary>Prepare immutable item-value rules for this game generation, or null for the existing calculation.</summary>
+    ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) => null;
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
     Task OnClientMessages(string remote, NetworkStream stream, ConnectionCiphers ciphers, IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, ClientState conn, long readAt);
     /// <summary>A connection is about to be prepared; it may fail after this, and <see cref="Left"/> still runs.</summary>
