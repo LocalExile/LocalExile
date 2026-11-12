@@ -34,6 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 
 - Character-build previews and imports through the mod SDK; the POB mod and converter are external.

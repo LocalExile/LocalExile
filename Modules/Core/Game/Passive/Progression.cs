@@ -277,6 +277,7 @@ public static partial class Game
         // wins (the tattoo is disabled); an augmenting timeless jewel adds its stats to the tattoo stats.
         // Makanga/Honoured Makanga tattoos are conditional on the number of allocated direct neighbours: when the
         // condition is not met the replacement grants nothing, but the tattoo stays applied and can activate later.
+        var grantedReplacements = new HashSet<ushort>();
         if (tattoos.Count > 0)
             foreach (var (node, name) in tattoos)
                 if (allocated.Contains(node) && nodeStats.ContainsKey(node)
@@ -300,14 +301,16 @@ public static partial class Game
                     bool tattooActive = entry.RequiresAdjacent > 0
                         ? adjacent >= entry.RequiresAdjacent
                         : entry.MaxAdjacent <= 0 || adjacent <= entry.MaxAdjacent;
-                    nodeStats[node] = tattooActive ? tattooStats : [];
+                    if (!tattooActive)
+                    {
+                        nodeStats[node] = [];
+                        continue;
+                    }
+                    nodeStats[node] = tattooStats;
+                    // Remember only a replacement that actually went in: an inactive tattoo must not silence the
+                    // allocated copy of its granted passive.
+                    if (tattooKeystones.TryGetValue(node, out ushort appliedGrant)) grantedReplacements.Add(appliedGrant);
                 }
-        // A random tattoo's pick replaces its node's stats with the granted passive's. If that passive is also
-        // allocated on the tree, its own node would add the same stats a second time: the granted node keeps none.
-        foreach (var (node, _) in tattoos)
-            if (allocated.Contains(node) && tattooKeystones.TryGetValue(node, out ushort granted)
-                && granted != node && nodeStats.ContainsKey(granted))
-                nodeStats[granted] = [];
         var conquered = new HashSet<ushort>();
         if (timeless.Spec is { } timelessSpec)
         {
@@ -323,6 +326,14 @@ public static partial class Game
                     tattooEffect.Remove(node);
                 }
         }
+        // A random tattoo's pick replaces its node's stats with the granted passive's. If that passive is also
+        // allocated, its own node must not add the same stats a second time: the granted node keeps none. A granted
+        // node a timeless jewel replaced has already lost its stats, and a node with its own tattoo was replaced by
+        // that tattoo, so both are left alone.
+        foreach (ushort grantedNode in grantedReplacements)
+            if (allocated.Contains(grantedNode) && !conquered.Contains(grantedNode)
+                && !tattoos.ContainsKey(grantedNode) && nodeStats.ContainsKey(grantedNode))
+                nodeStats[grantedNode] = [];
         // Radius jewels run in Path of Building's order: the first pass applies conversions, notable replacements,
         // passive additions and resistance additions; Might of the Meek's effect/suppression are collected here and
         // applied after the pass; the second pass computes the per-node scaling from the resulting stats. A passive

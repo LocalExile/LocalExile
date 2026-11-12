@@ -13,7 +13,10 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
 
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
-    public sealed record ModStat(string Id, int Min, int Max, bool Local = false);
+    public sealed record ModStat(string Id, int Min, int Max, bool Local = false)
+    {
+        public bool Scalable { get; init; } = true;
+    }
 
     /// <summary>A Mods.dat row. GenerationType 1 prefix, 2 suffix, 3 unique / base implicit, 10 enchantment …;
     /// Domain 1 items.</summary>
@@ -30,6 +33,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
         /// <summary>ModType.dat's Name for ModTypeKey: the Harvest conversion groups (ColdResistance, FireDamage …).</summary>
         public string ModType { get; init; } = "";
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
+        public bool Unscalable { get; init; }
         /// <summary>What a mod does beyond its stats (monster mods: MonsterModCatalog): its BuffTemplates row (an aura or
         /// buff, BuffTemplate1), the monster it leaves on death (MonsterOnDeath) and its granted skills
         /// (GrantedEffectsPerLevelKeys).</summary>
@@ -119,9 +123,9 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
     {
         var rows = new List<Mod>();
         if (!ClientTables.Has("Mods") || !ClientTables.Has("Stats")) return (rows, [], []);
-        List<(string Id, bool Local)> stats;
+        List<(string Id, bool Local, bool Scalable)> stats;
         var s = ClientTables.Table("Stats");
-        stats = [.. s.Select(r => (r.Text("Id") ?? "", r.Bool("IsLocal")))];
+        stats = [.. s.Select(r => (r.Text("Id") ?? "", r.Bool("IsLocal"), r.BoolOrNull("IsScalable") ?? true))];
         List<string> modTypes = [];
         if (ClientTables.Has("ModType"))
             modTypes = [.. ClientTables.Table("ModType").Select(r => r.Text("Name") ?? "")];
@@ -140,9 +144,10 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
             {
                 if (r.IntOrNull($"StatsKey{i}") is not int k) break;
                 int key = k;
-                var (statId, local) = key < stats.Count ? stats[key] : ($"#{key}", false);
+                var (statId, local, scalable) = key >= 0 && key < stats.Count ? stats[key] : ($"#{key}", false, true);
                 // Explicit zero is meaningful (for example disabled boss rarity bonuses); it must not fall back.
-                modStats.Add(new(statId, r.Int($"Stat{i}Min{suffix}"), r.Int($"Stat{i}Max{suffix}"), local));
+                modStats.Add(new(statId, r.Int($"Stat{i}Min{suffix}"), r.Int($"Stat{i}Max{suffix}"), local)
+                { Scalable = scalable });
             }
             rows.Add(new Mod(rows.Count, r.Text("Id") ?? "", (ushort)r.Int("HASH16"),
                 r.Text("Name") ?? "", r.Int("Domain"), r.Int("GenerationType"),
@@ -153,6 +158,7 @@ public sealed class ModCatalog(string folder = "data", bool hardMode = false, Mo
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),
                 GenerationWeights = Weights(r, "GenerationWeight_TagsKeys", "GenerationWeight_Values"),
                 EssenceOnly = r.Bool("IsEssenceOnlyModifier"),
+                Unscalable = r.BoolOrNull("IsUnscalable") == true,
                 ModType = r.IntOrNull("ModTypeKey") is int mt && mt >= 0 && mt < modTypes.Count ? modTypes[mt] : "",
                 BuffTemplate = r.IntOrNull("BuffTemplate1"),
                 MonsterOnDeath = r.TextOrNull("MonsterOnDeath") ?? "",
