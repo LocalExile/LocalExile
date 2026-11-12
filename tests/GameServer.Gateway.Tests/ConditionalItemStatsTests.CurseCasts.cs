@@ -127,6 +127,12 @@ public partial class ConditionalItemStatsTests
         conn.PlayerLife = conn.PlayerMaxLife;
         int Cursed() => Game.CharacterPlayerStats(conn).GetValueOrDefault(Program.Stats.Key("cursed_by_vulnerability")!.Value);
         Assert.Equal(1, Cursed());
+        var captured = Game.EquipmentStatSources(conn, inventory.EquipmentSnapshot(), null, null,
+            () => Record("Despair", conn.Clock.Elapsed.TotalSeconds));
+        Assert.Equal(0, captured.Sources.GetValueOrDefault(Program.Stats.Key("immune_to_curses")!.Value));
+        Assert.True(conn.StatSourcesCache!.Key.Flags!["cursed_by_vulnerability"]);
+        Assert.DoesNotContain(StatConditions.CastEventKey("dispair", 10), conn.StatSourcesCache!.Key.Recent!);
+        Assert.Equal(0, Cursed()); // The next snapshot observes the completed cast, never a mixed prior state.
         Record("Despair", conn.Clock.Elapsed.TotalSeconds);
         Assert.Equal(0, Cursed()); Assert.False(conn.StatSourcesCache!.Key.Flags!["_while_on_low_life"]);
         conn.Passives.Remove(node); Assert.Equal(1, Cursed());
