@@ -678,7 +678,7 @@ public static partial class Game
                 }
                 else if (moves)
                 {
-                    landing = MovementLanding(conn, gem.Effect, stand, aim);
+                    landing = MovementLanding(conn, gem.Effect, stand, aim, use.SkillId, use.Flags);
                     conn.Walk.Teleport(landing.X, landing.Y, castAt);
                 }
             }, out var spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null))

@@ -221,7 +221,7 @@ public static partial class Game
                     else if (flicker && flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
                     else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
                     {
-                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
+                        var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         conn.Walk.Teleport(landing.X, landing.Y, at);
                     }
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
