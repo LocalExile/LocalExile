@@ -47,9 +47,9 @@ public sealed partial class DelveModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     static readonly Lazy<string?[]> StatIds = new(() =>
     {
-        if (!ClientTables.Exists("data/tables/Stats.json")) return [];
-        using var doc = GameTables.Open("data/tables/Stats.json");
-        return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString())];
+        if (!ClientTables.Has("Stats")) return [];
+        var doc = ClientTables.Table("Stats");
+        return [.. doc.Select(r => r.Text("Id"))];
     });
 
     /// <summary>The account's equipment, in the league.</summary>
@@ -89,7 +89,7 @@ public sealed partial class DelveModule : IModule
         });
         GameEvents.AreaHeader.Add(module.Manifest.Id, conn => PlayerOf(conn).AreaId switch
         {
-            "Delve_Main" => new AreaHeader(DelveTerrain.Data(PlayerOf(conn).Seed), [2]) { Level = MineLevel(module, PlayerOf(conn)) },
+            "Delve_Main" => MineHeader(module, PlayerOf(conn)),
             HubId => new AreaHeader(null, [2]),
             _ => null,
         });

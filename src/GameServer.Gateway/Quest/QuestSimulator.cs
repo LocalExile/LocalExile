@@ -51,14 +51,13 @@ public sealed class QuestSimulator
         items = new ItemCatalog(folder);
         rewards = QuestStaticRewards.Load(folder);
         offers = QuestRewardCatalog.Load(folder);
-        visits = AreaVisitFlags.Load(Path.Combine(folder, "tables", "WorldAreas.json"), Path.Combine(folder, "tables", "MapPins.json"));
+        visits = AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins"));
         areaFlags = [];
-        var flagNames = Quests.ParseRows(ClientTables.ReadAllText(Path.Combine(folder, "tables", "QuestFlags.json"))).ToDictionary(kv => kv.Value, kv => kv.Key);
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables", "WorldAreas.json")));
-        foreach (var w in doc.RootElement.EnumerateArray())
+        var flagNames = Quests.FlagRows(ClientTables.Table("QuestFlags")).ToDictionary(kv => kv.Value, kv => kv.Key);
+        foreach (var w in ClientTables.Table("WorldAreas"))
         {
-            string[] Names(string column) => [.. w.GetProperty(column).EnumerateArray().Select(e => flagNames.GetValueOrDefault(e.GetInt32())).OfType<string>()];
-            areaFlags.TryAdd(w.GetProperty("Id").GetString() ?? "", (Names("StartQuestFlags"), Names("EndQuestFlags")));
+            string[] Names(string column) => [.. w.Ints(column).Select(e => flagNames.GetValueOrDefault(e)).OfType<string>()];
+            areaFlags.TryAdd(w.Text("Id") ?? "", (Names("StartQuestFlags"), Names("EndQuestFlags")));
         }
         // As on login: an endgame flag not earned yet is not the character's (Quests.EndgameOnly; the oracle plays no
         // hideout or map area, where the client would have it).

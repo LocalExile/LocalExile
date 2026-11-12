@@ -4,7 +4,7 @@ using GameServer.Core;
 /// <summary>
 /// The passive skill tree's nodes: PassiveSkills.dat rows by PassiveSkillGraphId (the id the client allocates and S→C
 /// 0x3d lists), with their stats (Stats.dat rows + 1 = the client's stat keys) and the skill points they grant. Game data:
-/// data/tables/PassiveSkills.json, loaded on first use. OrdinaryPassiveRules validates ordinary connectivity against
+/// the PassiveSkills client table, loaded on first use. OrdinaryPassiveRules validates ordinary connectivity against
 /// the selected generated PSG topology; AscendancyRules validates the separate ascendancy allocation.
 /// Masteries: PassiveSkillMasteryGroups.dat groups a mastery node's options and PassiveSkillMasteryEffects.dat holds the
 /// effects' stats. The client's 0x3d list carries the selected effects as node | effect &lt;&lt; 16; the effect is the
@@ -207,19 +207,18 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     public bool IsEffectFor(ushort graphId, MasteryEffect effect) =>
         EffectsFor(graphId).Any(e => e.Row == effect.Row && e.Hash == effect.Hash);
 
-    static bool Flag(JsonElement row, string name) =>
-        row.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.True;
+    static bool Flag(ClientRow row, string name) =>
+        row.BoolOrNull(name) == true;
 
     private static Dictionary<int, ushort> LoadRows(string folder)
     {
         var rows = new Dictionary<int, ushort>();
-        string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!ClientTables.Exists(path)) return rows;
-        using var d = GameTables.Open(path);
+        if (!ClientTables.Has("PassiveSkills")) return rows;
+        var d = ClientTables.Table("PassiveSkills");
         int row = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
+        foreach (var r in d)
         {
-            int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            int graphId = r.Int("PassiveSkillGraphId");
             if (graphId is > 0 and <= ushort.MaxValue) rows[row] = (ushort)graphId;
             row++;
         }
@@ -228,31 +227,28 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 
     private static Dictionary<ushort, Node> LoadNodes(string folder, bool hardMode)
     {
-        string path = Path.Combine(folder, "tables", "PassiveSkills.json");
         var nodes = new Dictionary<ushort, Node>();
-        if (!ClientTables.Exists(path)) return nodes;
-        using var d = GameTables.Open(path);
-        foreach (var r in d.RootElement.EnumerateArray())
+        if (!ClientTables.Has("PassiveSkills")) return nodes;
+        foreach (var r in ClientTables.Table("PassiveSkills"))
         {
-            int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            int graphId = r.Int("PassiveSkillGraphId");
             if (graphId is <= 0 or > ushort.MaxValue) continue;
             // The mode flag is per catalog, never global: regular and HardMode characters may be online together.
             // A marked alternate replaces the entire vector, including an empty vector or explicit zero values.
-            bool alternate = hardMode && r.TryGetProperty("HasHardmodeAlternate", out var hardmode) && hardmode.GetBoolean();
-            var keys = r.GetProperty(alternate ? "StatsHardmode" : "Stats").EnumerateArray().Select(s => s.GetInt32()).ToList();
+            bool alternate = hardMode && r.BoolOrNull("HasHardmodeAlternate") == true;
+            var keys = r.Ints(alternate ? "StatsHardmode" : "Stats");
             var stats = new List<(uint, int)>();
-            for (int i = 0; i < keys.Count && i < 5; i++)
-                stats.Add(((uint)keys[i] + 1, r.GetProperty($"Stat{i + 1}Value{(alternate ? "Hardmode" : "")}").GetInt32()));
-            int masteryGroup = r.TryGetProperty("MasteryGroup", out var group) && group.ValueKind == JsonValueKind.Number
-                ? group.GetInt32() : -1;
+            for (int i = 0; i < keys.Length && i < 5; i++)
+                stats.Add(((uint)keys[i] + 1, r.Int($"Stat{i + 1}Value{(alternate ? "Hardmode" : "")}")));
+            int masteryGroup = r.IntOrNull("MasteryGroup") ?? -1;
             // The client's multiplier: an expansion node's own value (unnamed column at +0xb2), 0 for a multiple-choice node.
-            int respec = Flag(r, "IsExpansion") ? r.GetProperty("__col26").GetInt32()
+            int respec = Flag(r, "IsExpansion") ? r.Int("__col26")
                 : Flag(r, "IsMultipleChoice") ? 0 : 1;
-            string name = r.GetProperty("Name").GetString() ?? "";
-            if (alternate && r.GetProperty("NameHardmode").GetString() is { Length: > 0 } alternateName) name = alternateName;
-            nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, r.GetProperty("Id").GetString() ?? "", name,
-                stats, r.GetProperty(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted").GetInt32(), r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number,
-                r.GetProperty("Characters").GetArrayLength() > 0, masteryGroup, respec,
+            string name = r.Text("Name") ?? "";
+            if (alternate && r.Text("NameHardmode") is { Length: > 0 } alternateName) name = alternateName;
+            nodes.TryAdd((ushort)graphId, new Node((ushort)graphId, r.Text("Id") ?? "", name,
+                stats, r.Int(alternate ? "SkillPointsGrantedHardmode" : "SkillPointsGranted"), !r.IsNull("AscendancyKey"),
+                r.Ints("Characters").Length > 0, masteryGroup, respec,
                 IsKeystone: Flag(r, "IsKeystone"),
                 IsNotable: Flag(r, "IsNotable"),
                 IsJewelSocket: Flag(r, "IsJewelSocket"),
@@ -270,21 +266,17 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
     private static Dictionary<ushort, (double X, double Y)> LoadPositions(string folder)
     {
         var positions = new Dictionary<ushort, (double X, double Y)>();
-        string path = Path.Combine(folder, AscendancyCatalog.GraphFile);
-        if (!ClientTables.Exists(path)) return positions;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        if (!d.RootElement.TryGetProperty("normal", out var normal)
-            || !normal.TryGetProperty("orbits", out var orbitList)
-            || !normal.TryGetProperty("groups", out var groups)) return positions;
-        int[] orbits = [.. orbitList.EnumerateArray().Select(v => v.GetInt32())];
-        foreach (var group in groups.EnumerateArray())
+        if (PassiveGraphs.Graph(AscendancyFamily.Normal) is not { } normal) return positions;
+        int[] orbits = normal.Ints("orbits");
+        var members = ClientTables.TableOrEmpty("passive_graph_group_nodes").By("grp");
+        foreach (var group in ClientTables.TableOrEmpty("passive_graph_groups").By("graph")[normal.Index])
         {
-            double gx = group.GetProperty("x").GetDouble(), gy = group.GetProperty("y").GetDouble();
-            foreach (var node in group.GetProperty("nodes").EnumerateArray())
+            double gx = group.Real("x"), gy = group.Real("y");
+            foreach (var node in members[group.Index])
             {
-                int id = node.GetProperty("id").GetInt32();
-                int orbit = node.GetProperty("orbit").GetInt32();
-                int index = node.GetProperty("orbitIndex").GetInt32();
+                int id = node.Int("id");
+                int orbit = node.Int("orbit");
+                int index = node.Int("orbitIndex");
                 if (id is <= 0 or > ushort.MaxValue || orbit < 0 || orbit >= orbits.Length
                     || orbit >= OrbitRadii.Length || orbits[orbit] <= 0) continue;
                 double angle = 2 * Math.PI * index / orbits[orbit];
@@ -297,13 +289,12 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 
     private static Dictionary<int, int> LoadRespecCosts(string folder)
     {
-        string path = Path.Combine(folder, "tables", "VillageBalancePerLevelShared.json");
         var costs = new Dictionary<int, int>();
-        if (!ClientTables.Exists(path)) return costs;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("VillageBalancePerLevelShared")) return costs;
+        var d = ClientTables.Table("VillageBalancePerLevelShared");
         // The client looks the row up by its first column (the level, 1–100).
-        foreach (var r in d.RootElement.EnumerateArray())
-            costs[r.GetProperty("MaxAccountLevel").GetInt32()] = r.GetProperty("GoldRespecCost").GetInt32();
+        foreach (var r in d)
+            costs[r.Int("MaxAccountLevel")] = r.Int("GoldRespecCost");
         return costs;
     }
 
@@ -324,44 +315,38 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
         var children = new Dictionary<int, List<(int Index, int Cell)>>();
         var starts = new Dictionary<int, int[]>();
         var clusterIndexes = new Dictionary<int, int>();
-        string slotsPath = Path.Combine(folder, "tables", "PassiveJewelSlots.json");
-        string passivesPath = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!ClientTables.Exists(slotsPath) || !ClientTables.Exists(passivesPath))
+        if (!ClientTables.Has("PassiveJewelSlots") || !ClientTables.Has("PassiveSkills"))
             return new(bySlot, byNode, large, cluster, [], [], [], [], []);
-        using var slots = GameTables.Open(slotsPath);
-        using var passives = GameTables.Open(passivesPath);
-        var rows = passives.RootElement.EnumerateArray().ToArray();
+        var slots = ClientTables.Table("PassiveJewelSlots");
+        var rows = ClientTables.Table("PassiveSkills").ToArray();
         int slot = 0;
-        foreach (var row in slots.RootElement.EnumerateArray())
+        foreach (var row in slots)
         {
             int index = slot++;
-            int passiveRow = row.GetProperty("Slot").GetInt32();
+            int passiveRow = row.Int("Slot");
             if (passiveRow < 0 || passiveRow >= rows.Length) continue;
             var passive = rows[passiveRow];
-            if (!passive.GetProperty("IsJewelSocket").GetBoolean()) continue;
-            int graphId = passive.GetProperty("PassiveSkillGraphId").GetInt32();
+            if (!passive.Bool("IsJewelSocket")) continue;
+            int graphId = passive.Int("PassiveSkillGraphId");
             if (graphId is <= 0 or > ushort.MaxValue) continue;
-            if (row.TryGetProperty("StartIndices", out var startIndices) && startIndices.ValueKind == JsonValueKind.Array)
-                starts[index] = [.. startIndices.EnumerateArray().Select(v => v.GetInt32())];
-            if (row.TryGetProperty("ClusterIndex", out var clusterIndex) && clusterIndex.ValueKind == JsonValueKind.Number)
-                clusterIndexes[index] = clusterIndex.GetInt32();
-            var replaces = row.GetProperty("ReplacesSlot");
-            if (replaces.ValueKind != JsonValueKind.Null)
+            if (!row.IsNull("StartIndices"))
+                starts[index] = row.Ints("StartIndices");
+            if (row.IntOrNull("ClusterIndex") is int clusterIndex)
+                clusterIndexes[index] = clusterIndex;
+            if (row.IntOrNull("ReplacesSlot") is int parent)
             {
                 cluster[index] = (ushort)graphId;
-                if (row.GetProperty("ClusterJewelSize").ValueKind == JsonValueKind.Number)
-                    sizes[index] = row.GetProperty("ClusterJewelSize").GetInt32();
-                int parent = replaces.GetInt32();
-                int order = row.GetProperty("ClusterIndex").GetInt32();
+                if (!row.IsNull("ClusterJewelSize"))
+                    sizes[index] = row.Int("ClusterJewelSize");
+                int order = row.Int("ClusterIndex");
                 if (!children.TryGetValue(parent, out var list)) children[parent] = list = [];
                 list.Add((order, index));
                 continue;
             }
-            if (row.GetProperty("__col6").GetBoolean()) continue;
+            if (row.Bool("__col6")) continue;
             bySlot[index] = (ushort)graphId;
             byNode[(ushort)graphId] = index;
-            var size = row.GetProperty("ClusterJewelSize");
-            int cellSize = size.ValueKind == JsonValueKind.Number ? size.GetInt32() : -1;
+            int cellSize = row.IntOrNull("ClusterJewelSize") ?? -1;
             sizes[index] = cellSize;
             if (cellSize == 2) large.Add(index);
         }
@@ -374,19 +359,18 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 
     private static Dictionary<int, MasteryEffect> LoadEffects(string folder)
     {
-        string path = Path.Combine(folder, "tables", "PassiveSkillMasteryEffects.json");
         var effects = new Dictionary<int, MasteryEffect>();
-        if (!ClientTables.Exists(path)) return effects;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("PassiveSkillMasteryEffects")) return effects;
+        var d = ClientTables.Table("PassiveSkillMasteryEffects");
         int row = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
+        foreach (var r in d)
         {
-            var keys = r.GetProperty("Stats").EnumerateArray().Select(s => s.GetInt32()).ToList();
+            var keys = r.Ints("Stats").ToList();
             var stats = new List<(uint, int)>();
             for (int i = 0; i < keys.Count && i < 3; i++)
-                stats.Add(((uint)keys[i] + 1, r.GetProperty($"Stat{i + 1}Value").GetInt32()));
-            int hash = r.GetProperty("HASH16").GetInt32();
-            effects[row] = new MasteryEffect(row, (ushort)hash, r.GetProperty("Id").GetString() ?? "", stats);
+                stats.Add(((uint)keys[i] + 1, r.Int($"Stat{i + 1}Value")));
+            int hash = r.Int("HASH16");
+            effects[row] = new MasteryEffect(row, (ushort)hash, r.Text("Id") ?? "", stats);
             row++;
         }
         return effects;
@@ -394,16 +378,15 @@ public sealed class PassiveTree(string folder = "data", bool hardMode = false)
 
     private static Dictionary<int, List<MasteryEffect>> LoadGroups(string folder, Dictionary<int, MasteryEffect> effects)
     {
-        string path = Path.Combine(folder, "tables", "PassiveSkillMasteryGroups.json");
         var groups = new Dictionary<int, List<MasteryEffect>>();
-        if (!ClientTables.Exists(path)) return groups;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("PassiveSkillMasteryGroups")) return groups;
+        var d = ClientTables.Table("PassiveSkillMasteryGroups");
         int row = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
+        foreach (var r in d)
         {
             var list = new List<MasteryEffect>();
-            foreach (var e in r.GetProperty("MasteryEffects").EnumerateArray())
-                if (effects.TryGetValue(e.GetInt32(), out var effect)) list.Add(effect);
+            foreach (int e in r.Ints("MasteryEffects"))
+                if (effects.TryGetValue(e, out var effect)) list.Add(effect);
             groups[row++] = list;
         }
         return groups;

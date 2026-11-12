@@ -359,7 +359,8 @@ public sealed class SurvivorsSupportMatrixTests
             Assert.DoesNotContain(catalog, s => s.Name is "Incinerate" or "Fire Trap" or "Storm Brand" or "Lightning Warp"
                 or "Shockwave Totem" or "Winter Orb");
             // A projectile gem with no Projectiles row cannot fly, and must not be offered as a nova pulse instead.
-            Assert.DoesNotContain(catalog, s => s.Name is "Forbidden Rite" or "Creeping Frost" or "Essence Drain");
+            // (Essence Drain flies now: it fires its old name's row, Siphon.)
+            Assert.DoesNotContain(catalog, s => s.Name is "Forbidden Rite" or "Creeping Frost");
             Assert.Contains(catalog, s => s.Name == "Firestorm");
         }
         finally

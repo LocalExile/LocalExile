@@ -17,9 +17,9 @@ public static class WaypointCatalog
 
     static readonly Lazy<WorldAreaWaypoints> Order = new(() =>
     {
-        var w = WorldAreaWaypoints.Load("data/tables/WorldAreas.json");
+        var w = WorldAreaWaypoints.Load(ClientTables.TableOrNull("WorldAreas"));
         Console.WriteLine(w.Entries.Count == 0
-            ? "[gateway] waypoints: no data/tables/WorldAreas.json (run scripts/dev/extract-data.ps1), waypoints are off"
+            ? $"[gateway] waypoints: no WorldAreas table in {ClientTables.DefaultPath}, waypoints are off"
             : $"[gateway] waypoints: {w.Entries.Count} waypoint areas");
         return w;
     });
@@ -47,7 +47,7 @@ public static class WaypointCatalog
     /// <summary>The Aspirants' Plaza (WorldAreas Labyrinth_Airlock), the World panel's Labyrinth pin.</summary>
     public const string LabyrinthPlaza = "Labyrinth_Airlock";
 
-    static readonly Lazy<AreaVisitFlags> VisitFlags = new(() => AreaVisitFlags.Load("data/tables/WorldAreas.json", "data/tables/MapPins.json"));
+    static readonly Lazy<AreaVisitFlags> VisitFlags = new(() => AreaVisitFlags.Load(ClientTables.TableOrNull("WorldAreas"), ClientTables.TableOrNull("MapPins")));
 
     /// <summary>The quest flags entering an area sets (AreaVisitFlags), and the areas with a World panel pin.</summary>
     public static AreaVisitFlags Visits => VisitFlags.Value;
@@ -74,10 +74,10 @@ public static class WaypointCatalog
         try
         {
             // No capture: the layout the Gateway generated itself.
-            if (!ClientTables.Exists(file))
+            if (!File.Exists(file))
                 return ServerLevels.For(id, seed)?.Objects.FirstOrDefault(o => o.Type == WaypointObject.MetadataPath) is { } made
                     ? new WaypointObject(made.X, made.Y, made.Model, made.Rotation, float.IsNaN(made.Z) ? null : made.Z) : null;
-            var data = JsonSerializer.Deserialize<CaptureFileData>(ClientTables.ReadAllText(file), Json);
+            var data = JsonSerializer.Deserialize<CaptureFileData>(File.ReadAllText(file), Json);
             var o = data?.Objects?.FirstOrDefault(o => o.ObjectType == WaypointObject.MetadataPath);
             return o is null ? null : new WaypointObject(o.X, o.Y, o.Model, o.Rotation, o.Z);
         }
