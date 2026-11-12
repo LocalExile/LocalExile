@@ -150,6 +150,19 @@ A click on an NPC sends 0x24 (use skill on object, [09](09-area-change.md)) with
 as the waypoint. The client walks to the NPC first. The Gateway follows the walk (`NpcReach` 8 cells, not measured)
 and then answers with 0x84.
 
+**Shortcuts.** The click's flags say which keys were held: 0x0004 Ctrl (any target) and 0x0200 Alt, which the client
+sets only when the target has an NPC component (`0x1401285b0`, after 0x0400: `GetKeyState(VK_MENU)`). Live 2026-11-12
+with real input: 0x0408 plain, 0x040c Ctrl, 0x0608 Alt, 0x060c both. The client does nothing else with the keys; the
+server opens the option. NPCTalk `__col22` is each row's shortcut: 1 Ctrl, 2 Alt, 3 Ctrl + Alt, 4 none. Nessa: Sell
+Items 1, Purchase Items 2, Identify Items 3; Kirac: Purchase 1, Sell 2, Atlas Respecialisation 3. Rows of one NPC that
+share a shortcut differ in their quest flags (the hideout Niko's chart needs `ThisIsMyHideout`, else Sell Items).
+
+The Gateway runs the NPC's first row with the click's shortcut whose quest flags hold as a picked option (0x82 below),
+after a talk the NPC still has for the player and without 0x84 first. Live: the sell window (UI +0x7c8) and the buy
+window (UI +0x7b8) open with the inventory, Esc cancels the sale (C→S 0xb1) or sends 0x85, and the client takes the
+next click. A click without such a row, or whose option no module answers, lists the options (0x84 0xff). Not read: the
+rows' other conditions (below). That a waiting talk goes first is from player reports, not measured.
+
 ### S→C 0x84: open the dialogue (13 bytes)
 
 World group, class `0x1435e84d8`, read `0x141fe44d0`: the object header (u16 id, u32 BE object id → `+0x10`, u32, u16),

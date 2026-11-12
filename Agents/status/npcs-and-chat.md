@@ -44,6 +44,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Identify Items identifies the inventory for free, prints "N Items identified" in chat (S→C 0x17) and grays the
   option; `/npc`, `/npcs`, `/pos`.
   Dialogue options now enforce their required/excluded quest flags and save their start/finish flags.
+  Ctrl, Alt or both held on the click open the option NPCTalk gives that shortcut at once (Nessa: sell, buy, identify).
   Code: `InstanceNpcs.cs`, `NpcCatalog.cs`, `TownNpcs.cs`, Gateway (`SpawnTownNpcs`, `TalkToNpc`).
   Docs: [17](../docs/protocol/17-npcs.md).
 

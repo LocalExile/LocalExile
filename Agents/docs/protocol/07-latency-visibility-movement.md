@@ -822,7 +822,8 @@ reads none of them. The client reads:
   0x0100 has readers (`0x1419483b0`, `0x1419478b0`) whose effect is not traced.
 - 0x0008: read by no decompiled function (8 functions did not decompile, among them `0x141ece040` and
   `0x14194c880`). The client sets it on its own requests when its `auto_equip` option is on (`0x14011ecb0`), so an echo
-  of them carries it. No reader was found for the input bits 0x0002, 0x0004 or 0x0200.
+  of them carries it. No reader was found for the input bits 0x0002, 0x0004 or 0x0200: they are for the server
+  (the inventory panel is open, Ctrl is held, Alt is held on an NPC: [17](17-npcs.md) §3).
 
 GGG sets neither 0x0400 nor 0x0008 on any monster order (56 175 in four lockstep recordings): Moves 0 (13 768), skills
 aimed at an object 0x0080 (41 946), at the ground 0 (353), an emerge 0x0880 (102). The player's own orders echo his
