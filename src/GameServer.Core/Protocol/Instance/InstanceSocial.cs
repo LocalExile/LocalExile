@@ -36,7 +36,11 @@ public static class InstanceSocial
     /// <summary>C→S 0x93: "Invite to Party": wstr the character's name.</summary>
     public static string ReadPartyInvite(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
-    /// <summary>C→S 0x94: wstr the selected party member's account (0x140ab8ed0). 0x97 promotes a leader.</summary>
+    /// <summary>C→S 0x94: "Kick" on a party member, or "Cancel" on a pending invitation, from the Social party tab
+    /// (sender 0x140a68080, functor 0x140a95010 / invoke 0x140a9cfa0; the HUD party menu 0x140ab8ed0). The wstr is the
+    /// target's character name, the known-player entry's +0x40 that S→C 0xa7 writes at +0x70, not the account name.
+    /// The client sends it on a status 1 member row while it leads the party, and on a status 0 row to cancel that
+    /// invitation. 0x97 promotes a leader.</summary>
     public const ushort PartyKickId = 0x94;
     public static string ReadPartyKick(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
