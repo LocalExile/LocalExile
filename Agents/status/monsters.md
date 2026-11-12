@@ -106,6 +106,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Monsters fight back: their first granted effect as a non-pathing skill with MonsterVarieties attack time, reach and
   level damage. Leap goats use their melee swing when their first attack is the leap damage payload.
   Monsters swing when in reach and the player's life goes down after evasion, armour and block;
+  level damage (a campaign boss's kit replaces that one attack with its whole list, below); they swing (animated) when
+  in reach and the player's life goes down after evasion, armour and block;
   only monsters with a critical strike chance from their data or mods crit (none from their data yet; of Deadliness);
   walking away dodges; death plays and blocks moving; the death screen (S→C 0x55) shows "Resurrect in Town" /
   "Resurrect at Checkpoint" (hardcore: "Exit"), and both buttons work (C→S 0x54; in town: the last town); `/heal`.
@@ -120,6 +122,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
+- Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
+  (`WorldAreas` `Bosses_MonsterVarietiesKeys`, bar or not) or one with a bar of its own that no encounter controller
+  drives acts with every granted effect the client can play as a hit — 463 varieties, 2307 actions — each with the
+  damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
+  in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
+  Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
+  `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
+  and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
+  bosses' official AI weights compare, are unverified. Code: `BossKits`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; AI provisional ([Act 10](../docs/game/campaign/act10.md)).
@@ -242,8 +253,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
   Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
-  the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
-  other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
+  a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a
+  campaign boss with no controller plays its kit, but no act boss changes phase mid-fight); monsters respawn on every
+  entry;
   a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
   Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
   ([17](../docs/protocol/17-npcs.md)).
