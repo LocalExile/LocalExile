@@ -278,7 +278,27 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
         if (leagues && parts is [_, "Binaries", ..]) return;
         if (modules && parts is [_, var part, ..]
             && (part == "obj" || (part != "bin" && part != Manifest && part != ModSettings.FileName && HasProject(DirOf(id) ?? "")))) return;
+        if (modules && !leagues && parts.Length > 1 && LoadedModule(id) is { } loaded
+            && !IsModuleInput(loaded.Folder, loaded.Manifest.Assembly, path)) return;
         Later(id, busy: 0);
+    }
+
+    // A published module can keep its own state beside its assembly. Watch the inputs ReadImages
+    // actually opens, including a renamed parent directory of the configured assembly.
+    internal static bool IsModuleInput(string folder, string assembly, string path)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        string relative = Path.GetRelativePath(folder, path);
+        if (Path.GetDirectoryName(relative) is "" or null)
+        {
+            if (relative.Equals(ModuleManifestFile, comparison) || relative.Equals(ModSettings.FileName, comparison)
+                || Path.GetExtension(relative).Equals(".cs", comparison) || Path.GetExtension(relative).Equals(".csproj", comparison))
+                return true;
+        }
+        string dll = Path.GetFullPath(Path.Combine(folder, assembly));
+        string changed = Path.GetFullPath(path);
+        return dll.Equals(changed, comparison) || Path.ChangeExtension(dll, ".pdb").Equals(changed, comparison)
+            || dll.StartsWith(changed + Path.DirectorySeparatorChar, comparison);
     }
 
     // One reload for a burst of changes (a build writes the dll, the pdb and the manifest one after another).
