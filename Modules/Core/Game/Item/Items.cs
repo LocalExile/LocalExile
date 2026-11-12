@@ -967,7 +967,7 @@ public static partial class Game
                 return;
             }
             Console.WriteLine($"[gateway] {remote} <= 0x007c split {split} in stash tab {tab}" + (left is null ? " (the whole stack: picked up)" : ""));
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(split.InventoryId, stash.NextRevision(tab), [left?.Id ?? part.Id], left is null ? [] : [left], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await SendTabChange(remote, stream, ciphers, conn, stash, tab, [left?.Id ?? part.Id], left is null ? [] : [left],
                 left is null ? $"0x00bf stash tab {tab}: remove item {part.Id}" : $"0x00bf stash tab {tab}: stack {left.Id} now {left.Item.StackSize}");
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                 items.NextRevision(PlayerInventories.Cursor), [], [part]), $"0x00bf cursor: hold {part.Item.StackSize} as item {part.Id}");
@@ -1258,16 +1258,17 @@ public static partial class Game
         if (stashTab is not null || targetTab is not null)
         {
             // The stash is in it (currency from a tab, or the target in one): one transaction, then one 0xbf per place changed
-            // (one for both when they share it), removing and adding the same ids as the client needs.
+            // (one for both when they share it), removing and adding the same ids as the client needs. A tab the panel
+            // shows again after a tab switch unloaded it is loaded again first (SendTabChange, #710).
             if (ItemMoves.UseAcross(items, stash, new(stashTab, usedRow, used.Id), new(targetTab, targetRow, target.Id), _ => result)
                 is not var (left, changedItem)) return;
             identified = changedItem;
-            byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
-            async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what) =>
-                await Send(remote, stream, ciphers, tab is int t
-                    ? InstanceItems.InventoryChange(stash.InventoryOf(t), stash.NextRevision(t), gone, now, manager)
-                    : InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
-                    $"0x00bf {(tab is int st ? $"stash tab {st}" : $"inventory {PlayerInventories.InventoryId(row)}")}: {what}");
+            async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
+            {
+                if (tab is int t) await SendTabChange(remote, stream, ciphers, conn, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
+                else await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
+                    $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
+            }
             List<InventoryItem> usedNow = left is { } l ? [l] : [];
             if (stashTab == targetTab && (stashTab is not null || usedRow == targetRow))
                 await SendPlace(targetTab, targetRow, [used.Id, target.Id], [.. usedNow, identified], $"item {target.Id} changed, {type!.Name} used");
