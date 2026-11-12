@@ -258,7 +258,14 @@ public static partial class Game
     public static Dictionary<uint, int> SupportedStats(ClientState conn, ushort skillId)
     {
         var player = FinalPlayerStats(conn).ToDictionary(kv => kv.Item1, kv => kv.Item2);
-        return MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        var skill = SupportedSkill(conn, skillId);
+        return MergeSkillStats(player, skill.Stats, SkillsFor(conn).IsChannelled(skill.Effect), SkillCostMore(conn, skill.Stats));
+    }
+
+    static double SkillCostMore(ClientState conn, IReadOnlyDictionary<uint, int> own)
+    {
+        int Get(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
+        return BloodCharges.Uses(Get) ? BloodCharges.More(Get(BloodCharges.CostPerCharge), conn.BloodCharges) : 1;
     }
 
     // Generosity: the increased effect a support gives the aura it supports, and whether the aura may affect the player
@@ -270,7 +277,8 @@ public static partial class Game
         return (Stat("non_curse_aura_effect_+%") + Stat("aura_effect_+%"), Stat("aura_cannot_affect_self") == 0);
     }
 
-    public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
+    public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
+        bool? channelled = null, double costMore = 1)
     {
         var result = new Dictionary<uint, int>(player);
         foreach (var (key, value) in own)
@@ -283,7 +291,8 @@ public static partial class Game
                 ? ArcaneMight.Combine(key, result.GetValueOrDefault(key), value) : result.GetValueOrDefault(key) + value;
         }
         if (Stats.Key("mana_cost") is uint mana && own.TryGetValue(mana, out int baseCost))
-            result[mana] = ManaRecoveryRules.Cost(baseCost, name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0);
+            result[mana] = ManaRecoveryRules.Cost(baseCost,
+                name => Stats.Key(name) is uint key ? result.GetValueOrDefault(key) : 0, channelled, costMore);
         return result;
     }
 

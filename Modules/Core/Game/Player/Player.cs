@@ -392,7 +392,6 @@ public static partial class Game
     static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
         out Dictionary<uint, int> player)
     {
-        int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         cost = 0;
         life = 0;
         player = [];
@@ -400,14 +399,6 @@ public static partial class Game
             return false;
         player = SupportedStats(conn, skillId);
         cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
-        // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
-        if (cost > 0 && BloodCharges.Uses(Own))
-            cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
-        // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
-        int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
-        if (cost > 0 && inspirationCost != 0)
-            cost = (uint)Math.Max(0, Math.Round(cost * Math.Max(0, 1 + inspirationCost / 100.0),
-                MidpointRounding.AwayFromZero));
         // Blood Magic (the keystone, or an item that grants it): every skill's Mana cost becomes a Life cost.
         // Lifetap Support's conversion and Petrified Blood's share do not stack on top of it, since the Mana cost
         // it would divide no longer exists.
