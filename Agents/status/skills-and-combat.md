@@ -127,7 +127,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
-  over time and burst.
+  over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
