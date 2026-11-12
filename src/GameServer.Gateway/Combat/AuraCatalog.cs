@@ -10,7 +10,7 @@ public static class AuraCatalog
     public sealed record Aura(ushort SkillId, int Effect, string EffectId, string Name, ushort Buff, ushort BuffRow,
         int ManaFlat, int ManaPercent, int Level = 1, int Quality = 0, ushort? SourceBuff = null,
         int SupportEffectPct = 0, bool AffectsSelf = true, string? Stance = null, int? ExternalEffectPct = null,
-        bool ReservesLife = false, int ReservationEfficiencyPct = 0);
+        bool ReservesLife = false, int ReservationEfficiencyPct = 0, bool IsHerald = false);
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
     // Distinct ids let both survive area restoration and end together without counting the aura's bonuses twice.
@@ -396,7 +396,7 @@ public static class AuraCatalog
                 {
                     if (stats.Key(name) is not uint key) return;
                     int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
-                        IsHerald(aura.EffectId) ? heraldEffectPct : 0);
+                        aura.IsHerald ? heraldEffectPct : 0);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
                 }
             }
@@ -404,9 +404,6 @@ public static class AuraCatalog
         }
         return result.Select(kv => (kv.Key, kv.Value));
     }
-
-    // "Herald of Ash"/"Herald of Ice"/"Herald of Thunder"/"Herald of Purity"/"Herald of Agony".
-    static bool IsHerald(string effectId) => effectId.StartsWith("Herald", StringComparison.Ordinal);
 
     private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct,
         int extraEffectPct = 0)

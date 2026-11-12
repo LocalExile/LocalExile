@@ -31,7 +31,9 @@ public sealed class TattooConsumerTests
     {
         // Herald buff effect: the same Herald of Ash buff stat at level 20 with 100% increased Effect of Herald Buffs.
         var herald = new AuraCatalog.Aura(1, Program.Skills.EffectRow("HeraldOfAsh"), "HeraldOfAsh", "Herald of Ash",
-            1, 1, 0, 0, Level: 20);
+            1, 1, 0, 0, Level: 20, IsHerald: true);
+        Assert.True(Game.IsHeraldAura("HeraldOfAsh"));
+        Assert.False(Game.IsHeraldAura("Haste"));
         int HeraldValue(int heraldEffectPct) => AuraCatalog.RawStats([herald], 0, Program.Skills, Program.Stats,
             heraldEffectPct).Where(stat => Program.Stats.Name(stat.Key) == "physical_damage_%_to_add_as_fire")
             .Select(stat => stat.Value).DefaultIfEmpty(0).First();
