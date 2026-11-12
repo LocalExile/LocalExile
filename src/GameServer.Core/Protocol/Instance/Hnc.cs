@@ -13,9 +13,8 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public sealed class HncSender
 {
-    /// <summary>VA of the 64-byte mask in the 3.29.3c client (the same bytes as in 3.29.3b), and the SHA-256 of its
-    /// contents (the mask itself is extracted from the local client, not shipped).</summary>
-    public const long MaskVa = 0x142feaed0;
+    /// <summary>SHA-256 of the 64-byte mask: the same bytes in every allowed build (and in 3.29.3b), at an address of the
+    /// build's own (<see cref="ClientBuild.HncMaskVa"/>). The mask itself is extracted from the local client, not shipped.</summary>
     private const string MaskSha256 = "0e88f29acc9cab88ee400ca78bbfeeeaebc333afb11f1ea9be3fd37aeb7cbc31";
 
     private static byte[]? _mask;
@@ -23,28 +22,19 @@ public sealed class HncSender
     private static byte[] Mask => _mask ?? throw new InvalidOperationException(
         "HNC mask not loaded: call HncSender.UseMask with the extracted mask (data/client-constants.json).");
 
-    /// <summary>Reads the mask from the client executable (PE file) and checks it against the known hash.</summary>
-    public static void LoadMask(byte[] clientExe) => UseMask(ExtractMask(clientExe));
+    /// <summary>Reads the mask from the executable of an allowed build (<see cref="ClientBuilds"/>) and checks it against
+    /// the known hash; any other file throws.</summary>
+    public static void LoadMask(byte[] clientExe) => UseMask(ReadMask(clientExe, ClientBuilds.Require(clientExe)));
 
-    /// <summary>The d build moved the unchanged mask by 32 bytes; every supported location keeps the hash guard.</summary>
-    public static byte[] ExtractMask(byte[] clientExe)
-    {
-        foreach (long va in new[] { MaskVa, 0x142feaeb0L })
-        {
-            byte[] mask = PeImage.ReadAtVa(clientExe, va, 64);
-            if (MaskMatches(mask)) return mask;
-        }
-        throw new InvalidDataException("HNC mask not found: the client is not a supported 3.29.3c/d build.");
-    }
-
-    static bool MaskMatches(byte[] mask) =>
-        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(mask)).ToLowerInvariant() == MaskSha256;
+    /// <summary>The 64 bytes where <paramref name="build"/> keeps the mask in its executable (PE file).</summary>
+    public static byte[] ReadMask(byte[] clientExe, ClientBuild build) => PeImage.ReadAtVa(clientExe, build.HncMaskVa, 64);
 
     /// <summary>Uses a mask extracted from the client (data/client-constants.json), checked against the known hash.</summary>
     public static void UseMask(byte[] mask)
     {
-        if (!MaskMatches(mask))
-            throw new InvalidDataException("HNC mask not found: the client is not the expected 3.29.3c build.");
+        string hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(mask)).ToLowerInvariant();
+        if (hash != MaskSha256)
+            throw new InvalidDataException($"HNC mask not found: the client is not a {ClientBuilds.Versions} build LocalExile runs.");
         _mask = mask;
     }
 

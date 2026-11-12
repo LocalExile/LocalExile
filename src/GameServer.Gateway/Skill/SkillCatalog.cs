@@ -770,6 +770,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
     // Kinetic Bolt (ZigZagProjectile) creates ZigZagWandProjectile (3.29.3c RE); its transfigured/public variants share
     // the same ActionType and primary projectile row.
+    // Essence Drain keeps its old name's row, Siphon (Metadata/Effects/Spells/siphon), as do its transfigured versions.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -797,6 +798,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltX"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltY"] = "Metadata/Projectiles/Siphon",
         ["SplitArrow"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",

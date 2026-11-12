@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using DamageModel = GameServer.Core.World.DamageModel;
@@ -644,7 +644,7 @@ public static partial class Game
                     rf.Radius = radius;
                     if (rf.RingArt is not null)
                     {
-                        uint ring = conn.NextObjectId++;
+                        uint ring = conn.TakeObjectId();
                         rf.Ring = ring;
                         var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                         QueueRighteousFireRingLocked(conn, rf, ring, at);
@@ -751,7 +751,7 @@ public static partial class Game
                 int radius = RighteousFireRadius(conn, supported.Stats);
                 ushort buff = conn.NextBuff++, aura = conn.NextBuff++;
                 uint? ring = null;
-                if (ringAo is not null) ring = conn.NextObjectId++;
+                if (ringAo is not null) ring = conn.TakeObjectId();
                 at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 area = conn.Instance;
                 state = new RighteousFireState(buff, aura, skillId,
@@ -995,6 +995,8 @@ public static partial class Game
                 await BurnIgnited(remote, stream, ciphers, conn);
                 await BleedMonsters(remote, stream, ciphers, conn);
                 await TickPoisons(remote, stream, ciphers, conn);
+                await TickContagions(remote, stream, ciphers, conn);
+                await TickEssenceDrains(remote, stream, ciphers, conn);
             }
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             RighteousFireState? rf;

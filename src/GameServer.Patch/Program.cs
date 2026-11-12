@@ -1,4 +1,4 @@
-﻿using System.Net;
+using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -245,8 +245,8 @@ static int GgpkTool(string[] args)
 // to update (the extraction reads the hash itself). A Steam install has no GGPK.
 static void SaveRootHash(string ggpk)
 {
-    if (!File.Exists(ClientConstants.DefaultFile)
-        || ClientFiles.Resolve(ggpk) is not { Layout: ClientLayout.Standalone, Path: var archive }) return;
+    // The location is a client folder or the archive itself; the hash is read from the archive.
+    if (!File.Exists(ClientConstants.DefaultFile) || ClientFiles.Resolve(ggpk) is not { Layout: ClientLayout.Standalone, Path: var archive }) return;
     (ClientConstants.Load() with { GgpkRootHash = Convert.ToHexString(GgpkMaintenance.RootHash(archive)) }).Save();
 }
 

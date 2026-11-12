@@ -167,7 +167,7 @@ static class CosmeticsFeature
                 continue;
             }
             var (x, y) = PetSpot(conn, (px, py), worn.Slot == 18 ? 1 : -1);
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             var pet = new PetObject(x, y, PlayerId, fx.PetComponents, fx.PetStates);
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
                 $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");

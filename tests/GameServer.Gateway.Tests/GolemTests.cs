@@ -1995,6 +1995,23 @@ public sealed class GolemTests
 
             var attacker = new SpawnedMonster("enemy", new(100, 100, 1), 100, 8, 1000);
             var spell = new MonsterAttack(0x4000, 1, 100, DamagePacket.Of(DamageType.Physical, 1000000, 1000000)) { Spell = true };
+            // Fixed extreme values isolate the support multipliers from random crits and integer rounding.
+            uint army = Program.Stats.Key("support_minion_totem_resistance_elemental_damage_+%_final")!.Value;
+            var variety = Assert.IsType<MonsterCatalog.Variety>(golem.Monster.Variety);
+            double FireDamage() => Game.GolemAbilities(conn, variety, golem.Monster.Level, golem, golem.Player)
+                .Sum(a => a.Attack.Damage[DamageType.Fire].Max);
+            double fire = FireDamage();
+            Assert.True(fire > 0);
+            golem.Own[army] = 100;
+            Assert.Equal(2 * fire, FireDamage(), 5);
+            golem.Own.Remove(army);
+
+            uint shield = Program.Stats.Key("support_minion_defensive_stance_minion_damage_taken_+%_final")!.Value;
+            golem.Own[shield] = -100;
+            uint life = golem.Monster.Life;
+            Game.GolemTakeHitLocked(conn, golem, 0x08000000, attacker, spell, 2);
+            Assert.Equal(life, golem.Monster.Life);
+            golem.Own.Remove(shield);
             Assert.True(Game.GolemTakeHitLocked(conn, golem, 0x08000000, attacker, spell, 3));
             Assert.True(golem.Monster.Dead); Assert.Equal(0u, golem.Monster.Life); Assert.Equal(5, golem.ReviveAt);
             await Game.RefreshGolemBuffs("test", wire.Stream, wire.Ciphers, conn);

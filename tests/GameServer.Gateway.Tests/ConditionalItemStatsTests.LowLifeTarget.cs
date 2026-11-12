@@ -49,6 +49,20 @@ public partial class ConditionalItemStatsTests
                 { Spider = source, SpiderArea = source };
             Assert.Equal(profile.Hit.MinTotal, shot.Against(false, lowLife: low).Hit.MinTotal, 6);
             Assert.Equal(profile.Hit.MinTotal, shot.Against(false, lowLife: low).AreaHit!.MinTotal, 6);
+            foreach (var (hitMore, ailmentMore) in new[] { (1.6, 1d), (.6, .6), (.96, .6) })
+            {
+                var repeated = shot with { HitProfileMore = hitMore, AilmentProfileMore = ailmentMore };
+                var selected = repeated.Against(false, lowLife: low);
+                Assert.Equal(profile.Hit.MinTotal * hitMore, selected.Hit.MinTotal, 6);
+                Assert.Equal(profile.Hit.MinTotal * hitMore, selected.AreaHit!.MinTotal, 6);
+                Assert.Equal(profile.Ignite.Min * ailmentMore, selected.Ignite.Min, 6);
+                Assert.Equal(profile.Poison.Min * ailmentMore, selected.Poison.Min, 6);
+                Assert.Equal(selected.Hit.MinTotal, selected.Against(false, lowLife: low).Hit.MinTotal, 6);
+                var alternate = repeated with { Spider = null, SpiderArea = null,
+                    VsBlinded = new(profile.Hit, profile.Hit, profile.Ignite, profile.Bleed, profile.Poison) };
+                Assert.Equal(profile.Hit.MinTotal * hitMore, alternate.Against(true).Hit.MinTotal, 6);
+                Assert.Equal(profile.Ignite.Min * ailmentMore, alternate.Against(true).Ignite.Min, 6);
+            }
         }
         stats[frenzy] = 3;
         int Get(string name) => Program.Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;

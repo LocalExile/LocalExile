@@ -15,6 +15,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
+    public double HitProfileMore { get; init; } = 1;
+    public double AilmentProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
     public Penetration.PerType Penetration { get; init; }
@@ -29,6 +31,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
+    /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
+    public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -78,18 +82,31 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         if (Spider is { } spider)
         {
             var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding, lowLife);
-            return this with { Hit = profile.Hit, AreaHit = SpiderArea is { } area
-                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife).Hit : AreaHit,
-                Ignite = profile.Ignite, Bleed = profile.Bleed, Poison = profile.Poison };
+            return this with { Hit = profile.Hit.Scale(HitProfileMore), AreaHit = SpiderArea is { } area
+                ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife).Hit.Scale(HitProfileMore) : AreaHit,
+                Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
+                Poison = Scale(profile.Poison, AilmentProfileMore) };
         }
         return targetWasBlinded && VsBlinded is { } alternate ? this with
         {
-            Hit = alternate.Hit,
-            AreaHit = alternate.AreaHit,
-            Ignite = alternate.Ignite,
-            Bleed = alternate.Bleed,
-            Poison = alternate.Poison,
+            Hit = alternate.Hit.Scale(HitProfileMore),
+            AreaHit = alternate.AreaHit?.Scale(HitProfileMore),
+            Ignite = Scale(alternate.Ignite, AilmentProfileMore),
+            Bleed = Scale(alternate.Bleed, AilmentProfileMore),
+            Poison = Scale(alternate.Poison, AilmentProfileMore),
         }
         : this;
     }
+
+    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
+    {
+        Min = value.Min * more, Max = value.Max * more,
+        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
+    };
+
+    static MonsterPoisons.Settings Scale(MonsterPoisons.Settings value, double more) => value with
+    {
+        Min = value.Min * more, Max = value.Max * more,
+        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
+    };
 }

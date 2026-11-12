@@ -744,20 +744,8 @@ public static partial class Game
     }
 
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
-    public static async Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        // A survivors run keeps the ground clear: no loot reaches the client at all.
-        if (!GameEvents.AllowsLoot(conn)) return;
-        conn.Instance.Ground.Observe(conn);
-        // The character's own unshared items, put down on an earlier connection (it left and came back), are its again.
-        if (conn.Character is not null) conn.Instance.Ground.Reassign(by => by is ClientState earlier
-            && string.Equals(earlier.Character, conn.Character, StringComparison.OrdinalIgnoreCase), conn);
-        foreach (var (id, ground) in conn.Instance.Ground.All())
-        {
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
-                $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
-        }
-    }
+    public static Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        SyncGround(remote, stream, ciphers, conn, entering: true);
 
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
     // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff

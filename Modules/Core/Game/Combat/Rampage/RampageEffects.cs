@@ -31,7 +31,7 @@ public static partial class Game
     {
         if (Monsters.Find(plan.Row.ToString()) is not { Supported: true } variety) return null;
         uint id;
-        lock (conn.Monsters) id = conn.NextObjectId++;
+        lock (conn.Monsters) id = conn.TakeObjectId();
         byte actorLevel = (byte)Math.Clamp(level, 1, 100);
         uint life = (uint)Math.Max(1, Monsters.BaseLife(variety, actorLevel) ?? 1);
         int effect = plan.Skills[0].Row;

@@ -421,6 +421,10 @@ public static partial class Quests
             [.. Of<HandInRule>().Where(r => r.Npc == npcId && r.Option == option && (r.Row is null || r.Row == row)).Select(r => r.Item)];
 
         /// <summary>The monsters using the object brings (<see cref="SpawnRule"/>).</summary>
+        public bool SpawnEncounterFinished(string area, string variety, Func<string, bool> has) =>
+            OnMonsterKilled(area, variety).Any(has) || ThresholdOf(area, variety)?.Flags.Any(has) == true
+            || KilledAllOf(area, variety).Any(rule => rule.Flags.Any(has));
+
         public IReadOnlyList<string> SpawnsOnUse(string areaId, string objectType) =>
             [.. In<SpawnRule>(areaId).Where(r => r.ObjectType == objectType).Select(r => r.Variety)];
 

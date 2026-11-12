@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -183,7 +183,7 @@ public static partial class Game
                 bool committed = false;
                 for (int i = 0; i < count; i++)
                 {
-                    uint id = conn.NextObjectId++;
+                    uint id = conn.TakeObjectId();
                     double land = now + flight;
                     var placement = new PlacedSkills.Placed(id, admission.Skill, gem.Effect, aim, admission.Mine, land + .5,
                         land + Math.Max(0, Get(admission.Mine ? "base_mine_duration" : "base_trap_duration") is > 0 and var ms ? ms / 1000d : admission.Mine ? 5 : 4)

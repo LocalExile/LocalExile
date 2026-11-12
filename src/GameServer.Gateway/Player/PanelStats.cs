@@ -173,7 +173,8 @@ public static class PanelStats
         new("projectile_speed_+%", ["base_projectile_speed_+%"]),
         new("display_skill_increased_item_rarity_+%", ["base_item_found_rarity_+%", "item_found_rarity_+%",
             "base_killed_monster_dropped_item_rarity_+%"]),
-        new("display_skill_increased_item_quantity_+%", ["base_item_found_quantity_+%", "item_found_quantity_+%"]),
+        new("display_skill_increased_item_quantity_+%", ["base_item_found_quantity_+%", "item_found_quantity_+%",
+            "base_killed_monster_dropped_item_quantity_+%"]),
         new("virtual_trap_throwing_speed_+%", ["trap_throwing_speed_+%", "trap_and_mine_throwing_speed_+%"]),
         new("virtual_mine_throwing_speed_+%", ["mine_laying_speed_+%", "trap_and_mine_throwing_speed_+%"]),
         new("virtual_cooldown_speed_+%", ["base_cooldown_speed_+%"]),
@@ -302,7 +303,7 @@ public static class PanelStats
     }
 
     static readonly Sum[] SelectedSums = [.. Sums.Where(s => s.Display is "skill_area_of_effect_+%"
-        or "display_skill_increased_item_rarity_+%" or "virtual_minion_damage_+%" or "brands_per_target_limit"
+        or "display_skill_increased_item_rarity_+%" or "display_skill_increased_item_quantity_+%" or "virtual_minion_damage_+%" or "brands_per_target_limit"
         or "reduce_enemy_fire_resistance_%" or "reduce_enemy_cold_resistance_%"
         or "reduce_enemy_lightning_resistance_%"
         or "virtual_ignite_duration_+%" or "virtual_scorch_duration_+%" or "virtual_scorch_effect_+%"

@@ -86,13 +86,15 @@ public static partial class Game
     };
 
     // The player's increased rarity of items found (Gold Flask, gear, passives) that the drops of a kill use
-    // (ItemDrops.WithIncreasedRarity).
-    public static int IncreasedItemRarity(ClientState conn)
+    // (ItemDrops.WithIncreasedRarity). A kill made with a supported skill adds that skill's own
+    // base_killed_monster_dropped_item_rarity_+% (Item Rarity Support).
+    public static int IncreasedItemRarity(ClientState conn, SpawnedMonster? monster = null)
     {
         var stats = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
         int player = Get("base_item_found_rarity_+%") + Get("item_found_rarity_+%");
-        return player + (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.Rarity ?? 0);
+        return player + (MapDevice.Current(CharacterName(conn), conn.Layout.Hash)?.Mods.Rarity ?? 0)
+            + Math.Max(0, monster?.KilledWithItemRarityPct ?? 0);
     }
 
     // The player's increased quantity of items found (gear, passives) as a multiplier of the kill's item rolls

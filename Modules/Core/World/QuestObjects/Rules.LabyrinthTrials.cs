@@ -92,7 +92,7 @@ static partial class QuestobjectsRules
         // The Chamber of Sins and Crypt trials' track pieces: server objects the client shows.
         foreach (var rail in all.Where(o => o.Type == LabyrinthTrials.VisibleRail))
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rail.Type),
                 LabyrinthTrials.RailBlob(rail.X, rail.Y, rail.Angle, rail.Model)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -139,7 +139,7 @@ static partial class QuestobjectsRules
             if (!LabyrinthTrials.Handles(o.Type)) continue;
             bool open = conn.Instance.Transitioned(o.Type, o.X, o.Y);
             if (open && LabyrinthTrials.GoesWhenOpened(o.Type, o.Model)) continue;   // an opened Locked Door is gone (RemoveOpenedDoor)
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             lock (conn.Monsters)
             {
                 conn.TrialObjects[id] = o;
@@ -859,7 +859,7 @@ static partial class QuestobjectsRules
         var placed = new List<SpikeTrap>();
         for (int i = 0; i < traps.Count; i++)
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(traps[i].Type),
                 LabyrinthTrials.SpikeTrapBlob(traps[i].X, traps[i].Y)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -869,7 +869,7 @@ static partial class QuestobjectsRules
         }
         foreach (var trap in pressure)
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
                 LabyrinthTrials.SpikeTrapBlob(trap.X, trap.Y, trap.Type)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -980,7 +980,7 @@ static partial class QuestobjectsRules
         var placed = new List<(uint Id, AreaPopulation.RoomObject Blade, HashSet<(int X, int Y)> Strip)>();
         foreach (var blade in blades)
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(blade.Type),
                 LabyrinthTrials.EdgeBladeBlob(blade.X, blade.Y, blade.Angle)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -1045,7 +1045,7 @@ static partial class QuestobjectsRules
         var placed = new List<TileTrap>();
         foreach (var trap in traps)
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             bool blade = LabyrinthTrials.IsEdgeBlade(trap.Type);
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type), blade
                 ? LabyrinthTrials.EdgeBladeBlob(trap.X, trap.Y, trap.Angle)
@@ -1243,7 +1243,7 @@ static partial class QuestobjectsRules
     // on the trap for as long as it plays.
     static async Task PressureClick(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, AreaPopulation.RoomObject trap)
     {
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(trap.X, trap.Y, LabyrinthTrials.PressureSpikeClick).Blob()), null);
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -1358,7 +1358,7 @@ static partial class QuestobjectsRules
         var placed = new List<(uint Id, AreaPopulation.RoomObject Trap)>();
         foreach (var trap in traps)
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(trap.Type),
                 LabyrinthTrials.ArrowTrapBlob(trap.X, trap.Y, trap.Angle, trap.Model, trap.Type)), null);
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -1640,7 +1640,7 @@ static partial class QuestobjectsRules
         for (int i = 0; i < roombas.Count; i++)
         {
             var r = roombas[i];
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             bool stopped = halted.Contains(i), spinner = r.Type == LabyrinthTrials.Spinner;
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(r.Type), spinner
                 ? LabyrinthTrials.SpinnerBlob(r.X, r.Y, r.Angle, r.Model)
@@ -1752,7 +1752,7 @@ static partial class QuestobjectsRules
                             continue;
                         }
                         uint previous = r.Id;
-                        lock (conn.Monsters) r.Id = conn.NextObjectId++;
+                        lock (conn.Monsters) r.Id = conn.TakeObjectId();
                         await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, previous, null);
                         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, r.Id, InstanceEntities.CreateObject(r.Id, InstanceEntities.ObjectTypeHash(r.Roomba.Type),
                             LabyrinthTrials.RoombaBlob(r.Roomba.Type, cell.X, cell.Y, r.Roomba.Angle, r.Roomba.Model)),

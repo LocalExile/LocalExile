@@ -268,7 +268,7 @@ static class KitavaActFive
             if (!initialized)
             {
                 initialized = true;
-                var sign = new Visual(c.NextObjectId++, signAt, "Metadata/QuestObjects/Act5/SignOfPurity/SignOfPurity.ao", 0, double.PositiveInfinity);
+                var sign = new Visual(c.TakeObjectId(), signAt, "Metadata/QuestObjects/Act5/SignOfPurity/SignOfPurity.ao", 0, double.PositiveInfinity);
                 signId = sign.Id; visuals.Add(sign); foreach (var p in Present) await CreateFx(p, sign);
                 if (stage == 0)
                 {
@@ -538,7 +538,7 @@ static class KitavaActFive
         }
         async Task Fx(ClientState c, (int X, int Y) at, string model, uint clip, double until)
         {
-            var fx = new Visual(c.NextObjectId++, at, model, clip, until); visuals.Add(fx);
+            var fx = new Visual(c.TakeObjectId(), at, model, clip, until); visuals.Add(fx);
             foreach (var p in Present) await CreateFx(p, fx);
         }
         static async Task CreateFx(ClientState p, Visual fx)

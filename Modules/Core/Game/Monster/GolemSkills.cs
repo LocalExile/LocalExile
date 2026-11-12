@@ -258,7 +258,10 @@ public static partial class Game
                 double auraMore = spell ? Math.Max(0, 1 + mods["spell_damage_aura_spell_damage_+%_final"] / 100.0) : 1;
                 if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
                     auraMore *= Math.Max(0, 1 + mods["wrath_aura_spell_lightning_damage_+%_final"] / 100.0);
-                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed));
+                // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
+                double elementalMore = (path.History & DamageTypeHistory.Elemental) != 0
+                    ? Math.Max(0, 1 + Own("support_minion_totem_resistance_elemental_damage_+%_final") / 100.0) : 1;
+                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed * elementalMore));
             }
             damage = modified;
             string id = catalog.EffectId(effect) ?? "";

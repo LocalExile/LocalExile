@@ -1,6 +1,6 @@
 # Live testing against the real client
 
-How to run the patched 3.29.3c client against our servers safely and repeatably.
+How to run the patched client (an allowed build, `ClientBuilds.cs`) against our servers safely and repeatably.
 
 ## Rules
 

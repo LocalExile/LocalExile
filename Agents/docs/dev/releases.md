@@ -75,7 +75,9 @@ servers, and starts the client. It stays running until the client closes, and th
 also on a crash or a closed window).
 
 **The client starts only one way:** `Client\Game.patched.exe --patching-server 127.0.0.1:<patch port>`, in `ClientLaunch.cs`.
-Any other start can update it. The version check needs both the login key blobs (`ClientImage`) and the HNC mask's hash.
+Any other start can update it. The client must be an allowed build (`ClientBuilds.cs`: the SHA-256 of its unpatched
+executable), and a Steam install's game files must be that build's too. At `check`, at setup and at
+every start the launcher says which build the client is and which versions are supported.
 
 The login list is the one client archive write, the same as `live.ps1`'s: only when it does not already name the local
 server, with the original kept in `data/gateway_list.original.txt`. That is why the launcher always copies: a linked
@@ -84,7 +86,7 @@ break the install. `--client-mode link` stays for developers and is never offere
 another LocalExile's `Client\`, every start warns (`ClientInstall.WarnIfLinked`).
 
 `LocalExile.exe --help` lists the commands. `setup` does everything before the servers, `stop` ends this install's
-processes, `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
+processes, `builds` lists the client builds it runs (for a GUI: what to recognize, and what to fetch from Steam), `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
 release exists and only says so (`--no-update-check` turns it off); it never downloads anything.
 
 ### For a GUI: `--json`
@@ -99,6 +101,7 @@ Every event has `schema` (1), `event` and `time`; a change that breaks a reader 
 | `progress` | `id`, `message`, optional `current`, `total`: at least every 10 s during long work |
 | `info`, `warning`, `done` | `message` |
 | `value` | `name`, `value`: the answer of `version`, `client-command`, `check` |
+| `build` | `version`, `name`, `executableSha256`, optional `steamIndexSha256`, `steamApp`, `steamManifests` (`depot`, `manifest`): one per allowed client build, the answer of `builds`. Steam's ids are text |
 | `needs-input` | `option`, `message`, optional `suggestion`: run again with that option |
 | `ready` | `patch`, `login`, `gateway`, optional `clientPid` (none with `--no-client`) |
 | `error` | `code`, `kind`, `message` |

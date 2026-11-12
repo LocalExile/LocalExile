@@ -95,7 +95,7 @@ public static partial class Game
         if (modded is not { Cancel: true })
         {
             int mapTier = MapDevice.OpenOf(CharacterName(conn)) is { } openMap && openMap.Area.Hash16 == conn.Layout.Hash ? openMap.Area.Tier : 0;
-            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn),
+            drops.AddRange(DropsFor(conn).Roll(monster.Level, monster.Rarity, Random.Shared, IncreasedItemRarity(conn, monster),
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(conn, monster),
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier));
             drops.AddRange(PartyCurrency(conn, drops, Random.Shared));

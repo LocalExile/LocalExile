@@ -48,7 +48,7 @@ public static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
-            marker = new(conn.NextObjectId++, skillId, at, now + duration, repeat, conn.ProjectileEpoch, addedChaos, criticalRoll);
+            marker = new(conn.TakeObjectId(), skillId, at, now + duration, repeat, conn.ProjectileEpoch, addedChaos, criticalRoll);
             conn.StormCall.Place(marker);
         }
         Console.WriteLine($"[gateway] {remote} storm call marker 0x{marker.Object:x} at ({at.X}, {at.Y}), repeat {repeat}, "
@@ -115,7 +115,7 @@ public static partial class Game
         if (impact is not null)
         {
             uint effect;
-            lock (conn.Monsters) effect = conn.NextObjectId++;
+            lock (conn.Monsters) effect = conn.TakeObjectId();
             float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(impact) ?? 250));
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                     new EffectObject(marker.At.X, marker.At.Y, impact) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),

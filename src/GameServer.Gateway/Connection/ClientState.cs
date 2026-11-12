@@ -205,6 +205,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), under the Monsters lock.
     public readonly MonsterPoisons Poisons = new();
+    // The player's Contagion on it (MonsterContagion.cs), under the Monsters lock.
+    public readonly MonsterContagion Contagion = new();
+    // The player's Essence Drain debuff on it (MonsterEssenceDrain.cs), under the Monsters lock.
+    public readonly MonsterEssenceDrain EssenceDrain = new();
     // The Ruptures its critical bleeding hits have put on it (MonsterRuptures.cs), under the Monsters lock.
     public readonly MonsterRuptures Ruptures = new();
     // Overpowered (Block Chance Reduction): the block chance its blocked supported hits take away until the deadline.
@@ -257,6 +261,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double ExcommunicatedUntil = double.NegativeInfinity;
     // "Killed Enemies drop X% increased Items" from the skill of the last player hit (Item Quantity Support).
     public int KilledWithItemQuantityPct;
+    // The same kill's increased rarity of dropped items from the skill of the last player hit (Item Rarity Support).
+    public int KilledWithItemRarityPct;
     // His Exposure on it (Game.ExposureOnHitLocked): until when, by element and magnitude, the highest running one lowering
     // its resistance; per element (fire, cold, lightning) when the last of them ends and its shown buff.
     public readonly Dictionary<(DamageType Type, int Magnitude), double> Exposures = [];
@@ -705,6 +711,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         set { if (Instance is { } i) i.World.NextObjectId = value; else ownNextObjectId = value; }
     }
     uint ownNextObjectId = 0x3000;
+    public uint TakeObjectId() => Instance is { } instance ? instance.World.TakeObjectId() : Interlocked.Increment(ref ownNextObjectId) - 1;
     // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
     // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
     // without a current action and crashed StartChannelling (0xc0000005 at 0x19e37bf, live 2026-10-31).

@@ -124,6 +124,8 @@ public static partial class Game
                 value = (int)Math.Round(value * (1 - reduction));
             }
             value = (int)Math.Round(value * effects.DamageTaken(attack.Spell)
+                // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
+                * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_defensive_stance_minion_damage_taken_+%_final") / 100.0)
                 * (area ? Math.Max(0, 1 + effects["damage_taken_+%_from_area_hits"] / 100.0) : 1));
             if (value > 0)
                 damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);

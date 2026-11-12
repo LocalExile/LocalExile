@@ -231,7 +231,7 @@ public static partial class Game
         }
         if (a.Effect == 5908)
         {
-            uint obj = conn.NextObjectId++;
+            uint obj = conn.TakeObjectId();
             var orb = new EffectObject(action.Aim.X, action.Aim.Y, "Metadata/Effects/Spells/monsters_effects/lightning_elemental/orb/orb.ao");
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), orb.Blob()), "lightning golem orb", WorldId: obj, CreatesObject: true));
             conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));

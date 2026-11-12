@@ -96,7 +96,7 @@ public static partial class Game
             if (conn.Closed || conn.LeavingArea || !conn.ProjectileActive(epoch)) break;
             var (at, paid, skeleton) = blasts[i];
             uint effect;
-            lock (conn.Monsters) effect = conn.NextObjectId++;
+            lock (conn.Monsters) effect = conn.TakeObjectId();
             art.Add(effect);
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, ao) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),

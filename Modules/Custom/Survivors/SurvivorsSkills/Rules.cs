@@ -603,7 +603,7 @@ static partial class SurvivorsSkills
         lock (conn.Monsters)
         {
             if (!ownership.Current) return;
-            id = conn.NextObjectId++;
+            id = conn.TakeObjectId();
             StateOf(conn).Effects.Add(id);
         }
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -667,7 +667,7 @@ static partial class SurvivorsSkills
                 orbs[0] = oldest with { Experience = oldest.Experience + experience };
                 return;
             }
-            id = conn.NextObjectId++;
+            id = conn.TakeObjectId();
             orbs.Add(new(id, at.X, at.Y, experience));
         }
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -746,7 +746,7 @@ static partial class SurvivorsSkills
         lock (conn.Monsters)
         {
             if (StateOf(conn).Survivors is null) return;
-            id = conn.NextObjectId++;
+            id = conn.TakeObjectId();
             StateOf(conn).SurvivorsGroundZones.Add(new(id, x, y, SurvivorsRules.DeathZoneRadius,
                 conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
                 SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));
