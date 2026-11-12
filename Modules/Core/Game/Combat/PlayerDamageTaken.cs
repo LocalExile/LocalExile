@@ -75,7 +75,7 @@ public static class PlayerDamageTaken
         .Concat(DamageTypes.ConversionOrder.Select(TypedAvoid))
         .Concat(DamageTypes.ConversionOrder.Select(TypedFlat))
         .Concat([Increased, ElementalIncreased, MeleeIncreased, FlatPhysicalFromAttacks, Blocked, ElementalBlocked,
-            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach]);
+            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach, ItemChargeDefences.ElementalHitTaken]);
 
     /// <summary>"X% chance to Avoid Fire Damage from Hits" and the other types', plus "... Damage of each Type": this
     /// type's chance that a hit deals none of it, at most 75% (wiki Avoidance).</summary>
@@ -127,8 +127,9 @@ public static class PlayerDamageTaken
     /// taken while Leeching" (Brutal Fervour) joins it while is_leeching, as the client's damage taken sum does
     /// (0x1427d25c0).</summary>
     public static int IncreasedPct(DamageType type, bool melee, Func<string, int> get) =>
-        get(Increased) + get(TypedIncreased(type)) + (DamageTypes.IsElemental(type) ? get(ElementalIncreased) : 0)
-        + (melee ? get(MeleeIncreased) : 0) + (get(Leeching) != 0 ? get(WhileLeeching) : 0);
+        ActorScale.Saturate((long)get(Increased) + get(TypedIncreased(type))
+            + (DamageTypes.IsElemental(type) ? (long)get(ElementalIncreased) + get(ItemChargeDefences.ElementalHitTaken) : 0)
+            + (melee ? get(MeleeIncreased) : 0) + (get(Leeching) != 0 ? get(WhileLeeching) : 0));
 
     const string Leeching = "is_leeching", WhileLeeching = "damage_taken_+%_while_leeching";
 
