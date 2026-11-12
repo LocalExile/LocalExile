@@ -363,6 +363,12 @@ hotfix value. The login-key offset (`0x2fc91f0`) and the HNC mask are equal. The
 `Bundles2/Tiny_02.bundle.bin` and the index: no table, and one server-read file
 (`metadata/pet/edictspearutilitypet/edictspearutilitypet.ot`).
 
+**3.29.3d needs no port either** (build 328228, 2026-11-10, the end of the Allflame league). It has 3.29.3.5's
+sections and `.pdata` functions. Of 234,255 changed instructions all but two refer to data that moved; the two
+(`0x140ead440`, `0x140ead44c`, and the same pair again at `0x140ead804` and `0x140ead80d`) swap the thread-local
+offsets `0x6f0` and `0x6f8` of two variables. The HNC mask is at `0x142feaeb0`, 0x20 lower. All 942 tables and
+the 132,753 files `game-pack pack` takes are identical.
+
 **A build that needs no port gets a row in `ClientBuilds`** (`src/GameServer.Core/Protocol/ClientBuilds.cs`).
 LocalExile runs only the builds listed there, each recognized by the SHA-256 of its unpatched executable; the launcher,
 Auth's `keygen` and `patch` and the constants extraction refuse any other. To add one:

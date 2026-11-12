@@ -8,7 +8,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
   waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08). Both 3.29.3c builds
   work with the same code: the release (build 327984) and the 3.29.3.5 hotfix (build 328126; login, zones, combat,
-  items and waypoints live 2026-11-09). Only the builds listed in `ClientBuilds.cs` run, each recognized by its
+  items and waypoints live 2026-11-09). 3.29.3d (build 328228) runs with the same code too: login, a new character,
+  The Twilight Strand and a resync on a headless client, then the same character on 3.29.3.5 (2026-11-11).
+  Only the builds listed in `ClientBuilds.cs` run, each recognized by its
   executable's hash; any other is refused (the launcher's `check`, Auth's `keygen` and `patch` and the constants
   extraction on real 3.29.3.5, 3.29.3d and 3.29.3b executables, 2026-11-11).
   Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.

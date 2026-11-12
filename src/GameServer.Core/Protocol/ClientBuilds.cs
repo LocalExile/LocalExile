@@ -35,6 +35,10 @@ public static class ClientBuilds
             "01a22facf36886b39bca74793c0d8c7295b1495f1625b4ebc7b23c2de32a70cf", 0x142feaed0,
             // Steam app 238960, depot 238961 manifest 2467965126630699088.
             SteamIndexSha256: "d23c78997206716586041a3e47a89dde0eb516f1488df4a1ccf39b0d51be54d0"),
+        new("3.29.3d", "release of 2026-11-10, build 328228",
+            "e9ba3d31c4d922e1826ef01d02fd22178a001b29e17264b68fc2446efd41f53d", 0x142feaeb0,
+            // The standalone client's Bundles2/_.index.bin; Steam's depot 238961 manifest 5379264335337066375.
+            SteamIndexSha256: "53560cc6391d2b11276f480ce5ebe86eb75a26935064c846aa99499f376bac29"),
     ];
 
     /// <summary>The versions of <see cref="Allowed"/>, for messages: "3.29.3c", or "3.29.3c or 3.29.3d".</summary>
