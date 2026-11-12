@@ -20,7 +20,7 @@ public static partial class Game
         public ushort AreaHash => conn.Layout.Hash;
         public (int X, int Y) Spawn => (conn.Layout.SpawnX, conn.Layout.SpawnY);
         public bool PlayerReady => conn.PlayerSent;
-        public uint NewObjectId() => conn.NextObjectId++;
+        public uint NewObjectId() => conn.TakeObjectId();
         public void SetBlocker(uint objectId, int x, int y, int size) => conn.SetBlocker(objectId, x, y, size);
         public void RemoveBlocker(uint objectId) => conn.RemoveBlocker(objectId);
         public Task PushOutOfCollision() => Game.PushOutOfCollision(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
@@ -31,7 +31,7 @@ public static partial class Game
             if (HideoutCatalog.TypeOf(metadataPath) is not var (components, _)) return null;
             if (components.Count == 0 || !HideoutObject.CanSerialize(components)) return null;
             var (x, y, rotation) = scene.Station(slot, editorKey);
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             var obj = new HideoutObject(x, y, rotation, components, new HideoutDoodad(0, 0));
             await SendWorldCreate(conn, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(metadataPath), obj.Blob()),
                 $"0x02bb create {name} 0x{id:x} at ({x}, {y})");

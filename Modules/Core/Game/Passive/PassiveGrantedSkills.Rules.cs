@@ -208,7 +208,7 @@ public static partial class Game
             at = conn.Walk.Position(now);
             targets = [.. conn.Monsters.Where(e => e.Value is { Hostile: true, Dead: false, Life: > 0 }
                 && Dist(e.Value.Walk.Position(now), at) <= radius).Select(e => (e.Key, e.Value))];
-            if (art is not null) effectObject = conn.NextObjectId++;
+            if (art is not null) effectObject = conn.TakeObjectId();
         }
         if (effectObject is uint obj)
             await SendWorldCreate(conn, obj, () =>

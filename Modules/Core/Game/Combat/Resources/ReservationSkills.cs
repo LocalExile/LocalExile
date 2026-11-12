@@ -241,7 +241,7 @@ public static partial class Game
         {
             state.NextIce = now + .25;
             var at = conn.Walk.Position(now);
-            uint obj = conn.NextObjectId++;
+            uint obj = conn.TakeObjectId();
             var art = new EffectObject(at.X, at.Y, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao")
             { Flags0 = EffectObject.FixedRotation, Scale = (float)(4.0 / 23) };
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), null, WorldId: obj, CreatesObject: true));

@@ -35,7 +35,7 @@ static partial class QuestobjectsRules
         IzaroArenas.AddOrUpdate(conn, arena);
         foreach (var at in all.Where(o => o.Type == IzaroStatues.SmallElevator))
         {
-            uint lift = conn.NextObjectId++;
+            uint lift = conn.TakeObjectId();
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(lift, InstanceEntities.ObjectTypeHash(at.Type),
                 IzaroFights.Blob(at.Type, at.Model, at.X, at.Y, at.Angle, IzaroFights.Lowered)), .. InstanceProtocol.EnterWakeZone(lift)],
                 $"0x02bb small elevator 0x{lift:x} at ({at.X}, {at.Y})");
@@ -75,7 +75,7 @@ static partial class QuestobjectsRules
             {
                 foreach (var at in new[] { inAlcove, onLedge }.OfType<AreaPopulation.RoomObject>())
                 {
-                    uint doodad = conn.NextObjectId++;
+                    uint doodad = conn.TakeObjectId();
                     await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(doodad, InstanceEntities.ObjectTypeHash(effect.Type),
                         IzaroStatues.Blob(effect, at.X, at.Y, at.Angle, IzaroStatues.DoodadOn)), .. InstanceProtocol.EnterWakeZone(doodad)],
                         $"0x02bb {effect.Id} 0x{doodad:x} at ({at.X}, {at.Y}), left by trial {from}");
