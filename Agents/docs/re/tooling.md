@@ -384,8 +384,15 @@ Auth's `keygen` and `patch` and the constants extraction refuse any other. To ad
    `steamapps\appmanifest_238960.acf` while that build is installed.
 4. Add the row, then play the live checklist on that build.
 
-`client-control.js` and `nullifier.js` find their globals through the code that uses them (`globalAt`), so they
-follow such a build by themselves. Any other script with a fixed data address needs the new build's value: an
-instruction that refers to it sits at the same place in both builds, and its operand there gives the new address.
+5. Give the live scripts the build. Their data addresses are the 3.29.3c release's, and each of
+   `scripts/re/frida/common.js`, `check-components.js`, `trace-action-state.js`, `sniff-support-geometry.js` and
+   `scripts/walkmaps/walkmaps.js` lists in `MOVED` where they sit in every later build, told apart by the
+   executable's link time. `compare_builds.py <3.29.3c release exe> <new exe> --data-map <script>...` prints a
+   table's rows; for `common.js` pass the traces that have no `at()` of their own. `client-control.js` and
+   `nullifier.js` find their globals through the code that uses them (`globalAt`) and need nothing.
 
-A moved function or a changed table is a port: the five steps above.
+The 3.29.3.5 hotfix moved 259 of the 365 data addresses those scripts use, and 3.29.3d moved 361. The linker also
+changes which of several identical functions a class table's entry names, so a class table is not always
+byte-equal between two builds with the same code.
+
+A moved function or a changed table is a port: the first list of this section.

@@ -76,7 +76,8 @@ also on a crash or a closed window).
 
 **The client starts only one way:** `Client\Game.patched.exe --patching-server 127.0.0.1:<patch port>`, in `ClientLaunch.cs`.
 Any other start can update it. The client must be an allowed build (`ClientBuilds.cs`: the SHA-256 of its unpatched
-executable), and a Steam install's game files must be that build's too.
+executable), and a Steam install's game files must be that build's too. At `check`, at setup and at
+every start the launcher says which build the client is and which versions are supported.
 
 The login list is the one client archive write, the same as `live.ps1`'s: only when it does not already name the local
 server, with the original kept in `data/gateway_list.original.txt`. That is why the launcher always copies: a linked

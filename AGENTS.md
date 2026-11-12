@@ -50,10 +50,11 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
   of Exile patch becomes a row only when `scripts/re/port/compare_builds.py` and the table comparison show the same
   code and data and a live run passes ([tooling](Agents/docs/re/tooling.md) §11). A build that differs needs a port.
   Never loosen the check, and never add a row without that evidence in the pull request.
-- **Addresses in the docs and scripts are the 3.29.3c client's.** Code addresses and message ids hold for every
-  allowed build; addresses of data (globals, vtables, strings) do not. A tool that must work on every allowed build
-  reads a global through an instruction that uses it (`globalAt` in `scripts/dev/client-control.js`); the
-  reverse-engineering scripts in `scripts/re` fit 3.29.3c only.
+- **Addresses in the docs and scripts are the 3.29.3c release's** (build 327984). Code addresses and message ids hold
+  for every allowed build; addresses of data (globals, vtables, strings) do not. A script that reads the running
+  client finds a global through an instruction that uses it (`globalAt` in `scripts/dev/client-control.js`), or
+  lists where it sits in each later build (`MOVED` in `scripts/re/frida/common.js`, from
+  `compare_builds.py --data-map`). Never write a later build's data address into a doc or a script as the release's.
 - **Run commands from the repository root.**
 - **Keep production game-data paths relative to the repository root (`data/`).** Do not add parent-directory
   searching, an absolute `DataFolder`, or catalog-path changes to accommodate tests or one machine.

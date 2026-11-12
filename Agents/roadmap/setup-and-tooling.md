@@ -10,10 +10,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Standard startup must preserve the installed 3.29.3c client archive.
   Any client archive mutation requires separate maintainer agreement; automatic graph installation is not approved.
   Analysis artifacts alone provide no installed gameplay support or native proof.
-- Make the walk-map recorder follow the allowed client builds: `scripts/walkmaps/walkmaps.js` names fixed data
-  addresses, which fit 3.29.3c only. Read them through the code that uses them, as the control bridge does
-  (`globalAt`, [tooling](../docs/re/tooling.md) §11). The reverse-engineering scripts in `scripts/re` stay fitted to
-  3.29.3c.
 - Generate the Gateway's C→S length table from [c2s.md](../docs/protocol/c2s.md) (287 instance ids with an exact length;
   `KnownClientLength` has 101, beside the variable-length readers in `SplitClientMessages`).
 - Integrate the reviewed C→S length candidates into the Gateway after native verification.
