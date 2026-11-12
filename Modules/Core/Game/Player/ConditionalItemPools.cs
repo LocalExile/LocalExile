@@ -201,6 +201,7 @@ public static partial class Game
         public bool Building;
         public long Revision, Presented;
         public (int Movement, int Avoid) AppliedElusive;
+        public int AppliedOnslaughtEffect;
     }
 
     static readonly ConditionalWeakTable<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
@@ -219,9 +220,14 @@ public static partial class Game
             var before = state.Applied;
             var elusive = ElusivePanelState(conn);
             bool sameElusive = state.AppliedElusive == elusive;
-            if (current is null || ReferenceEquals(before, current) && sameElusive) return false;
+            int onslaughtEffect = Stats.Key("onslaught_effect_+%") is uint effectKey
+                ? conn.PlayerStats.TryGetValue(effectKey, out int replacement) ? replacement
+                    : current?.Sources.GetValueOrDefault(effectKey) ?? 0 : 0;
+            bool sameOnslaughtEffect = state.AppliedOnslaughtEffect == onslaughtEffect;
+            if (current is null || ReferenceEquals(before, current) && sameElusive && sameOnslaughtEffect) return false;
             state.Applied = current;
             state.AppliedElusive = elusive;
+            state.AppliedOnslaughtEffect = onslaughtEffect;
             // After a Game-module reload the source marker is new but the connection's old final pools survive.
             // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
             bool conditionalEquipment = before is null && current.Worn.Any(w => w.Item.Mods.Any(m =>
@@ -231,7 +237,8 @@ public static partial class Game
                         || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Id))) == true));
             bool sameHerEmbrace = (before?.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true)
                 == (current.Key.Flags?.GetValueOrDefault("_while_in_her_embrace") == true);
-            if (sameElusive && sameHerEmbrace && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
+            if (sameElusive && sameHerEmbrace && sameOnslaughtEffect
+                && (before is null && !conditionalEquipment && current.Key.PoisonStacks == 0
                 || before is not null && before.Attributes == current.Attributes
                 && before.Inactive.SetEquals(current.Inactive)
                 && before.Key.PoisonStacks == current.Key.PoisonStacks

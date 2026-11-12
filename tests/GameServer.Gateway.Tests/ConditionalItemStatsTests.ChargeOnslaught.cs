@@ -80,10 +80,17 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(0, Get("current_endurance_charges"));
         Assert.Equal(0, charges.Limits(ChargeType.Endurance).Maximum);
         Assert.True(Game.ChargeOnslaughtActive(conn));
-        conn.PlayerStats[Key("onslaught_effect_+%")] = 50; Read();
-        Assert.Equal(baseline.AttackSpeedPct + 30, conn.Pools.AttackSpeedPct);
-        Assert.Equal(baseline.MovementVelocityPct + 30, conn.Pools.MovementVelocityPct);
-        conn.PlayerStats.Remove(Key("onslaught_effect_+%"));
+        using (Game.PlayerStatsScope(conn))
+        {
+            conn.PlayerStats[Key("onslaught_effect_+%")] = 50;
+            stats = Game.CharacterPlayerStats(conn); // Do not explicitly rebuild Pools: this must invalidate the live view.
+            Assert.Equal(baseline.AttackSpeedPct + 30, conn.Pools.AttackSpeedPct);
+            Assert.Equal(baseline.MovementVelocityPct + 30, conn.Pools.MovementVelocityPct);
+            conn.PlayerStats.Remove(Key("onslaught_effect_+%"));
+            stats = Game.CharacterPlayerStats(conn);
+            Assert.Equal(baseline.AttackSpeedPct + 20, conn.Pools.AttackSpeedPct);
+            Assert.Equal(baseline.MovementVelocityPct + 20, conn.Pools.MovementVelocityPct);
+        }
         // Changed maxima reconcile before the same-snapshot condition; a zero maximum does not create a gain.
         Assert.False(conn.RecentEvents.Happened(StatConditions.GainedEnduranceCharge, Game.ResourceEffectsTime(conn)));
         conn.Experience = CharacterStats.ExperienceFor(1); conn.Pools = Game.PoolsFor(conn, 1);
