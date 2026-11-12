@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using GameServer.Data.Terrain;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Core;
 
 namespace LevelGenTool;
 
@@ -105,7 +106,7 @@ static class Gate
     }
 
     /// <summary>`levelgen survey [--jobs N]`: every WorldAreas row with a topology that has no generation trace
-    /// (data/tables/WorldAreas.json), run through the port at seed 1 and its area level: generation, walkability,
+    /// (the WorldAreas client table), run through the port at seed 1 and its area level: generation, walkability,
     /// the doodad stage and the cell heights. Nothing to compare with: "ok" says only that the port got through, a
     /// stop names what it does not support. Written to survey-latest.json beside the baseline (local).</summary>
     public static int Survey(string[] args)
@@ -114,14 +115,14 @@ static class Gate
         int jobs = Math.Clamp(Environment.ProcessorCount / 2, 1, 8);
         for (int i = 0; i < args.Length; i++)
             if (args[i] == "--jobs") jobs = int.Parse(args[++i]);
-        using var areas = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
+        var areas = ClientTable.Load(Path.Combine(root, "data", "client.db"), "WorldAreas");
         var tasks = new List<string>();
-        foreach (var row in areas.RootElement.EnumerateArray())
+        foreach (var row in areas)
         {
-            string id = row.GetProperty("Id").GetString()!;
-            if (row.GetProperty("TopologiesKeys").GetArrayLength() == 0) continue;
+            string id = row.Text("Id")!;
+            if (row.Ints("TopologiesKeys").Length == 0) continue;
             if (Directory.GetFiles(Path.Combine(root, "data", "walkability"), $"{id}_seed*.gen.json").Length > 0) continue;
-            tasks.Add($"survey\t{id}\t{Math.Max(1, row.GetProperty("AreaLevel").GetInt32())}");
+            tasks.Add($"survey\t{id}\t{Math.Max(1, row.Int("AreaLevel"))}");
         }
         var clock = Stopwatch.StartNew();
         var results = RunWorkers(tasks, jobs);
@@ -143,8 +144,8 @@ static class Gate
         string file = args[0];
         for (int i = 1; i < args.Length; i++)
             if (args[i] == "--jobs") jobs = int.Parse(args[++i]);
-        using var areas = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllText(Path.Combine(root, "data", "tables", "WorldAreas.json")));
-        var levels = areas.RootElement.EnumerateArray().ToDictionary(r => r.GetProperty("Id").GetString()!, r => Math.Max(1, r.GetProperty("AreaLevel").GetInt32()));
+        var levels = ClientTable.Load(Path.Combine(root, "data", "client.db"), "WorldAreas")
+            .ToDictionary(r => r.Text("Id")!, r => Math.Max(1, r.Int("AreaLevel")));
         var lines = File.ReadAllLines(file);
         var tasks = new List<string>();
         foreach (var line in lines)

@@ -1,15 +1,20 @@
 """Summarize generated stock observations without turning sampled rolls into generation rules."""
 import argparse
 import json
+import os
+import sys
 from collections import Counter
 from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "dev"))
+import clientdb  # noqa: E402  (scripts/dev/clientdb.py: the client tables in data/client.db)
 
 
 def main():
     ap=argparse.ArgumentParser();ap.add_argument('capture_folder',type=Path);args=ap.parse_args()
     root=args.capture_folder
     data=json.loads((root/'decoded-stock.json').read_text(encoding='utf-8'))
-    areas={r['Id']:r for r in json.loads(Path('data/tables/WorldAreas.json').read_text(encoding='utf-8'))}
+    areas={r['Id']:r for r in clientdb.table('WorldAreas')}
     towns={'Nessa Act 1':'1_1_town','Tarkleigh Act 1':'1_1_town','Yeena Act 2':'1_2_town',
            'Clarissa Act 3':'1_3_town','Petarus and Vanja Act 4':'1_4_town'}
     rows=[]

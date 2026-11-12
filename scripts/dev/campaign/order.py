@@ -1,4 +1,4 @@
-"""The campaign's quest order: Quest.json Ids (data/tables/Quest.json), acts 1-10 and the epilogue.
+"""The campaign's quest order: Quest table Ids (client.db), acts 1-10 and the epilogue.
 
 The usual levelling route through each act, with side quests where their area is passed. Quest files are
 `quests/<Id>.py`; a quest without one is reported "not implemented". Not in the order: the Labyrinth trials

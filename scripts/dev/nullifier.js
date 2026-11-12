@@ -28,6 +28,18 @@ function checked(name, va, expected) {
   if (actual !== expected) throw new Error(`Unsupported client: ${name} code differs from 3.29.3c`);
   return p;
 }
+// A global's address, read from an instruction that uses it. Data moves between client builds whose code does not
+// (Agents/docs/re/tooling.md section 11), so a fixed data address fits one build only. `pattern` is the instruction and
+// the bytes after it in hex, with ???????? for its RIP-relative displacement, which must end the instruction.
+function globalAt(name, va, pattern) {
+  const p = at(va), gap = pattern.indexOf('?') / 2;
+  const actual = Array.from(new Uint8Array(p.readByteArray(pattern.length / 2)))
+    .map(x => x.toString(16).padStart(2, '0')).join('');
+  if (![...pattern].every((c, i) => c === '?' || c === actual[i])) {
+    throw new Error(`Unsupported client: ${name} code differs from 3.29.3c`);
+  }
+  return p.add(gap + 4).add(p.add(gap).readS32());
+}
 const log = message => send({type: 'log', message});
 const keep = [];
 
@@ -230,7 +242,8 @@ if (OPTIONS.nullRenderer || OPTIONS.noRenderJobs || OPTIONS.noTextureUpload || O
 // 0x142bf0064 on entering any area). Slot 4 of that vtable gets the DirectX 12 buffer's answer, from the Null
 // buffer's own fields; the second u32 (the DirectX 12 buffer's +0x228) is given the index count.
 if (OPTIONS.nullRenderer) {
-  const vtable = at('0x143218858');
+  // lea rax, [vtable] where 0x140e95cd0 builds the buffer: 0x143218858 in 3.29.3c, 0x1432187c8 in 3.29.3d.
+  const vtable = globalAt('nullIndexBufferVtable', '0x140e95fe2', '488d05????????4889038b456f8983');
   const map = checked('nullBufferMap', '0x140eea4d0', '488b8130010000498901c3');
   if (!vtable.add(0x10).readPointer().equals(map) || !vtable.add(0x20).readPointer().equals(at('0x1400f1180'))) {
     throw new Error('Unsupported client: Null index buffer vtable differs from 3.29.3c');
@@ -516,7 +529,8 @@ if (OPTIONS.crashLog) {
 // (0x143a65b90, 37 entries of 0x20 bytes: i32 value, i32 initialised, i32 option, pad, char *name, char *legacy name)
 // is read 20 s after the start, when the allocator has read them, and the asked-for options are logged.
 if (OPTIONS.mimalloc && Object.keys(OPTIONS.mimalloc).length) {
-  const table = at('0x143a65b90');
+  // lea rcx, [table] in the allocator's option reader 0x142c8e120.
+  const table = globalAt('mimallocOptions', '0x142c8e2af', '488d0d????????e885070000e9a5feffff');
   if (table.add(0x10).readPointer().readCString() !== 'show_errors') {
     throw new Error('Unsupported client: mimalloc option table differs from 3.29.3c');
   }

@@ -62,5 +62,3 @@ With the graph installed, start through `scripts/dev/live.ps1` and run:
 /add_passive 54114 48846 24607 46836 61147 35022 27473 30851
 /ascendancy
 ```
-
-Coverage: `AscendancyGatewayIntegrationTests.Aristocrat` and `VerifiedGamblerGraphTests`.

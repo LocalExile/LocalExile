@@ -166,27 +166,24 @@ public sealed class BenchCrafting(ItemCatalog catalog, ItemRolls rolls, string f
 
     static IReadOnlyList<Recipe> Load(ItemCatalog catalog, string folder)
     {
-        string options = Path.Combine(folder, "tables/CraftingBenchOptions.json"), categories = Path.Combine(folder, "tables/CraftingItemClassCategories.json");
-        if (!ClientTables.Exists(options) || !ClientTables.Exists(categories)) return [];
-        using var cats = JsonDocument.Parse(ClientTables.ReadAllBytes(categories));
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(options));
-        ModCatalog.Mod? Mod(JsonElement r, string key) => r.GetProperty(key).ValueKind == JsonValueKind.Number ? catalog.Mods.Row(r.GetProperty(key).GetInt32()) : null;
+        if (!ClientTables.Has("CraftingBenchOptions") || !ClientTables.Has("CraftingItemClassCategories")) return [];
+        var cats = ClientTables.Table("CraftingItemClassCategories");
+        ModCatalog.Mod? Mod(ClientRow r, string key) => r.IntOrNull(key) is int mod ? catalog.Mods.Row(mod) : null;
         var result = new List<Recipe>();
-        int row = -1;
-        foreach (var r in doc.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("CraftingBenchOptions"))
         {
-            row++;
-            if (r.GetProperty("IsDisabled").GetBoolean() || r.GetProperty("IsAreaOption").GetBoolean() || r.GetProperty("MapDevice").GetBoolean()) continue;
-            var classes = r.GetProperty("ItemClasses").EnumerateArray().Select(c => c.GetInt32()).ToHashSet();
+            int row = r.Index;
+            if (r.Bool("IsDisabled") || r.Bool("IsAreaOption") || r.Bool("MapDevice")) continue;
+            var classes = r.Ints("ItemClasses").ToHashSet();
             if (classes.Count == 0)
-                foreach (int category in r.GetProperty("CraftingItemClassCategories").EnumerateArray().Select(c => c.GetInt32()))
-                    classes.UnionWith(cats.RootElement[category].GetProperty("ItemClasses").EnumerateArray().Select(c => c.GetInt32()));
-            var costs = r.GetProperty("Cost_BaseItemTypes").EnumerateArray().Zip(r.GetProperty("Cost_Values").EnumerateArray(),
-                (b, n) => (catalog.Row(b.GetInt32())!.Hash, n.GetInt32())).ToList();
-            result.Add(new(row, r.GetProperty("Name").GetString()!, Mod(r, "AddMod"), Mod(r, "AddEnchantment"),
-                r.GetProperty("CraftingBenchCustomAction").GetInt32(), r.GetProperty("Sockets").GetInt32(),
-                r.GetProperty("Links").GetInt32(), r.GetProperty("SocketColours").GetString()!, classes, costs,
-                r.GetProperty("RecipeIds").EnumerateArray().Select(c => c.GetInt32()).ToList()));
+                foreach (int category in r.Ints("CraftingItemClassCategories"))
+                    classes.UnionWith(cats[category].Ints("ItemClasses"));
+            var costs = r.Ints("Cost_BaseItemTypes").Zip(r.Ints("Cost_Values"),
+                (b, n) => (catalog.Row(b)!.Hash, n)).ToList();
+            result.Add(new(row, r.Text("Name")!, Mod(r, "AddMod"), Mod(r, "AddEnchantment"),
+                r.Int("CraftingBenchCustomAction"), r.Int("Sockets"),
+                r.Int("Links"), r.Text("SocketColours")!, classes, costs,
+                r.Ints("RecipeIds").ToList()));
         }
         return result;
     }

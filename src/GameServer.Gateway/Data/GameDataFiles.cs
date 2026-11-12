@@ -1,79 +1,92 @@
 using GameServer.Core;
 /// <summary>
-/// The game data the Gateway reads from data/ (extracted from Client/Content.ggpk by scripts/dev/extract-data.ps1,
-/// which live.ps1 runs on every start; the tables and generated files come from client.db through ClientTables). Each
-/// feature turns itself off without its file; this lists the missing ones in
+/// The game data the Gateway reads from data/ (extracted from the client in Client/ by scripts/dev/extract-data.ps1,
+/// which live.ps1 runs on every start; the client's tables and the generated ones come from client.db through
+/// ClientTables). Each feature turns itself off without its table or file; this lists the missing ones in
 /// one startup warning. Keep in step with extract-data.ps1's manifest.
 /// </summary>
 public static class GameDataFiles
 {
-    public static readonly (string File, string Feature)[] All =
+    /// <summary>The client tables (client.db, <see cref="ClientTables.Table"/>) features turn off without.</summary>
+    public static readonly (string Table, string Feature)[] Tables =
     [
-        ("data/vendor-stock.json", "ordinary vendor roles and quest/class gem membership"),
-        ("data/tables/KiracLevels.json", "Kirac map progression and refresh costs"),
-        ("data/tables/WorldAreas.json", "the game tables (areas, waypoints, monsters, NPCs)"),
-        ("data/tables/BaseItemTypes.json", "item bases (items, drops and /item)"),
-        ("data/tables/ItemClasses.json", "item classes (socket caps and weapon restrictions)"),
-        ("data/tables/Stats.json", "stats and the editable stat reference"),
-        ("data/tables/Mods.json", "mods, affix rolls and the editable mod reference"),
-        ("data/tables/Tags.json", "mod spawn tags (affix rolls)"),
-        ("data/tables/InfluenceTags.json", "influence mods (rolls on influenced items)"),
-        ("data/tables/UniqueStashTypes.json", "unique collection categories"),
-        ("data/tables/UniqueStashLayout.json", "unique item names and artwork"),
-        ("data/tables/VillageUniqueDisenchantValues.json", "unique drop weights"),
-        ("data/tables/PassiveJewelSlots.json", "ordinary passive tree jewel sockets"),
-        ("data/tables/ModType.json", "vendor affix sale-price categories"),
-        ("data/tables/Essences.json", "essence crafting and class-specific guaranteed modifiers"),
-        ("data/tables/CraftingBenchOptions.json", "crafting bench recipes, unlocks and costs"),
-        ("data/tables/CraftingItemClassCategories.json", "crafting bench item compatibility"),
-        ("data/tables/DelveUpgrades.json", "Delve equipment upgrade prices, limits and stats"),
-        ("data/delve-paths.json", "authored Delve rail routes"),
-        ("data/tables/DelveLevelScaling.json", "Delve trip costs and monster levels"),
-        ("data/tables/DelveResourcePerLevel.json", "sulphite deposits' native area-level rewards"),
-        ("data/tables/DelveFlares.json", "Delve flare prices"),
-        ("data/tables/DelveDynamite.json", "Delve dynamite prices"),
-        ("data/tables/UniqueMaps.json", "unique map shop identities"),
-        ("data/tables/LabyrinthTrials.json", "the Trials of Ascendancy (their areas and completion flags)"),
-        ("data/tables/GrantedEffectStatSets.json", "the Labyrinth spike traps' damage (LbRetractableTrap)"),
-        ("data/tables/GameConstants.json", "golem actor-level spell damage scaling"),
-        ("data/tables/SkillTrapVariations.json", "native placed-trap object identities"),
-        ("data/tables/BuffDefinitions.json", "the Labyrinth spike traps' bleeding buff"),
-        ("data/tables/MapFragmentMods.json", "map scarabs and fragments"),
-        ("data/tables/MapDeviceRecipes.json", "map device recipes (Maven, Atziri)"),
-        ("data/tables/MavenFights.json", "Maven invitation witness fights"),
-        ("data/tables/AtlasVoidstoneSlots.json", "Atlas Voidstones"),
-        ("data/tables/Words.json", "item names"),
-        ("data/tables/VillageUniqueDisenchantValues.json", "unique drop weights"),
-        ("data/tables/ItemVisualIdentity.json", "unique map artwork"),
+        ("KiracLevels", "Kirac map progression and refresh costs"),
+        ("WorldAreas", "the game tables (areas, waypoints, monsters, NPCs)"),
+        ("BaseItemTypes", "item bases (items, drops and /item)"),
+        ("ItemClasses", "item classes (socket caps and weapon restrictions)"),
+        ("Stats", "stats and the editable stat reference"),
+        ("Mods", "mods, affix rolls and the editable mod reference"),
+        ("Tags", "mod spawn tags (affix rolls)"),
+        ("InfluenceTags", "influence mods (rolls on influenced items)"),
+        ("UniqueStashTypes", "unique collection categories"),
+        ("UniqueStashLayout", "unique item names and artwork"),
+        ("VillageUniqueDisenchantValues", "unique drop weights"),
+        ("PassiveJewelSlots", "ordinary passive tree jewel sockets"),
+        ("ModType", "vendor affix sale-price categories"),
+        ("Essences", "essence crafting and class-specific guaranteed modifiers"),
+        ("CraftingBenchOptions", "crafting bench recipes, unlocks and costs"),
+        ("CraftingItemClassCategories", "crafting bench item compatibility"),
+        ("DelveUpgrades", "Delve equipment upgrade prices, limits and stats"),
+        ("DelveLevelScaling", "Delve trip costs and monster levels"),
+        ("DelveResourcePerLevel", "sulphite deposits' native area-level rewards"),
+        ("DelveFlares", "Delve flare prices"),
+        ("DelveDynamite", "Delve dynamite prices"),
+        ("UniqueMaps", "unique map shop identities"),
+        ("LabyrinthTrials", "the Trials of Ascendancy (their areas and completion flags)"),
+        ("GrantedEffectStatSets", "the Labyrinth spike traps' damage (LbRetractableTrap)"),
+        ("GameConstants", "golem actor-level spell damage scaling"),
+        ("SkillTrapVariations", "native placed-trap object identities"),
+        ("BuffDefinitions", "the Labyrinth spike traps' bleeding buff"),
+        ("MapFragmentMods", "map scarabs and fragments"),
+        ("MapDeviceRecipes", "map device recipes (Maven, Atziri)"),
+        ("MavenFights", "Maven invitation witness fights"),
+        ("AtlasVoidstoneSlots", "Atlas Voidstones"),
+        ("Words", "item names"),
+        ("ItemVisualIdentity", "unique map artwork"),
+    ];
+
+    /// <summary>The generated tables (client.db: extract-data.ps1's generators, scripts/dev/generated_tables.py) features
+    /// turn off without, by one table of each file.</summary>
+    public static readonly (string Table, string Feature)[] Generated =
+    [
+        ("vendor_shops", "ordinary vendor roles and quest/class gem membership"),
+        ("delve_path_rooms", "authored Delve rail routes"),
         // object-types manifest v4 combines inherited Life flags with Positioned/Animated collision metadata; v6 adds the
-        // rooms' server objects (room-points.json) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
+        // rooms' server objects (room points) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
         // QUEST_ROOM_TYPES). item-types v2: the quest items' .it Quest flags.
-        ("data/object-types.json", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
-        ("data/item-types.json", "items, quest items' Quest flags"),
-        ("data/area-transitions.json", "area transitions of fixed layouts"),
-        ("data/room-points.json", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
-        ("data/hideouts.json", "hideouts and native stationary model collision radii"),
-        ("data/animation-contacts.json", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing and the bow/wand release points"),
-        ("data/monster-takehit.json", "monster hit reactions (the TakeHit flinch and its sound)"),
-        ("data/monster-contacts.json", "monster projectile release timing/points and boss stage contacts"),
-        ("data/projectile-clips.json", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
-        ("data/passive-skill-graphs.json", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
+        ("object_types", "monsters (emergence and inherited Life corpse flags), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
+        ("item_types", "items, quest items' Quest flags"),
+        ("area_transition_areas", "area transitions of fixed layouts"),
+        ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
+        ("hideout_layouts", "hideouts and native stationary model collision radii"),
+        ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
+        ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
+        ("monster_contacts", "monster projectile release timing/points and boss stage contacts"),
+        ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip)"),
+        ("passive_graphs", "ordinary and Phrecia passive graph membership/connections/geometry (passive-graphs v5)"),
+        ("client_constants", "the Gateway does not start without its HNC mask"),
+        ("stat_descriptions", "mod wording for tools' item crafter (the crafter mode)"),
+    ];
+
+    /// <summary>The files read from data/ itself.</summary>
+    public static readonly (string File, string Feature)[] Files =
+    [
         ("data/game-files.zip", "levels the Gateway generates itself, the Phrecia classes' passive graph check"),
-        ("data/client-constants.json", "the Gateway does not start without its HNC mask"),
-        ("data/stat-descriptions.txt", "mod wording for tools' item crafter (the crafter mode)"),
     ];
 
     public static IEnumerable<(string File, string Feature)> Missing(string root = ".") =>
-        All.Where(f => !ClientTables.Exists(Path.Combine(root, f.File)));
+        Tables.Concat(Generated).Where(t => !ClientTables.Has(t.Table)).Select(t => ($"the table {t.Table}", t.Feature))
+            .Concat(Files.Where(f => !File.Exists(Path.Combine(root, f.File))));
 
     /// <summary>Generated files whose older versions still load but lack what a feature reads (extract-data.ps1's manifest
     /// entry, the version that added it): with an older one the feature runs without it, silently.</summary>
     public static readonly (string Entry, int Version, string Feature)[] Needed =
     [
+        ("game-pack", 4, "native Delve encounter rooms for procedural mine terrain"),
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 7, "class rig animation indices and spell cancellation events: without them cast movement waits for the full spell"),
+        ("animation-contacts", 8, "class rig animation indices, spell cancellation events and every contact frame of a clip for multi-strike skills: without them cast movement waits for the full spell and later strikes fall back to a half-attack gap"),
         ("monster-contacts", 4, "Throw-stage animation contacts: without them boss stage effects wait until recovery ends"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("object-types", 9, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals) and the monster types that phase through objects or never walk: without them they get the wrong blob or none, phasing monsters block paths and immobile ones are walked"),
@@ -84,11 +97,11 @@ public static class GameDataFiles
     public static IEnumerable<(string Entry, int Have, int Version, string Feature)> Outdated(string root = ".")
     {
         string file = Path.Combine(root, "data", "extract-stamps.json");
-        if (!ClientTables.Exists(file)) yield break;
+        if (!File.Exists(file)) yield break;
         Dictionary<string, int> stamps = [];
         try
         {
-            using var doc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllText(file).TrimStart('\uFEFF'));
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(file).TrimStart('\uFEFF'));
             foreach (var e in doc.RootElement.EnumerateObject())
                 if (e.Value.ValueKind == System.Text.Json.JsonValueKind.Object && e.Value.TryGetProperty("version", out var v) && v.TryGetInt32(out int n))
                     stamps[e.Name] = n;
@@ -99,11 +112,13 @@ public static class GameDataFiles
     }
 
     // An entry whose output the servers read from client.db (built from sql/, whatever the local extraction's version).
-    static bool InClientDb(string root, string entry)
+    static bool InClientDb(string root, string entry) => ClientTables.Has(entry switch
     {
-        string file = Path.Combine(root, entry == "tables" ? "data/tables/WorldAreas.json" : $"data/{entry}.json");
-        return ClientTables.TryTable(file, out string table) ? ClientTables.Has(table) : ClientTables.TryFile(file, out _);
-    }
+        "tables" => "WorldAreas",
+        "vendor-stock" => "vendor_shops",
+        "animation-contacts" => "animation_rigs",
+        _ => entry.Replace('-', '_'),
+    });
 
     /// <summary>One warning naming every generated file older than a feature needs, or null.</summary>
     public static string? OutdatedWarning(string root = ".")
