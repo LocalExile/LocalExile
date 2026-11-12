@@ -18,6 +18,13 @@ public partial class Program
             if (conn.Commands is { } commands) conn.Commands = commands.Emptied();
     }
 
+    // The same for one connection that ended: it is out of InGame, so no later unload reaches its table, and its state can
+    // stay in memory long after its socket closed.
+    public static void ForgetCommands(ClientState left)
+    {
+        if (left.Commands is { } commands) left.Commands = commands.Emptied();
+    }
+
     // The chat commands of one connection (ChatCommands.cs).
     public static ChatCommands Commands(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
