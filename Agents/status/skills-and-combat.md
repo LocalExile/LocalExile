@@ -47,7 +47,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Movement speed and action speed. Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block and Spell Block. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Endurance, Frenzy, Power, converted and Blood Charges. Docs: [11](../docs/protocol/11-skills.md) §15.
+- Endurance, Frenzy, Power, converted and Blood Charges, including Reap's life cost and mixed-target hits. Docs: [11](../docs/protocol/11-skills.md) §15.
 - Discharge and Discharge of Misery. Docs: [11](../docs/protocol/11-skills.md) §15.
 - Character panel sums. Docs: [11](../docs/protocol/11-skills.md) §14.
 - Character-panel leech limits and hit leech. Docs: [20](../docs/protocol/20-damage.md) §5b.

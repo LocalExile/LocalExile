@@ -327,9 +327,10 @@ public static partial class Game
             return false;
         player = SupportedStats(conn, skillId);
         cost = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("mana_cost") ?? 0));
-        // Reap's Blood Charges: more cost per charge held (BloodCharges), rounded as the client rounds costs.
-        if (cost > 0 && BloodCharges.Uses(Own))
-            cost = (uint)Math.Round(cost * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges));
+        int nativeLife = Math.Max(0, player.GetValueOrDefault(Stats.Key("life_cost") ?? 0));
+        if (nativeLife > 0 && BloodCharges.Uses(Own))
+            nativeLife = (int)Math.Min(int.MaxValue, Math.Round(nativeLife
+                * BloodCharges.More(Own(BloodCharges.CostPerCharge), conn.BloodCharges)));
         // Inspiration: "Supported Skills have (25-42)% reduced Mana Cost".
         int inspirationCost = Own("support_inspiration_mana_cost_+%_final");
         if (cost > 0 && inspirationCost != 0)
@@ -352,6 +353,7 @@ public static partial class Game
             cost = 0;
         }
         else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
+        life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
         return conn.PlayerMana >= cost && !(life > 0 && conn.PlayerLife <= (uint)life);
     }
 

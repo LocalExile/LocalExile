@@ -133,6 +133,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
+        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
@@ -1271,7 +1272,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
-        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
+        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
@@ -1328,6 +1329,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
+            var life = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
@@ -1343,6 +1345,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
                 int i = Array.IndexOf(types, 0);
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
+                int lifeIndex = Array.IndexOf(types, 1);
+                life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
@@ -1380,7 +1384,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
-            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
+            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute);
         }
