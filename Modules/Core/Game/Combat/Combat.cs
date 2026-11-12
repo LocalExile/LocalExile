@@ -1579,7 +1579,7 @@ public static partial class Game
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
-        var centre = wave || VaalExecutor(conn, gem.Effect) ? from
+        var centre = wave || SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam" ? from
             : spell ? SpellCentre(conn, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(conn).ActionHash(gem.Effect), from, to, radius + weapon.Range);
         int action = actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount;
@@ -1772,7 +1772,7 @@ public static partial class Game
                     poison = SupportedPoison(conn, skillId, spell, player, shield, addedChaos);
                 }
                 var contactHit = sweepHit;
-                if (VaalExecutor(conn, gem.Effect))
+                if (SkillsFor(conn).EffectId(gem.Effect) == "VaalGroundSlam")
                 {
                     double distance = Dist(conn.Walk.Position(ProjectileWorldTime(conn)), m.Walk.Position(ProjectileWorldTime(conn)));
                     contactHit = contactHit.Scale(1 + Stat("groundslam_damage_to_close_targets_+%_final")

@@ -12,6 +12,36 @@ namespace GameServer.Gateway.Tests;
 public class SacrificeSupportTests
 {
     [Fact]
+    public async Task Vaal_fireball_pays_once_and_emits_a_spiral_over_two_seconds()
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("VaalFireball");
+        var c = fixture.Conn;
+        c.Clock.Restart();
+        var gem = Game.GemSkillEffects(c).Single(g => Game.SkillsFor(c).EffectId(g.Effect) == "VaalFireball");
+        bool Admit() => Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, null, false, () => c.ActionCount++, out _);
+        Game.RefreshVaalSouls(c);
+        Assert.False(Admit());
+        for (int i = 0; i < 30; i++) Assert.True(c.VaalSouls.Gain());
+        Assert.True(Admit());
+        Assert.True(await Game.CastGemSkill("spiral", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        Assert.False(await Game.CastGemSkill("duplicate", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        long start = fixture.Session.Runtime.Now;
+        var seen = new Dictionary<long, ProjectileVector>();
+        for (int i = 0; i <= 64; i++)
+        {
+            fixture.Session.AdvanceTo(start + ProjectileRuntime.Time(i * .05));
+            foreach (var shot in fixture.Session.Runtime.Projectiles) seen.TryAdd(shot.Id, shot.Use.Aim - shot.Use.Origin);
+        }
+        Assert.Equal(32, seen.Count);
+        Assert.Contains(seen.Values, v => v.X > 0);
+        Assert.Contains(seen.Values, v => v.X < 0);
+        Assert.Contains(seen.Values, v => v.Y > 0);
+        Assert.Contains(seen.Values, v => v.Y < 0);
+        Assert.Equal(0u, c.VaalSouls.Read().Single().Current);
+    }
+
+    [Fact]
     public async Task Projectile_cast_sacrifices_once_at_release_and_added_chaos_uses_common_damage_rules()
     {
         foreach (string spell in new[] { "Fireball", "Spark" })

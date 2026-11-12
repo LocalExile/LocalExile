@@ -13,7 +13,7 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) == "VaalGroundSlam";
+    public static bool VaalExecutor(ClientState conn, int effect) => SkillsFor(conn).EffectId(effect) is "VaalGroundSlam" or "VaalFireball";
     static double VaalResourceTime(ClientState conn) => conn.LeavingArea && conn.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(conn);
 
