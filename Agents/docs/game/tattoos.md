@@ -1,16 +1,17 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 75 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 78 tattoo rows client-verified).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Seventy-five rows are `works` (the ten pilot,
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Seventy-eight rows are `works` (the ten pilot,
 22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row,
-the eleven Honoured rows, nine Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral
-Bloodlines: ES recovery works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga)
-and 22 are `not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable, Ancestral,
-Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue, the client
-mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is per row;
-`Reason` names the missing layer.
+the eleven Honoured rows, the Herald, guard and Fortify rows, nine Makanga gates, three Journey tattoos and Journey Makanui),
+one is `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery stats are unread), two are
+`inert` (Hinekora and Kitava Makanga) and 19 are `not implemented`. The server enforces the
+client's per-group limits
+(Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page
+records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules and the implementation
+groups. The `Status` column is per row; `Reason` names the missing layer.
 
 This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`, `PassiveSkillTattoos`,
 `PassiveSkillTattooTargetSets` and `PassiveSkillOverrides`, cross-checked with the poewiki
@@ -23,10 +24,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 48 | 0 | 0 | 5 |
+| Current (drop-enabled) | 53 | 51 | 0 | 0 | 2 |
 | Drop-disabled | 40 | 27 | 1 | 2 | 10 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **75** | **1** | **2** | **22** |
+| **Total** | **100** | **78** | **1** | **2** | **19** |
 
 | Status | Meaning |
 |---|---|
@@ -43,7 +44,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row and the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers). Not implemented: five rows that need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect). |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers) and the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun). Not implemented: two rows that need new consumers (corpse consumption and hinder). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
@@ -280,7 +281,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Arohongui Moonwarden** | +6% to Cold Resistance | Small Dexterity | Te Onui | works | client apply; cold 211% -> 217% |
 | **Tattoo of the Arohongui Scout** | 10% chance to Avoid being Chilled<br>10% chance to Avoid being Frozen | Small Dexterity | Te Onui | works | live /stat base_avoid_chill_%/base_avoid_freeze_% = 10; the player-ailment roll reads the published panel totals |
-| **Tattoo of the Arohongui Shaman** | 5% increased Effect of Herald Buffs on you | Small Intelligence | Moti Aro | not implemented | needs Herald buff effect |
+| **Tattoo of the Arohongui Shaman** | 5% increased Effect of Herald Buffs on you | Small Intelligence | Moti Aro | works | live /stat herald_effect_on_self_+% = 5; AuraCatalog.RawStats scales the herald buff stats by it (unit test) |
 | **Tattoo of the Arohongui Warmonger** | 5% chance to Freeze | Small Intelligence | Moti Aro | works | live /stat base_chance_to_freeze_% = 5; the published chance_to_freeze_% total reaches the freeze roll |
 | **Tattoo of the Arohongui Warrior** | 5% increased Cold Damage | Small Dexterity | Te Onui | works | client apply; +5% cold damage |
 
@@ -330,7 +331,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Rongokurai Brute** | 10% increased Stun Threshold | Small Strength | Ngakanu | works | client apply; +10% stun threshold |
 | **Tattoo of the Rongokurai Goliath** | 10% increased Stun Duration on Enemies | Small Strength | Ngakanu | works | client apply; +10% stun duration |
-| **Tattoo of the Rongokurai Guard** | Guard Skills have 6% increased Duration | Small Strength | Ngakanu | not implemented | needs guard-skill duration |
+| **Tattoo of the Rongokurai Guard** | Guard Skills have 6% increased Duration | Small Strength | Ngakanu | works | live /stat guard_skill_effect_duration_+% = 6; GuardDuration adds it to the same increased-duration sum (unit test) |
 | **Tattoo of the Rongokurai Turtle** | You take 5% reduced Extra Damage from Critical Strikes | Small Intelligence | Moti Aro | works | client apply; -5% extra critical damage taken |
 | **Tattoo of the Rongokurai Warrior** | 6% increased Armour | Small Strength | Ngakanu | works | client apply; armour 319% -> 325% |
 
@@ -362,7 +363,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | **Tattoo of the Tukohama Shaman** | Regenerate 0.3% of Life per second | Small Strength | Ngakanu | works | client apply; 0.3%/s life regeneration |
 | **Tattoo of the Tukohama Warcaller** | 8% increased Warcry Cooldown Recovery Rate | Small Strength | Ngakanu | works | live /stat warcry_cooldown_speed_+% = 8; SingleUseCooldown reads it |
 | **Tattoo of the Tukohama Warmonger** | 5% increased Melee Damage | Small Strength | Ngakanu | works | client apply; +5% melee damage |
-| **Tattoo of the Tukohama Warrior** | Melee Hits which Stun have 5% chance to Fortify | Small Strength | Ngakanu | not implemented | needs fortify on stun |
+| **Tattoo of the Tukohama Warrior** | Melee Hits which Stun have 5% chance to Fortify | Small Strength | Ngakanu | works | live /stat chance_to_fortify_on_melee_stun_% = 5; the stun roll grants the hit's damage-based stacks through FortificationGainModel (unit test) |
 
 ### Valako (5)
 
@@ -673,6 +674,23 @@ Ailment and avoidance rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev 
   catalogue rows and the published total's alias sum.
 - The right-click item flow is the `0x77` path verified for the earlier rows; these nine were applied through the dev
   command so the same nodes can be reused without spending currency.
+
+Herald, guard and Fortify rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** Arohongui Shaman (herald effect), Rongokurai Guard (guard duration) and Tukohama Warrior
+  (Fortify on a melee stun) on allocated passives, on 21301 (Strength). `/stat` read herald_effect_on_self_+% 5,
+  guard_skill_effect_duration_+% 6 and chance_to_fortify_on_melee_stun_% 5; `/tattoo_remove` restored every stat
+  to 0.
+- **Consumers:**
+  - Herald buff effect scales the herald buff stats through `AuraCatalog.RawStats`: Herald of Ash's
+    physical-as-fire stat doubles at 100% increased Effect of Herald Buffs on you (unit test).
+  - Guard duration adds `guard_skill_effect_duration_+%` into the same `skill_effect_duration_+%` sum
+    (`Game.GuardDuration`, used by the triggered guards), so the numbers do not come out high.
+  - Fortify on a melee stun: the successful stun roll in `HitReaction.TryFlinch` rolls the stat once and grants the
+    stacks `FortificationGainModel` computes from the hit's raw damage and the target's life and rarity, as the
+    on-hit Fortify path does; `cannot_gain_fortification_from_hits` blocks it and a hit that already fortified does
+    not fortify twice (`StunHit.Fortified`). `TattooConsumerTests` covers the catalogue rows and the three
+    consumers.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.

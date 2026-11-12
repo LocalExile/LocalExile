@@ -48,5 +48,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Saving quest progress, quest passive/refund rewards and native Labyrinth/Altar acquisition (#151).
-- Tattoos: 75 rows work in the client; 22 rows (new consumers, Loyalty summons, Forbidden tattoos) are missing.
+- Tattoos: 78 rows work in the client; 19 rows are missing: two new-consumer rows (corpse consumption and
+  hinder), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.
   Docs: [tattoos](../docs/game/tattoos.md).
