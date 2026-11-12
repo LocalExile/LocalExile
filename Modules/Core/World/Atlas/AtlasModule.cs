@@ -201,10 +201,9 @@ static class AtlasFeature
         ApplyLeagueFlags(conn);
         var player = PlayerOf(conn);
         var data = WorldOf(player).CharacterData;
-        AtlasProgress.Complete(data, AtlasProgress.Maps);
         var completed = AtlasProgress.Completed(data);
         // One Atlas passive point per map completed, up to the 100 the tree's map half has (#382 item 3). The completed set
-        // is restored above, so a character whose Atlas was filled before the award existed gets its points too.
+        // is read from the save. Entering an area does not complete any new maps.
         bool pointsChanged = false;
         if (Math.Min(AtlasModule.MapCompletionPoints, completed.Count) is int earned and > 0 && earned > conn.AtlasPassivePoints)
         {
