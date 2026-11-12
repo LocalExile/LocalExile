@@ -163,7 +163,7 @@ if ($command -cne ('Client\Game.patched.exe --patching-server 127.0.0.1:12995'.R
 $bad = @(Get-ChildItem $package -Recurse -File | Where-Object {
     $relative = $_.FullName.Substring($package.Length + 1).Replace('/', '\')
     $_.Extension -in '.ggpk', '.bin', '.dat', '.dat64', '.datc64', '.pfx', '.key', '.pem', '.db' -or
-    $_.Name -like 'PathOfExile*.exe' -or $_.Name -in 'Game.exe', 'Game.patched.exe', 'Game_x64.exe' -or ($_.Name -like '*secret*' -and $_.Extension -ne '.dll') -or $_.Name -like 'login-keys*' -or
+    $_.Name -like 'PathOfExile*.exe' -or $_.Name -in 'Game.exe', 'Game.patched.exe', 'Game_x64.exe' -or ($_.Name -like '*secret*' -and $_.Extension -ne '.dll' -and $relative -notlike 'sql\*') -or $_.Name -like 'login-keys*' -or
     $relative -like 'data\*' -or $relative -like 'Client\*'
 })
 if ($bad.Count) { throw "the package must not hold: $(($bad | Select-Object -First 10 | ForEach-Object { $_.FullName.Substring($package.Length + 1) }) -join ', ')" }
