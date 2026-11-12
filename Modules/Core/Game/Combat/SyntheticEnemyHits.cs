@@ -73,7 +73,7 @@ public static partial class Game
             if (suppressed) conn.RecentEvents.Record(StatConditions.SuppressedSpell, now);
             if (lifeBefore > conn.PlayerLife && (long)(lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)
                 conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
-            if (block) ChargesWhenHit(conn, blocked, spell);
+            ChargesWhenHit(conn, blocked, spell);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
             RecordHardcoreDeath(conn);
             hit = new(dealt, mitigation, conn.PlayerLife, conn.PlayerMana, manaBefore,
