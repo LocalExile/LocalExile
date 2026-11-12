@@ -79,6 +79,7 @@ public static partial class Game
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
+            NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             Spider = !HasSpiderDamage(Get) ? null : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 Volatile: false, Local: sourceWeapon.LocalSources is null ? null : new Dictionary<string, int>(sourceWeapon.LocalSources),

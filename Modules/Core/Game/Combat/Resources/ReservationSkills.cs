@@ -213,7 +213,8 @@ public static partial class Game
                         (long)Player("critical_strike_chance_+%") + Own("critical_strike_chance_+%"), Player, Own);
                 bool critical = RandomRolls.Chance(criticalChance, 10000, Random.Shared);
                 int multiplier = spell ? SupportedCriticalMultiplier(conn, aura.SkillId)
-                    : 150 + Player("base_critical_strike_multiplier_+") + Own("base_critical_strike_multiplier_+");
+                    : CriticalHitMultiplier(150L + Player("base_critical_strike_multiplier_+")
+                        + Own("base_critical_strike_multiplier_+"), player, skill.Stats);
                 var rolled = targetPacket.Roll(Random.Shared).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
                 int damage = MonsterTakesMitigated(m, mitigated, spell, now);

@@ -696,8 +696,9 @@ public static partial class Game
     {
         var gem = SupportedSkill(conn, skillId);
         int extra = Stats.Key("base_critical_strike_multiplier_+") is uint k ? gem.Stats.GetValueOrDefault(k) : 0;
-        return (int)Math.Clamp((long)(SkillsFor(conn).IsAttack(gem.Effect)
-            ? AttackCriticalMultiplier(conn, CharacterPlayerStats(conn), gem.Effect, gem.Stats)
-            : conn.Pools.SpellCriticalStrikeMultiplier) + extra, int.MinValue, int.MaxValue);
+        var player = CharacterPlayerStats(conn);
+        return CriticalHitMultiplier((long)(SkillsFor(conn).IsAttack(gem.Effect)
+            ? AttackCriticalMultiplier(conn, player, gem.Effect, gem.Stats)
+            : conn.Pools.SpellCriticalStrikeMultiplier) + extra, player, gem.Stats);
     }
 }

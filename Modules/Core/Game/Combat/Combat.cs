@@ -489,7 +489,7 @@ public static partial class Game
                         AttackCriticalChanceVsBlinded(conn, player), AttackCriticalChanceVsProfane(conn, player)), ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom);
                 int sourceCriticalMultiplier = AttackCriticalMultiplier(conn, player);
-                int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier);
+                int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier, player, ownPenetration);
                 double at = ProjectileWorldTime(conn);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
                     gambler.InvertsResistance(Random.Shared));
@@ -2168,7 +2168,7 @@ public static partial class Game
                     critical = RollCriticalStrike(conn, criticalChance, skillStats,
                             attack: !spell, skillRoll: criticalRoll, player: player)
                         && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, conn.AttackAccuracyRandom));
-                    int multiplier = CriticalMultiplierOn(m, sweepMultiplier);
+                    int multiplier = CriticalMultiplierOn(m, sweepMultiplier, player, skillStats);
                     double at = ProjectileWorldTime(conn);
                     (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at, mods, pen,
                         gambler.InvertsResistance(Random.Shared));

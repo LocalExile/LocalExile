@@ -310,8 +310,8 @@ public static partial class Game
                 ? SpellCriticalStrike.Chance(baseChance, Player, Own, conn.Pools.SpellCriticalStrikeChancePct + (long)extra) : null;
             int? vsProfane = SpellCriticalStrike.Chance(baseChance, Player, Own,
                 conn.Pools.SpellCriticalStrikeChancePct + FlaskGrounds.ProfaneCritIncrease);
-            int multiplier = (int)Math.Clamp((long)conn.Pools.SpellCriticalStrikeMultiplier + Own("base_critical_strike_multiplier_+"),
-                int.MinValue, int.MaxValue);
+            int multiplier = CriticalHitMultiplier((long)conn.Pools.SpellCriticalStrikeMultiplier
+                + Own("base_critical_strike_multiplier_+"), player, own);
             var gambler = GamblerFor(player);
             bool rageGranted = false;
             var deaths = new List<(uint Id, SpawnedMonster M)>();
@@ -333,7 +333,7 @@ public static partial class Game
                 double hitAt = ProjectileWorldTime(conn);
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
                     gambler.InvertsResistance(Random.Shared));
-                if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier));
+                if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, player, own));
                 var stun = OwnerStun(conn, m, damage, mitigated, melee: false, spell: true, critical, player, own);
                 var applied = ApplyMonsterHitLocked(conn, m, damage);
                 if (applied is { StageStarts: true } staged)

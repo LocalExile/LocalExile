@@ -314,6 +314,7 @@ public static partial class Game
             spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
+            NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(player, own),
             // Child stages and release specialization can introduce areas after this root is resolved.
             AreaHit = areaHitInputs is null ? DamagePacket.Empty : SupportedHitFrom(areaHitInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),

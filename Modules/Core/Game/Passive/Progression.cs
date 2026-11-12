@@ -1024,7 +1024,10 @@ public static partial class Game
         // effect never counts twice.
         int MagebloodGet(string name) => Stats.Key(name) is uint k
             ? devStats.TryGetValue(k, out int value) ? value : sources.GetValueOrDefault(k) : 0;
-        bonus = ApplyItemUtilityFlaskBonuses(bonus, UtilityStats(conn, MagebloodGet, level));
+        var utilityStats = UtilityStats(conn, MagebloodGet, level);
+        bonus = ApplyItemUtilityFlaskBonuses(bonus, utilityStats);
+        bool noExtraCriticalDamage = EquipmentInput("no_critical_strike_multiplier") != 0
+            || utilityStats.Any(row => row.Stat == "no_critical_strike_multiplier" && row.Value != 0);
         // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
         // whole speed the client walks and the panel shows, so (1 + increased) × (1 + final) − 1 (the original under the
         // darts: +19% became −52%).
@@ -1076,6 +1079,8 @@ public static partial class Game
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.
         pools = pools with
         {
+            CriticalStrikeMultiplier = CriticalHitMultiplier(pools.CriticalStrikeMultiplier, noExtraCriticalDamage),
+            SpellCriticalStrikeMultiplier = CriticalHitMultiplier(pools.SpellCriticalStrikeMultiplier, noExtraCriticalDamage),
             AttackBlockLucky = pools.AttackBlockLucky || conn.ForceAttackBlockLucky,
             SpellBlockLucky = pools.SpellBlockLucky || conn.ForceSpellBlockLucky,
             SpellSuppressionLucky = pools.SpellSuppressionLucky || conn.ForceSpellSuppressionLucky,

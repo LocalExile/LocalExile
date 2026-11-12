@@ -11,6 +11,7 @@ public sealed record ProjectileOffenseAlternate(DamagePacket Hit, DamagePacket? 
 public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accuracy, int CriticalChance,
     int CriticalMultiplier, string Label)
 {
+    public bool NoExtraCriticalDamage { get; init; }
     /// <summary>An optional encounter owner; expired owners cannot commit further contacts.</summary>
     public IReadOnlyDictionary<uint, int>? ActualCaster { get; init; }
     public object? Owner { get; init; }

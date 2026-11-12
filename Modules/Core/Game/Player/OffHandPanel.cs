@@ -46,8 +46,8 @@ public static partial class Game
         int chance = AttackBaseCriticalStrike.Chance(true, weaponBase,
             pools.CriticalStrikeChancePct + (own is null ? 0 : AttackBaseCriticalStrike.IncreasedSum(profile, n => Own(n))),
             Player, own is null ? null : Own);
-        int multiplier = (int)Math.Clamp((long)attackCriticalMultiplier()
-            + Own("base_critical_strike_multiplier_+"), int.MinValue, int.MaxValue);
+        int multiplier = CriticalHitMultiplier((long)attackCriticalMultiplier()
+            + Own("base_critical_strike_multiplier_+"), player, own);
         return
         [
             ("skill_uses_off_hand", 1),

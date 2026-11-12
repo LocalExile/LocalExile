@@ -1,6 +1,17 @@
 
 public static partial class Game
 {
+    public static bool CriticalHitsDealNoExtraDamage(IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null) => Stats.Key("no_critical_strike_multiplier") is uint key
+            && (player.GetValueOrDefault(key) != 0 || (own?.GetValueOrDefault(key) ?? 0) != 0);
+
+    public static int CriticalHitMultiplier(long ordinary, bool noExtra) => noExtra ? 100
+        : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
+
+    public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
+            CriticalHitsDealNoExtraDamage(player, own));
+
     public static bool IsCriticalProhibition(string name) => name is "global_cannot_crit"
         or "virtual_global_cannot_crit" or "cannot_critical_strike_with_attacks";
 
@@ -118,6 +129,7 @@ public static partial class Game
     {
         uint? key = Stats.Key(CriticalStrikePolicy.UnarmedMeleeMultiplierStat);
         long extra = key is uint k ? (long)player.GetValueOrDefault(k) + (own?.GetValueOrDefault(k) ?? 0) : 0;
-        return CriticalStrikePolicy.Multiplier(pools.CriticalStrikeMultiplier, extra, unarmed, melee, spell);
+        return CriticalHitMultiplier(CriticalStrikePolicy.Multiplier(pools.CriticalStrikeMultiplier,
+            extra, unarmed, melee, spell), player, own);
     }
 }

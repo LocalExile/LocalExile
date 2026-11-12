@@ -54,6 +54,7 @@ public partial class ConditionalItemStatsTests
         inventory.Remove(PlayerInventories.Boots, boots.Id); Game.CharacterPlayerStats(conn);
         Actual_atziri_flask_coefficients_reach_chaos_damage_and_leech();
         Actual_rumi_and_taste_effects_reach_block_conversion_and_avoidance();
+        Actual_coralito_suppresses_extra_critical_hit_damage(conn, wear);
     }
 
     void Actual_rumi_and_taste_effects_reach_block_conversion_and_avoidance()

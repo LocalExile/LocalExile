@@ -91,7 +91,8 @@ public static partial class Game
                         type, MonsterHitResistance(target, type, penetration, now), strike, resistanceMods, invert) / 100)));
                     int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
-                        CriticalMultiplierOn(target, 150 + Get("base_critical_strike_multiplier_+")));
+                        CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get("base_critical_strike_multiplier_+"),
+                            player), player));
                     if (ApplyMonsterHitLocked(conn, target, damage, player: player) is not { } hit) continue;
                     if (hit.StageStarts)
                     {

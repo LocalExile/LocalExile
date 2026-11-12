@@ -2,16 +2,17 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static readonly (string Local, string Target)[] ItemUtilityFlaskSources =
+    static readonly (string Local, string Target, bool Flag)[] ItemUtilityFlaskSources =
     [
-        ("local_unique_flask_physical_damage_%_to_add_as_chaos_while_healing", "physical_damage_%_to_add_as_chaos"),
-        ("local_unique_flask_elemental_damage_%_to_add_as_chaos_while_healing", "elemental_damage_%_to_add_as_chaos"),
-        ("local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing", "base_life_leech_from_chaos_damage_permyriad"),
-        ("local_unique_flask_block_%_while_healing", "additional_block_%"),
-        ("local_unique_flask_spell_block_%_while_healing", "base_spell_block_%"),
-        ("local_unique_flask_physical_damage_%_to_add_as_cold_while_healing", "physical_damage_%_to_add_as_cold"),
-        ("local_unique_flask_avoid_chill_%_while_healing", "base_avoid_chill_%"),
-        ("local_unique_flask_avoid_freeze_%_while_healing", "base_avoid_freeze_%"),
+        ("local_unique_flask_physical_damage_%_to_add_as_chaos_while_healing", "physical_damage_%_to_add_as_chaos", false),
+        ("local_unique_flask_elemental_damage_%_to_add_as_chaos_while_healing", "elemental_damage_%_to_add_as_chaos", false),
+        ("local_unique_flask_life_leech_from_chaos_damage_permyriad_while_healing", "base_life_leech_from_chaos_damage_permyriad", false),
+        ("local_unique_flask_block_%_while_healing", "additional_block_%", false),
+        ("local_unique_flask_spell_block_%_while_healing", "base_spell_block_%", false),
+        ("local_unique_flask_physical_damage_%_to_add_as_cold_while_healing", "physical_damage_%_to_add_as_cold", false),
+        ("local_unique_flask_avoid_chill_%_while_healing", "base_avoid_chill_%", false),
+        ("local_unique_flask_avoid_freeze_%_while_healing", "base_avoid_freeze_%", false),
+        ("local_no_critical_strike_multiplier_during_flask_effect", "no_critical_strike_multiplier", true),
     ];
 
     public static (IReadOnlyList<UtilityFlasks.Source> Stats, double Seconds) ItemUtilityFlaskFor(
@@ -23,9 +24,9 @@ public static partial class Game
         double effect = FlaskEffectScaling.Multiplier(character, playerLevel, local.GetValueOrDefault("local_flask_effect_+%"),
             flask.Rarity == ItemRarity.Magic ? character("magic_utility_flask_effect_+%") : 0);
         var sources = ordinary.Stats.ToList();
-        foreach (var (input, target) in ItemUtilityFlaskSources)
+        foreach (var (input, target, flag) in ItemUtilityFlaskSources)
             if (local.GetValueOrDefault(input) is int value and not 0)
-                sources.Add(new("mod " + target, target, UtilityFlasks.Scale(value, effect)));
+                sources.Add(new("mod " + target, target, flag ? 1 : UtilityFlasks.Scale(value, effect)));
         return (sources, ordinary.Seconds);
     }
 

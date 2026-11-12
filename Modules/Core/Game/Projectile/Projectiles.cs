@@ -316,7 +316,8 @@ public static partial class Game
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance;
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
-                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
+                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
+                    shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
                 var ownedHit = ApplyMonsterHitLocked(Conn, target, ownedDamage, rampageSource: true);
                 if (ownedHit is null) return ProjectileHitResult.Miss;
                 Conn.RecentEvents.RecordCriticalOutcome(
@@ -372,7 +373,7 @@ public static partial class Game
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, player: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
-            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
+            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
