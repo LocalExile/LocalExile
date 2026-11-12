@@ -67,7 +67,7 @@ public static class Hierophant
         Add("damage_+%", DamageFromMana(Get));
         if (!States.TryGetValue(conn, out var state)) return stats;
         Add(ActiveTotems, state.Totems);
-        Add("life_regeneration_rate_per_minute_%",(long)Get(LifeRegenPerTotem) * state.Totems);
+        Add("life_regeneration_rate_per_minute_%", (long)Get(LifeRegenPerTotem) * state.Totems);
         Add("mana_regeneration_rate_per_minute_%", (long)Get(ManaRegenPerTotem) * state.Totems);
         // Joins the base form, which the panel's total and every skill read (as Impact's and Rampage's do).
         Add(SkillArea.BaseIncreased, state.ManaArea);
