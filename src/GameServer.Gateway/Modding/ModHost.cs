@@ -120,7 +120,12 @@ public sealed class ModHost(string folder, Action<string> log, bool modules = fa
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
         };
-        _watcher.Changed += (_, e) => Touched(e.FullPath);
+        _watcher.Changed += (_, e) =>
+        {
+            // Windows also reports the parent directory's timestamp when a module writes a new file.
+            // Creation, deletion and rename of directories still use their respective notifications.
+            if (!modules || leagues || !Directory.Exists(e.FullPath)) Touched(e.FullPath);
+        };
         _watcher.Created += (_, e) => Touched(e.FullPath);
         _watcher.Deleted += (_, e) => Touched(e.FullPath);
         _watcher.Renamed += (_, e) => { Touched(e.OldFullPath); Touched(e.FullPath); };
