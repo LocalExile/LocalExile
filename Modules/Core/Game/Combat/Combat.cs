@@ -2387,9 +2387,9 @@ public static partial class Game
                 conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
                 corpseConsumed = ConsumeCorpseOnKillLocked(conn, id, m, now);
             }
-            await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
-            if (corpseConsumed)
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+            bool explodedCorpse = await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
+            if (corpseConsumed && !explodedCorpse)
+                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id,
                     $"0x02bd corpse 0x{id:x} ({m.Label}) consumed by the killing blow");
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
