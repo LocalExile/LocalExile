@@ -421,7 +421,7 @@ public static partial class Game
     public static DamagePacket AttackHitConverted(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> stats,
         bool melee, GameServer.Core.World.DamageConversion? conversion, long additionalIncreased = 0)
     {
-        int Get(string name) => RageStat(stats, name);
+        var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
         var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get));

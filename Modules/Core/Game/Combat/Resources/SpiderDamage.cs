@@ -33,7 +33,9 @@ public static partial class Game
         int Get(string name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife);
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
-        var hit = PlayerHitDamage.Resolve(raw, Get, source.Conversion, spell: !source.Attack && !source.Secondary,
+        var hitGet = WeaponAttributeDamage.Read(source.Attack && !source.Secondary
+            && WeaponAttributeDamage.Armed(Get("main_hand_weapon_type")), Get);
+        var hit = PlayerHitDamage.Resolve(raw, hitGet, source.Conversion, spell: !source.Attack && !source.Secondary,
             melee: source.Melee, area: source.Area, projectile: source.Projectile, supportModifiers: source.Modifiers,
             skillTypes: source.Types, secondary: source.Secondary, wieldingWand: source.WieldingWand,
             retaliation: source.Attack && source.Types.Contains(120),

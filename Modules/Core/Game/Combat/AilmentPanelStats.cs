@@ -73,6 +73,8 @@ public static class AilmentPanelStats
     public static List<(string Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
         Func<string, int> get, long additionalIncreased = 0)
     {
+        get = WeaponAttributeDamage.Read(context.Attack && !context.Spell && WeaponAttributeDamage.Armed(
+            get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type")), get);
         var rows = new List<(string, int)>();
         var paths = conversion.Trace(raw).ToList();
         double charges = ChargeEffects.DamageMore(get, context.Spell, ailment: true);

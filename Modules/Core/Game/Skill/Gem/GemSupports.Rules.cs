@@ -505,6 +505,7 @@ public static partial class Game
     {
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
         public int WeaponIncreased { get; init; }
+        public bool Armed { get; init; }
     }
 
     public static SupportedHitInputs? SupportedHitInputsFor(ClientState conn, ushort skillId, bool? area = null,
@@ -562,6 +563,7 @@ public static partial class Game
         {
             FrozenStats = new Dictionary<uint, int>(stats),
             WeaponIncreased = attackWeapon is null ? 0 : SupportedAttackDamage.WeaponIncrease(attackWeapon, Get),
+            Armed = attackWeapon is not null && WeaponAttributeDamage.Armed(attackWeapon),
         };
     }
 
@@ -574,7 +576,7 @@ public static partial class Game
     public static GameServer.Core.World.DamagePacket SupportedHitFrom(SupportedHitInputs inputs, bool suppress,
         long additionalIncreased = 0)
     {
-        var hit = PlayerHitDamage.Resolve(inputs.Raw, inputs.Get, inputs.Conversion, spell: !inputs.Attack,
+        var hit = PlayerHitDamage.Resolve(inputs.Raw, WeaponAttributeDamage.Read(inputs.Armed, inputs.Get), inputs.Conversion, spell: !inputs.Attack,
             melee: inputs.Melee, area: inputs.Area, projectile: inputs.Projectile,
             supportModifiers: inputs.Modifiers, skillTypes: inputs.Types,
             wieldingBow: inputs.WieldingBow, wieldingWand: inputs.WieldingWand, retaliation: inputs.Attack && inputs.Types.Contains(120),

@@ -15,7 +15,8 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
         IEnumerable<(uint, int)> skillConversion, StatCatalog catalog, int accuracy, int criticalChance,
         int criticalMultiplier, long additionalIncreased = 0)
     {
-        int Get(string name) => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0;
+        var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon),
+            name => catalog.Key(name) is uint key ? character.GetValueOrDefault(key) : 0);
         var conversion = new Dictionary<uint, int>(character);
         var own = skillConversion.ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var (key, value) in own) conversion.TryAdd(key, value);

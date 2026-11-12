@@ -9,6 +9,7 @@ public static class SupportedAttackDamage
 
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {
+        get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
         return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
