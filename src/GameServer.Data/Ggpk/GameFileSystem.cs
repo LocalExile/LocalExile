@@ -4,7 +4,8 @@ using LibGGPK3.Records;
 namespace GameServer.Data.Ggpk;
 
 /// <summary>
-/// Read-only view over a standalone <c>Content.ggpk</c>: resolves files through
+/// Read-only view over the client's game files (a standalone <c>Content.ggpk</c> or a Steam install's loose
+/// <c>Bundles2/</c>, <see cref="ClientFiles"/>): resolves files through
 /// the bundle index and decompresses bundle chunks with managed Oodle (OozSharp).
 /// No native Oodle library is required. Thread-safe: reads are serialized by one lock (the caches are not concurrent).
 /// </summary>
@@ -15,7 +16,9 @@ public sealed class GameFileSystem : IDisposable
 
     private readonly long _bundleCacheBudgetBytes;
 
-    private readonly GGPK _ggpk;
+    // One of the two: the standalone GGPK, or the Steam install's folder.
+    private readonly GGPK? _ggpk;
+    private readonly string? _folder;
     private readonly IOodleDecoder _oodle;
     private readonly Dictionary<int, byte[]> _bundleCache = new();
     private readonly LinkedList<int> _lru = new();
@@ -36,25 +39,34 @@ public sealed class GameFileSystem : IDisposable
 
     public GameIndex Index { get; }
 
-    private GameFileSystem(GGPK ggpk, GameIndex index, IOodleDecoder oodle, long bundleCacheBytes)
+    private GameFileSystem(GGPK? ggpk, string? folder, GameIndex index, IOodleDecoder oodle, long bundleCacheBytes)
     {
         _bundleCacheBudgetBytes = bundleCacheBytes;
         _ggpk = ggpk;
+        _folder = folder;
         Index = index;
         _oodle = oodle;
     }
 
+    /// <param name="location">The client folder (either layout), or a <c>Content.ggpk</c>.</param>
     /// <param name="bundleCacheBytes">How many bytes of compressed bundles to keep (most recently used first).</param>
-    public static GameFileSystem Open(string ggpkPath, IOodleDecoder? oodle = null, long bundleCacheBytes = DefaultBundleCacheBytes)
+    public static GameFileSystem Open(string location, IOodleDecoder? oodle = null, long bundleCacheBytes = DefaultBundleCacheBytes)
     {
         oodle ??= new ManagedOodleDecoder();
+        var (layout, ggpkPath) = ClientFiles.Resolve(location)
+            ?? throw new FileNotFoundException($"{location} holds neither {ClientFiles.Ggpk} nor {ClientFiles.Index}", location);
+        if (layout == ClientLayout.Steam)
+        {
+            byte[] index = BundleFile.DecompressWhole(ReadLooseFile(ggpkPath, ClientFiles.Index), oodle);
+            return new GameFileSystem(null, ggpkPath, GameIndex.Parse(index), oodle, bundleCacheBytes);
+        }
         // Read-only and shared, so the data can be read while the game client has the GGPK open.
         var ggpk = new GGPK(new FileStream(ggpkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), false);
         try
         {
             byte[] indexRaw = ReadGgpkFile(ggpk, "Bundles2/_.index.bin");
             byte[] indexContent = BundleFile.DecompressWhole(indexRaw, oodle);
-            return new GameFileSystem(ggpk, GameIndex.Parse(indexContent), oodle, bundleCacheBytes);
+            return new GameFileSystem(ggpk, null, GameIndex.Parse(indexContent), oodle, bundleCacheBytes);
         }
         catch
         {
@@ -167,7 +179,7 @@ public sealed class GameFileSystem : IDisposable
             return cached;
         }
 
-        byte[] raw = ReadGgpkFile(_ggpk, Index.BundleFiles[index]);
+        byte[] raw = _ggpk is not null ? ReadGgpkFile(_ggpk, Index.BundleFiles[index]) : ReadLooseFile(_folder!, Index.BundleFiles[index]);
         _bundleReads++;
         _bundleCache[index] = raw;
         _lruNodes[index] = _lru.AddFirst(index);
@@ -201,15 +213,23 @@ public sealed class GameFileSystem : IDisposable
         throw new FileNotFoundException($"file not found in GGPK: {path}", path);
     }
 
-    /// <summary>Read a raw (undecoded) file straight from the GGPK container, bypassing bundles.</summary>
-    public static byte[] ReadRawGgpkFile(string ggpkPath, string path)
+    private static byte[] ReadLooseFile(string folder, string path)
     {
-        using var ggpk = new GGPK(ggpkPath);
-        return ReadGgpkFile(ggpk, path);
+        string file = ClientFiles.Loose(folder, path);
+        if (!File.Exists(file)) throw new FileNotFoundException($"file not found in the Steam client: {path}", file);
+        using var stream = ClientFiles.OpenShared(file);
+        byte[] data = new byte[stream.Length];
+        stream.ReadExactly(data);
+        return data;
     }
+
+    /// <summary>Read a raw (undecoded) file straight from the client's container (GGPK or Steam folder), bypassing bundles.</summary>
+    public static byte[] ReadRawFile(string location, string path) =>
+        ClientFiles.TryReadFile(location, path) ?? throw new FileNotFoundException($"file not found in the client: {path}", path);
 
     public void Dispose()
     {
+        if (_ggpk is null) return;
         var stream = _ggpk.UnsafeGetStream();
         try { _ggpk.Dispose(); }
         finally { stream.Dispose(); }

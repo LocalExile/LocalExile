@@ -7,8 +7,8 @@ public static class KiracProgress
     {
         public int Tier => Math.Clamp(MapAreaLevelOffered - 67,1,16);
     }
-    static readonly Lazy<Level[]> Levels = new(() => JsonSerializer.Deserialize<Level[]>(
-        ClientTables.ReadAllText("data/tables/KiracLevels.json"))!);
+    static readonly Lazy<Level[]> Levels = new(() => [.. ClientTables.Table("KiracLevels")
+        .Select(r => new Level(r.Int("MapAreaLevelOffered"), r.Int("MapCompletion"), r.Int("ShopRerollCost")))]);
     public static Level For(AccountStash? account)
     {
         int count = Completed(account).Count;

@@ -3,6 +3,10 @@
 Every address used in the protocol docs, grouped by subsystem. Fn = function, Vt = vtable, Cls = message class vtable,
 G = global / static data.
 
+Fn addresses hold for every allowed client build (`ClientBuilds.cs`: 3.29.3c, its 3.29.3.5 hotfix, 3.29.3d). Vt, Cls and
+G addresses are the 3.29.3c release's: data moves between builds whose code does not
+([re/tooling.md](../re/tooling.md) §11).
+
 ## Network core
 | Address | Kind | What |
 |---|---|---|
@@ -186,7 +190,10 @@ G = global / static data.
 |---|---|---|
 | `0x1428f3c7e` | call site | "No patching required" decision |
 | `0x1421d3460` | Fn | local GGPK root hash is non-zero |
-| `0x1428f31c0` | Fn | compare a local directory hash with the welcome |
+| `0x1428f31c0` | Fn | compare a local directory hash with the welcome; no pack file → "differs" (`0x1428f3221`, `LooseFilesPatch`) |
+| `0x140df9010` | Fn | distribution mode from the exe name or a flag: 0 standalone, 1 Steam ("Steam", `--steam`), 4 Kakao ("KG"), 5 Epic ("EGS"); 2/3 a "Hotcool" build |
+| `0x1400fc3f0` | Fn | opens `Content.ggpk` unless the mode is 1, 3 or 5 (loose files; branch `0x1400fc426`, `LooseFilesPatch`) |
+| `0x1400f8654` | call site | `SteamAPI_Init` in Steam mode ("Unable to init Steam API"), after `SteamAPI_RestartAppIfNecessary` |
 
 ## Inventories and UI
 | Address | Kind | What |

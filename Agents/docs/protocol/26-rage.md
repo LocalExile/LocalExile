@@ -1,8 +1,8 @@
 # Generic Rage (3.29.3b, issue #281)
 
-`RageState`, `RageStats` and `Program.Rage` implement the shared resource independently of class selection.
+`RageState`, `RageStats` and `Game.Rage` implement the shared resource independently of class selection.
 The server consumes its real passive, active equipment, development and supported-skill inputs.
-Native verification is pending; this change has automated model, parsed-dispatch and packet coverage only.
+Native verification is pending.
 
 ## Evidence and arithmetic
 

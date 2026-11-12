@@ -233,7 +233,7 @@ Thus a byte-valued frame duration becomes a u32 field. This control is destroyed
 The last branch invokes deque helper `0x141238e80` with World `+0x9b8` and a local copy of `+0x11c`.
 Its cursor is reconstructed with the same old-end-to-zero rule. The null is a frame delimiter, not an empty
 ordinary object message. Deque internals and subsequent frame stepping are covered by the existing
-[Lockstep protocol notes](../../protocol/07-latency-visibility-movement.md#6-lockstep-not-served-yet) and
+[Lockstep protocol notes](../../protocol/07-latency-visibility-movement.md#6-lockstep) and
 [World scheduling](world-scheduling.md); this cut checks the publication arguments.
 
 The shared constructor initializes `+0xa00=0` from zeroed RBP. Existing activation **`0x142183670`**, previously

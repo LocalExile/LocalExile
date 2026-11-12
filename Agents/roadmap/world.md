@@ -57,11 +57,12 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     for manual selection. Unfinished trips reset on interruption/death.
     Escort pacing, depth levels/packs/rewards, exact gradual
     sulphite debit, native walking/combat and the full chart inside the mine are implemented.
-    Directional checkpoint connections now replace the entrance layout after the first trip.
-    Remaining: native topology validation and diverse physical biomes beyond the captured Mines checkpoint rooms,
-    original biome populations, node-specific rewards/waves, darkness stacks/resistance and consumable use.
+    Fresh server-generated Mines checkpoint windows replace the entrance layout after the first trip, with durable
+    scene/route history and five-second final waves gating checkpoint saves.
+    Remaining: native topology validation and physical biomes beyond the procedural Mines rooms,
+    original biome populations, node-specific rewards, darkness stacks/resistance and consumable use.
     Restore laid trails on reentry, finish shared sulphite migration and equipment cable visual tiers.
-    This does not add Delve to the server level generator's supported areas.
+    The ordinary Mines cell pass is ported; the initial entrance still uses its capture.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
   - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded
@@ -115,7 +116,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   The Ascendancy Chamber's font chooses the ascendancy and gives the tier's two points, and Izaro's three trials are
   fought ([status](../status/world.md), "A Labyrinth run";
   [labyrinth-trials](../docs/game/labyrinth-trials.md), "Izaro's arenas").
-  The tables are extracted (`data/tables/Labyrinth*.json`): 4 tiers with their required trials, quest flag and area
+  The tables are extracted (the `Labyrinth*` client tables): 4 tiers with their required trials, quest flag and area
   level, 18 trials, 47 sections, 223 section layout rows, 58 secrets and the Izaro chests.
   AreaTransition type 5 is Labyrinth ([08](../docs/protocol/08-area-transitions.md) §7), and
   `AreaTransitionCatalog` does not know the Labyrinth areas yet.
