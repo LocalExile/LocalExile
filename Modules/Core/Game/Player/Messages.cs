@@ -196,7 +196,8 @@ public static partial class Game
                 if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
                 {
                     bool valid;
-                    lock (conn.Monsters) valid = TryDashLanding(conn, gem.Effect, (use.X, use.Y), out _, out _);
+                    lock (conn.Monsters) valid = TryDashLanding(conn, gem.Effect, (use.X, use.Y), out _, out _,
+                        skill: use.SkillId, flags: use.Flags);
                     if (!valid)
                     {
                         Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: invalid Dash location " +
