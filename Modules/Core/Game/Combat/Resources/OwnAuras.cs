@@ -39,7 +39,7 @@ public static partial class Game
                 && SameSkillItem(p.First.Item.Item, p.Second.Item.Item, Items));
     }
     sealed class AuraReconcileCache { public AuraReconcileInputs? Inputs; }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
+    static readonly RuleTable<ClientState, AuraReconcileCache> AuraReconcileCaches = new();
 
     // Check the current caster and this instance's link group before native use/cooldown publication.
     // Keep accepted Warcry/RF behavior and each caller's original cancellation/ownership predicate.

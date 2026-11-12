@@ -1265,7 +1265,7 @@ public static partial class Game
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.
     // The inputs the cached skill list (ClientState.PlayerSkillsCache) was built from.
     sealed record PlayerSkillsBuild(SkillSnapshotInputs Inputs, IReadOnlyList<GrantedSkill> Skills);
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
+    static readonly RuleTable<ClientState, PlayerSkillsBuild> PlayerSkillsInputs = new();
 
     public static async Task SendCharacterStats(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string why)
     {

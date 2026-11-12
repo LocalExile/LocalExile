@@ -324,7 +324,7 @@ static class AtlasBosses
         }
     }
 
-    static readonly ConditionalWeakTable<InstanceState, Dictionary<uint, AtlasBossFight>> Fights = new();
+    static readonly RuleTable<InstanceState, Dictionary<uint, AtlasBossFight>> Fights = new();
 
     /// <summary>Stops every fight of an instance (it is unloaded): the phase gates unlock and the boss's own walk speed
     /// returns.</summary>

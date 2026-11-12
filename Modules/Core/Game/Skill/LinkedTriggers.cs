@@ -12,7 +12,7 @@ public static partial class Game
         public readonly Dictionary<int, double> ReadyAt = [];
         public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
     }
-    static readonly ConditionalWeakTable<ClientState, LinkedTriggerState> LinkedTriggers = new();
+    static readonly RuleTable<ClientState, LinkedTriggerState> LinkedTriggers = new();
     static LinkedTriggerState LinkedTriggersOf(ClientState conn)
     {
         if (LinkedTriggers.TryGetValue(conn, out var state) && state.Epoch == conn.ProjectileEpoch

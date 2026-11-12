@@ -111,7 +111,7 @@ public static partial class Game
     // Off a live connection (tests, the build scopes) every read builds.
     const double PlayerStatsFrame = 1.0 / 60;
     sealed class ThrottledStats { public PlayerStatsEntry? Entry; }
-    static readonly ConditionalWeakTable<ClientState, ThrottledStats> ThrottledPlayerStatsEntries = new();
+    static readonly RuleTable<ClientState, ThrottledStats> ThrottledPlayerStatsEntries = new();
 
     static Dictionary<uint, int> ThrottledPlayerStats(ClientState conn, out double baselineLifePerSecond)
     {
@@ -138,7 +138,7 @@ public static partial class Game
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
     sealed class SentSkillList { public byte[]? Bytes; }
-    static readonly ConditionalWeakTable<ClientState, SentSkillList> SentSkillLists = new();
+    static readonly RuleTable<ClientState, SentSkillList> SentSkillLists = new();
 
     public static byte[] PlayerSkillsIfChanged(ClientState conn, IReadOnlyList<GrantedSkill> skills)
     {

@@ -19,14 +19,14 @@ public class StatSnapshotTailTests
         var equipment = Array.Empty<(byte Row, InventoryItem Item)>();
         void Resolve() => Game("EquipmentStatSources", conn, equipment, null, null);
         Resolve();
-        var cached = conn.StatSourcesCacheState;
+        var cached = conn.StatSourcesCache;
         Resolve();
-        Assert.Same(cached, conn.StatSourcesCacheState);
+        Assert.Same(cached, conn.StatSourcesCache);
 
         lock (conn.Monsters)
             conn.Auras[1] = new AuraCatalog.Aura(1, 1, "Grace", "Grace", 1, 1, 0, 0);
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        Assert.NotSame(cached, conn.StatSourcesCache);
 
         // Exercise final combat and published evasion, not just the raw-source cache. A native Kintsugi check caught
         // the previous implementation updating that cache while leaving Pools.Evasion unchanged.
@@ -108,24 +108,24 @@ public class StatSnapshotTailTests
         inventory.Remove(6, equippedRing.Id);
         Snapshot(live);
         Assert.Equal(intelligence, live.Pools.Intelligence);
-        cached = conn.StatSourcesCacheState;
+        cached = conn.StatSourcesCache;
 
         lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds);
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
-        cached = conn.StatSourcesCacheState;
+        Assert.NotSame(cached, conn.StatSourcesCache);
+        cached = conn.StatSourcesCache;
 
         lock (conn.Monsters) conn.RecentEvents.Record(StatConditions.Crit, conn.Clock.Elapsed.TotalSeconds + .1);
         Resolve();
-        Assert.Same(cached, conn.StatSourcesCacheState);
+        Assert.Same(cached, conn.StatSourcesCache);
         lock (conn.Monsters) conn.RecentEvents.Clear();
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
-        cached = conn.StatSourcesCacheState;
+        Assert.NotSame(cached, conn.StatSourcesCache);
+        cached = conn.StatSourcesCache;
 
         lock (conn.Monsters) conn.Pools = conn.Pools with { Strength = conn.Pools.Strength + 1 };
         Resolve();
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        Assert.NotSame(cached, conn.StatSourcesCache);
 
         // The same cache/final-pool path sees Arborix's accepted Dash window and its exact four-second expiry.
         var dashConn = Connection("ConditionalDash" + Guid.NewGuid().ToString("N"));
@@ -138,11 +138,11 @@ public class StatSnapshotTailTests
             new UniqueCatalog(dashItems).Create("Arborix", new Random(504))!);
         dashConn.Pools = Pools(dashConn, 100);
         int dashBaseline = dashConn.Pools.Armour;
-        var dashCache = dashConn.StatSourcesCacheState;
+        var dashCache = dashConn.StatSourcesCache;
         double dashAt = dashConn.Clock.Elapsed.TotalSeconds;
         lock (dashConn.Monsters) dashConn.RecentEvents.Record(StatConditions.UsedDash, dashAt);
         var dashRecent = Snapshot(dashConn);
-        Assert.NotSame(dashCache, dashConn.StatSourcesCacheState);
+        Assert.NotSame(dashCache, dashConn.StatSourcesCache);
         Assert.True(Pools(dashConn, 100).Armour > dashBaseline);
         Assert.Equal(0, dashRecent.GetValueOrDefault(Program.Stats.Key("number_of_additional_arrows")!.Value));
         lock (dashConn.Monsters) dashConn.RecentEvents.Clear();
@@ -228,11 +228,11 @@ public class StatSnapshotTailTests
         Assert.Equal(0, spellLeech.Mana.MinTotal);
 
         // The unchanged snapshot reuses both source and charge-expansion caches without changing the final source view.
-        var cached = conn.StatSourcesCacheState;
+        var cached = conn.StatSourcesCache;
         long hits = Counter("StatSnapshotTailHits");
         var repeated = Snapshot(conn);
         Assert.True(Counter("StatSnapshotTailHits") > hits);
-        Assert.Same(cached, conn.StatSourcesCacheState);
+        Assert.Same(cached, conn.StatSourcesCache);
         Assert.True(SameInOrder(three, repeated));
 
         SetCharges(ChargeType.Power, 0, Now());
@@ -255,10 +255,10 @@ public class StatSnapshotTailTests
         SetCharges(ChargeType.Power, 3, Now());
         Assert.Equal(3 * raw.GetValueOrDefault("additional_critical_strike_chance_per_power_charge_permyriad"),
             Get(Snapshot(conn), "additional_base_critical_strike_chance"));
-        cached = conn.StatSourcesCacheState;
+        cached = conn.StatSourcesCache;
         Assert.NotNull(inventory.Remove(PlayerInventories.Weapon1, equippedShimmeron.Id));
         var withoutShimmeron = Snapshot(conn);
-        Assert.NotSame(cached, conn.StatSourcesCacheState);
+        Assert.NotSame(cached, conn.StatSourcesCache);
         Assert.Equal(0, Get(withoutShimmeron, "additional_base_critical_strike_chance"));
         inventory.Add(PlayerInventories.Weapon1, 0, 0, shimmeron);
         uint maxPower = Key("max_power_charges");

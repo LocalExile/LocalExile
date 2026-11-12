@@ -3,7 +3,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     public const double ControlledFollowerLeash = 60;
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, ControlledFollowing> FollowerPlans = new();
+    static readonly RuleTable<ClientState, ControlledFollowing> FollowerPlans = new();
     sealed class ControlledFollowing
     {
         public bool Following;

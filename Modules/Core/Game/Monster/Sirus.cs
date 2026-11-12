@@ -5,7 +5,7 @@ using static Program;
 
 static partial class Sirus
 {
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
     internal static async Task Tick(ClientState c)
     {
         if (c.Layout.Id != Area || !CurrentGameWork || !c.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
