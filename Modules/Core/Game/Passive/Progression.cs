@@ -1004,7 +1004,7 @@ public static partial class Game
         // effect never counts twice.
         int MagebloodGet(string name) => Stats.Key(name) is uint k
             ? devStats.TryGetValue(k, out int value) ? value : sources.GetValueOrDefault(k) : 0;
-        bonus = UtilityFlasks.Apply(bonus, UtilityStats(conn, MagebloodGet, level));
+        bonus = ApplyItemUtilityFlaskBonuses(bonus, UtilityStats(conn, MagebloodGet, level));
         // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
         // whole speed the client walks and the panel shows, so (1 + increased) × (1 + final) − 1 (the original under the
         // darts: +19% became −52%).

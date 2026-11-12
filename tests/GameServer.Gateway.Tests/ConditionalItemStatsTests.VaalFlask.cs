@@ -53,6 +53,73 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(StatConditions.State.NotModelled, StatConditions.Of(minimum, StatConditions.Subject.Unknown));
         inventory.Remove(PlayerInventories.Boots, boots.Id); Game.CharacterPlayerStats(conn);
         Actual_atziri_flask_coefficients_reach_chaos_damage_and_leech();
+        Actual_rumi_and_taste_effects_reach_block_conversion_and_avoidance();
+    }
+
+    void Actual_rumi_and_taste_effects_reach_block_conversion_and_avoidance()
+    {
+        foreach (string name in new[] { "Rumi's Concoction", "Replica Rumi's Concoction", "Taste of Hate" })
+        {
+            var flask = new UniqueCatalog(Program.Items).Create(name, new Random(504))!;
+            var local = ItemModStats.Local(flask, Program.Items.Mods);
+            var utility = Program.Items.UtilityFlaskOf(Program.Items.ByHash(flask.TypeHash)!)!;
+            foreach (int increased in new[] { 0, 50 })
+            {
+                int Character(string stat) => stat == "flask_effect_+%" ? increased
+                    : stat == "magic_utility_flask_effect_+%" ? 100 : 0;
+                var effect = Game.ItemUtilityFlaskFor(utility, flask, local, Character, 100);
+                var running = new UtilityFlasks.Effects();
+                var active = new UtilityFlasks.Active(504, 2, name, utility, 1, null, effect.Stats, 10, 10 + effect.Seconds);
+                running.Start(active);
+                var combined = UtilityFlasks.Strongest(running.Sources().Concat(running.Sources()));
+                var raw = new Dictionary<uint, int>(); Game.AddItemUtilityFlaskRawStats(raw, combined, Program.Stats);
+                int Get(string stat) => Program.Stats.Key(stat) is uint key ? raw.GetValueOrDefault(key) : 0;
+                var bonus = Game.ApplyItemUtilityFlaskBonuses(new(), combined);
+                int Expected(string input)
+                {
+                    Assert.True(local.GetValueOrDefault(input) > 0, name + ": " + input);
+                    return UtilityFlasks.Scale(local[input], (100 + increased) / 100d);
+                }
+                if (name.Contains("Rumi"))
+                {
+                    Assert.Equal(Expected("local_unique_flask_block_%_while_healing"), bonus.BlockChance);
+                    Assert.Equal(Expected("local_unique_flask_spell_block_%_while_healing"), bonus.SpellBlockChance);
+                    Assert.Equal(0, Get("additional_block_%")); Assert.Equal(0, Get("base_spell_block_%"));
+                }
+                else
+                {
+                    int cold = Expected("local_unique_flask_physical_damage_%_to_add_as_cold_while_healing");
+                    Assert.Equal(cold, Get("physical_damage_%_to_add_as_cold"));
+                    foreach (bool attack in new[] { false, true })
+                    {
+                        var converted = DamagePacket.Of(DamageType.Physical, 100, 100)
+                            .Convert(DamageStats.Conversion(raw, Program.Stats, attack));
+                        Assert.Equal(cold, converted[DamageType.Cold].Min, 8);
+                        Assert.Equal(100, converted[DamageType.Physical].Min, 8);
+                    }
+                    foreach (var (kind, input, target) in new[]
+                    {
+                        (PlayerElementalAilments.Kind.Chill, "local_unique_flask_avoid_chill_%_while_healing", "base_avoid_chill_%"),
+                        (PlayerElementalAilments.Kind.Freeze, "local_unique_flask_avoid_freeze_%_while_healing", "base_avoid_freeze_%"),
+                    })
+                    {
+                        int chance = Expected(input); Assert.Equal(chance, Get(target));
+                        var panel = PanelStats.Compute(Get).ToDictionary(p => p.Stat, p => p.Value);
+                        var ailments = new PlayerElementalAilments();
+                        ailments.Inflict(kind, 10, 2, 10, panel.GetValueOrDefault, new PhasingRoll(chance - 1));
+                        Assert.Equal(0, ailments.Magnitude(kind, 10));
+                        ailments.Inflict(kind, 10, 2, 10, panel.GetValueOrDefault, new PhasingRoll(chance));
+                        Assert.Equal(10, ailments.Magnitude(kind, 10));
+                    }
+                }
+                Assert.Single(running.End(10 + effect.Seconds, false, out _));
+                Assert.Equal(0, Game.ApplyItemUtilityFlaskBonuses(new(), running.Stats()).BlockChance);
+                raw.Clear(); Game.AddItemUtilityFlaskRawStats(raw, running.Stats(), Program.Stats); Assert.Empty(raw);
+                running.Start(active);
+                Assert.True(UtilityFlasks.LeftItsCell(active, []));
+                Assert.Single(running.End(10, true, out _));
+            }
+        }
     }
 
     void Actual_atziri_flask_coefficients_reach_chaos_damage_and_leech()
