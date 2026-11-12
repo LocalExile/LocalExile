@@ -341,6 +341,10 @@ public static class StatConditions
             return [.. new[] { "unaffected_by_ignite", "unaffected_by_shock" }.Where(exists)];
         if (PlainOf(statId) == "immune_to_freeze_and_chill")
             return [.. new[] { "base_immune_to_freeze", "base_immune_to_chill" }.Where(exists)];
+        if (PlainOf(statId) == "cannot_be_chilled_or_frozen")
+            return [.. new[] { "base_cannot_be_chilled", "base_cannot_be_frozen" }.Where(exists)];
+        if (PlainOf(statId) == "cannot_be_shocked_or_ignited")
+            return [.. new[] { "base_cannot_be_shocked", "base_cannot_be_ignited" }.Where(exists)];
         return Fold(statId, exists) is { } plain ? [plain] : [];
     }
 

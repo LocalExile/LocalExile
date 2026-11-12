@@ -136,6 +136,33 @@ public partial class ConditionalItemStatsTests
             Assert.Equal(!ignited, ailments.Snapshot(100).Freeze);
             Assert.Equal(ignited ? 0 : 10, ailments.Snapshot(100).Chill);
         }
+        foreach (var (source, first, second) in new[]
+                 {
+                     ("cannot_be_chilled_or_frozen_while_moving", PlayerElementalAilments.Kind.Chill, PlayerElementalAilments.Kind.Freeze),
+                     ("cannot_be_shocked_or_ignited_while_moving", PlayerElementalAilments.Kind.Shock, PlayerElementalAilments.Kind.Ignite),
+                 })
+        {
+            var mod = Program.Items.Mods.All.First(m => m.Stats.Any(s => s.Id == source));
+            foreach (bool moving in new[] { false, true, false })
+            {
+                var item = WithMod(mod.Id, 1);
+                var raw = ItemModStats.Sum([item], Program.Items.Mods,
+                    subject: new(Flags: new Dictionary<string, bool> { ["_while_moving"] = moving }), statExists: Program.Stats.Has);
+                var panel = PanelStats.Compute(raw.GetValueOrDefault).ToDictionary(p => p.Stat, p => p.Value);
+                var ailments = new PlayerElementalAilments();
+                foreach (var kind in new[] { first, second })
+                    ailments.Inflict(kind, 10, 2, 100, panel.GetValueOrDefault, new Random(504));
+                Assert.Equal(moving ? 0 : 10, ailments.Magnitude(first, 100));
+                Assert.Equal(moving ? 0 : 10, ailments.Magnitude(second, 100));
+                // A moving pair must leave the other ordinary ailments admissible.
+                foreach (var kind in Enum.GetValues<PlayerElementalAilments.Kind>().Except([first, second]))
+                {
+                    ailments.Inflict(kind, 10, 2, 100, panel.GetValueOrDefault, new Random(504));
+                    Assert.Equal(10, ailments.Magnitude(kind, 100));
+                }
+                Assert.Equal(1, ItemModStats.Sum([item], Program.Items.Mods).GetValueOrDefault(source));
+            }
+        }
         Assert.Equal(555, SpellCriticalStrike.Chance(500,
             name => Read("critical_strike_chance_+%_for_spells_if_you_have_killed_recently", name)));
         Assert.Equal(511, SpellCriticalStrike.Chance(500,
