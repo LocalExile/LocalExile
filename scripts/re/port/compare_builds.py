@@ -1,6 +1,7 @@
 """Does a new client executable hold the same code as one LocalExile already runs?
 
 Usage: python -I scripts/re/port/compare_builds.py <allowed PathOfExile.exe> <new PathOfExile.exe> <mask VA of the allowed one>
+       python -I scripts/re/port/compare_builds.py <3.29.3c release exe> <new exe> --data-map <script.js>...
 
 Needs capstone (pip install capstone). Read-only. A build earns a row in ClientBuilds (src/GameServer.Core/Protocol)
 only when this ends in "same code" and compare_tables.py finds no difference (Agents/docs/re/tooling.md section 11).
@@ -13,6 +14,12 @@ It checks, in this order:
 - the changed bytes outside .pdata functions (leaf functions have no unwind data) read as moved references too;
 - what LocalExile takes from the executable: the login key header found once, the two LooseFilesPatch sites
   unchanged, and where the HNC mask is now (the new row's HncMaskVa).
+
+--data-map prints, for each script, the rows of its MOVED table for the new build: where every data address the script
+uses in code sits there. The scripts' addresses are the 3.29.3c release's, so that executable is the first argument.
+An address is settled by, in this order: every instruction that refers to it naming one new address; its bytes being
+found once in the new build's data; the nearest referenced data below and above having moved by the same amount, with
+equal bytes there. What none of these settles is listed and left out.
 """
 import bisect
 import hashlib
@@ -66,7 +73,107 @@ class Image:
         return None
 
 
+def data_map(old, new, scripts):
+    """The MOVED rows of each script for the new build (see the module text)."""
+    _, t_rva, _, t_raw, t_size = old.sections[0]
+    a, b = old.bytes[t_raw:t_raw + t_size], new.bytes[t_raw:t_raw + t_size]
+    data_lo, data_hi = old.base + old.sections[1][1], old.base + old.sections[2][1] + old.sections[2][2]
+    literal = re.compile(r"0x14[0-9a-fA-F]{7}\b")
+    wanted = {}
+    for path in scripts:
+        found, in_table = set(), False
+        for line in open(path, encoding="utf-8"):
+            # The script's own MOVED table holds the answers of an earlier run, not addresses it uses.
+            in_table = in_table or line.startswith("const MOVED")
+            if in_table:
+                in_table = not line.rstrip().endswith("};")
+                continue
+            if line.lstrip().startswith(("//", "*")):
+                continue
+            cut = line.find("//")
+            found |= {int(m.group(), 16) for m in literal.finditer(line) if not 0 <= cut < m.start()}
+        wanted[path] = sorted(x for x in found if data_lo <= x < data_hi)
+
+    md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_64)
+    rip = re.compile(r"rip ([+-]) (0x[0-9a-f]+)")
+    refs = {}
+    for begin, end in old.functions:
+        lo, hi = begin - t_rva, end - t_rva
+        for addr, size, _, ops in md.disasm_lite(a[lo:hi], old.base + begin):
+            m = rip.search(ops)
+            if not m:
+                continue
+            target = addr + size + (int(m.group(2), 16) if m.group(1) == "+" else -int(m.group(2), 16))
+            if not data_lo <= target < data_hi:
+                continue
+            s = addr - old.base - t_rva
+            at = a[s:s + size].find(struct.pack("<I", (target - addr - size) & 0xFFFFFFFF))
+            if at < 0 or a[s:s + at] != b[s:s + at] or a[s + at + 4:s + size] != b[s + at + 4:s + size]:
+                continue
+            refs.setdefault(target, set()).add(addr + size + struct.unpack_from("<i", b, s + at)[0])
+    anchors = sorted((t, next(iter(v))) for t, v in refs.items() if len(v) == 1)
+    keys = [t for t, _ in anchors]
+
+    def read(image, va, n):
+        try:
+            return image.at_va(va, n)
+        except ValueError:
+            return b""
+
+    def once(needle):
+        hits = []
+        for _, rva, _, raw_at, rsize in new.sections[1:3]:
+            blob = new.bytes[raw_at:raw_at + rsize]
+            i = blob.find(needle)
+            while i >= 0 and len(hits) < 2:
+                hits.append(new.base + rva + i)
+                i = blob.find(needle, i + 1)
+        return hits[0] if len(hits) == 1 else None
+
+    def settle(va):
+        if len(refs.get(va, ())) == 1:
+            return next(iter(refs[va])), "an instruction"
+        for n in (64, 48, 32):
+            chunk = read(old, va, n)
+            if len(chunk) == n and any(chunk) and once(chunk) is not None:
+                return once(chunk), "its bytes"
+        i = bisect.bisect_left(keys, va)
+        if 0 < i < len(anchors) and anchors[i - 1][1] - anchors[i - 1][0] == anchors[i][1] - anchors[i][0]:
+            there = va + anchors[i][1] - anchors[i][0]
+            if read(old, va, 8) == read(new, there, 8):
+                return there, "its neighbours"
+        return None, None
+
+    how, unsettled = Counter(), 0
+    for path, addresses in wanted.items():
+        pairs, open_ = [], []
+        for va in addresses:
+            there, why = settle(va)
+            if there is None:
+                open_.append(va)
+                continue
+            how[why] += 1
+            if there != va:
+                pairs.append(f"'{va:#x}':'{there:#x}'")
+        print(f"// {path}: {len(addresses)} data addresses in code, {len(pairs)} moved")
+        line = "    "
+        for pair in pairs:
+            if len(line) + len(pair) + 1 > 118:
+                print(line.rstrip())
+                line = "    "
+            line += pair + ","
+        print(line.rstrip(","))
+        for va in open_:
+            print(f"// not settled: {va:#x}")
+        unsettled += len(open_)
+    print("// settled by:", dict(how), "not settled:", unsettled)
+    return 1 if unsettled else 0
+
+
 def main():
+    if "--data-map" in sys.argv:
+        at = sys.argv.index("--data-map")
+        return data_map(Image(sys.argv[1]), Image(sys.argv[2]), sys.argv[at + 1:])
     old, new, mask_va = Image(sys.argv[1]), Image(sys.argv[2]), int(sys.argv[3], 16)
     problems = []
     print(f"allowed  {old.sha256}  {len(old.bytes)} bytes")
