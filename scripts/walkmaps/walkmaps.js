@@ -121,7 +121,7 @@ const MOVED = {
   '3.29.3.5': {
     '0x142faa4d8':'0x142faa4d0','0x1436ae110':'0x1436ae0e0','0x1436ae46c':'0x1436ae43c','0x1436af6cc':'0x1436af69c'},
   '3.29.3d': {
-    '0x1436ae110':'0x1436ae060','0x1436ae46c':'0x1436ae3bc','0x1436af6cc':'0x1436af61c'}};
+    '0x142faa4d8':'0x142faa4d8','0x1436ae110':'0x1436ae060','0x1436ae46c':'0x1436ae3bc','0x1436af6cc':'0x1436af61c'}};
 // The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
 const movedData = exe => MOVED[({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[exe.base.add(exe.base.add(0x3c).readU32() + 8).readU32()]] || {};
 function hookTileObjects(exe) {

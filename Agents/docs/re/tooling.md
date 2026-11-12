@@ -390,6 +390,10 @@ Auth's `keygen` and `patch` and the constants extraction refuse any other. To ad
    executable's link time. `compare_builds.py <3.29.3c release exe> <new exe> --data-map <script>...` prints a
    table's rows; for `common.js` pass the traces that have no `at()` of their own. `client-control.js` and
    `nullifier.js` find their globals through the code that uses them (`globalAt`) and need nothing.
+   A table lists every data address its script uses, also the ones that stay, so a missing one is one nobody checked:
+   on a later build `at()` then sends a `notice` once and uses the address as written, and `va()` gives a data address
+   it cannot translate back with the build it was read on (`0x1436b0000@3.29.3d`). Neither stops the script. Run the
+   same command again after adding a data address to a script.
 
 The 3.29.3.5 hotfix moved 259 of the 365 data addresses those scripts use, and 3.29.3d moved 361. The linker also
 changes which of several identical functions a class table's entry names, so a class table is not always

@@ -44,10 +44,30 @@ const MOVED = {
   '3.29.3d': {
     '0x1435ab608':'0x1435ab568'}};
 // The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
-const BUILD = ({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[image.base.add(image.base.add(0x3c).readU32() + 8).readU32()] || '';
+const LINK_TIME = image.base.add(image.base.add(0x3c).readU32() + 8).readU32();
+const BUILD = ({0x6aed1652: '3.29.3c', 0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[LINK_TIME] || '';
+// Not a refusal: the script runs, with every data address read as the release's.
+if (!BUILD) send({notice: 'this script does not know this client build (link time 0x' + LINK_TIME.toString(16) +
+  '): its data addresses are used as the 3.29.3c release\'s'});
 const moved = MOVED[BUILD] || {};
 const movedBack = Object.fromEntries(Object.entries(moved).map(([from, to]) => [to, from]));
-const at = va => image.base.add(ptr(typeof va === 'string' && moved[va.toLowerCase()] || va).sub(base));
+// Only data moves between builds, and the image's data starts where .text ends.
+const DATA_START = (() => {
+  const pe = image.base.add(image.base.add(0x3c).readU32()), text = pe.add(24 + pe.add(20).readU16());
+  return text.add(12).readU32() + text.add(8).readU32();
+})();
+const isMovableData = rva => BUILD in MOVED && rva >= DATA_START;
+const unlisted = {};
+// A data address MOVED does not list was never checked for this build: it is used as written, and said once.
+const listed = key => {
+  if (isMovableData(ptr(key).sub(ptr('0x140000000')).toUInt32()) && !(key in moved) && !unlisted[key]) {
+    unlisted[key] = true;
+    send({notice: 'data address ' + key + ' is not in MOVED for ' + BUILD + ': it is used as the 3.29.3c release\'s. ' +
+      'List it with scripts/re/port/compare_builds.py --data-map'});
+  }
+  return moved[key] || key;
+};
+const at = va => image.base.add(ptr(typeof va === 'string' ? listed(va.toLowerCase()) : va).sub(base));
 
 const EXPECTED = {
   // 0x14219aa10  Actor 0x1ab handler (trace-actions.js).

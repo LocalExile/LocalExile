@@ -16,7 +16,8 @@ It checks, in this order:
   unchanged, and where the HNC mask is now (the new row's HncMaskVa).
 
 --data-map prints, for each script, the rows of its MOVED table for the new build: where every data address the script
-uses in code sits there. The scripts' addresses are the 3.29.3c release's, so that executable is the first argument.
+uses in code sits there, also the ones that stay, so that an address missing from the table is one nobody checked.
+The scripts' addresses are the 3.29.3c release's, so that executable is the first argument.
 An address is settled by, in this order: every instruction that refers to it naming one new address; its bytes being
 found once in the new build's data; the nearest referenced data below and above having moved by the same amount, with
 equal bytes there. What none of these settles is listed and left out.
@@ -153,9 +154,9 @@ def data_map(old, new, scripts):
                 open_.append(va)
                 continue
             how[why] += 1
-            if there != va:
-                pairs.append(f"'{va:#x}':'{there:#x}'")
-        print(f"// {path}: {len(addresses)} data addresses in code, {len(pairs)} moved")
+            pairs.append(f"'{va:#x}':'{there:#x}'")
+        moved = sum(1 for pair in pairs if pair[1:12] != pair[15:26])
+        print(f"// {path}: {len(addresses)} data addresses in code, {moved} moved")
         line = "    "
         for pair in pairs:
             if len(line) + len(pair) + 1 > 118:
