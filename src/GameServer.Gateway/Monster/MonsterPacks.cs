@@ -321,6 +321,10 @@ public static class AreaPopulation
             for (int i = 0; i < rest.Count; i++)
                 Bosses((arrival.X + (i + 1) * 4, arrival.Y), "mapboss", [rest[i]]);
         }
+        else if (rest.Count > 0 && LabyrinthTrials.InLabyrinth(area.AreaId))
+            // The Labyrinth's areas (WorldAreas IsLabyrinthArea) list Izaro's varieties as bosses, but his fight raises him
+            // itself: no fallback Izaro stands deep in the area.
+            notes.Add($"no room point for unique boss(es) {string.Join(", ", rest.Select(i => area.Bosses[i]))} of {area.AreaId}: a Labyrinth area, left to its fight");
         else if (rest.Count > 0)
         {
             // The layout gave no free boss point at all (a sparse boss room the doodad fit misses on a seed nobody
