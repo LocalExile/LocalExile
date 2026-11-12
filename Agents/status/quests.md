@@ -114,7 +114,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
   burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
   a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
-  −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama), a6q2
+  −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama and the two bridges to his keep), a6q2
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
   and the act 5/6 completion flags; every area change through an exit, a waypoint or an NPC-script transport. The god

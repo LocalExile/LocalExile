@@ -274,6 +274,8 @@ STEPS = [
   `a6q2-QuestRewardSeen` or the server must build magic/rare helmets.
 
 ## a6q3 "The Father of War" (Quest row 72, main)
+The four telepad points of `miniboss.arm` form two bridge pairs. In file order the first and third lie on the arena side, the second and fourth outside. Both exterior doors display `ArenaNameTukohama`.
+
 **Start:** Tarkleigh, NPCTalk 901 "The Karui Fortress" (needs `Visited-6_4`), or the log starts on
 `a6q3-SeenEntrance`/`a6q3-HaveItem`. **Finish:** Tarkleigh, NPCTalk 905 "Tukohama Reward" (Book of Skill).
 **DONE flag (driver):** `a6q3-UsedRewardBook` (QuestStates Order 0; QSR 14 +1 passive).
