@@ -112,7 +112,7 @@ public static partial class Game
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || ownedCurrent is not null && !ownedCurrent()) return 0;
             // The instance's own monsters (not a player's minions or allies; a monster's summons are) take the instance's ids: every client has
             // them under the same id, and whoever runs the instance next keeps them (SharedMonsters.cs).
-            id = !friendly ? conn.Instance.World.NewMonsterId() : conn.NextObjectId++;
+            id = !friendly ? conn.Instance.World.NewMonsterId() : conn.TakeObjectId();
         }
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
         if (placement == MonsterPlacement.Proposed && bodySize >= 0)

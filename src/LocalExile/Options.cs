@@ -35,7 +35,7 @@ sealed class Options
         for (; i < args.Length && o.Error is null; i++)
             switch (args[i])
             {
-                case "run" or "setup" or "check" or "stop" or "version" or "client-command" or "migrate-saves" or "help": o.Command = args[i]; break;
+                case "run" or "setup" or "check" or "builds" or "stop" or "version" or "client-command" or "migrate-saves" or "help": o.Command = args[i]; break;
                 case "--help" or "-h": o.Command = "help"; break;
                 case "account":
                     if (i + 2 >= args.Length || args[i + 1] != "create") { o.Error = "usage: account create <name>"; break; }

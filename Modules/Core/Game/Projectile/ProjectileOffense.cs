@@ -20,6 +20,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>The poison damage and duration its hits deal, captured at release (MonsterPoisons); the default poisons
     /// nothing.</summary>
     public MonsterPoisons.Settings Poison { get; init; }
+    /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
+    public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }

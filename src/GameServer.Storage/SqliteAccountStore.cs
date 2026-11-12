@@ -6,12 +6,29 @@ namespace GameServer.Storage;
 
 /// <summary>
 /// Accounts and their characters in the save database (<see cref="SaveDatabase"/>, the file the Gateway keeps character
-/// saves in): one row each, the record as JSON. Nothing is cached, so Auth and the dev host see each other's changes.
-/// Deleting a character also sets its save aside, in the same transaction.
+/// saves in): one row each, an account as JSON (auth.db) and a character as the columns of account_characters. Nothing is
+/// cached, so Auth and the dev host see each other's changes. Deleting a character also sets its save aside, in the same
+/// transaction.
 /// </summary>
 public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
 {
     static readonly JsonSerializerOptions Opts = new();
+
+    /// <summary>The character list's JSON rows (account_characters_json) as columns: the update that made the columns
+    /// runs it, and so does the migration of a saves.db from before the player databases were split.</summary>
+    public const string FromJson =
+        "INSERT INTO account_characters (id, account_id, name, class, level, league, area_id, created_utc, last_played_utc, " +
+        "last_town, portrait, portrait_frame, hardcore_death_league, hardcore_death_utc, hardcore_death_permanent) " +
+        "SELECT id, account_id, name, json_extract(character, '$.Class'), json_extract(character, '$.Level'), " +
+        "json_extract(character, '$.League'), json_extract(character, '$.AreaId'), json_extract(character, '$.CreatedUtc'), " +
+        "json_extract(character, '$.LastPlayedUtc'), json_extract(character, '$.LastTown'), " +
+        "coalesce(json_extract(character, '$.Portrait'), 0), coalesce(json_extract(character, '$.PortraitFrame'), 0), " +
+        "json_extract(character, '$.HardcoreDeath.SourceLeague'), json_extract(character, '$.HardcoreDeath.AtUtc'), " +
+        "json_extract(character, '$.HardcoreDeath.PermanentlyDead') FROM account_characters_json " +
+        "WHERE id NOT IN (SELECT id FROM account_characters)";
+
+    const string CharacterColumns = "id, account_id, name, class, level, league, area_id, created_utc, last_played_utc, " +
+        "last_town, portrait, portrait_frame, hardcore_death_league, hardcore_death_utc, hardcore_death_permanent";
 
     /// <summary>The account store of Auth and the dev host: the save database (<see cref="SaveDatabase.DefaultPath"/>), with
     /// an account store from before it (data/accounts.json, <c>Game_DEV_DB</c>) imported once.</summary>
@@ -24,8 +41,8 @@ public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
 
     public Account? FindAccount(string name) => One<Account>("SELECT account FROM accounts WHERE name = $v", name);
     public Account? GetAccount(Guid id) => One<Account>("SELECT account FROM accounts WHERE id = $v", id.ToString());
-    public Character? FindCharacter(string name) => One<Character>("SELECT character FROM account_characters WHERE name = $v", name);
-    public Character? GetCharacter(Guid id) => One<Character>("SELECT character FROM account_characters WHERE id = $v", id.ToString());
+    public Character? FindCharacter(string name) => Characters($"SELECT {CharacterColumns} FROM account_characters WHERE name = $v", name).FirstOrDefault();
+    public Character? GetCharacter(Guid id) => Characters($"SELECT {CharacterColumns} FROM account_characters WHERE id = $v", id.ToString()).FirstOrDefault();
 
     /// <summary>Every account, by name (the dev protocol's "accounts").</summary>
     public IReadOnlyList<Account> Accounts() => db.Read(() =>
@@ -37,14 +54,39 @@ public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
         return list;
     });
 
-    public IReadOnlyList<Character> CharactersOf(Guid accountId) => db.Read(() =>
+    public IReadOnlyList<Character> CharactersOf(Guid accountId) =>
+        Characters($"SELECT {CharacterColumns} FROM account_characters WHERE account_id = $v ORDER BY created_utc, id", accountId.ToString());
+
+    // A row that can't be a character (a value out of range, a date that does not parse) stops what needed it, as a save
+    // does: treating it as missing would let a new character take its place.
+    IReadOnlyList<Character> Characters(string sql, string value) => db.Read(() =>
     {
-        using var c = db.Command("SELECT character FROM account_characters WHERE account_id = $v ORDER BY created_utc, id", ("$v", accountId.ToString()));
+        using var c = db.Command(sql, ("$v", value));
         using var r = c.ExecuteReader();
         var list = new List<Character>();
-        while (r.Read()) list.Add(Parse<Character>(r.GetString(0), "a character of an account"));
+        while (r.Read())
+        {
+            try
+            {
+                var death = r.IsDBNull(12) ? null
+                    : new HardcoreDeathRecord(r.GetString(12), Date(r.GetString(13)), r.GetInt64(14) != 0);
+                list.Add(new Character(Guid.Parse(r.GetString(0)), Guid.Parse(r.GetString(1)), r.GetString(2),
+                    (CharacterClass)r.GetInt64(3), checked((int)r.GetInt64(4)), r.GetString(5), r.GetString(6), Date(r.GetString(7)),
+                    Date(r.GetString(8)), r.IsDBNull(9) ? null : r.GetString(9), checked((ushort)r.GetInt64(10)), death,
+                    checked((ushort)r.GetInt64(11))));
+            }
+            catch (Exception e) when (e is FormatException or OverflowException or InvalidCastException)
+            {
+                throw new UnreadableSaveException(db.Path, $"character {value} in {db.Path} can't be read ({e.Message})", e);
+            }
+        }
         return list;
     });
+
+    static DateTimeOffset Date(string text) =>
+        DateTimeOffset.Parse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind);
+
+    static string Text(DateTimeOffset date) => date.ToString("O", System.Globalization.CultureInfo.InvariantCulture);
 
     public void AddAccount(Account a) => Upsert(a);
     public void UpdateAccount(Account a) => Upsert(a, onlyIfThere: true);
@@ -75,10 +117,18 @@ public sealed class SqliteAccountStore(SaveDatabase db) : IAccountStore
         if (onlyIfThere && GetCharacter(ch.Id) is { } current)
             ch = HardcoreDeathRules.PreserveCommittedDeath(ch, current);
         using var c = db.Command(onlyIfThere
-            ? "UPDATE account_characters SET name = $name, account_id = $account, character = $json WHERE id = $id"
-            : "INSERT INTO account_characters (id, account_id, name, created_utc, character) VALUES ($id, $account, $name, $created, $json)",
-            ("$id", ch.Id.ToString()), ("$account", ch.AccountId.ToString()), ("$name", ch.Name),
-            ("$created", ch.CreatedUtc.UtcDateTime.ToString("O")), ("$json", JsonSerializer.Serialize(ch, Opts)));
+            ? "UPDATE account_characters SET account_id = $account, name = $name, class = $class, level = $level, league = $league, " +
+              "area_id = $area, created_utc = $created, last_played_utc = $played, last_town = $town, portrait = $portrait, " +
+              "portrait_frame = $frame, hardcore_death_league = $deathLeague, hardcore_death_utc = $deathAt, " +
+              "hardcore_death_permanent = $deathPermanent WHERE id = $id"
+            : $"INSERT INTO account_characters ({CharacterColumns}) VALUES ($id, $account, $name, $class, $level, $league, $area, " +
+              "$created, $played, $town, $portrait, $frame, $deathLeague, $deathAt, $deathPermanent)",
+            ("$id", ch.Id.ToString()), ("$account", ch.AccountId.ToString()), ("$name", ch.Name), ("$class", (long)ch.Class),
+            ("$level", ch.Level), ("$league", ch.League), ("$area", ch.AreaId), ("$created", Text(ch.CreatedUtc)),
+            ("$played", Text(ch.LastPlayedUtc)), ("$town", (object?)ch.LastTown ?? DBNull.Value), ("$portrait", (long)ch.Portrait),
+            ("$frame", (long)ch.PortraitFrame), ("$deathLeague", (object?)ch.HardcoreDeath?.SourceLeague ?? DBNull.Value),
+            ("$deathAt", ch.HardcoreDeath is { } d ? Text(d.AtUtc) : DBNull.Value),
+            ("$deathPermanent", ch.HardcoreDeath is { } p ? (p.PermanentlyDead ? 1L : 0L) : DBNull.Value));
         c.ExecuteNonQuery();
     });
 

@@ -123,12 +123,20 @@ sealed partial class BotDirector
         string? TargetKind = null, string? Doing = null, double SecondsLeft = 0, int ActivitiesLeft = 0,
         bool Quick = false, List<string>? Gear = null, int GearLevel = 0, string? LeaderName = null, uint Party = 0);
 
+    // Keep over-limit characters in the same save, ready if the operator raises the cap later.
+    readonly List<SavedBot> _held = [];
+
     void Resume()
     {
         var saved = File.Exists(_statePath) ? JsonSerializer.Deserialize<List<SavedBot>>(File.ReadAllText(_statePath)) ?? [] : [];
         foreach (var s in saved)
         {
             if (_accounts.GetCharacter(s.CharacterId) is null) continue;
+            if (_bots.Count >= _settings.MaxBots)
+            {
+                _held.Add(s);
+                continue;
+            }
             var bot = new Bot
             {
                 AccountId = s.AccountId, CharacterId = s.CharacterId, Account = s.Account, Name = s.Name, Class = s.Class,
@@ -168,7 +176,7 @@ sealed partial class BotDirector
                 _log.Write(extra.Account, extra.Name, $"после перезапуска в городе {extra.Town} нет места: идёт дальше по квестам");
                 BeginQuest(extra, DateTime.UtcNow);
             }
-        var known = _bots.Select(b => b.AccountId).ToHashSet();
+        var known = _bots.Select(b => b.AccountId).Concat(_held.Select(b => b.AccountId)).ToHashSet();
         foreach (var orphan in _accounts.Accounts().Where(a => IsBot(a) && !known.Contains(a.Id)))
         {
             foreach (var c in _accounts.CharactersOf(orphan.Id)) _accounts.DeleteCharacter(c.Id);
@@ -189,7 +197,7 @@ sealed partial class BotDirector
         var now = DateTime.UtcNow;
         lock (_bots) bots = [.. _bots.Select(b => new SavedBot(b.AccountId, b.CharacterId, b.Account, b.Name, b.Class, b.Level, b.QuestIndex, b.Deaths,
             b.Phase, b.Town, b.X, b.Y, b.TargetX, b.TargetY, b.TargetKind, b.Doing, (b.Until - now).TotalSeconds, b.ActivitiesLeft,
-            b.Quick, b.Gear, b.GearLevel, b.LeaderName, b.Party))];
+            b.Quick, b.Gear, b.GearLevel, b.LeaderName, b.Party)), .. _held];
         Directory.CreateDirectory(Path.GetDirectoryName(_statePath)!);
         File.WriteAllText(_statePath + ".tmp", JsonSerializer.Serialize(bots, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(_statePath + ".tmp", _statePath, overwrite: true);

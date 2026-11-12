@@ -48,7 +48,7 @@ public static partial class Game
     static uint? QueueGroundArtLocked(ClientState conn, FlaskGrounds.Kind kind, (int X, int Y) at, int radius)
     {
         if (!FlaskGroundArt.Value.TryGetValue(kind, out var art)) return null;
-        uint obj = conn.NextObjectId++;
+        uint obj = conn.TakeObjectId();
         float scale = (float)(radius * (250.0 / 23) / Math.Max(1, art.ArtRadius));
         var effect = new EffectObject(at.X, at.Y, art.Ao) { Flags0 = EffectObject.FixedRotation, Scale = scale };
         var packets = Automation(conn).Packets;

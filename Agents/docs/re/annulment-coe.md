@@ -44,15 +44,7 @@ The local `Annul` uses the same rule: the prefix is protected, while the craft a
 removable explicits.
 The cannot-roll-attack/caster crafts likewise exclude tagged affixes; fractured affixes are never candidates.
 
-## Automated coverage
-
-`AnnulmentTests` checks the magic-last-affix and rare-one-affix results, the rare name and rarity, jewel removal,
-prefix-lock and cannot-roll-attack protection, fractured-affix protection, preserved implicits/quality/sockets/links/
-charges, non-magic/unique refusal, unmodifiable, corrupted/mirrored, unsupported/unknown/no-Mods bases and items with
-no eligible explicit.
-`AnnulmentGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, two removals spending one orb each, a refused third use, saved empty magic item after
-cache eviction, and refused normal/corrupted/mirrored/unmodifiable/unsupported targets without spending.
+## Verification
 
 No fresh real-client run was made for this change.
 The old live check (2026-10-21) is not evidence for the new admission rules; native re-acceptance remains to be

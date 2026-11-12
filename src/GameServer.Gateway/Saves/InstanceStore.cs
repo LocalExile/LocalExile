@@ -56,13 +56,14 @@ public sealed partial class InstanceState
 
     /// <summary>Puts a character's start weapon (<see cref="PlayerInventories.StartWeapon"/>) on this instance's ground
     /// once: its ground id, or null when this weapon was put here before (it is still on the ground, or was picked up).
-    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too.</summary>
-    public uint? PlaceStartWeapon(string character, WorldItemObject weapon)
+    /// A new character of a deleted one's name has a weapon of its own, so it gets it here too. <paramref name="by"/> is the
+    /// connection it is for: an unshared ground item is shown only to the one that owns it.</summary>
+    public uint? PlaceStartWeapon(string character, WorldItemObject weapon, object? by = null)
     {
         lock (_startWeapons)
         {
             if (_startWeapons.TryGetValue(character, out var placed) && ReferenceEquals(placed.Weapon, weapon.Item)) return null;
-            uint id = Ground.Add(weapon, null, shared: false, justDropped: false);
+            uint id = Ground.Add(weapon, by, shared: false, justDropped: false);
             _startWeapons[character] = (id, weapon.Item);
             return id;
         }
@@ -195,6 +196,15 @@ public sealed class InstanceGround
     }
 
     /// <summary>Who put the item down (null when unknown) and whether the other players see it.</summary>
+    /// <summary>Makes <paramref name="owner"/> the owner of every item one of its earlier selves put down (<paramref name="earlier"/>):
+    /// a player back in the instance on a new connection sees its own unshared items (the start weapon, quest items) again.</summary>
+    public void Reassign(Func<object, bool> earlier, object owner)
+    {
+        lock (_items)
+            foreach (var (id, by) in _by.ToList())
+                if (!ReferenceEquals(by, owner) && earlier(by)) _by[id] = owner;
+    }
+
     public (object? By, bool Shared) Origin(uint id)
     {
         lock (_items) return (_by.GetValueOrDefault(id), !_private.Contains(id));

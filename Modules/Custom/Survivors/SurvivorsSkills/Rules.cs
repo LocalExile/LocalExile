@@ -78,23 +78,14 @@ static partial class SurvivorsSkills
     internal static readonly Lazy<IReadOnlyDictionary<int, int>> HeraldBuffRows = new(() =>
     {
         var result = new Dictionary<int, int>();
-        string folder = Path.Combine("data", "tables");
-        if (!ClientTables.Exists(Path.Combine(folder, "GrantedEffects.json")) || !ClientTables.Exists(Path.Combine(folder, "ActiveSkills.json"))
-            || !ClientTables.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
-        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
-        using var actives = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
-        using var buffs = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects || ClientTables.TableOrNull("ActiveSkills") is not { } actives
+            || ClientTables.TableOrNull("BuffDefinitions") is not { } buffs) return result;
         var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < buffs.RootElement.GetArrayLength(); i++)
-            if (buffs.RootElement[i].TryGetProperty("Id", out var id) && id.GetString() is { } name) byId[name] = i;
-        for (int row = 0; row < effects.RootElement.GetArrayLength(); row++)
-        {
-            if (!effects.RootElement[row].TryGetProperty("ActiveSkill", out var active) || active.ValueKind != JsonValueKind.Number) continue;
-            int at = active.GetInt32();
-            if (at < 0 || at >= actives.RootElement.GetArrayLength()) continue;
-            if (actives.RootElement[at].TryGetProperty("Id", out var skill) && skill.GetString() is { } effectId
-                && byId.TryGetValue(effectId, out int buff)) result[row] = buff;
-        }
+        foreach (var b in buffs)
+            if (b.TextOrNull("Id") is { } name) byId[name] = b.Index;
+        foreach (var effect in effects)
+            if (effect.IntOrNull("ActiveSkill") is int at && actives.Row(at) is { } active
+                && active.TextOrNull("Id") is { } effectId && byId.TryGetValue(effectId, out int buff)) result[effect.Index] = buff;
         return result;
     });
 
@@ -612,7 +603,7 @@ static partial class SurvivorsSkills
         lock (conn.Monsters)
         {
             if (!ownership.Current) return;
-            id = conn.NextObjectId++;
+            id = conn.TakeObjectId();
             StateOf(conn).Effects.Add(id);
         }
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -676,7 +667,7 @@ static partial class SurvivorsSkills
                 orbs[0] = oldest with { Experience = oldest.Experience + experience };
                 return;
             }
-            id = conn.NextObjectId++;
+            id = conn.TakeObjectId();
             orbs.Add(new(id, at.X, at.Y, experience));
         }
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
@@ -755,7 +746,7 @@ static partial class SurvivorsSkills
         lock (conn.Monsters)
         {
             if (StateOf(conn).Survivors is null) return;
-            id = conn.NextObjectId++;
+            id = conn.TakeObjectId();
             StateOf(conn).SurvivorsGroundZones.Add(new(id, x, y, SurvivorsRules.DeathZoneRadius,
                 conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
                 SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));

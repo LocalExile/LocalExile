@@ -14,7 +14,7 @@ using GameServer.Core;
 /// self auras (Program.GrantedSkillsOf), Summon Elemental Relic (Program.RelicTriggerOf), the Spirit chieftains
 /// (Program.TriggeredGrantsLocked) and the footstep skill <c>RepeatingShockwave</c> (Abberath's Fury, Polytheist's Devout
 /// of Abberath at level 20: a spell triggered by each of the player's footsteps while running, Program.RunFootstepSkills).
-/// Game data: data/tables/PassiveSkills.json, loaded on first use.
+/// Game data: the PassiveSkills client table, loaded on first use.
 /// </summary>
 public sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "data", bool ruthless = false)
 {
@@ -39,19 +39,17 @@ public sealed class PassiveGrantedSkills(SkillCatalog skills, string folder = "d
     static Dictionary<ushort, Grant> Load(SkillCatalog skills, string folder, bool ruthless)
     {
         var grants = new Dictionary<ushort, Grant>();
-        string path = Path.Combine(folder, "tables", "PassiveSkills.json");
-        if (!ClientTables.Exists(path)) return grants;
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in d.RootElement.EnumerateArray())
+        if (!ClientTables.Has("PassiveSkills")) return grants;
+        foreach (var r in ClientTables.Table("PassiveSkills"))
         {
-            int graphId = r.GetProperty("PassiveSkillGraphId").GetInt32();
+            int graphId = r.Int("PassiveSkillGraphId");
             // Ruthless uses its own column (Determination's points at DeterminationHardMode), as its gems use their
             // HardMode effects; HasHardmodeAlternate only marks the stat columns.
             if (graphId is <= 0 or > ushort.MaxValue
-                || !r.TryGetProperty(ruthless ? "GrantedEffectsPerLevelHardmode" : "GrantedEffectsPerLevel", out var v)
-                || v.ValueKind != JsonValueKind.Number || skills.EffectsPerLevel(v.GetInt32()) is not { } level
+                || r.IntOrNull(ruthless ? "GrantedEffectsPerLevelHardmode" : "GrantedEffectsPerLevel") is not int v
+                || skills.EffectsPerLevel(v) is not { } level
                 || skills.EffectId(level.Effect) is not { } effectId) continue;
-            grants.TryAdd((ushort)graphId, new((ushort)graphId, v.GetInt32(), level.Effect, effectId, level.Level));
+            grants.TryAdd((ushort)graphId, new((ushort)graphId, v, level.Effect, effectId, level.Level));
         }
         return grants;
     }

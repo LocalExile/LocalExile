@@ -1004,10 +1004,10 @@ class RunnerTests(unittest.TestCase):
 class OrderTests(unittest.TestCase):
     def test_order_is_unique_and_matches_the_quest_table(self):
         self.assertEqual(len(order_module.ORDER), len(set(order_module.ORDER)))
-        table = bridge_module.ROOT / "data" / "tables" / "Quest.json"
-        if not table.is_file():
-            self.skipTest("data/tables/Quest.json not extracted")
-        ids = {row["Id"] for row in json.loads(table.read_text(encoding="utf-8"))}
+        import clientdb
+        if not clientdb.exists():
+            self.skipTest("data/client.db is absent")
+        ids = {row["Id"] for row in clientdb.table("Quest")}
         self.assertEqual([q for q in order_module.ORDER if q not in ids], [])
 
     def test_the_shipped_step_files_load_and_need_only_shipped_quests(self):
