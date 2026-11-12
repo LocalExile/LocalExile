@@ -1209,6 +1209,7 @@ public static partial class Game
     {
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);
+        PrepareKaruiBridgeGates(conn);
         var (layout, name, classRow) = (conn.Layout, conn.Character, conn.ClassRow);
         var cls = SkillsFor(conn).ClassFor(classRow);
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);
