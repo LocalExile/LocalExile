@@ -85,7 +85,7 @@ break the install. `--client-mode link` stays for developers and is never offere
 another LocalExile's `Client\`, every start warns (`ClientInstall.WarnIfLinked`).
 
 `LocalExile.exe --help` lists the commands. `setup` does everything before the servers, `stop` ends this install's
-processes, `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
+processes, `builds` lists the client builds it runs (for a GUI: what to recognize, and what to fetch from Steam), `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
 release exists and only says so (`--no-update-check` turns it off); it never downloads anything.
 
 ### For a GUI: `--json`
