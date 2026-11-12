@@ -180,7 +180,7 @@ static partial class Game
         async Task Show(string r, NetworkStream s, ConnectionCiphers c, ClientState viewer)
         {
             uint effect;
-            lock (viewer.Monsters) effect = viewer.NextObjectId++;
+            lock (viewer.Monsters) effect = viewer.TakeObjectId();
             await SendWorldCreate(r, s, c, viewer, effect, InstanceEntities.CreateObject(effect,
                 InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
                 $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
