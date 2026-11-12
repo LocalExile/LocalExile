@@ -319,6 +319,14 @@ whether the real server sends the rarity's own mods, and in which list. The mons
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
 
+## ControlZone and Orion's projection
+
+The 3.29.3c ControlZone vtables `0x1435a86b0`, `0x1435a8840`, `0x1435a2078` and `0x1435a7218`
+all use `0x1400f1180` for slot 17: `ret 0`, with no component bytes.
+`AtlasExile5ApparitionDetached` therefore adds nothing after its StateMachine data.
+Orion's ACT maps animation types 36/37/38 to the meteor-maze start/hold/end sequence in both stances.
+His BeamBomb stat set gives separate per-type degeneration; its hit conversion does not convert that degeneration.
+
 ## Maps
 
 A map's area has no MonsterPacks row of its own: its packs are the map's Maps.dat `MonsterPacksKeys` (by

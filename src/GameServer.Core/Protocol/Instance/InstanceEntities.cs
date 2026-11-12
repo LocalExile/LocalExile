@@ -656,7 +656,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// StateMachine needs the type's shared states and timers (<see cref="StateMachineData"/>).
     public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
         components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => Extras.Contains(c) && (c != "StateMachine" || haveStateMachine));
+        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone") && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {
@@ -712,7 +712,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
                 // define_shared_timer a u32 + u8. The .ot defaults are sent.
                 case "StateMachine": StateMachine!.Write(w); break;
-                // BaseEvents, Pathfinding, Monster, Preload, Functions, PlayerClass, DiesAfterTime, Timer: no data.
+                // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
+                // Functions, PlayerClass, DiesAfterTime, Timer: no data.
             }
         }
         w.U8(0);            // tasks
