@@ -24,22 +24,23 @@ public static partial class Game
     /// already are, so the player's damage increases do not scale it. The corpse is consumed at once (the official
     /// client removes it 0-6 ms after the death), and a kill by the explosion is the player's and can trigger another
     /// explosion.</summary>
-    public static async Task ExplodeOnKill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
+    public static async Task<bool> ExplodeOnKill(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint corpseId, SpawnedMonster corpse, (int X, int Y) at)
     {
         var player = CharacterPlayerStats(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int percent = Get("enemies_explode_for_%_life_as_physical_damage");
-        if (percent <= 0) return;
+        if (percent <= 0) return false;
         int amount = (int)Math.Min(int.MaxValue, corpse.MaxLife * (long)percent / 100);
-        if (amount <= 0) return;
+        if (amount <= 0) return false;
         int radius = KillExplosionRadius;
         var packet = DamagePacket.Of(DamageType.Physical, amount, amount);
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit)>();
         uint effect;
+        bool removeCorpse;
         lock (conn.Monsters)
         {
-            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return;
+            if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0) return false;
             double now = conn.Clock.Elapsed.TotalSeconds;
             foreach (var (id, m) in conn.Monsters.ToArray())
             {
@@ -50,7 +51,9 @@ public static partial class Game
                 hits.Add((id, m, hit));
             }
             // The explosion consumes the killed monster: the native client removes its corpse at once (0x2bd), and a
-            // warcry may not use a corpse that an explosion already took.
+            // warcry may not use a corpse that an explosion already took. When the killing blow already consumed it
+            // (the Kitava Heart Eater tattoo), the corpse is off the client's list and this is no second removal.
+            removeCorpse = !corpse.CorpseConsumed;
             corpse.CorpseConsumed = true;
             conn.Monsters.Remove(corpseId);
             effect = conn.TakeObjectId();
@@ -61,8 +64,9 @@ public static partial class Game
             new EffectObject(at.X, at.Y, KillExplosionAo).Blob()),
             $"0x02bb create effect 0x{effect:x} {KillExplosionAo} at ({at.X}, {at.Y})");
         await SendWorldRecord(remote, stream, ciphers, conn, effect, InstanceProtocol.EnterWakeZone(effect), null);
-        await Game.SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
-            $"0x02bd corpse 0x{corpseId:x} ({corpse.Label}) explodes");
+        if (removeCorpse)
+            await Game.SendWorldRemoval(remote, stream, ciphers, conn, corpseId,
+                $"0x02bd corpse 0x{corpseId:x} ({corpse.Label}) explodes");
         SendAfter(KillExplosionArtMs / 1000.0, async () =>
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -75,5 +79,6 @@ public static partial class Game
             if (hit.StageStarts) _ = RunBossStage(remote, stream, ciphers, conn, id, m);
             if (hit.Life == 0) await MonsterKilled(remote, stream, ciphers, conn, id, m);
         }
+        return removeCorpse;
     }
 }

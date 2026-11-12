@@ -11,6 +11,36 @@ namespace GameServer.Gateway.Tests;
 public sealed class Act6EncounterTests
 {
     [Fact]
+    public void Fuel_cart_uses_the_visible_radius_and_checks_the_position_sent_to_the_client()
+    {
+        var rail = new RailEscort([(0, 0), (65, 0), (65, 26)], 13);
+        var cart = new QuestobjectsRules.BeaconCart(new("BeaconPayload", "", 0, 0, 0, null, 0), rail);
+        cart.Update(1, [(22, 7)]);
+        Assert.False(cart.Moving);
+        cart.Update(1, [(22, 6)]);
+        Assert.True(cart.Moving);
+        cart.Update(0, [(23, 0)]);
+        Assert.True(cart.Moving);
+
+        // After two seconds the client has moved 26 cells. Its escort is beside the moving cart.
+        cart.Update(2, [(38, 0)]);
+        Assert.Equal((26d, 0d), rail.Position);
+        Assert.True(cart.Moving);
+        // A delayed update can finish this leg only. The client still needs the command for the turn.
+        cart.Update(10, [(65, 15)]);
+        Assert.Equal((65d, 0d), rail.Position);
+        Assert.True(cart.Moving);
+        cart.Update(1, []);
+        Assert.Equal((65d, 13d), rail.Position);
+        Assert.False(cart.Moving);
+        cart.Update(3, [(65, 13)]);
+        Assert.Equal((65d, 13d), rail.Position);
+        cart.Update(1, [(65, 26)]);
+        Assert.True(rail.Complete);
+        Assert.False(cart.Moving);
+    }
+
+    [Fact]
     public async Task EscortAndBossProgressionCannotSkipPendingStages()
     {
         var first = new RailEscort([(0, 0), (13, 0), (13, 26)], 13);

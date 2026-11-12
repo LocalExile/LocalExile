@@ -10,11 +10,12 @@ static partial class Game
     internal const int CorpseKillLifePct = 10;
 
     /// <summary>The killing blow's corpse consumption: true when the corpse was consumed (the caller removes the corpse
-    /// object). A shattered or already consumed corpse is not consumed again, and the roll happens before the corpse
-    /// is taken. Call under the Monsters lock: the corpse leaves conn.Monsters and the life change uses that lock.</summary>
+    /// object). A corpse the engine cannot use (Warcries.IsCorpse: a shattered, already consumed or corpse-unusable
+    /// monster) is not consumed, and the roll happens before the corpse is taken. Call under the Monsters lock: the
+    /// corpse leaves conn.Monsters and the life change uses that lock.</summary>
     internal static bool ConsumeCorpseOnKillLocked(ClientState conn, uint id, SpawnedMonster m, double now)
     {
-        if (conn.PlayerLife == 0 || m.CorpseConsumed || m.Ailments.Shattered) return false;
+        if (conn.PlayerLife == 0 || m.Ailments.Shattered || !IsCorpse(m)) return false;
         var player = CharacterPlayerStats(conn);
         int chance = Stats.Key(CorpseKillChance) is uint key ? player.GetValueOrDefault(key) : 0;
         if (!RandomRolls.Chance(chance, 100, Random.Shared)) return false;

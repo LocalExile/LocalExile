@@ -60,13 +60,29 @@ public sealed class TattooCorpseHinderTests
         try
         {
             conn.PlayerStats[Program.Stats.Key("killing_blow_consumes_corpse_restore_10%_life_chance_%")!.Value] = 100;
-            var corpse = new SpawnedMonster("corpse", new(0, 0, 0), 0, 0, 100) { Dead = true };
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite")
+                ?? throw new InvalidOperationException("no zombie variety");
+            Assert.True(zombie.LifeData.IsUsableAsCorpse(0));
+            var corpse = new SpawnedMonster("corpse", new(0, 0, 0), 0, 0, 100) { Dead = true, Life = 0, Variety = zombie };
             conn.Monsters[1] = corpse;
             Assert.True(Game.ConsumeCorpseOnKillLocked(conn, 1, corpse, 0));
             Assert.Equal(600u, conn.PlayerLife);
             Assert.True(corpse.CorpseConsumed);
             Assert.False(conn.Monsters.ContainsKey(1));
             Assert.False(Game.ConsumeCorpseOnKillLocked(conn, 1, corpse, 0));
+            // A monster whose life type is not usable as a corpse is not consumed (Warcries.IsCorpse's rule).
+            var construct = new SpawnedMonster("construct", new(0, 0, 0), 0, 0, 100)
+            {
+                Dead = true,
+                Life = 0,
+                Variety = Game.Monsters.Find("Metadata/Monsters/Ancestor/KaruiSpiritMaceSlamOak")
+                    ?? throw new InvalidOperationException("no construct variety"),
+            };
+            Assert.False(construct.Variety.LifeData.IsUsableAsCorpse(0));
+            conn.Monsters[2] = construct;
+            Assert.False(Game.ConsumeCorpseOnKillLocked(conn, 2, construct, 0));
+            Assert.Equal(600u, conn.PlayerLife);
+            Assert.False(construct.CorpseConsumed);
         }
         finally
         {

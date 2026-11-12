@@ -534,7 +534,6 @@ public static partial class Game
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in player) playerStats[key] = value;
         var gems = GemSkillEffects(conn).ToArray();
-        var singleSources = gems.GroupBy(g => g.Effect).Where(g => g.Count() == 1).Select(g => g.Key).ToHashSet();
         var skillCosmetics = CharacterSaves.SkillCosmetics(string.IsNullOrEmpty(character) ? "Exile" : character);
         foreach (var (id, effect, name, _, quality, gem) in gems)
         {
@@ -553,10 +552,13 @@ public static partial class Game
             }
             if (Stats.Key("virtual_extra_critical_rolls") is uint criticalRolls)
                 stats[criticalRolls] = CriticalExtraRollsFor(conn, playerStats, own);
-            if (singleSources.Contains(effect) && WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, level, playerStats, own)) is { } cooldown
+            if (CooldownPlan(conn, supported, playerStats) is { } cooldown
                 && Stats.Key("virtual_cooldown_speed_+%") is uint recoveryKey)
             {
                 stats[recoveryKey] = cooldown.RecoveryPercent;
+                // Otherwise the client propagates the use to the GEPL group before the second key can send its request.
+                if (SkillsFor(conn).CooldownGroup(effect, level) is 1 or 11 && Stats.Key("skill_cooldown_group_override") is uint group)
+                    stats[group] = cooldown.SharedGroup ?? 36;
                 if (Stats.Key("virtual_total_cooldown_count") is uint countKey) stats[countKey] = cooldown.Uses;
             }
             SkillAttackTiming.Apply(SkillsFor(conn), effect, level, stats);

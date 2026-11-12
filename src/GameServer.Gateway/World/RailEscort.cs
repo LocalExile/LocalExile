@@ -23,7 +23,15 @@ public sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
 
     public void Advance(double seconds, bool escorted)
     {
-        if (!escorted || !double.IsFinite(seconds) || seconds <= 0) return;
+        if (escorted) AdvancePath(seconds, stopAtWaypoint: false);
+    }
+
+    /// <summary>Advance the leg the client is playing. Time after arrival is spent waiting for its next move.</summary>
+    public void AdvanceCurrentLeg(double seconds) => AdvancePath(seconds, stopAtWaypoint: true);
+
+    void AdvancePath(double seconds, bool stopAtWaypoint)
+    {
+        if (!double.IsFinite(seconds) || seconds <= 0) return;
         double distance = seconds * Speed;
         while (!Complete)
         {
@@ -31,6 +39,7 @@ public sealed class RailEscort(IReadOnlyList<(int X, int Y)> path, double speed)
             double left = Math.Sqrt(Math.Pow(b.X - a.X, 2) + Math.Pow(b.Y - a.Y, 2)) - along;
             if (distance < left) { along += distance; return; }
             distance -= left; along = 0; Target++;
+            if (stopAtWaypoint) return;
         }
     }
 
