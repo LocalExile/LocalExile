@@ -127,6 +127,37 @@ public class SacrificeSupportTests
         Assert.Equal(2, conn.Reservations.Trail.Count);
     }
 
+    [Fact]
+    public async Task Unleash_seals_release_distinct_discounted_fireballs_and_reset_on_source_replacement()
+    {
+        using var fixture = new Fixture();
+        var conn = fixture.Conn;
+        conn.Clock.Reset();
+        fixture.Equip("Fireball", support: "SupportGemHandcastAnticipation");
+        var skill = Game.GemSkillEffects(conn).Single(g => g.Gem != 0);
+        var source = Game.SupportedSkill(conn, skill.Id);
+        var session = fixture.Session;
+        double now = Game.ProjectileWorldTime(conn);
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, now));
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, now + .89));
+        Assert.Equal(1, Game.UnleashSeals(conn, skill.Id, source, now + .9));
+        session.AdvanceTo(ProjectileRuntime.Time(now + 3));
+        Assert.Equal(3, Game.UnleashSeals(conn, skill.Id, source, Game.ProjectileWorldTime(conn)));
+        double start = Game.ProjectileWorldTime(conn);
+        await Game.LaunchProjectile("unleash", fixture.Stream, fixture.Ciphers, conn, skill.Id, (100, 100),
+            (200, 100), conn.ActionInterruptionGeneration, swingAt: start);
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, start));
+        session.AdvanceTo(ProjectileRuntime.Time(start + .9));
+        var hits = session.Runtime.Projectiles.Select(p => ((ProjectileOffense)p.Use.Payload!).Hit[DamageType.Fire].Min)
+            .OrderDescending().ToArray();
+        Assert.Equal(4, hits.Length);
+        Assert.True(hits[0] > 0);
+        Assert.All(hits.Skip(1), hit => Assert.Equal(hits[0] * .55, hit, 6));
+        fixture.Equip("Fireball", support: "SupportGemHandcastAnticipation");
+        var replacement = Game.SupportedSkill(conn, skill.Id);
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, replacement, Game.ProjectileWorldTime(conn)));
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"sacrifice-{Guid.NewGuid():N}.db");
@@ -168,13 +199,13 @@ public class SacrificeSupportTests
             Session = new("sacrifice",Stream,Ciphers,Conn);
             Conn.ProjectileRuntime = Session;
         }
-        public void Equip(string spell, bool echo = false)
+        public void Equip(string spell, bool echo = false, string support = "SupportGemSacrifice")
         {
             if (Host != 0) Game.ItemsOf(Conn).Remove(PlayerInventories.Weapon1, Host);
             ResetSession();
             var sockets = new List<ItemSocket>();
-            foreach (string id in echo ? new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), "SupportGemSacrifice", "SupportGemSpellEcho" }
-                                      : new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), "SupportGemSacrifice" })
+            foreach (string id in echo ? new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), support, "SupportGemSpellEcho" }
+                                      : new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), support })
                 sockets.Add(new(SocketColour.White,ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + id)!)));
             var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with { Mods = [], Sockets = sockets.ToArray(), Links = [(byte)sockets.Count] };
             Host = Game.ItemsOf(Conn).Add(PlayerInventories.Weapon1,0,0,wand).Id;

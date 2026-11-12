@@ -364,7 +364,8 @@ public static partial class Game
             // Reuse the cast path's skill-specific speed and action speed; a refused cast holds no action.
             if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
                 return (SpellTimingFor(conn, gem.Effect, skill)?.DurationSeconds ?? 0)
-                    * (1d + SpellRepeats(conn, skill, gem.Effect)) / PlayerActionFactor(conn);
+                    * (1d + SpellRepeats(conn, skill, gem.Effect)
+                        + .1 * UnleashSeals(conn, skill, SupportedSkill(conn, skill), ProjectileWorldTime(conn))) / PlayerActionFactor(conn);
             if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail;
