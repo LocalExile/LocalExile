@@ -85,7 +85,8 @@ public static class GameDataCatalog
                 Bool(row, "encounter_only"),
                 groups[key].Any() ? [.. groups[key].Select(g => new UniqueCatalog.RollGroup((int)Int(g, "count"),
                     [.. options[Key(g, "name", "base_type", "grp")].Select(o => Text(o, "mod"))],
-                    IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count")))] : null,
+                    IntOrNull(g, "high_level"), IntOrNull(g, "high_level_count"),
+                    [.. options[Key(g, "name", "base_type", "grp")].Select(o => o.ContainsKey("weight") ? (int)Int(o, "weight") : 1)]))] : null,
                 (int)Int(row, "jewel_limit")) { EncounterItemLevelBonus = IntOrNull(row, "encounter_item_level_bonus") };
         })];
     }
