@@ -360,12 +360,18 @@ public sealed class ItemRolls(ItemCatalog catalog, string folder = "data", Syste
         var result = item with { Rarity = rarity, Mods = kept, NameWords = [] };
         if (catalog.ByHash(item.TypeHash) is not { } t || !t.Components.Contains("Mods") || rarity is not (ItemRarity.Magic or ItemRarity.Rare))
             return result;
+        // A Wildwood charm is magic with one modifier (Affliction): its three bases each open one attribute's charm mods.
+        if (t.Class == "AnimalCharm")
+        {
+            rarity = ItemRarity.Magic;
+            result = result with { Rarity = rarity };
+        }
         // CoE beta rare counts: affixNumberGeneration[6] = [2/3, 1/4, 1/12] for 4, 5 or 6 affixes.
         // Jewel classes cap at 4 (2 per side), affixNumberGeneration[4] = [.65,.35] for 3 or 4 affixes.
         var (count, maxPrefix, maxSuffix) = shape is { } fixedShape
             ? (fixedShape.Count, fixedShape.MaxEach, fixedShape.MaxEach)
             : rarity == ItemRarity.Magic
-                ? (rng.Next(1, 3), 1, 1)
+                ? t.Class == "AnimalCharm" ? (1, 1, 1) : (rng.Next(1, 3), 1, 1)
                 : RarePlan(t, item, rng);
         var generation = new MetacraftRules(item with { Mods = kept }, catalog.Mods);
         var pool = Pool(t, Math.Min(item.ItemLevel, maxModLevel ?? item.ItemLevel), item.Influences)
