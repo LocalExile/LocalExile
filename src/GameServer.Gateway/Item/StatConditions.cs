@@ -86,6 +86,9 @@ public static class StatConditions
         "you_count_as_low_life_while_affected_by_vulnerability",
         "you_count_as_full_life_while_affected_by_vulnerability",
         "lose_power_charge_each_second_if_not_detonated_mines_recently",
+        // These permanent Onslaught sources share the source-owned charge/state buff before final pool expansion.
+        "gain_onslaught_while_on_low_life", "gain_onslaught_while_not_on_low_mana",
+        "gain_onslaught_while_you_have_fortify",
         // The source-owned phasing producer gates these before publishing the pathing flag.
         "gain_phasing_while_you_have_low_life", "gain_phasing_if_enemy_killed_recently",
         "phasing_if_blocked_recently", "gain_phasing_while_you_have_onslaught",

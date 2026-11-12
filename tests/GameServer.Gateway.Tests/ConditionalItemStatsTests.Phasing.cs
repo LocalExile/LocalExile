@@ -182,6 +182,7 @@ public partial class ConditionalItemStatsTests
             Blinded_item_conditions_use_the_existing_timed_owner_and_charge_consumer(conn, Wear);
             Qualified_item_ignore_resistance_reaches_hit_mitigation(conn);
             Maximum_endurance_source_owns_onslaught_and_zero_maximum(conn, Wear);
+            Life_mana_and_fortify_sources_share_the_existing_onslaught_owner(conn, Wear);
             Chilled_staff_sources_reach_existing_shock_avoidance(conn, Wear);
             Recent_hit_life_loss_integrates_windows_and_qualified_sources(conn, Wear);
             Qualified_low_life_claw_damage_reaches_the_attacking_hand(conn, Wear);

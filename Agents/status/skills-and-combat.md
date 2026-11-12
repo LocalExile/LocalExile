@@ -487,6 +487,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   prohibition reaches existing hit/ailment consumers. Claw-only hit increases do not change spells or ailments.
   Coralito's paid utility effect suppresses extra critical hit damage through final multipliers and frozen projectiles;
   critical chance and damaging-ailment multipliers remain independent, with automated expiry and source controls.
+  Dreadbeak, Dance of the Offered, Omeyocan and Perseverance share qualified Onslaught speed and presentation ownership;
+  automated controls cover Life/Mana thresholds, Fortification, counted low Life and source/death/requirement cleanup.
   Farrul's Chase's native warcry trigger, self movement expiry, Double Strike and source removal pass; allies are automated.
   Block Recovery now adds base and raw direct Stun Recovery once from the same snapshot, including already expanded
   per-charge recovery. Life/Mana/ES on-kill amounts and the flask-duration coefficient include their real per-player-level
