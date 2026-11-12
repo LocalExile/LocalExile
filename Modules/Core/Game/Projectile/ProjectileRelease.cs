@@ -168,9 +168,18 @@ public static partial class Game
             ? ProjectileSession.Vector(conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
             : use.Origin;
         double speed = use.Profile.Speed;
+        var shot = (ProjectileOffense)use.Payload!;
+        // The proxy's Actor action does not draw Spark. Give its simulated legs a flight object and the art's own clip.
+        if (use.Emitter.Id != PlayerId)
+            shot = shot with
+            {
+                ClientPredicted = false,
+                Presentation = MonsterProjectilePresentation(SkillsFor(conn).Clips(use.Profile.Id), life)
+            };
         return use with
         {
             Origin = sparkOrigin,
+            Payload = shot,
             Profile = use.Profile with
             {
                 Legs = i => new SparkLegs(sequence, i, use.Emitter.Id, life, randomDuration, speed, repeatsLeft),
@@ -289,12 +298,14 @@ public static partial class Game
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         var local = spell ? null : WeaponFor(conn).LocalSources;
         int addedChaos = sacrifice?.AddedChaos(() => session.Packet(sacrifice.LifePacket)) ?? 0;
-        var ailmentRows = SupportedAilmentRows(conn, skillId, spell ? "spell" : "main_hand", projectile: true, addedChaos: addedChaos);
-        var shot = new ProjectileOffense(SupportedProjectileHit(conn, skillId, area: false, addedChaos: addedChaos), spell, PlayerAccuracy(conn, player),
+        var hitInputs = SupportedHitInputsFor(conn, skillId, area: false, projectile: true, addedChaos: addedChaos, totem: totem is not null)!;
+        var areaInputs = SupportedHitInputsFor(conn, skillId, area: true, projectile: true, addedChaos: addedChaos, totem: totem is not null)!;
+        var ailmentRows = SupportedAilmentRowsFrom(hitInputs, spell ? "spell" : "main_hand");
+        var shot = new ProjectileOffense(SupportedHitFrom(hitInputs, suppress: false), spell, PlayerAccuracy(conn, player),
             SupportedReleaseCriticalChance(conn, skillId), SupportedCriticalMultiplier(conn, skillId), gem.Name)
         {
             // Child stages and release specialization can introduce areas after this root is resolved.
-            AreaHit = SupportedProjectileHit(conn, skillId, area: true, addedChaos: addedChaos),
+            AreaHit = SupportedHitFrom(areaInputs, suppress: false),
             VsBlindedCriticalChance = SupportedCriticalChanceVsBlinded(conn, skillId, release: true),
             VsProfaneCriticalChance = SupportedCriticalChanceVsProfane(conn, skillId, release: true),
             ActualCaster = totem is null ? null : TotemCasterStats(player),
@@ -370,7 +381,10 @@ public static partial class Game
                     CriticalMin = shot.Ignite.CriticalMin * totemMore, CriticalMax = shot.Ignite.CriticalMax * totemMore },
                 Poison = shot.Poison with { Min = shot.Poison.Min * totemMore, Max = shot.Poison.Max * totemMore,
                     CriticalMin = shot.Poison.CriticalMin * totemMore, CriticalMax = shot.Poison.CriticalMax * totemMore },
-                Valid = () => SpellTotemCurrent(conn, totem), Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
+                Bleed = shot.Bleed with { Min = shot.Bleed.Min * totemMore, Max = shot.Bleed.Max * totemMore,
+                    CriticalMin = shot.Bleed.CriticalMin * totemMore, CriticalMax = shot.Bleed.CriticalMax * totemMore },
+                // Pending casts still require their source; released projectiles live with the area session.
+                Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
         }
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)

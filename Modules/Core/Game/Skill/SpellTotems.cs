@@ -13,10 +13,11 @@ public static partial class Game
         && ResolveProjectileDefinition(effect) is not null
         && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
     static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
-        && a.Effect == b.Effect && a.Level == b.Level && a.Quality == b.Quality
+        && a.Effect == b.Effect && a.Quality == b.Quality
         && a.SourceGem is not null && b.SourceGem is not null
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
-        && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
+        && a.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality))
+            .SequenceEqual(b.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality)));
     public static void BindTotemSource(ClientState conn, TotemState.Totem totem)
     {
         TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
@@ -25,8 +26,9 @@ public static partial class Game
     public static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
     {
         var caster = new Dictionary<uint, int>(owner);
-        // This prohibition belongs to the owner (Ancestral Bond); type prohibitions remain inherited.
-        caster.Remove(StatKeys.SpellSkillsDealNoDamage);
+        // Only owner-only prohibitions are bypassed. Gruthkul's spell prohibition still belongs to the spell.
+        foreach (string name in new[] { "keystone_ancestral_bond", "deal_no_damage_yourself" })
+            if (Stats.Key(name) is uint key) caster.Remove(key);
         // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
         if (Stats.Key(ArcaneSurgeSpellMore) is uint arcane) caster.Remove(arcane);
         return caster;
