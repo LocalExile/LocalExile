@@ -80,6 +80,7 @@ public sealed partial class DelveModule : IModule
     public void Load(IModuleContext module)
     {
         DelveRailRoute.Warmup();
+        module.Lifetime.Own(DelveRailRoute.ForgetOnUnload());
         RegisterSulphite(module);
         RegisterTrips(module);
         // The gauge and the Subterranean Chart read the character's sulphite from it, in the encampment and the mine.

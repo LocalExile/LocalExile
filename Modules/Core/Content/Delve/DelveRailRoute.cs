@@ -84,6 +84,18 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
 
     sealed class CachedRoute { public Sources? Sources; public DelveRailRoute? Route; }
     static readonly ConditionalWeakTable<ServerLevels.Level, CachedRoute> Cache = new();
+    static volatile bool unloaded;
+
+    /// <summary>For the module's lifetime to own: forgets the prepared routes when the module unloads. A generated level
+    /// is the server's and outlives a reload; an entry left on it is an object of this module, which would keep the
+    /// unloaded module (and the game module it depends on) in memory for as long as the level stays cached.</summary>
+    public static IDisposable ForgetOnUnload() => new Forget();
+
+    sealed class Forget : IDisposable
+    {
+        // The flag first: a Load still running in the old module then removes what it adds after the table was emptied.
+        public void Dispose() { unloaded = true; Cache.Clear(); }
+    }
 
     public static DelveRailRoute? Load(string area, uint seed, string folder = "data")
     {
@@ -95,6 +107,7 @@ sealed record DelveRailRoute(IReadOnlyList<(int X, int Y)> Points)
             var generated = folder == "data" ? ServerLevels.For(area, seed) : null;
             if (generated is null) return LoadCore(area, seed, folder, null, sources);
             var cached = Cache.GetValue(generated, _ => new());
+            if (unloaded) Cache.Remove(generated);
             lock (cached)
             {
                 if (cached.Route is not null && cached.Sources == sources) return cached.Route;
