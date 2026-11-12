@@ -481,7 +481,7 @@ public static partial class Game
             if (conn.RighteousFire is not null || conn.PlayerLife == 0) return;
             buff = conn.NextBuff++;
             aura = conn.NextBuff++;
-            ring = conn.NextObjectId++;
+            ring = conn.TakeObjectId();
             at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             conn.RighteousFire = new RighteousFireState(buff, aura, ringAo is null ? null : ring, skillId,
                 DamagePctPerMinute: Get("base_righteous_fire_%_of_max_life_to_deal_to_nearby_per_minute", 4200),

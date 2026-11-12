@@ -439,7 +439,7 @@ public static partial class Game
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
-                uint id = Conn.NextObjectId++;
+                uint id = Conn.TakeObjectId();
                 // A shot aimed at higher ground flies at that ground's height, so its object clears the cliff it passes over.
                 var height = ProjectileHeight.Flight(FlightGround(p) ?? TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
                     Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
@@ -530,7 +530,7 @@ public static partial class Game
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0)
         {
-            uint id = Conn.NextObjectId++;
+            uint id = Conn.TakeObjectId();
             // Native area art radii are world units; simulation radii are grid cells.
             float scale = radius is double r && Art.ArtRadius(ao) is int nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
@@ -561,7 +561,7 @@ public static partial class Game
             });
             if (attach is not { } child) return;
             // The art attached to the effect's bone: the client carries it along with the parent's animation.
-            uint childId = Conn.NextObjectId++;
+            uint childId = Conn.TakeObjectId();
             // The official split-arrow art sends kind 0 and mask 3 (the base record of the Animated component), which
             // keeps the parent bone's rotation: the arrow then follows aux_projectile_attach instead of lying flat.
             var childEffect = new EffectObject(x, y, child.Ao)

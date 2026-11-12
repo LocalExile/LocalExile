@@ -22,8 +22,8 @@ public static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
-            first = conn.NextObjectId++;
-            second = conn.NextObjectId++;
+            first = conn.TakeObjectId();
+            second = conn.TakeObjectId();
         }
         await Send(remote, stream, ciphers,
             [.. InstanceEntities.CreateObject(first, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(from.X, from.Y, departure).Blob()),
