@@ -165,6 +165,7 @@ public partial class ConditionalItemStatsTests
             Her_embrace_uses_accepted_ignites_and_qualified_source_lifetimes(conn, Wear);
             Elusive_uses_actual_critical_sources_decay_and_conditional_consumers(conn, Wear);
             Qualified_avatar_rotation_and_permanent_sources_reach_final_consumers(conn, Wear);
+            Qualified_charge_degeneration_reaches_resources(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

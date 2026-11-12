@@ -723,6 +723,7 @@ public static partial class Game
             {
                 if (advance && !conn.Paused && conn.ProjectileRuntime is { Active: true } session)
                     session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds)));
+                if (ChargeSessions.TryGetValue(conn, out var charges)) charges.SettleDegeneration(ResourceEffectsTime(conn));
             }
             catch { Dispose(); throw; }
         }

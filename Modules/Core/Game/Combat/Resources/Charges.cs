@@ -23,7 +23,7 @@ public static partial class Game
             ChargeType.Frenzy => StatConditions.GainedFrenzyCharge,
             ChargeType.Power => StatConditions.GainedPowerCharge,
             _ => StatConditions.GainedEnduranceCharge,
-        }, at)));
+        }, at), () => ResourceEffectsTime(conn), (from, until) => conn.Walk.MovingSeconds(from, until)));
 
     // A player hit on a monster that landed (Attack, AreaSkillHit, a projectile's impact): its "on hit", "on critical
     // strike" and "on non-critical strike" gains. effect: the gem skill's GrantedEffects row (-1: the default attack).
@@ -356,6 +356,7 @@ public static partial class Game
                     if (conn.LeavingArea) continue;
                     now = ProjectileWorldTime(conn);
                     var recipient = CharacterPlayerStats(conn);
+                    session.SettleDegeneration(now);
                     session.State.SetExpiryRate(now, RecipientEffectTime.Rate(3,
                         name => Stats.Key(name) is uint k ? recipient.GetValueOrDefault(k) : 0));
                     step = session.Step(now, stats, () => weapon, alive: conn.PlayerLife > 0, moving: conn.Walk.Moving(now),
