@@ -71,6 +71,9 @@ public static class ChargeGains
         new("chance_to_gain_frenzy_charge_on_killing_frozen_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         // On hit
         new("add_frenzy_charge_on_skill_hit_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit),
+        new("add_power_charge_on_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+        new("add_power_charge_on_skill_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+        new("gain_frenzy_charge_on_hit_while_bleeding", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit, Flag: true),
         new("gain_frenzy_charge_on_hitting_rare_or_unique_enemy_%", ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         new("chance_to_gain_power_charge_on_rare_or_unique_enemy_hit_%", ChargeType.Power, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         // On critical strike

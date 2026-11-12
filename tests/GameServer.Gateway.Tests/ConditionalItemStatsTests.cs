@@ -32,6 +32,8 @@ public partial class ConditionalItemStatsTests
         Recent_amounts_count_actual_occurrences_and_expire_individually();
         Equipment_counts_and_composed_conditions_use_the_same_subject();
         Per_charge_leaves_reach_existing_final_consumers();
+        Conditional_hit_charge_rows_reach_real_charge_sessions();
+        Shield_property_thresholds_read_qualified_item_block();
         Per_rage_item_coefficients_reach_existing_final_consumers();
         Ordinary_slot_conditions_reach_existing_consumers();
         Canonical_condition_aliases_reach_defence_recovery_and_spell_consumers();

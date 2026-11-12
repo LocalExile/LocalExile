@@ -166,6 +166,7 @@ public partial class ConditionalItemStatsTests
             Elusive_uses_actual_critical_sources_decay_and_conditional_consumers(conn, Wear);
             Qualified_avatar_rotation_and_permanent_sources_reach_final_consumers(conn, Wear);
             Qualified_charge_degeneration_reaches_resources(conn, Wear);
+            Qualified_charge_triggers_and_shield_leech_use_live_state(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

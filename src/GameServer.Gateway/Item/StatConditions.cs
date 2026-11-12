@@ -154,6 +154,12 @@ public static class StatConditions
 
     static string? ParsePlainName(string statId)
     {
+        var property = EquipmentPropertyThresholdId.Match(statId);
+        if (property.Success)
+        {
+            string prefix = statId[..property.Index];
+            return PlainOf(prefix) ?? prefix;
+        }
         var ring = RingConditionId.Match(statId);
         if (ring.Success)
         {
@@ -282,6 +288,7 @@ public static class StatConditions
             "gain_iron_reflexes" => "keystone_iron_reflexes",
             "you_have_zealots_oath" => "keystone_zealots_oath",
             "life_leech_from_fire_damage_permyriad" => "base_life_leech_from_fire_damage_permyriad",
+            "life_leech_from_spell_damage_permyriad" => "base_life_leech_from_spell_damage_permyriad",
             "energy_shield_leech_from_lightning_damage_permyriad" => "base_energy_shield_leech_from_lightning_damage_permyriad",
             "unaffected_by_bleeding" => "base_unaffected_by_bleeding",
             "unaffected_by_poison" => "base_unaffected_by_poison",
@@ -433,6 +440,15 @@ public static class StatConditions
     // Parse the immutable stat id once; the predicate still reads the live subject on every call.
     static Func<Subject, State> ParseCondition(string statId)
     {
+        var property = EquipmentPropertyThresholdId.Match(statId);
+        if (property.Success)
+        {
+            string prefix = statId[..property.Index];
+            string propertyKey = property.Groups["slot"].Value + "_" + property.Groups["property"].Value;
+            bool valid = int.TryParse(property.Groups["n"].Value, out int minimum);
+            return subject => And(Of(prefix, subject), valid && subject.Value?.Invoke(propertyKey) is int actual
+                ? actual >= minimum ? State.Holds : State.Fails : State.NotModelled);
+        }
         var ring = RingConditionId.Match(statId);
         if (ring.Success)
         {
@@ -608,7 +624,7 @@ public static class StatConditions
         new(@"^(?:.*_)?(?:per|current|minimum|maximum)_(?:frenzy|power|endurance|inspiration|challenger|siphoning|brutal|absorption|affliction)_charges?", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     static readonly System.Text.RegularExpressions.Regex AddChargeOnKill =
-        new(@"^add_(?:frenzy|power|endurance|inspiration|challenger|brutal|absorption)_charge", System.Text.RegularExpressions.RegexOptions.Compiled);
+        new(@"^add_(?:frenzy|power|endurance|inspiration|challenger|brutal|absorption)_charge_on_kill(?:_|$)", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     static readonly System.Text.RegularExpressions.Regex RecentId =
         new(@"_if_(?:you_)?(?:have_)?(?<negation>havent_|not_)?(?<phrase>[a-z_]+?)_recently(?=$|_final$|_\+%$|_%$)", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -619,6 +635,8 @@ public static class StatConditions
     static readonly System.Text.RegularExpressions.Regex RecentCountThreshold =
         new(@"_if_(?:you_have_)?killed_at_least_(?<n>\d+)_enemies_recently$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    static readonly System.Text.RegularExpressions.Regex EquipmentPropertyThresholdId =
+        new(@"_if_(?<slot>shield)_has_(?<n>\d+)%_(?<property>block_chance)$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex EquipmentThresholdId =
         new(@"_if_(?<n>\d+)_(?<kind>[a-z_]+)_items$", System.Text.RegularExpressions.RegexOptions.Compiled);
     static readonly System.Text.RegularExpressions.Regex EquipmentAmountId =

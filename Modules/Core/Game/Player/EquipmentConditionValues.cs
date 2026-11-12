@@ -21,6 +21,10 @@ public static partial class Game
         result["equipped_unique_influence_amoung_equipped_non_amulet"] = Enum.GetValues<ItemInfluence>()
             .Count(i => i != ItemInfluence.None && qualified.Any(e => catalog.ByHash(e.Item.Item.TypeHash)?.Class != "Amulet"
                 && e.Item.Item.Influences.HasFlag(i)));
+        var shield = qualified.FirstOrDefault(e => e.Row == PlayerInventories.Offhand1
+            && catalog.ByHash(e.Item.Item.TypeHash)?.Class == "Shield");
+        result["shield_block_chance"] = shield.Item is null ? 0
+            : Math.Max(0, ItemModStats.ShieldBlock(catalog, shield.Item.Item, catalog.ByHash(shield.Item.Item.TypeHash)!));
         return result;
     }
 }
