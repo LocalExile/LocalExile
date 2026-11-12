@@ -227,7 +227,14 @@ public static partial class Game
         var kingSkills = Sirus.SkillsFor(conn, variety, level) ?? KitavaActFive.SkillsFor(conn, variety, level) ?? KitavaActTen.SkillsFor(conn, variety, level) ?? DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? KingInMists.SkillsFor(conn, variety, level, attack)
             ?? AtlasBosses.SkillsFor(conn, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(conn, variety, level, attack) : null);
+        // A monster the campaign places as a boss, or one with a bar of its own, and that has no encounter controller:
+        // it plays the rest of its granted effects through the ordinary AI (BossKits). Every other campaign boss walked
+        // up and swung one default attack forever. A scripted encounter keeps its own list and its own actions.
+        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[] : BossKits.Kit(conn, variety, level, effect, attack);
+        // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
+        // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
         var skills = kingSkills is { Count: > 0 } ? kingSkills
+            : kit.Count > 0 ? [.. BossKits.SkillsOf(conn, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
         List<(uint, int)>? stats = skill is null ? null : [.. attack.Stats()];
@@ -312,7 +319,8 @@ public static partial class Game
             MonsterEmerge.AddLocked(conn, id, new SpawnedMonster($"{variety.Name}@{level}", conn.NewMonsterWalk(id, x, y, walkSpeed, bodySize, rarity == MonsterRarity.Unique),
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
-                Attack = skill is null ? null : attack, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
+                Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
+                Kit = kit, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity,
                 Scripted = !friendly && (scripted || atlas),
                 Life = Math.Min(damagedLife ?? life, life), Stage = stageSkill is null ? null : stage, States = states,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
@@ -593,6 +601,9 @@ public static partial class Game
                 // One player at a time: the instance's monster acts for whoever it targets, on that one's connection.
                 if (m.Hostile && !MonsterTargetsLocked(conn, id, m, (mx, my), d, now)) continue;
                 if (m.Hostile && GolemEnemyOrderLocked(conn, id, m, now, d)) continue;
+                // A boss's kit (BossKits): the skill that is ready and reaches the player, else its default swing. Never
+                // while a swing still runs: the attack an order names must stay the one its hit is applied with.
+                if (m.Kit.Count > 0 && now >= m.BusyUntil) m.Attack = BossKits.Choose(m, now, d);
                 if (!m.Aggro && d <= m.AggroRange) { m.Aggro = true; m.LastTarget = null; }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -769,6 +780,8 @@ public static partial class Game
                     m.LastTarget = null;
                     m.SwingGeneration = ++m.ActionGeneration;
                     cadence.BeginSwing(m, m.ActionGeneration);
+                    // The order names this attack's skill: what it used now goes on cooldown.
+                    BossKits.Consume(m, a, now);
                     plan.Swings.Add((id, m, m.ActionGeneration));
                     continue;
                 }
