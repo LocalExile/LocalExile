@@ -104,7 +104,7 @@ public static class StatConditions
         "_while_unarmed", "_while_wielding_staff", "_while_wielding_sword",
         "_while_life_leeching", "_while_mana_leeching", "_while_energy_shield_leeching", "_while_es_leeching", "_while_leeching",
         "_while_at_maximum_endurance_charges", "_while_at_maximum_frenzy_charges", "_while_at_maximum_power_charges",
-        "_while_using_flask", "_if_affected_by_no_flasks",
+        "_while_using_flask", "_during_flask_effect", "_if_affected_by_no_flasks",
         "_while_bleeding", "_while_poisoned", "_while_on_consecrated_ground",
         "_while_cursed", "_while_not_cursed",
         .. new[] { "frenzy", "power", "endurance" }.SelectMany(type => new[]
@@ -298,6 +298,8 @@ public static class StatConditions
             "maximum_added_cold_damage" => "global_maximum_added_cold_damage",
             "minimum_added_fire_damage" => "global_minimum_added_fire_damage",
             "maximum_added_fire_damage" => "global_maximum_added_fire_damage",
+            "spell_and_attack_minimum_added_chaos_damage" => "global_minimum_added_chaos_damage",
+            "spell_and_attack_maximum_added_chaos_damage" => "global_maximum_added_chaos_damage",
             "number_of_additional_chains_for_projectiles" => "number_of_chains",
             "projectiles_pierce_x_additional_targets" => "projectile_number_of_targets_to_pierce",
             "avoid_projectiles_%_chance" => "base_avoid_projectiles_%_chance",
