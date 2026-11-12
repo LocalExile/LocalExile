@@ -1771,6 +1771,8 @@ public static partial class Game
                     // Item Rarity Support: the same kill's drops read the skill's rarity share.
                     if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                         m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
+                    // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
+                    SoulEaterHit(conn, m);
                     // Devour: a killing blow recovers the support's life/mana.
                     if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,

@@ -654,6 +654,9 @@ This is a research baseline, not new live skill acceptance or complete native/se
   kill grants the extra Vaal Soul while the streak is active. `gain_soul_eater_during_flask_effect` grants Soul Eater
   while a flask effect runs: 5% increased attack and cast speed and 1% character size per soul, one soul per kill
   within 60 cells, a base maximum of 45 plus item stack modifiers, and one lost every 0.5 s after 4 s without a kill.
+  Soul Ascension adds the item's own source: the player's hit on a rare or unique enemy eats one soul through
+  `gain_soul_eater_stack_on_hit_vs_unique_cooldown_ms`, no more than once every 0.5 s and with no radius (no beam for
+  these souls; the official object is not captured).
   The player gets its icon and count
   (`soul_eater_player`, 279) and the invisible `soul_eater_aura` (277), the client's `using_flask` flag is sent, and each
   soul draws the official `ServerBeamEffect` line from the corpse to the player (see
