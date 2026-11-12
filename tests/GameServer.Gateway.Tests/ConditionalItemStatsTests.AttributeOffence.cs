@@ -9,11 +9,12 @@ public partial class ConditionalItemStatsTests
     {
         var inventory = Game.ItemsOf(conn);
         byte[] slots = [PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.BodyArmour,
-            PlayerInventories.Helmet, PlayerInventories.Boots, 5];
+            PlayerInventories.Helmet, PlayerInventories.Boots, PlayerInventories.Gloves, PlayerInventories.Belt, 5];
         var saved = inventory.EquipmentSnapshot().Where(e => slots.Contains(e.Row)).ToArray();
         void Clear(byte row) { foreach (var item in inventory.Items(row)) inventory.Remove(row, item.Id); }
         foreach (byte row in new byte[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1,
-            PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Boots }) Clear(row);
+            PlayerInventories.BodyArmour, PlayerInventories.Helmet, PlayerInventories.Boots,
+            PlayerInventories.Gloves, PlayerInventories.Belt }) Clear(row);
         var amulet = wear("Astramentis", 5);
         var cases = new (string Item, byte Slot, string Input, string Output, string Attribute, int Group)[]
         {
@@ -26,6 +27,11 @@ public partial class ConditionalItemStatsTests
             ("Fractal Thoughts", PlayerInventories.Helmet, "elemental_damage_+%_per_10_dexterity", "elemental_damage_+%", "dexterity", 10),
             ("Abberath's Hooves", PlayerInventories.Boots, "fire_damage_+%_per_20_strength", "fire_damage_+%", "strength", 20),
             ("The Whispering Ice", PlayerInventories.Weapon1, "spell_damage_+%_per_10_int", "spell_damage_+%", "intelligence", 10),
+            ("Shaper's Touch", PlayerInventories.Gloves, "X_accuracy_per_2_intelligence", "accuracy_rating", "intelligence", 2),
+            ("Survivor's Guilt", PlayerInventories.Belt, "armour_+%_per_50_str", "physical_damage_reduction_rating_+%", "strength", 50),
+            ("The Iron Fortress", PlayerInventories.BodyArmour, "block_chance_%_per_50_strength", "additional_block_%", "strength", 50),
+            ("Rive", PlayerInventories.Weapon1, "bleed_duration_per_12_intelligence_+%", "bleed_duration_+%", "intelligence", 12),
+            ("Rive", PlayerInventories.Weapon1, "physical_damage_over_time_per_10_dexterity_+%", "physical_damage_over_time_+%", "dexterity", 10),
         };
         uint Key(string name) => Program.Stats.Key(name)!.Value;
         foreach (var test in cases)
@@ -34,10 +40,10 @@ public partial class ConditionalItemStatsTests
             var stats = Game.CharacterPlayerStats(conn);
             var sources = Game.CharacterStatSources(conn).Stats;
             int coefficient = sources.GetValueOrDefault(Key(test.Input));
-            Assert.True(coefficient > 0, test.Item);
+            Assert.NotEqual(0, coefficient);
             int attribute = stats.GetValueOrDefault(Key(test.Attribute));
             int expected = attribute / test.Group * coefficient;
-            Assert.True(expected > 0, test.Item);
+            Assert.NotEqual(0, expected);
             // Remove only the actual coefficient's row; preserve the source's other attributes and qualification.
             var control = full.Item with { Mods = full.Item.Mods.Where(m =>
                 Program.Items.Mods.ByHash(m.Hash)?.Stats.All(s => s.Id != test.Input) != false).ToArray() };
@@ -72,12 +78,29 @@ public partial class ConditionalItemStatsTests
                 amulet = inventory.Add(5, amulet.X, amulet.Y, amulet.Item); conn.Pools = Game.PoolsFor(conn, 100);
             }
             if (test.Output == "attack_speed_+%") Assert.Equal(expected, conn.Pools.AttackSpeedPct - controlPools.AttackSpeedPct);
+            if (test.Output == "accuracy_rating") Assert.Equal(expected, conn.Pools.AccuracyBase - controlPools.AccuracyBase);
+            if (test.Output == "physical_damage_reduction_rating_+%")
+                Assert.Equal(expected, conn.Pools.ArmourPct - controlPools.ArmourPct);
+            if (test.Output == "additional_block_%")
+                Assert.Equal(expected, conn.Pools.BlockChanceUncapped - controlPools.BlockChanceUncapped);
             if (test.Output == "critical_strike_chance_+%")
             {
                 Assert.Equal(expected, conn.Pools.CriticalStrikeChancePct - controlPools.CriticalStrikeChancePct);
                 Assert.Equal(expected, conn.Pools.SpellCriticalStrikeChancePct - controlPools.SpellCriticalStrikeChancePct);
             }
             int Added(string name) => name == test.Output ? expected : 0;
+            if (test.Output is "bleed_duration_+%" or "physical_damage_over_time_+%")
+            {
+                var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
+                var bleedRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), physical, new(), Added);
+                var settings = Game.BleedSettings(bleedRows, "main_hand", Added, new Dictionary<string, int>(), melee: true, bow: false);
+                Assert.Equal(5 * (1 + (test.Output == "bleed_duration_+%" ? expected : 0) / 100d), settings.Seconds, 8);
+                Assert.Equal(70 * (1 + (test.Output == "physical_damage_over_time_+%" ? expected : 0) / 100d), settings.Min, 6);
+                Assert.Equal(100, SpellDamage.Packet(physical, Added).MinTotal, 8);
+                Assert.Equal(0, DamageStats.AttackIncrease(Added, DamageType.Physical, melee: true));
+                var poisonRows = AilmentPanelStats.Compute(new("spell", Spell: true), physical, new(), Added);
+                Assert.Equal(1800, poisonRows.Single(r => r.Stat == "minimum_poison_damage_to_deal_per_minute_from_non_critical_spell_damage").Value);
+            }
             if (test.Output == SkillArea.BaseIncreased)
             {
                 Assert.Equal(1 + expected / 100d, SkillArea.Modifier(Added, spell: false), 8);
@@ -112,6 +135,7 @@ public partial class ConditionalItemStatsTests
                 AttributeOffenceSources.Apply(isolated, Program.Stats,
                     test.Attribute == "strength" ? attribute : 0, test.Attribute == "dexterity" ? attribute : 0,
                     test.Attribute == "intelligence" ? attribute : 0);
+                AttributeDefenceSources.Apply(isolated, Program.Stats, test.Attribute == "strength" ? attribute : 0);
                 Assert.Equal(7 + Math.Max(0, attribute) / test.Group * 5, isolated[Key(test.Output)]);
             }
         // Shared output sums retain cancellation before the outgoing integer clamp.

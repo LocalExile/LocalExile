@@ -11,6 +11,9 @@ public static class AttributeOffenceSources
         ("elemental_damage_+%_per_10_dexterity", "elemental_damage_+%", 1, 10),
         ("fire_damage_+%_per_20_strength", "fire_damage_+%", 0, 20),
         ("spell_damage_+%_per_10_int", "spell_damage_+%", 2, 10),
+        ("X_accuracy_per_2_intelligence", "accuracy_rating", 2, 2),
+        ("bleed_duration_per_12_intelligence_+%", "bleed_duration_+%", 2, 12),
+        ("physical_damage_over_time_per_10_dexterity_+%", "physical_damage_over_time_+%", 1, 10),
     ];
 
     // Apply once to a fresh qualified source sum, before pools, skill snapshots and panels consume it.
