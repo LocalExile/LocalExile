@@ -1,9 +1,9 @@
 using GameServer.Core.World;
 
-/// <summary>"Killing Blows have X% chance to Consume Corpses to recover 10% of Maximum Life" (the Kitava Heart Eater
-/// tattoo): the killing blow consumes the corpse and recovers the share of maximum life. Consuming the corpse also
-/// takes it from summoning, explosions and warcries (SpawnedMonster.CorpseConsumed), and records the consumed-corpse
-/// recently event the conditional items read.</summary>
+/// <summary>Killing-blow corpse consumption: the Kitava Heart Eater tattoo's "Killing Blows have X% chance to Consume
+/// Corpses to recover 10% of Maximum Life" (the roll and the life share) and Devour Support's corpse (whose recovery
+/// happens when the hit lands). Consuming the corpse also takes it from summoning, explosions and warcries
+/// (SpawnedMonster.CorpseConsumed), and records the consumed-corpse recently event the conditional items read.</summary>
 static partial class Game
 {
     internal const string CorpseKillChance = "killing_blow_consumes_corpse_restore_10%_life_chance_%";
@@ -28,6 +28,21 @@ static partial class Game
         conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife,
             (long)conn.PlayerLife + conn.PlayerMaxLife * (long)CorpseKillLifePct / 100);
         session.InstantLifeChanged |= before != conn.PlayerLife;
+        return true;
+    }
+
+    /// <summary>The Devour-supported killing blow's corpse: true when it was consumed (the caller removes the corpse
+    /// object). The support's life/mana recovery already happened when the hit landed; this takes the corpse from
+    /// summoning, explosions and warcries and records the consumed-corpse recently event. A shattered or already
+    /// consumed corpse is not consumed again. Call under the Monsters lock.</summary>
+    internal static bool ConsumeDevouredCorpseLocked(ClientState conn, uint id, SpawnedMonster m, double now)
+    {
+        if (!m.DevourCorpse) return false;
+        m.DevourCorpse = false;
+        if (m.Ailments.Shattered || !IsCorpse(m)) return false;
+        m.CorpseConsumed = true;
+        conn.Monsters.Remove(id);
+        conn.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
         return true;
     }
 }
