@@ -26,6 +26,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Named packs bring their boss (Pikerivet, The Burning Man); The Quay's Tolman stands at his spawner.
   The Ashen Fields' boss is the bandit lord the character spared in Act 2, or Greust (`MapBossOverride`).
   A boss whose point is off the walk map stands on the nearest walkable cell; the boss pack stands once per area.
+  A generated layout's rooms place a pack at each of their `magic`, `rare` and `normal` points (The Chamber of
+  Innocence: twelve magic packs, live 2026-11-12 with a headless client: created, magic, and they attack).
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - Unique map bosses get the map tables' life and damage increases: `MonsterMapBossDifficulty` plus
