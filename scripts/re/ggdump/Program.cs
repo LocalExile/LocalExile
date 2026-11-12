@@ -1,4 +1,4 @@
-// usage: dotnet run --project scripts/re/ggdump -- <Content.ggpk> <outDir> <path>...   (e.g. Data/Inventories.datc64)
+// usage: dotnet run --project scripts/re/ggdump -- <client folder or Content.ggpk> <outDir> <path>...   (e.g. Data/Inventories.datc64)
 using GameServer.Data.Ggpk;
 using GgDump;
 // usage: GgDump <ggpk> <outDir> <path>...   (or "list <regex>" as first path to search every path in the index)

@@ -146,7 +146,7 @@ static partial class QuestobjectsRules
                     from = g.Monster.Walk.Position(now);
                     to = arena.Boss!.Walk.Position(now);
                     g.Monster.EncounterStats = null;
-                    beam = conn.NextObjectId++;
+                    beam = conn.TakeObjectId();
                     if (IzaroGargoyles.AwakenBuff is not null) awaken = conn.NextBuff++;
                 }
                 List<byte> start = [.. InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),

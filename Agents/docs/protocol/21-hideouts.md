@@ -697,17 +697,25 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   bit `cellY*8+cellX`; marking cell (2,1) changes the first Azurite node and its connection to gold.
   Do not mark entrance (2,0): it is implicitly open, and setting its completed bit hides the native block.
   The mixed byte order is confirmed by the native writer/reader (0x1421b3c70/0x1421b3d00).
+  The chart mask spreads five cells around completed cells, including across diagonal block seams. Supply all eight
+  neighbours of every completed 8×8 block: missing corner blocks clip the native fade into black rectangles.
+  Preview records keep a zero completed bitmap; generating their terrain must not unlock checkpoints.
+  The native radius is five chart cells, not five encounter nodes; the known packet has no independent fog-radius field.
   `DelveOwner` (QuestFlags HASH32 0x52ac2d0a) is essential inside a mine: HUD handler 0x140ddc0f0
   chooses the full chart for its owner, otherwise the local terrain preview. The normal 19-byte 0x7b
   kind 0x1c opens it; 0x23f/0x240 then supplies the account's completed blocks.
-  Only the initial entrance uses seed 1. Subsequent edges use two Azurite checkpoint cells, completed origin and
-  uncompleted destination, in directional terrain windows (north/east/south/west seeds 12/13/14/15).
+  Only the initial entrance uses seed 1. Later journeys send fresh Mines windows with a completed origin and an
+  uncompleted destination; reusing the old directional seeds 12/13/14/15 also reused the client's explored minimap.
+  Keep allocated scene seeds per account, including aborted trips. The native terrain header's depth is a separate
+  u16 at byte 2 after the 0x20 marker; 0x1d's area level alone does not supply it.
   Cell byte 2 holds four 2-bit portal slots (N/E/S/W), not room rotation. Opposite slots must sum to 3:
   N/E slot 1 joins S/W slot 2. Zero on both sides creates disconnected rooms despite reciprocal connection bits
-  (native 0x141f2ff30). A mine without connected captured rails returns to the real hub; its copied hub subarea
-  must never become a fallback Crawler spawn. This remains a captured-terrain implementation, not a Delve generator port.
-  Rails come from authored DelvePathNode/DelvePathEndpoint/DelveNode links in `data/delve-paths.json`,
-  transformed by captured room placements; sleeves join only over captured walkable ground.
+  (native 0x141f2ff30). Mines generation injects the cell's DelveRooms ARM, adds boundary exits and degree-two bends,
+  then stitches cell sleeves before the outer pass. Vertical seams repick the bottom tile before the top tile;
+  reversing this order changes the native RNG stream. Empty-cell and other-biome passes remain unported.
+  A mine without connected authored rails returns to the real hub; its copied hub subarea must never become a
+  fallback Crawler spawn. Rails come from authored DelvePathNode/DelvePathEndpoint/DelveNode links in
+  `data/delve-paths.json`, transformed by generated room placements; sleeves join only over walkable ground.
   S→C 0x1ba moves the body using terrain height marker 0x7fffffff, with interpolation matched to the server step.
   Positioned component 0's 0x2bc update (mask 8, f32) sets the departing rail segment's facing without rounded-cell jitter.
   DelveTractor/rig.ast's inverse-bind front/rear axle Y values are -50.029/+8.061: the model's nose faces +Y,
@@ -717,6 +725,8 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   Gradual distance-proportional sulphite payment, the custom 34→86 level curve, increasing pack/reward
   policy and whole-attempt rollback are LocalExile rules; they do not claim original-service parity.
   Biome-specific populations, encounter types, darkness and consumables remain unfinished.
+  DelveMonkeyMortar adds an empty StateMachine after Projectile: its two zero counts must precede the task byte.
+  Omitting them throws Buffer Underflow at 0x141e42716 (observed while Mines apes fired).
 - **First mine entrance.** Delve_Hub's upper `DelveEntrance01_area_transition.ao` leads to `Delve_Main` (HASH16 64840).
   The unused lower elevator must not be paired with it as a generic local gate.
   Delve_Main receives `InstanceDelve.FirstMineTerrain()` in the area packet's extra terrain data.

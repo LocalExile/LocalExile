@@ -117,55 +117,48 @@ public static class UtilityFlasks
     /// own), and the BuffTemplates row with the player's Onslaught values (20% attack, cast and movement speed).</summary>
     const string OnslaughtFlag = "silver_flask_display_onslaught", OnslaughtBuff = "onslaught", OnslaughtTemplate = "MapModPlayerOnslaught";
 
-    /// <summary>The utility flasks by BaseItemTypes row, from data/tables Flasks, BuffDefinitions, BuffTemplates,
+    /// <summary>The utility flasks by BaseItemTypes row, from the client tables Flasks, BuffDefinitions, BuffTemplates,
     /// ComponentCharges and Stats: every one, whatever its stats do here (<see cref="SupportOf"/>).</summary>
     public static Dictionary<int, Utility> Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows, bool hardMode = false)
     {
         var result = new Dictionary<int, Utility>();
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !ClientTables.Exists(Table(t)))) return result;
-        var stats = new StatCatalog(folder);
-        string StatName(JsonElement row) => stats.Name((uint)row.GetInt32() + 1);
+        if (new[] { "Flasks", "BuffDefinitions", "BuffTemplates", "ComponentCharges", "Stats" }.Any(t => !ClientTables.Has(t))) return result;
+        var stats = new StatCatalog();
+        string StatName(int key) => stats.Name((uint)key + 1);
 
         var charges = new Dictionary<string, (int Max, int PerUse)>();
-        using (var c = GameTables.Open(Table("ComponentCharges")))
-            foreach (var r in c.RootElement.EnumerateArray())
-                charges.TryAdd(r.GetProperty("BaseItemTypesKey").GetString() ?? "", (r.GetProperty("MaxCharges").GetInt32(), r.GetProperty("PerCharge").GetInt32()));
-        using var buffs = GameTables.Open(Table("BuffDefinitions"));
-        var buffRows = buffs.RootElement.EnumerateArray().ToList();
-        int onslaught = buffRows.FindIndex(b => b.GetProperty("Id").GetString() == OnslaughtBuff);
+        foreach (var r in ClientTables.Table("ComponentCharges"))
+            charges.TryAdd(r.Text("BaseItemTypesKey") ?? "", (r.Int("MaxCharges"), r.Int("PerCharge")));
+        var buffRows = ClientTables.Table("BuffDefinitions").ToList();
+        int onslaught = buffRows.FindIndex(b => b.Text("Id") == OnslaughtBuff);
         ExtraBuff? onslaughtBuff = null;
         if (onslaught >= 0)
         {
-            using var templates = GameTables.Open(Table("BuffTemplates"));
-            foreach (var t in templates.RootElement.EnumerateArray())
-                if (t.GetProperty("Id").GetString() == OnslaughtTemplate + (hardMode ? "HardMode" : "")
-                    && t.GetProperty("BuffDefinitionsKey") is { ValueKind: JsonValueKind.Number } k && k.GetInt32() == onslaught)
+            foreach (var t in ClientTables.Table("BuffTemplates"))
+                if (t.Text("Id") == OnslaughtTemplate + (hardMode ? "HardMode" : "")
+                    && t.IntOrNull("BuffDefinitionsKey") is int k && k == onslaught)
                     onslaughtBuff = new((ushort)onslaught, OnslaughtBuff,
-                        [.. buffRows[onslaught].GetProperty("StatsKeys").EnumerateArray().Select(StatName)
-                            .Zip(t.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()))]);
+                        [.. buffRows[onslaught].Ints("StatsKeys").Select(StatName)
+                            .Zip(t.Ints("Buff_StatValues"))]);
         }
 
-        using var flasks = GameTables.Open(Table("Flasks"));
-        foreach (var f in flasks.RootElement.EnumerateArray())
+        var flasks = ClientTables.Table("Flasks");
+        foreach (var f in flasks)
         {
-            if (f.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } b || b.GetInt32() >= rows.Count
-                || f.GetProperty("BuffDefinitionsKey") is not { ValueKind: JsonValueKind.Number } bk || bk.GetInt32() >= buffRows.Count
-                || f.GetProperty("LifePerUse").GetInt32() + f.GetProperty("ManaPerUse").GetInt32() > 0
-                || !charges.TryGetValue(rows[b.GetInt32()].Id, out var use)) continue;
-            var buff = buffRows[bk.GetInt32()];
+            if (f.IntOrNull("BaseItemTypesKey") is not int b || b >= rows.Count
+                || f.IntOrNull("BuffDefinitionsKey") is not int bk || bk >= buffRows.Count
+                || f.Int("LifePerUse") + f.Int("ManaPerUse") > 0
+                || !charges.TryGetValue(rows[b].Id, out var use)) continue;
+            var buff = buffRows[bk];
             // BuffStatValues has one value per StatsKeys entry (Ruby Flask: base_fire_damage_resistance_% 40,
             // base_maximum_fire_damage_resistance_% 5).
-            List<(string, int)> values = [.. buff.GetProperty("StatsKeys").EnumerateArray().Select(StatName)
-                .Zip(f.GetProperty(hardMode && f.TryGetProperty("BuffStatValues2", out var alternateValues)
-                    && alternateValues.ValueKind == JsonValueKind.Array ? "BuffStatValues2" : "BuffStatValues")
-                    .EnumerateArray().Select(v => v.GetInt32()))];
-            bool grantsOnslaught = buff.GetProperty("GrantedFlags").EnumerateArray().Any(s => StatName(s) == OnslaughtFlag);
+            List<(string, int)> values = [.. buff.Ints("StatsKeys").Select(StatName)
+                .Zip(f.Ints(hardMode && !f.IsNull("BuffStatValues2") ? "BuffStatValues2" : "BuffStatValues"))];
+            bool grantsOnslaught = buff.Ints("GrantedFlags").Any(s => StatName(s) == OnslaughtFlag);
             // RecoveryTime is in tenths of a second, as for life flasks (Quicksilver Flask: 60, 6 s; Path of Building and
             // RePoE 3.29 agree). RecoveryTime2 is the HardMode duration (Quicksilver 20, 2 s).
-            result.TryAdd(b.GetInt32(), new Utility(b.GetInt32(), (ushort)bk.GetInt32(), buff.GetProperty("Id").GetString() ?? "", values,
-                f.GetProperty(hardMode && f.TryGetProperty("RecoveryTime2", out var alternateTime)
-                    && alternateTime.ValueKind == JsonValueKind.Number ? "RecoveryTime2" : "RecoveryTime").GetInt32() / 10.0,
+            result.TryAdd(b, new Utility(b, (ushort)bk, buff.Text("Id") ?? "", values,
+                f.Int(hardMode && !f.IsNull("RecoveryTime2") ? "RecoveryTime2" : "RecoveryTime") / 10.0,
                 use.PerUse, use.Max, grantsOnslaught ? onslaughtBuff : null));
         }
         return result;

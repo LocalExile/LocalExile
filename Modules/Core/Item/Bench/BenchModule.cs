@@ -50,7 +50,7 @@ static class BenchFeature
             && HideoutCatalog.TypeOf(bench.Type!) is var (components, states)
             && HideoutObject.CanSerialize(components))
         {
-            uint benchId = conn.NextObjectId++;
+            uint benchId = conn.TakeObjectId();
             var obj = new HideoutObject(bench.X, bench.Y, bench.Rotation, components,
                 new HideoutDoodad(bench.Hash, (byte)bench.Variation), [.. states.Select(_ => 0)]);
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, benchId, InstanceEntities.CreateObject(benchId,
@@ -75,7 +75,7 @@ static class BenchFeature
             Console.WriteLine($"[gateway] {remote} crafting bench: {bench.Type} has no serialisable components (data/object-types.json)");
             return;
         }
-        uint benchId = conn.NextObjectId++;
+        uint benchId = conn.TakeObjectId();
         var obj = new HideoutObject(bench.X, bench.Y, bench.Rotation, components, States: [.. states.Select(_ => 0)], Model: bench.Model);
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, benchId, InstanceEntities.CreateObject(benchId,
             InstanceEntities.ObjectTypeHash(bench.Type), obj.Blob()),

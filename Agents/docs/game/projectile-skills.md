@@ -1,7 +1,7 @@
 # Projectile skills
 
 The [projectile framework](projectile-framework.md) supplies one simulator, common modifiers, damage snapshots and
-native output. `src/GameServer.Gateway/Projectiles/Skills/` registers named stages and catalog return policies.
+native output. `ProjectileSkills.cs` and `GatewayProjectileSkillProfiles.cs` (`Modules/Core/Game/Projectile/`) register named stages and catalog return policies.
 A recipe attaches its intrinsic stages to the unresolved common baseline, then resolves generic modifiers once.
 Ordinary bows and catalog gems retain the same counts, scoped extras, aim-sensitive spread, continuation priority,
 prohibitions and phase-specific direct admission. Catalog metadata supplies straight flight for other projectile gems;

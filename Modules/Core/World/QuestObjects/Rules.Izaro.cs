@@ -29,7 +29,7 @@ static partial class QuestobjectsRules
         }
         var layout = conn.Layout;
         bool beaten = conn.Instance.HasState(IzaroFights.Beaten);
-        uint lift = conn.NextObjectId++;
+        uint lift = conn.TakeObjectId();
         await Send(remote, stream, ciphers, InstanceEntities.CreateObject(lift, InstanceEntities.ObjectTypeHash(elevator.Type),
             IzaroFights.Blob(elevator.Type, elevator.Model, elevator.X, elevator.Y, elevator.Angle, beaten ? IzaroFights.Down : IzaroFights.Lowered)),
             $"0x02bb Izaro's elevator 0x{lift:x} at ({elevator.X}, {elevator.Y})");
@@ -37,7 +37,7 @@ static partial class QuestobjectsRules
         var doors = new List<(uint Id, AreaPopulation.RoomObject Door)>();
         foreach (var door in all.Where(o => o.Type == IzaroFights.ArenaDoor))
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(door.Type),
                 IzaroFights.Blob(door.Type, door.Model, door.X, door.Y, door.Angle, IzaroFights.DoorOpen)),
                 $"0x02bb Izaro's arena door 0x{id:x} at ({door.X}, {door.Y}), open");
@@ -48,7 +48,7 @@ static partial class QuestobjectsRules
         var railings = new List<(uint Id, AreaPopulation.RoomObject At)>();
         foreach (var railing in all.Where(o => o.Type == IzaroFights.Railing))
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(railing.Type),
                 IzaroFights.Blob(railing.Type, railing.Model, railing.X, railing.Y, railing.Angle, IzaroFights.RailingUp)),
                 .. InstanceProtocol.EnterWakeZone(id)], $"0x02bb alcove railing 0x{id:x} at ({railing.X}, {railing.Y})");
@@ -58,7 +58,7 @@ static partial class QuestobjectsRules
         if (all.FirstOrDefault(o => o.Type == IzaroFights.Gate) is { } gate)
         {
             bool open = beaten || conn.Instance.HasState(IzaroFights.GateOpen);
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await Send(remote, stream, ciphers, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(gate.Type),
                 IzaroFights.Blob(gate.Type, gate.Model, gate.X, gate.Y, gate.Angle, open ? IzaroFights.GateOpened : IzaroFights.GateShut)),
                 $"0x02bb Izaro's gate 0x{id:x} at ({gate.X}, {gate.Y}), {(open ? "open" : "shut")}");

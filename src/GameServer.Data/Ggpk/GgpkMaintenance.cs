@@ -51,24 +51,6 @@ public static class GgpkMaintenance
         return RootHash(ggpkPath);
     }
 
-    /// <summary>A file's bytes, or null. Read-only and share-friendly like <see cref="RootHash"/>: a running client holds
-    /// the GGPK open for reading and lets only readers in (LibGGPK3's own open asks for write access and fails then).</summary>
-    public static byte[]? TryReadFile(string ggpkPath, string path)
-    {
-        using var stream = new FileStream(ggpkPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var ggpk = new GGPK(stream, false);
-        return ggpk.Root.TryFindNode(path, out var node) && node is FileRecord fr ? fr.Read() : null;
-    }
-
-    /// <summary>Replaces an existing file in place (LibGGPK3 also updates the file and directory hashes up to the root).</summary>
-    public static void ReplaceFile(string ggpkPath, string path, ReadOnlySpan<byte> data)
-    {
-        using var ggpk = new GGPK(ggpkPath);
-        if (!ggpk.Root.TryFindNode(path, out var node) || node is not FileRecord fr)
-            throw new FileNotFoundException($"file not found in GGPK: {path}", path);
-        fr.Write(data);
-    }
-
     private static byte[] HashBytes(TreeNode node)
     {
         byte[] b = new byte[32];

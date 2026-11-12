@@ -28,22 +28,22 @@ public sealed class RampageCatalog(string folder = "data")
     public sealed record ModPlan(int Row, string Id, IReadOnlyList<ModStat> Stats);
     public sealed record SkillLevel(int GrantedLevelRow, int StatLevelRow, int Level,
         IReadOnlyDictionary<string, int> Stats, IReadOnlyDictionary<uint, int> WireStats,
-        JsonElement GrantedLevelData, JsonElement StatLevelData)
+        ClientRow GrantedLevelData, ClientRow StatLevelData)
     {
         public int Get(string stat) => Stats.GetValueOrDefault(stat);
-        public int CooldownMs => GrantedLevelData.GetProperty("Cooldown").GetInt32();
-        public int StoredUses => GrantedLevelData.GetProperty("StoredUses").GetInt32();
-        public int SpellCriticalChance => StatLevelData.GetProperty("SpellCritChance").GetInt32();
+        public int CooldownMs => GrantedLevelData.Int("Cooldown");
+        public int StoredUses => GrantedLevelData.Int("StoredUses");
+        public int SpellCriticalChance => StatLevelData.Int("SpellCritChance");
     }
     public sealed record SkillPlan(int Row, string Id, int StatSetRow, int CastTimeMs, ushort ActionHash,
-        IReadOnlyList<int> ActiveSkillTypes, IReadOnlyList<SkillLevel> Levels, JsonElement EffectData,
-        JsonElement StatSetData)
+        IReadOnlyList<int> ActiveSkillTypes, IReadOnlyList<SkillLevel> Levels, ClientRow EffectData,
+        ClientRow StatSetData)
     {
         /// <summary>The greatest actual gem-level row not exceeding the requested level, as SkillCatalog selects.</summary>
         public SkillLevel? AtLevel(int level) => level < 1 ? null : Levels.LastOrDefault(r => r.Level <= level);
     }
     public sealed record VarietyPlan(int Row, string Id, int MonsterTypeRow, bool IsPlayerMinion,
-        IReadOnlyList<ModPlan> Mods, IReadOnlyList<SkillPlan> Skills, JsonElement VarietyData, JsonElement MonsterTypeData);
+        IReadOnlyList<ModPlan> Mods, IReadOnlyList<SkillPlan> Skills, ClientRow VarietyData, ClientRow MonsterTypeData);
     public sealed record AnimatedWeapon(WeaponKind Kind, VarietyPlan Variety);
     public sealed record Summon(AnimatedWeapon Weapon, int Count, int DurationMs);
     public sealed record Tier(int Threshold, Kind Effect, VarietyPlan Daemon, SkillPlan Skill, IReadOnlyList<Summon> Summons);
@@ -76,34 +76,32 @@ public sealed class RampageCatalog(string folder = "data")
 
     static Data Load(string folder)
     {
-        var documents = new Dictionary<string, JsonDocument>(StringComparer.Ordinal);
+        var documents = new Dictionary<string, ClientTable>(StringComparer.Ordinal);
         try
         {
             foreach (string table in RequiredTables)
             {
-                string path = Path.Combine(folder, "tables", table + ".json");
-                if (!ClientTables.Exists(path)) return Empty($"Rampage requires {path}.");
-                documents.Add(table, JsonDocument.Parse(ClientTables.ReadAllBytes(path)));
-                Require(documents[table].RootElement.ValueKind == JsonValueKind.Array, $"{table} is not a row array.");
+                if (!ClientTables.Has(table)) return Empty($"Rampage requires the {table} client table.");
+                documents.Add(table, ClientTables.Table(table));
             }
-            JsonElement Rows(string table) => documents[table].RootElement;
-            JsonElement Row(string table, int row)
+            ClientTable Rows(string table) => documents[table];
+            ClientRow Row(string table, int row)
             {
                 var rows = Rows(table);
-                Require(row >= 0 && row < rows.GetArrayLength(), $"Invalid {table} row {row}.");
+                Require(row >= 0 && row < rows.Count, $"Invalid {table} row {row}.");
                 return rows[row];
             }
-            var statKeys = Rows("Stats").EnumerateArray().Select((r, i) => (Name: Text(r, "Id"), Key: (uint)i + 1))
+            var statKeys = Rows("Stats").Select((r, i) => (Name: Text(r, "Id"), Key: (uint)i + 1))
                 .ToFrozenDictionary(r => r.Name, r => r.Key, StringComparer.Ordinal);
             string StatName(int row) => Text(Row("Stats", row), "Id");
             var buff = Row("BuffDefinitions", BuffDefinitionRow);
-            Require(Text(buff, "Id") == "rampage_stack" && buff.GetProperty("ShowCount").GetBoolean()
-                && buff.GetProperty("CancelOnDeath").GetBoolean(), "Rampage buff definition changed.");
+            Require(Text(buff, "Id") == "rampage_stack" && buff.Bool("ShowCount")
+                && buff.Bool("CancelOnDeath"), "Rampage buff definition changed.");
             Require(StatName(Int(buff, "Current_StatsKey")) == "current_rampage_stacks"
                 && StatName(Int(buff, "Maximum_StatsKey")) == "max_rampage_stacks", "Rampage buff count stats changed.");
-            var grantedLevels = Rows("GrantedEffectsPerLevel").EnumerateArray().Select((r, i) => (Row: r, Index: i))
+            var grantedLevels = Rows("GrantedEffectsPerLevel").Select((r, i) => (Row: r, Index: i))
                 .GroupBy(r => Int(r.Row, "GrantedEffect")).ToDictionary(g => g.Key, g => g.ToArray());
-            var statLevels = Rows("GrantedEffectStatSetsPerLevel").EnumerateArray().Select((r, i) => (Row: r, Index: i))
+            var statLevels = Rows("GrantedEffectStatSetsPerLevel").Select((r, i) => (Row: r, Index: i))
                 .GroupBy(r => Int(r.Row, "StatSet")).ToDictionary(g => g.Key, g => g.ToArray());
             var skills = new Dictionary<int, SkillPlan>();
             SkillPlan Skill(int index)
@@ -133,15 +131,15 @@ public sealed class RampageCatalog(string folder = "data")
                     AddPairs(values, statsAtLevel.Row, "AdditionalStats", "AdditionalStatsValues", true, constantKeys);
                     foreach (int flag in Ints(statsAtLevel.Row, "AdditionalFlags")) values[StatName(flag)] = 1;
                     levels.Add(new(entry.Index, statsAtLevel.Index, level, values.ToFrozenDictionary(StringComparer.Ordinal),
-                        values.ToFrozenDictionary(p => statKeys[p.Key], p => p.Value), entry.Row.Clone(), statsAtLevel.Row.Clone()));
+                        values.ToFrozenDictionary(p => statKeys[p.Key], p => p.Value), entry.Row, statsAtLevel.Row));
                 }
                 var plan = new SkillPlan(index, Text(effect, "Id"), setIndex, Int(effect, "CastTime"),
                     checked((ushort)Int(action, "HASH16")), Array.AsReadOnly(Ints(active, "ActiveSkillTypes")),
-                    levels.AsReadOnly(), effect.Clone(), set.Clone());
+                    levels.AsReadOnly(), effect, set);
                 skills.Add(index, plan);
                 return plan;
             }
-            void AddPairs(Dictionary<string, int> target, JsonElement row, string keys, string values, bool addConstants,
+            void AddPairs(Dictionary<string, int> target, ClientRow row, string keys, string values, bool addConstants,
                 HashSet<string> constantKeys)
             {
                 int[] ids = Ints(row, keys), amounts = Ints(row, values);
@@ -164,16 +162,15 @@ public sealed class RampageCatalog(string folder = "data")
                     var mod = Row("Mods", modIndex);
                     var stats = new List<ModStat>();
                     for (int i = 1; i <= 8; i++)
-                        if (mod.TryGetProperty($"StatsKey{i}", out var key) && key.ValueKind == JsonValueKind.Number)
+                        if (mod.IntOrNull($"StatsKey{i}") is int stat)
                         {
-                            int stat = key.GetInt32();
                             stats.Add(new((uint)stat + 1, StatName(stat), Int(mod, $"Stat{i}Min"), Int(mod, $"Stat{i}Max")));
                         }
                     mods.Add(new(modIndex, Text(mod, "Id"), stats.AsReadOnly()));
                 }
-                return new(index, Text(row, "Id"), typeIndex, type.GetProperty("IsPlayerMinion").GetBoolean(),
+                return new(index, Text(row, "Id"), typeIndex, type.Bool("IsPlayerMinion"),
                     mods.AsReadOnly(), Array.AsReadOnly(Ints(row, "GrantedEffectsKeys").Select(Skill).ToArray()),
-                    row.Clone(), type.Clone());
+                    row, type);
             }
             var weapons = new[]
             {
@@ -185,7 +182,7 @@ public sealed class RampageCatalog(string folder = "data")
                 Require(weapons[i].Variety.Id == $"Metadata/Monsters/AnimatedItem/AnimatedWeaponRampage{i + 1}",
                     "Rampage animated weapon variety changed.");
             var thresholds = Rows("KillstreakThresholds");
-            Require(thresholds.GetArrayLength() == Expected.Length, "Rampage threshold count changed.");
+            Require(thresholds.Count == Expected.Length, "Rampage threshold count changed.");
             var tiers = new List<Tier>();
             for (int i = 0; i < Expected.Length; i++)
             {
@@ -228,17 +225,17 @@ public sealed class RampageCatalog(string folder = "data")
             }
             return new(null, tiers.AsReadOnly(), Array.AsReadOnly(weapons), statKeys);
         }
-        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or JsonException
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or InvalidCastException
             or InvalidOperationException or KeyNotFoundException or ArgumentException or OverflowException)
         {
             return Empty($"Rampage data unavailable: {e.Message}");
         }
-        finally { foreach (var document in documents.Values) document.Dispose(); }
+
     }
 
     static Data Empty(string error) => new(error, [], [], FrozenDictionary<string, uint>.Empty);
     static void Require(bool condition, string message) { if (!condition) throw new InvalidDataException(message); }
-    static int Int(JsonElement row, string name) => row.GetProperty(name).GetInt32();
-    static string Text(JsonElement row, string name) => row.GetProperty(name).GetString() ?? "";
-    static int[] Ints(JsonElement row, string name) => [.. row.GetProperty(name).EnumerateArray().Select(v => v.GetInt32())];
+    static int Int(ClientRow row, string name) => row.Int(name);
+    static string Text(ClientRow row, string name) => row.TextOrNull(name) ?? "";
+    static int[] Ints(ClientRow row, string name) => row.Ints(name);
 }
