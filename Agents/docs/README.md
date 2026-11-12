@@ -69,7 +69,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [re/011-level-generation.md](re/011-level-generation.md) | the client's level generator: stages, RNG, topology pick, tile hash, generation traces; the server port in progress |
 | [re/013-atlas-progress.md](re/013-atlas-progress.md) | Atlas completed maps without Ghidra: schema filter, `/raw`, Capstone walk, 0x1a3 / 0x1a4 |
 | [dev/releases.md](dev/releases.md) | making a release, versions and commit subjects, what a package holds, `LocalExile.exe` and its `--json` events |
-| [dev/pr-checks.md](dev/pr-checks.md) | the docs scan, the files only the maintainer approves, how status and roadmap lists merge |
+| [dev/pr-checks.md](dev/pr-checks.md) | reviewing a pull request: the docs scan, the reviewer warnings (`pr_warnings.py`), where the queue stands (`pr_queue.py`), the labels, the files only the maintainer approves, how status and roadmap lists merge |
 | [dev/debugging.md](dev/debugging.md) | log timestamps and archives, error stack traces, the packet history and dumps, `Game_TRACE`, client crashes, `bugreport.ps1` |
 | [dev/performance.md](dev/performance.md) | measuring a stack's startup, memory, area creation and busy-instance CPU (`scripts/perf/startup.ps1`, `scripts/perf/PerfBench`), results and the remaining costs |
 | [dev/databases.md](dev/databases.md) | the SQLite databases (`auth`, `characters`, `client`, `world`) built from `sql/`: adding an update, the updater, `client-sql.ps1` and the generated files in `client.db`, the SQL checks and owners |
