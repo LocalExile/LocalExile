@@ -186,6 +186,7 @@ public partial class ConditionalItemStatsTests
             Chilled_staff_sources_reach_existing_shock_avoidance(conn, Wear);
             Recent_hit_life_loss_integrates_windows_and_qualified_sources(conn, Wear);
             Qualified_low_life_claw_damage_reaches_the_attacking_hand(conn, Wear);
+            Qualified_low_mana_spell_damage_taken_reaches_incoming_hits(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

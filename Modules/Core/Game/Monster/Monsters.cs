@@ -1767,7 +1767,7 @@ public static partial class Game
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
-                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf))
+                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf, spell: a.Spell))
                 * reservationFactor * ReservationTypedHitTakenFactor(conn, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage

@@ -142,7 +142,7 @@ static class ConditionalSourceTestDrivers
                     && DamageModel.Mitigate(amount, resistance, maximum) > 0;
             var armour = IncomingArmourLocked(conn, !blocked && !immune && !avoided && armourRelevant, priorContacts, stats);
             int dealt = immune || avoided ? 0 : MitigateTakenWithArmour(conn, type, amount, resistance, maximum, armour.EffectiveArmour,
-                stats, attack: !spell, ranged: ranged && !spell);
+                stats, attack: !spell, ranged: ranged && !spell, spell: spell);
             // A blocked hit deals only its share ("You take X% of Damage from Blocked Hits", 0 by default).
             if (blocked) dealt = (int)Math.Round(dealt * PlayerDamageTaken.BlockedPct(type,
                 name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0) / 100.0);

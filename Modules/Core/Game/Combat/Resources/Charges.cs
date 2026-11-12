@@ -204,10 +204,14 @@ public static partial class Game
     // Then, as a monster's hit: the flat damage taken, a ranged attack's physical (Turtle Shell) and the increased damage
     // taken with the shock's (PlayerDamageTaken). An attack that is not ranged is melee.
     public static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
-        int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack = true, bool ranged = false)
+        int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack = true, bool ranged = false) =>
+        MitigateTakenWithArmour(conn, type, amount, resistance, maxResistance, effectiveArmour, stats, attack, ranged, spell: false);
+
+    public static int MitigateTakenWithArmour(ClientState conn, DamageType type, int amount, int resistance, int maxResistance,
+        int effectiveArmour, IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
     {
         int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
-        int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get);
+        int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell);
         var reduction = PlayerDamageReduction(conn, stats);
         int resisted = type == DamageType.Physical ? amount : DamageModel.Mitigate(amount, resistance, maxResistance);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(conn.Pools, type, resisted,

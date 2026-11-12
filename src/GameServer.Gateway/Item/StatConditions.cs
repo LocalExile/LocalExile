@@ -279,6 +279,7 @@ public static class StatConditions
             "maximum_es_+%" => "maximum_energy_shield_+%",
             "life_+%" => "maximum_life_+%",
             "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
+            "spell_damage_taken_+%" => "base_spell_damage_taken_+%",
             "life_regeneration_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_rate_per_minute" => "base_life_regeneration_rate_per_minute",
             "life_regeneration_per_minute_%" => "life_regeneration_rate_per_minute_%",
