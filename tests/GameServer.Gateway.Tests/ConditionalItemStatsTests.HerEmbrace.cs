@@ -33,6 +33,8 @@ public partial class ConditionalItemStatsTests
         Assert.Null(Game.IgniteOnHitLocked(conn, id, target, ignite, false, now)); target.KingGrace = false;
         Assert.Equal(0, Game.HerEmbraceOf(conn).Until);
         conn.Clock.Start();
+        Assert.NotNull(Game.IgniteOnHitLocked(conn, id, target, ignite, false, Game.ResourceEffectsTime(conn), playerIgnite: false));
+        Assert.Equal(0, Game.HerEmbraceOf(conn).Until); // An owned entity's ignite is not the player's event.
         Assert.NotNull(Game.IgniteOnHitLocked(conn, id, target, ignite, false, Game.ResourceEffectsTime(conn)));
         conn.Clock.Stop();
         now = Game.ResourceEffectsTime(conn);
@@ -52,6 +54,8 @@ public partial class ConditionalItemStatsTests
         Assert.Equal(123, DamagePacket.Of(DamageType.Physical, 100, 100).Convert(conversion)[DamageType.Fire].Min);
         Assert.Equal(0, DamagePacket.Of(DamageType.Physical, 100, 100)
             .Convert(DamageStats.Conversion(stats, Program.Stats, attack: false))[DamageType.Fire].Min);
+        Assert.False(ClientTables.Table("BuffDefinitions")[Game.HerEmbraceBuffRow].Bool("__col44"));
+        Assert.False(ClientTables.Table("BuffDefinitions")[Game.HerEmbraceBuffRow].Bool("IsRecovery"));
         Assert.Equal(31, Assert.Single(Game.HerEmbracePresentation(conn)!, p => p[0] == 1 && p[1] == 0xc1).Length);
         Assert.True(state.Buff > 0);
         var carried = Assert.IsType<Game.CarriedHerEmbrace>(Game.CaptureHerEmbrace(conn, now));

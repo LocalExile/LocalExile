@@ -79,6 +79,8 @@ public static class StatConditions
         "critical_strike_chance_+%_final_while_unhinged",
         "physical_and_chaos_damage_taken_+%_final_while_not_unhinged",
         "enemies_explode_on_kill_while_unhinged",
+        // Her Embrace integrates its own qualified source's Fire degeneration over the accepted buff interval.
+        "%_maximum_es_and_life_taken_as_fire_damage_per_minute_per_level_while_in_her_embrace",
         // Per-Rage item coefficients are multiplied by the authoritative effective Rage in RageStats, not folded.
         "bleed_dot_multiplier_+_per_rage_if_equipped_axe",
         "you_count_as_low_life_while_affected_by_vulnerability",

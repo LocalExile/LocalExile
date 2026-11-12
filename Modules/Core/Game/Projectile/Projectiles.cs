@@ -402,7 +402,8 @@ public static partial class Game
             if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
                 TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
             if (!immune && hit.Value.Life > 0 && (critical ? shot.Ignite.CriticalMax : shot.Ignite.Max) > 0)
-                IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
+                IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at,
+                    playerIgnite: shot.ActualCaster is null);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
                     BleedReflected(CharacterPlayerStats(Conn)));

@@ -150,7 +150,7 @@ public static partial class Game
     // (MonsterIgnites.TryApply, its duration less by the target's base_self_ignite_duration_-%), and the packets of the
     // monster's ignited buff, or null when it did not ignite.
     public static List<byte[]>? IgniteOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now)
+        MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true)
     {
         if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
@@ -165,8 +165,11 @@ public static partial class Game
             target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
             target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
         }
-        conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
-        HerEmbraceOnIgniteLocked(conn, now);
+        if (playerIgnite && target.Hostile)
+        {
+            conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+            HerEmbraceOnIgniteLocked(conn, now);
+        }
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
@@ -175,8 +178,8 @@ public static partial class Game
         + (target.Ignites.SpreadRadius > 0 ? $", spreads {target.Ignites.SpreadRadius} cells" : "");
 
     public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now) =>
-        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now),
+        MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true) =>
+        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now, playerIgnite),
             IgnitedLog(id, target, critical, now));
 
     // Queues a projectile hit's ignited or bleeding buff packets on its session, the log on the last.

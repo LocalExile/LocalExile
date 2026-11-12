@@ -370,7 +370,7 @@ public static partial class Game
             {
                 var ignite = profile.Ignite with { Min = profile.Ignite.Min * more, Max = profile.Ignite.Max * more,
                     CriticalMin = profile.Ignite.CriticalMin * more, CriticalMax = profile.Ignite.CriticalMax * more };
-                foreach (var packet in IgniteOnHitLocked(conn, id, m, ignite, critical: false, now) ?? [])
+                foreach (var packet in IgniteOnHitLocked(conn, id, m, ignite, critical: false, now, playerIgnite: false) ?? [])
                     conn.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
             }
             if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)

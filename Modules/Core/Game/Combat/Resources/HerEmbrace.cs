@@ -91,8 +91,9 @@ public static partial class Game
 
     public static int AdvanceHerEmbraceDamageLocked(ClientState conn, double now, IReadOnlyDictionary<uint, int> stats)
     {
+        if (!HerEmbraces.TryGetValue(conn, out var state) || state.Hosts.Length == 0
+            || state.Until <= 0 && state.Pending <= 0) return 0;
         RequalifyHerEmbrace(conn, new Dictionary<string, bool>());
-        var state = HerEmbraceOf(conn);
         double raw = state.Pending; state.Pending = 0;
         if (raw <= 0 || InGracePeriod(conn) || InTown(conn) || conn.Immune || HardcoreProgressBlocked(conn)) return 0;
         int Get(string name) => GolemStat(stats, name);
