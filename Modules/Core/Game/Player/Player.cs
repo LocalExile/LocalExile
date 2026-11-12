@@ -891,6 +891,8 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
+            await SyncExpandedInventory(conn);
+            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             if (LeechContext(conn) is var currentLeech && currentLeech != leechContext)
@@ -1226,6 +1228,8 @@ public static partial class Game
                     bool survived = CompleteResourceRecoveryLocked(conn, recoveryFrom, now, recoveryStats,
                         mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(conn, seconds), manaBefore, manaCap, ref manaCarry);
                     lifeAfter = conn.PlayerLife;
+                    // The once-per-transition Loyalty triggers: Energy Shield Recharge started, Low Life reached.
+                    lock (conn.Monsters) LoyaltyResourceStateLocked(conn, recoveryStats, now);
                     if (!survived)
                     {
                         ailmentDeathEpoch = conn.IncomingHitEpoch; dead = true;
@@ -1627,6 +1631,7 @@ public static partial class Game
     {
         RestoreFortification(conn);
         PrepareHideoutWaypoint(conn);
+        PrepareKaruiBridgeGates(conn);
         var (layout, name, classRow) = (conn.Layout, conn.Character, conn.ClassRow);
         var cls = SkillsFor(conn).ClassFor(classRow);
         uint type = InstanceEntities.ObjectTypeHash(cls.ObjectType);

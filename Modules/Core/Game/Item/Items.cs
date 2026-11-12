@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
@@ -1457,7 +1457,8 @@ public static partial class Game
             }
         }
         else if (LevelTooLow(conn, row, held) is { } low) why = low;
-        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a));
+        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
+            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
@@ -1561,7 +1562,8 @@ public static partial class Game
             placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
             if (LevelTooLow(conn, row, placement) is { } low) why = low;
             else
-            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
+                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         }
         if (done is null)
         {

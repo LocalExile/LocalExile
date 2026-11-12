@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -22,6 +22,7 @@ public static partial class Game
         if (m.Dead || m.Life == 0) return;
         double oldLastStep = g.LastStep;
         double elapsed = Math.Max(0, now - oldLastStep);
+        g.Regeneration += Math.Max(0, Math.Min(now, g.RecallUntil) - oldLastStep) * m.MaxLife * g.RecallRate / 6000d;
         g.LastStep = Math.Max(oldLastStep, now);
         int Own(string n) => GolemStat(g.Own, n);
         int Player(string n) => GolemStat(g.Player, n);
@@ -30,7 +31,8 @@ public static partial class Game
                 + (g.Definition.IsGolem ? Player("golem_life_regeneration_per_minute_%") : 0)) / 6000.0;
         g.Regeneration += elapsed * (m.MaxLife * regen + Player("minion_base_life_regeneration_rate_per_minute") / 60.0
             + Player("minion_life_regeneration_rate_per_second") + m.Mods.Effects["base_life_regeneration_rate_per_minute"] / 60.0
-            + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0));
+            + (now < g.HolyRegenerationUntil ? g.HolyRegenerationPerSecond : 0)
+            + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects["life_regeneration_rate_per_minute_%_if_blocked_recently"] / 6000d : 0));
         int heal = (int)Math.Min(int.MaxValue, g.Regeneration); g.Regeneration -= heal;
         if (heal > 0 && m.Life < m.MaxLife)
         {

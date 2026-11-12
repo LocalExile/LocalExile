@@ -11,7 +11,7 @@ public static partial class Game
     /// <summary>A skill's poison damage and duration, as <see cref="SupportedIgnite"/>: its panel poison rows.</summary>
     public static MonsterPoisons.Settings SupportedPoison(ClientState conn, ushort skillId, bool spell,
         IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
-        SupportedHitInputs? capturedInputs = null)
+        SupportedHitInputs? capturedInputs = null, int addedChaos = 0)
     {
         Func<string, int> get;
         if (capturedInputs is null)
@@ -23,7 +23,7 @@ public static partial class Game
             get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
         var rows = capturedInputs is null
-            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
+            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         return MonsterPoisons.Settings.From(rows, hand, get,
             spell || weapon is not null ? null : MainHandLocalSources(conn));

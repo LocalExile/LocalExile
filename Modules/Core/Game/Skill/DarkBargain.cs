@@ -25,7 +25,7 @@ public static partial class Game
 
     static async Task DarkBargainCast(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
-        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, long supportChaos = 0)
+        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice)
     {
         if (CastMs(conn, gem.Effect, skillId) is not int castMs) return;
         bool Current() => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
@@ -49,7 +49,7 @@ public static partial class Game
         int epoch = conn.ProjectileEpoch;
         using (ProjectileMutation(conn))
         {
-            if (!Current()) return;
+            if (!Current() || !sacrifice.Current) return;
             double now = ProjectileWorldTime(conn);
             var player = conn.Walk.Position(now);
             var skeletons = conn.Summons.Fighters.Values
@@ -102,12 +102,11 @@ public static partial class Game
                 new EffectObject(at.X, at.Y, ao) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
                 $"0x02bb create effect 0x{effect:x} {ao} at ({at.X}, {at.Y}) scale {scale:0.##}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-            // Sacrifice Support's added chaos (LaunchProjectile) rides on every blast of the use.
-            long addedChaos = (long)paid + supportChaos;
+            int addedChaos = paid;
             Console.WriteLine($"[gateway] {remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
             await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, addedChaos: supportChaos, baseChaos: paid, damageMore: more);
+                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more);
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>
@@ -143,11 +142,4 @@ public static partial class Game
         return blasts;
     }
 
-    // The sacrificed life is base chaos damage: it takes the skill's increases and more multipliers like its own base.
-    static int DarkBargainAddedChaos(ClientState conn, ushort skillId, int sacrificed)
-    {
-        if (sacrificed <= 0 || SupportedHitInputsFor(conn, skillId) is not { } inputs) return 0;
-        var scaled = SupportedHitFrom(inputs with { Raw = DamagePacket.Of(DamageType.Chaos, sacrificed, sacrificed) }, suppress: true);
-        return (int)Math.Round(scaled[DamageType.Chaos].Min);
-    }
 }

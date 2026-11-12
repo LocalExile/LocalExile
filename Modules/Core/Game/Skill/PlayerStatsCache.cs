@@ -20,7 +20,7 @@ public static partial class Game
         public long SiphoningRevision;
         public (int Endurance, int Frenzy, int Power) HeldCharges;
         public int IntimidatingCryMovement;
-        public long Slayer, Hierophant;
+        public long Slayer, Offerings, Hierophant;
         public bool ArcaneSurge;
         public int Overrides, Auras, ResistancePenalty;
         public bool Moving, GolemSummonedRecently;
@@ -67,7 +67,7 @@ public static partial class Game
             SiphoningRevision = siphoningRevision,
             HeldCharges = heldCharges,
             IntimidatingCryMovement = Game.IntimidatingCryMovement(conn),
-            Slayer = global::Slayer.Revision(conn), Hierophant = global::Hierophant.Revision(conn),
+            Slayer = global::Slayer.Revision(conn), Offerings = conn.Summons.OfferingRevision, Hierophant = global::Hierophant.Revision(conn),
             ArcaneSurge = conn.SupportGems.ArcaneSurgeActiveAt(now),
             ResistancePenalty = Game.ResistancePenalty(conn),
         };
@@ -82,7 +82,7 @@ public static partial class Game
         && a.SiphoningRevision == b.SiphoningRevision
         && a.HeldCharges == b.HeldCharges
         && a.IntimidatingCryMovement == b.IntimidatingCryMovement
-        && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
+        && a.Offerings == b.Offerings && a.Slayer == b.Slayer && a.Hierophant == b.Hierophant && a.ArcaneSurge == b.ArcaneSurge
         && a.ResistancePenalty == b.ResistancePenalty
         && ReferenceEquals(a.StatSources, b.StatSources);
 

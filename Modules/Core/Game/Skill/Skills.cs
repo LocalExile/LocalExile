@@ -136,6 +136,7 @@ public static partial class Game
     // The final stats from a character snapshot already worked out (PlayerSkills reuses its own).
     public static IEnumerable<(uint, int)> FinalPlayerStatsFrom(ClientState conn, Dictionary<uint, int> stats)
     {
+        KeepExpandedInventoryVisible(conn, stats);
         // Both hands' native weapon types and whether they dual wield (a value /set_stat set stays). The client derives none
         // of them from network stats: quivers need a bow's 9 in the main hand, and without is_dual_wielding it held 1,
         // which greyed out Shield Charge beside a one-handed weapon (13-items.md "Client weapon-type stats").
@@ -456,6 +457,7 @@ public static partial class Game
         if (Stats.Key("base_movement_velocity_+%") is uint cryMovement)
             extra[cryMovement] = ActorScale.Saturate((long)extra.GetValueOrDefault(cryMovement) + IntimidatingCryMovement(conn));
         AddGolemStats(conn, extra);
+        AddSelfOfferingStats(conn, extra);
         int RawDefault(string name) => Stats.Key(name) is uint key ? extra.GetValueOrDefault(key) : 0;
         foreach (var (stat, value) in PanelStatDefaults.Compute(RawDefault))
             if (Stats.Key(stat) is uint key) extra[key] = value;
@@ -468,7 +470,10 @@ public static partial class Game
         }
         List<AuraCatalog.Aura> auras;
         lock (conn.Monsters) auras = AffectingAuras(conn);
-        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats).Concat(MinionAuraStats(conn, auras)))
+        // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
+        int heraldEffectPct = RawDefault("herald_effect_on_self_+%");
+        foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), conn.Pools.AuraEffectPct, SkillsFor(conn), Stats,
+                     heraldEffectPct).Concat(MinionAuraStats(conn, auras)))
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
         foreach (var (k, v) in AuraCatalog.WhileAffectedPenetration(auras, extra, Stats).ToList())
             extra[k] = ActorScale.Saturate((long)extra.GetValueOrDefault(k) + v);
@@ -908,10 +913,12 @@ public static partial class Game
         {
             if (conn.Closed || conn.LeavingArea || conn.RageRetired || HardcoreProgressBlocked(conn)) return false;
             string character = CharacterName(conn);
-            var bar = CharacterSaves.Load(character)?.SkillBar ?? [];
+            var save = CharacterSaves.Load(character);
+            var bar = save?.SkillBar ?? [];
+            var unassigned = SkillBarLayout.Unassigned(save);
             string attack = SkillEffectId(conn, SkillCatalog.FirstSkillId)!;
             var gems = GemSkillEffects(conn).Select(g => SkillsFor(conn).EffectId(g.Effect)).OfType<string>().ToList();
-            var added = SkillBarLayout.Fill(bar, attack, gems, entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
+            var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g)), entry => entry == attack || entry.StartsWith("Action/") || gems.Contains(entry));
             foreach (var (slot, entry) in added) CharacterSaves.SetSkillBar(character, (byte)slot, entry);
             if (added.Count > 0)
                 Console.WriteLine($"[gateway] {character} skill bar: {string.Join(", ", added.Select(a => $"{a.Entry} on slot {a.Slot}"))}");

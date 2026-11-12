@@ -5,7 +5,7 @@ public sealed class GolemState
 {
     public sealed record MinionResourceSnapshot(uint Life, double LifeRegeneration, EnergyShield.Snapshot EnergyShield);
     public sealed record Saved(string Effect, ushort Skill, double Life = 1, double ReviveSeconds = 0,
-        double SummonedSecondsRemaining = 0, MinionResourceSnapshot? Resources = null);
+        double SummonedSecondsRemaining = 0, MinionResourceSnapshot? Resources = null, uint? Host = null, int? Socket = null);
     public sealed record Awaiting(Saved Saved, double At, GemSourceLifetimes.SourceLifetime? GemSource = null);
     public sealed class Golem(uint id, SpawnedMonster monster, GolemCatalog.Definition definition, ushort source,
         GemSourceLifetimes.SourceLifetime? gemSource = null)
@@ -29,7 +29,9 @@ public sealed class GolemState
         public double WrathUntil, NextOrb;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
-        public Dictionary<string, int> Auras = [];
+        public Dictionary<string, int> Auras = [], Utility = [];
+        public readonly Dictionary<ushort, ushort> UtilityBuffs = [];
+        public double RecallUntil, RecallRate, BlockedAt = double.NegativeInfinity;
         public Dictionary<byte, Item> Equipment = [];
         public Dictionary<string, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;

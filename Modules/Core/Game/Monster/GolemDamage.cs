@@ -94,9 +94,11 @@ public static partial class Game
             int accuracy = source.Effects.Accuracy(Monsters.BaseAccuracy(source.Level) ?? 0);
             if (random.Next(100) >= DamageModel.AccuracyHitChance(evasion, accuracy)) return false;
         }
-        int block = attack.Spell ? Player("minion_additional_spell_block_%") : Player("minion_block_%");
+        int block = attack.Spell ? Player("minion_additional_spell_block_%") + effects["base_spell_block_%"]
+            : Player("minion_block_%") + effects["monster_base_block_%"];
         if (random.Next(100) < Math.Clamp(block, 0, 75))
         {
+            g.BlockedAt = now;
             m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player("minion_recover_%_of_maximum_life_on_block") / 100
                 + Player("minion_recover_X_life_on_block"));
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));

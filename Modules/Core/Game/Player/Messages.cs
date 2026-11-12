@@ -243,8 +243,8 @@ public static partial class Game
                 // A lockstep client's forced stationary default attack swings where the player stands. Ordinary ground
                 // melee uses take StartLockstepGroundMelee's frame-stepped walk-up before reaching this handler.
                 bool inPlace = cast || conn.LockstepClient && use.SkillId == SkillCatalog.FirstSkillId;
-                // Flicker Strike on the ground goes to the monster in range nearest to the point (FlickerStrike), else
-                // strikes where the player stands; the server teleports the player, which the client does not.
+                // Flicker Strike on the ground goes to the monster in range nearest to the point (FlickerStrike), and is
+                // refused when none is; the server teleports the player, which the client does not.
                 bool flicker = cast && gem.Name is not null && SkillsFor(conn).ActionHash(gem.Effect) == FlickerStrike.Action;
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 void StartAction()
@@ -256,11 +256,7 @@ public static partial class Game
                     // Readiness and reservation precede movement: a raw early Dash cannot teleport anyway. Shield Charge walks
                     // there at its own speed instead (ShieldCharge.cs).
                     if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
-                    else if (flicker)
-                    {
-                        flickerTo = FlickerDestination(conn, gem.Effect, use.SkillId, (px, py), (use.X, use.Y), 0, at);
-                        if (flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
-                    }
+                    else if (flicker && flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
                     else if (gem.Name is not null && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)) && LandsAtAim(conn, gem.Effect))
                     {
                         var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y));
@@ -269,11 +265,24 @@ public static partial class Game
                     conn.ChannelSkill = cast ? use.SkillId : (ushort)0;
                     conn.ChannelSkillSequence = use.Slot;
                 }
+                // With no monster in range, Flicker Strike is not used: no cost, cooldown use or charge.
+                bool noFlickerTarget = false;
+                bool FlickerAdmit()
+                {
+                    double t = Math.Max(at, conn.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
+                    flickerTo = FlickerDestination(conn, gem.Effect, use.SkillId, conn.Walk.Position(t), (use.X, use.Y), 0, t);
+                    noFlickerTarget = flickerTo is null;
+                    return !noFlickerTarget;
+                }
                 if (cast && gem.Name is not null)
                 {
                     if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                         CooldownFor(conn, gem.Effect, gem.Level, gem.Quality),
-                        false, StartAction, out cooldownUse, requestedAt: at)) continue;
+                        false, StartAction, out cooldownUse, requestedAt: at, admit: flicker ? FlickerAdmit : null))
+                    {
+                        if (noFlickerTarget) await FlickerRefused(remote, stream, ciphers, conn, gem.Name);
+                        continue;
+                    }
                 }
                 else
                 {
@@ -315,7 +324,7 @@ public static partial class Game
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
                 }
                 if (flicker) await GrantFlickerSpeed(remote, stream, ciphers, conn, use.SkillId);
-                // Flicker Strike strikes from where it lands, at the monster it went to (or the point, when none was in range).
+                // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
@@ -382,7 +391,8 @@ public static partial class Game
                 var (slot, skill) = InstanceProtocol.ReadBindSkill(bytes);
                 string? entry = SkillBarEntry(conn, skill);
                 Console.WriteLine($"[gateway] {remote} <= 0x004e bind skill 0x{skill:x4} ({(entry is null ? "unknown, not saved" : entry == "" ? "empty" : entry)}) to slot {slot}: {Convert.ToHexString(bytes)}");
-                if (entry is not null) CharacterSaves.SetSkillBar(CharacterName(conn), slot, entry);
+                if (entry is not null && slot < InstanceProtocol.SkillBarSlots)
+                    lock (conn.Monsters) SkillBarLayout.Bind(CharacterName(conn), slot, entry);
             }
             else if (id is InstanceProtocol.AttackInPlaceId or InstanceProtocol.SlotMask52Id)
             {

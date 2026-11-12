@@ -209,9 +209,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Holy Sweep's art: base `skill_art_variation` 2 plus the worn effect's value.
   Docs: [23](../docs/protocol/23-microtransactions.md) §3.
 - Holy Sweep's area: its swings hit around the player. Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Flicker Strike: the server teleports the player to the target, with its charge speed and buff.
+- Flicker Strike: the server teleports the player to the target, with its charge speed and buff; with no monster in
+  range the use is refused and costs nothing.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Cooldown bypass: a use during the cooldown spends a charge. Docs: [11](../docs/protocol/11-skills.md) §9.
+- Cooldown bypass: a use during the cooldown spends a charge; a cooldown skill pays its cost when its use is
+  accepted. Docs: [11](../docs/protocol/11-skills.md) §9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's charge and shield damage.
   Docs: [11](../docs/protocol/11-skills.md) §10a and §10k, [13](../docs/protocol/13-items.md).
@@ -1758,6 +1760,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Ice Nova drew nothing (live 2026-10-30).
   Code: `SkillCatalog.IsSelfTargeted`, `SkillCatalog.IsNova`, Gateway (`SpellCentre`, `AreaSkillHit`).
 - Gem skills, their projectiles and triggered releases.
+- Gem skills, their projectiles and triggered releases, including linked summons and Desecrate.
   Docs: [11](../docs/protocol/11-skills.md) §9–10, [25](../docs/protocol/25-gem-supports.md).
 - Resistances, with the Kitava penalties. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) §12.
@@ -1841,13 +1844,18 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Spells disabled (Devout of Gruthkul). Docs: [11](../docs/protocol/11-skills.md) §10j.
 - Passive blind aura. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
+- Lightning Strike resolves its melee hit and secondary projectiles.
+- Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
+  over time and burst.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
 - Instant skills, cooldowns, Bladefall of Trarthus and Frostblink. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
-- Animated equipment, summons, mines and traps. Docs: [11](../docs/protocol/11-skills.md) §10h.
+- Animated equipment, summons (including source recovery and spell repeats), mines and traps.
+  Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, projectile spells and ballistas. Docs: [11](../docs/protocol/11-skills.md) §10g.
+- Totems: Rejuvenation, projectile spells and ballistas; placement validates the linked source again at release.
+  Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
@@ -1872,7 +1880,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - The player's debuffs on monsters: taunt, enemy auras, Intimidate, Unnerve and Wither.
   Docs: [11](../docs/protocol/11-skills.md) §12, [Paladin](../docs/game/paladin.md).
 - Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
-- Self-targeted spells. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
 

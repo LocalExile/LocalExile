@@ -1730,6 +1730,9 @@ public static partial class Game
         var suppression = a.Spell ? Suppression(conn) : default;
         bool suppressed = a.Spell && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, conn.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+        // "when you Suppress Spell Damage from a Unique Enemy" (Loyalty Tattoo of Ahuana).
+        if (suppressed && m.Rarity == MonsterRarity.Unique && conn.PlayerLife > 0)
+            LoyaltySuppressedHitLocked(conn, stats);
         var shifted = PlayerDamageTaken.Shift(rolled, StatOf);
         var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided,
             projectile: a.Projectile is not null);

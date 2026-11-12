@@ -3526,6 +3526,7 @@ public partial class ConditionalItemStatsTests
             // The same connection's continuous recovery and monster DoT paths complete a production step after the race.
             void RunPlayerUpdate(Func<PlayerUpdatesState, Task> loop)
             {
+                lifeConn.Wire = ("test", wire.Stream, wire.Ciphers);
                 PlayerUpdatesState? updates = null;
                 double stepAt = lifeConn.Clock.Elapsed.TotalSeconds;
                 updates = new PlayerUpdatesState(lifetime, new AdvancingOneStepSchedule(stepAt, () => updates!.Stop.Cancel()));

@@ -252,6 +252,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int MaimedMovementShownPct;
     public bool MaimedMovementShown;
     public double WalkSpeedAtZeroFactor;
+    // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
+    // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
+    public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
+    public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.
@@ -967,6 +971,9 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public uint? SentEnergyShield;
     public bool? SentRechargeActive;
     public int? SentEsRecoveryRate;
+    // The previous recovery tick's states of the once-per-transition Loyalty triggers (Energy Shield Recharge started,
+    // Low Life reached): Game.LoyaltyResourceStateLocked.
+    public bool LoyaltyRechargeSeen, LoyaltyLowLifeSeen;
     // A trap's degeneration on the player (a trial roomba), points a second, energy shield first: RunResourceRecovery
     // deals it, and while it runs the client is sent no recovery rates to predict a rise with.
     public double TrapDegenPerSecond;

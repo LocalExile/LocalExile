@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Gateway.Tests;
 public sealed class SpellTotemExecutionTests
 {
-    static ClientState Connection(string name)
+    internal static ClientState Connection(string name)
     {
         var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
@@ -86,6 +86,9 @@ public sealed class SpellTotemExecutionTests
                 var emitted = session.Runtime.Projectiles.Where(p => p.Use.Emitter.Id == 777).ToArray();
                 Assert.NotEmpty(emitted);
                 Assert.All(emitted, p => { Assert.NotNull(p.Profile.Legs); Assert.Equal(150, p.Profile.LegLeash);
+                    var shot = Assert.IsType<ProjectileOffense>(p.Use.Payload);
+                    Assert.False(shot.ClientPredicted);
+                    Assert.Equal(Game.SkillsFor(conn).Clips(p.Profile.Id)!.Flight!.Index, shot.Presentation!.FlightClip);
                     Assert.Equal(100, p.Use.Origin.X); Assert.Equal(20, p.Use.Origin.Y); });
             }
             finally { session.Invalidate(); }
@@ -118,6 +121,15 @@ public sealed class SpellTotemExecutionTests
             Assert.Equal((150, 80), placed.At); Assert.True(placed.MaxLife > 1);
             Assert.Equal(8, placed.Until - conn.Clock.Elapsed.TotalSeconds, 3);
             Assert.True(Game.SpellTotemCurrent(conn, placed));
+            var contact = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finish = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var pending = Game.CreateTotem("test", wire.Stream, wire.Ciphers, conn, skill, gem.Effect, gem.Level,
+                Game.TotemVariety(conn, gem.Effect)!, (151, 80), null, () => { contact.SetResult(); return finish.Task; });
+            await contact.Task;
+            Assert.Same(placed, Assert.Single(conn.Totems.Living(0)));
+            finish.SetResult(false);
+            Assert.Null(await pending);
+            Assert.Same(placed, Assert.Single(conn.Totems.Living(0)));
             var sourceHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
             Game.ItemsOf(conn).Change(PlayerInventories.Weapon1, sourceHost.Id, item => item with
             { Sockets = [.. item.Sockets.Select(s => s with { Gem = PlayerInventories.PreserveGemIdentity(s.Gem!, s.Gem! with { GemExperience = 1 }) })] });
@@ -125,18 +137,31 @@ public sealed class SpellTotemExecutionTests
 
             var totem = new TotemState.Totem(700, skill, (100, 20), 100, 8, null)
                 { Effect = gem.Effect, SourceGem = gem.Gem, SourceHost = Game.SupportedSkill(conn, skill).Host, SourceItem = Game.SupportedSkill(conn, skill).SourceGem };
-            conn.PlayerStats[StatKeys.SpellSkillsDealNoDamage] = 1;
+            var ancestralBond = Program.Stats.Key("keystone_ancestral_bond")!.Value;
+            conn.PlayerStats[ancestralBond] = 1;
+            Assert.Equal(2, Game.TotemLimit(conn, skill));
+            Assert.True(new SkillDamageContext(SkillHitKind.Spell, Game.CharacterPlayerStats(conn)).Suppressed);
             var use = Game.CaptureGemProjectile(conn, session, skill, gem, (130, 20), new(0), totem: totem);
             Assert.Equal(700u, use.Emitter.Id); Assert.Equal(700u, use.Owner.Id);
             Assert.Equal(100, use.Origin.X); Assert.Equal(20, use.Origin.Y);
             var shot = Assert.IsType<ProjectileOffense>(use.Payload);
             Assert.NotNull(shot.ActualCaster);
             Assert.True(new SkillDamageContext(SkillHitKind.Spell, shot.ActualCaster!).Hit(shot.Hit).MaxTotal > 0);
+            conn.PlayerStats[StatKeys.SpellSkillsDealNoDamage] = 1;
+            var disabledShot = (ProjectileOffense)Game.CaptureGemProjectile(conn, session, skill, gem, (130, 20), new(0), totem: totem).Payload!;
+            Assert.True(new SkillDamageContext(SkillHitKind.Spell, disabledShot.ActualCaster!).Suppressed);
+            conn.PlayerStats.Remove(StatKeys.SpellSkillsDealNoDamage);
             Assert.Equal(Game.SupportedProjectileHit(conn, skill, false).MaxTotal * .45, shot.Hit.MaxTotal, 6);
             var ownerShot = Assert.IsType<ProjectileOffense>(Game.CaptureGemProjectile(conn, session, skill, gem,
                 (130, 20), new(0)).Payload);
             Assert.Equal(ownerShot.Ignite.Max * .45, shot.Ignite.Max, 6);
             Assert.Equal(ownerShot.Ignite.CriticalMax * .45, shot.Ignite.CriticalMax, 6);
+            var totemDamage = Program.Stats.Key("totem_damage_+%")!.Value;
+            conn.PlayerStats[totemDamage] = 100;
+            var stronger = (ProjectileOffense)Game.CaptureGemProjectile(conn, session, skill, gem, (130, 20), new(0), totem: totem).Payload!;
+            Assert.Equal(shot.Hit.MaxTotal * 2, stronger.Hit.MaxTotal, 5);
+            Assert.Equal(shot.Ignite.Max * 2, stronger.Ignite.Max, 4);
+            conn.PlayerStats.Remove(totemDamage);
             Assert.Equal(1.25, Game.TotemCastSeconds(conn, skill)!.Value, 3);
             var proxy = Game.TotemProxy(conn, skill);
             Assert.NotNull(proxy);
@@ -202,6 +227,13 @@ public sealed class SpellTotemExecutionTests
                 { Effect = renewed.Effect, SourceGem = Game.GemSkillEffects(conn).Single().Gem,
                   SourceHost = renewed.Host, SourceItem = renewed.SourceGem };
             Assert.True(Game.SpellTotemCurrent(conn, live));
+            Game.BindTotemSource(conn, live);
+            var levelHost = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            Game.ItemsOf(conn).Change(PlayerInventories.Weapon1, levelHost.Id, item => item with
+            { Sockets = [.. item.Sockets.Select(s => s with { Gem = PlayerInventories.PreserveGemIdentity(s.Gem!, s.Gem! with
+                { GemExperience = Program.Items.Gem(Program.Items.ByHash(s.Gem!.TypeHash)!)!.ExperienceFor(2) }) })] });
+            Assert.Equal(2, Game.SupportedSkill(conn, skill).Level);
+            Assert.True(Game.SpellTotemCurrent(conn, live));
             lifetime.Stop(ex => throw ex);
             Assert.False(Game.SpellTotemCurrent(conn, live)); Assert.False(session.Active);
         }
@@ -254,6 +286,17 @@ public sealed class SpellTotemExecutionTests
             var shot = Assert.IsType<ProjectileOffense>(use.Payload);
             Assert.False(shot.Spell); Assert.NotNull(shot.AccuracyProfile); Assert.NotNull(shot.ActualCaster);
             Assert.Equal(Game.SupportedProjectileHit(conn, burning.Id, false).MaxTotal * .64, shot.Hit.MaxTotal, 5);
+            // Burning Arrow converts all physical damage; use a physical attack for the bleed regression.
+            var bleedHost = items.Items(PlayerInventories.BodyArmour).Single();
+            items.Change(PlayerInventories.BodyArmour, bleedHost.Id, _ => body with
+            { Sockets = [body.Sockets[0] with { Gem = Gem("SkillGemSplitArrow") }, .. body.Sockets.Skip(1)] });
+            var bleeding = Game.GemSkillEffects(conn).Single(s => s.Name == "Split Arrow");
+            var ownerShot = (ProjectileOffense)Game.CaptureGemProjectile(conn, session, bleeding.Id, bleeding, (130, 20), new(0)).Payload!;
+            var bleedShot = (ProjectileOffense)Game.CaptureGemProjectile(conn, session, bleeding.Id, bleeding, (130, 20), new(0), totem: placed).Payload!;
+            Assert.True(ownerShot.Bleed.Max > 0);
+            Assert.Equal(ownerShot.Bleed.Max * .64, bleedShot.Bleed.Max, 6);
+            Assert.Equal(ownerShot.Bleed.CriticalMax * .64, bleedShot.Bleed.CriticalMax, 6);
+            items.Change(PlayerInventories.BodyArmour, bleedHost.Id, _ => body);
             Assert.True(new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster!).Hit(shot.Hit).MaxTotal > 0);
             Assert.Equal(placed.Id, use.Emitter.Id); Assert.Equal(103, use.Origin.X);
             Assert.NotNull(Game.TotemProxy(conn, burning.Id));
@@ -285,6 +328,38 @@ public sealed class SpellTotemExecutionTests
             conn.Monsters.Clear(); conn.Monsters[903] = close;
             session.Schedule(session.Runtime.Now, () => true, () => shards);
             session.AdvanceTo(ProjectileRuntime.Time(2)); Assert.Equal(99700u, close.Life);
+            // Retiring the emitter cancels future casts, not a projectile that has already left it.
+            for (int reason = 0; reason < 4; reason++)
+            {
+                var sourceNow = Game.SupportedSkill(conn, burning.Id);
+                var emitter = new TotemState.Totem((uint)(810 + reason), burning.Id, (100, 60 + reason * 30), 100, 100, null)
+                { Effect = burning.Effect, SourceGem = burning.Gem, SourceHost = sourceNow.Host, SourceItem = sourceNow.SourceGem };
+                Game.BindTotemSource(conn, emitter);
+                var flight = Game.CaptureGemProjectile(conn, session, burning.Id, burning, (120, emitter.At.Y), new(0), totem: emitter);
+                var payload = (ProjectileOffense)flight.Payload!;
+                flight = flight with { Profile = flight.Profile with { Speed = 10, Count = 1, Range = 40 },
+                    Payload = payload with { Hit = DamagePacket.Of(DamageType.Physical, 100, 100), CriticalChance = 0,
+                        AccuracyProfile = new(100000, CannotBeEvaded: true) } };
+                var delayed = new SpawnedMonster("in-flight", new(120, emitter.At.Y, 0), 0, 0, 100000) { Hostile = true };
+                conn.Monsters.Clear(); conn.Monsters[920] = delayed;
+                double at = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                session.Schedule(session.Runtime.Now, () => true, () => flight);
+                session.AdvanceTo(ProjectileRuntime.Time(at + .01));
+                Assert.Equal(100000u, delayed.Life);
+                if (reason == 0) emitter.Until = 0;
+                else if (reason == 1) emitter.DiedAt = 0;
+                else if (reason == 2) conn.PlayerLife = 0;
+                else
+                {
+                    var bodyHost = items.Items(PlayerInventories.BodyArmour).Single();
+                    items.Change(PlayerInventories.BodyArmour, bodyHost.Id, item => item with
+                    { Sockets = [item.Sockets[0] with { Gem = Gem("SkillGemBurningArrow") }, .. item.Sockets.Skip(1)] });
+                }
+                Assert.False(Game.SpellTotemCurrent(conn, emitter));
+                session.AdvanceTo(ProjectileRuntime.Time(at + 3));
+                Assert.Equal(99900u, delayed.Life);
+                conn.PlayerLife = 1000;
+            }
             items.Change(PlayerInventories.Weapon1, bow.Id, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
             Assert.False(Game.BallistaPathAvailable(conn, burning.Id)); Assert.False(Game.SpellTotemCurrent(conn, placed));
             items.Change(PlayerInventories.Weapon1, bow.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
@@ -294,6 +369,19 @@ public sealed class SpellTotemExecutionTests
                 new(SocketColour.White, Gem("SupportGemRangedAttackTotem"))], Links = [2] });
             var wandSkill = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
             Assert.True(Game.BallistaPathAvailable(conn, wandSkill.Id));
+            var bolt = Gem("SkillGemKineticBolt");
+            int fragmenting = Program.Items.Gem(Program.Items.ByHash(bolt.TypeHash)!)!.Variants
+                .Single(v => Game.SkillsFor(conn).EffectId(v.Effect) == "KineticBoltAltX").Index;
+            items.Change(PlayerInventories.BodyArmour, host.Id, _ => body with
+            { Sockets = [new(SocketColour.White, bolt with { GemVariant = fragmenting })], Links = [1] });
+            var fragments = Game.GemSkillEffects(conn).Single();
+            Assert.Equal("KineticBoltAltX", Game.SkillsFor(conn).EffectId(fragments.Effect));
+            var fragmentStats = Game.SupportedSkill(conn, fragments.Id).Stats;
+            int ReadFragment(string name) => Program.Stats.Key(name) is uint key ? fragmentStats.GetValueOrDefault(key) : 0;
+            Assert.Equal(1, ReadFragment("projectiles_can_shotgun"));
+            Assert.Equal(ProjectileHitScope.Projectile,
+                GatewayProjectileModifiers.Resolve(new("fragment-check"), ReadFragment, attack: true).HitRule.Scope);
+            Assert.True(Game.ProjectilePathAvailable("test", conn, fragments.Id, fragments.Effect));
             items.Change(PlayerInventories.BodyArmour, host.Id, _ => body with
             { Sockets = [new(SocketColour.White, Gem("SkillGemArtilleryBallista"))], Links = [1] });
             var artillery = Game.GemSkillEffects(conn).Single();
@@ -311,7 +399,7 @@ public sealed class SpellTotemExecutionTests
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
-    sealed class Wire : IDisposable
+    internal sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
         readonly TcpClient writer = new(); readonly TcpClient reader;

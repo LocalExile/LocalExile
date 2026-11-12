@@ -137,8 +137,9 @@ public static partial class Game
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
-        int totalPct = basePct + maimPct - SpiderHinder(m, now);
-        if ((maimPct != 0 || SpiderHinder(m, now) != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+        int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
+        int totalPct = basePct + maimPct - hinderPct;
+        if ((maimPct != 0 || hinderPct != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
             totalPct = Math.Max(0, totalPct);
         double Movement(double pct) => m.Variety is { } variety
             ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
@@ -172,6 +173,8 @@ public static partial class Game
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         OnslaughtOnHitLocked(conn, now);
         if (spell) ArcaneSurgeOnSpellHitLocked(conn, player, now, random);
+        // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
+        if (critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(conn, targetId, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
@@ -268,8 +271,10 @@ public static partial class Game
                     $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
             }
             var a = m.Ailments;
+            double vines = ToxicWalkFactor(m);
             bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
-            if (elementalIdle && m.MaimedUntil <= now && SpiderHinder(m, now) == 0 && !m.MaimedMovementShown) continue;
+            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
+                && a.WalkFactor == 1 && !m.MaimedMovementShown) continue;
             if (!elementalIdle)
             {
                 foreach (var (kind, removed, added, magnitude) in a.Present(now))
@@ -284,6 +289,7 @@ public static partial class Game
             var movement = MaimedMovementFactor(m, now);
             double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
                 * movement.Factor;
+            if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
             if (walk != a.WalkFactor)
             {
                 // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
@@ -307,7 +313,7 @@ public static partial class Game
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
             }
-            bool maimed = m.MaimedUntil > now || SpiderHinder(m, now) != 0;
+            bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0;
             bool maimShown = m.MaimedMovementShown;
             bool movementChanged = maimed
                 ? !maimShown || movement.Pct != m.MaimedMovementShownPct

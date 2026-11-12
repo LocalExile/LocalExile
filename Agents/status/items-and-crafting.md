@@ -85,6 +85,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   unchanged outcomes and restart persistence; fresh checks of the merged branch remain open.
   Ward ranges count for eligibility, but Ward character calculations and recovery remain unimplemented.
   Code: `CurrencyEffects.Sacred`, Gateway (`Program.Items.cs`).
+- Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
+
 - Character-build previews and imports through the mod SDK; the POB mod and converter are external.
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.

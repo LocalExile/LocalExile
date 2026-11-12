@@ -191,7 +191,7 @@ public static partial class Game
                     m.SpiderWebs.SetExpiryRate(now, rate);
                     m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                 }
-                m.ReceivedActionFactor = Math.Max(.25, 1 + slow / 100); m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
+                m.ReceivedActionFactor = Math.Max(BossMods.SlowestActionFactor(m.Variety), 1 + slow / 100); m.ReceivedActionUntil = slow != 0 ? double.PositiveInfinity : now;
             }
             if (m.Curses.PresentedVersion != m.Curses.Version)
             {

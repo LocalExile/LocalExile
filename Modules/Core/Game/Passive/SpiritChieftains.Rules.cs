@@ -5,12 +5,86 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    // The node stats that name a Spirit chieftain trigger with an event the server has. Spirit of Rakiata's
-    // has_trigger_on_crit_vs_marked_unique needs Marks, which the server does not have.
+    // The node and tattoo stats that name a Spirit chieftain trigger with an event the server has. The Ascendancy
+    // nodes grant their Summon Spirit skills directly; the Loyalty tattoos grant the level 1 ones from
+    // PassiveSkillOverrides.Effect and carry the same trigger stat in their TattooStats row.
     public const string CritByUniqueTrigger = "has_trigger_on_crit_by_unique_enemy",
         SavageHitFromUniqueTrigger = "has_trigger_on_taking_savage_hit_from_unique",
         BlockFromUniqueTrigger = "has_trigger_on_block_hit_from_unique",
-        TotemDeathInPresenceOfUniqueTrigger = "has_trigger_on_totem_death_in_presence_of_unique";
+        TotemDeathInPresenceOfUniqueTrigger = "has_trigger_on_totem_death_in_presence_of_unique",
+        CritVsMarkedUniqueTrigger = "has_trigger_on_crit_vs_marked_unique",
+        SuppressHitFromUniqueTrigger = "has_trigger_on_suppress_hit_from_unique",
+        MaxRageInPresenceTrigger = "has_trigger_on_reaching_maximum_rage_in_presence_of_unique",
+        TravelSkillInPresenceTrigger = "has_trigger_on_travel_skill_use_in_presence_of_unique",
+        EsRechargeInPresenceTrigger = "has_trigger_on_es_recharge_in_presence_of_unique",
+        LowLifeInPresenceTrigger = "has_trigger_on_reaching_low_life_in_presence_of_unique";
+
+    /// <summary>"while a Unique Enemy is in your Presence": a living hostile Unique monster within Character.ot's
+    /// fixed base_presence_radius (80 cells, the wiki's 8 metres) of the player. Under the Monsters lock.</summary>
+    public static bool UniqueInPresenceLocked(ClientState conn, double now)
+    {
+        var here = conn.Walk.Position(now);
+        return conn.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0
+            && m.Rarity == MonsterRarity.Unique && Dist(m.Walk.Position(now), here) <= PresenceRadius);
+    }
+
+    // The Presence-gated Loyalty triggers (maximum Rage, Travel Skill, Energy Shield Recharge, Low Life). Under the
+    // Monsters lock; false without a Unique in the player's presence.
+    static bool LoyaltyInPresenceTriggerLocked(ClientState conn, string trigger, double now)
+    {
+        if (!CurrentGameWork || conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return false;
+        return TriggerSpiritChieftainLocked(conn, trigger, CharacterPlayerStats(conn));
+    }
+
+    /// <summary>"Trigger ... when you reach Maximum Rage while a Unique Enemy is in your Presence" (Loyalty Tattoo of
+    /// Akoya): called when Rage reaches its maximum. Under the Monsters lock.</summary>
+    public static void LoyaltyMaxRageLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
+    {
+        double now = AreaTime(conn);
+        if (!CurrentGameWork || conn.PlayerLife == 0 || !UniqueInPresenceLocked(conn, now)) return;
+        TriggerSpiritChieftainLocked(conn, MaxRageInPresenceTrigger, stats);
+    }
+
+    /// <summary>"when you use a Travel Skill while a Unique Enemy is in your Presence" (Loyalty Tattoo of Ikiaho).</summary>
+    public static void LoyaltyTravelSkillTriggered(ClientState conn)
+    {
+        if (!CurrentGameWork || conn.PlayerLife == 0) return;
+        lock (conn.Monsters) LoyaltyInPresenceTriggerLocked(conn, TravelSkillInPresenceTrigger, AreaTime(conn));
+    }
+
+    /// <summary>The once-per-transition Loyalty checks (Energy Shield Recharge starting, Low Life reached) from the
+    /// player's recovery tick. Under the Monsters lock.</summary>
+    public static void LoyaltyResourceStateLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats, double now)
+    {
+        if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0)
+        {
+            conn.LoyaltyRechargeSeen = conn.LoyaltyLowLifeSeen = false;
+            return;
+        }
+        int Stat(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        bool recharging = conn.EnergyShield.Recharging;
+        if (recharging && !conn.LoyaltyRechargeSeen) LoyaltyInPresenceTriggerLocked(conn, EsRechargeInPresenceTrigger, now);
+        conn.LoyaltyRechargeSeen = recharging;
+        bool low = LowLife.Is(conn.PlayerLife, conn.PlayerMaxLife,
+            LowLife.Threshold(Stat("low_life_threshold_%_override"), Stat("low_life_threshold_%")));
+        if (low && !conn.LoyaltyLowLifeSeen) LoyaltyInPresenceTriggerLocked(conn, LowLifeInPresenceTrigger, now);
+        conn.LoyaltyLowLifeSeen = low;
+    }
+
+    /// <summary>"when you Suppress Spell Damage from a Unique Enemy" (Loyalty Tattoo of Ahuana): after a Unique's spell
+    /// hit was suppressed. Under the Monsters lock.</summary>
+    public static void LoyaltySuppressedHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats) =>
+        TriggerSpiritChieftainLocked(conn, SuppressHitFromUniqueTrigger, stats);
+
+    /// <summary>"on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata): the target is a living
+    /// Unique and carries a Mark the player applied (Mark curses are modelled by Curses). Under the Monsters lock.</summary>
+    public static void LoyaltyCritVsMarkedUniqueLocked(ClientState conn, SpawnedMonster m,
+        IReadOnlyDictionary<uint, int> stats)
+    {
+        if (!CurrentGameWork || conn.PlayerLife == 0 || m.Rarity != MonsterRarity.Unique) return;
+        if (m.Curses.All.Values.Any(c => c.Caster == conn.PeerId && c.Mark))
+            TriggerSpiritChieftainLocked(conn, CritVsMarkedUniqueTrigger, stats);
+    }
 
     /// <summary>
     /// After a Unique monster's hit on the living player, under the Monsters lock: blocking it triggers Spirit of Kiloava,

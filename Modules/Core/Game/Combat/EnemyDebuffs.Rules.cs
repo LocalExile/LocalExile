@@ -155,6 +155,7 @@ public static partial class Game
                     Timed(id, living, ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
                     Timed(id, living, ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
                     Timed(id, living, ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
+                    Timed(id, living, ref m.HinderedUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null);
                     for (int i = 0; i < ExposureTypes.Length; i++)
                         if (!Timed(id, living, ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i],
                                 ExposureBuffRows[i], null))

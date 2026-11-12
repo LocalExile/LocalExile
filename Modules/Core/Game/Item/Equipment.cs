@@ -238,7 +238,8 @@ public static partial class Game
                 looks[hand] = VisibleItem.Empty(slot);
         // A bow is held in the left hand, and its model slot is not the main hand's: BowSetup holds the record the live server
         // sends (the bow's art in slot 1, an arrow in slot 0 with the weapon type and stance, the quiver on the back in 7).
-        if (HandType(conn, PlayerInventories.Weapon1) is { Class: "Bow" } bow)
+        var weapon = HandType(conn, PlayerInventories.Weapon1);
+        if (weapon is { Class: "Bow" } bow)
         {
             int quiver = looks.FindIndex(l => l.Slot == 1 && l.VisualIdentity != 0);
             ushort quiverArt = quiver >= 0 ? looks[quiver].VisualIdentity : ItemsFor(conn).Visual("DefaultQuiver") ?? 0x328b;
@@ -254,6 +255,11 @@ public static partial class Game
                 if (fx.Visual != 0)
                     cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
                 continue;
+            }
+            if (weapon is { Class: "Bow" } && model is 0 or 1)
+            {
+                if (model == 1) continue; // no second weapon; this model entry is the bow
+                model = 1;
             }
             int at = looks.FindIndex(l => l.Slot == model);
             if (at < 0 || looks[at].VisualIdentity == 0) continue;   // nothing equipped there to dress

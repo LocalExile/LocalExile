@@ -1,4 +1,4 @@
-﻿using System.Net.Sockets;
+using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -191,6 +191,12 @@ public static partial class Game
             replacement.HolyRegenerationUntil = oldGolem.HolyRegenerationUntil;
             replacement.HolyRegenerationPerSecond = oldGolem.HolyRegenerationPerSecond;
         }
+        if (oldGolem.RecallUntil > now)
+        {
+            replacement.RecallUntil = oldGolem.RecallUntil;
+            replacement.RecallRate = oldGolem.RecallRate;
+        }
+        replacement.BlockedAt = oldGolem.BlockedAt;
     }
 
     static void RetireReplacementLocked(ClientState conn, SummonReplacementAdmission admission, double now)
@@ -241,10 +247,7 @@ public static partial class Game
                 .GroupBy(source => source.Id).ToDictionary(group => group.Key, group => group.First());
             var local = conn.Golems.All.Values
                 .Where(g => !g.Monster.Dead || double.IsFinite(g.ReviveAt))
-                .Select(g => new LocalGolemSave(g.Source, g.Definition.Effect, new GolemState.Saved(
-                    g.Definition.Id, g.Source, SavedLifeFraction(g.Monster),
-                    g.Monster.Dead ? SavedPositiveDelay(g.ReviveAt - now) : 0,
-                    GolemSummonedSecondsRemaining(g, now), CaptureResources(g, now)), g.GemSource))
+                .Select(g => new LocalGolemSave(g.Source, g.Definition.Effect, SavedGolem(conn, g, now), g.GemSource))
                 .Concat(conn.Golems.Waiting.Select(w => new LocalGolemSave(
                     w.Saved.Skill, GolemData.Find(w.Saved.Effect)?.Effect ?? int.MinValue, w.Saved with
                     { ReviveSeconds = SavedPositiveDelay(w.At - now) }, w.GemSource)))
@@ -287,24 +290,28 @@ public static partial class Game
         }
     }
 
-    static async Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
-        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current)
+    static GolemState.Saved SavedGolem(ClientState conn, GolemState.Golem golem, double now)
     {
-        double release = AreaTime(conn) + (CastMs(conn, definition.Effect, source) ?? 1000) / 1000.0;
-        var lifetime = CombatLifetime;
-        while (true)
-        {
-            lock (conn.Monsters)
-            {
-                if (!CurrentGameWork || !ReferenceEquals(CombatLifetime, lifetime) || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0
-                    || recovery != conn.ActionInterruptionGeneration || !current()) return false;
-                if (!conn.Paused && AreaTime(conn) >= release) break;
-            }
-            await AreaWait(PlayerUpdateRole.Minions, 25);
-        }
-        await SummonGolem(remote, stream, ciphers, conn, source, definition, aim, current: current);
-        return true;
+        var gem = SupportedSkill(conn, golem.Source);
+        var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
+        return new(golem.Definition.Id, golem.Source,
+            SavedLifeFraction(golem.Monster),
+            golem.Monster.Dead ? SavedPositiveDelay(golem.ReviveAt - now) : 0,
+            GolemSummonedSecondsRemaining(golem, now), CaptureResources(golem, now),
+            Host: place.ItemId == 0 ? null : place.ItemId, Socket: place.ItemId == 0 ? null : place.Socket);
     }
+
+    internal static ushort RestoredGolemSource(ClientState conn, GolemState.Saved saved) =>
+        RestoredMinionSource(conn, saved.Effect, saved.Skill, saved.Host, saved.Socket);
+
+    internal static Task<bool> CastGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
+        bool triggered = false) =>
+        RepeatSummonCast(conn, source, recovery, current, triggered, async () =>
+        {
+            await SummonGolem(remote, stream, ciphers, conn, source, definition, aim, current: current);
+            return true;
+        });
 
     public static async Task<uint> SummonGolem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
@@ -349,7 +356,7 @@ public static partial class Game
         var probe = new GolemState.Golem(0, null!, definition, source, gemSource)
         {
             GemLevel = supported.Level, Quality = supported.Quality, Own = supported.Stats, Player = new(player),
-            Limit = limit, SummonedAt = summonedAt,
+            Limit = limit, SummonedAt = summonedAt, Utility = MinionOfferingStats(conn, preparedNow),
         };
         var mods = GolemModifiers(conn, probe, player, preparedNow);
         var pools = GolemPools.Calculate(Monsters, variety, level, probe, player, mods.Effects);
@@ -459,52 +466,51 @@ public static partial class Game
                 try { saved = JsonSerializer.Deserialize<GolemState.Saved[]>(CharacterSaves.ModuleData(CharacterName(conn), GolemSaveKey) ?? "[]") ?? []; }
                 catch (JsonException) { saved = []; }
             }
-            var gems = GemSkillEffects(conn).ToArray();
             foreach (var old in saved.Take(100))
             {
                 if (GolemData.Find(old.Effect) is not { } definition) continue;
-                var source = gems.FirstOrDefault(g => g.Id == old.Skill && g.Effect == definition.Effect);
-                if (source.Name is null) source = gems.FirstOrDefault(g => g.Effect == definition.Effect);
-                if (source.Name is null) continue;
+                ushort source = RestoredGolemSource(conn, old);
+                if (source == 0) continue;
                 if (old.ReviveSeconds > 0)
                 {
                     lock (conn.Monsters)
                     {
-                        var lease = CaptureGemSourceLifetimeLocked(conn, source.Id, definition.Effect);
+                        var lease = CaptureGemSourceLifetimeLocked(conn, source, definition.Effect);
                         if (lease?.Parent is not { } marker
-                            || !GemSourceLifetimeCurrentLocked(conn, source.Id, definition.Effect, lease)
+                            || !GemSourceLifetimeCurrentLocked(conn, source, definition.Effect, lease)
                             || PlayerInventories.Current(CharacterName(conn))?.ClaimGemActivation(
-                                GolemSaveKey, source.Id, marker, conn.VitalsSessionId) != true)
+                                GolemSaveKey, source, marker, conn.VitalsSessionId) != true)
                             continue;
-                        conn.Golems.Waiting.Add(new(old with { Skill = source.Id }, now + old.ReviveSeconds, lease));
+                        conn.Golems.Waiting.Add(new(old with { Skill = source }, now + old.ReviveSeconds, lease));
                     }
                     continue;
                 }
-                await SummonGolem(remote, stream, ciphers, conn, source.Id, definition, NextToPlayer(conn),
+                await SummonGolem(remote, stream, ciphers, conn, source, definition, NextToPlayer(conn),
                     double.IsFinite(old.Life) ? Math.Clamp(old.Life, 0, 1) : 0, arrival: true,
                     summonedSecondsRemaining: old.SummonedSecondsRemaining, resources: old.Resources,
                     legacyArrival: old.Resources is null);
             }
         }
         bool changed = false;
-        List<(GolemState.Awaiting Waiting, bool Current)> dueWaiting;
+        List<(GolemState.Awaiting Waiting, bool Current, ushort Source)> dueWaiting;
         lock (conn.Monsters)
         {
             dueWaiting = conn.Golems.Waiting.Where(w => conn.PlayerLife > 0 && now >= w.At)
                 .Select(waiting =>
                 {
-                    bool current = waiting.GemSource is null
+                    ushort source = waiting.GemSource is null ? RestoredGolemSource(conn, waiting.Saved) : waiting.Saved.Skill;
+                    bool current = source != 0 && (waiting.GemSource is null
                         || GolemData.Find(waiting.Saved.Effect) is { } definition
                             && GemSourceLifetimeCurrentLocked(conn, waiting.Saved.Skill, definition.Effect,
-                                waiting.GemSource);
-                    return (waiting, current);
+                                waiting.GemSource));
+                    return (waiting, current, source);
                 }).ToList();
             conn.Golems.Waiting.RemoveAll(waiting => dueWaiting.Exists(due => ReferenceEquals(due.Waiting, waiting)));
             if (dueWaiting.Count > 0) changed = true;
         }
-        foreach (var (revive, current) in dueWaiting.Where(due => due.Current))
+        foreach (var (revive, current, source) in dueWaiting.Where(due => due.Current))
             if (GolemData.Find(revive.Saved.Effect) is { } definition)
-                await SummonGolem(remote, stream, ciphers, conn, revive.Saved.Skill, definition, NextToPlayer(conn),
+                await SummonGolem(remote, stream, ciphers, conn, source, definition, NextToPlayer(conn),
                     retainedSource: revive.GemSource, claimActivation: false);
         // Deadlines run at the companion cadence, independently of the slower stat-source refresh.
         List<(GolemState.Golem Golem, bool Current)> due;

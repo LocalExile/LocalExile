@@ -330,9 +330,11 @@ public static class AuraCatalog
                 yield return (to, value);
     }
 
-    /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura effect.</summary>
+    /// <summary>The flat stat bonuses from the active auras (regeneration and Haste's cast speed), scaled by aura
+    /// effect. Heralds' buff stats are scaled by <paramref name="heraldEffectPct"/> instead ("X% increased Effect of
+    /// Herald Buffs on you"); the character's own stat value is passed by the caller.</summary>
     public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
-        SkillCatalog skills, StatCatalog stats)
+        SkillCatalog skills, StatCatalog stats, int heraldEffectPct = 0)
     {
         var result = new Dictionary<uint, int>();
         foreach (var group in auras.GroupBy(StatFamily))
@@ -446,7 +448,8 @@ public static class AuraCatalog
                 void Add(string name, string? source = null)
                 {
                     if (stats.Key(name) is not uint key) return;
-                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct);
+                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
+                        IsHerald(aura.EffectId) ? heraldEffectPct : 0);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
                 }
             }
@@ -455,11 +458,16 @@ public static class AuraCatalog
         return result.Select(kv => (kv.Key, kv.Value));
     }
 
-    private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct)
+    // "Herald of Ash"/"Herald of Ice"/"Herald of Thunder"/"Herald of Purity"/"Herald of Agony".
+    static bool IsHerald(string effectId) => effectId.StartsWith("Herald", StringComparison.Ordinal);
+
+    private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, string name, int auraEffectPct,
+        int extraEffectPct = 0)
     {
         if (stats.Key(name) is not uint key) return 0;
         auraEffectPct = aura.ExternalEffectPct ?? auraEffectPct;
         if (!skills.IsAura(aura.Effect)) auraEffectPct = 0;
+        auraEffectPct += extraEffectPct;
         int value = EffectStats(aura, skills).FirstOrDefault(kv => kv.Item1 == key).Item2;
         // PoB ModStore.ScaleAddList truncates these integer defence-aura stats before character-wide scaling.
         // Decimal preserves the exact hundredths from the integer aura-effect percentage.

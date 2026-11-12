@@ -20,6 +20,10 @@ public static partial class Game
     // Maim only changes movement.
     public const ushort MaimedBuffRow = 513;
     public const double MaimSeconds = 4;
+    // Hinder ("X% chance to Hinder Enemies on Hit with Spells"; ReminderTextHinder: 4 seconds, 30% reduced Movement
+    // Speed): the client's own BuffDefinitions row (505) and the walk factor MonsterAilments applies while it runs.
+    internal const ushort HinderedBuffRow = 505;
+    internal const double HinderSeconds = 4;
 
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
@@ -57,6 +61,8 @@ public static partial class Game
             m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds);
         TryMaimOnHitLocked(m, get("maim_on_hit_%"),
             Math.Max(0, get("support_maimed_enemies_physical_damage_taken_+%")), now, random);
+        if (spell && RandomRolls.Chance(get("spells_chance_to_hinder_on_hit_%"), 100, random))
+            m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds);
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
@@ -76,6 +82,10 @@ public static partial class Game
         }
         return true;
     }
+
+    /// <summary>Whether a timed movement debuff is running, so an otherwise idle monster still needs its walk factor
+    /// recomputed (the ailment-idle skip must not starve Maim or Hinder).</summary>
+    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now;
 
     /// <summary>The physical damage reduction Crush takes away from a monster at <paramref name="now"/> (15% while
     /// crushed, 0 otherwise); without a time Crush does not count.</summary>
