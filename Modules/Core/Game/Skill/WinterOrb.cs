@@ -156,7 +156,7 @@ static partial class Game
             runtime = conn.OrbRuntime ?? new WinterOrbRuntime();
             if (runtime.ObjectId == 0)
             {
-                runtime.ObjectId = conn.NextObjectId++;
+                runtime.ObjectId = conn.TakeObjectId();
                 runtime.Generation = ++WinterOrbOrbs;
                 conn.OrbRuntime = runtime;
                 created = true;
@@ -399,7 +399,7 @@ static partial class Game
         ClientState conn, (int X, int Y) at)
     {
         uint id;
-        lock (conn.Monsters) id = conn.NextObjectId++;
+        lock (conn.Monsters) id = conn.TakeObjectId();
         try
         {
             await Send(remote, stream, ciphers,
@@ -512,7 +512,7 @@ static partial class Game
         ClientState conn, (int X, int Y) from, (int X, int Y) to, double seconds)
     {
         uint id;
-        lock (conn.Monsters) id = conn.NextObjectId++;
+        lock (conn.Monsters) id = conn.TakeObjectId();
         try
         {
             await Send(remote, stream, ciphers,

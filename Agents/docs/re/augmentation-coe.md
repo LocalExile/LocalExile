@@ -62,7 +62,6 @@ With the suffix `LocalIncreasedAttackSpeed1` (`mods/2833`) it has exactly seven 
 each.
 An empty magic wand offers all 13 mods, total weight 7483, the pool already pinned by the Transmutation comparison.
 
-The local regression pins both filtered dictionaries and their totals.
 A full magic wand returns an empty pool; CoE refuses it with `Invalid crafting setup: ["Item needs at least 1 open
 modifier(s)"]`.
 A normal item is refused with `["Item is not magic", "Item needs at least 1 open modifier(s)"]`.
@@ -101,14 +100,7 @@ Special CoE class overrides, influences, memory mechanics, fractured treatment b
 other crafting systems are not added.
 Different RNGs and source data versions mean equal seeds are not expected to produce equal items.
 
-## Automated coverage
-
-`AugmentationTests` checks real level-1 wand pools for the prefix and suffix cases, the full pool, a full item, a
-prefix-only flask, unknown/unsupported/no-Mods bases, corrupted and mirrored items, non-magic rarities, unmodifiable
-bases, preserved implicits/quality/sockets/links/charges and the unidentified flag.
-`AugmentationGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, exactly one orb spent, the added affix and saved values after cache eviction, refused
-repeat use, refused full/flask/unmodifiable targets without spending.
+## Verification
 
 No fresh real-client run was made for this change yet.
 The old live check of the unvalidated path (2026-10-21) is not evidence for the new admission checks; native

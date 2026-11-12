@@ -4,7 +4,7 @@ using GameServer.Storage;
 
 /// <summary>
 /// The Gateway's player databases (data/characters.db, <c>Game_CHARACTERS_DB</c>, with data/auth.db; <see cref="SaveDatabase"/>): characters
-/// (<see cref="CharacterSaves"/>) and account stashes (<see cref="AccountStash"/>).
+/// (<see cref="CharacterSaves"/>) and account stashes (<see cref="AccountStash"/>), as rows of the save tables (<see cref="SaveRows"/>).
 /// <para>Every change is saved at once, in a transaction. A change that touches several saves or several parts of one
 /// (an item from the stash to the cursor, a purchase, a currency item used on an item) runs in one
 /// <see cref="Atomically{T}"/>: all of it is saved or none. When a save fails, the objects it changed in memory are
@@ -35,38 +35,54 @@ public static class Saves
     /// <summary>Tests: a write whose key this says yes to fails, as a full disk would.</summary>
     public static Func<string, bool>? FailWrite;
 
-    public static string? Get(SaveDatabase.Table table, string key) => Db.Get(table, key);
+    /// <summary>A save as JSON (the record the tables hold), or null when there is none: tests compare saves with it.</summary>
+    public static string? Get(SaveDatabase.Table table, string key) => table == SaveDatabase.Table.Characters
+        ? LoadCharacter(key) is { } save ? JsonSerializer.Serialize(save, CharacterSaves.Opts) : null
+        : LoadStash(key) is { } stash ? JsonSerializer.Serialize(stash, CharacterSaves.Opts) : null;
 
-    public static void Put(SaveDatabase.Table table, string key, string save)
+    /// <summary>Writes a save given as JSON (tests).</summary>
+    public static void Put(SaveDatabase.Table table, string key, string json)
     {
-        if (FailWrite?.Invoke(key) == true) throw new IOException($"save of {key} failed (test)");
-        Db.Put(table, key, save);
+        if (table == SaveDatabase.Table.Characters) PutCharacter(key, JsonSerializer.Deserialize<CharacterSaves.Save>(json, CharacterSaves.Opts)!);
+        else PutStash(key, JsonSerializer.Deserialize<AccountStash.Save>(json, CharacterSaves.Opts)!);
     }
 
-    public static void PutStashTab(string account, int tab, string items)
+    /// <summary>A character's save, or null when it has none. A save that can't be read throws
+    /// <see cref="UnreadableSaveException"/> and is left as it is: starting over would write over it.</summary>
+    public static CharacterSaves.Save? LoadCharacter(string character) => Readable(SaveDatabase.Table.Characters, character, () => SaveRows.LoadCharacter(Db, character));
+
+    public static void PutCharacter(string character, CharacterSaves.Save save)
+    {
+        if (FailWrite?.Invoke(character) == true) throw new IOException($"save of {character} failed (test)");
+        SaveRows.WriteCharacter(Db, character, save);
+    }
+
+    /// <summary>A stash's header (its tabs without their items), or null when it has none.</summary>
+    public static AccountStash.Save? LoadStash(string account) => Readable(SaveDatabase.Table.Stashes, account, () => SaveRows.LoadStash(Db, account));
+
+    public static void PutStash(string account, AccountStash.Save header)
+    {
+        if (FailWrite?.Invoke(account) == true) throw new IOException($"save of {account}'s stash failed (test)");
+        SaveRows.WriteStash(Db, account, header);
+    }
+
+    /// <summary>One stash tab's items, or null when the stash has none saved.</summary>
+    public static List<CharacterSaves.SavedPlacement>? LoadStashTab(string account, int tab) =>
+        Readable(SaveDatabase.Table.Stashes, $"{account} tab {tab}", () => SaveRows.LoadStashTab(Db, account, tab));
+
+    public static void PutStashTab(string account, int tab, List<CharacterSaves.SavedPlacement> items)
     {
         if (FailWrite?.Invoke(account) == true) throw new IOException($"save of {account}'s stash tab {tab} failed (test)");
-        Db.PutStashTab(account, tab, items);
+        SaveRows.WriteStashTab(Db, account, tab, items);
     }
 
-    /// <summary>One stash tab's items, or null when the tab has no row (a stash saved before tabs had rows of their own
-    /// keeps its items in its header). A row that can't be read throws <see cref="UnreadableSaveException"/>.</summary>
-    public static T? LoadStashTab<T>(string account, int tab, JsonSerializerOptions options) where T : class
+    static T? Readable<T>(SaveDatabase.Table table, string key, Func<T?> read) where T : class
     {
-        if (Db.GetStashTab(account, tab) is not { } json) return null;
-        try { return JsonSerializer.Deserialize<T>(json, options) ?? throw Unreadable(SaveDatabase.Table.Stashes, $"{account} tab {tab}", null); }
-        catch (JsonException e) { throw Unreadable(SaveDatabase.Table.Stashes, $"{account} tab {tab}", e); }
-    }
-
-    /// <summary>The save stored under <paramref name="key"/>, or null when there is none. A row that isn't a save (broken
-    /// JSON, "null") throws <see cref="UnreadableSaveException"/> and is left as it is: starting over would write over it.</summary>
-    public static T? Load<T>(SaveDatabase.Table table, string key, JsonSerializerOptions options) where T : class
-    {
-        if (Get(table, key) is not { } json) return null;
-        T? save;
-        try { save = JsonSerializer.Deserialize<T>(json, options); }
-        catch (JsonException e) { throw Unreadable(table, key, e); }
-        return save ?? throw Unreadable(table, key, null);
+        try { return read(); }
+        catch (Exception e) when (e is JsonException or InvalidDataException or InvalidCastException or FormatException or OverflowException)
+        {
+            throw Unreadable(table, key, e);
+        }
     }
 
     static UnreadableSaveException Unreadable(SaveDatabase.Table table, string key, Exception? e)
@@ -78,7 +94,8 @@ public static class Saves
     }
 
     /// <summary>
-    /// Saves from before the database (data/saves/*.json, data/stashes/*.json) go into it once, in one transaction, and
+    /// Saves from before the database (data/saves/*.json, data/stashes/*.json) go into its JSON tables once (the move into
+    /// the save tables, <see cref="SaveRows.Migrate"/>, takes them from there), in one transaction, and
     /// the files are renamed to *.json.imported (kept, never read again). A file that can't be read stops the import, and
     /// the Gateway: the character would otherwise start over. Returns how many were imported.
     /// </summary>

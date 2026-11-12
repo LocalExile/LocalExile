@@ -22,24 +22,24 @@ sealed partial class VendorRecipes
         var modTypes = Read("ModType");
         if (modTypes.Count == 0) throw new InvalidOperationException("Vendor pricing data is missing: run scripts/dev/extract-data.ps1 and restart Gateway.");
         foreach (var mod in Read("Mods"))
-            if (mod.GetProperty("ModTypeKey") is { ValueKind: JsonValueKind.Number } key && key.GetInt32() < modTypes.Count)
+            if (mod.IntOrNull("ModTypeKey") is int key && key < modTypes.Count)
             {
-                ushort hash = (ushort)mod.GetProperty("HASH16").GetInt32();
-                _sellTypes.TryAdd(hash, modTypes[key.GetInt32()].GetProperty("ModSellPriceTypesKeys").EnumerateArray().Select(x => x.GetInt32()).ToArray());
-                _sellFamilies.TryAdd(hash, modTypes[key.GetInt32()].GetProperty("Name").GetString()!);
+                ushort hash = (ushort)mod.Int("HASH16");
+                _sellTypes.TryAdd(hash, modTypes[key].Ints("ModSellPriceTypesKeys").ToArray());
+                _sellFamilies.TryAdd(hash, modTypes[key].Text("Name")!);
             }
         var essences = Read("Essences");
         foreach (var essence in essences)
-            if (essences.FirstOrDefault(e => e.GetProperty("EssenceTypeKey").GetInt32() == essence.GetProperty("EssenceTypeKey").GetInt32()
-                && e.GetProperty("Level").GetInt32() == essence.GetProperty("Level").GetInt32() + 1) is { ValueKind: JsonValueKind.Object } next
-                && catalog.Row(essence.GetProperty("BaseItemTypesKey").GetInt32()) is { } from
-                && catalog.Row(next.GetProperty("BaseItemTypesKey").GetInt32()) is { } to)
+            if (essences.Cast<ClientRow?>().FirstOrDefault(e => e!.Value.Int("EssenceTypeKey") == essence.Int("EssenceTypeKey")
+                && e.Value.Int("Level") == essence.Int("Level") + 1) is { } next
+                && catalog.Row(essence.Int("BaseItemTypesKey")) is { } from
+                && catalog.Row(next.Int("BaseItemTypesKey")) is { } to)
                 _upgrades[from.Hash] = to.Hash;
         // The table contains legacy map series too; only expose upgrades belonging to that exact base row.
         foreach (var map in Read("Maps"))
-            if (map.GetProperty("MapUpgrade_BaseItemTypesKey") is { ValueKind: JsonValueKind.Number } next
-                && catalog.Row(map.GetProperty("BaseItemTypesKey").GetInt32()) is { Supported: true } from
-                && catalog.Row(next.GetInt32()) is { Supported: true } to)
+            if (map.IntOrNull("MapUpgrade_BaseItemTypesKey") is int next
+                && catalog.Row(map.Int("BaseItemTypesKey")) is { Supported: true } from
+                && catalog.Row(next) is { Supported: true } to)
                 _upgrades.TryAdd(from.Hash, to.Hash);
         string[] oils = ["Clear", "Sepia", "Amber", "Verdant", "Teal", "Azure", "Indigo", "Violet", "Crimson", "Black", "Opalescent", "Silver", "Golden"];
         foreach (var (a, b) in oils.Zip(oils.Skip(1)))
@@ -49,13 +49,7 @@ sealed partial class VendorRecipes
             if (Exact($"Metadata/Items/Currency/KalguuranRune{i}") is { } from && Exact($"Metadata/Items/Currency/KalguuranRune{i + 1}") is { } to)
             { _upgrades[from.Hash] = to.Hash; _upgradeCosts[from.Hash] = 5; }
 
-        List<JsonElement> Read(string name)
-        {
-            string path = Path.Combine(folder, "tables", name + ".json");
-            if (!ClientTables.Exists(path)) return [];
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-            return doc.RootElement.EnumerateArray().Select(r => r.Clone()).ToList();
-        }
+        IReadOnlyList<ClientRow> Read(string name) => ClientTables.TableOrNull(name) ?? (IReadOnlyList<ClientRow>)[];
     }
 
     ItemCatalog.BaseType? Exact(string idOrName) => _types.FirstOrDefault(t => t.Id == idOrName || t.Name == idOrName);

@@ -1039,26 +1039,24 @@ public sealed class PlayerInventories
     {
         var inv = new PlayerInventories();
         if (Environment.GetEnvironmentVariable("Game_START_ITEMS") == "0") return inv;
-        string chars = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (catalog.Error is not null || !ClientTables.Exists(chars) || !ClientTables.Exists(gems))
+        if (catalog.Error is not null || !ClientTables.Has("Characters") || !ClientTables.Has("SkillGems"))
         {
             // The empty kit is saved like any other, so this character stays empty: say why.
-            Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no {chars} or {gems}"} (extract the tables and data/item-types.json first, Agents/GettingStarted.md)");
+            Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no Characters or SkillGems client table in {ClientTables.DefaultPath}"}");
             return inv;
         }
-        using var c = GameTables.Open(chars);
-        using var g = GameTables.Open(gems);
-        var row = c.RootElement[characterRow];
+        var c = ClientTables.Table("Characters");
+        var g = ClientTables.Table("SkillGems");
+        var row = c[characterRow];
         void Put(byte inventory, byte x, byte y, ItemCatalog.BaseType? t)
         {
             if (t is { Supported: true }) inv.Add(inventory, x, y, ItemCatalog.Create(t));
         }
         ItemCatalog.BaseType? Gem(string column) =>
-            row.GetProperty(column) is { ValueKind: JsonValueKind.Number } k
-                ? catalog.Row(g.RootElement[k.GetInt32()].GetProperty("BaseItemTypesKey").GetInt32()) : null;
+            row.IntOrNull(column) is int k
+                ? catalog.Row(g[k].Int("BaseItemTypesKey")) : null;
         // The start weapon with two linked white sockets (3.29: gems fit any colour), empty, for its gems.
-        if (row.GetProperty("StartWeapons").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Number } w &&
-            catalog.Row(w.GetInt32()) is { Supported: true } weapon)
+        if (row.Ints("StartWeapons") is [var w, ..] && catalog.Row(w) is { Supported: true } weapon)
         {
             var item = ItemCatalog.Create(weapon, [new(SocketColour.White), new(SocketColour.White)], [2]);
             // Pending until the character picks it up from the beach.

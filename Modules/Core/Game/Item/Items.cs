@@ -607,17 +607,8 @@ public static partial class Game
     }
 
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
-    public static async Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        // A survivors run keeps the ground clear: no loot reaches the client at all.
-        if (!GameEvents.AllowsLoot(conn)) return;
-        conn.Instance.Ground.Observe(conn);
-        foreach (var (id, ground) in conn.Instance.Ground.All())
-        {
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
-                $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
-        }
-    }
+    public static Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        SyncGround(remote, stream, ciphers, conn, entering: true);
 
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
     // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff
@@ -717,7 +708,7 @@ public static partial class Game
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
-        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
+        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground, conn) is not { } id) return;
         await SendGroundItem(remote, stream, ciphers, conn, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
     }

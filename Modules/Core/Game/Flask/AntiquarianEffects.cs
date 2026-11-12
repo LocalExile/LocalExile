@@ -1,4 +1,5 @@
 using System.Text.Json;
+using GameServer.Core;
 
 
 public static class AntiquarianEffects
@@ -8,14 +9,14 @@ public static class AntiquarianEffects
     public const ushort AdrenalineDefinition = 1090, WardBrokenDefinition = 1878;
     static readonly Lazy<IReadOnlyDictionary<uint, int>> adrenaline = new(() =>
     {
-        using var templates = GameTables.Open("data/tables/BuffTemplates.json");
-        using var definitions = GameTables.Open("data/tables/BuffDefinitions.json");
-        var template = templates.RootElement[503];
-        if (template.GetProperty("BuffDefinitionsKey").GetInt32() != AdrenalineDefinition)
+        var templates = ClientTables.Table("BuffTemplates");
+        var definitions = ClientTables.Table("BuffDefinitions");
+        var template = templates[503];
+        if (template.Int("BuffDefinitionsKey") != AdrenalineDefinition)
             throw new InvalidDataException("Target Adrenaline template mismatch");
-        var definition = definitions.RootElement[AdrenalineDefinition];
-        return definition.GetProperty("StatsKeys").EnumerateArray().Select(k => (uint)(k.GetInt32() + 1))
-            .Zip(template.GetProperty("Buff_StatValues").EnumerateArray().Select(v => v.GetInt32()))
+        var definition = definitions[AdrenalineDefinition];
+        return definition.Ints("StatsKeys").Select(k => (uint)(k + 1))
+            .Zip(template.Ints("Buff_StatValues"))
             .ToDictionary(p => p.First, p => p.Second);
     });
     public static IReadOnlyDictionary<uint, int> AdrenalineStats => adrenaline.Value;

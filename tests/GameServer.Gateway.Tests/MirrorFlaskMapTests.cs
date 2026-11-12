@@ -5,8 +5,7 @@ namespace GameServer.Gateway.Tests;
 
 public class MirrorFlaskMapTests
 {
-    [Fact]
-    public void Mirror_admits_flasks_and_actual_tier_1_to_16_maps_preserving_every_property()
+    static void Mirror_admits_flasks_and_actual_tier_1_to_16_maps_preserving_every_property()
     {
         var catalog = Program.Items;
         var rolls = new ItemRolls(catalog);
@@ -43,8 +42,9 @@ public class MirrorFlaskMapTests
     }
 
     [Fact]
-    public async Task Ordinary_and_repeat_mirroring_spend_one_leave_the_source_and_persist_the_copy()
+    public async Task Mirror_targets_and_transactions_preserve_items_and_persist_copies()
     {
+        Mirror_admits_flasks_and_actual_tier_1_to_16_maps_preserving_every_property();
         string save = Path.Combine(Path.GetTempPath(), $"mirror-flask-map-{Guid.NewGuid():N}.db");
         Saves.Open(save);
         using var runtime = new PartyFollowerTests.Runtime();

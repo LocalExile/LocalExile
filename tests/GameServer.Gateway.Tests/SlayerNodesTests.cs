@@ -66,6 +66,11 @@ public sealed class SlayerNodesTests
             Game.WithLeechingDefences(stats, new HashSet<uint>());
             Assert.Equal(leeching ? 1 : 0, stats.GetValueOrDefault(Program.Stats.Key("cannot_be_stunned")!.Value));
             Assert.Equal(leeching ? 1 : 0, stats[Program.Stats.Key("virtual_unaffected_by_bleeding")!.Value]);
+            // Endless Hunger's flag no longer turns the stun check off: the player is stunned only when not leeching.
+            Assert.DoesNotContain(stats, s => s.Value != 0 && PlayerHitRecovery.UnsupportedStat(Program.Stats.Name(s.Key)));
+            double chance = PlayerHitRecovery.Chance(1000, 3000,
+                name => Program.Stats.Key(name) is uint k ? stats.GetValueOrDefault(k) : 0);
+            Assert.Equal(leeching, chance == 0);
         }
 
         // Masterful Form: the endurance maximum is the frenzy one (3 + 1), whatever its own stats say.

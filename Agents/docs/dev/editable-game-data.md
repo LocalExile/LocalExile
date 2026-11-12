@@ -3,7 +3,7 @@
 What of the server's game data can be content in `world.db`, and what cannot (the client owns it). The content is
 built from SQL in git ([databases](databases.md)): a change is an update file in `sql/updates/pending_world/`, and `/reload`
 reads world.db again without a restart. Mod roll ranges (`mod_stat_overrides`), item limits (`limit_overrides`), the
-numeric settings (`system_settings`), unique weights, the item/jewel/tattoo catalogues (`catalog_entries`) and the drop
+numeric settings (`system_settings`), unique weights, the item/jewel/tattoo catalogues (`unique_items`, `radius_jewels`, ...) and the drop
 tables ([drop data](drop-data-schema.md)) are content today; item templates (`item_templates`) have no reader yet.
 
 The reference data (the mod list, base types, tag lists and generated tables) stays in memory. Hot paths do not query
@@ -84,9 +84,10 @@ both the buff duration and the protection deadline. The tattoo/jewel limits in `
 
 ### Unique catalogue and weights
 
-The full unique-item catalogue is `catalog_entries.kind = 'unique_item'` with 1,299 rows from PoB's Export/Uniques files
-(`scripts/re/unique_items.py` writes the ones world.db does not have as a pending update, and lists those whose export
-differs); `unique_item` keys are `name|base` because a few names have several bases. Some rows are corrections of the
+The full unique-item catalogue is `unique_items` (with `unique_item_mods`, `unique_item_ranges` and the roll groups) with
+1,304 rows from PoB's Export/Uniques files (`scripts/re/unique_items.py` writes the ones world.db does not have as a
+pending update, and lists those whose export differs); a unique's key is its name and base type, because a few names have
+several bases. Some rows are corrections of the
 export (Mageblood, Crown of Eyes and the other 3.29 definitions), so a row is never replaced from PoB wholesale.
 
 Unique drop weights are **absolute** (0..1): `ItemDrops.PickUnique` compares each weight directly and the rest of the
@@ -98,38 +99,37 @@ To change a mod's roll range, a row in `mod_stat_overrides` names the Mods.dat I
 client's own ranges are client.db's `Mods` (`Stat1Min`..). An override applies to new rolls only: an existing item stores
 its values, not the range.
 
-Mod affix weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods.json`) are **not** in the database
+Mod affix weights (`SpawnWeight_*`, `GenerationWeight_*`, families and tags in `Mods`) are **not** in the database
 as content; they are client.db's `Mods` columns.
 
 ### Candidate lists currently in code
 
-The catalogue rows marked done are `catalog_entries` kinds in world.db; the rest are candidates, with the safety boundary:
+The catalogue rows marked done are world.db tables; the rest are candidates, with the safety boundary:
 
 | Candidate | Where | State | Why / what it unlocks |
 |---|---|---|---|
-| Unique item definitions | `unique_item` | **Done** | Base, implicits, mod ids and roll overrides for Mageblood, Crown of Eyes and the rest (`scripts/re/unique_items.py`). Uses existing client hashes. |
-| Radius jewel definitions and variants | `radius_jewel` | **Done** | 76 jewel rows (43 radius + 33 threshold), base/mod/variant/value/limit. |
-| Non-radius unique jewels | `unique_jewel_global`, `unique_jewel_special` | **Done** | 42 global + 1 special jewel definitions generated from PoB. |
-| Threshold jewel definitions | `threshold_jewel` | **Done** | 33 threshold jewels with base, limit and client mods. |
-| Timeless jewel variants | `timeless_jewel` | **Done** | Six timeless jewels with seed ranges and conqueror versions; the one-jewel limit is already overridable. |
-| Unique jewel art map | `unique_jewel_visual` | **Done, read-only** | Maps an existing unique name to an existing `ItemVisualIdentity` HASH16. A new art hash is client-owned. |
-| Tattoo stat effects | `tattoo_effect` | **Done** | 48 current name -> stat/id/value rows. The apply/target/limit mechanics stay code; the effect table is data. |
+| Unique item definitions | `unique_items` | **Done** | Base, implicits, mod ids and roll overrides for Mageblood, Crown of Eyes and the rest (`scripts/re/unique_items.py`). Uses existing client hashes. |
+| Radius jewel definitions and variants | `radius_jewels` (kind `radius`) | **Done** | 76 jewel rows (43 radius + 33 threshold), base/mod/variant/value/limit. |
+| Non-radius unique jewels | `unique_jewels` (kind `global`, `special`) | **Done** | 42 global + 1 special jewel definitions generated from PoB. |
+| Threshold jewel definitions | `radius_jewels` (kind `threshold`) | **Done** | 33 threshold jewels with base, limit and client mods. |
+| Timeless jewel variants | `timeless_jewels` | **Done** | Six timeless jewels with seed ranges and conqueror versions; the one-jewel limit is already overridable. |
+| Unique jewel art map | `jewel_visuals` | **Done, read-only** | Maps an existing unique name to an existing `ItemVisualIdentity` HASH16. A new art hash is client-owned. |
+| Tattoo stat effects | `tattoo_effects` | **Done** | 78 current name -> stat/id/value rows. The apply/target/limit mechanics stay code; the effect table is data. |
 | Cluster jewel themes and layouts | `ClusterJewelStats.ThemeStats`, `ClusterJewelLayout.Templates` | **Partly** | Theme stat mappings and layout counts can be data; the allocatable node algorithm stays code. Verify against the client tables first. |
 | NPC shop stock | `NpcShops.Stock`, `GemTabs`, `SellsMaps` | **Yes** | The client names shops but not their stock; this is server content. Also `GemVendorStock.CurrencyIds` and `Vendors`. |
 | NPC/town/stash/hideout placement | `NpcCatalog.Towns`, `Hideout`; `TownNpcs.All`; `StashCatalog.Towns`; `HideoutCatalog.Moved`; `AreaLayouts.OneWayArrivals`, `TownFallback`, `Ids` | **Yes, captured data** | Positions and captured objects; keep the captured seed as the reference and allow DB overrides. Do not change client-owned models/art. |
 | Drop tables and rates | `drop_*` tables; `EquipmentClasses`, `NotDropped`, `EquipmentRarity` in `ItemDrops` | **Partly** | Server-only loot policy; high value for balance. The drop table can be typed rows with weights, level caps and enabled flags. |
 | Quest flags and World panel pins | `Quests.WorldPanelPins`, `EveryCharacter`, `Quests.All` scripts | **Yes, with care** | Flags and pins are data, but a wrong flag can reveal locked content. Keep the known-good list as the seed. |
-| Vendor recipe edge cases | `VendorRecipes` oil/rune upgrade arrays, `VendorEquipmentRecipes` | **Some** | The main recipe/pricing tables already come from JSON. The small hardcoded oil/rune chains can move; the recipe algorithm stays code. |
+| Vendor recipe edge cases | `VendorRecipes` oil/rune upgrade arrays, `VendorEquipmentRecipes` | **Some** | The main recipe/pricing tables already come from the client tables. The small hardcoded oil/rune chains can move; the recipe algorithm stays code. |
 | Gem/utility/monster mapping lists | `GemSources.DropOnlySupports`, `GemSupportDamage.Unconditional`, `UtilityFlasks.Modelled`/`PanelOnly`/`DuringEffect`, `MonsterMods.Modelled`/`Vacuous`/`SelfAuraMods`, `HarvestCrafting.Metamods`, `EssenceCrafting.Columns`, `SkillCatalog.ProjectileFallbacks` | **Yes, later** | These are server mapping tables. Move one typed family at a time with tests; the consumers are code. |
-| Ruthless/league policy lists | `RuthlessLeague.Of` (`UnavailableGemBases`, `UnavailableGemEffects`, in `Modules/ruthless/`); `SingleUseCooldown.Unsupported`; `GemVendorStock` | **Yes, later** | Policy/config, not client data. |
+| Ruthless/league policy lists | `RuthlessModule` (`UnavailableGemBases`, `UnavailableGemEffects`, in `Modules/Core/Ruthless/`); `SingleUseCooldown.Unsupported`; `GemVendorStock` | **Yes, later** | Policy/config, not client data. |
 | Charge/damage/panel rule lists | `ChargeEffects`, `ChargeGains`, `DamageImmunities`, `PanelStats.Sums`, `StatKeys` | **No as raw tables, low priority** | They encode calculation order and stat semantics. A data-driven rule engine would be a separate, tested project. |
 | Protocol and component lists | message ids, `InstanceItems.ComponentOrder`, `BaseComponents`, `PlayerDefaults`, packet layouts | **No** | The client and the server must agree exactly; these are code/protocol, not user settings. |
 | Terrain/RNG tables | `EdgeShaping`, `TileKey`, pathfinder tables, level-generator constants | **No** | Reverse-engineered algorithms; changing them needs a generator gate and baseline, not a settings table. |
-| Client-owned hashes, names, geometry, art, stat keys | `BaseItemTypes`, `Mods`, `Stats`, `Words`, `ItemVisualIdentity`, item components | **No** | A server-only edit desynchronises the client. Keep the extracted JSON as the reference. |
+| Client-owned hashes, names, geometry, art, stat keys | `BaseItemTypes`, `Mods`, `Stats`, `Words`, `ItemVisualIdentity`, item components | **No** | A server-only edit desynchronises the client. Keep the client tables (client.db) as the reference. |
 
 The practical split is:
 
-x
 - **Server policy** (rates, limits, counts, costs): typed settings with defaults in code and database overrides.
 - **Client protocol** (hash ids, component order, stat keys, packet layouts): never in the settings database.
 - **Algorithms** (damage, charges, level generation): only through a tested data-driven rewrite, not as a list edit.

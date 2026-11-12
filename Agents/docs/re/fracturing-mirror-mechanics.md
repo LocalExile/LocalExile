@@ -75,25 +75,10 @@ Local rule (`ItemRolls.Mirror`): the item must be non-unique, not corrupted, not
 base with `Mods`, not be `Unmodifiable`, and its class must have `CanBeMirrored` or be a flask or tier 1–16 map.
 Flask/map admission is a LocalExile extension to the equipment rule above. The copy keeps every property
 (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity, identification and name) and sets
-`Item.Mirrored`; the original is unchanged. `Program.MirrorItem` puts the copy on the cursor and spends one Mirror.
+`Item.Mirrored`; the original is unchanged. `Game.MirrorItem` puts the copy on the cursor and spends one Mirror.
 A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil, Split and Sanctified items
 are not modelled. Using a Mirror from a stash tab is a separate local limitation (`MirrorItem` still requires the
 inventory), not a game rule.
-
-## Automated coverage
-
-`FractureTests` covers the four-mod success, the first-explicit placement, value preservation, three-mod, non-rare,
-already-fractured, corrupted/mirrored, unmodifiable, non-fracturable-class and unknown/no-`Mods` refusals.
-
-`FractureGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: all inventory/stash
-and Shift combinations, one orb spent per success, save reload, and refusals without spending.
-
-`MirrorTests` covers normal/magic/rare equipment, unique, non-equipment, corrupted, already-mirrored, unmodifiable,
-unknown/no-`Mods` refusals and the preserved properties of the copy.
-
-`MirrorGatewayTests` sends framed 0x71 and 0x72 messages: the mirrored copy on the cursor, one Mirror spent, the
-original unchanged, save reload, a second use refused while the cursor is occupied, unique/non-equipment/corrupted
-refusals without spending, and a Scroll of Wisdom refused on a mirrored item.
 
 ## Native acceptance
 

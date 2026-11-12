@@ -2,6 +2,7 @@ using System.Text;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using GameServer.Core;
 
 namespace Atlas;
 
@@ -17,20 +18,20 @@ static class HideoutFiles
 {
     public static void Run(GameFiles files, List<AreaRow> areas, string root, string output)
     {
-        using var table = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "data", "tables", "Hideouts.json")));
+        var table = ClientTable.Load(Path.Combine(root, "data", "client.db"), "Hideouts");
         var list = new List<object>();
-        int row = -1, doodads = 0;
-        foreach (var h in table.RootElement.EnumerateArray())
+        int doodads = 0;
+        foreach (var h in table)
         {
-            row++;
-            string file = h.GetProperty("HideoutFile").GetString() ?? "";
-            int areaRow = h.GetProperty("HideoutArea").ValueKind == JsonValueKind.Number ? h.GetProperty("HideoutArea").GetInt32() : -1;
+            int row = h.Index;
+            string file = h.Text("HideoutFile") ?? "";
+            int areaRow = h.IntOrNull("HideoutArea") ?? -1;
             if (areaRow < 0 || areaRow >= areas.Count) continue;
             var area = areas[areaRow];
             var placed = files.Bytes(file) is { } bytes ? Parse(bytes) : null;
             if (placed is null) Console.WriteLine($"hideout {row} {area.Id}: {file} missing or unreadable");
             doodads += placed?.Count ?? 0;
-            int hash = h.GetProperty("HASH16").GetInt32();
+            int hash = h.Int("HASH16");
             list.Add(new { row, hash16 = hash, area = area.Id, areaHash16 = area.Hash16, name = area.Name, file, doodads = placed ?? [] });
         }
         File.WriteAllText(output, JsonSerializer.Serialize(new
@@ -45,22 +46,30 @@ static class HideoutFiles
 
     static Dictionary<string, double> StationaryCollisionRadii(GameFiles files, string root)
     {
-        using var table = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "data", "tables", "HideoutDoodads.json")));
         var result = new Dictionary<string, double>(StringComparer.Ordinal);
         var models = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var row in table.RootElement.EnumerateArray())
+        foreach (var row in ClientTable.Load(Path.Combine(root, "data", "client.db"), "HideoutDoodads"))
         {
-            string type = row.GetProperty("InheritsFrom").GetString() ?? "";
+            string type = row.Text("InheritsFrom") ?? "";
             if (!type.EndsWith("MappingDevice", StringComparison.Ordinal)
                 && !type.EndsWith("HideoutCraftingBench", StringComparison.Ordinal)) continue;
-            foreach (var model in row.GetProperty("Variation_AOFiles").EnumerateArray()) models.Add(model.GetString() ?? "");
+            foreach (var model in row.Texts("Variation_AOFiles")) models.Add(model);
         }
-        using var types = JsonDocument.Parse(File.ReadAllBytes(Path.Combine(root, "data", "object-types.json")));
-        foreach (var type in types.RootElement.GetProperty("types").EnumerateArray())
-            if (type.GetProperty("components").EnumerateArray().Any(c => c.GetString() == "NPC")
-                && type.TryGetProperty("positioned", out var p) && p.TryGetProperty("static", out var isStatic)
-                && isStatic.GetString() == "true" && type.TryGetProperty("animated_object", out var model)
-                && model.GetString() is { Length: > 0 } path) models.Add(path);
+        // object-types.json: the generator's fresh output when extract-data just wrote it, else client.db's object_types.
+        string objectTypes = Path.Combine(root, "data", "object-types.json");
+        if (File.Exists(objectTypes))
+        {
+            using var types = JsonDocument.Parse(File.ReadAllBytes(objectTypes));
+            foreach (var type in types.RootElement.GetProperty("types").EnumerateArray())
+                if (type.GetProperty("components").EnumerateArray().Any(c => c.GetString() == "NPC")
+                    && type.TryGetProperty("positioned", out var p) && p.TryGetProperty("static", out var isStatic)
+                    && isStatic.GetString() == "true" && type.TryGetProperty("animated_object", out var model)
+                    && model.GetString() is { Length: > 0 } path) models.Add(path);
+        }
+        else
+            foreach (var type in ClientTable.Load(Path.Combine(root, "data", "client.db"), "object_types"))
+                if (type.Texts("components").Contains("NPC") && type.TextOrNull("positioned_static") == "true"
+                    && type.TextOrNull("animated_object") is { Length: > 0 } path) models.Add(path);
         double Radius(string path, HashSet<string> chain)
         {
             if (!chain.Add(path) || files.Bytes(path) is not { } bytes) return 0;

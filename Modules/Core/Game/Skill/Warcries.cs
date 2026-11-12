@@ -91,7 +91,7 @@ public static partial class Game
         foreach (var (id, label, centre) in consumed)
         {
             uint effect;
-            lock (conn.Monsters) effect = conn.NextObjectId++;
+            lock (conn.Monsters) effect = conn.TakeObjectId();
             art.Add(effect);
             await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(centre.X, centre.Y, CorpseExplosionAo).Blob()), $"0x02bb create effect 0x{effect:x} {CorpseExplosionAo} at ({centre.X}, {centre.Y})");
