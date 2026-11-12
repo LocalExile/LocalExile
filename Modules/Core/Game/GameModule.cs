@@ -55,7 +55,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.OutgoingDamage.Add(module.Manifest.Id, global::Slayer.OutgoingDamage);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Slayer.Leaving(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::Hierophant.Tick(conn));
-        module.Lifetime.Own(GameEvents.PlayerStatSources.Add("Game", global::Hierophant.PlayerStats));
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::Hierophant.Leaving(conn));
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::BrineKing.Leaving(conn));
     }
