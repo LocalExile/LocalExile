@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GameServer.Core;
 
 /// <summary>
@@ -50,44 +49,30 @@ public static class ForbiddenTattoo
     static Dictionary<string, ushort[]> Load()
     {
         var pools = new Dictionary<string, ushort[]>(StringComparer.Ordinal);
-        string overridesPath = Path.Combine("data", "tables", "PassiveSkillOverrides.json");
-        string passivesPath = Path.Combine("data", "tables", "PassiveSkills.json");
-        if (!ClientTables.Exists(overridesPath) || !ClientTables.Exists(passivesPath)) return pools;
+        if (!ClientTables.Has("PassiveSkillOverrides") || !ClientTables.Has("PassiveSkills")) return pools;
 
         // PassiveSkills rows by their position: the Forbidden pool rows' AllocatedPassiveSkill is that index. Scion's
         // base "Ascendant" notables are multiple-choice options whose nodes are not Notables: their row is the pool.
         var notables = new List<(int GraphId, bool IsNotable, bool IsOption, bool MultipleChoice)>();
-        using (var passives = JsonDocument.Parse(ClientTables.ReadAllBytes(passivesPath)))
-            foreach (var row in passives.RootElement.EnumerateArray())
-                notables.Add((Int(row, "PassiveSkillGraphId"), Int(row, "IsNotable") != 0,
-                    Int(row, "IsMultipleChoiceOption") != 0, Int(row, "IsMultipleChoice") != 0));
+        foreach (var row in ClientTables.Table("PassiveSkills"))
+            notables.Add((row.Int("PassiveSkillGraphId"), row.Int("IsNotable") != 0,
+                row.Int("IsMultipleChoiceOption") != 0, row.Int("IsMultipleChoice") != 0));
 
         var byType = new Dictionary<int, List<ushort>>();
-        using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(overridesPath)))
-            foreach (var row in document.RootElement.EnumerateArray())
-            {
-                int type = Int(row, "Type");
-                if (type is < 17 or > 23) continue;
-                int allocated = Int(row, "AllocatedPassiveSkill"), hash = Int(row, "HASH16");
-                if (allocated < 0 || allocated >= notables.Count || hash is <= 0 or > ushort.MaxValue) continue;
-                var notable = notables[allocated];
-                bool eligible = notable.IsNotable || type == 23 && notable.IsOption;
-                if (!eligible || notable.MultipleChoice || notable.GraphId != hash) continue;
-                if (!byType.TryGetValue(type, out var list)) byType[type] = list = [];
-                if (!list.Contains((ushort)hash)) list.Add((ushort)hash);
-            }
+        foreach (var row in ClientTables.Table("PassiveSkillOverrides"))
+        {
+            int type = row.Int("Type");
+            if (type is < 17 or > 23) continue;
+            int allocated = row.Int("AllocatedPassiveSkill"), hash = row.Int("HASH16");
+            if (allocated < 0 || allocated >= notables.Count || hash is <= 0 or > ushort.MaxValue) continue;
+            var notable = notables[allocated];
+            bool eligible = notable.IsNotable || type == 23 && notable.IsOption;
+            if (!eligible || notable.MultipleChoice || notable.GraphId != hash) continue;
+            if (!byType.TryGetValue(type, out var list)) byType[type] = list = [];
+            if (!list.Contains((ushort)hash)) list.Add((ushort)hash);
+        }
         foreach (var (name, type) in ClassTypes)
             if (byType.TryGetValue(type, out var list)) pools[name] = [.. list];
         return pools;
     }
-
-    static int Int(JsonElement row, string property) =>
-        row.TryGetProperty(property, out var value)
-            ? value.ValueKind switch
-            {
-                JsonValueKind.Number => value.GetInt32(),
-                JsonValueKind.True => 1,
-                _ => 0,
-            }
-            : 0;
 }

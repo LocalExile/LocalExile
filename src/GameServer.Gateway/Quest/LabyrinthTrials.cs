@@ -1009,14 +1009,13 @@ public static class LabyrinthTrials
 
     static readonly Lazy<Dictionary<string, ushort>> BuffRows = new(() =>
     {
-        const string file = "data/tables/BuffDefinitions.json";
         var rows = new Dictionary<string, ushort>(StringComparer.Ordinal);
-        if (!ClientTables.Exists(file)) return rows;
-        using var table = GameTables.Open(file);
+        if (!ClientTables.Has("BuffDefinitions")) return rows;
+        var table = ClientTables.Table("BuffDefinitions");
         int row = 0;
-        foreach (var buff in table.RootElement.EnumerateArray())
+        foreach (var buff in table)
         {
-            if (buff.GetProperty("Id").GetString() is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage"
+            if (buff.Text("Id") is { } id and ("bleeding" or "poison" or "labyrinth_arrow_slow" or "roomba_damage"
                     or "flying_roomba_damage" or "sawblade_damage" or "labyrinth_lava_aura")) rows.TryAdd(id, (ushort)row);
             row++;
         }
@@ -1038,27 +1037,26 @@ public static class LabyrinthTrials
     // A trap's stat set (GrantedEffectStatSets): its shares of the pools and its damage_+%_vs_players.
     static (int Life, int EnergyShield, int VsPlayers)? TrapStats(string id)
     {
-        const string file = "data/tables/GrantedEffectStatSets.json";
         try
         {
-            if (!ClientTables.Exists(file) || !ClientTables.Exists("data/tables/Stats.json")) return null;
-            using var stats = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/Stats.json"));
-            var names = stats.RootElement.EnumerateArray().Select(s => s.GetProperty("Id").GetString() ?? "").ToList();
-            using var sets = JsonDocument.Parse(ClientTables.ReadAllBytes(file));
-            foreach (var set in sets.RootElement.EnumerateArray())
+            if (!ClientTables.Has("GrantedEffectStatSets") || !ClientTables.Has("Stats")) return null;
+            var stats = ClientTables.Table("Stats");
+            var names = stats.Select(s => s.Text("Id") ?? "").ToList();
+            var sets = ClientTables.Table("GrantedEffectStatSets");
+            foreach (var set in sets)
             {
-                if (set.GetProperty("Id").GetString() != id) continue;
-                var values = set.GetProperty("ConstantStats").EnumerateArray().Select(k => names[k.GetInt32()])
-                    .Zip(set.GetProperty("ConstantStatsValues").EnumerateArray().Select(v => v.GetInt32()))
+                if (set.Text("Id") != id) continue;
+                var values = set.Ints("ConstantStats").Select(k => names[k])
+                    .Zip(set.Ints("ConstantStatsValues"))
                     .ToDictionary(p => p.First, p => p.Second);
                 return (values.GetValueOrDefault("%_of_life_to_deal_as_damage"), values.GetValueOrDefault("%_of_es_to_deal_as_damage"),
                     values.GetValueOrDefault("damage_+%_vs_players"));
             }
             return null;
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or InvalidCastException or ArgumentOutOfRangeException)
         {
-            Console.WriteLine($"[gateway] {file}: {ex.Message}");
+            Console.WriteLine($"[gateway] GrantedEffectStatSets: {ex.Message}");
             return null;
         }
     }
@@ -1471,14 +1469,14 @@ public static class LabyrinthTrials
     {
         try
         {
-            if (!ClientTables.Exists("data/tables/WorldAreas.json")) return [];
-            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/WorldAreas.json"));
-            return [.. areas.RootElement.EnumerateArray().Where(a => a.GetProperty("IsLabyrinthArea").GetBoolean())
-                .Select(a => a.GetProperty("Id").GetString() ?? "")];
+            if (!ClientTables.Has("WorldAreas")) return [];
+            var areas = ClientTables.Table("WorldAreas");
+            return [.. areas.Where(a => a.Bool("IsLabyrinthArea"))
+                .Select(a => a.Text("Id") ?? "")];
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidCastException or KeyNotFoundException or InvalidOperationException)
         {
-            Console.WriteLine($"[gateway] data/tables/WorldAreas.json: {ex.Message}");
+            Console.WriteLine($"[gateway] WorldAreas: {ex.Message}");
             return [];
         }
     });
@@ -1497,30 +1495,28 @@ public static class LabyrinthTrials
     {
         try
         {
-            if (!ClientTables.Exists("data/tables/LabyrinthTrials.json") || !ClientTables.Exists("data/tables/WorldAreas.json")) return [];
-            using var areas = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/WorldAreas.json"));
-            var areaIds = areas.RootElement.EnumerateArray().Select(a => a.GetProperty("Id").GetString() ?? "").ToList();
-            var flags = Quests.ParseRows(ClientTables.Exists("data/tables/QuestFlags.json") ? ClientTables.ReadAllText("data/tables/QuestFlags.json") : "[]")
+            if (!ClientTables.Has("LabyrinthTrials") || !ClientTables.Has("WorldAreas")) return [];
+            var areaIds = ClientTables.Table("WorldAreas").Select(a => a.Text("Id") ?? "").ToList();
+            var flags = Quests.FlagRows(ClientTables.TableOrNull("QuestFlags"))
                 .ToDictionary(kv => kv.Value, kv => kv.Key);
-            return Parse(ClientTables.ReadAllText("data/tables/LabyrinthTrials.json"), areaIds, flags).ToDictionary(t => t.Area);
+            return Parse(ClientTables.Table("LabyrinthTrials"), areaIds, flags).ToDictionary(t => t.Area);
         }
-        catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException or InvalidOperationException)
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or InvalidCastException)
         {
-            Console.WriteLine($"[gateway] data/tables/LabyrinthTrials.json: {ex.Message}");
+            Console.WriteLine($"[gateway] LabyrinthTrials: {ex.Message}");
             return [];
         }
     });
 
     /// <summary>LabyrinthTrials rows: WorldAreas key, column 1 the league quest flag id, column 7 the QuestFlags row.</summary>
-    public static List<Trial> Parse(string json, IReadOnlyList<string> areaIds, IReadOnlyDictionary<int, string> flagIds)
+    public static List<Trial> Parse(ClientTable table, IReadOnlyList<string> areaIds, IReadOnlyDictionary<int, string> flagIds)
     {
-        using var doc = JsonDocument.Parse(json);
         var trials = new List<Trial>();
-        foreach (var row in doc.RootElement.EnumerateArray())
+        foreach (var row in table)
         {
-            int area = row.GetProperty("WorldAreas").GetInt32(), flag = row.GetProperty("__col7").GetInt32();
+            int area = row.Int("WorldAreas"), flag = row.Int("__col7");
             if (area < 0 || area >= areaIds.Count || !flagIds.TryGetValue(flag, out var name)) continue;
-            trials.Add(new Trial(areaIds[area], name, row.GetProperty("__col1").GetInt32()));
+            trials.Add(new Trial(areaIds[area], name, row.Int("__col1")));
         }
         return trials;
     }

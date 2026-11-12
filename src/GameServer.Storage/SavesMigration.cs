@@ -21,7 +21,7 @@ public static class SavesMigration
         ("stash_tabs", "account, tab, items", "main"),
         ("deleted_characters", "name, deleted_utc, save", "main"),
         ("meta", "key, value", "main"),
-        ("account_characters", "id, account_id, name, created_utc, character", "main"),
+        ("account_characters_json", "id, account_id, name, created_utc, character", "main"),
         ("account_friends", "owner, friend", "main"),
     ];
 
@@ -36,6 +36,20 @@ public static class SavesMigration
         log ??= Console.WriteLine;
         using var claim = Claim(SaveDatabase.LegacyPath + ".migrating");
         if (!File.Exists(SaveDatabase.LegacyPath)) return;
+        // An interrupted first start may leave only an empty placeholder. Keep any journal
+        // with its database: a zero-byte main file alone cannot rule out recoverable pages.
+        string legacy = SaveDatabase.LegacyPath;
+        using (var file = new FileStream(legacy, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
+        {
+            if (file.Length == 0 && !File.Exists(legacy + "-wal") && !File.Exists(legacy + "-journal")
+                && !File.Exists(legacy + "-shm"))
+            {
+                string aside = $"{legacy}.empty-{Guid.NewGuid():N}";
+                File.Move(legacy, aside);
+                log($"[migrate] preserved empty legacy database at {aside}");
+                return;
+            }
+        }
         if (File.Exists(Characters) || File.Exists(Auth))
             throw new SqlUpdateException($"{SaveDatabase.LegacyPath} is from before the player databases were split, and " +
                 $"{Characters} or {Auth} is already there. Move the new ones away to migrate " +
@@ -83,11 +97,19 @@ public static class SavesMigration
             using var tx = db.BeginTransaction();
             foreach (var (table, columns, database) in Tables)
             {
-                if (!Exists(db, tx, table)) { rows[table] = 0; continue; }
+                // saves.db's account_characters holds JSON: it goes where the update to columns left those rows.
+                string source = table == "account_characters_json" ? "account_characters" : table;
+                if (!Exists(db, tx, source)) { rows[table] = 0; continue; }
                 using var c = db.CreateCommand();
                 c.Transaction = tx;
-                c.CommandText = $"INSERT INTO {database}.{table} ({columns}) SELECT {columns} FROM old.{table}";
+                c.CommandText = $"INSERT INTO {database}.{table} ({columns}) SELECT {columns} FROM old.{source}";
                 rows[table] = c.ExecuteNonQuery();
+            }
+            using (var list = db.CreateCommand())
+            {
+                list.Transaction = tx;
+                list.CommandText = SqliteAccountStore.FromJson;
+                list.ExecuteNonQuery();
             }
             tx.Commit();
             using var detach = db.CreateCommand();

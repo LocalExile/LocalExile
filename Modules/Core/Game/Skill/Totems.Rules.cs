@@ -19,45 +19,34 @@ public static partial class Game
 
     // GrantedEffects row → MonsterVarieties row of its default skin: ActiveSkills.SkillTotemId is SkillTotemVariations'
     // SkillTotemsKey, TotemSkinId 0 (Rejuvenation Totem: 4 → Metadata/Monsters/Totems/LifeRegenTotem).
-    static readonly Lazy<Dictionary<int, int>> TotemVarieties = new(() => LoadTotemVarieties("data/tables"));
+    static readonly Lazy<Dictionary<int, int>> TotemVarieties = new(LoadTotemVarieties);
 
     // The totem auras' BuffDefinitions stats (172: base_life_regeneration_rate_per_minute and five more); the totem's
     // skill gives their values.
     static readonly Lazy<Dictionary<ushort, uint[]>> TotemBuffStats = new(() =>
     {
         var result = new Dictionary<ushort, uint[]>();
-        string path = System.IO.Path.Combine("data/tables", "BuffDefinitions.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var definitions = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
+        if (!ClientTables.Has("BuffDefinitions")) return result;
+        var definitions = ClientTables.Table("BuffDefinitions");
         foreach (var (row, _) in TotemAuras.Values)
-            if (row < definitions.RootElement.GetArrayLength()
-                && definitions.RootElement[row].TryGetProperty("StatsKeys", out var keys) && keys.ValueKind == JsonValueKind.Array)
-                result[row] = [.. keys.EnumerateArray().Select(k => (uint)(k.GetInt32() + 1))];
+            if (row < definitions.Count && !definitions[row].IsNull("StatsKeys"))
+                result[row] = [.. definitions[row].Ints("StatsKeys").Select(k => (uint)(k + 1))];
         return result;
     });
 
-    static Dictionary<int, int> LoadTotemVarieties(string tables)
+    static Dictionary<int, int> LoadTotemVarieties()
     {
-        string Path(string name) => System.IO.Path.Combine(tables, name + ".json");
         var result = new Dictionary<int, int>();
-        if (!ClientTables.Exists(Path("GrantedEffects")) || !ClientTables.Exists(Path("ActiveSkills")) || !ClientTables.Exists(Path("SkillTotemVariations"))) return result;
-        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("GrantedEffects")));
-        using var active = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("ActiveSkills")));
-        using var variations = JsonDocument.Parse(ClientTables.ReadAllBytes(Path("SkillTotemVariations")));
+        if (!ClientTables.Has("GrantedEffects") || !ClientTables.Has("ActiveSkills") || !ClientTables.Has("SkillTotemVariations")) return result;
         var skins = new Dictionary<int, int>();
-        foreach (var v in variations.RootElement.EnumerateArray())
-            if (v.GetProperty("TotemSkinId").GetInt32() == 0 && v.GetProperty("MonsterVarietiesKey") is { ValueKind: JsonValueKind.Number } row)
-                skins.TryAdd(v.GetProperty("SkillTotemsKey").GetInt32(), row.GetInt32());
-        var skills = active.RootElement.EnumerateArray().ToArray();
-        int i = 0;
-        foreach (var e in effects.RootElement.EnumerateArray())
-        {
-            if (e.TryGetProperty("ActiveSkill", out var a) && a.ValueKind == JsonValueKind.Number && a.GetInt32() < skills.Length
-                && skills[a.GetInt32()].TryGetProperty("SkillTotemId", out var totem) && totem.ValueKind == JsonValueKind.Number
-                && skins.TryGetValue(totem.GetInt32(), out int variety))
-                result[i] = variety;
-            i++;
-        }
+        foreach (var v in ClientTables.Table("SkillTotemVariations"))
+            if (v.Int("TotemSkinId") == 0 && v.IntOrNull("MonsterVarietiesKey") is int row)
+                skins.TryAdd(v.Int("SkillTotemsKey"), row);
+        var skills = ClientTables.Table("ActiveSkills");
+        foreach (var e in ClientTables.Table("GrantedEffects"))
+            if (e.IntOrNull("ActiveSkill") is int a && a < skills.Count
+                && skills[a].IntOrNull("SkillTotemId") is int totem && skins.TryGetValue(totem, out int variety))
+                result[e.Index] = variety;
         return result;
     }
 
@@ -74,11 +63,11 @@ public static partial class Game
         // Prefer a dedicated native skin; generic spell/ballista proxies use intelligence/dexterity skins 3/2.
         if (TotemVarieties.Value.TryGetValue(effect, out int specific)
             && Monsters.Find(specific.ToString()) is { Supported: true } nativeSpell) return nativeSpell;
-        using var variations = GameTables.Open("data/tables/SkillTotemVariations.json");
-        var skin = variations.RootElement.EnumerateArray().FirstOrDefault(v => v.GetProperty("SkillTotemsKey").GetInt32() == (BallistaEffect(conn, effect) ? 2 : 3)
-            && v.GetProperty("TotemSkinId").GetInt32() == 0);
-        return skin.ValueKind == JsonValueKind.Object
-            && Monsters.Find(skin.GetProperty("MonsterVarietiesKey").GetInt32().ToString()) is { Supported: true } spell ? spell : null;
+        int totemKey = BallistaEffect(conn, effect) ? 2 : 3;
+        foreach (var skin in ClientTables.Table("SkillTotemVariations"))
+            if (skin.Int("SkillTotemsKey") == totemKey && skin.Int("TotemSkinId") == 0)
+                return Monsters.Find(skin.Int("MonsterVarietiesKey").ToString()) is { Supported: true } spell ? spell : null;
+        return null;
     }
 
     public static bool TotemPathAvailable(ClientState conn, ushort skill, int effect) => !IsTotemSkill(conn, skill)
@@ -163,7 +152,7 @@ public static partial class Game
             lock (conn.Monsters)
             {
                 if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || current?.Invoke() == false) return null;
-                uint objectId = conn.NextObjectId++;
+                uint objectId = conn.TakeObjectId();
                 if (bodySize >= 0)
                 {
                     bool Floor(int cx, int cy) => conn.Layout.WalkableFor(cx, cy, bodySize) && !conn.Barrier.Contains((cx, cy));

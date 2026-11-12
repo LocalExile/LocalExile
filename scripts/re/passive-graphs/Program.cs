@@ -1,5 +1,5 @@
 // Read-only analysis of the exact target client's ordinary/Phrecia topology, never a different patch's web export.
-// dotnet run --project scripts/re/passive-graphs -- Client/Content.ggpk data/passive-skill-graphs.json
+// dotnet run --project scripts/re/passive-graphs -- Client data/passive-skill-graphs.json
 using System.Security.Cryptography;
 using System.Text.Json;
 using GameServer.Data;
@@ -13,7 +13,7 @@ const string CombinedHash = "F2766B5A4618CDBE7E2993973B4D653F155F71BDFE0E5D063A4
 const string Artifact = "phrecia-passive-skillgraph.psg";
 
 if (args.Length != 2 || args[0].StartsWith("--", StringComparison.Ordinal))
-    throw new ArgumentException("Usage: passive-graphs <Content.ggpk> data/passive-skill-graphs.json (read-only graph analysis; no client installation)");
+    throw new ArgumentException("Usage: passive-graphs <client folder or Content.ggpk> data/passive-skill-graphs.json (read-only graph analysis; no client installation)");
 string ggpkPath = Path.GetFullPath(args[0]);
 string target = Path.GetFullPath(args[1]);
 if (!string.Equals(target, Path.GetFullPath("data/passive-skill-graphs.json"), StringComparison.OrdinalIgnoreCase))
@@ -39,10 +39,9 @@ byte[] phreciaBytes = fs.ReadFile(Target);
 string alternateHash = Convert.ToHexString(SHA256.HashData(phreciaBytes));
 if (alternateHash != OriginalPhreciaHash && alternateHash != CombinedHash)
     throw new InvalidDataException("The alternate PSG is neither the pinned original nor the pinned compatible 3.29.3c graph. The client archive was not changed.");
-using var passives = JsonDocument.Parse(File.ReadAllBytes("data/tables/PassiveSkills.json"));
-HashSet<uint> ascendancyIds = passives.RootElement.EnumerateArray()
-    .Where(r => r.GetProperty("AscendancyKey").ValueKind == JsonValueKind.Number)
-    .Select(r => r.GetProperty("PassiveSkillGraphId").GetUInt32()).ToHashSet();
+HashSet<uint> ascendancyIds = GameServer.Core.ClientTable.Load(GameServer.Core.ClientTables.DefaultPath, "PassiveSkills")
+    .Where(r => !r.IsNull("AscendancyKey"))
+    .Select(r => r.UInt("PassiveSkillGraphId")).ToHashSet();
 var merged = alternateHash == CombinedHash ? PassiveSkillGraph.Read(phreciaBytes)
     : AdditionalAscendancyGraph.Merge(PassiveSkillGraph.Read(normalBytes), PassiveSkillGraph.Read(phreciaBytes), ascendancyIds);
 byte[] mergedBytes = merged.Write();

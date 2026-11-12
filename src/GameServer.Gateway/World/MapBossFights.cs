@@ -130,19 +130,14 @@ public sealed class MapBossFights
         var varieties = VarietyIds(folder);
         var areaBosses = AreaBosses(folder, varieties);
         var invites = new Dictionary<int, Invitation>();
-        string fights = Path.Combine(folder, "tables", "MavenFights.json");
-        if (ClientTables.Exists(fights))
+        if (ClientTables.Has("MavenFights"))
         {
-            using var doc = GameTables.Open(fights);
-            foreach (var row in doc.RootElement.EnumerateArray())
+            foreach (var row in ClientTables.Table("MavenFights"))
             {
-                if (row.GetProperty("BaseItemType") is not { ValueKind: JsonValueKind.Number } item) continue;
-                int[] areas = row.TryGetProperty("WitnessAreas", out var list) && list.ValueKind == JsonValueKind.Array
-                    ? [.. list.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.Number).Select(v => v.GetInt32())]
-                    : [];
-                int count = row.TryGetProperty("WitnessesRequired", out var n) && n.ValueKind == JsonValueKind.Number
-                    ? n.GetInt32() : areas.Length;
-                invites[item.GetInt32()] = new(row.GetProperty("Id").GetString() ?? "", item.GetInt32(), count,
+                if (row.IntOrNull("BaseItemType") is not int item) continue;
+                int[] areas = [.. row.Ints("WitnessAreas")];
+                int count = (row.IntOrNull("WitnessesRequired") ?? areas.Length);
+                invites[item] = new(row.Text("Id") ?? "", item, count,
                     [.. areas.Select(a => areaBosses.GetValueOrDefault(a, "")).Where(id => id.Length > 0)]);
             }
         }
@@ -160,20 +155,16 @@ public sealed class MapBossFights
         var flags = FlagIds(folder);
         var items = ItemIds(folder);
         var stones = new List<Stone>();
-        string slots = Path.Combine(folder, "tables", "AtlasVoidstoneSlots.json");
-        if (ClientTables.Exists(slots))
+        if (ClientTables.Has("AtlasVoidstoneSlots"))
         {
-            using var doc = GameTables.Open(slots);
+            var doc = ClientTables.Table("AtlasVoidstoneSlots");
             int i = 0;
-            foreach (var row in doc.RootElement.EnumerateArray())
+            foreach (var row in doc)
             {
-                int slot = row.TryGetProperty("SlotNumber", out var sn) && sn.ValueKind == JsonValueKind.Number
-                    ? sn.GetInt32() : i;
+                int slot = (row.IntOrNull("SlotNumber") ?? i);
                 i++;
-                string itemId = items.GetValueOrDefault(row.TryGetProperty("Voidstone", out var vs) && vs.ValueKind == JsonValueKind.Number
-                    ? vs.GetInt32() : -1, "");
-                string flag = flags.GetValueOrDefault(row.TryGetProperty("QuestFlag", out var qf) && qf.ValueKind == JsonValueKind.Number
-                    ? qf.GetInt32() : -1, "");
+                string itemId = items.GetValueOrDefault((row.IntOrNull("Voidstone") ?? -1), "");
+                string flag = flags.GetValueOrDefault((row.IntOrNull("QuestFlag") ?? -1), "");
                 if (itemId.Length == 0) continue;
                 stones.Add(StoneOf(slot, itemId, flag));
             }
@@ -198,12 +189,11 @@ public sealed class MapBossFights
     static Dictionary<int, string> VarietyIds(string folder)
     {
         var map = new Dictionary<int, string>();
-        string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
-        if (!ClientTables.Exists(path)) return map;
-        using var doc = GameTables.Open(path);
+        if (!ClientTables.Has("MonsterVarieties")) return map;
+        var doc = ClientTables.Table("MonsterVarieties");
         int row = 0;
-        foreach (var v in doc.RootElement.EnumerateArray())
-            map[row++] = v.GetProperty("Id").GetString() ?? "";
+        foreach (var v in doc)
+            map[row++] = v.Text("Id") ?? "";
         return map;
     }
 
@@ -223,17 +213,15 @@ public sealed class MapBossFights
         IReadOnlyDictionary<int, string> varieties)
     {
         var list = new List<(int, string, IReadOnlyList<string>)>();
-        string path = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!ClientTables.Exists(path)) return list;
-        using var doc = GameTables.Open(path);
+        if (!ClientTables.Has("WorldAreas")) return list;
+        var doc = ClientTables.Table("WorldAreas");
         int i = 0;
-        foreach (var a in doc.RootElement.EnumerateArray())
+        foreach (var a in doc)
         {
-            string[] bosses = [.. a.GetProperty("Bosses_MonsterVarietiesKeys").EnumerateArray()
-                .Where(b => b.ValueKind == JsonValueKind.Number)
-                .Select(b => varieties.GetValueOrDefault(b.GetInt32(), ""))
+            string[] bosses = [.. a.Ints("Bosses_MonsterVarietiesKeys")
+                .Select(b => varieties.GetValueOrDefault(b, ""))
                 .Where(id => id.Length > 0)];
-            list.Add((i++, a.GetProperty("Id").GetString() ?? "", bosses));
+            list.Add((i++, a.Text("Id") ?? "", bosses));
         }
         return list;
     }
@@ -241,20 +229,18 @@ public sealed class MapBossFights
     static List<string> AtlasMapBosses(string folder, IReadOnlyDictionary<int, string> varieties)
     {
         var bosses = new List<string>();
-        string nodes = Path.Combine(folder, "tables", "AtlasNode.json");
-        string areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!ClientTables.Exists(nodes) || !ClientTables.Exists(areas)) return bosses;
-        using var n = GameTables.Open(nodes);
-        using var a = GameTables.Open(areas);
-        int areaCount = a.RootElement.GetArrayLength();
-        foreach (var row in n.RootElement.EnumerateArray())
+        if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return bosses;
+        var n = ClientTables.Table("AtlasNode");
+        var a = ClientTables.Table("WorldAreas");
+        int areaCount = a.Count;
+        foreach (var row in n)
         {
-            if (!row.GetProperty("IsNormalMap").GetBoolean() || row.GetProperty("NotOnAtlas").GetBoolean()
-                || row.GetProperty("Area1") is not { ValueKind: JsonValueKind.Number } area
-                || area.GetInt32() is int i && (i < 0 || i >= areaCount)) continue;
-            var keys = a.RootElement[area.GetInt32()].GetProperty("Bosses_MonsterVarietiesKeys");
-            if (keys.GetArrayLength() == 0) continue;
-            string id = varieties.GetValueOrDefault(keys[keys.GetArrayLength() - 1].GetInt32(), "");
+            if (!row.Bool("IsNormalMap") || row.Bool("NotOnAtlas")
+                || row.IntOrNull("Area1") is not int area
+                || area is int i && (i < 0 || i >= areaCount)) continue;
+            var keys = a[area].Ints("Bosses_MonsterVarietiesKeys");
+            if (keys.Length == 0) continue;
+            string id = varieties.GetValueOrDefault(keys[^1], "");
             if (id.Length > 0) bosses.Add(id);
         }
         return bosses;
@@ -263,24 +249,22 @@ public sealed class MapBossFights
     static Dictionary<int, string> FlagIds(string folder)
     {
         var map = new Dictionary<int, string>();
-        string path = Path.Combine(folder, "tables", "QuestFlags.json");
-        if (!ClientTables.Exists(path)) return map;
-        using var doc = GameTables.Open(path);
+        if (!ClientTables.Has("QuestFlags")) return map;
+        var doc = ClientTables.Table("QuestFlags");
         int row = 0;
-        foreach (var f in doc.RootElement.EnumerateArray())
-            map[row++] = f.GetProperty("Id").GetString() ?? "";
+        foreach (var f in doc)
+            map[row++] = f.Text("Id") ?? "";
         return map;
     }
 
     static Dictionary<int, string> ItemIds(string folder)
     {
         var map = new Dictionary<int, string>();
-        string path = Path.Combine(folder, "tables", "BaseItemTypes.json");
-        if (!ClientTables.Exists(path)) return map;
-        using var doc = GameTables.Open(path);
+        if (!ClientTables.Has("BaseItemTypes")) return map;
+        var doc = ClientTables.Table("BaseItemTypes");
         int row = 0;
-        foreach (var t in doc.RootElement.EnumerateArray())
-            map[row++] = t.GetProperty("Id").GetString() ?? "";
+        foreach (var t in doc)
+            map[row++] = t.Text("Id") ?? "";
         return map;
     }
 

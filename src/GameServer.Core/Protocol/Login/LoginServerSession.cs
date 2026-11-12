@@ -142,7 +142,10 @@ public sealed class LoginServerSession(AccountService accounts)
         // Flags0 bit 5 → login+0xea8: the account's email is verified. With it clear the character screen builds the
         // "Your account is not verified" panel (0x140d19600) and chat/trade features are locked.
         byte[] remembered = m.Flag94 ? accounts.SavedClientCredential(Session.AccountId, m.MachineIdA, m.MachineIdB) : new byte[32];
-        return [new LoginResult(ResultOk, "", remembered, FlagVerified, 0, []),
+        // Data (login+0xe30) is the account name in UTF-8: listener 0x140d0fd50 hands it to the item filter manager, which
+        // needs it to fetch the online filter list when Options opens; that fetch is what rescans the local filter folder.
+        byte[] accountName = System.Text.Encoding.UTF8.GetBytes(Account?.Name ?? m.Account);
+        return [new LoginResult(ResultOk, "", remembered, FlagVerified, 0, accountName),
                 new LeagueList(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), Leagues.Entries(), false, false)];
     }
 

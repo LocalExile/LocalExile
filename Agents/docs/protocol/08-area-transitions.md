@@ -184,7 +184,7 @@ match, their .tmd).
 ### How it resolves an area
 
 1. `WorldAreas.datc64` gives Id, Name, Connections and HASH16 (read directly). `TopologiesKeys` come from
-   `data/tables/WorldAreas.json` (checked row by row by Id) and lead to `Topologies.DGRFile`.
+   the `WorldAreas` table (checked row by row by Id) and lead to `Topologies.DGRFile`.
 2. Graph (.dgr / .tgr, versions 19 and 25): a node line is `x y edgeCount edges… "tag" rotation nameCount "names"… …`.
    A node tagged **`graph`** embeds a sub-graph. Its first name is either a graph path or a group of the master's
    `FileGroups` (.fgp: `"group"`, then graph paths relative to the .fgp, of which the generator picks one). Every
@@ -404,7 +404,7 @@ nothing about which in-area gate leads to which arrival (the Warden's Quarters, 
    `AreaLayout.Near`) beside the gate back: in the room of `telepadN`, the gate (another number's) whose own telepad is
    in the gate's room, at its object (The Hall of Grandmasters' main.arm: eight arrivals at "telepad" points that
    repeat, each beside the door back to its arena); without one, the telepad's slot. Its destination is the label:
-   the description's ClientStrings key as variant 1 (HASH32 from `data/tables/ClientStrings.json`, e.g.
+   the description's ClientStrings key as variant 1 (HASH32 from the `ClientStrings` table, e.g.
    BrutusAreaName 0x169BA21A "The Warden's Quarters", MerveilArenaName "Merveil's Lair"), else (`%areaname%`, no key,
    no table) the area itself as variant 2; no compact int (type 1). `teleportNdisabled` gates (an arena's way in or a
    shortcut back, which the game unlocks; the Upper Prison's only door into Brutus's room is

@@ -67,56 +67,47 @@ public static class TattooCatalogue
     static List<Entry> Load()
     {
         var result = new List<Entry>();
-        string basePath = Path.Combine("data", "tables", "BaseItemTypes.json");
-        string tattooPath = Path.Combine("data", "tables", "PassiveSkillTattoos.json");
-        string setPath = Path.Combine("data", "tables", "PassiveSkillTattooTargetSets.json");
-        string overridePath = Path.Combine("data", "tables", "PassiveSkillOverrides.json");
-        if (!ClientTables.Exists(basePath) || !ClientTables.Exists(tattooPath) || !ClientTables.Exists(setPath)) return result;
+        if (!ClientTables.Has("BaseItemTypes") || !ClientTables.Has("PassiveSkillTattoos") || !ClientTables.Has("PassiveSkillTattooTargetSets")) return result;
 
         var overrideHashes = new List<int>();
         var overrideRequires = new List<int>();
         var overrideMax = new List<int>();
         var overrideLimits = new List<int>();
         var overrideEffects = new List<int>();
-        if (ClientTables.Exists(overridePath))
-            using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(overridePath)))
-                foreach (var row in document.RootElement.EnumerateArray())
-                {
-                    overrideHashes.Add(row.GetProperty("HASH16").GetInt32());
-                    overrideRequires.Add(row.GetProperty("RequiresAdjacent").GetInt32());
-                    overrideMax.Add(row.GetProperty("MaxAdjacent").GetInt32());
-                    overrideLimits.Add(row.TryGetProperty("Limit", out var limit) && limit.ValueKind == JsonValueKind.Number
-                        ? limit.GetInt32() : -1);
-                    // The Loyalty rows replace a small passive with a granted skill: Effect is its
-                    // GrantedEffectsPerLevel row ("Trigger level 1 Summon Spirit of ...").
-                    overrideEffects.Add(row.TryGetProperty("Effect", out var effect) && effect.ValueKind == JsonValueKind.Number
-                        ? effect.GetInt32() : -1);
-                }
+        if (ClientTables.Has("PassiveSkillOverrides"))
+            foreach (var row in ClientTables.Table("PassiveSkillOverrides"))
+            {
+                overrideHashes.Add(row.Int("HASH16"));
+                overrideRequires.Add(row.Int("RequiresAdjacent"));
+                overrideMax.Add(row.Int("MaxAdjacent"));
+                overrideLimits.Add((row.IntOrNull("Limit") ?? -1));
+                // The Loyalty rows replace a small passive with a granted skill: Effect is its
+                // GrantedEffectsPerLevel row ("Trigger level 1 Summon Spirit of ...").
+                overrideEffects.Add(row.IntOrNull("Effect") ?? -1);
+            }
 
         var sets = new List<string>();
-        using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(setPath)))
-            foreach (var row in document.RootElement.EnumerateArray())
-            {
-                string name = row.GetProperty("Name").GetString() ?? "";
-                string qualifier = row.GetProperty("Qualifier").GetString() ?? "";
-                sets.Add(qualifier.Length > 0 ? $"{name} ({qualifier})" : name);
-            }
+        foreach (var row in ClientTables.Table("PassiveSkillTattooTargetSets"))
+        {
+            string name = row.Text("Name") ?? "";
+            string qualifier = row.Text("Qualifier") ?? "";
+            sets.Add(qualifier.Length > 0 ? $"{name} ({qualifier})" : name);
+        }
 
         var targets = new Dictionary<int, (int Set, int Tribe, int Override)>();
-        using (var document = JsonDocument.Parse(ClientTables.ReadAllBytes(tattooPath)))
-            foreach (var row in document.RootElement.EnumerateArray())
-            {
-                int item = row.GetProperty("Tattoo").GetInt32();
-                targets[item] = (row.GetProperty("Set").GetInt32(), row.GetProperty("Tribe").GetInt32(),
-                    row.GetProperty("Override").GetInt32());
-            }
-
-        using var bases = JsonDocument.Parse(ClientTables.ReadAllBytes(basePath));
-        int index = 0;
-        foreach (var row in bases.RootElement.EnumerateArray())
+        foreach (var row in ClientTables.Table("PassiveSkillTattoos"))
         {
-            string name = row.GetProperty("Name").GetString() ?? "";
-            string id = row.GetProperty("Id").GetString() ?? "";
+            int item = row.Int("Tattoo");
+            targets[item] = (row.Int("Set"), row.Int("Tribe"),
+                row.Int("Override"));
+        }
+
+        var bases = ClientTables.Table("BaseItemTypes");
+        int index = 0;
+        foreach (var row in bases)
+        {
+            string name = row.Text("Name") ?? "";
+            string id = row.Text("Id") ?? "";
             if (name.Contains("Tattoo", StringComparison.Ordinal))
             {
                 if (!targets.TryGetValue(index, out var target)) continue;

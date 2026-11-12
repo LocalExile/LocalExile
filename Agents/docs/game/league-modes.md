@@ -52,7 +52,7 @@ The retry queue is process memory: an uncommitted death cannot be guaranteed thr
 and termination of the Gateway process.
 Committed deaths survive restart through the normal synchronous SQLite journal.
 
-Code: `HardcoreDeathRules`, `HardcoreDeathPersistence`, `Program.Hardcore`, `InstanceDirectory`,
+Code: `HardcoreDeathRules`, `HardcoreDeathPersistence`, `Game.Hardcore`, `InstanceDirectory`,
 `LoginServerSession`, `SqliteAccountStore` and `JsonAccountStore`.
 
 ## Solo Self-Found and league boundaries
@@ -80,7 +80,7 @@ Both inventories save in one transaction, so a failed second save cannot leave o
 Party formation remains unimplemented; future party and shared-loot features must enforce the same SSF boundary.
 The character-selection opt-out and Migrate All workflow, league-end merges and their progress transfers remain open.
 
-Code: `InstanceRegistry`, `InstanceManager`, `InstanceStore`, `AccountStash`, `Program.Stash` and `GameSession`.
+Code: `InstanceRegistry`, `InstanceManager`, `InstanceStore`, `AccountStash`, `Game.Stash` and `GameSession`.
 
 ## Ruthless rules and native data
 
@@ -92,7 +92,6 @@ Those calculations read the connection's selected item/skill catalog, including 
 The alternative minimum-base equipment calculation or ordinary-only catalog lookup would lose one side's rules.
 Current gem requirement snapshots share the equipment resolver without publishing its inactive-item result;
 the normal character-stat entry point remains responsible for that cache publication.
-See the [integration report](../dev/issue75-review.md#main-merge-league-modes-gambler-and-vaal-souls).
 The copied 3.29.3b tables supply these differences:
 
 - Passive alternate names, stat keys, values and granted points through `HasHardmodeAlternate`.
@@ -221,8 +220,7 @@ Overlapping sessions, queued work after death and shared SSF peer publication ar
 regressions above; simultaneous clients were not used for native verification.
 Complete retail endgame and reward parity remain limited by the server's incomplete gameplay systems.
 
-From the repository root, use local build output so real-data tests can locate `data/tables` and running servers
-do not lock the binaries being built:
+From the repository root, use separate build output so running servers do not lock the binaries being built:
 
 ```powershell
 dotnet test tests/GameServer.Core.Tests --artifacts-path artifacts/league-mode-tests

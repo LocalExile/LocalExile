@@ -26,5 +26,5 @@ Re-derived independently; supersedes the H2.1 "TLS/HTTP2 login" hypothesis in 00
 
 ## Tooling status
 - REA's Ghidra auto-analysis of the 79 MB exe exceeds 1 h (provider_timeout). Use the
-  persisted headless project: `Tools/ghidra-projects/run.ps1` (project `Game3293`).
+  persisted headless project through `scripts/re/ghidra/run.ps1` (project `Tools/ghidra-projects/poe3293`).
 - Fast static helpers: `scripts/re/xr.py <string>` (xrefs), `scripts/re/dis.py <va> [before] [len]`.

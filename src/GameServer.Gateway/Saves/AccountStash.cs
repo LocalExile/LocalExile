@@ -142,7 +142,7 @@ public sealed partial class AccountStash
                 var tab = new TabState(headers[i] with { Items = [] });
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
-                var items = Saves.LoadStashTab<List<CharacterSaves.SavedPlacement>>(name, i, Opts);
+                var items = Saves.LoadStashTab(name, i);
                 if (items is null && headers[i].Items.Count > 0) stash._itemsInHeader = true;
                 foreach (var p in items ?? headers[i].Items)
                     tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, CharacterSaves.FromSaved(p.Item, catalog)));
@@ -169,7 +169,7 @@ public sealed partial class AccountStash
 
     // A stash that can't be read throws UnreadableSaveException and stays as it is, instead of becoming the starter tabs,
     // which For would write over it.
-    static Save? Load(string account) => Saves.Load<Save>(SaveDatabase.Table.Stashes, account, Opts);
+    static Save? Load(string account) => Saves.LoadStash(account);
 
     /// <summary>Saves the stash's header (tabs, last tab, next item id, gold: small) and the items of the tabs that
     /// changed, in one transaction: a click in one tab writes that tab, not the whole stash.</summary>
@@ -184,17 +184,17 @@ public sealed partial class AccountStash
         });
         // Copied under the stash's lock, inside the transaction: an older copy never lands after a newer one.
         Save header;
-        List<(int Tab, string Items)> tabs;
+        List<(int Tab, List<CharacterSaves.SavedPlacement> Items)> tabs;
         lock (_lock)
         {
             header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
                 [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
-            tabs = [.. write.Select(i => (i, JsonSerializer.Serialize(
-                _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList(), Opts)))];
+            tabs = [.. write.Select(i => (i,
+                _tabs[i].Items.Select(it => new CharacterSaves.SavedPlacement(it.Id, it.X, it.Y, CharacterSaves.ToSaved(it.Item, _mods))).ToList()))];
             _itemsInHeader = false;   // a rollback drops this whole copy
         }
-        Saves.Put(SaveDatabase.Table.Stashes, _account, JsonSerializer.Serialize(header, Opts));
+        Saves.PutStash(_account, header);
         foreach (var (tab, items) in tabs) Saves.PutStashTab(_account, tab, items);
     });
 
