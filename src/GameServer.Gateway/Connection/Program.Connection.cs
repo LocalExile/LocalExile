@@ -253,6 +253,7 @@ public partial class Program
             catch (Exception e) { Console.WriteLine($"[gateway] {remote} leaving failed: {ServerLog.Describe(e)}"); }
             left.Instance.RemovePlayer(left.PeerId);
             if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
+            ForgetCommands(left);
             Instances.Leave(left.Instance);
             CharacterBuildImports.Release(left);
         }
