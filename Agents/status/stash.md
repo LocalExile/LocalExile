@@ -68,6 +68,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
   have no matching client collection cell and are reported as unavailable; unique Heist contracts are not generated.
   Legacy items can make the native collected count exceed its current-league denominator.
+- **Dev stash tabs and the stash anywhere (`/stash_add`, `/stash`).** `/stash_add normal|premium|quad [count]` appends
+  up to 10 general tabs per call through `AccountStash.AddTabs`, at most 40 visible tabs (`Game_STASH_TAB_CAP` overrides);
+  the new tabs show in the next tab list (0x21, on entering an area) or after a relog, and hidden map pages are not counted
+  (`VisibleCount`). `/stash` sends 0x7b kind 1 on the area's stash object, so the panel opens where the character stands in
+  a town or hideout; a map has no stash object, so there it sends the last area's id (untested in the real client).
+  Verified in the real client: two added quad tabs are visible and take items, and `/stash` opens the stash in town with
+  items going in and out. Automated test: `StashAddTabsTests`. Code: `AccountStash.AddTabs`/`VisibleCount`.
 
 ## Partly working
 
