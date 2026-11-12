@@ -1,12 +1,15 @@
+using GameServer.Core.Protocol;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Data.Ggpk;
 
 namespace LocalExile;
 
-/// <summary>Client\ in the install: a copy of the player's client, or a junction to it, in the standalone or the Steam
-/// layout (<see cref="ClientFiles"/>). The tools and servers all use that path, as they do in a checkout. Game.exe and
-/// Game.patched.exe are added beside the client's own files.</summary>
+/// <summary>Client\ in the install: a copy of the player's client, in the standalone or the Steam layout
+/// (<see cref="ClientFiles"/>). The tools and servers all use that path, as they do in a checkout. Game.exe and
+/// Game.patched.exe are added beside the client's own files. A developer can make it a link instead
+/// (<c>--client-mode link</c>); the launcher never offers that, and warns when the link leads to the player's own install
+/// (<see cref="WarnIfLinked"/>).</summary>
 static class ClientInstall
 {
     static string Folder => GameServer.Core.ServerConfig.ClientFolder;
@@ -14,15 +17,23 @@ static class ClientInstall
     static string PatchedExe => Path.Combine(Folder, "Game.patched.exe");
     static readonly string Keys = Path.Combine("data", "login-keys.json");
 
-    /// <summary>The folder's 3.29.3c executable, or why it has none.</summary>
-    static string? FindExecutable(string folder, out string problem)
+    /// <summary>Anything this large is a game executable; the official launcher that can sit under the same name is
+    /// well under a megabyte.</summary>
+    const int GameExecutableSize = 16 << 20;
+
+    /// <summary>The folder's executable when it is an allowed build (<see cref="ClientBuilds"/>), or why it has none.</summary>
+    static string? FindExecutable(string folder, out string problem) => FindExecutable(folder, out problem, out _);
+
+    static string? FindExecutable(string folder, out string problem, out ClientBuild? build)
     {
-        if (ClientFiles.Problem(folder) is { } files)
+        build = null;
+        if (ClientFiles.Problem(folder, out string? steamIndex) is { } files)
         {
             problem = files;
             return null;
         }
         problem = "";
+        string? otherBuild = null;
         // A checkout's PathOfExile.exe can be the small launcher, with the game in Game.exe. Steam's PathOfExileSteam.exe
         // is the same game executable. The check reads the executable.
         foreach (string name in new[] { "PathOfExile.exe", "PathOfExileSteam.exe", "Game.exe" })
@@ -32,21 +43,35 @@ static class ClientInstall
             try
             {
                 byte[] image = File.ReadAllBytes(path);
+                if (ClientBuilds.Find(image) is not { } found)
+                {
+                    if (image.Length >= GameExecutableSize) otherBuild ??= $"{path} (SHA-256 {ClientBuilds.Sha256(image)[..16]}...)";
+                    continue;
+                }
                 _ = new ClientImage(image);
-                HncSender.LoadMask(image);
+                HncSender.UseMask(HncSender.ReadMask(image, found));
+                if (steamIndex is not null && found.SteamIndexSha256 != steamIndex)
+                {
+                    problem = $"{folder} mixes two builds: {path} is {found}, and the game files in Bundles2 are another build's";
+                    return null;
+                }
+                build = found;
                 return path;
             }
             catch (Exception e) when (e is FormatException or InvalidDataException or ArgumentException or IOException or InvalidOperationException) { }
         }
-        problem = $"{folder} does not hold the Path of Exile 3.29.3c executable; other versions do not work";
+        string runs = $"LocalExile runs {ClientBuilds.Describe(ClientBuilds.Allowed)}; other versions do not work";
+        problem = otherBuild is null ? $"{folder} does not hold a Path of Exile {ClientBuilds.Versions} executable. {runs}"
+            : $"{otherBuild} is another build of Path of Exile. {runs}";
         return null;
     }
 
     public static void Check(string folder, Output log)
     {
-        string? exe = FindExecutable(folder, out string problem);
+        string? exe = FindExecutable(folder, out string problem, out var build);
         if (exe is null) throw new LauncherException(ExitCode.Client, problem);
-        log.Value("client", $"{exe} is the 3.29.3c client");
+        log.Value("client", $"{exe} is the {build!.Version} client ({build.Name})");
+        log.Info(ClientBuilds.SupportNote(build));
     }
 
     /// <summary>Client\ holds the checked client when this returns.</summary>
@@ -55,34 +80,66 @@ static class ClientInstall
         log.Step("client-check", "checking the client ...");
         if (Directory.Exists(Folder))
         {
-            string? exe = FindExecutable(Folder, out string problem);
+            string? exe = FindExecutable(Folder, out string problem, out var current);
             if (exe is null) throw new LauncherException(ExitCode.Client, $"{problem} (remove the Client folder to choose another)");
             EnsureGameExe(exe);
             log.Info($"using {Path.GetFullPath(Folder)}");
+            log.Info(ClientBuilds.SupportNote(current!));
+            WarnIfLinked(log);
             return;
         }
 
         string source = options.Client ?? Ask(log);
-        string? found = FindExecutable(source, out string why);
+        string? found = FindExecutable(source, out string why, out var build);
         if (found is null) throw new LauncherException(ExitCode.Client, why);
-        log.Info($"{found} is the 3.29.3c client");
+        log.Info($"{found} is the {build!.Version} client ({build.Name})");
+        log.Info(ClientBuilds.SupportNote(build));
 
-        string mode = options.ClientMode ?? AskMode(source, log);
-        if (mode == "link") Link(source, log);
+        // Always a copy unless a developer asks for the link: only a copy is safe from an update of the player's game, and
+        // leaves their install as it is.
+        if (options.ClientMode == "link")
+        {
+            Link(source, log);
+            WarnIfLinked(log);
+        }
         else Copy(source, log);
         EnsureGameExe(Path.Combine(Folder, Path.GetFileName(found)));
+    }
+
+    /// <summary>The folder Client\ is a link to, unless that is another LocalExile's own client (the Client\ of a checkout
+    /// or a release, shared between the two); null when Client\ is a folder of its own.</summary>
+    static string? LinkedInstall()
+    {
+        var client = new DirectoryInfo(Folder);
+        if (client.LinkTarget is null) return null;
+        string target = Path.TrimEndingDirectorySeparator(client.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? client.LinkTarget);
+        string? parent = Path.GetDirectoryName(target);
+        bool localExile = parent is not null && (File.Exists(Path.Combine(parent, "GameServer.slnx")) || File.Exists(Path.Combine(parent, "release.json")));
+        return localExile ? null : target;
+    }
+
+    /// <summary>A Client\ linked to the player's own install shares its game data: the same words on every start, and in
+    /// Waypoint, because the player may have linked long ago.</summary>
+    static void WarnIfLinked(Output log)
+    {
+        try
+        {
+            if (LinkedInstall() is { } install)
+                log.Warn($"Client is a link to {install}, not a copy. LocalExile changes files in that folder, and a Path of Exile update there can break this LocalExile. A separate copy is safe from both: remove the Client link and run setup again.");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     static string Ask(Output log)
     {
         string? guess = Guesses().FirstOrDefault(g => FindExecutable(g, out _) is not null);
-        if (log.Json) throw log.NeedsInput("--client", "which folder holds the Path of Exile 3.29.3c client?", guess);
+        if (log.Json) throw log.NeedsInput("--client", $"which folder holds the Path of Exile {ClientBuilds.Versions} client?", guess);
         if (guess is not null)
         {
-            Console.Write($"Found the 3.29.3c client in {guess}. Use it? [Y/n] ");
+            Console.Write($"Found the {ClientBuilds.Versions} client in {guess}. Copy it for LocalExile? [Y/n] ");
             if ((Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "" or "y" or "yes") return guess;
         }
-        Console.Write("Folder of your Path of Exile 3.29.3c client: ");
+        Console.Write($"Folder of your Path of Exile {ClientBuilds.Versions} client (it is copied, never changed): ");
         string answer = (Console.ReadLine() ?? "").Trim().Trim('"');
         if (answer.Length == 0) throw new LauncherException(ExitCode.NeedsInput, "no client folder given");
         return answer;
@@ -134,19 +191,6 @@ static class ClientInstall
         return libraries.Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
-    static string AskMode(string source, Output log)
-    {
-        if (log.Json) throw log.NeedsInput("--client-mode", "copy the client (safer, needs the space) or link to it (changes its data)?", "copy");
-        long needed = Size(source);
-        long free = new DriveInfo(Path.GetFullPath(".")).AvailableFreeSpace;
-        Console.WriteLine($"LocalExile changes the client's login list and adds two files beside it. A failed write could damage the client,");
-        Console.WriteLine($"and a newer launcher cannot bring 3.29.3c back, so a separate copy is safer. It needs {needed >> 30} GB; {free >> 30} GB are free here.");
-        Console.Write("[C]opy the client, or [L]ink to it and use that folder itself? [C/l] ");
-        return (Console.ReadLine() ?? "").Trim().ToLowerInvariant() is "l" or "link" ? "link" : "copy";
-    }
-
-    static long Size(string folder) => new DirectoryInfo(folder).EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
-
     static void Link(string source, Output log)
     {
         log.Step("client-link", $"linking Client to {source} ...");
@@ -169,7 +213,8 @@ static class ClientInstall
         var files = new DirectoryInfo(source).EnumerateFiles("*", SearchOption.AllDirectories).ToList();
         long total = files.Sum(f => f.Length), done = 0;
         long free = new DriveInfo(Path.GetFullPath(".")).AvailableFreeSpace;
-        if (free < total) throw new LauncherException(ExitCode.Client, $"copying the client needs {total >> 30} GB and {free >> 30} GB are free; free some space, or use --client-mode link");
+        if (free < total) throw new LauncherException(ExitCode.Client, $"copying the client needs {total >> 30} GB and {free >> 30} GB are free here; free some space, or put LocalExile on a drive that has the room");
+        log.Info("LocalExile works on its own copy of the client: your install is only read, and an update of it cannot reach the copy");
         log.Step("client-copy", $"copying the client ({total >> 30} GB); this can take several minutes ...");
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var report = TimeSpan.FromSeconds(10);

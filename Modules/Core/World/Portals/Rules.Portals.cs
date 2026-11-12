@@ -29,7 +29,7 @@ static partial class PortalsRules
                 if (!Current()) return;
                 if (n++ > 0) await Task.Delay(MapPortalGapMs);
                 if (!Current()) return;
-                uint id = conn.NextObjectId++;
+                uint id = conn.TakeObjectId();
                 var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
                 var (x, y) = device.Campaign && conn.Layout.Walkable is { } walk && !walk(ring.X, ring.Y)
                     ? conn.Layout.Near(ring) : ring;

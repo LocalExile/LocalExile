@@ -202,8 +202,15 @@ placement algorithms remain unknown.
   ordinary monsters and are placed now (before, every "Emerge" Id was skipped; e.g. PusElementalEmerge in 1_4_6_3
   stands as usual); the 63 whose type waits to rise are placed waiting; the 13 whose Transitionable is something else
   (it sets `num_states`, or pauses no clip) are still skipped.
-- Fire Fury uses only her first granted effect. Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
+- A campaign boss plays its whole kit, not just its first granted effect (an act boss, or any variety with
+  `BossHealthBar`, whose row grants more than one attack, spell or projectile; `Modules/Core/Game/Monster/BossKits.cs`).
+  The skill it always had stands first and still chooses on a tie, a ready skill with a cooldown goes before one without,
+  the rest rotate by least recently used, and a skill that reaches nothing in range waits while the boss walks in.
+  Bosses whose MonsterVarieties row has `BossHealthBar` and whose type
   extends `Metadata/Monsters/BossLifeBar` show the big life bar once they aggro (12-quests.md §6).
+- A layout whose room fit finds no boss room at all still places the area's unique bosses: each stands at the walk map's
+  deepest cell from the entrance (clear of the area transitions), the place a boss room would be. Our fallback, chosen so
+  a seed nobody recorded has its boss; the room itself stays unplaced.
 - **Rarity life:** a magic, rare or unique monster has `monster_life_+%_final_from_rarity` of its rarity's monster mod
   (Mods.dat MonsterMagic2 148, MonsterRare2 390, MonsterUnique2 698) on top of its base life; the Gateway applies it
   and sends the stat and the final `maximum_life` in the monster's Stats (the client applies no modifier itself: with
@@ -318,6 +325,14 @@ resistances cannot be penetrated; no monster energy shield and no auras on their
 whether the real server sends the rarity's own mods, and in which list. The monster's attack stats on the client
 (`MonsterAttack.Stats`) keep only its physical damage: the client shows no monster damage, and the server rolls the
 hit.
+
+## ControlZone and Orion's projection
+
+The 3.29.3c ControlZone vtables `0x1435a86b0`, `0x1435a8840`, `0x1435a2078` and `0x1435a7218`
+all use `0x1400f1180` for slot 17: `ret 0`, with no component bytes.
+`AtlasExile5ApparitionDetached` therefore adds nothing after its StateMachine data.
+Orion's ACT maps animation types 36/37/38 to the meteor-maze start/hold/end sequence in both stances.
+His BeamBomb stat set gives separate per-type degeneration; its hit conversion does not convert that degeneration.
 
 ## Maps
 

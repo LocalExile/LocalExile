@@ -14,7 +14,29 @@ const HOOK_VA = ptr('0x1410e00bd');
 const EXPECTED = '488b0848894dc8488d5008488d4dd048';
 
 // The client executable: the .exe module (Process.mainModule can report a driver DLL when attaching late).
-const exe = Process.enumerateModules().find(m => m.name.toLowerCase().endsWith('.exe'));
+const exe = globalThis.protonRecorder
+  ? { name: 'Game.patched.exe', base: ptr(protonRecorder.base), size: protonRecorder.size }
+  : Process.enumerateModules().find(m => m.name.toLowerCase().endsWith('.exe'));
+
+// Proton executes PE code with the Windows x64 argument registers even though Gum runs as a Linux library.
+function attachClient(address, callbacks) {
+  if (globalThis.protonRecorder && callbacks.onEnter) {
+    const enter = callbacks.onEnter;
+    callbacks = { ...callbacks, onEnter(args) {
+      const context = this.context;
+      const windows = new Proxy(args, { get(target, key) {
+        if (typeof key === 'string' && /^\d+$/.test(key)) {
+          const index = Number(key);
+          return index < 4 ? [context.rcx, context.rdx, context.r8, context.r9][index]
+            : context.rsp.add(8 * (index + 1)).readPointer();
+        }
+        return Reflect.get(target, key);
+      }});
+      enter.call(this, windows);
+    }};
+  }
+  return Interceptor.attach(address, callbacks);
+}
 if (!exe) {
   send({ type: 'refused', reason: 'no .exe module in the process' });
 } else {
@@ -25,7 +47,7 @@ if (!exe) {
   if (bytes !== EXPECTED) {
     send({ type: 'refused', reason: `${exe.name} is not the 3.29.3c client (code at the hook does not match)` });
   } else {
-    Interceptor.attach(hook, function () {
+    attachClient(hook, function () {
       try {
         const r = this.context.rax;
         const w = r.readS32(), h = r.add(4).readS32();
@@ -69,7 +91,7 @@ function hookRoomPickProbe(exe) {
     const len = p.add(0x10).readU64().toNumber(), cap = p.add(0x18).readU64().toNumber();
     return (cap > 7 ? p.readPointer() : p).readUtf16String(len);
   };
-  Interceptor.attach(at('0x14210c370'), {
+  attachClient(at('0x14210c370'), {
     onEnter(a) {
       if (currentGen === null) return;
       const area = areaOf();
@@ -97,7 +119,7 @@ function hookRooms(exe) {
   const hook=exe.base.add(ptr('0x142046fc0').sub(IMAGE_BASE));
   const hex=Array.from(new Uint8Array(hook.readByteArray(16))).map(b=>b.toString(16).padStart(2,'0')).join('');
   if(hex!=='488bc44c894820488950104889480855') {send({type:'refused',reason:'room placement hook differs from 3.29.3c'});return;}
-  Interceptor.attach(hook,{onEnter(args){
+  attachClient(hook,{onEnter(args){
     try {
       const r=args[2], handle=r.readPointer(), data=handle.add(0x28).readPointer();
       const path=handle.add(8).readPointer().readUtf16String();
@@ -115,8 +137,18 @@ function hookRooms(exe) {
 //   record: i32 x, i32 y (tile-local cell), f32 z (+0x10), f32 angle (+0x14); +0x30 type, +0x38 .ao (handle+8 → path)
 // The client spawns only its own doodads from them; server types (AreaTransition …) are skipped there, so their
 // placement is computed here the way 0x142035a10 does it, with the constants read from the client.
+// The four data addresses below are the 3.29.3c release's (build 327984). Its 3.29.3.5 hotfix and 3.29.3d have the same
+// code and move data (Agents/docs/re/tooling.md section 11): MOVED lists where each of them sits there.
+const MOVED = {
+  '3.29.3.5': {
+    '0x142faa4d8':'0x142faa4d0','0x1436ae110':'0x1436ae0e0','0x1436ae46c':'0x1436ae43c','0x1436af6cc':'0x1436af69c'},
+  '3.29.3d': {
+    '0x142faa4d8':'0x142faa4d8','0x1436ae110':'0x1436ae060','0x1436ae46c':'0x1436ae3bc','0x1436af6cc':'0x1436af61c'}};
+// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
+const movedData = exe => MOVED[({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[exe.base.add(exe.base.add(0x3c).readU32() + 8).readU32()]] || {};
 function hookTileObjects(exe) {
-  const at = va => exe.base.add(ptr(va).sub(IMAGE_BASE));
+  const moved = movedData(exe);
+  const at = va => exe.base.add(ptr(moved[va] || va).sub(IMAGE_BASE));
   const hook = at('0x142047e30');
   const bytes = Array.from(new Uint8Array(hook.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (bytes !== '488bc448895808555657415441554156') {
@@ -127,7 +159,7 @@ function hookTileObjects(exe) {
   const quarter = at('0x1436ae110').readFloat(), turn = at('0x1436ae46c').readFloat();
   const noHeight = at('0x1436af6cc').readFloat();
   const path = h => { try { return h.isNull() ? null : h.add(8).readPointer().readUtf16String(); } catch (e) { return null; } };
-  Interceptor.attach(hook, {
+  attachClient(hook, {
     onEnter(a) {
       try {
         const ctx = a[0], rec = a[1];
@@ -176,7 +208,7 @@ function hookDoodads(exe) {
   const path = h => { try { return h.isNull() ? null : h.add(8).readPointer().readUtf16String(); } catch (e) { return null; } };
   let batch = [], timer = null;
   const flush = () => { timer = null; if (batch.length) { send({ type: 'doodads', doodads: batch }); batch = []; } };
-  Interceptor.attach(hook, {
+  attachClient(hook, {
     onEnter(a) {
       try {
         const r = a[1];
@@ -206,7 +238,7 @@ function hookDoodads(exe) {
 let heightModule = null;
 function sendCellHeights(area, seed, map, w, h) {
   const fn = exe.base.add(ptr('0x141d880a0').sub(IMAGE_BASE));
-  if (heightModule === null)
+  if (heightModule === null && !globalThis.protonRecorder)
     heightModule = new CModule(`
       typedef int (*height_fn)(void *, int *);
       int cell_heights(void *map, height_fn f, int w, int h, short *out) {
@@ -220,7 +252,7 @@ function sendCellHeights(area, seed, map, w, h) {
           }
         return bad;
       }`);
-  const run = new NativeFunction(heightModule.cell_heights, 'int', ['pointer', 'pointer', 'int', 'int', 'pointer']);
+  const run = new NativeFunction(globalThis.protonRecorder ? ptr(protonRecorder.height) : heightModule.cell_heights, 'int', ['pointer', 'pointer', 'int', 'int', 'pointer']);
   const out = Memory.alloc(w * h * 2);
   const clipped = run(map, fn, w, h, out);
   const rects = map.add(0x138).readPointer().sub(map.add(0x130).readPointer()).toInt32() / 0x30;
@@ -248,7 +280,7 @@ function hookGeneration(exe) {
   let thread = null, draws = [], outerSp = ptr(0), currentSeed = 0;
   const wstring = s => s.add(0x18).readU64().compare(7) > 0 ? s.readPointer().readUtf16String() : s.readUtf16String();
 
-  Interceptor.attach(at(hooks.generate[0]), {
+  attachClient(at(hooks.generate[0]), {
     onEnter(a) {
       this.gen = a[0];
       // A call on the traced thread no deeper than the traced one: that generation threw and never returned.
@@ -337,7 +369,7 @@ function hookGeneration(exe) {
       heightStages = [];
       currentGen = null;
   }
-  const traced = (kind, va0) => Interceptor.attach(at(va0), {
+  const traced = (kind, va0) => attachClient(at(va0), {
     onEnter(a) {
       this.on = this.threadId === thread;
       if (!this.on) return;
@@ -468,7 +500,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   ];
   for (const [name, va0, expected] of dungeonStageHooks) {
     if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `dungeon stage ${name} (${va0}) does not match 3.29.3c` }); continue; }
-    Interceptor.attach(at(va0), {
+    attachClient(at(va0), {
       onEnter(a) {
         this.on = this.threadId === currentThread() && dungeonMap !== null;
         if (!this.on) return;
@@ -482,7 +514,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   }
   // 0x142103de0 after its lookup (rdi): the edge type's room sizes [w, h, weight] and their total (+0x18).
   if (bytesAt(at('0x142103e8e')) === '48897d7f488b47084839070f84fb0300')
-    Interceptor.attach(at('0x142103e8e'), function () {
+    attachClient(at('0x142103e8e'), function () {
       if (this.threadId !== currentThread()) return;
       try {
         const l = this.context.rdi, sizes = [];
@@ -495,7 +527,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   // path (std::wstring +0x20), rect +0x40 x, +0x44 y, +0x48 w, +0x4c h, +0x90 flags (bit 0: .dgr), +0x92 parent.
   const subgraphAt = at('0x14204bb30');
   if (bytesAt(subgraphAt) !== '48895c24184889742420555741544156') send({ type: 'refused', reason: 'subgraph: 0x14204bb30 does not match 3.29.3c' });
-  else Interceptor.attach(subgraphAt, {
+  else attachClient(subgraphAt, {
     onEnter(a) {
       if (this.threadId !== currentThread()) return;
       try {
@@ -509,7 +541,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   });
   if (bytesAt(dungeonAt) !== '4c8bdc4d89431849894b085356574154') send({ type: 'refused', reason: 'dungeon: 0x14210a1d0 does not match 3.29.3c' });
   else {
-    Interceptor.attach(dungeonAt, {
+    attachClient(dungeonAt, {
       onEnter(a) {
         this.on = this.threadId === currentThread();
         if (!this.on) return;
@@ -540,7 +572,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
         dungeonMap = null;
       },
     });
-    Interceptor.attach(roomAt, {
+    attachClient(roomAt, {
       onEnter(a) {
         this.on = this.threadId === currentThread();
         if (!this.on) return;
@@ -561,7 +593,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
     });
   }
   if (bytesAt(at('0x1420f5510')) !== '48895c24204c89442418555657415441') send({ type: 'refused', reason: 'fills: 0x1420f5510 does not match 3.29.3c' });
-  else Interceptor.attach(at('0x1420f5510'), {
+  else attachClient(at('0x1420f5510'), {
     onEnter(a) {
       if (this.threadId !== currentThread()) return;
       try {
@@ -571,7 +603,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
     },
   });
   if (bytesAt(at('0x1420fa6e0')) !== '48895c2418574883ec304c8bd24c8bd9') send({ type: 'refused', reason: 'fills: 0x1420fa6e0 does not match 3.29.3c' });
-  else Interceptor.attach(at('0x1420fa6e0'), {
+  else attachClient(at('0x1420fa6e0'), {
     onEnter(a) {
       this.on = this.threadId === currentThread();
       if (!this.on) return;
@@ -613,7 +645,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   ];
   for (const [name, va0, expected] of heightHooks) {
     if (bytesAt(at(va0)) !== expected) { send({ type: 'refused', reason: `heights ${name} (${va0}) does not match 3.29.3c` }); continue; }
-    Interceptor.attach(at(va0), {
+    attachClient(at(va0), {
       onEnter() {
         this.on = this.threadId === currentThread() && currentGen !== null;
         if (!this.on) return;
@@ -642,7 +674,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   const paintAt = at('0x142117660');
   const paintBytes = Array.from(new Uint8Array(paintAt.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (paintBytes !== '48895c2410488974241848897c242055') send({ type: 'refused', reason: 'paint: 0x142117660 does not match 3.29.3c' });
-  else Interceptor.attach(paintAt, {
+  else attachClient(paintAt, {
     onEnter(a) {
       this.on = this.threadId === currentThread() && paint === null;
       if (!this.on) return;
@@ -664,7 +696,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
   const fillAt = at('0x141ff5890');
   const fillBytes = Array.from(new Uint8Array(fillAt.readByteArray(16))).map(b => b.toString(16).padStart(2, '0')).join('');
   if (fillBytes !== '48895c2418565741564883ec30488bf1') send({ type: 'refused', reason: 'fill vertices: 0x141ff5890 does not match 3.29.3c' });
-  else Interceptor.attach(fillAt, {
+  else attachClient(fillAt, {
     onEnter(a) {
       if (this.threadId !== currentThread() || fillVertices !== null) return;
       try {
@@ -694,7 +726,7 @@ function hookGraphStages(exe, currentThread, drawCount) {
       send({ type: 'refused', reason: `graph snapshot: ${name} (${va0}) does not match 3.29.3c` });
       continue;
     }
-    Interceptor.attach(at(va0), {
+    attachClient(at(va0), {
       onEnter(a) {
         this.on = this.threadId === currentThread();
         if (!this.on) return;

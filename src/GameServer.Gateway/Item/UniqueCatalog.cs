@@ -8,10 +8,11 @@ using GameServer.Core;
 /// it, so each definition below lists them from the game's data (poedb: Mageblood, 3.29). The base type's implicits are
 /// rolled by <see cref="ItemCatalog.Create"/>; the unique's own mods are explicit and rolled once per item.
 /// </summary>
-public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
+public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
-    // Several native names use a typographic apostrophe while the definition export uses ASCII.
-    public static string NameKey(string name) => name.Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
+    // Several native names use a typographic apostrophe while the definition export uses ASCII; one ends in a space
+    // ("Demigod's Immortality ").
+    public static string NameKey(string name) => name.Trim().Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
     {
         "Rigwald's Charge" => "Rigvald's Charge",
         "The Broken Elegy" => "Broken Elegy",
@@ -26,11 +27,9 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// <summary>How a stat of a mod rolls on one unique, or null for the mod's own range.</summary>
     public delegate (int Min, int Max)? StatRoll(ModCatalog.Mod mod, ModSection section, int stat);
 
-    public sealed record RollGroup(int Count, string[] Options, int? HighLevel = null, int? HighLevelCount = null);
-
     /// <summary>One unique. <paramref name="Implicits"/> replaces the base type's own when the unique differs from it
     /// (null keeps the base's). The first <paramref name="Fractured"/> of <paramref name="Mods"/> are fractured.</summary>
-    public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
+    public sealed partial record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0, bool EncounterOnly = false,
         RollGroup[]? RollGroups = null, int JewelLimit = 0);
@@ -159,20 +158,7 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
-        foreach (var pool in definition.RollGroups ?? [])
-        {
-            int count = pool.HighLevel is int level && definition.ItemLevel >= level
-                ? pool.HighLevelCount ?? pool.Count : pool.Count;
-            var options = pool.Options.ToArray();
-            if (count < 0 || options.Length < count) return null;
-            for (int i = 0; i < count; i++)
-            {
-                int choice = random.Next(i, options.Length);
-                (options[i], options[choice]) = (options[choice], options[i]);
-                if (items.Mods.ById(options[i]) is not { } mod) return null;
-                mods.Add(mod.Roll(ModSection.Explicit, random));
-            }
-        }
+        if (!RollEncounterModifiers(definition, random, mods)) return null;
         item = item with { Mods = mods };
         if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
             && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")
@@ -187,6 +173,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         bool abyss = local.Keys.Any(id => id is "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets");
         if (local.ContainsKey("local_has_no_sockets")) return item with { Sockets = [], Links = null };
         if (type.Id == AbyssJewels.StygianVise) return AbyssJewels.StygianSockets(item, local);
+        if (local.GetValueOrDefault("local_has_X_abyss_sockets") > 0)
+            return AbyssJewels.EquipmentSockets(item, type, items, local, random);
         if (!abyss && local.ContainsKey("local_six_linked_random_sockets"))
         {
             int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));

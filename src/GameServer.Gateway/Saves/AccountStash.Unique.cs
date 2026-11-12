@@ -36,6 +36,27 @@ public sealed partial class AccountStash
         }
     }
 
+    // Called while loading, before the first tab list is sent. Old saves keep their child indices and items.
+    void EnsureUniqueChildren()
+    {
+        var added = new List<int>();
+        for (int parent = 0; parent < _tabs.Count; parent++)
+        {
+            var tab = _tabs[parent].Saved;
+            if (tab.Type != StashRules.Unique || tab.UniqueCategory != 0) continue;
+            var categories = UniqueChildren(parent).Select(i => _tabs[i].Saved.UniqueCategory).ToHashSet();
+            foreach (var (key, name) in _rules.Uniques.Categories)
+            {
+                if (categories.Contains(key)) continue;
+                int index = _tabs.Count;
+                if (index >= ushort.MaxValue) throw new InvalidOperationException("Too many stash tabs");
+                _tabs.Add(new(new SavedTab(name, StashRules.Unique, 0, 0, 0, [], UniqueCategory: key, Parent: (ushort)parent)));
+                added.Add(index);
+            }
+        }
+        if (added.Count > 0) Persist([.. added]);
+    }
+
     public sealed record UniqueFill(int Added, int Present, IReadOnlyList<string> Skipped);
 
     public UniqueFill FillUniques(int parent, UniqueCatalog catalog, Func<Item, PlayerInventories.Shape?> shapeOf)
@@ -49,14 +70,6 @@ public sealed partial class AccountStash
                 if (_rules.Uniques.Categories.Count == 0) throw new InvalidOperationException("Unique collection layout data is unavailable");
                 var children = UniqueChildren(parent).ToDictionary(i => _tabs[i].Saved.UniqueCategory);
                 var changed = new HashSet<int>();
-                foreach (var (category, name) in _rules.Uniques.Categories)
-                    if (!children.ContainsKey(category))
-                    {
-                        int index = _tabs.Count;
-                        if (index >= ushort.MaxValue) throw new InvalidOperationException("Too many stash tabs");
-                        _tabs.Add(new(new SavedTab(name, StashRules.Unique, 0, 0, 0, [], UniqueCategory: category, Parent: (ushort)parent)));
-                        children.Add(category, index); changed.Add(index);
-                    }
                 int added = 0, present = 0; var skipped = new List<string>();
                 var considered = new HashSet<(ulong Category, byte X, byte Y)>();
                 foreach (var entry in catalog.CollectionItems(Random.Shared))

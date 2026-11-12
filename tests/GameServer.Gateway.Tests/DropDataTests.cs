@@ -9,7 +9,7 @@ public sealed class DropDataTests
         var counts = store.DropCounts();
         Assert.Equal(24, counts.CurrencyWeights);
         Assert.Equal(630, counts.Bosses);
-        Assert.Equal(108, counts.BossItems);
+        Assert.Equal(109, counts.BossItems);
         Assert.Equal(555, counts.CardAreas);
         Assert.Equal(531, counts.ItemWeights);
 

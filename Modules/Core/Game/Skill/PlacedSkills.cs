@@ -61,7 +61,7 @@ public static partial class Game
                 if (!current() || conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || !conn.Layout.WalkableFor(aim.X, aim.Y, 0)) return null;
                 var context = ReservationContext(conn, skill);
                 var reserve = kind.Mine ? SupportedReservation(conn, skill) : null;
-                uint id = conn.NextObjectId++;
+                uint id = conn.TakeObjectId();
                 double now = AreaTime(conn);
                 double flight = Get("trap_throw_arm_time_override") is > 0 and var armMs ? armMs / 1000d : kind.Mine ? .6 : .975;
                 double land = now + flight;

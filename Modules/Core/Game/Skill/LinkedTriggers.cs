@@ -82,6 +82,7 @@ public static partial class Game
                 SkillsFor(conn).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level));
             var player = CharacterPlayerStats(conn);
             double rate = Math.Max(0, 1 + (GolemStat(player, "virtual_cooldown_speed_+%")
+                + GolemStat(player, "base_spell_cooldown_speed_+%") + GolemStat(gem.Stats, "base_spell_cooldown_speed_+%")
                 + GolemStat(gem.Stats, "base_cooldown_speed_+%") + GolemStat(gem.Stats, "virtual_cooldown_speed_+%")) / 100d);
             state.ReadyAt[gem.Effect] = milliseconds == 0 ? now
                 : rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;

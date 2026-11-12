@@ -15,11 +15,11 @@ how to pick up an item). The protocol reference and the notes are in
 **Full guide: [Agents/GettingStarted.md](Agents/GettingStarted.md).** It covers every step with its expected output, the edge cases
 and a troubleshooting table. It is written for people and for AI agents setting this up.
 
-In short (Windows, .NET 10 SDK, a standalone or Steam Path of Exile **3.29.3c** client; Linux is covered in the full guide):
+In short (Windows, .NET 10 SDK, a standalone or Steam Path of Exile **3.29.3c** or **3.29.3d** client; Linux is covered in the full guide):
 
 ```powershell
 dotnet build GameServer.slnx
-robocopy "<your PoE 3.29.3c folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
+robocopy "<your PoE folder>" Client /E; Copy-Item Client\PathOfExile.exe Client\Game.exe
 dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Patch -- gateway --login 127.0.0.1:20493

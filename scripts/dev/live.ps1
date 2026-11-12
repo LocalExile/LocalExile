@@ -39,6 +39,9 @@
 #               trimmed working set, freed memory returned at once and the Null buffers' unused copies uncommitted
 #               (about 1.6 GB commit, no GPU memory, ~20 % of a core in town). Without it the session's settings decide
 #               the renderer (the preset: DirectX 11).
+#   -Sound      the -Session client keeps its sound. A session client starts through scripts/dev/nullifier.py, which
+#               appends --nosound (and its preset is a silent one); this hands it --sound instead, for a client that has
+#               to be heard (a skill's sound as it plays). Without it: --nosound, as before.
 #   -Agent      one agent's whole setup in one command: this checkout's servers and one -Nullifier client of session
 #               'agent' (or -Session). The port base is -PortBase, else Game_PORT_BASE, else the one data\stack.json
 #               recorded, else the first block of 100 from 21000 to 29900 whose five ports nothing listens on and no
@@ -51,7 +54,7 @@
 #   script stops is this checkout's own (its paths, or the client PIDs it recorded in data\clients\), never another's.
 param([switch]$NoClient, [switch]$NoBuild, [switch]$NoExtract, [switch]$Walkmaps, [switch]$ClientOnly, [switch]$NoHotReload,
     [ValidateSet('Auth', 'Patch', 'Gateway')][string[]]$Only = @(), [int]$PortBase = -1, [string]$Session = $env:Game_CLIENT_SESSION,
-    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug)
+    [string]$SeedConfig = $env:Game_CLIENT_SEED_CONFIG, [switch]$Stop, [switch]$Nullifier, [switch]$Agent, [switch]$Release, [switch]$Debug, [switch]$Sound)
 
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
@@ -226,10 +229,11 @@ function Assert-GlobalSlot([int[]]$exclude = @()) {
 # Starts a session client through scripts/dev/nullifier.py, detached (it lives as long as its client), and waits until it
 # has merged the client's PID and start time (and its own) into the pending record. On failure (the launcher ended, or
 # no client within 60 s) the launcher and what it started are stopped, the record goes, and this throws.
-function Start-SessionLauncher([string]$session, [string]$folder, [string]$record, $stack, [bool]$nullifier) {
+function Start-SessionLauncher([string]$session, [string]$folder, [string]$record, $stack, [bool]$nullifier, [bool]$sound) {
     $python = Get-Python 'session clients (scripts/dev/nullifier.py)'
     $arguments = @((Join-Path $repo 'scripts\dev\nullifier.py'), '--cwd', $folder, '--record', $record,
         '--patch-port', "$($stack.Ports.patch)", '--login-port', "$($stack.Ports.login)")
+    if ($sound) { $arguments += '--sound' }
     # -Nullifier: the Null renderer, trimming, the allocator returning freed memory at once and the Null buffers' unused
     # CPU copies left uncommitted (Agents/docs/dev/headless-client.md §6).
     $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10', '--mimalloc', 'purge_delay=0',
@@ -310,12 +314,18 @@ function Stop-Processes($processes) {
 # A virtual environment in the repository (.venv) wins over the python on PATH; it needs Frida (walkmaps.py,
 # nullifier.py).
 function Get-Python([string]$purpose) {
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $repo $(if ($IsLinux) { '.venv/bin/python' } else { '.venv\Scripts\python.exe' })
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
     Need $python "Python not found (needed for $purpose)"
-    & $python -c 'import frida' 2>$null
-    Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    if (-not ($IsLinux -and $purpose -eq '-Walkmaps')) {
+        & $python -c 'import frida' 2>$null
+        Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    }
+    if ($IsLinux -and $purpose -eq '-Walkmaps') {
+        & $python (Join-Path $repo 'scripts/walkmaps/proton.py') prepare | Out-Host
+        Need ($LASTEXITCODE -eq 0) 'could not prepare the Proton recorder (needs g++ and the official Frida GumJS development kit)'
+    }
     $python
 }
 
@@ -380,6 +390,12 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     # --repair gives a zero root hash a value (the client never skips patching with one).
     & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash $client --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
+    # Which allowed client build this is, and the versions LocalExile supports (ClientBuilds).
+    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
+    if (Test-Path $authTool) {
+        & dotnet $authTool build (Join-Path $client 'Game.exe') 2>$null | Where-Object { $_ -like 'This client is *' } |
+            ForEach-Object { Write-Host $_ }
+    }
     $folder = $client
     if ($session -ne 'default') {
         $folder = Join-Path $clients $session
@@ -430,7 +446,7 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     # Whatever fails from here on leaves no pending record behind.
     try {
         if ($session -ne 'default') {
-            Start-SessionLauncher $session $folder $record $stack $nullifier
+            Start-SessionLauncher $session $folder $record $stack $nullifier $sound
             return
         }
         $p = if ($IsLinux) { Start-WineClient $client $stack.Ports.patch }
@@ -563,6 +579,13 @@ if ($ClientOnly) {
     $python = if ($Walkmaps) { Get-Python '-Walkmaps' } else { $null }
     $existing = @(Get-OwnClients $session)
     if ($existing.Count) {
+        if ($Walkmaps -and $IsLinux) {
+            $maps = try { [IO.File]::ReadAllText("/proc/$($existing[0].ProcessId)/maps") } catch { '' }
+            $helper = [regex]::Escape((Join-Path $repo 'Tools/frida/')) + '[^/]+/proton-recorder\.so'
+            if (-not @(Get-OwnWalkmaps).Count -or $maps -notmatch $helper) {
+                throw 'Linux capture must start with the client: stop this client with -Stop -ClientOnly, then use -ClientOnly -Walkmaps'
+            }
+        }
         if ($Walkmaps) { Start-Recorder $python }
         Write-Output "client already running: $($existing[0].ProcessId)"
         return
@@ -712,7 +735,9 @@ $serverEnv = @{
 $envBefore = @{}
 foreach ($name in $serverEnv.Keys) {
     $envBefore[$name] = [Environment]::GetEnvironmentVariable($name)
-    [Environment]::SetEnvironmentVariable($name, $serverEnv[$name])
+    # PowerShell converts $null to an empty string here; .NET on Linux preserves an empty environment value.
+    if ($null -eq $serverEnv[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+    else { [Environment]::SetEnvironmentVariable($name, $serverEnv[$name]) }
 }
 Step "starting servers: $($servers -join ', ') ..."
 try {
@@ -728,7 +753,12 @@ try {
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
 }
-finally { foreach ($name in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) } }
+finally {
+    foreach ($name in $envBefore.Keys) {
+        if ($null -eq $envBefore[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+        else { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) }
+    }
+}
 
 # A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
 if ($Watch) {

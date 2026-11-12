@@ -70,7 +70,7 @@ public static partial class Game
             double at = conn.Clock.Elapsed.TotalSeconds;
             (int X, int Y) self = default;
             if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
-                gem.Name is null ? null : CooldownFor(conn, gem.Effect, gem.Level, gem.Quality), false,
+                gem.Name is null ? null : CooldownForSkill(conn, use.SkillId), false,
                 () =>
                 {
                     Interlocked.Increment(ref conn.ActionCount);
@@ -173,6 +173,36 @@ public static partial class Game
         var transfer = LabyrinthDay.Transfer(CharacterName(conn), conn.Layout.Id, conn.Seed, transition.SourceType, dest,
             AreaTransitionCatalog.IdOf(dest), transition.Entrance) ?? new PendingTransfer(dest, 0, false);
         await ChangeArea(remote, stream, ciphers, conn, transfer, use.ToString());
+    }
+
+    // karui_fortress_01/02: miniboss.arm has two bridges in one graph node. Its four telepad
+    // points are in file order: arena, exterior, arena, exterior. Each pair belongs to one bridge.
+    internal static void PrepareKaruiBridgeGates(ClientState conn)
+    {
+        var layout = conn.Layout;
+        if (layout.Id != "2_6_5" || layout.Level is not { } level) return;
+        var room = level.Records.SelectMany(r => r.Rooms).FirstOrDefault(r =>
+            r.Room.Path.Equals("Metadata/Terrain/Act6/Area5/Rooms/miniboss.arm", StringComparison.OrdinalIgnoreCase));
+        if (room is null) return;
+        var pads = room.Room.Points.Where(p => p.Name == "telepad").Select(p =>
+        {
+            var (x, y) = GameServer.Data.Terrain.Generation.Orientation.Map(room.Orientation, (int)p.X, (int)p.Y,
+                room.Room.Width * 23, room.Room.Height * 23);
+            return (X: room.X * 23 + x, Y: room.Y * 23 + y);
+        }).ToArray();
+        var gates = layout.AreaTransitions.Where(g => g.Transition.TeleportTo.HasValue
+            && g.Transition.Model?.Contains("/swamp_longbridge_v01_01_area_transition", StringComparison.OrdinalIgnoreCase) == true).ToArray();
+        if (pads.Length != 4 || gates.Length != 4) return;
+        var at = pads.Select(p => gates.MinBy(g => Dist(p, (g.Transition.GridX, g.Transition.GridY)))).ToArray();
+        if (at.Select(g => g.Id).Distinct().Count() != pads.Length) return;
+        uint? keep = gates.Select(g => g.Transition.Label).FirstOrDefault(label => label.HasValue);
+        for (int i = 0; i < pads.Length; i++)
+        {
+            bool entering = i % 2 == 1;
+            var (id, gate) = at[i];
+            var destination = pads[entering ? i - 1 : i + 1];
+            conn.ReplaceAreaTransition(id, gate with { TeleportTo = destination, Label = entering ? keep : null });
+        }
     }
 
     // Arakaali's return gate and telepad are on the balcony outside her closed web. Until the encounter's scripted

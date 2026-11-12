@@ -92,7 +92,7 @@ public static partial class Game
     static int Get(IReadOnlyDictionary<uint, int> stats, string name) =>
         Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
 
-    static int LowLifeThresholdPct(IReadOnlyDictionary<uint, int> stats) =>
+    internal static int LowLifeThresholdPct(IReadOnlyDictionary<uint, int> stats) =>
         LowLife.Threshold(Get(stats, "low_life_threshold_%_override"), Get(stats, "low_life_threshold_%"));
 
     // The invisible slow_life_loss_from_hit_damage buff (BuffDefinitions 1796) draws the dark deferred-loss overlay

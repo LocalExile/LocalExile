@@ -85,6 +85,12 @@ public sealed class SocialModule : IModule
             // Not a player here: another module may own the name (the PlayerBots module's bots).
             return await SocialFeature.InviteToParty(remote, conn, InstanceSocial.ReadPartyInvite(bytes));
         });
+        GameEvents.Packet(InstanceSocial.PartyKickId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            var remote = conn.Wire.Remote;
+            // Not a player party: another module may own it (the PlayerBots module's bots).
+            return await SocialFeature.KickOrCancelParty(remote, conn, InstanceSocial.ReadPartyKick(bytes));
+        });
         GameEvents.Packet(InstanceSocial.PartyAcceptId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var remote = conn.Wire.Remote;
@@ -260,6 +266,62 @@ static class SocialFeature
             await Program.SetPartySize(m, 1);
         }
         return true;
+    }
+
+    // C→S 0x94: "Kick" on a party member (the leader only) or "Cancel" on a pending invitation, from the Social party
+    // tab (0x140a68080, functor 0x140a95010; the HUD party menu 0x140ab8ed0). The wstr is the target's character name
+    // (the known-player +0x40 that S→C 0xa7 writes at +0x70), not the account name. The member is removed from the
+    // party, or the invitation dropped: that player gets 0xaa and the rest the smaller party (0xa9), or the party is
+    // disbanded (0xaa to each) below two members, as LeaveParty does. A player who does not lead the party is refused.
+    // A player in no party is left to another module (the PlayerBots one owns its bots' parties).
+    internal static async Task<bool> KickOrCancelParty(string remote, ClientState conn, string name)
+    {
+        // A pending invitation this player sent: the invited player has not joined, so there is no party yet.
+        foreach (var (party, invite) in PartyInvites)
+            if (ReferenceEquals(invite.Leader, conn) && string.Equals(CharacterName(invite.Invited), name, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!PartyInvites.TryRemove(party, out _)) continue;
+                Console.WriteLine($"[gateway] {remote} <= 0x0094 party invite to {name} cancelled (party 0x{party:x})");
+                await SendTo(invite.Invited, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (invite cancelled)");
+                return true;
+            }
+
+        foreach (var (party, members) in Parties)
+        {
+            ClientState[] snapshot;
+            lock (members) snapshot = [.. members];
+            if (!snapshot.Contains(conn)) continue;
+            if (!ReferenceEquals(snapshot[0], conn))
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x0094 kick \"{name}\": {CharacterName(conn)} does not lead party 0x{party:x}");
+                return true;
+            }
+            var kicked = snapshot.FirstOrDefault(m => !ReferenceEquals(m, conn)
+                && string.Equals(CharacterName(m), name, StringComparison.OrdinalIgnoreCase));
+            if (kicked is null)
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x0094 kick \"{name}\": no such member in party 0x{party:x}");
+                return true;
+            }
+            ClientState[] left;
+            lock (members)
+            {
+                if (!members.Remove(kicked)) return true; // left on its own in between
+                left = [.. members];
+            }
+            Console.WriteLine($"[gateway] {remote} <= 0x0094 {CharacterName(kicked)} kicked from party 0x{party:x}: {left.Length} left");
+            await SendTo(kicked, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (kicked)");
+            await Program.SetPartySize(kicked, 1);
+            if (left.Length >= 2) { await SendParty(party); return true; }
+            Parties.TryRemove(party, out _);
+            foreach (var m in left)
+            {
+                await SendTo(m, InstanceSocial.PartyRemove(party), $"0x00aa party 0x{party:x} removed (disbanded)");
+                await Program.SetPartySize(m, 1);
+            }
+            return true;
+        }
+        return false;
     }
 
     // C→S 0xba: "Trade" on another player in the same instance. The requester sees the waiting notice (0xb8 without

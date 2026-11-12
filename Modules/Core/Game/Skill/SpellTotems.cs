@@ -9,14 +9,15 @@ public static partial class Game
     static readonly ConditionalWeakTable<TotemState.Totem, SupportedGem> TotemSources = new();
     public static bool SpellTotemEffect(ClientState conn, int effect) => SkillsFor(conn).IsSpell(effect)
         && !SkillsFor(conn).IsAttack(effect) && !SkillsFor(conn).IsTravel(effect)
-        && Supports.Of(effect)?.Types.Contains(47) != true && UsesProjectileRuntime(effect)
-        && ResolveProjectileDefinition(effect) is not null
+        && Supports.Of(effect)?.Types.Contains(47) != true
+        && (SkillsFor(conn).EffectId(effect) == "Arc" || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
         && SkillHitPlan.ForSkill(SkillsFor(conn), effect, 1).CanHit;
     static bool SameTotemSource(SupportedGem a, SupportedGem b) => a.Host == b.Host && a.Group == b.Group
-        && a.Effect == b.Effect && a.Level == b.Level && a.Quality == b.Quality
+        && a.Effect == b.Effect && a.Quality == b.Quality
         && a.SourceGem is not null && b.SourceGem is not null
         && ReferenceEquals(PlayerInventories.GemIdentity(a.SourceGem), PlayerInventories.GemIdentity(b.SourceGem))
-        && a.Supports.Select(s => s.Gem).SequenceEqual(b.Supports.Select(s => s.Gem));
+        && a.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality))
+            .SequenceEqual(b.Supports.Select(s => (s.Gem.Effect, s.Gem.Socket, s.Gem.Quality)));
     public static void BindTotemSource(ClientState conn, TotemState.Totem totem)
     {
         TotemSources.Remove(totem); TotemSources.Add(totem, SupportedSkill(conn, totem.SkillId));
@@ -25,8 +26,9 @@ public static partial class Game
     public static Dictionary<uint, int> TotemCasterStats(IReadOnlyDictionary<uint, int> owner)
     {
         var caster = new Dictionary<uint, int>(owner);
-        // This prohibition belongs to the owner (Ancestral Bond); type prohibitions remain inherited.
-        caster.Remove(StatKeys.SpellSkillsDealNoDamage);
+        // Only owner-only prohibitions are bypassed. Gruthkul's spell prohibition still belongs to the spell.
+        foreach (string name in new[] { "keystone_ancestral_bond", "deal_no_damage_yourself" })
+            if (Stats.Key(name) is uint key) caster.Remove(key);
         // Arcane Surge is a buff on the owner, not on his totems: its more Spell Damage stays his.
         if (Stats.Key(ArcaneSurgeSpellMore) is uint arcane) caster.Remove(arcane);
         return caster;
@@ -117,9 +119,20 @@ public static partial class Game
             var session = ProjectilesFor(remote, stream, ciphers, conn);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
+            bool arc = SkillsFor(conn).EffectId(gem.Effect) == "Arc";
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
-                0x4000, sequence, 0x0408));
+                0x4000, sequence, 0x0408, targetObjectId: arc ? target.Key : null));
             var lifetime = CombatLifetime;
+            if (arc)
+            {
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem)
+                        && conn.Monsters.GetValueOrDefault(target.Key) == target.Value)
+                        ReleaseArcTotem(conn, session, totem, target.Key, sequence);
+                });
+                continue;
+            }
             session.Schedule(ProjectileRuntime.Time(totem.NextCast),
                 () => ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(conn, totem),
                 () =>

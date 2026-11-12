@@ -18,7 +18,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [01](../docs/protocol/01-login.md), [re/008](../docs/re/008-login-handshake.md),
   [re/009](../docs/re/009-login-messages.md).
 - Saving characters: items, equipment, sockets and the skill bar per character in `data/characters.db` (a new bar: the
-  default attack on the left mouse button, gem skills into empty slots only, right mouse button first);
+  default attack on the left mouse button, new gem skills into available slots, preserving manual clears, right mouse button first);
   the bar is restored with S→C 0x53 after login and area changes (binds are C→S 0x4e).
   Code: `CharacterSaves.cs`, `PlayerInventories.cs`, Gateway.
   Docs: [11](../docs/protocol/11-skills.md) §11, [13](../docs/protocol/13-items.md) §7.
@@ -47,6 +47,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   connection; playable characters can enter again.
   Code: Gateway.
   Docs: [09](../docs/protocol/09-area-change.md) §6.
+- Item filters added to `My Games\Path of Exile` appear without a restart: login 0x04's data carries the account name,
+  so opening Options fetches the online filter list (from GGG's `web.poecdn.com`) and then rescans the folder.
+  Code: `LoginServerSession.cs`.
+  Docs: [01](../docs/protocol/01-login.md) §4.
 
 ## Partly working
 

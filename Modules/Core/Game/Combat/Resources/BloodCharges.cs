@@ -28,12 +28,12 @@ public static class BloodCharges
     /// multiplier of value × charges (PoB's Multiplier tag), not compounded, never below zero.</summary>
     public static double More(int perCharge, int held) => Math.Max(0, 100 + (long)perCharge * Math.Max(0, held)) / 100.0;
 
-    /// <summary>The charges after a use of the skill: one fewer per enemy its hit killed (<paramref name="kills"/>), then
-    /// one more when any hit enemy survived (<paramref name="survivors"/>), within 0 and <paramref name="maximum"/>.</summary>
+    /// <summary>The charges after a use of the skill: one fewer per enemy its hit killed (<paramref name="kills"/>), or
+    /// one more when all hit enemies survived (<paramref name="survivors"/>), within 0 and <paramref name="maximum"/>.</summary>
     public static int Settle(int held, int kills, int survivors, int maximum)
     {
         int after = Math.Max(0, held - Math.Max(0, kills));
-        if (survivors > 0) after++;
+        if (kills == 0 && survivors > 0) after++;
         return Math.Clamp(after, 0, Math.Max(0, maximum));
     }
 }

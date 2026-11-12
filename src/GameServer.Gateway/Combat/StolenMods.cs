@@ -1,17 +1,11 @@
 using GameServer.Core.Protocol.Instance;
 
-/// <summary>
-/// Headhunter's "When you Kill a Rare monster, you gain its Modifiers" (Agents/docs/protocol/13-items.md §2e), by the
-/// project's own rule rather than the mod's 20 seconds: the rare's affixes, not its rarity's own mods, become character
-/// stats. Each different modifier is one stack with its own <see cref="Seconds"/>; getting it again resets its time and adds
-/// nothing. One stolen_mods_buff shows them: the number of stacks, and the time of the one that lasts longest.
-/// Stats that act on a monster but not on a player here (no consumer on the character) do nothing, as any unread stat from
-/// gear does. One per connection: like a flask's effect, they end with an area change or death.
-/// </summary>
+/// <summary>Each stolen affix contributes its stats once. The belt and jewel have independent buff timers.</summary>
 public sealed class StolenMods
 {
     /// <summary>BuffDefinitions row of <c>stolen_mods_buff</c> ("Headhunter", no stats of its own, cancelled on death).</summary>
     public const ushort BuffRow = 269;
+    public const ushort InspiredLearningBuffRow = 874;
 
     /// <summary>On Headhunter's GainRareMonsterModsOnKillUniqueBelt7_: having it is what steals.</summary>
     public const string SourceStat = "gain_rare_monster_mods_on_kill_ms";
@@ -21,7 +15,8 @@ public sealed class StolenMods
     /// <summary>How long each Headhunter modifier lasts.</summary>
     public const double Seconds = 60;
 
-    sealed record Stack(IReadOnlyList<(string Stat, int Value)> Stats, double Ends);
+    sealed record Stack(IReadOnlyList<(string Stat, int Value)> Stats, double BeltEnd, double JewelEnd);
+    public readonly record struct Buff(int Count, double Remaining);
 
     readonly Dictionary<ushort, Stack> _stacks = [];
     readonly Lock _lock = new();
@@ -29,27 +24,34 @@ public sealed class StolenMods
 
     /// <summary>A slain monster's affixes: each one's stats by Stats.dat Id, by the affix's Mods.dat hash.</summary>
     public void Steal(MonsterModSet mods, ModCatalog catalog, double now) =>
-        Add(mods.Affixes, catalog, now + Seconds);
+        Add(Eligible(mods, catalog), catalog, now + Seconds, belt: true);
 
     public void StealRandom(MonsterModSet mods, ModCatalog catalog, int count, double now, Random random)
     {
         if (count <= 0) return;
-        var eligible = mods.Affixes.Where(affix => catalog.ByHash(affix.Hash) is
-            { Name: not ("Fractured" or "Inner Treasure" or "Soul Conduit") }).DistinctBy(affix => affix.Hash).ToArray();
+        var eligible = Eligible(mods, catalog).ToArray();
         random.Shuffle(eligible);
-        Add(eligible.Take(count), catalog, now + 20);
+        Add(eligible.Take(count), catalog, now + 20, belt: false);
     }
 
-    void Add(IEnumerable<ItemMod> affixes, ModCatalog catalog, double ends)
+    static IEnumerable<ItemMod> Eligible(MonsterModSet mods, ModCatalog catalog) =>
+        mods.Affixes.Where(affix => catalog.ByHash(affix.Hash) is
+            { Name: not ("Fractured" or "Inner Treasure" or "Soul Conduit") }).DistinctBy(affix => affix.Hash);
+
+    void Add(IEnumerable<ItemMod> affixes, ModCatalog catalog, double ends, bool belt)
     {
         lock (_lock)
             foreach (var affix in affixes)
-                if (catalog.ByHash(affix.Hash) is { } mod
-                    && (!_stacks.TryGetValue(affix.Hash, out var old) || old.Ends <= ends))
-                {
-                    _stacks[affix.Hash] = new([.. mod.Stats.Zip(affix.Values, (stat, value) => (stat.Id, value))], ends);
-                    _changed = true;
-                }
+            {
+                if (catalog.ByHash(affix.Hash) is not { } mod) continue;
+                var old = _stacks.GetValueOrDefault(affix.Hash);
+                double beltEnd = old?.BeltEnd ?? 0, jewelEnd = old?.JewelEnd ?? 0;
+                var stats = old is not null && Math.Max(beltEnd, jewelEnd) > ends ? old.Stats
+                    : mod.Stats.Zip(affix.Values, (stat, value) => (stat.Id, value)).ToArray();
+                _stacks[affix.Hash] = new(stats, belt ? Math.Max(beltEnd, ends) : beltEnd,
+                    belt ? jewelEnd : Math.Max(jewelEnd, ends));
+                _changed = true;
+            }
     }
 
     /// <summary>What the stacks add, summed.</summary>
@@ -64,21 +66,29 @@ public sealed class StolenMods
         get { lock (_lock) return _stacks.Count; }
     }
 
-    /// <summary>Ends the stacks due by <paramref name="now"/>, all of them on <paramref name="dead"/>. Null when nothing
-    /// changed since the last step; else what the buff should say now (no stacks: no buff).</summary>
-    public (int Stacks, double Remaining)? Step(double now, bool dead)
+    public (int Stacks, double Remaining)? Step(double now, bool dead) => Step(now, dead, out _, out _);
+
+    public (int Stacks, double Remaining)? Step(double now, bool dead, out Buff belt, out Buff jewel)
     {
         lock (_lock)
         {
-            foreach (var (hash, stack) in _stacks.ToList())
-                if (dead || stack.Ends <= now)
+            belt = jewel = default;
+            foreach (var (hash, stack) in _stacks.ToArray())
+            {
+                double beltEnd = dead || stack.BeltEnd <= now ? 0 : stack.BeltEnd;
+                double jewelEnd = dead || stack.JewelEnd <= now ? 0 : stack.JewelEnd;
+                if (beltEnd != stack.BeltEnd || jewelEnd != stack.JewelEnd)
                 {
-                    _stacks.Remove(hash);
+                    if (beltEnd == 0 && jewelEnd == 0) _stacks.Remove(hash);
+                    else _stacks[hash] = stack with { BeltEnd = beltEnd, JewelEnd = jewelEnd };
                     _changed = true;
                 }
+                if (beltEnd > 0) belt = new(belt.Count + 1, Math.Max(belt.Remaining, beltEnd - now));
+                if (jewelEnd > 0) jewel = new(jewel.Count + 1, Math.Max(jewel.Remaining, jewelEnd - now));
+            }
             if (!_changed) return null;
             _changed = false;
-            return (_stacks.Count, _stacks.Count == 0 ? 0 : _stacks.Values.Max(s => s.Ends) - now);
+            return (_stacks.Count, Math.Max(belt.Remaining, jewel.Remaining));
         }
     }
 }

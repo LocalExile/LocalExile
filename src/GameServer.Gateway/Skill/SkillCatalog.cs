@@ -133,6 +133,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             Put("virtual_additional_projectiles_fire_parallel_x_dist", parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put("base_rage_cost", t.RageCost[gepl]); Put("total_base_rage_cost", t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put("base_mana_cost", t.ManaCost[gepl]); Put("mana_cost", t.ManaCost[gepl]); }
+        if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put("base_life_cost", t.LifeCost[gepl]); Put("life_cost", t.LifeCost[gepl]); }
         // A cost over time (the link gems' "Mana per second"): CostTypes 7 ManaPerMinute.
         if (gepl >= 0 && t.ManaPerMinute[gepl] > 0) { Put("base_mana_cost_per_minute", t.ManaPerMinute[gepl]); Put("mana_cost_per_minute", t.ManaPerMinute[gepl]); }
         // A share of maximum mana over time (Bladefall of Trarthus: 300 per minute, "5% Mana per second"): CostTypes 9
@@ -440,6 +441,9 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     public int CooldownBypassType(int effectRow, int level) =>
         _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Bypass : 0;
 
+    public int CooldownGroup(int effectRow, int level) =>
+        _tables.Value is { } t && PickLevel(t.PerLevel, effectRow, level) is int row and >= 0 ? t.Cooldowns[row].Group : 36;
+
     public bool CooldownPausesWhileActive(int effectRow) =>
         _tables.Value is { } t && effectRow >= 0 && effectRow < t.Effects.Count && t.Effects[effectRow].CooldownPauses;
 
@@ -721,6 +725,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     // Spectral Throw's is ThrownWeapon; without it every use was refused (live 2026-11-02).
     // Kinetic Bolt (ZigZagProjectile) creates ZigZagWandProjectile (3.29.3c RE); its transfigured/internal variants share
     // the same ActionType and primary projectile row.
+    // Essence Drain keeps its old name's row, Siphon (Metadata/Effects/Spells/siphon), as do its transfigured versions.
     static readonly Dictionary<string, string> ProjectileFallbacks = new()
     {
         ["KineticBlast"] = "Metadata/Projectiles/WandProjectile",
@@ -747,6 +752,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
+        ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltX"] = "Metadata/Projectiles/Siphon",
+        ["EssenceDrainAltY"] = "Metadata/Projectiles/Siphon",
         ["SplitArrow"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
@@ -1263,8 +1272,8 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     private sealed record Tables(Dictionary<string, (int Row, int StatSet)> EffectRows, List<int> StatSets,
         List<(int Effect, int Level)> PerLevel, List<(int StatSet, int Level)> StatSetsPerLevel,
         List<(int StatSet, int CastTime, bool CooldownPauses)> Effects, List<(int[] Implicit, (int, int)[] Constant)> StatSetBase,
-        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost,
-        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass)> Cooldowns,
+        List<(int, int)[]> StatSetLevelStats, List<(int StatSet, int GemLevel, int PlayerLevelReq)> GemLevelReqs, List<int> ManaCost, List<int> LifeCost,
+        List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
@@ -1320,10 +1329,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var perLevel = new List<(int, int)>();
             var mana = new List<int>();
+            var life = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
-            var cooldowns = new List<(int, int, int)>();
+            var cooldowns = new List<(int, int, int, int)>();
             var vaalSouls = new List<int>();
             var vaalStoredUses = new List<int>();
             var soulPrevention = new List<int>();
@@ -1335,13 +1345,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 int[] types = Ints(r, "CostTypes"), amounts = Ints(r, "CostAmounts");
                 int i = Array.IndexOf(types, 0);
                 mana.Add(i >= 0 && i < amounts.Length ? amounts[i] : 0);
+                int lifeIndex = Array.IndexOf(types, 1);
+                life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
                 manaPercentPerMinute.Add(mp >= 0 && mp < amounts.Length ? amounts[mp] : 0);
                 reservations.Add((Math.Max(0, Int(r, "ManaReservationFlat")), Math.Max(0, Int(r, "ManaReservationPercent")),
                     Math.Max(0, Int(r, "LifeReservationFlat")), Math.Max(0, Int(r, "LifeReservationPercent"))));
-                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses")), Math.Max(0, Int(r, "CooldownBypassType"))));
+                cooldowns.Add((Math.Max(0, Int(r, "Cooldown")), Math.Max(0, Int(r, "StoredUses")), Math.Max(0, Int(r, "CooldownBypassType")), r.Has("CooldownGroup") ? Int(r, "CooldownGroup") : 36));
                 vaalSouls.Add(Int(r, "VaalSouls"));
                 vaalStoredUses.Add(Int(r, "VaalStoredUses"));
                 soulPrevention.Add(Math.Max(0, Int(r, "SoulGainPreventionDuration")));
@@ -1372,7 +1384,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                     .. Pairs(Ints(r, "AdditionalStats"), Ints(r, "AdditionalStatsValues"))]);
                 if (Int(r, "PlayerLevelReq") is >= 0 and var req) levelReqs.Add((Int(r, "StatSet"), Int(r, "GemLevel"), req));
             }
-            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, reservations, cooldowns,
+            return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
                 manaPercentPerMinute);
         }

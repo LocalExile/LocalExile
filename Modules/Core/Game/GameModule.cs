@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 using Rules = global::Game;
@@ -12,6 +13,10 @@ public sealed class GameModule : IModule
     public void Load(IModuleContext module)
     {
         Rules.CombatLifetime = module.Lifetime;
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => global::Sirus.Tick(conn));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, _) => global::Sirus.Leaving(conn));
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Sirus.PlayerStats);
+        module.Lifetime.Own(global::Sirus.CleanupOnUnload());
         Program.SetGameLogic(new GameLogic(module.Lifetime));
         string id = module.Manifest.Id;
         GameEvents.Tick.Add(id, (conn, _) => global::DoedreSewers.Tick(conn));
@@ -20,6 +25,7 @@ public sealed class GameModule : IModule
         module.Lifetime.Own(global::DoedreSewers.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::DoedreSewers.Leaving(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::BrineKing.Tick(conn));
+        GameEvents.Tick.Add(id, (conn, _) => global::AtlasBosses.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::VaalOversoul.Tick(conn));
         GameEvents.Tick.Add(id, (conn, _) => global::DepravedTrinity.Tick(conn));
         module.Lifetime.Own(global::DepravedTrinity.CleanupOnUnload());
@@ -36,6 +42,7 @@ public sealed class GameModule : IModule
         GameEvents.PlayerLeaving.Add(id, (conn, _) => global::VaalOversoul.Leaving(conn));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
         module.Lifetime.Own(global::BrineKing.CleanupOnUnload());
+        module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Tick.Add(id, (conn, _) => global::Slayer.Tick(conn));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
@@ -54,6 +61,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
     public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
+    public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
+        HeistModifierMagnitudes.For(item, mods);
     public void QueueControlledIntent(ClientState player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
     public void ClearControlledIntent(ClientState player) => Rules.ClearControlledIntent(player);
     public object ObserveControlledPlayer(ClientState player, ClientState leader) => Rules.ObserveControlledPlayer(player, leader);

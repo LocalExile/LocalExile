@@ -12,7 +12,7 @@ static class HideoutEditingFeature
         if (HomeHideout(conn)?.AreaHash16 != conn.Layout.Hash || CharacterName(conn) is not { } character) return;
         foreach (var s in CharacterSaves.MonsterStatues(character, conn.Layout.Id))
         {
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
                 InstanceMonsterStatue.Blob(s.X, s.Y, s.MonsterHash16, s.Scale, s.Variation, s.Rotation)),
@@ -46,7 +46,7 @@ static class HideoutEditingFeature
             return;
         }
         var (x, y) = monster.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(InstanceMonsterStatue.TypePath),
             InstanceMonsterStatue.Blob(x, y, variety.Hash16)), $"0x02bb monster statue of {variety} at ({x}, {y})");

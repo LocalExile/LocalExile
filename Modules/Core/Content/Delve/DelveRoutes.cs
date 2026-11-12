@@ -129,7 +129,7 @@ public sealed partial class DelveModule
                 lock (conn.Monsters) defenders = journey.DestinationMonsters.Count(id => conn.Monsters.TryGetValue(id, out var m)
                     && m.Hostile && !m.Dead && m.Life > 0);
                 json["delveTrip"] = JsonSerializer.SerializeToNode(new { journey.Depth, journey.Travelled, journey.Length,
-                    journey.Cost, journey.Charged, journey.Completed, FinishDefendersAlive = defenders,
+                    journey.Cost, journey.Charged, journey.Started, journey.Completed, FinishDefendersAlive = defenders,
                     ZoneMonsterLevel = DelveMine.MonsterLevel(journey.Depth), journey.WavesScheduled, journey.WavesSpawned, journey.FinaleElapsed,
                     Crawler = new[] { state.CrawlerCell.X, state.CrawlerCell.Y },
                     Start = new[] { rail.Points[0].X, rail.Points[0].Y }, End = new[] { rail.Points[^1].X, rail.Points[^1].Y },
@@ -145,6 +145,7 @@ public sealed partial class DelveModule
         DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m with { Pending = null } : null);
         if (_states.TryGetValue(player, out var state))
         {
+            if (!ConnOf(player).Closed && !ConnOf(player).LeavingArea) await RemoveStartBoundary(player, state);
             state.ResetNeeded = true;
             if (state.Journey is { } journey)
             {
@@ -178,6 +179,7 @@ public sealed partial class DelveModule
         state.Trail.Clear();
         bool completed = state.Journey?.Completed == true || conn.Instance.HasState(DestinationFlag(player));
         var start = completed ? rail.Points[^1] : rail.Points[0];
+        if (completed) await EnsureDestinationLight(player, state, start);
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
             await global::Game.SendWorldRecord(player, id, InstanceProtocol.Teleport(id, start.X, start.Y));
         state.CrawlerCell = start;

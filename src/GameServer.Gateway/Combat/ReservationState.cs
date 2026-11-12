@@ -4,7 +4,7 @@ public sealed class ReservationState
 {
     public sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
     public sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
-    public sealed record Ice((int X, int Y) At, double Until, uint? Object = null);
+    public sealed record Ice((int X, int Y) At, double Until, uint? Object = null, int Radius = 4, int? Epoch = null);
     public readonly Queue<Echo> Echoes = new();
     public readonly Queue<Proc> Procs = new();
     public readonly List<Ice> Trail = [];
