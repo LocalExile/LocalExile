@@ -42,8 +42,11 @@ public static class LabyrinthTrials
         SpikeTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthCascadeSpikeTrap",
         ArrowTrap = "Metadata/Terrain/Labyrinth/Traps/LabyrinthArrowTrap",
         // The trials' Bronze Monographs (NPCs.dat LabyrinthTrialGlyphPrison, …Sins, …Church, …Crematorium, …Hedge,
-        // …Catacombs), placed as NPCs.
-        GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph";
+        // …Catacombs) and the Labyrinth's Bronze Inscriptions (LabyrinthGlyph0-4), placed as NPCs.
+        GlyphPrefix = "Metadata/NPC/Labyrinth/LabyrinthTrialGlyph", InscriptionPrefix = "Metadata/NPC/Labyrinth/LabyrinthGlyph";
+
+    public static bool IsGlyph(string id) =>
+        id.StartsWith(GlyphPrefix, StringComparison.Ordinal) || id.StartsWith(InscriptionPrefix, StringComparison.Ordinal);
 
     /// <summary>The Labyrinth's rooms' spike traps: the ElegantHouse cascade (<c>_EH</c>, <c>spiketrap_house.ao</c>,
     /// the trial's otherwise) and the ones a step fires (<c>LabyrinthSpikeTrap_Pressure</c>, <c>_EH_Pressure</c>:

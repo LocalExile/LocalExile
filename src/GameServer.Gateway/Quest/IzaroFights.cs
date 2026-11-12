@@ -69,11 +69,18 @@ public static class IzaroFights
     public const ushort MoveSkill = 0x2909;
     public const double StandSeconds = 1.5, LineSeconds = 3.5;
 
-    /// <summary>The longest wait for the swing he is in when a trial ends, before he walks.</summary>
-    public const double SwingWaitSeconds = 2.5;
+    /// <summary>The longest wait for the swing or skill he is in when a trial ends, before he walks (his slowest skills
+    /// take about 3.8 s).</summary>
+    public const double SwingWaitSeconds = 3.8;
 
-    /// <summary>Izaro's three weapons (MonsterVarieties): the two-handed mace, sword and shield, two swords. The weapon is
-    /// the day's and the difficulty's (wiki); how the official server picks it is not in the client, so the pick is ours.</summary>
+    /// <summary>Izaro's three weapons (MonsterVarieties), in the order of the official pick
+    /// (<see cref="GameServer.Data.Terrain.Generation.LabyrinthLayout.BossWeapon"/>): the two-handed mace, sword and shield,
+    /// two swords.</summary>
+    /// <summary>How he moves: LabyrinthBoss.ot's <c>base_movement_velocity_+%</c> 15 (the client walks him at 41 cells/s where
+    /// the row's speed says 36, measured with trace-sync.js), through his minions (the original, live), and ordered again at
+    /// most once a second while he is on his way (ours).</summary>
+    public static readonly MonsterMovement Movement = new() { SpeedFactor = 1.15, ThroughBodies = true, ReorderSeconds = 1 };
+
     public static readonly string[] Varieties =
     [
         "Metadata/Monsters/Labyrinth/LabyrinthBossMaul",
@@ -123,13 +130,8 @@ public static class IzaroFights
         }
     }
 
-    /// <summary>The day's weapon for a difficulty (ours: a hash of both).</summary>
-    public static int WeaponOf(uint seed, int difficulty)
-    {
-        uint x = unchecked(seed * 4 + (uint)difficulty);
-        x ^= x >> 16; x = unchecked(x * 0x7feb352du); x ^= x >> 15; x = unchecked(x * 0x846ca68bu); x ^= x >> 16;
-        return (int)(x % 3);
-    }
+    /// <summary>The day's weapon for a difficulty, as the official server picks it.</summary>
+    public static int WeaponOf(uint seed, int difficulty) => GameServer.Data.Terrain.Generation.LabyrinthLayout.BossWeapon(seed, difficulty);
 
     /// <summary>The NPCs row that speaks his lines (Metadata/NPC/Izaro, 147).</summary>
     public static ushort Npc => Tables.Value.Npc;
