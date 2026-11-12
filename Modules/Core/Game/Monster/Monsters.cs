@@ -230,7 +230,7 @@ public static partial class Game
         // The King in the Mists needs its whole granted-effect list on the actor, not only the default attack: each 0x1ab
         // names one of these ids (KingInMists.cs). The three Mystic Fetishes likewise need their hazard list, because the
         // official server sends those actions to the fetish actor.
-        var kingSkills = Sirus.SkillsFor(conn, variety, level) ?? KitavaActFive.SkillsFor(conn, variety, level) ?? KitavaActTen.SkillsFor(conn, variety, level) ?? DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? IzaroSkills.SkillsFor(conn, variety, level, attack, skill) ?? KingInMists.SkillsFor(conn, variety, level, attack)
+        var kingSkills = Sirus.SkillsFor(conn, variety, level) ?? KitavaActFive.SkillsFor(conn, variety, level) ?? KitavaActTen.SkillsFor(conn, variety, level) ?? DepravedTrinity.SkillsFor(conn, variety, level) ?? VaalOversoul.SkillsFor(conn, variety, level) ?? DoedreSewers.SkillsFor(conn, variety, level) ?? BrineKing.SkillsFor(conn, variety, level, attack) ?? IzaroSkills.SkillsFor(conn, variety, level, attack, skill) ?? IzaroIdols.SkillsFor(conn, variety, level, attack, skill) ?? KingInMists.SkillsFor(conn, variety, level, attack)
             ?? AtlasBosses.SkillsFor(conn, variety, level, attack)
             ?? (KingInMists.IsFetish(variety) ? KingInMists.FetishSkillsFor(conn, variety, level, attack) : null);
         // A monster the campaign places as a boss, or one with a bar of its own, and that has no encounter controller:

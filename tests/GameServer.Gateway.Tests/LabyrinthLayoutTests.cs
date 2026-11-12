@@ -157,4 +157,21 @@ public sealed class LabyrinthLayoutTests
             }
         }
     }
+
+    // The Chrono Statues' and the Lieutenants' rows have no tier either, in their lifts' order; their monsters can be created.
+    [Theory]
+    [InlineData("ChronoStatues", "ChronoStatues1_1", "ChronoStatues1_2", "ChronoStatues1_3")]
+    [InlineData("Lieutenants", "Lieutenants1_Bull", "Lieutenants1_Melee", "Lieutenants1_Ranged")]
+    public void IzarosIdolsAndLieutenantsAreEveryTiersAndCanBeCreated(string mechanic, string first, string second, string third)
+    {
+        foreach (int tier in new[] { 1, 4 })
+        {
+            var own = IzaroEffects.Of(mechanic, tier, returning: false);
+            Assert.Equal([first, second, third], own.Select(e => e.Id));
+            var returning = own.Select(e => IzaroEffects.ReturningOf(e.Id)!).ToList();
+            Assert.Equal(own.Select(e => e.Id.Replace("1_", "2_", StringComparison.Ordinal)), returning.Select(e => e.Id));
+            Assert.All(returning, e => Assert.NotEmpty(e.Stats));
+            foreach (var effect in own.Concat(returning)) Assert.True(Game.Monsters.Find(effect.Variety)!.Supported, effect.Variety);
+        }
+    }
 }

@@ -675,13 +675,38 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
   `PortalSummon1_*` have no tier and no buff; the "…2" ones (IzaroPortal2.ot, untargetable, `base_cannot_be_damaged`)
   give Izaro `izaro_buff_loot_bonus`. A new IzaroPortal2 is in state 3, whose create event plays the closing clip, so the
   server sends 1 and its idle clip.
-- What is left when a trial ends (a statue on or not risen, a gargoyle alive, a portal not destroyed) comes back in later trials whose room
+  The Chrono Statues' idols (`ChronoStatues1_1`–`3`: Flame, Frost, Storm Idol; IzaroChronosStatuePhase1.ot: 1 lowered,
+  2 `lift_raise`, 3 raised, 4 active, 5 `lift_lower`, 6 lowered; ExtinguishPillar_chronos/rig.amd clips 7 and 6, which
+  the server plays) rise with Izaro and cannot die (`set_cannot_die`). Up, an idol channels `ChronosStatuesCast`
+  (`chronos_statues_cast`, "WIP"): the client's action (0x14151d120 start: stance `Casting`, its `Activate` clip, the
+  glow effect; 0x14151d480 tick) sets the clip's time to the idol's life percent and its glow by that percent
+  (0x14151d630: up to 25 none, then `first_glow`, `second_glow`, `third_glow` from 76), so the server only fills the life
+  (0x1b1). Full, it casts `beacon_izaro` (`set_user_life_to_1_on_skill_use`, a 3 s fuse) and fills again from 1. The
+  original (live): it fills in about 10 s (the .ot's 360 % a minute would take 16 s), casts 6 circles (the row says
+  10), sits at once; hitting it takes its life down; the idols go down when he leaves. Sent with the channel's end,
+  `lift_lower` left the idol standing: the server sends it a moment later. A circle is the beacon's `aoe.ao` with its
+  orb (`rig.ao`: end 0, loop 1, start 2) in the middle and `explode.ao` at the end; its radius is the action's, not
+  in the data (ours).
+  Monster spells whose damage has StatInterpolations 3 (the beacons, Storm Call) deal FloatStatsValues × the monster
+  damage at the caster's level; the row of the effect's level holds a lower level's resolved values (beacons: 14–22, a
+  level 3's).
+  The Lieutenants (`Lieutenants1_Bull`, `_Melee`, `_Ranged`: of Rage, of the Mace, of the Bow; LieutenantSkeletonBoss*.ot:
+  1 lowered, 2 raising, 3 raised, 4 lowering, 5 lowered; Art/Models/MONSTERS/skeleton/rig.amd `lift_raise_sword_shield`
+  176, `lift_raise_bow` 175, both 10.7 s, which the server plays) rise one at a time, the first with Izaro (live; 10 s
+  apart is ours), hold their weapons (Weapon1 and Weapon2 in the Inventories, as his) and use their rows' skills on
+  GrantedEffectsPerLevel's cooldowns: Ice Crash and `bull_thorns` (no values in the data, shown only), Burning Hammer
+  and Storm Call (`monster_cast_spell_%_on_attack_hit`; ours casts it as a skill), Rain of Arrows (the act plays
+  `lightningarrows.ao`) and Split Arrow. `IzaroAllLieutenantsDead` when the last one dies (live).
+- What is left when a trial ends (a statue on or not risen, a gargoyle alive, a portal not destroyed, a lieutenant
+  alive, an idol glowing: over a quarter of its life, ours) comes back in later trials whose room
   has the mechanic's "…2" secret: in the arena behind an alcove's railing (`BossObjectiveBlocker`: 1 up, 2 down in
   3.3 s; its three `BossObjectiveMarker`) and on a ledge of the room before it (`BossEntryObjectiveMarker`, in threes).
   The original (live): the first trial's on the right ledge, the second's on the left. The final arena has two
   alcoves; which trial takes which is ours (the first the one with the least y). Statues stand as StatueDoodad1-3 and
   keep their buff; gargoyles (IzaroGargoyle2) come out with all their buffs when the railing lowers as he fights, and
-  portals bring their guardians from the alcove once it lowers.
+  portals bring their guardians from the alcove once it lowers. Lieutenants come out the same way; idols
+  (IzaroChronosStatuePhase2.ot: untargetable, `base_cannot_be_damaged`, 460 % a minute) cast from the alcove behind
+  its railing.
   The arena's gargoyles rise with Izaro; their `ascending_elevator` is the .ot's server event, so the server plays it
   (0x1b2, rig clip 0) or the client leaves them in the hole (live).
 - The room before each arena and the Ascendancy Chamber have the account's stash (their `Stash` room object). The
@@ -690,7 +715,6 @@ and out, three `BossObjectiveMarker` in an alcove (the mechanic's places) and, i
 
 ## Not built yet
 
-- The step-triggered spikes of Izaro's rooms, his arenas' other mechanics and the Goddess of Justice, and the hot
-  plates' Cruel and Merciless rooms.
+- The step-triggered spikes of Izaro's rooms, the Goddess of Justice, and the hot plates' Cruel and Merciless rooms.
 - The Labyrinth's `Door_Counter` puzzles and its rooms' monsters (the ElegantHouse rooms' Immolators among them).
 - The Eternal trials' plaques drop an Offering to the Goddess.

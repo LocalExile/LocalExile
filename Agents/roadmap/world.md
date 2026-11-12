@@ -143,9 +143,10 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      cooldowns against the original (ours; no `.ais`), and set-backs of his model after an order
      (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
      not live-checked).
-     Izaro's arenas' other mechanics (Toggle Statues, Gargoyles and Portals are done: `Rules.IzaroArena.cs` places them
-     and what they leave; Normal also rolls Lieutenants and Chrono Statues, both on the same day's run on 2026-11-11 and
-     2026-11-18), one at a time, and the Goddess of Justice.
+     Normal's five arena mechanics are done (Toggle Statues, Gargoyles, Portals, Chrono Statues, Lieutenants:
+     `Rules.IzaroArena.cs` places them and what they leave); the Goddess of Justice is left. Ours, not the original's:
+     the lieutenants' Storm Call is a skill of its own (the data casts it on an attack's hit), `bull_thorns` returns no
+     damage (no values in the data), the circles' and their skills' radii.
      Her Guardians' circles are done without her (`IzaroGoddess.cs`): when she exists they become her skill, with its
      mortars flying from her. As the original plays (live, the user): the gargoyles' beam ends on her, above Izaro, not
      on him (ours ends on him: move it to her too).

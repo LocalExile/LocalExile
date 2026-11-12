@@ -1,27 +1,33 @@
+using GameServer.Core;
 using System.Net.Sockets;
 using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 using static Game;
 using static Program;
 
 /// <summary>
-/// Izaro's own fight (the wiki's Abilities, by his weapon): the skills of his MonsterVarieties row other than his plain
-/// attack, which the ordinary AI keeps. Their time and damage are the data's (the row of the effect's level for his level:
+/// Izaro's own fight (the wiki's Abilities, by his weapon), and his lieutenants': the skills of their MonsterVarieties rows
+/// other than the plain attack, which the ordinary AI keeps. Their time and damage are the data's (the row of the effect's level for his level:
 /// <c>active_skill_attack_speed_+%_final</c>, <c>active_skill_damage_+%_final</c>, the spells' base damage), their contacts
 /// the rig's clips. How often he uses them and the shapes of their hits are ours: the official AI (<c>.ais</c>) is not in
 /// the client.
 /// </summary>
 static class IzaroSkills
 {
-    enum Shape { Circle, Ahead, Line, Cone, Leap, Charge }
+    enum Shape { Circle, Ahead, Line, Cone, Leap, Charge, Self }
 
     // Effect: GrantedEffects row. Contact: the clip's contact over its length (LabyrinthBoss's rig.amd). Reach: how far the
     // player may be for him to use it, from at least Near. Size: the radius, or the line's or cone's length; Width: the line's
     // half width, the cone's half angle in degrees. Ticks: further hits while the cast lasts. StartArt is shown when the
-    // action starts, Art at the contact.
+    // action starts, Art at the contact. Delay: the hit lands that long after the contact, where it was aimed (a cell).
+    // Buff: a Self skill's BuffDefinitions row on the user for BuffSeconds. MonsterDamage: a spell's damage as its
+    // FloatStatsValues of the monster damage at the user's level (StatInterpolations 3), where the row of its level is a
+    // lower level's.
     sealed record Move(int Effect, string Name, double Contact, double Near, double Reach, Shape Shape, double Size, double Width,
-        double Cooldown, double TickSeconds = 0, double TicksFor = 0, Fx? Art = null, double HoldSeconds = 0, Fx? StartArt = null);
+        double Cooldown, double TickSeconds = 0, double TicksFor = 0, Fx? Art = null, double HoldSeconds = 0, Fx? StartArt = null,
+        double DelaySeconds = 0, string? Buff = null, double BuffSeconds = 0, (DamageType Type, double Low, double High)? MonsterDamage = null);
 
     // An effect the server shows for a skill, for its clip's length: riding on him, or standing where he is.
     sealed record Fx(string Ao, double Seconds, bool OnHim);
@@ -55,6 +61,25 @@ static class IzaroSkills
         // Its action (0x141b9df80) hits round the aim every 0.2 s (5 cells × the area, 0x141b9e1c0) while it places its
         // ornaments, one each skill_effect_duration (3 ms, about a frame): 65 of them with its +30% area, about 1.1 s.
         new(5535, "Spikes", 500.0 / 3000, 0, 70, Shape.Circle, 6, 0, 6, TickSeconds: 0.2, TicksFor: 1.1),
+        // His lieutenants (IzaroLieutenants): GrantedEffectsPerLevel's cooldowns; contacts from Art/Models/MONSTERS/skeleton
+        // rig.amd. Sizes are ours where the data has none.
+        // Lieutenant of Rage: IceCrash_ is not in LieutenantSkeletonBoss.act, so its Melee plays (attack1_sword_shield
+        // contact 732 of 1066 ms); its second radius, active_skill_base_secondary_area_of_effect_radius 21, -20 % final: 17
+        // (with the first, 9, it did not hit in a fight).
+        new(4819, "Ice Crash", 732.0 / 1066, 0, 17, Shape.Ahead, 17, 0, 25),
+        // Lieutenant of Rage: bull_thorns on itself for base_skill_effect_duration 5 s (SpellBuff: spellprojectile_unarmed
+        // contact 799 of 1333 ms). The buff's values are not in the data: it shows, it does not return damage.
+        new(4768, "Thorns", 799.0 / 1333, 0, 40, Shape.Self, 0, 0, 15, Buff: "bull_thorns", BuffSeconds: 5),
+        // Lieutenant of the Mace: GlacialHammer is its Melee (attack1_sword_shield).
+        new(1013, "Burning Hammer", 732.0 / 1066, 0, 12, Shape.Ahead, 12, 0, 25),
+        // Lieutenant of the Mace: Storm Call (monster_cast_spell_%_on_attack_hit; cast here as a skill of its own), its mark
+        // bursting base_skill_effect_duration 2.95 s later at the cell; its radius is ours.
+        new(3078, "Storm Call", 799.0 / 1333, 0, 60, Shape.Circle, 20, 0, 15, DelaySeconds: 2.95, MonsterDamage: (DamageType.Fire, 0.8, 1.2)),
+        // Lieutenant of the Bow: rain_of_arrow_bow contact 533 of 1166 ms (its act plays lightningarrows.ao); the arrows land
+        // a moment later (ours).
+        new(1537, "Rain of Arrows", 533.0 / 1166, 0, 60, Shape.Circle, 18, 0, 15, DelaySeconds: 0.5),
+        // Lieutenant of the Bow: six arrows (number_of_additional_arrows 5), its Melee attack1_bow (arrow_appear 749 of 1333 ms).
+        new(1548, "Split Arrow", 749.0 / 1333, 0, 60, Shape.Cone, 60, 20, 15),
     ];
 
     // Off the elevator he uses one at once, and nearly all the fight he goes from skill to skill, with only a couple of plain
@@ -87,14 +112,16 @@ static class IzaroSkills
         double speed = 1 + Value(stats, "active_skill_attack_speed_+%_final") / 100.0;
         double seconds = spell ? catalog.CastTimeMs(move.Effect) / 1000.0
             : (Value(stats, "cast_time_overrides_attack_duration") != 0 ? catalog.CastTimeMs(move.Effect) / 1000.0 : plain.Seconds) / speed;
-        var damage = spell ? catalog.HitDamage(move.Effect, effectLevel).Scale(more) : plain.Damage.Scale(more);
+        var damage = move.MonsterDamage is { } scaled && Monsters.BaseDamage(level) is int baseDamage
+            ? DamagePacket.Of(scaled.Type, baseDamage * scaled.Low, baseDamage * scaled.High).Scale(more)
+            : spell ? catalog.HitDamage(move.Effect, effectLevel).Scale(more) : plain.Damage.Scale(more);
         return plain with { SkillId = SkillId(move), Seconds = seconds, Range = move.Reach, Damage = damage, Spell = spell, Scripted = true, Projectile = null, Release = null };
     }
 
-    /// <summary>The actor's skill list: his plain attack first, then each skill he uses, with the 0x1ab ids it names.</summary>
+    /// <summary>The actor's skill list (Izaro's, a lieutenant's): the plain attack first, then each skill he uses, with the 0x1ab ids it names.</summary>
     internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? melee)
     {
-        if (!IsIzaro(variety) || melee is null) return null;
+        if (melee is null || !MovesOf(variety).Any()) return null;
         var catalog = Game.SkillsFor(conn);
         var list = new List<GrantedSkill> { melee };
         // The record's times are final, so neither the skill's speed nor the cast-time override goes with them.
@@ -223,8 +250,8 @@ static class IzaroSkills
             // through its whole cast (measured).
             return [.. InstanceProtocol.ActionEnded(id), .. halt,
                 .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, use.SkillId, sequence, conn.MonsterOrderFlags,
-                    targetObjectId: move.Shape is Shape.Line or Shape.Charge ? null : PlayerId)];
-        }, $"0x01ab Izaro 0x{id:x} uses {move.Name} (0x{use.SkillId:x4}, {use.Seconds:0.00} s)")) return;
+                    targetObjectId: move.Shape is Shape.Line or Shape.Charge || move.DelaySeconds > 0 ? null : PlayerId)];
+        }, $"0x01ab {boss.Variety?.Name ?? "Izaro"} 0x{id:x} uses {move.Name} (0x{use.SkillId:x4}, {use.Seconds:0.00} s)")) return;
         if (move.StartArt is { } start) await ShowArt(remote, stream, ciphers, conn, id, start);
         double contact = startedAt + use.Seconds * move.Contact;
         if (!await WaitMonsterActionTime(conn, id, boss, action, contact)) return;
@@ -232,6 +259,17 @@ static class IzaroSkills
         if (move.Shape is Shape.Leap or Shape.Charge && conn.Layout.WalkableFor(aim.X, aim.Y, 0))
             lock (conn.Monsters) boss.Walk.Teleport(aim.X, aim.Y, conn.Clock.Elapsed.TotalSeconds);
         if (move.Art is { } art) await ShowArt(remote, stream, ciphers, conn, id, art);
+        if (move.Shape == Shape.Self)
+        {
+            await SelfBuff(remote, stream, ciphers, conn, id, move);
+            return;
+        }
+        // A mark that bursts later lands whatever its user does next.
+        if (move.DelaySeconds > 0)
+        {
+            _ = DelayedHit(remote, stream, ciphers, conn, id, boss, move, use, from, aim, sequence);
+            return;
+        }
         // The spikes rise one after the other (the time between them is ours), and one hit is all the player takes from them.
         if (move.Shape == Shape.Line)
         {
@@ -249,6 +287,61 @@ static class IzaroSkills
             if (!await WaitMonsterActionTime(conn, id, boss, action, at)) return;
             await Hit(remote, stream, ciphers, conn, id, boss, action, move, use, from, aim, sequence);
         }
+    }
+
+    // A Self skill's buff on its user, for its time.
+    static async Task SelfBuff(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, Move move)
+    {
+        if (move.Buff is not { } name || BuffRows.Value.GetValueOrDefault(name) is not (> 0 and var row)) return;
+        ushort buff;
+        lock (conn.Monsters) buff = conn.NextBuff++;
+        var layout = conn.Layout;
+        await Send(remote, stream, ciphers, InstanceEntities.AddBuff(id, buff, (ushort)row, id), $"0x01c1 0x{id:x} has {name}");
+        await Task.Delay(TimeSpan.FromSeconds(move.BuffSeconds));
+        if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
+        await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(id, buff), null);
+    }
+
+    static readonly Lazy<Dictionary<string, int>> BuffRows = new(() =>
+    {
+        var rows = new Dictionary<string, int>(StringComparer.Ordinal);
+        var wanted = Moves.Select(m => m.Buff).OfType<string>().ToHashSet();
+        if (!ClientTables.Has("BuffDefinitions")) return rows;
+        int row = 0;
+        foreach (var b in ClientTables.Table("BuffDefinitions"))
+        {
+            if (b.Text("Id") is { } buffId && wanted.Contains(buffId)) rows.TryAdd(buffId, row);
+            row++;
+        }
+        return rows;
+    });
+
+    // The hit of a mark that bursts DelaySeconds after the contact, round the cell it was aimed at.
+    static async Task DelayedHit(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster boss,
+        Move move, MonsterAttack use, (int X, int Y) from, (int X, int Y) aim, ushort sequence)
+    {
+        var layout = conn.Layout;
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(move.DelaySeconds));
+            if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
+            MonsterHitOutcome? outcome = null;
+            await Send(remote, stream, ciphers, [], $"0x01af 0x{id:x} {move.Name} lands", atGate: () =>
+            {
+                lock (conn.Monsters)
+                {
+                    if (InGracePeriod(conn) || !MonsterPresent(conn, id, boss)) return null;
+                    double now = Math.Max(ProjectileWorldTime(conn), conn.Clock.Elapsed.TotalSeconds);
+                    var here = conn.Walk.Position(now);
+                    if (!Inside(move, from, aim, here)) return null;
+                    outcome = CommitMonsterHitLocked(remote, conn, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
+                    return outcome?.HitPacket;
+                }
+            });
+            if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
+        { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} 0x{id:x}'s {move.Name} stopped: {ServerLog.Describe(ex)}"); }
     }
 
     static bool Free(ClientState conn, SpawnedMonster boss, (int X, int Y) cell) =>
@@ -350,7 +443,7 @@ static class IzaroSkills
             if (!Inside(move, from, aim, here, spike)) return null;
             outcome = CommitMonsterHitLocked(remote, conn, id, boss, use, now, here, aim, checkRange: false, sequence: sequence);
             return outcome?.HitPacket;
-        }, $"0x01af Izaro 0x{id:x} {move.Name} hits the player")) return false;
+        }, $"0x01af {boss.Variety?.Name ?? "Izaro"} 0x{id:x} {move.Name} hits the player")) return false;
         if (outcome is not null) await PresentMonsterHit(remote, stream, ciphers, conn, id, outcome);
         return outcome is not null;
     }
