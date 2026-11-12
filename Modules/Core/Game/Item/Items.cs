@@ -1304,7 +1304,8 @@ public static partial class Game
         else if (row == PlayerInventories.PassiveJewels
             && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } leavingBypass
             && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
-        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a));
+        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
+            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
@@ -1368,7 +1369,8 @@ public static partial class Game
         else if (row == PlayerInventories.PassiveJewels
             && PassiveJewelRefusal(conn, (int)place.X, (int)place.Y, placement) is { } refusal) why = refusal;
         else
-            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
+                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");

@@ -34,6 +34,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
+
 - Character-build previews and imports through the mod SDK; the POB mod and converter are external.
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.

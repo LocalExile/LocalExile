@@ -104,7 +104,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
   Docs: [11](../docs/protocol/11-skills.md) §6.
 - Monsters fight back: their first granted effect as a non-pathing skill with MonsterVarieties attack time, reach and
-  level damage; they swing (animated) when in reach and the player's life goes down after evasion, armour and block;
+  level damage. Leap goats use their melee swing when their first attack is the leap damage payload.
+  Monsters swing when in reach and the player's life goes down after evasion, armour and block;
   only monsters with a critical strike chance from their data or mods crit (none from their data yet; of Deadliness);
   walking away dodges; death plays and blocks moving; the death screen (S→C 0x55) shows "Resurrect in Town" /
   "Resurrect at Checkpoint" (hardcore: "Exit"), and both buttons work (C→S 0x54; in town: the last town); `/heal`.
@@ -124,6 +125,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
 - Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
+- Act bosses' own row mods (not yet played against the real client): `ImmuneToKnockback` stops knockback;
+  `MonsterNoDropsOrExperience` and `MonsterNoDrops` take a stage's rewards on the player's own melee and area kills,
+  not yet on projectile or party-share kills; `StunRepeatImmunity*` sets the repeat-stun immunity (2 s for act
+  bosses); `CannotBeSlowedBelowValueBosses` floors Temporal Chains at half speed. `BossHealOnPlayerDeath` is not
+  read. Code: `BossMods.cs`.
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
   Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is
@@ -241,5 +247,5 @@ Part of [Status](../Status.md); what to build next in this area is in
   ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
-  that does not create it yet.
+  A boss's later form is created where its act forms one: the quest's second-form rule spawns it on the boss's death
+  (Merveil's twisted form, Abberath2, Shakari2, Malachai's second form; `Act1.cs`, `Act4.cs`, `Act6.cs`, `Act9.cs`).

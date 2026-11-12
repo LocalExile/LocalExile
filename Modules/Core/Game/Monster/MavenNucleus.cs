@@ -74,6 +74,12 @@ public static partial class Game
                 if (Shot(skills, effect) is not null) return effect;
                 fallback ??= effect;
             }
+            // The leap's damage row asks Goatman2.act for GroundSlam. Use the monster's
+            // ordinary swing when it has one; keep the damage row for payload-only actors.
+            if (fallback is int chosen && skills.EffectId(chosen) == "GAGoatmanLeapSlamDamage")
+                foreach (int effect in effects)
+                    if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
+                        return effect;
             return fallback ?? effects[0];
         }
 

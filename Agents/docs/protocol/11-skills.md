@@ -1919,6 +1919,10 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   bounces straight on even beside monsters (`trace-chain-decisions.js`). The client reads the budget from the skill
   record it holds, which is only resent with the skill list: with 0 there (the server's ground chains are not
   `Chain`) the orb stopped at its first impact, and after the fix it bounced only once the gem was socketed again.
+  Lightning Strike's row is `Metadata/Projectiles/LightningSlash` (1600), not `LightningStrike`.
+  The 3.29.3c client creates its three bolts locally: a server create duplicates them.
+  A Positioned trace aimed left from (391,352) starts all three at (388,352), rather than the sword's contact point.
+  The native flights have different durations; their per-projectile speed variation is not yet mirrored.
   Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
   0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
   (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a
@@ -2593,9 +2597,11 @@ Projectile totems use a proxy Actor skill `0x4000` with `Parent = (PlayerId, sou
 Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/dexterity skins are
 `SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
 GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
+On 3.29.3c the proxy action alone does not draw Spark. Its Projectiles.dat flight clip on server-created objects displays the simulated sparks.
 The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
 Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
-owner offensive stats and type prohibitions, with the owner's `spell_skills_deal_no_damage` removed (Ancestral Bond).
+owner offensive stats and type prohibitions. Ancestral Bond is `keystone_ancestral_bond` (key 5336), not
+`spell_skills_deal_no_damage` (5341, Gruthkul's Pelt); only the former's owner-only restriction is bypassed by proxies.
 The existing tick selects enemies and queues cancellable casts; source item/host removal, death, replacement, expiry,
 transfer and module retirement stop pending releases.
 Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
@@ -2874,7 +2880,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
 - **New skills go into empty slots only** (`SkillBarLayout`, `FillSkillBar`). A new character's bar gets the default
   attack on the left mouse button (slot 0) and its gem skill on the right one (slot 2). `SendSkills` runs it before it sends the saved bar
   again (#108), so a gem skill that is nowhere on the bar takes the first empty slot in this order: the right mouse button, Q W E R T (3–7), the
-  middle button, then the rest. An empty slot is one never set, cleared, or holding a skill whose gem left. Slots the
+  middle button, then the rest. Automatic placement skips manually cleared slots and skills removed from the bar. Slots the
   player set stay as they are, and a cleared left button stays cleared. Live 2026-10-20: a new Templar got the sword on
   the left button and Holy Strike on the right.
 

@@ -26,6 +26,23 @@ public class DamageTakenTriggerTests
                 var applied = Game.Supports.Resolve(gem.Effect, [new(effect.Row, 1, 0, 1)], Game.SkillsFor(conn));
                 Assert.Contains("trigger", Game.TriggerOnlyReason(Game.SupportedSkill(conn, gem.Id) with { Supports = applied }) ?? "");
             }
+            Item Levelled(string name, int level)
+            {
+                var item = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + name)!);
+                return item with { GemExperience = Program.Items.Gem(Program.Items.ByHash(item.TypeHash)!)!.ExperienceFor(level) };
+            }
+            var host = Game.ItemsOf(conn).Items(PlayerInventories.Weapon1).Single();
+            Game.ItemsOf(conn).Change(PlayerInventories.Weapon1, host.Id, item => item with
+            { Sockets = [new(SocketColour.White, Levelled("SkillGemImmortalCall", 3)),
+                new(SocketColour.White, Levelled("SupportGemCastOnDamageTaken", 1)),
+                new(SocketColour.White, Levelled("SupportGemAdditionalLevel", 2))], Links = [3] });
+            var call = Game.GemSkillEffects(conn).Single();
+            Assert.Equal(4, Game.SupportedSkill(conn, call.Id).Level);
+            Assert.Contains("damage is taken", Game.TriggerOnlyReason(Game.SupportedSkill(conn, call.Id))!);
+            // Bonus levels change the spell, not its gem's required player level. A real level-up does change it.
+            Game.ItemsOf(conn).Change(PlayerInventories.Weapon1, host.Id, item => item with
+            { Sockets = [item.Sockets[0] with { Gem = Levelled("SkillGemImmortalCall", 4) }, .. item.Sockets.Skip(1)] });
+            Assert.Null(Game.TriggerOnlyReason(Game.SupportedSkill(conn, call.Id)));
         });
     }
     [Fact]
@@ -145,6 +162,7 @@ public class DamageTakenTriggerTests
         });
         VerifyCriticalTrigger();
         VerifyChannelTrigger();
+        VerifyAwakenedCriticalTrigger();
     }
     static void VerifyNonProjectile(ClientState conn, Game.ProjectileSession session)
     {
@@ -213,6 +231,18 @@ public class DamageTakenTriggerTests
         Assert.Equal((412, 750, 1000), Game.TriggeredGuardHit(conn, 1000, 1000, 1000, now + 4.1));
         Assert.False(Game.TriggerGuardReady(conn, now + 8.59));
         Assert.True(Game.TriggerGuardReady(conn, now + 8.61));
+        conn.PlayerStats[Program.Stats.Key("max_endurance_charges")!.Value] = 4;
+        conn.PlayerStats[Program.Stats.Key("base_minimum_endurance_charges")!.Value] = 1;
+        _ = Game.CharacterPlayerStats(conn);
+        charges.State.Set(ChargeType.Endurance, 7, now + 9, charges.Limits(ChargeType.Endurance));
+        Game.StartTriggeredGuard(conn, session, call.Id, now + 9);
+        Assert.Equal(2, charges.Effective(ChargeType.Endurance)); // At most five of seven are consumed.
+        Assert.Equal(5u, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(
+            Game.TriggeredGuardPresentation(conn, now + 9).AsSpan(^4)));
+        Assert.False(Game.TriggerGuardReady(conn, now + 13.99));
+        Assert.True(Game.TriggerGuardReady(conn, now + 14.01));
+        conn.PlayerStats.Remove(Program.Stats.Key("max_endurance_charges")!.Value);
+        conn.PlayerStats.Remove(Program.Stats.Key("base_minimum_endurance_charges")!.Value);
         Assert.Equal(action, conn.ActionCount);
     }
     static void VerifyCriticalTrigger()
@@ -347,11 +377,35 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); }
         });
     }
-    static void EquipLinkedSpells(ClientState conn, bool channel = false)
+    static void VerifyAwakenedCriticalTrigger()
+    {
+        WithCharacter(conn =>
+        {
+            conn.Clock.Start(); EquipLinkedSpells(conn, awakened: true);
+            var attack = Game.GemSkillEffects(conn).Single(s => s.Name == "Kinetic Blast");
+            var spell = Game.GemSkillEffects(conn).Single(s => s.Name == "Fireball");
+            Assert.Equal(10, Game.SupportedSkill(conn, spell.Id).Stats[Program.Stats.Key("base_spell_cooldown_speed_+%")!.Value]);
+            using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0); listener.Start();
+            using var writer = new System.Net.Sockets.TcpClient(); writer.Connect((System.Net.IPEndPoint)listener.LocalEndpoint);
+            using var reader = listener.AcceptTcpClient();
+            var session = new Game.ProjectileSession("awakened-coc", writer.GetStream(), new ConnectionCiphers(new byte[64], false), conn);
+            try
+            {
+                var source = Game.CaptureCriticalTriggerSource(conn, attack.Id);
+                Assert.NotNull(source);
+                Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10));
+                Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10));
+                Assert.False(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10.135));
+                Assert.True(Game.ReleaseCriticalTrigger(conn, session, source, true, true, (20, 0), 10.137));
+            }
+            finally { session.Invalidate(); }
+        });
+    }
+    static void EquipLinkedSpells(ClientState conn, bool channel = false, bool awakened = false)
     {
         var names = channel
             ? new[] { "SkillGemCyclone", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastWhileChannelling" }
-            : new[] { "SkillGemKineticBlast", "SkillGemFireball", "SkillGemFreezingPulse", "SupportGemCastOnCrit" };
+            : new[] { "SkillGemKineticBlast", "SkillGemFireball", "SkillGemFreezingPulse", awakened ? "SupportGemCastOnCritPlus" : "SupportGemCastOnCrit" };
         var robe = ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
         { Sockets = [.. names.Select(n => new ItemSocket(SocketColour.White,
             ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + n)!)))], Links = [4] };

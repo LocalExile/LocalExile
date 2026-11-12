@@ -11,7 +11,7 @@ using GameServer.Core;
 public static class TattooCatalogue
 {
     public sealed record Entry(int Row, string Id, string Name, int Set, string Target, int Tribe, int Override,
-        int OverrideHash, int RequiresAdjacent, int MaxAdjacent, int Limit, bool Forbidden)
+        int OverrideHash, int RequiresAdjacent, int MaxAdjacent, int Limit, bool Forbidden, int Effect = -1)
     {
         public bool DropDisabled => Name.StartsWith("Honoured ", StringComparison.Ordinal)
             || Name.StartsWith("Loyalty ", StringComparison.Ordinal)
@@ -24,6 +24,10 @@ public static class TattooCatalogue
         /// <summary>The Makanga and Honoured Makanga adjacency gate: at least <see cref="RequiresAdjacent"/>
         /// allocated neighbours, or at most <see cref="MaxAdjacent"/> when that is non-zero.</summary>
         public bool HasAdjacency => RequiresAdjacent > 0 || MaxAdjacent > 0;
+
+        /// <summary>Whether the tattoo grants a skill (the Loyalty summons): <see cref="Effect"/> is its
+        /// GrantedEffectsPerLevel row.</summary>
+        public bool GrantsSkill => Effect >= 0;
     }
 
     static readonly Lazy<List<Entry>> Entries = new(Load);
@@ -69,6 +73,7 @@ public static class TattooCatalogue
         var overrideRequires = new List<int>();
         var overrideMax = new List<int>();
         var overrideLimits = new List<int>();
+        var overrideEffects = new List<int>();
         if (ClientTables.Has("PassiveSkillOverrides"))
             foreach (var row in ClientTables.Table("PassiveSkillOverrides"))
             {
@@ -76,6 +81,9 @@ public static class TattooCatalogue
                 overrideRequires.Add(row.Int("RequiresAdjacent"));
                 overrideMax.Add(row.Int("MaxAdjacent"));
                 overrideLimits.Add((row.IntOrNull("Limit") ?? -1));
+                // The Loyalty rows replace a small passive with a granted skill: Effect is its
+                // GrantedEffectsPerLevel row ("Trigger level 1 Summon Spirit of ...").
+                overrideEffects.Add(row.IntOrNull("Effect") ?? -1);
             }
 
         var sets = new List<string>();
@@ -113,8 +121,10 @@ public static class TattooCatalogue
                     ? overrideMax[target.Override] : 0;
                 int limit = target.Override >= 0 && target.Override < overrideLimits.Count
                     ? overrideLimits[target.Override] : -1;
+                int effect = target.Override >= 0 && target.Override < overrideEffects.Count
+                    ? overrideEffects[target.Override] : -1;
                 result.Add(new Entry(index, id, name, target.Set, targetName, target.Tribe, target.Override,
-                    overrideHash, requiresAdjacent, maxAdjacent, limit, forbidden));
+                    overrideHash, requiresAdjacent, maxAdjacent, limit, forbidden, effect));
             }
             index++;
         }

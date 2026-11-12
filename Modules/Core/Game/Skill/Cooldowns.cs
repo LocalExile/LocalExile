@@ -9,8 +9,12 @@ public static partial class Game
         var sources = GemSkillEffects(conn).Where(g => g.Effect == effect).ToArray();
         if (SkillsFor(conn).CooldownMs(effect, level) <= 0 || sources.Length != 1) return null;
         var supported = SupportedSkill(conn, sources[0].Id);
+        var player = CharacterPlayerStats(conn);
+        if (SkillsFor(conn).EffectId(effect) is "Convocation" or "ConvocationOld"
+            && Stats.Key("base_cooldown_speed_+%") is uint recovery)
+            supported.Stats[recovery] = supported.Stats.GetValueOrDefault(recovery) + GolemStat(player, "convocation_cooldown_speed_+%");
         return WithMapCooldown(conn, SingleUseCooldown.ForSkill(SkillsFor(conn), Stats, effect, supported.Level,
-            CharacterPlayerStats(conn), supported.Stats));
+            player, supported.Stats));
     }
 
     public static SingleUseCooldownState CooldownStateLocked(ClientState conn, int effect, SingleUseCooldown plan, double now)
@@ -35,15 +39,17 @@ public static partial class Game
         => TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
             actionToken, reserve, requestedAt, null);
 
+    // admit: a use-specific condition checked in the same critical section, before any cost, cooldown use or charge is
+    // spent (Flicker Strike needs a monster in range).
     public static bool TryBeginSkillCooldownUse(ClientState conn, ushort skillId, int effect,
         SingleUseCooldown? plan, bool instant, Action sideEffects, out CooldownUseTicket? ticket,
-        int? actionToken = null, bool reserve = true, double? requestedAt = null) =>
+        int? actionToken = null, bool reserve = true, double? requestedAt = null, Func<bool>? admit = null) =>
         TryBeginCooldownUseCore(conn, effect, plan, instant, sideEffects, out ticket,
-            actionToken, reserve, requestedAt, skillId);
+            actionToken, reserve, requestedAt, skillId, admit);
 
     public static bool TryBeginCooldownUseCore(ClientState conn, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId)
+        ushort? skillId, Func<bool>? admit = null)
     {
         using (ProjectileMutation(conn))
         {
@@ -74,13 +80,14 @@ public static partial class Game
                     vaal.WorkGeneration = generation;
                 }
             }
+            if (admit is not null && !admit()) return false;
             bool bypassed = false;
             if (plan is { } cooldown)
             {
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 // A use the player cannot pay for is refused here, before it spends a cooldown use or a bypass charge and
-                // before its side effects move the player (a movement skill's landing, Flicker Strike's teleport): its
-                // cost is paid only later, when its effect starts (PayMana).
+                // before its side effects move the player (a movement skill's landing, Flicker Strike's teleport); an
+                // accepted use pays below.
                 if (reserve && skillId is ushort paying && !CanPaySkillCost(conn, paying)) return false;
                 state = CooldownStateLocked(conn, effect, cooldown, now);
                 if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
@@ -93,14 +100,34 @@ public static partial class Game
                 }
                 conn.SkillReadyAt[effect] = now + state.RemainingSeconds;
             }
+            // The accepted use pays its cost now, with its cooldown use or bypass charge, as the client pays at the start of
+            // the use: a later failure (mana spent in between, a cast stopped before its effect) cannot leave the use spent
+            // and unpaid, and an accepted use is never refunded. The check above ran under the same lock, so this succeeds.
+            (uint Mana, uint Life)? paid = null;
+            if (reserve && plan is not null && vaal is null && skillId is ushort payer && PaysOnUse(conn, payer, effect))
+            {
+                if (!PayMana(conn, payer, out uint mana, out uint life)) return false;
+                paid = (mana, life);
+            }
             sideEffects();
             if (reserve && vaal is not null) CommitVaalUse(conn, vaal, vaalAttackDeadline);
             // A bypassed use spends no cooldown use, so its ticket follows none.
             if (plan is not null) ticket = new(effect, conn.ActionCount, conn.ProjectileEpoch, instant, reserve,
-                bypassed ? null : state, bypassed ? 0 : state!.UseVersion);
+                bypassed ? null : state, bypassed ? 0 : state!.UseVersion) { Paid = paid };
             return true;
         }
     }
+
+    // A link gem links its target with no upfront cost, only its cost over time (CastLink).
+    public static bool IsLinkSkill(ClientState conn, int effect) => LinkSkills.Buffs.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "");
+
+    // An aura or stance that is not a trap or mine toggles its reservation instead of paying a cost (ToggleAura).
+    public static (int Flat, int Percent)? ToggledReservation(ClientState conn, ushort skillId) =>
+        PlacedKind(SupportedSkill(conn, skillId)) is { Trap: false, Mine: false } ? SupportedReservation(conn, skillId) : null;
+
+    // Whether a use of the skill pays its cost when it starts (CastGemSkill's PayMana), not a link's or a toggle's.
+    static bool PaysOnUse(ClientState conn, ushort skillId, int effect) =>
+        !IsLinkSkill(conn, effect) && ToggledReservation(conn, skillId) is null;
 
     // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.
     static ChargeType? CooldownBypassCharge(ClientState conn, int effect, ushort? skillId)

@@ -16,11 +16,12 @@ static partial class Game
     internal const double KnockbackDelaySeconds = .2;
 
     /// <summary>Whether a monster may be knocked back at all: hostile, alive, not staged, scripted or asleep (the
-    /// states HitReaction and the AI skip), and not carrying the client's ImmuneToKnockback component (King in the
-    /// Mists' humanoid, for one).</summary>
+    /// states HitReaction and the AI skip), and neither carrying the client's ImmuneToKnockback component (King in the
+    /// Mists' humanoid, for one) nor naming that mod in its own row (Dominus, Malachai, Avarius, Vilenta … act bosses
+    /// that are immune by mod only; BossMods).</summary>
     internal static bool KnockbackAllowed(SpawnedMonster m) =>
         m.Hostile && !m.Dead && m.Life > 0 && !m.StageRunning && !m.Scripted && !m.Asleep
-        && m.Variety?.ComponentsOrBase.Contains("ImmuneToKnockback") != true;
+        && !BossMods.KnockbackImmune(m.Variety);
 
     /// <summary>The push destination: the farthest walkable cell along the direction from <paramref name="from"/>
     /// (the player) to <paramref name="at"/> (the monster), from <paramref name="cells"/> down to 1 away; null when
