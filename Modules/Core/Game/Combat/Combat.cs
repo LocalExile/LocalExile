@@ -1097,7 +1097,8 @@ public static partial class Game
                     AuraCatalog.BuffRow(effectId, stance), reservation.Flat, reservation.Percent, level, quality,
                     SourceBuff: OwnAuraRestriction.IsAura(SupportedSkill(conn, skillId).Stats) ? conn.NextBuff++ : null,
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
-                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency);
+                    ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
+                    IsHerald: IsHeraldAura(effectId));
                 conn.Auras[skillId] = aura;
                 if (!ReservationBudgetFits(conn))
                 {

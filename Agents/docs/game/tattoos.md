@@ -678,23 +678,6 @@ Ailment and avoidance rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev 
 - The right-click item flow is the `0x77` path verified for the earlier rows; these nine were applied through the dev
   command so the same nodes can be reused without spending currency.
 
-Herald, guard and Fortify rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
-
-- **Applied and read back:** Arohongui Shaman (herald effect), Rongokurai Guard (guard duration) and Tukohama Warrior
-  (Fortify on a melee stun) on allocated passives, on 21301 (Strength). `/stat` read herald_effect_on_self_+% 5,
-  guard_skill_effect_duration_+% 6 and chance_to_fortify_on_melee_stun_% 5; `/tattoo_remove` restored every stat
-  to 0.
-- **Consumers:**
-  - Herald buff effect scales the herald buff stats through `AuraCatalog.RawStats`: Herald of Ash's
-    physical-as-fire stat doubles at 100% increased Effect of Herald Buffs on you (unit test).
-  - Guard duration adds `guard_skill_effect_duration_+%` into the same `skill_effect_duration_+%` sum
-    (`Game.GuardDuration`, used by the triggered guards), so the numbers do not come out high.
-  - Fortify on a melee stun: the successful stun roll in `HitReaction.TryFlinch` rolls the stat once and grants the
-    stacks `FortificationGainModel` computes from the hit's raw damage and the target's life and rarity, as the
-    on-hit Fortify path does; `cannot_gain_fortification_from_hits` blocks it and a hit that already fortified does
-    not fortify twice (`StunHit.Fortified`). `TattooConsumerTests` covers the catalogue rows and the three
-    consumers.
-
 Corpse-consumption and Hinder rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
 
 - **Applied and read back:** Kitava Heart Eater on 21301 (Strength) and Tasalio Shaman on 21678 (Intelligence).
