@@ -3591,6 +3591,13 @@ public sealed partial class ReservationCurseSummonTests
 
                     var owner = Game.ResourceEffectsOf(sacrificeConn);
                     Assert.True(Game.ResourceEffectsCurrent(sacrificeConn, owner));
+                    // Prime a genuine zero payment at the Life floor, then restore Life. This fixture supplies
+                    // its own raw added damage; the independent release fixture below exercises real payment.
+                    uint isolatedLife = sacrificeConn.PlayerLife;
+                    sacrificeConn.PlayerLife = 1;
+                    var isolatedSacrifice = new Game.SacrificeUse(sacrificeConn, source.Id, source.Effect, source.Gem);
+                    Assert.Equal(0, isolatedSacrifice.AddedChaos());
+                    sacrificeConn.PlayerLife = isolatedLife;
                     var from = sacrificeConn.Walk.Position(Game.ProjectileWorldTime(sacrificeConn));
                     Assert.Equal(from, Game.SpellCentre(sacrificeConn, source.Effect, from, from));
                     var skillStats = Game.SupportedSkill(sacrificeConn, source.Id).Stats;
@@ -3664,7 +3671,7 @@ public sealed partial class ReservationCurseSummonTests
 
                         await Game.AreaSkillHit("sacrifice-zero", sacrificeWire.Stream,
                             sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                            immediate: true, criticalRoll: new SkillCriticalRoll(0));
+                            immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice);
                     }
                     int zeroUnblindDamage = checked((int)(zeroUnblindBefore - zeroUnblind.Life));
                     int zeroBlindDamage = checked((int)(zeroBlindBefore - zeroBlind.Life));
@@ -3802,11 +3809,11 @@ public sealed partial class ReservationCurseSummonTests
                         Console.WriteLine("[gateway] #504 Sacrifice consumer boundary: prepaid addedChaos is a "
                             + $"controlled input ({representativeAddedChaos} raw, {rawAddedChaos:0.###} after "
                             + $"{effectiveness:0.###} effectiveness). This is PREPAID CONSUMER COVERAGE ONLY: "
-                            + "the real Sacrifice PAYMENT and runtime projectile producer remain OPEN.");
+                            + "real release-time payment is checked by the independent producer fixture.");
                         beforeCall = Game.ProjectileWorldTime(sacrificeConn);
                         await Game.AreaSkillHit("sacrifice-positive", sacrificeWire.Stream,
                             sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                            immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                            immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                             addedChaos: representativeAddedChaos);
                         afterCall = Game.ProjectileWorldTime(sacrificeConn);
                         Assert.Equal(playerLifeBefore, sacrificeConn.PlayerLife);
@@ -3897,7 +3904,7 @@ public sealed partial class ReservationCurseSummonTests
                         secondBeforeCall = Game.ProjectileWorldTime(sacrificeConn);
                         await Game.AreaSkillHit("sacrifice-positive-second", sacrificeWire.Stream,
                             sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                            immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                            immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                             addedChaos: representativeAddedChaos);
                         secondAfterCall = Game.ProjectileWorldTime(sacrificeConn);
                     }
@@ -3940,7 +3947,7 @@ public sealed partial class ReservationCurseSummonTests
                         isolatedBiteBeforeCall = Game.ProjectileWorldTime(sacrificeConn);
                         await Game.AreaSkillHit("sacrifice-isolated-bite", sacrificeWire.Stream,
                             sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                            immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                            immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                             addedChaos: representativeAddedChaos);
                         isolatedBiteAfterCall = Game.ProjectileWorldTime(sacrificeConn);
                     }
@@ -3982,7 +3989,7 @@ public sealed partial class ReservationCurseSummonTests
                         withdrawnBeforeCall = Game.ProjectileWorldTime(sacrificeConn);
                         await Game.AreaSkillHit("sacrifice-positive-withdrawn", sacrificeWire.Stream,
                             sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                            immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                            immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                             addedChaos: representativeAddedChaos);
                         withdrawnAfterCall = Game.ProjectileWorldTime(sacrificeConn);
                     }
@@ -4001,7 +4008,7 @@ public sealed partial class ReservationCurseSummonTests
                     double zeroAfterWithdrawUntil = withdrawn.Poisons.Until;
                     await Game.AreaSkillHit("sacrifice-zero-after-withdraw", sacrificeWire.Stream,
                         sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                        immediate: true, criticalRoll: new SkillCriticalRoll(0));
+                        immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice);
                     int zeroAfterWithdrawDamage =
                         checked((int)(zeroAfterWithdrawBefore - withdrawn.Life));
                     Assert.InRange(zeroAfterWithdrawDamage, zeroNormalBounds.Min, zeroNormalBounds.Max);
@@ -4014,7 +4021,7 @@ public sealed partial class ReservationCurseSummonTests
                     uint negativeBefore = negative.Life;
                     await Game.AreaSkillHit("sacrifice-negative", sacrificeWire.Stream, sacrificeWire.Ciphers,
                         sacrificeConn, source.Id, source, from, from, immediate: true,
-                        criticalRoll: new SkillCriticalRoll(0), addedChaos: -1);
+                        criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice, addedChaos: -1);
                     int negativeDamage = checked((int)(negativeBefore - negative.Life));
                     Assert.InRange(negativeDamage, zeroNormalBounds.Min, zeroNormalBounds.Max);
                     Assert.False(negative.Poisons.Poisoned);
@@ -4025,7 +4032,7 @@ public sealed partial class ReservationCurseSummonTests
                     uint zeroChanceBefore = zeroChance.Life;
                     await Game.AreaSkillHit("sacrifice-zero-poison-chance", sacrificeWire.Stream,
                         sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                        immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                        immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                         addedChaos: representativeAddedChaos);
                     int zeroChanceDamage = checked((int)(zeroChanceBefore - zeroChance.Life));
                     Assert.InRange(zeroChanceDamage, intendedNormalBounds.Min, intendedNormalBounds.Max);
@@ -4044,7 +4051,7 @@ public sealed partial class ReservationCurseSummonTests
                     uint poisonImmuneBefore = poisonImmune.Life;
                     await Game.AreaSkillHit("sacrifice-poison-immune", sacrificeWire.Stream,
                         sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                        immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                        immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                         addedChaos: representativeAddedChaos);
                     int poisonImmuneDamage = checked((int)(poisonImmuneBefore - poisonImmune.Life));
                     Assert.InRange(poisonImmuneDamage, intendedNormalBounds.Min, intendedNormalBounds.Max);
@@ -4062,7 +4069,7 @@ public sealed partial class ReservationCurseSummonTests
                     uint blindImmuneBefore = blindImmune.Life;
                     await Game.AreaSkillHit("sacrifice-blind-immune", sacrificeWire.Stream,
                         sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                        immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                        immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                         addedChaos: representativeAddedChaos);
                     int blindImmuneDamage = checked((int)(blindImmuneBefore - blindImmune.Life));
                     Assert.InRange(blindImmuneDamage, intendedNormalBounds.Min, intendedNormalBounds.Max);
@@ -4105,7 +4112,7 @@ public sealed partial class ReservationCurseSummonTests
                             "the real linked Brutality prohibition did not suppress the augmented hit");
                         await Game.AreaSkillHit("sacrifice-chaos-prohibited", sacrificeWire.Stream,
                             sacrificeWire.Ciphers, sacrificeConn, source.Id, source, from, from,
-                            immediate: true, criticalRoll: new SkillCriticalRoll(0),
+                            immediate: true, criticalRoll: new SkillCriticalRoll(0), sacrifice: isolatedSacrifice,
                             addedChaos: representativeAddedChaos);
                     }
                     finally
@@ -4510,9 +4517,11 @@ public sealed partial class ReservationCurseSummonTests
                     Assert.True(strictAccepted,
                         "the real linked Fireball was rejected before the paid-producer assertion");
                     Assert.Equal(strictManaCost, strictManaBefore - strictManaAfter);
-                    Assert.Equal(strictLifeBefore - (uint)expectedSacrificed, strictLifeAfter);
+                    Assert.Equal(strictLifeBefore, strictLifeAfter);
                     paidSession.AdvanceTo(Math.Max(
                         paidSession.Runtime.Now, ProjectileRuntime.Time(strictReleaseAt)));
+                    strictLifeAfter = paidConn.PlayerLife;
+                    Assert.Equal(strictLifeBefore - (uint)expectedSacrificed, strictLifeAfter);
                     var strictProjectile = Assert.Single(paidSession.Runtime.Projectiles);
                     var strictShot = Assert.IsType<ProjectileOffense>(strictProjectile.Use.Payload);
                     actualChaosNormal = strictShot.Hit[DamageType.Chaos].Min;
@@ -4696,8 +4705,7 @@ public sealed partial class ReservationCurseSummonTests
                     }
                     Assert.True(repeatAccepted);
                     paidSession = Assert.IsType<Game.ProjectileSession>(paidConn.ProjectileRuntime);
-                    Assert.Equal(repeatSacrificed, checked((int)(
-                        repeatLifeBefore - repeatLifeAfter)));
+                    Assert.Equal(repeatLifeBefore, repeatLifeAfter);
                     Assert.Equal(repeatManaCost, repeatManaBefore - repeatManaAfter);
 
                     void AssertFrozenChaos(ProjectileEntity[] released, double expected)
@@ -4713,6 +4721,8 @@ public sealed partial class ReservationCurseSummonTests
 
                     paidSession.AdvanceTo(Math.Max(
                         paidSession.Runtime.Now, ProjectileRuntime.Time(repeatFirstReleaseAt)));
+                    repeatLifeAfter = paidConn.PlayerLife;
+                    Assert.Equal(repeatSacrificed, checked((int)(repeatLifeBefore - repeatLifeAfter)));
                     var firstRepeatRelease = paidSession.Runtime.Projectiles
                         .Where(projectile => projectile.Use.RepeatsLeft == 1).ToArray();
                     Assert.True(firstRepeatRelease.Length > 1,
@@ -4791,6 +4801,7 @@ public sealed partial class ReservationCurseSummonTests
                     uint empoweredLifeBefore, empoweredLifeAfter;
                     uint empoweredManaBefore, empoweredManaAfter, empoweredManaCost;
                     int empoweredSacrificed;
+                    double empoweredReleaseAt;
                     bool empoweredAccepted;
                     using (new Game.PlayerStatScope(paidConn, fresh: true))
                     {
@@ -4806,18 +4817,23 @@ public sealed partial class ReservationCurseSummonTests
                         empoweredSacrificed = (int)Math.Min((long)empoweredLifeBefore - 1,
                             (long)empoweredLifeBefore * percent / 100);
                         empoweredManaCost = CanonicalManaCost(empoweredSource.Id);
+                        double empoweredAcceptedAt = Game.ProjectileWorldTime(paidConn);
+                        empoweredReleaseAt = ReleaseAt(empoweredAcceptedAt,
+                            Game.CastMs(paidConn, empoweredSource.Effect, empoweredSource.Id)!.Value);
                         empoweredAccepted = await Game.CastGemSkill(
                             "sacrifice-empower-2", paidWire.Stream, paidWire.Ciphers, paidConn,
                             empoweredSource.Id, from, aim,
-                            swingAt: Game.ProjectileWorldTime(paidConn));
+                            swingAt: empoweredAcceptedAt);
                         empoweredLifeAfter = paidConn.PlayerLife;
                         empoweredManaAfter = paidConn.PlayerMana;
                     }
                     Assert.True(empoweredAccepted);
                     Assert.True(empoweredSacrificed > 0);
-                    Assert.Equal(empoweredLifeBefore - (uint)empoweredSacrificed,
-                        empoweredLifeAfter);
+                    Assert.Equal(empoweredLifeBefore, empoweredLifeAfter);
                     Assert.Equal(empoweredManaCost, empoweredManaBefore - empoweredManaAfter);
+                    paidSession.AdvanceTo(Math.Max(paidSession.Runtime.Now, ProjectileRuntime.Time(empoweredReleaseAt)));
+                    Assert.Equal(empoweredLifeBefore - (uint)empoweredSacrificed, paidConn.PlayerLife);
+                    Assert.NotEmpty(paidSession.Runtime.Projectiles);
                     paidConn.ProjectileRuntime = null;
                     paidSession.Invalidate();
                     await paidSession.OutputCompleted;
@@ -4876,11 +4892,12 @@ public sealed partial class ReservationCurseSummonTests
                             swingAt: forbiddenAcceptedAt);
                         forbiddenLifeAfter = paidConn.PlayerLife;
                         Assert.True(percent > 0);
-                        Assert.True(forbiddenLifeAfter < forbiddenLifeBefore);
+                        Assert.Equal(forbiddenLifeBefore, forbiddenLifeAfter);
                     }
                     Assert.True(forbiddenAccepted);
                     paidSession.AdvanceTo(Math.Max(
                         paidSession.Runtime.Now, ProjectileRuntime.Time(forbiddenReleaseAt)));
+                    Assert.True(paidConn.PlayerLife < forbiddenLifeBefore);
                     var forbiddenProjectiles = paidSession.Runtime.Projectiles.ToArray();
                     Assert.NotEmpty(forbiddenProjectiles);
                     foreach (var forbiddenProjectile in forbiddenProjectiles)
@@ -4957,9 +4974,10 @@ public sealed partial class ReservationCurseSummonTests
                     Assert.True(await Game.CastGemSkill(
                         "sacrifice-life-rounding", paidWire.Stream, paidWire.Ciphers, paidConn,
                         lowSource.Id, from, aim, swingAt: lowLifeAt));
-                    Assert.Equal(4u, paidConn.PlayerLife);
+                    Assert.Equal(5u, paidConn.PlayerLife);
                     paidSession.AdvanceTo(Math.Max(paidSession.Runtime.Now,
                         ProjectileRuntime.Time(ReleaseAt(lowLifeAt, lowLifeCastMs))));
+                    Assert.Equal(4u, paidConn.PlayerLife);
                     var roundingShot = Assert.IsType<ProjectileOffense>(
                         Assert.Single(paidSession.Runtime.Projectiles).Use.Payload);
                     AssertNoChaos("rounded-zero paid release", roundingShot.Hit);
