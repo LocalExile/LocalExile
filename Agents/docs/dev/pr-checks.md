@@ -71,6 +71,24 @@ Offline checks: `python scripts/dev/test_pr_warnings.py`.
 
 A maintainer who starts on a pull request or an issue assigns themselves; one with no assignee is free.
 
+Nothing sets or clears these labels by itself. `scripts/dev/pr_queue.py` reads every open pull request and says where
+each stands, without changing anything:
+
+```powershell
+python -I scripts/dev/pr_queue.py          # every open one that is not a draft (needs gh)
+python -I scripts/dev/pr_queue.py 736 741  # only these
+```
+
+- A conflict is real when the merge into `main` fails locally, tried in memory with `main`'s rules for the lists
+  ("Merging lists" below). One that GitHub shows only in those lists is named apart and needs no label.
+- A pull request is stacked when it contains another open one's head commit. A conflict in the same files as the one
+  below it is fixed there, so it gets `BLOCKED` alone.
+- The protected paths come from `main`'s `.github/CODEOWNERS`, the last matching pattern, as GitHub reads it.
+
+It ends with the labels to add and the ones nothing was found for, each with its reason; for `needs-author`, whether
+the author has pushed or replied since it was set. A person may have set `needs-author` or `BLOCKED` for a reason Git
+does not show, so look before taking one off. Offline checks: `python scripts/dev/test_pr_queue.py`.
+
 ## Merging lists
 
 `.gitattributes` merges the status, roadmap and index files by keeping both sides' lines, in local Git only.
