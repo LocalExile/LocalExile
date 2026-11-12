@@ -81,7 +81,7 @@ public static partial class Game
         if (Npcs.Value.ShortcutOf(npc.Npc, NpcCatalog.ShortcutFor(use.Ctrl, use.Alt), Quests.Names(PlayerQuestFlags(conn))) is { } shortcut)
         {
             Console.WriteLine($"[gateway] {remote} npc {npc.Npc.Name} {(use.Ctrl ? "Ctrl + " : "")}{(use.Alt ? "Alt + " : "")}click: NPCTalk row {shortcut.Row} \"{shortcut.Option}\" ({shortcut.Category})");
-            if (await RunNpcOption(remote, stream, ciphers, conn, id, npc, shortcut)) return;
+            if (await RunNpcOption(remote, stream, ciphers, conn, id, npc, shortcut, onClick: true)) return;
         }
         await Send(remote, stream, ciphers, InstanceNpcs.Talk(id), $"0x0084 talk to npc 0x{id:x} {npc.Npc.Name}",
             still: () => PlayerActionCurrent(conn, action));
@@ -159,10 +159,10 @@ public static partial class Game
     public static Task ExecuteQuestConversation(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk) => RunNpcOption(remote, stream, ciphers, conn, id, npc, talk);
 
-    // An NPCTalk row takes effect: picked from the list (0x82), next in a quest's talk, or the click's shortcut. False when
-    // the row is not for this character now, or nothing answers its category.
+    // An NPCTalk row takes effect: picked from the list (0x82), next in a quest's talk, or the click's shortcut
+    // (onClick: no talk is open). False when the row is not for this character now, or nothing answers it.
     static async Task<bool> RunNpcOption(string remote, NetworkStream stream, ConnectionCiphers ciphers,
-        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk)
+        ClientState conn, uint id, SpawnedNpc npc, NpcCatalog.Talk talk, bool onClick = false)
     {
         if (!talk.Available(Quests.Names(PlayerQuestFlags(conn)))) return false;
         if (!await GameEvents.AllowNpcOption(conn, talk)) return false;
@@ -184,6 +184,14 @@ public static partial class Game
                 // Let the owning module execute its no-audio script before generic FinishNPCChat consumes it.
                 offeredScript = true;
                 if (await GameEvents.AnyNpcOption(option)) return true;
+                // On the click itself a script that only ends the talk shows nothing: FinishNPCChat with a screen or an
+                // event of a system the server does not have (Einhar's BestiaryScreen). The caller lists the options.
+                if (onClick && talk.NextChat is null && talk.AreaTransition is null
+                    && !(talk.OpensScreen is { } screen && ScriptScreens.ContainsKey(screen)))
+                {
+                    Console.WriteLine($"[gateway] {remote} npc option {talk.Category} \"{talk.Option}\": its script shows nothing here ({talk.Script.Trim()})");
+                    return false;
+                }
                 if (await EndTalkScript(remote, stream, ciphers, conn, id, npc, talk)) return true;
             }
         }

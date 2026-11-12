@@ -110,12 +110,12 @@ public sealed class NpcConversationTests
         var seen = new List<string>();
         bool answers = true;
         using var subscription = GameEvents.NpcOption.Add("Game", option => { seen.Add(option.Category); return Task.FromResult(answers); });
-        async Task<byte[]?> Click(ushort flags)
+        async Task<byte[]?> Click(ushort flags, NpcCatalog.Npc? npc = null)
         {
             using var wire = new Wire();
             var conn = wire.Conn;
             var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-            lock (conn.Npcs) conn.Npcs[0x300] = new SpawnedNpc(kirac, x, y);
+            lock (conn.Npcs) conn.Npcs[0x300] = new SpawnedNpc(npc ?? kirac, x, y);
             await Game.OnUseObject("npc-shortcut-test", wire.Stream, wire.Ciphers, conn,
                 new InstanceTransfer.UseSkillOnObject(0x300, 0x266, 1, flags), conn.Clock.Elapsed.TotalSeconds);
             Assert.Equal(0x300u, conn.TalkingTo);
@@ -134,6 +134,10 @@ public sealed class NpcConversationTests
         // An option nothing answers (a league without its module) falls back to the list.
         answers = false;
         Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag));
+        // So does a row whose script would only end a talk that never began: Einhar's View Bestiary names a screen of a
+        // system the server does not have.
+        var einhar = Game.Npcs.Value.Find("Metadata/NPC/League/Bestiary/EinharHideout")!;
+        Assert.Equal(options, await Click(0x0408 | InstanceTransfer.CtrlFlag, einhar));
     }
 
     sealed class Wire : IDisposable
