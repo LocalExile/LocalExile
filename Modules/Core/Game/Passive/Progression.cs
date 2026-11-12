@@ -1081,6 +1081,9 @@ public static partial class Game
             {
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
             });
+        if (Stats.Key("spell_critical_strike_chance_+%") is uint poolSpellCritical && !devStats.ContainsKey(poolSpellCritical))
+            pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
+                + MaximumPoolItemSources.Amount(EquipmentInput(MaximumPoolItemSources.SpellCriticalPerLife), pools.Life) };
         conn.PlayerLifeCap = reservedLife.Unreserved;
         // The pure base critical stats (/set_stat too) sit outside the passive increases: the weapon override replaces
         // the armed main hand's base and the unarmed base replaces the empty one, before the global increases.

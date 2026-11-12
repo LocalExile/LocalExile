@@ -94,6 +94,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conditional item gates include flat Mana costs, equipment counts, maximum block and Travel recovery per Frenzy Charge.
   Qualified attribute coefficients reach accuracy, armour, block and bleeding; other consumers remain partial.
   Infernal Mantle's low-Mana condition reaches incoming Spell hits through the canonical Spell damage-taken input.
+  Rathpith and Scales of Justice scale Spell offence and added Fire from completed full maximum Life and Mana.
   Docs: [13](../docs/protocol/13-items.md).
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling and Instilling enchantments; incoming Bleed and Poison sources are absent.
