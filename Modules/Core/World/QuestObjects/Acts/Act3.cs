@@ -53,6 +53,7 @@ static class Act3Objects
     public const string LooseCandle = "Metadata/QuestObjects/Library/HiddenDoorTrigger", HiddenDoor = "Metadata/QuestObjects/Library/HiddenDoor";
     /// <summary>The Library's hidden door is open in this instance (no QuestFlags row: the game opens it per instance).</summary>
     public static readonly string HiddenDoorOpen = InstanceFlag("LibraryHiddenDoor");
+    public static readonly string PietyFled = InstanceFlag("CrematoriumPietyFled");
     public static readonly string[] BookStands =
         ["Metadata/Chests/QuestChests/Siosa/GoldenBookStand1", "Metadata/Chests/QuestChests/Siosa/GoldenBookStand2",
          "Metadata/Chests/QuestChests/Siosa/GoldenBookStand3", "Metadata/Chests/QuestChests/Siosa/GoldenBookStand4"];
@@ -112,7 +113,12 @@ sealed class Act3 : Act
                 On.Near(Slums, Act3Objects.ClarissaSlums, "a3q1-SeenGirl"),
                 On.Npc(Slums, Act3Objects.ClarissaSlums, goneWith: "a3q1-RescuedGirl", freedBy: Act3Monsters.GuardCaptain),
                 On.Seen(Crematorium, Act3Monsters.PietyEscape, "a3q2-SeenPiety"),
-                On.Chest(Crematorium, Act3Objects.TolmanChair, Act3Items.TolmansBracelet),
+                On.Threshold(Crematorium, Act3Monsters.PietyEscape, 50, Act3Objects.PietyFled),
+                new ChestRule(Crematorium, Act3Objects.TolmanChair, Act3Items.TolmansBracelet, Act3Objects.PietyFled)
+                {
+                    Guards = ["Metadata/Monsters/Axis/AxisEliteSoldierGuardTolman", "Metadata/Monsters/Axis/AxisCasterGuardTolman",
+                        "Metadata/Monsters/Axis/AxisFootSoldierGuardTolman"],
+                },
             },
             // a3q2 "Lost in Love" (the Sewer Keys): ClarissaTown's "Take Sewer Keys" is offer 19 (grant a3q11-HaveSewerKeys,
             // remove a3q11-UsedSewerKeys). The sewer gratings of The Slums and The Marketplace (SewersLockedDoor, tile record

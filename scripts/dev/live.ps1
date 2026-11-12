@@ -310,12 +310,18 @@ function Stop-Processes($processes) {
 # A virtual environment in the repository (.venv) wins over the python on PATH; it needs Frida (walkmaps.py,
 # nullifier.py).
 function Get-Python([string]$purpose) {
-    $venv = Join-Path $repo '.venv\Scripts\python.exe'
+    $venv = Join-Path $repo $(if ($IsLinux) { '.venv/bin/python' } else { '.venv\Scripts\python.exe' })
     $python = if (Test-Path $venv) { $venv } else { (Get-Command python -ErrorAction SilentlyContinue).Source }
     if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
     Need $python "Python not found (needed for $purpose)"
-    & $python -c 'import frida' 2>$null
-    Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    if (-not ($IsLinux -and $purpose -eq '-Walkmaps')) {
+        & $python -c 'import frida' 2>$null
+        Need ($LASTEXITCODE -eq 0) 'the frida Python package is missing: python -m pip install frida'
+    }
+    if ($IsLinux -and $purpose -eq '-Walkmaps') {
+        & $python (Join-Path $repo 'scripts/walkmaps/proton.py') prepare | Out-Host
+        Need ($LASTEXITCODE -eq 0) 'could not prepare the Proton recorder (needs g++ and the official Frida GumJS development kit)'
+    }
     $python
 }
 
@@ -340,14 +346,14 @@ function Stop-Wrapper($wrapper) {
     Stop-Process -Id $wrapper.Id -Force -ErrorAction SilentlyContinue
 }
 
-# The client's own Log In goes to the login server of the GGPK's cached gateway list; the control bridge
-# (client_control.py) connects to this stack's Auth by port and needs no list. The GGPK is shared by every checkout and
-# cannot be written while any client runs, so only the default stack points it at its Auth, and only when the list
+# The client's own Log In goes to the login server of the cached gateway list (in the GGPK, or a loose file in a Steam
+# install); the control bridge (client_control.py) connects to this stack's Auth by port and needs no list. The client
+# files are shared by every checkout and cannot be written while any client runs, so only the default stack points it at its Auth, and only when the list
 # (read first; reading works while clients run) does not already. When it cannot be written: with -Strict (before
 # anything was stopped) the script stops; otherwise a warning, and the client's own Log In may go elsewhere.
 function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
     $patch = Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll"
-    $ggpk = Join-Path $repo 'Client\Content.ggpk'
+    $ggpk = Join-Path $repo 'Client'
     $list = @(& dotnet $patch gateway $ggpk 2>$null | Where-Object { "$_" -match '^[^;]*;[^;]*;' })
     if ($LASTEXITCODE -eq 0 -and $list.Count -and -not @($list | Where-Object { "$_" -notmatch "^[^;]*;[^;]*;127\.0\.0\.1:$loginPort;" }).Count) { return }
     # Windows' file lock fails this write while a client runs. Linux has no such lock: the same refusal comes from here.
@@ -355,15 +361,15 @@ function Select-LocalGateway([int]$loginPort, [switch]$Strict) {
         & dotnet $patch gateway $ggpk --login "127.0.0.1:$loginPort" 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) { return }
     }
-    $message = 'could not select local login server (a client holds the GGPK); close all clients and retry'
+    $message = 'could not select local login server (a client holds the client files); close all clients and retry'
     if ($Strict) { throw $message }
     Write-Warning "$message. The client's own Log In may go to another login server; client_control.py logs in by port."
 }
 
 # Starts the session's client through this stack's patching server and records its PID. A named session runs in its own
-# folder, data\clients\<session>\: the client opens Content.ggpk, config.json, its asset folders (FMOD sound banks,
+# folder, data\clients\<session>\: the client opens Content.ggpk (Steam: Bundles2\ and gateway_list.txt), config.json, its asset folders (FMOD sound banks,
 # Streamline, D3D12), CachedHLSLShaders and logs\Client.txt in its working folder (live 2026-10-30). So the folder gets a
-# hard link to the shared Content.ggpk (the same file: nothing is copied or written), junctions to the shared asset
+# hard link to the shared Content.ggpk or gateway_list.txt (the same file: nothing is copied or written), junctions to the shared asset
 # folders, its own shader cache and log, and a config.json naming the session's own settings file and saved login
 # (GGG_CONFIG_FILE_NAME, GGG_CREDENTIAL_FILE_NAME, in Documents\My Games\Path of Exile). A new settings file (or any,
 # with -SeedConfig) starts as a copy of the seed without its [LOGIN] section: no saved login to send to whichever login
@@ -378,20 +384,31 @@ function Start-Client([string]$session, $stack, [string]$seedConfig, [bool]$null
     $client = Join-Path $repo 'Client'
     # The Patch server answers with the hash saved in data\: another checkout's run may have changed the GGPK since.
     # --repair gives a zero root hash a value (the client never skips patching with one).
-    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash (Join-Path $client 'Content.ggpk') --repair --save 2>$null | Out-Null
+    & dotnet (Join-Path $repo "src\GameServer.Patch\bin\$configuration\net10.0\GameServer.Patch.dll") root-hash $client --repair --save 2>$null | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Warning 'could not refresh the GGPK root hash in data\client-constants.json; the saved one is used' }
+    # Which allowed client build this is, and the versions LocalExile supports (ClientBuilds).
+    $authTool = Join-Path $repo "src\GameServer.Auth\bin\$configuration\net10.0\GameServer.Auth.dll"
+    if (Test-Path $authTool) {
+        & dotnet $authTool build (Join-Path $client 'Game.exe') 2>$null | Where-Object { $_ -like 'This client is *' } |
+            ForEach-Object { Write-Host $_ }
+    }
     $folder = $client
     if ($session -ne 'default') {
         $folder = Join-Path $clients $session
         New-Item -ItemType Directory -Force $folder | Out-Null
-        $shared = Join-Path $client 'Content.ggpk'
-        $link = Join-Path $folder 'Content.ggpk'
-        if (Test-Path $link) {
-            # A link to a GGPK that has been replaced since: only this folder's link goes.
-            $a = Get-Item $link; $b = Get-Item $shared
-            if ($a.Length -ne $b.Length -or $a.LastWriteTimeUtc -ne $b.LastWriteTimeUtc) { Remove-Item $link -Force }
+        # The client's data files in its working folder: the standalone GGPK, or the Steam install's loose gateway list
+        # (its Bundles2\ is one of the asset folders below). A Steam install has no GGPK and no root hash.
+        foreach ($name in 'Content.ggpk', 'gateway_list.txt') {
+            $shared = Join-Path $client $name
+            $link = Join-Path $folder $name
+            if (-not (Test-Path $shared)) { if (Test-Path $link) { Remove-Item $link -Force }; continue }
+            if (Test-Path $link) {
+                # A link to a file that has been replaced since: only this folder's link goes.
+                $a = Get-Item $link; $b = Get-Item $shared
+                if ($a.Length -ne $b.Length -or $a.LastWriteTimeUtc -ne $b.LastWriteTimeUtc) { Remove-Item $link -Force }
+            }
+            if (-not (Test-Path $link)) { New-Item -ItemType HardLink -Path $link -Target $shared | Out-Null }
         }
-        if (-not (Test-Path $link)) { New-Item -ItemType HardLink -Path $link -Target $shared | Out-Null }
         foreach ($assets in Get-ChildItem $client -Directory | Where-Object { $_.Name -notin 'logs', 'CachedHLSLShaders' }) {
             $junction = Join-Path $folder $assets.Name
             if (-not (Test-Path $junction)) { New-Item -ItemType Junction -Path $junction -Target $assets.FullName | Out-Null }
@@ -541,9 +558,9 @@ Need (Test-Path (Join-Path $repo 'data\login-keys.json')) 'data\login-keys.json 
 if (Test-Path (Join-Path $repo 'data\saves.db')) { Step 'data\saves.db is from before the split: the servers migrate it (a copy is made first)' }
 # Only a client needs Client\: the servers run from data\ alone (-NoClient, -Only).
 if (-not $NoClient -and -not $Only) {
-    Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client and its PathOfExile.exe'
+    Need (Test-Path (Join-Path $repo 'Client\Game.exe')) 'Client\Game.exe missing: copy the client''s PathOfExile.exe (Steam: PathOfExileSteam.exe) to it'
     Need (Test-Path (Join-Path $repo 'Client\Game.patched.exe')) 'Client\Game.patched.exe missing: run GameServer.Auth patch'
-    Need (Test-Path (Join-Path $repo 'Client\Content.ggpk')) 'Client\Content.ggpk missing: this needs the standalone client layout'
+    Need ((Test-Path (Join-Path $repo 'Client\Content.ggpk')) -or (Test-Path (Join-Path $repo 'Client\Bundles2\_.index.bin'))) 'Client\ has neither Content.ggpk (standalone) nor Bundles2\_.index.bin (Steam)'
 }
 
 # The control bridge can open a closed client without restarting the servers or touching any other client.
@@ -558,6 +575,13 @@ if ($ClientOnly) {
     $python = if ($Walkmaps) { Get-Python '-Walkmaps' } else { $null }
     $existing = @(Get-OwnClients $session)
     if ($existing.Count) {
+        if ($Walkmaps -and $IsLinux) {
+            $maps = try { [IO.File]::ReadAllText("/proc/$($existing[0].ProcessId)/maps") } catch { '' }
+            $helper = [regex]::Escape((Join-Path $repo 'Tools/frida/')) + '[^/]+/proton-recorder\.so'
+            if (-not @(Get-OwnWalkmaps).Count -or $maps -notmatch $helper) {
+                throw 'Linux capture must start with the client: stop this client with -Stop -ClientOnly, then use -ClientOnly -Walkmaps'
+            }
+        }
         if ($Walkmaps) { Start-Recorder $python }
         Write-Output "client already running: $($existing[0].ProcessId)"
         return
@@ -586,8 +610,8 @@ if ($Walkmaps -and ($stack.Base -or $session -ne 'default')) {
 }
 if ($Walkmaps) { $python = Get-Python '-Walkmaps' }
 
-# The game data the servers read from the GGPK (data/game-files.zip, the local root hash): before they start. The client
-# tables and generated files come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
+# The game data the servers read from the client (data/game-files.zip, the local root hash): before they start. The client
+# tables and the generated ones come from client.db, built from sql/; the full extraction is extract-data.ps1 on its own.
 if (-not $NoExtract) {
     Step 'checking game data (a first run extracts it from the client, which takes a few minutes) ...'
     & (Join-Path $PSScriptRoot 'extract-data.ps1') -Servers
@@ -686,7 +710,7 @@ $serverArgs = @{ Auth = @('serve'); Patch = @(); Gateway = @() }
 # The servers inherit it: the Gateway records area loads for the recorder only beside it (AreaLayouts.Recording).
 $env:Game_WALKMAPS = if ($Walkmaps) { '1' } else { $null }
 # The cached gateway list can point elsewhere even when the patch welcome says no download is needed.
-# Select the local Auth explicitly before the patch server or client opens the GGPK (the default stack only).
+# Select the local Auth explicitly before the patch server or client opens the client files (the default stack only).
 if (-not $NoClient -and -not $stack.Base) {
     Step 'selecting the local login server in the client data ...'
     Select-LocalGateway $stack.Ports.login
@@ -707,7 +731,9 @@ $serverEnv = @{
 $envBefore = @{}
 foreach ($name in $serverEnv.Keys) {
     $envBefore[$name] = [Environment]::GetEnvironmentVariable($name)
-    [Environment]::SetEnvironmentVariable($name, $serverEnv[$name])
+    # PowerShell converts $null to an empty string here; .NET on Linux preserves an empty environment value.
+    if ($null -eq $serverEnv[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+    else { [Environment]::SetEnvironmentVariable($name, $serverEnv[$name]) }
 }
 Step "starting servers: $($servers -join ', ') ..."
 try {
@@ -723,7 +749,12 @@ try {
             (Join-Path $out "live-$($s.ToLower()).log") (Join-Path $out "live-$($s.ToLower()).err")
     }
 }
-finally { foreach ($name in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) } }
+finally {
+    foreach ($name in $envBefore.Keys) {
+        if ($null -eq $envBefore[$name]) { [Environment]::SetEnvironmentVariable($name, [NullString]::Value) }
+        else { [Environment]::SetEnvironmentVariable($name, $envBefore[$name]) }
+    }
+}
 
 # A watched Gateway first builds: wait until it listens, so the client does not reach a closed port.
 if ($Watch) {

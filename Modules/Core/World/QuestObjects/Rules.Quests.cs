@@ -16,7 +16,7 @@ static partial class QuestobjectsRules
                 var named=AreaPopulation.LoadPoints(conn.Layout.Id,conn.Seed,[]).FirstOrDefault(p=>p.Name==TutorialObjects.Chest);
                 if ((TutorialObjects.ChestPlacement(conn.Layout.Id,conn.Seed) ?? (named is null ? null : TutorialObjects.ChestAt(named))) is { } chest)
                 {
-                    conn.TutorialChest = chest; conn.TutorialChestId = conn.NextObjectId++;
+                    conn.TutorialChest = chest; conn.TutorialChestId = conn.TakeObjectId();
                     bool opened = CharacterSaves.Load(CharacterName(conn))?.Tutorial?.ChestOpened == true;
                     await global::Game.SendWorldCreate(remote, stream, ciphers, conn, conn.TutorialChestId, InstanceEntities.CreateObject(conn.TutorialChestId,InstanceEntities.ObjectTypeHash(chest.Type),
                         TutorialObjects.ChestBlob(chest,opened)), $"0x02bb tutorial support chest at ({chest.X},{chest.Y}), opened={opened}");

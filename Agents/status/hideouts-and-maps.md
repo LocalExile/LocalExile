@@ -33,13 +33,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
   map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion (the completed set still starts filled, see below, so the derivation is what a character sees). The Atlas
+  completion. A fresh save earns its first map point on its first completion. The Atlas
   graph itself is still the client's, so connectivity is left to it.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
-  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one filled 0x1a3 with the 0x3d
+  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
   presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
   real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.
@@ -145,7 +145,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     map quantity and the owner's legacy scarab bonus, cap at equipment capacity, and survive reentry/module reload.
     Fumes adds mine guards and a native enrage visual with +50% item quantity on affected monsters; its radius,
     guard placement and exact official combat tuning remain server approximations.
-    Full resource snapshots are followed by 0x226 gauge updates on entry and chart opening.
+    Entry sends a full snapshot without a zero-gain event; chart opening refreshes its gauge with 0x226.
     Two unchanged-value updates settle the paused chart and invalidate its label position; the number follows the fill edge.
     A third update suppresses the native invalidation. Both the fill and label were verified without client changes.
   - The native HUD gauge is permanent in mine areas (type 27). Niko maps now keep its transient display visible
@@ -168,13 +168,18 @@ Part of [Status](../Status.md); what to build next in this area is in
     Equipment stats are sent in Delve areas; darkness damage and consumable use remain unimplemented.
   - Delve chart routes now persist completed points/edges and the last successful checkpoint per account/league.
     The entrance layout is used only for the first trip; later edges connect two mine checkpoint rooms in the selected
-    direction, using captured native terrain. Physical biome variety remains unfinished. Successful destinations expand
-    chart blocks down and sideways. Each confirmation reaches its selected node, then the Crawler parks.
+    direction. Later trips generate fresh native Mines windows with new seeds, varied rooms and authored rail shapes;
+    account history rejects repeated geometry/routes and prevents minimap reuse. Other biomes remain unfinished. Successful destinations expand
+    chart blocks down and sideways. A complete neighbour halo preserves the native five-cell fog fade across block corners.
+    Each confirmation reaches its selected node, then the Crawler parks.
     Intermediate corridor cells are part of that journey and never become separate checkpoint stops.
-    Killing all destination defenders saves the point and refreshes the chart, including while the chart is open.
+    Arrival starts three defence waves over five unpaused seconds, using the route's monster pool. Only after every
+    wave has spawned and all destination defenders are dead does the point save and refresh the chart.
     Tunnel stragglers do not block completion; the next direction requires a new selection.
     Death, leaving or module reload discards the unfinished trip, retains spent sulphite and restores the saved point.
     The Crawler follows authored rails, waits at 70 cells (resumes below 60), and speeds up along the rails when led.
+    Departure waits for the player to leave a 180-cell-diameter native circle, with no travel debit while waiting.
+    Completion keeps a permanent endpoint light and plays the native checkpoint activation animation with its success sound.
     The Crawler's own forward axis leads each rail segment; rounded cells do not change its heading, and only clear
     sleeve connections are smoothed. Wheels, engine, torch, checkpoint pads, 30-cell lamps and cables remain in place.
     Supported Weta/Spider packs
@@ -183,8 +188,8 @@ Part of [Status](../Status.md); what to build next in this area is in
     Newly opened destinations receive one completion reward; revisiting opened points cannot farm free rewards.
     Native walking/Kinetic Blast completed a route with exact 24 sulphite debit and one reward. Native checks also
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
-    Chart continuity inside the mine requires the now-sent DelveOwner flag.
-    General biome/encounter parity, darkness damage, consumable use and physical terrain diversity remain partial.
+    DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
+    General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
     The Sarn Encampment has them at (295, 423) and (285, 418), facing 28° (2026-11-04).

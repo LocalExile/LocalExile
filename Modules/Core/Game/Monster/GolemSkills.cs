@@ -17,7 +17,7 @@ public static partial class Game
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[name] = values.GetValueOrDefault(name) + value;
         }
-        foreach (var (name, value) in golem.Auras) values[name] = values.GetValueOrDefault(name) + value;
+        foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
         int Get(string n) => GolemStat(player, n);
         if (!golem.Definition.IsGolem)
@@ -159,7 +159,10 @@ public static partial class Game
                 double auraMore = spell ? Math.Max(0, 1 + mods["spell_damage_aura_spell_damage_+%_final"] / 100.0) : 1;
                 if (spell && (path.History & DamageTypeHistory.Lightning) != 0)
                     auraMore *= Math.Max(0, 1 + mods["wrath_aura_spell_lightning_damage_+%_final"] / 100.0);
-                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed));
+                // Elemental Army: "Minions deal 10% more Elemental Damage" (the support's other half is the exposure).
+                double elementalMore = (path.History & DamageTypeHistory.Elemental) != 0
+                    ? Math.Max(0, 1 + Own("support_minion_totem_resistance_elemental_damage_+%_final") / 100.0) : 1;
+                modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed * elementalMore));
             }
             damage = modified;
             string id = catalog.EffectId(effect) ?? "";
@@ -241,6 +244,7 @@ public static partial class Game
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Own.OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Auras.OrderBy(p => p.Key)) hash.Add(p);
+        foreach (var p in golem.Utility.OrderBy(p => p.Key)) hash.Add(p);
         foreach (var p in golem.Gear.OrderBy(p => p.Key)) hash.Add(p);
         int input = hash.ToHashCode();
         if (input == golem.InputHash) return;

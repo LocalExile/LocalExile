@@ -78,7 +78,7 @@ Removing or explicitly zeroing an override does not change the flag or refill th
 The property defaults false; ordinary Fireball, default attacks and support records retain their existing bytes.
 No extraction dependency or generated file changes, so the extraction manifest needs no version bump.
 Native construction `0x141eeddf2..0x141eede14` sets base cost, raw stored uses and the selected multiplier.
-Getter `0x141eeef80` reads the following keys, whose names come from Stats.json:
+Getter `0x141eeef80` reads the following keys, whose names come from the Stats table:
 
 - 14270: `virtual_vaal_skill_require_no_souls_per_use`.
 - 19748: `virtual_non_aura_vaal_skill_soul_requirement_multipler`.

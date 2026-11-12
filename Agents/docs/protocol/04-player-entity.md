@@ -36,7 +36,7 @@ insert `0x1424fe270`).
 | `Metadata/Characters/Int/Int` (Witch) | `0x9c41993e` |
 | `Metadata/Characters/Str/Str` (Marauder) | `0xd7aa9065` |
 
-Characters.dat rows (`data/tables/Characters.json`): 0 Marauder `Str/Str`, **1 Witch `Int/Int`**, 2 Scion
+Characters.dat rows (the `Characters` table): 0 Marauder `Str/Str`, **1 Witch `Int/Int`**, 2 Scion
 `StrDexInt/StrDexInt`, 3 Ranger `Dex/Dex`, 4 Duelist `StrDex/StrDex`, 5 Shadow `DexInt/DexInt`, 6 Templar
 `StrInt/StrInt`. Note that the login 0x15 class byte uses a different enum (3 showed "Witch").
 
@@ -323,7 +323,7 @@ u32. With 0 nothing else is read.
 | 9 raw bytes | +0x1e8 | |
 | u16, u16 | → +0x1f8, +0x208 | Hideouts.dat keys by HASH16 (lookups that fail give null and are tolerated); the first is the character's hideout ([21](21-hideouts.md) §1) |
 | u8 | +0x1b1 | non-zero → "WashedUp" state; Actor's initial stance must also be 68 (below) |
-| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5) |
+| u8 × 5 | +0x1ae, +0x1ad, +0x1b0, +0x1af, +0x238 | +0x1ae / +0x1ad: the major and minor **Pantheon** god, PantheonPanelLayout row + 1, 0 = none (`PlayerObject.PantheonMajor/Minor`; [pantheon](../game/campaign/pantheon.md) §5). +0x1b0: the **Descendancy** row, Descendancy.dat, 0 = none (`PlayerObject.Descendancy`; [16](16-waypoints.md) §3) |
 | u32 n + n × u32 | → vtable +0x158 | |
 | u8 n + n × (record `0x141e8a960`, u32) | → vtable +0x160 | MicrotransactionCounters.dat |
 
@@ -334,6 +334,12 @@ component's vtable +0x108. Other bits: 2 and 8 the two vec16 lists, 0x200 the 9 
 0x10 the Hideouts keys, 0x20 the class byte, 0x1000 → +0x1b0, 0x80 → +0x1ae/+0x1ad, 0x100 → +0x1af, 0x800 a u32-counted
 list. `InstanceEntities.PlayerExperienceUpdate` sends `0001` + the u32 (`/set_level`); `PlayerPantheonUpdate` sends
 `0080` + the two Pantheon bytes after C→S 0x1ee.
+
+The second ascendancy layer has two copies of its row in the client: the Player component's **+0x1b0** and the
+passive tree's spare `0x33` byte (+0x269). The tree panel (`0x14099f370`) builds the Bloodline/Wildwood panel from
+the Player component's byte, so sending only `0x33` leaves the panel on the main ascendancy. `0x33` still carries
+the row for the tree's own allocation checks, and both layers spend the same earned ascendancy points. Update bit
+`0x1000` sets +0x1b0 without recreating the object.
 
 ### 4.8 Inventories (`0x141e22490`, through slot 17 → slot 20), 2 bytes minimal
 
@@ -390,9 +396,13 @@ drops. Found with a hardware watchpoint on the field and the dispatcher's disass
 Gateway keeps gold per account, as in the real game where every character of an account (and league) shares it:
 `AccountStash.Gold`, saved in the account's stash row of `data/characters.db` ([18](18-stash.md) §6). It sends that amount on every area
 entry, on `/gold` and after a gold respec. A character save from before this still holding `Gold` gives it to the
-account at the character's next login (`CharacterSaves.TakeGold`). Leagues are not kept apart yet. Gold coins on the ground are the item
-`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound); picking them up is
-not done yet.
+account at the character's next login (`CharacterSaves.TakeGold`). Gold coins on the ground are the item
+`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound).
+Monsters drop gold piles (`ItemDrops.Gold`, our own numbers): normal 40%, magic 75%, rare and unique always, each
+(3 + 1.2 × level) × 1/2/5/15 by rarity. Gold within the `gold_auto_loot_radius` setting (default 20 cells) is
+picked up
+by itself on the player tick, in full and without late-drop ghosts. Every league has its own stash and gold; Standard
+keeps the account's stash from before (`AccountStash.Key`).
 
 ## Open
 

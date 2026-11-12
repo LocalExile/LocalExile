@@ -49,20 +49,7 @@ A rare Sanctuary Map was rerolled despite its `unmodifiable` flag; LocalExile re
 stayed, the craft was consumed, and the suffixes were replaced.
 The local `Roll(..., respectMetamods: true)` keeps the protected prefix and removes the unprotected craft the same way.
 
-## Automated coverage
-
-`ChaosTests` checks the 4/5/6 count distribution over 5,000 rolls, the 4-6 reroll and new name, jewel 3/4 with two per
-side, the prefix-lock result and craft consumption, preserved implicits/quality/sockets/links/charges, flask and
-unmodifiable refusal, full-item rerolls, unsupported/no-Mods/unknown/empty-pool bases, corrupted/mirrored and non-rare
-items.
-`ChaosGatewayTests` sends framed 0x71 and 0x72 messages through `Program.OnClientMessages`: inventory and stash
-currency/target combinations, two rerolls spending one orb each, saved mods and name after cache eviction, a full rare
-item rerolled, and refused magic/flask/unmodifiable targets without spending.
-
-The full suite also exposed an unrelated time-base bug in `GameModeAilmentIntegrationTests`: it applied a chill at
-`now = 0` but checked `PlayerActionFactor` at the connection clock, so a cold catalog load longer than the two-second
-chill made the test fail. The test now applies at `Clock.Elapsed` and checks immediately; this is a test-only fix and
-does not change production behaviour.
+## Verification
 
 No fresh real-client run was made for this change yet.
 The old live check of the unvalidated path (2026-10-21) is not evidence for the new admission rules; native

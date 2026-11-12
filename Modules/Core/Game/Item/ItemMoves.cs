@@ -72,6 +72,7 @@ public static class ItemMoves
             { reason = "the item is not in the inventories"; return null; }
             if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
             tab = stash.UniqueDestination(tab, item.Item);
+            if (tab < 0) { reason = "the item has no collection slot"; return null; }
             // The client drops a map on the map tab itself, and the map tab holds nothing directly: its page does (#477).
             tab = stash.MapDestination(tab, item.Item, shapeOf);
             if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
@@ -347,7 +348,9 @@ public static class ItemMoves
         {
             if (items.Items(Cursor) is not [var held, ..]) { reason = "nothing held"; return null; }
             // A map held over the map tab goes to its page, the same routing the inventory path uses (#382/#605).
-            int destination = stash.MapDestination(tab, held.Item, shapeOf);
+            int destination = stash.UniqueDestination(tab, held.Item);
+            if (destination < 0) { reason = "the item has no collection slot"; return null; }
+            destination = stash.MapDestination(destination, held.Item, shapeOf);
             if (destination != tab)
             {
                 if (stash.CellFor(destination, held.Item, shapeOf) is not { } cell)

@@ -60,7 +60,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
   Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
-  Code: `AreaLayout.Arrival`, `TeleportTargets.cs`, Gateway.
+  Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
   Docs: [09](../docs/protocol/09-area-change.md) §4.
 - Instances: one per town (all 12 act towns from WorldAreas `IsTown`);
   other areas get private instances that live 6 minutes once empty.
@@ -131,12 +131,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Queue age, send/wire/socket timings and hot combat-lock timings are measured independently of tick latency.
   Stuns and freezes hold the walk and the newest click until they end; a speed change restarts the segment in progress;
   an attack follows its target to the swing; totems and the tutorial chest block paths.
+  Dash can cross visible gaps in either direction and continues walking from its landing on the far side.
   Melee hits land at the swing clip's contact keyframe.
   Resync (S→C 0x128): sent on every stun, after a movement skill, on the client's own request (C→S 0x16 command 8) and by `/oos`;
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
-  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Program.LivingCollision.cs`, `InstancePlayers.cs`.
+  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
   ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.

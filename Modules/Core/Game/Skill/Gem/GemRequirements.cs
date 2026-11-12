@@ -10,7 +10,7 @@ public static partial class Game
         public static IReadOnlyList<(byte Row, uint ItemId, int Socket, Item Gem)> PlacesIn(
             IReadOnlyList<(byte Row, InventoryItem Item)> equipment) =>
             [.. equipment.OrderBy(e => e.Row).SelectMany(e => e.Item.Item.Sockets.Select((s, socket) =>
-                (e.Row, e.Item.Id, Socket: socket, s.Gem)).Where(g => g.Gem is not null)
+                (e.Row, e.Item.Id, Socket: socket, s.Colour, s.Gem)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
                 .Select(g => (g.Row, g.Id, g.Socket, g.Gem!)))];
     }
 

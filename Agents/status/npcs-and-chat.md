@@ -7,9 +7,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Ordinary vendors/Kirac persist stock; hideout Lilly serves new characters: [17](../docs/protocol/17-npcs.md).
 
-- Chat commands `/commands` (`/com`; paged, `/com <name>` for one), `/raw <hex>`, `/set_stat`, `/set_speed`,
-  `/set_level <1 to 100>` (saved to the account, sent in place), `/add_passive_points <n>`, `/add_passive <id>`
-  (replies as chat lines).
+- Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
+  `/raw <hex>`, `/set_stat`, `/set_speed`, `/set_level <1 to 100>` (saved to the account, sent in place),
+  `/add_passive_points <n>` and `/add_passive <id>` are the `gm-commands` mod (LocalExile-Mods, `GmCommands.cs`).
   Code: `Program.Commands.cs` (`Commands`), `ChatCommands.cs`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md).
 - Chat lines and channels (the `Chat` module): local lines go to the players of the instance, `#` global, `$` trade and
@@ -56,7 +56,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   A member who follows another into an area joins their instance.
   The party bonus follows the client's rules (monster life by rarity, currency items) and its icons (S→C 0x231).
   "Leave Party" removes the player, and a party left with one member is disbanded on both clients.
-  Decline, kicks and disconnects are open.
+  Kick and cancel invitation (C→S 0x94) remove a member or drop a pending invitation: the removed player is told (S→C
+  0xaa), the rest get the smaller party list (S→C 0xa9), and a party left with one member is disbanded as on Leave.
+  Decline and disconnects are open.
   See [28](../docs/protocol/28-player-trade.md) §5.
   Mode integration refuses SSF, different leagues and terminal/departing owners at admission and settlement.
   Composed automated checks cover eligibility, item ownership and rollback when the second inventory save fails.

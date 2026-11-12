@@ -381,9 +381,14 @@ public static partial class Game
         if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
         if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
         var jewelMods = ItemsFor(conn).Mods;
-        if (GrandSpectrum.IsSpectrum(item, jewelMods) && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
-            .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= 3)
-            return "only three Grand Spectrum jewels can be socketed";
+        bool spectrum = GrandSpectrum.IsSpectrum(item, jewelMods);
+        if (spectrum)
+        {
+            int limit = ItemsFor(conn).Limits.Get("grand_spectrum", 3);
+            if (limit > 0 && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+                .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= limit)
+                return $"only {limit} Grand Spectrum jewels can be socketed";
+        }
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {
             if (expansion) return "timeless jewels go in an ordinary passive tree socket";
@@ -398,7 +403,8 @@ public static partial class Game
                     : $"only {limit} Historic timeless jewels can be socketed";
             }
         }
-        if (item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
+        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
+        if (!spectrum && radius is not { TattooEffectPct: > 0 } && item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
         {
             var uniques = UniquesFor(conn);
             var limitedJewel = uniques.All.FirstOrDefault(d => d.JewelLimit > 0 && uniques.NameWord(d) == nameWord);
@@ -419,10 +425,13 @@ public static partial class Game
                     : $"only {limit} Impossible Escape can be socketed";
             }
         }
-        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
-        if (radius is { TattooEffectPct: > 0 } && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Any(placed =>
-            placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }))
-            return "only one Warrior's Tale can be socketed";
+        if (radius is { TattooEffectPct: > 0 })
+        {
+            int limit = ItemsFor(conn).Limits.Get("radius:Warrior's Tale", 1);
+            if (limit > 0 && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Count(placed =>
+                placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }) >= limit)
+                return $"only {limit} Warrior's Tale can be socketed";
+        }
         if (expansion && radius is not null)
             return "radius unique jewels go in an ordinary passive tree socket";
         if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)
@@ -607,17 +616,8 @@ public static partial class Game
     }
 
     // The instance's items on the ground, where they were left (InstanceStore): dropped or looted on an earlier connection.
-    public static async Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
-    {
-        // A survivors run keeps the ground clear: no loot reaches the client at all.
-        if (!GameEvents.AllowsLoot(conn)) return;
-        conn.Instance.Ground.Observe(conn);
-        foreach (var (id, ground) in conn.Instance.Ground.All())
-        {
-            await SendGroundItem(remote, stream, ciphers, conn, id, ground,
-                $"0x02bb create world item 0x{id:x} left at ({ground.GridX}, {ground.GridY})");
-        }
-    }
+    public static Task SendGroundItems(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
+        SyncGround(remote, stream, ciphers, conn, entering: true);
 
     // C→S 0x70: a flask key. The flask in that cell of the flask bar spends its charges (S→C 0xbf with the changed item) and
     // its life or mana comes back, instantly or over its recovery time, under the flask_effect_life / _mana buff
@@ -717,7 +717,7 @@ public static partial class Game
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
         var ground = new WorldItemObject(x, y, weapon);
         // Put here on an earlier connection: SendGroundItems has sent it already, if it still lies here.
-        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground) is not { } id) return;
+        if (conn.Instance.PlaceStartWeapon(CharacterName(conn), ground, conn) is not { } id) return;
         await SendGroundItem(remote, stream, ciphers, conn, id, ground,
             $"0x02bb create world item 0x{id:x} start weapon {ItemsFor(conn).ByHash(weapon.TypeHash)?.Name} at ({x}, {y}), spawn ({conn.Layout.SpawnX}, {conn.Layout.SpawnY})");
     }
@@ -1313,7 +1313,8 @@ public static partial class Game
         else if (row == PlayerInventories.PassiveJewels
             && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } leavingBypass
             && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
-        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a));
+        else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
+            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
@@ -1377,7 +1378,8 @@ public static partial class Game
         else if (row == PlayerInventories.PassiveJewels
             && PassiveJewelRefusal(conn, (int)place.X, (int)place.Y, placement) is { } refusal) why = refusal;
         else
-            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+            done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
+                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");

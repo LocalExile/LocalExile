@@ -75,7 +75,7 @@ CharacterStartQuestState flags (`Act1Complete` …) are missing, and the time.
 - A copied save database: set `$env:Game_CHARACTERS_DB` before starting (required unless `-AllowDefaultSaves`). The
   scripts never set or change it.
 - An account has 24 character slots; each fresh run creates one. Delete old campaign characters, or reuse a name with
-  `-Name <name> --replace` (the old one goes to `deleted_characters` in the save database).
+  `-Name <name> --replace` (the old one is set aside in the save database: `character_saves.deleted_utc`).
 
 ## Running
 
@@ -124,7 +124,7 @@ The runner itself, from the repository root:
 
 ## Quest order and resume
 
-`order.py` `ORDER` lists the Quest.json Ids in the usual levelling route, side quests where their area is passed
+`order.py` `ORDER` lists the Quest table Ids in the usual levelling route, side quests where their area is passed
 (Labyrinth trials and league tutorials are left out). `implemented()` lists those with a step file. For each quest:
 
 - **skipped (already)** when its `DONE` flag is in `/state` `flags`; a second run of the same selection does nothing.
@@ -230,7 +230,7 @@ is sent, e.g. `Visited-1_2_town`), `waypoints` (WorldAreas Ids), `talking` (NPC 
 `inventory` {`w`, `h`, `items` [{`id`, `base`, `name`, `class`, `x`, `y`, `w`, `h`, `quest`}]}. `/state brief` leaves
 out monsters, NPCs, objects, items, transitions, the waypoint and the inventory. Monsters are the bosses and the living
 ones within 120 cells (at most 60); `/state all` lists every monster. The objects are the server's interactive ones:
-the tutorial chest, Rhoa Nests, Glyph Wall, and the quest engine's chests and objects (`StateObjects`); `/tp` finds
+the tutorial chest, Rhoa Nests, Glyph Wall, and the quest engine's chests and objects (`StateObjects` in the gm-commands mod's `Rules.Campaign.cs`); `/tp` finds
 them by these ids, and the room objects quest rules watch (`On.Near`, `On.SpawnsNear`: `PietyBlockage`) by type.
 In a league with the Pantheon module /state has `pantheon` {`major`, `minor` (the chosen gods' PantheonPanelLayout Ids
 or null), `unlocked` [{`id`, `name`, `major`, `row`}] (majors first), `canChoose` (a town, a hideout, the Rogue Harbour
@@ -251,7 +251,7 @@ experience, drops, quest flags; a boss's stage is skipped), `/quest_preset <Id>`
 The tests drive the runner against a simulated server (no client): `/state` joining, goto method choice, kill,
 pickup, equip, talk texts, reward choice and free cells, skip/resume, selection, not implemented/blocked, the shipped
 step files, retries with diagnostics and recovery (including logging in again), passives, the session and password
-file parsing. `CampaignCommandTests` checks `/state`'s JSON and reply lines and `/quest_preset`'s flags.
+file parsing.
 
 Live history: the same driver (then in `Program.Campaign.cs`, before the game moved into modules) played all 82
 entries of `order.py` from a fresh level-1 Witch unattended in 1 h 00 min on 2026-10-31 (seed 1, copied save

@@ -37,6 +37,9 @@ public sealed partial class DelveModule : IModule
         public uint Generator;
         public bool GeneratorOpen;
         public DelveJourney? Journey;
+        public uint StartTrigger;
+        public uint DestinationLight;
+        public uint CompletionEffect;
         public bool ResetNeeded;
         public readonly List<uint> Trail = [];
         public DelveRailRoute? Rail;
@@ -47,9 +50,9 @@ public sealed partial class DelveModule : IModule
     readonly ConditionalWeakTable<IPlayer, State> _states = new();
     static readonly Lazy<string?[]> StatIds = new(() =>
     {
-        if (!ClientTables.Exists("data/tables/Stats.json")) return [];
-        using var doc = GameTables.Open("data/tables/Stats.json");
-        return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString())];
+        if (!ClientTables.Has("Stats")) return [];
+        var doc = ClientTables.Table("Stats");
+        return [.. doc.Select(r => r.Text("Id"))];
     });
 
     /// <summary>The account's equipment, in the league.</summary>
@@ -67,7 +70,9 @@ public sealed partial class DelveModule : IModule
     static byte[] DelveData(IPlayerWorld world)
     {
         var equipment = Equipment(world.AccountData);
-        return InstanceDelve.DelveData(Sulphite(world.CharacterData), equipment.Azurite, equipment.Flares, equipment.Dynamite, equipment.Upgrades);
+        var current = DelveMine.Load(world.AccountData).Current;
+        return InstanceDelve.DelveData(Sulphite(world.CharacterData), equipment.Azurite, equipment.Flares, equipment.Dynamite, equipment.Upgrades,
+            (short)Math.Clamp(current.X, short.MinValue, short.MaxValue), (ushort)Math.Clamp(current.Y, 0, ushort.MaxValue));
     }
 
     /// <inheritdoc/>
@@ -76,20 +81,16 @@ public sealed partial class DelveModule : IModule
         RegisterSulphite(module);
         RegisterTrips(module);
         // The gauge and the Subterranean Chart read the character's sulphite from it, in the encampment and the mine.
-        // Two arrays: sending encrypts a message in place, so the same one cannot go twice.
         GameEvents.EnterMessages.Add(module.Manifest.Id, conn =>
         {
             var player = PlayerOf(conn);
             if (!player.AreaId.StartsWith("Delve", StringComparison.Ordinal)) return [];
             var world = WorldOf(player);
-            ushort amount = Sulphite(world.CharacterData);
-            return [("0x0228 Delve resources and equipment", DelveData(world)),
-                ("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(amount, amount)),
-                ("Synchronize Delve sulphite gauge", InstanceDelve.SulphiteChanged(amount, amount))];
+            return [("0x0228 Delve resources and equipment", DelveData(world))];
         });
         GameEvents.AreaHeader.Add(module.Manifest.Id, conn => PlayerOf(conn).AreaId switch
         {
-            "Delve_Main" => new AreaHeader(DelveTerrain.Data(PlayerOf(conn).Seed), [2]) { Level = MineLevel(module, PlayerOf(conn)) },
+            "Delve_Main" => MineHeader(module, PlayerOf(conn)),
             HubId => new AreaHeader(null, [2]),
             _ => null,
         });
@@ -286,6 +287,7 @@ public sealed partial class DelveModule : IModule
         var (x, y) = world.AreaHash == Hub ? CrawlerAt : rails!.Points[savedDestination ? ^1 : 0];
         const uint id = 0x0d200000;
         state.Crawler = id;
+        await ResetPresentation(player, state);
         state.CrawlerCell = (x, y);
         bool mine = world.AreaHash == InstanceDelve.MineArea;
         float rotation = mine ? new DelveJourney(rails!.Points, 0).Heading(0) : CrawlerRotation;
@@ -314,8 +316,8 @@ public sealed partial class DelveModule : IModule
 
     async Task OpenChart(IModuleContext module, IPlayer player)
     {
-        await player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 1), "Open Delve chart");
         await PublishChart(module, player);
+        await player.Send(InstanceWaypoints.OpenUi(InstanceNpcs.DelveMapUi, 1), "Open Delve chart at saved checkpoint");
     }
 
     async Task PublishChart(IModuleContext module, IPlayer player)

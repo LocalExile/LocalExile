@@ -5,22 +5,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Experience and levels: kills within 150 cells give DefaultMonsterStats experience × the variety's multiplier ×
-  rarity (the hidden rarity mods in Mods.json) × the level penalty (safe zone, level 95+ and the effective monster
-  level above 70) × the party share (every living player within 150 cells, (level + 10)^2.71), with the gems' 10% taken
-  before the penalty (S→C 0x2bc Player experience; the client derives the level);
-  a new level sends its stats, full life and mana, the passive points and the account's level;
-  experience is saved per character; `/add_xp`.
-  Code: `Progression.cs`, Gateway (`GainExperience`, `ApplyLevel`).
+- Experience and levels from kills, with the level penalty and party share.
   Docs: [15](../docs/protocol/15-progression.md) §1.
-- Passive Skill Tree: S→C 0x33 (level, class, allocated nodes, passive and refund points;
-  the client counts level − 1 points), C→S 0x34 allocates a node, checked, applied to the stats (attributes, life,
-  mana, resistances and more) and saved; C→S 0x36 with flag 0 refunds a node for a saved refund point (checked,
-  mastery effects removed); using an Orb of Regret (right-click, C→S 0x58) takes one item and adds one point;
-  a Book of Skill (right-click, C→S 0x58; every quest book of that name) is used up and gives one more passive skill
-  point, both saved together; a Book of Regrets gives two refund points the same way;
-  `/passives`, `/add_refund_points`, `/reset_passives`.
-  Code: `PassiveTree.cs`, `CharacterSaves.cs`, Gateway (`ChangePassives`, `UseItem`).
+- Passive Skill Tree: allocation, refunds, Orbs of Regret, Books of Skill and Regrets.
   Docs: [15](../docs/protocol/15-progression.md) §2.
 - Passive masteries: S→C 0x33 carries selected effects (`node | effect << 16`) and C→S 0x35 selects the effect HASH16;
   a mastery node can be allocated normally and its effect selected/changed without spending another point.
@@ -142,6 +129,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
   36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
   `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
+  (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. First Snow and Frozen Trail add projectiles, Omen on the Winds grants Ice Shot pierce,
+  and Hazardous Research and Ring of Blades enable circular volleys for their respective skills. Other skill-specific consumers remain partial and
+  an attribute threshold. `ThresholdJewels.cs` parses the target/attribute mask, sums every ordinary passive in radius
+  (allocated or not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
+  36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
+  `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
   (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
@@ -184,6 +177,22 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `AscendancyCatalog`, `AscendancyProgress`, `OrdinaryPassiveRules`, `CharacterSaves`, Gateway progression.
   Docs: [scope, evidence and beginner steps](../docs/game/ascendancies.md).
 
+- Descendancy, the second ascendancy layer: `Descendancy.dat` rows (Affliction's three Wildwood specialisations and the
+  thirteen 3.29 Bloodline classes) selected through the `0x33` spare byte and saved with the character.
+  The client's class selector opens with `0x7b` kind `0x4c` (first u32 = row) and Accept sends `0x3a`; both and the
+  selector window were checked against the local 3.29.3c client.
+  The tree panel reads the row from the Player component's `+0x1b0`, so the player object now carries it too.
+  The server records the selector it opened with `0x7b` kind `0x4c` and accepts `0x3a` only while it is open in the
+  same area;
+  a Wildwood row needs its Azmeri class flag, and a layer with allocated nodes must be refunded before another is chosen.
+  The `gm-commands` mod's `/descendancy` selects or clears a row, sets the three Wildwood Azmeri flag groups and
+  reloads the area; its selection is the unrestricted development path.
+  Nodes allocate by the layer's own `DescendancyKey` tree, stay connected to its implicit start, save, and count
+  against the shared ascendancy points; a live Primalist allocation was checked in the local client.
+  The three Wildwood rows keep Affliction's separate eight points: `0x33` carries the earned points plus eight for
+  those rows, the main ascendancy stays capped at its own earned points and the layer at eight.
+  A refused allocation now replies with its reason in chat; `/descendancy refund <node|all>` reverts the layer.
+  Refunds charge the same five refund points per node; their stats are part of the passive stat list.
 - Elementalist Shaper of Flames: all three stats work. `always_ignite` adds 100% ignite chance;
   `all_damage_can_ignite` lets any hit ignite and puts every damage type into the ignite's base (90% per second,
   fire scaling plus the types the portion visited, as poison's physical part); the panel's ignite rows follow.
@@ -200,6 +209,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary Juggernaut selection after a full refund restores the Default graph.
   Docs: [whole-class evidence, setup and explicit model boundaries](../docs/game/antiquarian.md).
 - Juggernaut: all 14 ordinary nodes apply and passed native acceptance, [node by node](../docs/game/juggernaut.md).
+- Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech,
+  [node by node](../docs/game/slayer.md).
 - Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech
   and the while-leeching defences, [node by node](../docs/game/slayer.md).
 
@@ -211,140 +222,46 @@ Part of [Status](../Status.md); what to build next in this area is in
   Current-base build/tests and exact related-head composition preserve the documented shared merge resolutions.
   Default Phrecia admission is gated; the explicit Gambler opt-in verifies installed graph bytes read-only.
   Docs: [Gambler checklist, scope and verification](../docs/game/gambler.md).
+- Passive masteries, with Block, Fire and Wand Mastery effects. Docs: [15](../docs/protocol/15-progression.md) §2.
+- Passive tree jewel sockets, percentage attribute mods and The Adorned (tree art check pending).
+  Docs: [15](../docs/protocol/15-progression.md) §2a, [unique jewels](../docs/game/unique-jewels.md).
+- Cluster jewels: the single-keystone smalls' keystone stats, nesting, the client's layout and theme stats; keystones,
+  radius rules and the vendor recipe are missing. Docs: [cluster jewels](../docs/game/cluster-jewels.md).
+- Timeless jewels: the alternate tree in radius and Militant Faith's Devotion mods; conqueror keystone mechanics are
+  missing. Docs: [timeless jewels](../docs/game/timeless-jewels.md).
+- Radius unique jewels: 42 implemented and the 33 threshold jewels; skill-specific consumers are partial.
+  Docs: [radius jewels](../docs/game/radius-jewels.md), [list](../docs/game/radius-jewel-list.md).
+- Impossible Escape and Rational Doctrine. Docs: [radius jewels](../docs/game/radius-jewels.md),
+  [13](../docs/protocol/13-items.md), "What some flasks and Rational Doctrine make".
+- Watcher's Eye, Bound By Destiny, Sublime Vision, The Balance of Terror and Megalomaniac items; their drops and
+  conditional consumers are partial. Docs: [unique jewels](../docs/game/unique-jewels.md).
+- Ordinary ascendancy selection, point awards, allocations, paid refunds and saves.
+  Docs: [ascendancies](../docs/game/ascendancies.md).
+- Elementalist Shaper of Flames. Docs: [20](../docs/protocol/20-damage.md) §3.
+- Antiquarian. Docs: [Antiquarian](../docs/game/antiquarian.md).
+- Juggernaut. Docs: [Juggernaut](../docs/game/juggernaut.md).
+- Slayer, except Impact's melee range. Docs: [Slayer](../docs/game/slayer.md).
+- Gambler. Docs: [Gambler](../docs/game/gambler.md).
 
 ## Partly working
 
-- Hierophant: every ordinary node's stats apply except the Brand ones (no Brand executes), checked in the client
-  except the halved shock while Arcane Surge runs,
-  [node by node](../docs/game/hierophant.md).
-- Behemoth: the optional Phrecia module supplies its capability, verified-graph opt-in and mode-aware node sources.
-  Shared Rampage tiers and Vaal Ground Slam payment execute in Game with generation/source retirement guards.
-  Two deterministic Gateway regressions cover worker ownership and atomic attack/payment admission.
-  Bounded modular native checks cover choice/source, real hit/kill stacks, reload/re-entry, tier-15 dispatch/expiry,
-  paid refund and ordinary reload controls; historical whole-class evidence retains its original source scope.
-  Final exact-head full-suite, review and native receipt revisions/results are recorded in the PR.
-  Docs: [Behemoth consumers, legal builds and validation limits](../docs/game/behemoth.md).
-- Whisperer: the optional module supplies the actual Deadeye/Ranger descriptor and allocated node sources.
-  Generic Mana, spending, Recoup and shared Blind consumers run in Game with independent lifetime-owned state.
-  Two deterministic Gateway Facts cover actual admission, legal builds, paid refunds and resource/lifecycle composition,
-  including current-Game utility End automation and retained paid recovery across replacement.
-  Current-main local build, suites, independent review and bounded native checks cover the resource and reload paths.
-  Spatial forks, full Vaal/Rampage and the complete owned-minion matrix remain outside that acceptance.
-  Docs: [Whisperer consumers, legal builds and validation limits](../docs/game/whisperer.md).
-- Aristocrat: every node in its installed graph has a server consumer (gem levels and quality, attribute requirements,
-  conditional ailment immunity, lowest-attribute damage, granted passive points), with Gateway coverage of legal builds,
-  paid refunds and reload. Not yet checked with the real client: that needs the reviewed combined graph installed.
-  Docs: [Aristocrat checklist](../docs/game/aristocrat.md).
-- Ancestral Commander: the defensive nodes have server consumers (Armour and Life, Ancestral Endurance, Toughened
-  Skin's action/movement floors and doubled body armour, Ancestral Defiance), with Gateway coverage of legal builds,
-  the paid Ancestral Spirit choice refund and reload.
-  Call of the Ancestors speeds Enduring Cry's release and slows its one-use cooldown, which the record and the client
-  derive the same way; Deathrattle explodes and consumes the server's corpses and opens the quest chests at the release.
-  The explosion takes the player's global damage and conversion; Deathrattle is partial: no added damage, on-hit
-  effects or art, only Enduring Cry, and no chests beyond the quest ones.
-  Ancestral Reach's spirit strikes hit the monsters the client picks; Ancestral Echo strikes the previous location on
-  the server and sends the client the first location it needs to strike there too.
-  Neither acts for the Strike gems typed Projectile (Frost Blades, Lightning Strike, Molten Strike, Wild Strike and
-  their transfigured gems except Frost Blades of Katabasis): the server has no melee hit for them, though the client draws their spirit strikes.
-  Born under Fire converts nearby monsters' physical hits and puts its debuff on them.
-  Spirits of Kahuturoa, Utula and Kiloava trigger on a Unique's crit, Savage Hit or blocked hit, with the shared
-  cooldown and their Leadership buff (Kahuturoa's armour share and Kiloava's block recovery act; Utula's leech has no
-  leech to act on); each chieftain fights beside the player for the buff's duration, with its first skill only.
-  Server monsters have no base critical strike chance, so Kahuturoa triggers only on a Unique given an always-crit mod
-  through `/mob_mods`, never in normal play.
-  Forest of Ancestors' +1 totem and its 20% of hits from the nearest totem act on Rejuvenation Totems, the one totem
-  skill the server places; a totem killed while a Unique is near triggers Spirit of Kaom, whose Leadership adds 25%.
-  Not yet: Spirit of Rakiata (no Marks), monsters attacking totems and other totem skills.
-  `Game_VERIFIED_ANCESTRAL_COMMANDER=1` opts in; not yet checked with the real client.
-  Docs: [Ancestral Commander checklist](../docs/game/ancestral-commander.md).
-- Paladin: the nine small nodes (life regeneration, aura effect), Anointed Champion (consecrated ground while
-  stationary, its linger and 50% increased effect), the Paladin Aura options (granted level 30 Determination or Grace,
-  level 40 Discipline), Light of Divinity (nearby monsters take 25% increased elemental damage), Bring the Battle
-  (warcries taunt with infinite power; taunted monsters take 20% increased damage), Elemental Valiance (triggered
-  elemental relics that give their aura and explode, in Ruthless too), Absolution (40% aura effect while linked), Deep
-  Connections (links to the player's relics, +5 link gem levels) and Field Medicine (40% magic utility flask effect;
-  flasks on linked targets, whose movement speed a relic walks at) have server consumers, with Gateway coverage of
-  three legal builds, the Paladin Aura option swap, paid refunds and reload.
-  `Game_VERIFIED_PALADIN=1` opts in on the reviewed combined graph.
-  No consumer: curses, party allies, a death experience penalty, a linked minion's flask defences, and Bring the
-  Battle's less damage against other targets (monsters only hit the player).
-  Not applied: a linked minion's flask phasing, and flask damage on a relic's explosion (unverified).
-  Not yet checked with the real client. Docs: [Paladin checklist](../docs/game/paladin.md).
-- Polytheist: every node has a server consumer or a documented engine gap, with Gateway coverage of three legal
-  builds, paid refunds and reload.
-  The twelve small nodes (defences; light radius, which the client applies), Devout of the Brine King and Ralakesh's
-  minimum charges have consumers.
-  Devout of Garukhan (evasion and regeneration while moving, Unaffected by Shock) and Devout of Ryslatha (more maximum
-  attack damage, no regeneration on enemies hit recently) have consumers and Gateway coverage against a plain build.
-  So do Devout of Gruthkul (spells disabled and dealing no damage, life, regeneration, enemies that hit you attack
-  slower; whether their swing animation slows is unverified), Devout of Lunaris (Novas at the target, two more spell
-  projectiles, more spell area) and Devout of Solaris (a blind aura on nearby enemies, more critical chance against and
-  less damage from blinded enemies; their reduced critical chance has nothing to reduce, because monsters crit only
-  through `always_crit`, an override).
-  Devout of Abberath triggers Abberath's Fury on each footstep while walking (its radius comes from the explosion art
-  and is unverified), its hits ignite monsters, the client draws the burning hoofprints, and ignites on the player
-  deal nothing.
-  Devout of Yugul, Ralakesh's Corrupted Blood immunity and Garukhan's ground immunity wait for curses, reflected
-  damage, Corrupted Blood and hazardous ground.
-  `Game_VERIFIED_POLYTHEIST=1` opts in.
-  Not checked with the real client: that needs the reviewed combined graph installed.
-  Docs: [Polytheist checklist](../docs/game/polytheist.md).
-- Surfcaster: Baited Breath (every hit crits while holding a Fishing Rod), Screaming Reels (60% more cast speed with a
-  rod, in the server wait and the native clip), Sea Legs, Stormy Seas' conversion, Brine Bound's Cannot be Frozen and
-  the small nodes' cast speed have consumers, with Gateway coverage of legal builds, paid refunds and reload.
-  Ghost of the Deep's Torment Touched buff gives its four 23% bonuses and shows on the player.
-  Changing Seasons lets any hit chill the player and makes the chill increased action speed.
-  Stormy Seas' cold damage shocks monsters (the general monster chill/freeze/shock engine).
-  On that engine, Glacial Wave's chill raises the monster's damage taken and lessens its swings, Brine Bound freezes
-  monsters that hit you and holds every freeze for 1 s, and Within the Tempest shocks kills and spreads shocks 1.5 m.
-  The small nodes' chance to cause monsters to flee makes a hit monster walk away without attacking.
-  Not yet checked with the real client: that needs the reviewed combined graph installed.
-  Fishing (fish rarity, corrupted fish) has no gameplay in 3.29.3b.
-  `Game_VERIFIED_SURFCASTER=1` opts in.
-  Docs: [Surfcaster checklist](../docs/game/surfcaster.md).
-- Phrecia identities, graph ownership and the point/save lifecycle have automated coverage.
-  Existing class capabilities and passive sources are extracted into the optional `PhreciaAscendancies` module.
-  The Phrecia league lists it explicitly; Idols remains a separate unimplemented feature.
-  Module absence refuses saved-family admission without changing progress; reload requires affected players to re-enter.
-  Bounded modular native checks cover the three class sources, paid refunds, normal controls and reload re-entry.
-  Historical whole-class checks below retain their original scope.
-  Docs: [module boundary, scope and reload policy](../docs/game/phrecia-modules.md).
-  Harbinger has opt-in companions, curses, recipient clocks and typed resource consumers.
-  Bounded client checks cover summons, Focus, curses, timers, travel and reload; the full matrix remains partial.
-  See [Harbinger](../docs/game/harbinger.md).
-  Phrecia game connections/selection are gated by default; Antiquarian and Gambler have accepted opt-ins above.
-  Normal startup does not install or recover a graph and ordinary/unascended play has no alternate-graph preflight.
-  The native Labyrinth/Altar flow is separate (#151); other Phrecia class gameplay remains separate work.
-  Native ordinary command checks do not establish an expanded chooser or special class gameplay.
-  Forest Tracking's attack-damage bonus from final evasion shares the existing Steel Willed calculation.
-  Automated checks cover actual node allocation/refund/reload, final defences, signed composition and attack consumers.
-  Seventeen native raw-input controls cover real damage, armour/evasion composition, added damage and relog.
-  Full Daughter of Oshabi gameplay remains separate.
-  Herald, Architect of Chaos, Paladin and Puppeteer family gem levels reach actual skill records and calculations.
-  Automated checks cover real connected allocation, paid refunds, reload, supported levels and intrinsic requirements.
-  Twenty-eight native checks cover effective family levels, unrelated sources, removal, unchanged storage and relog.
-  Family-specific execution and Phrecia native admission remain separate.
-  Docs: [scope and compatibility gate](../docs/game/ascendancies.md).
-- Ruthless applies a configurable compounding XP multiplier from level 68 by default.
-  The numeric rate is LocalExile tuning because the retail server formula is not public.
-  Native Ruthless passive stat/point alternatives are selected for each Ruthless connection.
-  Automated configuration tests cover valid live edits and retaining the last valid snapshot after invalid input.
-  Native passive alternatives and the compounding level formula have automated coverage.
-  See [league modes](../docs/game/league-modes.md).
+- Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
+- Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
+- Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).
+- Aristocrat (not checked live). Docs: [Aristocrat](../docs/game/aristocrat.md).
+- Ancestral Commander (not checked live). Docs: [Ancestral Commander](../docs/game/ancestral-commander.md).
+- Paladin (not checked live). Docs: [Paladin](../docs/game/paladin.md).
+- Polytheist (not checked live). Docs: [Polytheist](../docs/game/polytheist.md).
+- Surfcaster (not checked live). Docs: [Surfcaster](../docs/game/surfcaster.md).
+- Phrecia ascendancies: the optional module, Harbinger, Forest Tracking and family gem levels.
+  Docs: [Phrecia modules](../docs/game/phrecia-modules.md), [Harbinger](../docs/game/harbinger.md),
+  [ascendancies](../docs/game/ascendancies.md).
+- Ruthless experience and passive alternatives. Docs: [league modes](../docs/game/league-modes.md).
 
 ## Not working yet
 
-- Saving quest progress.
-  Quest passive/refund rewards and native Labyrinth/Altar acquisition (#151) remain missing.
-  Remaining special ascendancy gameplay and broader Phrecia client compatibility are separate work.
-- Tattoos: the 100-item 3.29.3b catalogue, protocol and implementation groups are documented in
-  [tattoos](../docs/game/tattoos.md). The client flow is implemented: C->S `0x77` names the inventory, item and
-  passive; `0x33`'s fifth list carries `node | PassiveSkillOverrides.HASH16 << 16`; the item is consumed and the
-  map is saved independently of allocation. **66 rows are client-verified**: the ten pilot, 22 plain stats, the
-  nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows (attribute notables
-  included), nine Makanga gates, three Journey tattoos and Journey Makanui; Ancestral Bloodlines is partial
-  (life/mana recovery unread) and Hinekora/Kitava Makanga are inert. Firewalker also survived relog and was removed
-  with an Orb of Scouring. The Makanga gate, Journey counting and the five `PassiveSkillOverrides.Limit` groups are
-  enforced server-side; Makanui stores its random keystone in `TattooKeystones`. 31 rows remain not implemented:
-  the nine ailment and avoidance rows, five rows that need new consumers (corpse consumption, Fortify-on-stun,
-  guard duration, hinder and herald effect), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.
+- Saving quest progress, quest passive/refund rewards and native Labyrinth/Altar acquisition (#151).
+- Tattoos: 87 rows work in the client and 11 are partial (Ancestral Bloodlines, the three Loyalty summons Akoya,
+  Ikiaho and Rakiata whose Leadership buff stats have no reader, and the seven Forbidden ascendancy tattoos,
+  whose client use flow is untraced); two are inert.
+  Docs: [tattoos](../docs/game/tattoos.md).

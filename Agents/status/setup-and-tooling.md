@@ -8,11 +8,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The 3.29.3c client: login, characters, town, inventory and stash, cosmetics, kills, items, flasks and skills,
   waypoints and transitions, NPCs and shops, the hideout, chat and relog (live run, 2026-11-08). Both 3.29.3c builds
   work with the same code: the release (build 327984) and the 3.29.3.5 hotfix (build 328126; login, zones, combat,
-  items and waypoints live 2026-11-09).
+  items and waypoints live 2026-11-09). 3.29.3d (build 328228) runs with the same code too: login, a new character,
+  The Twilight Strand and a resync on a headless client, then the same character on 3.29.3.5 (2026-11-11).
+  The live scripts (`scripts/re/frida`, the walk-map recorder) hold the release's data addresses and where each
+  sits in the hotfix and in 3.29.3d: the component checker names all 537 component parts of 50 objects on both
+  (2026-11-11; with the release's addresses alone it named 49 on the hotfix).
+  Only the builds listed in `ClientBuilds.cs` run, each recognized by its
+  executable's hash; any other is refused (the launcher's `check`, Auth's `keygen` and `patch` and the constants
+  extraction on real 3.29.3.5, 3.29.3d and 3.29.3b executables, 2026-11-11).
   Port tools: `scripts/re/port`, `PortMap.java`; docs: [tooling](../docs/re/tooling.md) §11.
-- Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` (run by `live.ps1` on every start,
-  `-NoExtract` to skip) regenerates each data file that is missing or whose manifest version changed (stamps in
-  `data/extract-stamps.json`), and the Gateway warns once at startup about any missing file.
+- Game data extracted from the GGPK in one step: `scripts/dev/extract-data.ps1` regenerates each data file that is
+  missing or whose manifest version changed (stamps in `data/extract-stamps.json`); `live.ps1` runs its `-Servers`
+  entries (`game-files.zip`, the GGPK root hash) on every start (`-NoExtract` to skip), the full manifest is the
+  maintainer's input to `client-sql.ps1 diff`, and the Gateway warns once at startup about any missing file.
   Code: `scripts/dev/extract-data.ps1`, `GameDataFiles.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 7.
 - The servers run without `Client/`: level generation and the Phrecia graph check read `data/game-files.zip` (every file
@@ -24,6 +32,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Built and its extraction checked on a PC's client; the first full client run is the maintainer's check of the first draft.
   Code: `src/LocalExile`, `scripts/release`, `.github/workflows/release.yml`.
   Docs: [releases](../docs/dev/releases.md).
+- Steam's 3.29.3c (the release and 3.29.3.5, loose `Bundles2\`) as the client: data extraction, `live.ps1` and the
+  player launcher take either layout, and the client runs in standalone mode without Steam (`LooseFilesPatch` in
+  `Game.patched.exe`); login, character select and entering the game live 2026-11-11 (3.29.3.5) and 2026-11-12 (the
+  release, through the launcher). The 942 tables of both decode identical to the standalone 3.29.3.5 client's.
+  Code: `ClientFiles.cs`, `LooseFilesPatch.cs`. Docs: [GettingStarted](../GettingStarted.md) "What you need", step 5.
 - Local patching server: the client never contacts the official patch servers. A GGPK whose root hash is zero (the
   client then always patches and times out at "Checking resources") gets one on each start (`root-hash --repair`).
   Code: `GameServer.Patch`, `GgpkMaintenance.RepairRootHash`.
@@ -39,7 +52,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Labyrinths: rooms with their map positions, connections and secrets, `LabyrinthDay.Listing`), and the dev host's `accounts`.
   Checked on a real setup: `-Stop` ending a watched Gateway with its `dotnet watch`, every argument kind's values, and
   the account list from the real save database.
-  Code: `scripts/dev/live.ps1`, `Program.Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
+  Code: `scripts/dev/live.ps1`, `Modules/Core/Game/Player/Completions.cs`, `ChatCommands.cs`, `GameSession.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 10, [10](../docs/protocol/10-chat-and-commands.md) §4,
   [dev-server.md](../docs/dev-server.md).
 - Gateway hot reload, on by default (`live.ps1 -NoHotReload` turns it off): the Gateway runs under `dotnet watch`,
@@ -50,7 +63,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   them), a Core edit in 0.08 s, two files saved together as one reload, a broken save kept the old code and listed its
   errors (5 shown as 3 + "2 more"), and the fix applied.
   A removed member restarted the Gateway as expected; switching to and from `-NoHotReload` stops a Gateway that is
-  still loading. Parsing of the error lines is unit-tested (`HotReloadTests`).
+  still loading.
   Code: `scripts/dev/live.ps1`, `HotReload.cs`.
   Docs: [GettingStarted](../GettingStarted.md) step 10 (hot reload), [live testing](../docs/dev/live-testing.md).
 - Client control distinguishes explicit password login from a remembered native form submission.
@@ -62,21 +75,25 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Partly working
 
 - Databases from SQL in git ([#734](https://github.com/LocalExile/LocalExile/issues/734),
-  [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 943 tables, 97 MB of
-  SQL, and the 14 generated files the servers read, 70 MB) and `world.db` (game content) are built and updated from
+  [databases](../docs/dev/databases.md)): `auth.db`, `characters.db`, `client.db` (the client's 941 tables, 97 MB of
+  SQL, and the 14 generated files the servers read as 45 snake_case tables) and `world.db` (game content, its item and
+  jewel catalogues as typed tables) are built and updated from
   `sql/` by each server at startup, one transaction per
   file, a changed merged file refused. `Config/localexile.conf` (written with the defaults on the first start) holds the addresses, ports and client folder. CI builds every
   database from scratch and checks the SQL; the merge names pending updates. Verified: the Gateway starting on fresh
   databases with the former seed's counts, every client table and generated file rebuilt identically, a real `saves.db`
-  migrated and played on. Not yet: the pending rename on `main` (set up with a deploy key, not yet run), and the generated files
-  served from `client.db` in a real-client session.
-  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Config/ServerConfig.cs`.
+  migrated and played on. Not yet: the generated tables
+  read from `client.db` in a real-client session.
+  Every reader takes the client tables by name as typed rows (`ClientTable`), the servers, the tools and the Python
+  scripts (`scripts/dev/clientdb.py`) alike; no `data/tables/` path is read. Not yet checked in a real-client session.
+  Code: `GameServer.Storage/SqlUpdater.cs`, `GameServer.Core/Tables/ClientTables.cs`, `GameServer.Core/Tables/ClientTable.cs`, `GameServer.Core/Config/ServerConfig.cs`.
 - Linux: `live.ps1` and `extract-data.ps1` run under PowerShell 7 and the client under Proton
   ([GettingStarted](../GettingStarted.md#linux)). Verified: the extraction, the three test suites, the servers with hot
   reload, and the real client logging in and playing on the Coast. `build-release.ps1` under pwsh builds a linux-x64
   package; its launcher sets up and runs the servers natively. The release workflow builds it beside the Windows one. Not yet:
-  `-Walkmaps`, named clients, and the client from a Linux release.
-  Code: `scripts/dev/platform-linux.ps1`.
+  named clients and the client from a Linux release. Linux `-Walkmaps` captures the real 3.29.3c client;
+  the Strand matches in tile hash, both grids, cell heights, doodads and transitions.
+  Code: `scripts/dev/platform-linux.ps1`, `scripts/walkmaps/proton.py`.
 - Mods: the Gateway loads each `Mods/Binaries/<id>/` (a `mod.json` and an assembly, after the mods it depends on) into a
   collectible load context of its own and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
@@ -104,19 +121,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   Not tried in the client yet.
   `live.ps1` builds the projects in `Mods\Source\` into `Mods\Binaries\`.
   Live: the running Gateway loaded the example mod by itself when it was first built.
-  Unit-tested (`ModHostTests`): every hook, two mods' modifiers together, a reload starting the state over, a
-  dependency arriving later and reloading its dependent, a failed load leaving no hook, the watcher, and the unloaded
-  context being freed.
   Assemblies load from a private temporary disk copy rather than collectible memory streams; original build outputs
-  remain free, and collected contexts release their copied files. Loader and cleanup regressions cover this path.
-  Unit-tested as well: scripts (load, reload, compile errors, no server references, dependencies, unload), league modules
-  (fallback, required features, tunables, scoped hooks) and built-ins.
+  remain free, and collected contexts release their copied files.
+  Unit-tested: the copies' cleanup (`ModCopyTests`), user settings over the declared defaults (`ModSettingsTests`), a
+  user's module changes over the leagues' lists, and a module lifetime's stop releasing what it owns (`ModuleLifetimeTests`).
   Missing: mods replacing catalog rows, and the hooks not yet tried with the client (drops, experience, stats, packets).
   Code: `src/GameServer.Modding/`, `ModHost.cs`, `ModLoadContext.cs`, `ModScripts.cs`, `ServerLeagues.cs`, `Program.Mods.cs`,
   `Modules/Core/Game/Player/ModuleWorld.cs`, `Modules/`, `src/GameServer.Modding/Mod.props`.
   Docs: [modding](../docs/dev/modding.md).
 
-- Read-only passive graph tooling exports pinned 3.29.3b topology and a merged PSG as `data/` analysis artifacts.
+- Read-only passive graph tooling exports pinned 3.29.3c topology and a merged PSG as `data/` analysis artifacts.
   Parsing and merging have automated round-trip, malformed-input and ordinary-tree preservation coverage.
   The exporter refuses modified source graphs and never installs its output into the client archive.
   This is data tooling only; Gateway consumers and native integration remain later work.
@@ -145,12 +159,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   comes from the quest engine reacting to the real kills, pickups, object use and NPC talk. Resumable (done quests and
   steps are skipped), with diagnostics and recoveries for stuck steps; servers on its ports that are not the
   checkout's, a missing `Game_CHARACTERS_DB` (unless `-AllowDefaultSaves`), a Gateway on another save database and a second
-  run on the same session stop the run. Step files: Act 1 (a1q1-a1q9); the later acts' quests are "not implemented" until their act
-  is on the quest engine. Dev commands `/state`, `/kill`, `/quest_preset`, `/god immune`; `/tp` also finds the ids
+  run on the same session stop the run. Step files: Acts 1-10 and the Epilogue (`scripts/dev/campaign/quests/`); a quest without one is
+  reported "not implemented". Dev commands `/state`, `/kill`, `/quest_preset`, `/god immune`; `/tp` also finds the ids
   `/state` reports and the objects quest rules watch.
   The same driver played Acts 1-10 and the Epilogue live before the game moved into modules; on the quest engine's Act 1
-  it is checked offline only (runner tests against a simulated server, `test_client_control.py`,
-  `CampaignCommandTests`, removed with the move to the mod).
+  it is checked offline only (runner tests against a simulated server, `test_client_control.py`).
   Code: `scripts/dev/campaign/`, the `gm-commands` mod (LocalExile-Mods).
   Docs: [campaign automation](../docs/dev/campaign-automation.md), [10](../docs/protocol/10-chat-and-commands.md).
 
@@ -159,7 +172,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   packets (printed after an error or an unexplained disconnect, dumped to `logs\packets`, `/lastpackets`), `Game_TRACE`
   categories, `scripts/dev/bugreport.ps1` and `scripts/re/frida/trace-crash.js`.
   Routine outgoing packet summaries use a bounded background queue; explicit packet tracing stays synchronous.
-  Unit-tested (`ServerLogTests`, `PacketHistoryTests`), the archive pruning and the bug report (logs held open, names
+  Unit-tested (`ServerLogTests`), the archive pruning and the bug report (logs held open, names
   in every form) checked with scripts; a live run that catches a client crash with the dumps and `trace-crash.js` is
   still to do, and so is checking that `trace-crash.js` reads the client's receive pump right.
   Code: `ServerLog.cs`, `PacketHistory.cs`, `Program.Connection.cs`, `scripts/dev/live.ps1`.
@@ -191,17 +204,9 @@ Nothing yet.
 
 ## Tests
 
-The Gateway tests were wiped when the game moved into modules; `tests/GameServer.Gateway.Tests` holds only the shared setup until new ones land. Rules for new tests: AGENTS.md.
-
-Teleport-name controls use an unmapped synthetic destination, so real WorldAreas data cannot change their labels.
-Bow hit-recovery controls explicitly start their connection clock before checking input admission.
-These fixture corrections leave production catalogs and the shared module initializer unchanged.
-The Arcane Might area fixture measures range from the weapon-contact origin to its target.
-Monster AI cadence tests run in a nonparallel collection: their real 300 ms socket-latency limit is unchanged,
-but unrelated catalogue loads and GC pauses no longer run beside that measurement.
-The per-target area accuracy regression awaits one completed sweep instead of racing a sustained Cyclone channel.
-Gateway test collections now run sequentially by default to keep real socket deadlines and collectible mod contexts
-away from unrelated catalogue-load/GC contention. Individual concurrency tests still run their own concurrent tasks.
+The three suites are `tests/GameServer.Core.Tests`, `tests/GameServer.Data.Tests` and `tests/GameServer.Gateway.Tests`.
+The Gateway tests were wiped when the game moved into modules (2026-10-31) and are being rebuilt; rules for new tests:
+AGENTS.md.
 
 ## Tooling
 
@@ -218,7 +223,7 @@ Every network message of the client is listed, in both directions, generated fro
 S→C: [schema.md](../docs/protocol/schema.md), the four factories (instance 272, world 63, login 27, patch 6 classes),
 each equal to its factory switch's explicit cases.
 C→S: [c2s.md](../docs/protocol/c2s.md), instance 354, login 28 and patch 4 ids, from every caller of the stream flush.
-Its exact lengths match all 87 comparable ids of the Gateway's `KnownClientLength`.
+The [offline length audit](../docs/re/tooling.md) checks the Gateway's fixed lengths and emits instance candidates.
 Code: `scripts/re/ghidra/ReadSchema.java`, `SendSites.java`, `scripts/re/schema_md.py`, `c2s_md.py`.
 
 Optional [native client control](../docs/dev/client-control.md) provides CLI/JSON RPC for development without repeated

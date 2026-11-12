@@ -89,9 +89,11 @@ public static partial class Game
             int accuracy = source.Effects.Accuracy(Monsters.BaseAccuracy(source.Level) ?? 0);
             if (Random.Shared.Next(100) >= DamageModel.AccuracyHitChance(evasion, accuracy)) return false;
         }
-        int block = attack.Spell ? Player("minion_additional_spell_block_%") : Player("minion_block_%");
+        int block = attack.Spell ? Player("minion_additional_spell_block_%") + effects["base_spell_block_%"]
+            : Player("minion_block_%") + effects["monster_base_block_%"];
         if (Random.Shared.Next(100) < Math.Clamp(block, 0, 75))
         {
+            g.BlockedAt = now;
             m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player("minion_recover_%_of_maximum_life_on_block") / 100
                 + Player("minion_recover_X_life_on_block"));
             conn.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
@@ -120,6 +122,8 @@ public static partial class Game
                 value = (int)Math.Round(value * (1 - reduction));
             }
             value = (int)Math.Round(value * effects.DamageTaken(attack.Spell)
+                // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
+                * Math.Max(0, 1 + GolemStat(g.Own, "support_minion_defensive_stance_minion_damage_taken_+%_final") / 100.0)
                 * (area ? Math.Max(0, 1 + effects["damage_taken_+%_from_area_hits"] / 100.0) : 1));
             if (type != DamageType.Chaos && g.Shield > 0)
             { double absorbed = Math.Min(g.Shield, value); g.Shield -= absorbed; value -= (int)absorbed; }

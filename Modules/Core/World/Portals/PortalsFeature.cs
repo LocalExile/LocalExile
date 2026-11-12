@@ -15,7 +15,7 @@ static class PortalsFeature
         if (origin is null && (!MapDevices.Value.IsMapArea(conn.Layout.Hash) || hideout is null)) return;
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX, conn.Layout.SpawnY));
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: conn.PortalRotationRadians).Blob()),
             $"0x02bb create the return portal 0x{id:x} at ({x}, {y})");
@@ -187,7 +187,7 @@ static class PortalsFeature
         }
         if (open.LeadsTo != conn.Layout.Hash) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX + 4, conn.Layout.SpawnY));
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the portal back 0x{id:x} at ({x}, {y}) to 0x{open.Area:x4}");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -245,7 +245,7 @@ static class PortalsFeature
         }
         // Beside the player, so the click that opens it is not on the player (a reopened portal stands where it stood).
         var (x, y) = !replace || conn.Layout.Walkable is not { } walkable || !walkable(px + 3, py) ? (px, py) : (px + 3, py);
-        uint id = conn.NextObjectId++;
+        uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1).Blob()), $"0x02bb create the Portal Scroll's portal 0x{id:x} at ({x}, {y})");
         await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
@@ -288,7 +288,7 @@ static class PortalsFeature
                 Console.WriteLine($"[gateway] {remote} hideout doodad {d.Name} ({d.Type}): unknown type or unsupported components, not created");
                 continue;
             }
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             // "active" 1: the map device stands open and idle (its .ot: per-player quest flag MapDeviceActive).
             var obj = new HideoutObject(d.X, d.Y, d.Rotation, components, new HideoutDoodad(d.Hash, (byte)d.Variation),
                 [.. states.Select(s => s == "active" ? 1 : 0)]);

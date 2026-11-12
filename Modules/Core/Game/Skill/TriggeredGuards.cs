@@ -75,6 +75,12 @@ public static partial class Game
         session.Enqueue(() => SendCharacterStats(session.remote, session.stream, session.ciphers, conn, "guard ended"));
     }
 
+    // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
+    internal static double GuardDuration(int baseMilliseconds, Func<string, int> player, Func<string, int> own) =>
+        SkillDurationModifiers.Seconds(baseMilliseconds,
+            name => player(name) + (name == SkillDurationModifiers.IncreasedDuration ? player("guard_skill_effect_duration_+%") : 0),
+            own);
+
     // Called immediately after the trigger's successful payment, under the connection lock.
     public static void StartTriggeredGuard(ClientState conn, ProjectileSession session, ushort skill, double now)
     {
@@ -88,8 +94,7 @@ public static partial class Game
         guard.Effect = SkillsFor(conn).EffectId(gem.Effect)!;
         guard.Physical = guard.Elemental = 1;
         guard.Percent = guard.Remaining = guard.Absorbed = guard.Armour = guard.Reflection = 0;
-        double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"),
-            name => GolemStat(player, name), Own);
+        double duration = GuardDuration(Own("base_skill_effect_duration"), name => GolemStat(player, name), Own);
         if (guard.Effect == "QuickGuard")
         {
             guard.Percent = Math.Clamp(Own("quick_guard_damage_absorbed_%"), 0, 100);

@@ -55,6 +55,7 @@ public static class ItemModStats
     static IEnumerable<(string Id, int Value)> Values(IEnumerable<Item> items, ModCatalog mods, bool local,
         StatConditions.Subject subject, Func<string, bool>? statExists, IGameLogic? game)
     {
+        // Influence thresholds count the full active equipment set supplied by the caller.
         var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
         foreach (var item in equipment)
             foreach (var value in Values(item, mods, local, subject, statExists, game))

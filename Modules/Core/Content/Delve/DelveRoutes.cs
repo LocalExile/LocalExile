@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Core;
 
 namespace GameServer.Modules.Delve;
 
@@ -16,14 +17,14 @@ public sealed partial class DelveModule
         public string Owner = "";
         public volatile bool Cancelled;
         public readonly HashSet<ClientState> Departures = [];
-        public uint Seed => DelveTerrain.Seed(Plan.From, Plan.To);
+        public uint Seed => Plan.SceneSeed == 0 ? DelveTerrain.Seed(Plan.From, Plan.To) : Plan.SceneSeed;
     }
     readonly ConcurrentDictionary<Guid, Attempt> _attempts = new();
     static readonly Lazy<int[]> TripPrices = new(() =>
     {
-        using var doc = JsonDocument.Parse(GameServer.Core.ClientTables.ReadAllBytes("data/tables/DelveLevelScaling.json"));
-        return doc.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Depth").GetInt32())
-            .Select(r => r.GetProperty("SulphiteCost").GetInt32()).ToArray();
+        var doc = ClientTables.Table("DelveLevelScaling");
+        return doc.OrderBy(r => r.Int("Depth"))
+            .Select(r => r.Int("SulphiteCost")).ToArray();
     });
     static int Price(int depth) => TripPrices.Value[Math.Clamp(depth - 1, 0, TripPrices.Value.Length - 1)];
 
@@ -33,6 +34,18 @@ public sealed partial class DelveModule
         var mine = Mine(module, player);
         int depth = mine.Pending is { } plan && _attempts.ContainsKey(plan.Id) ? plan.Depth : mine.Current.Depth;
         return DelveMine.MonsterLevel(depth);
+    }
+
+    AreaHeader MineHeader(IModuleContext module, IPlayer player)
+    {
+        var mine = Mine(module, player);
+        byte level = MineLevel(module, player);
+        if (ServerLevels.DelveTerrain(player.Seed) is null && mine.LastScene is { Terrain: { } saved } scene && scene.SceneSeed == player.Seed)
+        {
+            if (ServerLevels.PrepareDelve(player.Seed, level, saved) is not null)
+                ConnOf(player).Use(AreaLayouts.For(InstanceDelve.MineArea, player.Seed));
+        }
+        return new(ServerLevels.DelveTerrain(player.Seed) ?? DelveTerrain.Data(player.Seed), [2]) { Level = level };
     }
 
     DelveMine Mine(IModuleContext module, IPlayer player)
@@ -116,7 +129,8 @@ public sealed partial class DelveModule
                 lock (conn.Monsters) defenders = journey.DestinationMonsters.Count(id => conn.Monsters.TryGetValue(id, out var m)
                     && m.Hostile && !m.Dead && m.Life > 0);
                 json["delveTrip"] = JsonSerializer.SerializeToNode(new { journey.Depth, journey.Travelled, journey.Length,
-                    journey.Cost, journey.Charged, journey.Completed, FinishDefendersAlive = defenders,
+                    journey.Cost, journey.Charged, journey.Started, journey.Completed, FinishDefendersAlive = defenders,
+                    ZoneMonsterLevel = DelveMine.MonsterLevel(journey.Depth), journey.WavesScheduled, journey.WavesSpawned, journey.FinaleElapsed,
                     Crawler = new[] { state.CrawlerCell.X, state.CrawlerCell.Y },
                     Start = new[] { rail.Points[0].X, rail.Points[0].Y }, End = new[] { rail.Points[^1].X, rail.Points[^1].Y },
                     Next = new[] { next.X, next.Y } });
@@ -131,6 +145,7 @@ public sealed partial class DelveModule
         DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m with { Pending = null } : null);
         if (_states.TryGetValue(player, out var state))
         {
+            if (!ConnOf(player).Closed && !ConnOf(player).LeavingArea) await RemoveStartBoundary(player, state);
             state.ResetNeeded = true;
             if (state.Journey is { } journey)
             {
@@ -164,6 +179,7 @@ public sealed partial class DelveModule
         state.Trail.Clear();
         bool completed = state.Journey?.Completed == true || conn.Instance.HasState(DestinationFlag(player));
         var start = completed ? rail.Points[^1] : rail.Points[0];
+        if (completed) await EnsureDestinationLight(player, state, start);
         foreach (uint id in new[] { state.Crawler }.Concat(state.Attachments))
             await global::Game.SendWorldRecord(player, id, InstanceProtocol.Teleport(id, start.X, start.Y));
         state.CrawlerCell = start;

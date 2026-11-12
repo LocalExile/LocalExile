@@ -17,7 +17,7 @@ public static partial class Game
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
 
     /// <summary>One gameplay pump and one presentation consumer per connection, regardless of projectile count.</summary>
-    public sealed class ProjectileSession : IProjectileWorld, IProjectileRuntime
+    public sealed partial class ProjectileSession : IProjectileWorld, IProjectileRuntime
     {
         public readonly string remote;
         public readonly NetworkStream stream;
@@ -129,6 +129,7 @@ public static partial class Game
                 if (invalid) return;
                 invalid = true;
                 lifetime?.Dispose();
+                ClearPods();
                 Runtime.Clear();
                 foreach (var visual in visuals.Values) Conn.ProjectileObjects.Remove(visual.Id);
                 visuals.Clear(); output.Writer.TryComplete();
@@ -300,6 +301,7 @@ public static partial class Game
                 return ProjectileHitResult.Miss;
             if (!Conn.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
+            if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
             if (shot.RampageEpoch is long ownedEpoch)
             {
@@ -384,10 +386,19 @@ public static partial class Game
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stats.Key("base_killed_monster_dropped_item_quantity_+%") is uint quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
+            // Item Rarity Support: the same kill's drops read the skill's rarity share.
+            if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
+                target.KilledWithItemRarityPct = shot.SkillStats.GetValueOrDefault(rarityKey);
+            // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
+            SoulEaterHit(Conn, target);
             if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
+            if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
+                MirageOnArrowHit(shot);
             if (!immune)
                 AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
                     at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
+            if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
+                EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
             if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled)) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
             if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
@@ -439,7 +450,7 @@ public static partial class Game
             if (value.Kind == ProjectileEventKind.Spawn)
             {
                 string? flightVisual = (p.Use.Payload as ProjectileOffense)?.FlightVisual ?? presentation.FlightVisual;
-                uint id = Conn.NextObjectId++;
+                uint id = Conn.TakeObjectId();
                 // A shot aimed at higher ground flies at that ground's height, so its object clears the cliff it passes over.
                 var height = ProjectileHeight.Flight(FlightGround(p) ?? TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y),
                     Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
@@ -460,7 +471,10 @@ public static partial class Game
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
-                        { AnimatedObject = flightVisual };
+                        { AnimatedObject = flightVisual,
+                            // DelveMonkeyMortar.ot appends an empty StateMachine; omitting its two counts
+                            // makes the client consume the task byte as a count and throw Buffer Underflow.
+                            StateMachine = p.Profile.Id == "Metadata/Projectiles/DelveMonkeyMortar" ? new([], 0) : null };
                     visual.Created = true;
                     if (p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
@@ -527,7 +541,7 @@ public static partial class Game
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0)
         {
-            uint id = Conn.NextObjectId++;
+            uint id = Conn.TakeObjectId();
             // Native area art radii are world units; simulation radii are grid cells.
             float scale = radius is double r && Art.ArtRadius(ao) is int nativeRadius
                 ? (float)(r * (250d / 23) / nativeRadius) : 1;
@@ -558,7 +572,7 @@ public static partial class Game
             });
             if (attach is not { } child) return;
             // The art attached to the effect's bone: the client carries it along with the parent's animation.
-            uint childId = Conn.NextObjectId++;
+            uint childId = Conn.TakeObjectId();
             // The official split-arrow art sends kind 0 and mask 3 (the base record of the Animated component), which
             // keeps the parent bone's rotation: the arrow then follows aux_projectile_attach instead of lying flat.
             var childEffect = new EffectObject(x, y, child.Ao)

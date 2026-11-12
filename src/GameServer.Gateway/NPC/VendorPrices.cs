@@ -1,3 +1,4 @@
+using GameServer.Core;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
@@ -19,27 +20,24 @@ public sealed class VendorPrices
     readonly Dictionary<int, int> mapCosts = [];
     readonly List<(uint Currency, int Amount)[][]> costs = [];
     readonly ItemCatalog catalog;
-    public VendorPrices(ItemCatalog items, bool hardMode = false, string folder = "data")
+    public VendorPrices(ItemCatalog items, bool hardMode = false)
     {
         catalog = items;
-        using var c = GameTables.Open(Path.Combine(folder, "tables/ItemCosts.json"));
-        foreach (var row in c.RootElement.EnumerateArray())
-            costs.Add(Enumerable.Range(1, 4).Select(rarity => row.GetProperty($"Cost{rarity}Currencies").EnumerateArray()
-                .Zip(row.GetProperty($"Cost{rarity}Values").EnumerateArray(), (currency, amount) =>
-                    (items.Row(currency.GetInt32())?.Hash ?? 0, amount.GetInt32())).ToArray()).ToArray());
-        using var l = GameTables.Open(Path.Combine(folder, "tables/ItemCostPerLevel.json"));
-        foreach (var row in l.RootElement.EnumerateArray())
+        foreach (var row in ClientTables.Table("ItemCosts"))
+            costs.Add(Enumerable.Range(1, 4).Select(rarity => row.Ints($"Cost{rarity}Currencies")
+                .Zip(row.Ints($"Cost{rarity}Values"), (currency, amount) =>
+                    (items.Row(currency)?.Hash ?? 0, amount)).ToArray()).ToArray());
+        foreach (var row in ClientTables.Table("ItemCostPerLevel"))
         {
-            int b = row.GetProperty("BaseItem").GetInt32();
-            int cost = hardMode && row.GetProperty("CostHardmode") is { ValueKind: JsonValueKind.Number } h
-                ? h.GetInt32() : row.GetProperty("Cost").GetInt32();
+            int b = row.Int("BaseItem");
+            int cost = hardMode && row.IntOrNull("CostHardmode") is int h
+                ? h : row.Int("Cost");
             if (!levels.TryGetValue(b, out var entries)) levels[b] = entries = [];
-            entries.Add((row.GetProperty("Level").GetInt32(), cost));
+            entries.Add((row.Int("Level"), cost));
         }
         foreach (var entries in levels.Values) entries.Sort((a,b) => b.Level.CompareTo(a.Level));
-        using var m = GameTables.Open(Path.Combine(folder, "tables/MapPurchaseCosts.json"));
-        foreach (var row in m.RootElement.EnumerateArray())
-            mapCosts[row.GetProperty("Tier").GetInt32()] = row.GetProperty(hardMode ? "CostHardmode" : "Cost").GetInt32();
+        foreach (var row in ClientTables.Table("MapPurchaseCosts"))
+            mapCosts[row.Int("Tier")] = row.Int(hardMode ? "CostHardmode" : "Cost");
     }
 
     public Item? Price(Item item)

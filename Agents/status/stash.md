@@ -13,6 +13,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See protocol/18-stash.md.
 - **Currency withdrawal (#249).** Ctrl + left click takes at most one normal inventory stack from the clicked slot;
   Ctrl + right click uses the separate `0xe3` bulk boolean to take as much of that stack as fits.
+  Ctrl + right click on an inventory stack moves every stack of its type into the stash, to its affinity tab or the shown tab.
   Real-client/Gateway logs confirm bulk 0 takes 40 from 218, leaving 178;
   bulk 1 takes 178 as four stacks of 40 and one of 18.
   Automated tests cover quantity limits, existing-stack top-ups, partial/full inventory, rollback and save reloads.
@@ -63,11 +64,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   map has one page of its own (group 1, keyed by its visual identity) and a conqueror's or elder guardian's map goes to
   its guardian's page (groups 2 and 3), found from the `MapConquerorContainsBossN`/`MapElderContainsBossN` modifiers first
   and the influence flags as the fallback; a page only takes maps that belong to it.
-  Unique collections use 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
+  New and existing Unique collections accept ordinary deposits through 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
   each available collection cell once, preserving existing items. Verified in the real client: 1309 items, including
   unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
   have no matching client collection cell and are reported as unavailable; unique Heist contracts are not generated.
   Legacy items can make the native collected count exceed its current-league denominator.
+- `AccountStash.AddTabs` appends general tabs (normal, premium, quad) for a mod; they show in the next tab list
+  (0x21, on entering an area) or after a relog. Automated test: `StashAddTabsTests`.
 
 ## Partly working
 

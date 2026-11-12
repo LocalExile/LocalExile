@@ -15,20 +15,18 @@ public static class DelveEquipment
     sealed record Upgrade(int Type, byte Level, uint Cost, int[] Keys, int[] Values);
     static readonly Lazy<Dictionary<(int Type, byte Level), Upgrade>> Rows = new(() =>
     {
-        if (!ClientTables.Exists("data/tables/DelveUpgrades.json")) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes("data/tables/DelveUpgrades.json"));
-        return doc.RootElement.EnumerateArray().Select(r => new Upgrade(r.GetProperty("DelveUpgradeTypeKey").GetInt32(),
-            r.GetProperty("UpgradeLevel").GetByte(), r.GetProperty("Cost").GetUInt32(),
-            [.. r.GetProperty("StatsKeys").EnumerateArray().Select(v => v.GetInt32())],
-            [.. r.GetProperty("StatValues").EnumerateArray().Select(v => v.GetInt32())])).ToDictionary(r => (r.Type, r.Level));
+        if (!ClientTables.Has("DelveUpgrades")) return [];
+        return ClientTables.Table("DelveUpgrades").Select(r => new Upgrade(r.Int("DelveUpgradeTypeKey"),
+            ((byte)r.Int("UpgradeLevel")), r.UInt("Cost"),
+            [.. r.Ints("StatsKeys")],
+            [.. r.Ints("StatValues")])).ToDictionary(r => (r.Type, r.Level));
     });
     static readonly Lazy<uint[]> FlarePrices = new(() => Prices("DelveFlares", "__col6"));
     static readonly Lazy<uint[]> DynamitePrices = new(() => Prices("DelveDynamite", "__col12"));
     static uint[] Prices(string table, string field)
     {
-        if (!ClientTables.Exists($"data/tables/{table}.json")) return [];
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes($"data/tables/{table}.json"));
-        return [.. doc.RootElement.EnumerateArray().Select(r => r.GetProperty(field).GetUInt32())];
+        if (!ClientTables.Has(table)) return [];
+        return [.. ClientTables.Table(table).Select(r => r.UInt(field))];
     }
     public static int Value(DelveProgress progress, int type) =>
         Rows.Value.GetValueOrDefault((type, progress.Level(type)))?.Values.FirstOrDefault() ?? 0;
