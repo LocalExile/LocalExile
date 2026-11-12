@@ -1,5 +1,4 @@
 using GameServer.Core.Projectiles;
-using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 public static partial class Game
@@ -26,13 +25,19 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed class Archer(ushort skill, SupportedGem source, ushort buff)
+        sealed class Archer(ushort skill, SupportedGem source)
         {
-            public readonly ushort Skill = skill, Buff = buff;
+            public readonly ushort Skill = skill;
             public readonly SupportedGem Source = source;
             public long Expires, NextAttack;
         }
         Archer? archer;
+
+        void MirageEffect(string phase)
+        {
+            var at = Conn.Walk.Position(Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond);
+            Effect(at.X, at.Y, $"Metadata/Effects/Spells/mirage_archer/{phase}.ao", ProjectileRuntime.Time(1));
+        }
 
         void MirageOnArrowHit(ProjectileOffense shot)
         {
@@ -50,9 +55,8 @@ public static partial class Game
                 old.Expires = end;
                 return;
             }
-            if (archer is not null) Packet(InstanceEntities.RemoveBuff(PlayerId, archer.Buff));
-            var current = archer = new Archer(shot.SourceSkill, source, Conn.NextBuff++) { Expires = end };
-            Packet(InstanceEntities.AddBuff(PlayerId, current.Buff, 1017, PlayerId, current.Skill));
+            var current = archer = new Archer(shot.SourceSkill, source) { Expires = end };
+            MirageEffect("appear");
             double factor = Math.Max(.01, 1 + Own("support_mirage_archer_attack_speed_+%_final") / 100d);
             long Interval() => Math.Max(ProjectileRuntime.TickQuanta, ProjectileRuntime.Time(SupportedAttackSeconds(Conn, current.Skill) / factor));
             current.NextAttack = Runtime.Now + Interval();
@@ -63,7 +67,7 @@ public static partial class Game
                     || !SameTriggerSource(current.Source, SupportedSkill(Conn, current.Skill)))
                 {
                     archer = null;
-                    Packet(InstanceEntities.RemoveBuff(PlayerId, current.Buff));
+                    MirageEffect("disappear");
                     return;
                 }
                 if (Runtime.Now >= current.NextAttack)
