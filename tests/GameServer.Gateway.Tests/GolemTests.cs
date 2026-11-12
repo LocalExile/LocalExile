@@ -1042,6 +1042,97 @@ public sealed class GolemTests
             }
         }
 
+        async Task PrimordialHarmonySourceConsumers()
+        {
+            string character = "PrimordialHarmony" + Guid.NewGuid().ToString("N");
+            var schedule = new AreaClockSchedule { At = 10 };
+            var updates = new PlayerUpdatesState(lifetime, schedule);
+            var priorContext = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = updates;
+            ClientState? owner = null;
+            try
+            {
+                owner = new ClientState(new(1, "primordial-harmony", 1000, 1000, 100, 100, null, []), 9, 1)
+                {
+                    Character = character, Instance = new(), PlayerLife = 10000, PlayerMana = 10000, PlayerSent = true,
+                    Experience = CharacterStats.ExperienceFor(100), PlayerUpdatesState = updates,
+                    Pools = new(100, 10000, 10000, 2, 0), LeagueModule = conn.LeagueModule,
+                };
+                owner.Golems.Restored = true;
+                foreach (string stat in new[] { "virtual_strength_for_requirements", "virtual_dexterity_for_requirements",
+                    "virtual_intelligence_for_requirements" }) owner.PlayerStats[Program.Stats.Key(stat)!.Value] = 1000;
+                // Prepared capacity permits two real gem-produced types; the item coefficients and entities stay real.
+                owner.PlayerStats[Program.Stats.Key("number_of_golems_allowed")!.Value] = 1;
+                var inventory = Game.ItemsOf(owner);
+                var node = Program.Passives.JewelNodeForSlot(0)!.Value; owner.Passives.Add(node);
+                var harmony = new UniqueCatalog(Program.Items).Create("Primordial Harmony", new Random(504))!;
+                var raw = ItemModStats.Sum([harmony], Program.Items.Mods);
+                int damage = raw.GetValueOrDefault("golem_damage_+%_per_active_golem_type");
+                int regeneration = raw.GetValueOrDefault("golem_life_regeneration_per_minute_%");
+                Assert.True(damage > 0); Assert.True(regeneration > 0);
+                var jewel = inventory.Add(PlayerInventories.PassiveJewels, 0, 0, harmony);
+                var bow = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/TwoHandWeapons/Bows/Bow1")!) with
+                {
+                    Sockets = [new(SocketColour.White, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSummonRockGolem")!)),
+                        new(SocketColour.White, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSummonFlameGolem")!))],
+                };
+                inventory.Add(PlayerInventories.Weapon1, 0, 0, bow);
+                void Recalculate()
+                {
+                    owner.Pools = Game.PoolsFor(owner, 100); owner.PlayerLife = owner.Pools.Life; owner.PlayerMana = owner.Pools.Mana;
+                }
+                int Stat(IReadOnlyDictionary<uint, int> stats, string name) => stats.GetValueOrDefault(Program.Stats.Key(name)!.Value);
+                Recalculate();
+                var grants = Game.GemSkillEffects(owner).ToArray();
+                var stoneGrant = grants.Single(g => Game.SkillsFor(owner).EffectId(g.Effect) == "SummonStoneGolem");
+                var flameGrant = grants.Single(g => Game.SkillsFor(owner).EffectId(g.Effect) == "SummonFlameGolem");
+                uint stoneId = await Game.SummonGolem("harmony", wire.Stream, wire.Ciphers, owner, stoneGrant.Id,
+                    Game.GolemData.Find("SummonStoneGolem")!, (100, 100));
+                Assert.NotEqual(0u, stoneId);
+                var stone = owner.Golems.All[stoneId];
+                async Task Check(int types, bool active)
+                {
+                    Recalculate(); schedule.At += 1;
+                    await Game.GolemsTick("harmony", wire.Stream, wire.Ciphers, owner, schedule.At);
+                    Assert.Same(stone, owner.Golems.All[stoneId]);
+                    var player = Game.CharacterPlayerStats(owner);
+                    Assert.Equal(types, Stat(player, "virtual_current_number_of_golem_types"));
+                    Assert.Equal(active ? damage : 0, Stat(player, "golem_damage_+%_per_active_golem_type"));
+                    var without = new Dictionary<uint, int>(player);
+                    without.Remove(Program.Stats.Key("golem_damage_+%_per_active_golem_type")!.Value);
+                    Assert.Equal(active ? types * damage : 0,
+                        Game.GolemModifiers(owner, stone, player, schedule.At).Effects["damage_+%"]
+                        - Game.GolemModifiers(owner, stone, without, schedule.At).Effects["damage_+%"]);
+                    // A generic fighter uses the shared controller but receives neither golem-only damage nor regen.
+                    var generic = new GolemState.Golem(0, stone.Monster, stone.Definition with { IsGolem = false }, stone.Source);
+                    Assert.Equal(Game.GolemModifiers(owner, generic, without, schedule.At).Effects["damage_+%"],
+                        Game.GolemModifiers(owner, generic, player, schedule.At).Effects["damage_+%"]);
+                    stone.Monster.Life = stone.Monster.MaxLife / 2;
+                    stone.Regeneration = 0; stone.LastStep = schedule.At;
+                    uint before = stone.Monster.Life;
+                    schedule.At += 1;
+                    await Game.GolemsTick("harmony", wire.Stream, wire.Ciphers, owner, schedule.At);
+                    double expected = stone.Monster.MaxLife * (.02 + (active ? regeneration : 0) / 6000d);
+                    Assert.InRange((long)stone.Monster.Life - before, (long)Math.Floor(expected) - 1, (long)Math.Ceiling(expected));
+                    Assert.Same(stone.Monster, owner.Monsters[stoneId]);
+                }
+                await Check(1, true);
+                uint flameId = await Game.SummonGolem("harmony", wire.Stream, wire.Ciphers, owner, flameGrant.Id,
+                    Game.GolemData.Find("SummonFlameGolem")!, (105, 100));
+                Assert.NotEqual(0u, flameId); Assert.NotEqual(stoneId, flameId);
+                await Check(2, true);
+                owner.Passives.Remove(node); await Check(2, false);
+                owner.Passives.Add(node); await Check(2, true);
+                inventory.Remove(PlayerInventories.PassiveJewels, jewel.Id); await Check(2, false);
+            }
+            finally
+            {
+                Game.AreaUpdateContext.Value = priorContext;
+                if (owner is not null) owner.Closed = true;
+                PlayerInventories.Forget(character); Game.InactiveItems.TryRemove(character, out _);
+            }
+        }
+
         async Task PrimordialGolemLifetimeMatrix()
         {
             const string character = "PrimordialGolemLifetime";
@@ -1845,6 +1936,7 @@ public sealed class GolemTests
         try
         {
             await PrimordialMightOwnerWindow();
+            await PrimordialHarmonySourceConsumers();
             await PrimordialGolemLifetimeMatrix();
             await PrimordialGroundHazardWindow();
             var gem = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemSummonFlameGolem")!);
