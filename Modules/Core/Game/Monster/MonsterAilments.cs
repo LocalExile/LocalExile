@@ -238,7 +238,8 @@ public static partial class Game
                     $"0x0f8 monster 0x{id:x} ({m.Label}) knocked back to ({kx}, {ky})"));
             }
             var a = m.Ailments;
-            if (a.Idle && now >= m.ReceivedActionUntil) continue;
+            double vines = ToxicWalkFactor(m);
+            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
@@ -249,6 +250,7 @@ public static partial class Game
             double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
             // Maim: 30% reduced movement speed while maimed (PoB: MovementSpeed INC -30 with the Maimed condition).
             if (m.MaimedUntil > now) walk *= 0.7;
+            if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
             if (walk != a.WalkFactor)
             {
                 if (m.Walk.Speed > 0) m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);

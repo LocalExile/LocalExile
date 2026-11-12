@@ -9,7 +9,7 @@ using GameServer.Core.Protocol.Login;
 namespace GameServer.Gateway.Tests;
 public sealed class SpellTotemExecutionTests
 {
-    static ClientState Connection(string name)
+    internal static ClientState Connection(string name)
     {
         var conn = new ClientState(new(1, name, 1000, 1000, 100, 100, null, []), 1, 1)
         {
@@ -399,7 +399,7 @@ public sealed class SpellTotemExecutionTests
             PlayerInventories.Forget(conn.Character!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
         }
     }
-    sealed class Wire : IDisposable
+    internal sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
         readonly TcpClient writer = new(); readonly TcpClient reader;
