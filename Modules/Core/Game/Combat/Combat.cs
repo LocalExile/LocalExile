@@ -2399,8 +2399,9 @@ public static partial class Game
         var partyShares = PartyExperienceShares(conn, at);
         ShareKill(conn, id, m, variety, at, partyShares);
         await GameEvents.RunKill(new(conn, m, variety.Id, at) { PlayerKill = playerKill });
-        // A summoned monster whose skill says so gives neither experience nor items.
-        if (!m.NoRewards && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
+        // A summoned monster whose skill says so gives neither experience nor items, and so does a boss's first stage
+        // (BossMods: Malachai, Shakari and Piety's escape give no experience; their own rows say so).
+        if (!m.NoRewards && !BossMods.NoRewards(variety) && alive && Dist(at, player) <= ExperienceRange && Monsters.BaseExperience(variety, m.Level) is int baseXp)
         {
             var (xp, gemXp) = KillExperience(killer, monster, baseXp, variety.ExperienceMultiplier, m.Rarity,
                 conn.Pools.Level, m.Level, PartyExperienceShareOf(partyShares, conn));
@@ -2425,6 +2426,8 @@ public static partial class Game
     public static async Task DropLoot(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, SpawnedMonster m, (int X, int Y) at)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
+        // A stage of a boss that gives no items (Malachai's first form, Abberath, Shavronne's tower, Maligaro's souls).
+        if (BossMods.GivesNoItems(m.Variety)) return;
         // A survivors run keeps the ground clear: no loot, no gold, nothing reaches the client.
         if (!GameEvents.AllowsLoot(conn)) return;
         var balance = LeagueFor(conn).Rules;
