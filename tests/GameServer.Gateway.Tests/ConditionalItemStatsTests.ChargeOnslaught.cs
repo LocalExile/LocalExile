@@ -55,10 +55,12 @@ public partial class ConditionalItemStatsTests
         Assert.NotEmpty(Game.ChargeOnslaughtPresentation(conn)!);
         Assert.Null(Game.ChargeOnslaughtPresentation(conn));
         // An independent owner neither doubles the buff's stats nor disappears with this shield.
-        kill.Until = Game.ResourceEffectsTime(conn) + 4; kill.SentUntil = kill.Until;
+        kill.Until = Game.ResourceEffectsTime(conn) + 4;
+        Assert.NotEmpty(Game.OnslaughtPresentation(conn));
+        Assert.True(kill.Applied);
         Read();
         Assert.Equal(baseline.AttackSpeedPct + 20, conn.Pools.AttackSpeedPct);
-        Assert.NotEmpty(Game.ChargeOnslaughtPresentation(conn)!); // Hide this owner's duplicate icon.
+        Assert.Null(Game.ChargeOnslaughtPresentation(conn)); // The combined publication already hid the duplicate icon.
         inventory.Remove(PlayerInventories.Offhand1, shield.Id); Read();
         Assert.False(Game.ChargeOnslaughtActive(conn)); Assert.True(Game.HasOnslaught(conn));
         kill.SentUntil = kill.Until = double.NegativeInfinity; Read();

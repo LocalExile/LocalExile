@@ -149,6 +149,8 @@ public static partial class Game
     }
 
     public static Task SendKillOnslaught(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () =>
-            [.. ChargeOnslaughtPresentation(conn) ?? [], .. KillOnslaughtPresentation(conn) ?? []]);
+        Send(remote, stream, ciphers, [], null, atGate: () => OnslaughtPresentation(conn));
+
+    public static byte[] OnslaughtPresentation(ClientState conn) =>
+        [.. KillOnslaughtPresentation(conn) ?? [], .. ChargeOnslaughtPresentation(conn) ?? []];
 }

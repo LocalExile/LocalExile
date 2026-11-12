@@ -41,8 +41,9 @@ public static partial class Game
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.RageRetired) return null;
             EnsureConditionalItemPools(conn);
-            var visual = ChargeOnslaughtVisuals.GetValue(conn, _ => new());
             bool active = ChargeOnslaughtActive(conn);
+            if (!active && !ChargeOnslaughtVisuals.TryGetValue(conn, out _)) return null;
+            var visual = ChargeOnslaughtVisuals.GetValue(conn, _ => new());
             bool show = active && !HasIndependentOnslaught(conn) && ItemsFor(conn).Onslaught is not null;
             bool changed = active != visual.Active;
             var bytes = new List<byte>();
