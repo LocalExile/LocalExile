@@ -95,6 +95,8 @@ Nothing yet.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
+  Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
+  Meat Shield reduces damage taken by supported minions, and Elemental Army scales their elemental damage paths.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and
   Awakened `support_spell_cascade_sideways`, so the aimed centre still lands the main hit; captured from the 3.29.3b
   client (2026-11-04): Reap's five Awakened areas were 28-29 cells apart at a 28.5 effective radius.

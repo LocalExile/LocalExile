@@ -1272,12 +1272,16 @@ public static partial class Game
     // when the client's 0x197 updates stop for ChannelSilenceSeconds (so a lost 0x199 cannot keep a channel spinning on
     // its own). A held Winter Orb is the exception: its client sends 0x198 only when the aimed cell changes, so a still
     // cursor leaves none, and the orb must keep charging the stages the bar is counting (ChannelCurrent).
+    public static double FocusedChannelMore(double seconds, int perSecond) =>
+        1 + Math.Clamp(Math.Floor(seconds) * perSecond, 0, 60) / 100d;
+
     public const double ChannelSilenceSeconds = 1.0;
 
     public static async Task RunChannel(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action)
     {
         int generation = conn.ChannelGeneration;
+        double channelStarted = conn.Clock.Elapsed.TotalSeconds;
         bool Running() => ChannelCurrent(conn, skillId, action, generation);
         // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
         // while this channel's cast ticks only build the orb's stages.
@@ -1328,7 +1332,9 @@ public static partial class Game
                 }
                 var at = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
                 await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at,
-                    immediate: true, sequence: conn.ChannelSkillSequence, actionToken: action, channelGeneration: generation);
+                    immediate: true, sequence: conn.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
+                    damageMore: FocusedChannelMore(now - channelStarted,
+                        GolemStat(SupportedSkill(conn, skillId).Stats, "support_focus_channel_damage_+%_final_per_second_channelling_up_to_60%")));
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -1693,6 +1699,7 @@ public static partial class Game
                         : SupportedHitFor(conn, skillId, suppress: true, weapon: shield);
                     if (ruthless != 1) sweepHit = sweepHit.Scale(ruthless);
                     if (addedChaos > 0) sweepHit = sweepHit.Add(DamageType.Chaos, new(addedChaos, addedChaos));
+                    if (spell && repeat > 0) sweepHit = sweepHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     sweepMultiplier = SupportedCriticalMultiplier(conn, skillId);
                     if (!spell) accuracy = SupportedAccuracy(conn, skillId);
                     leech = HitLeechSources(player, !spell, skillStats, local);
