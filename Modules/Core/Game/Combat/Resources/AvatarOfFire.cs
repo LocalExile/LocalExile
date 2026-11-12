@@ -43,7 +43,7 @@ public static partial class Game
     public const string AvatarRotationStat = "avatar_of_fire_rotation_active";
     public const string AvatarKeystone = "keystone_avatar_of_fire";
     public const ushort AvatarRotationBuffRow = 1012;
-    static readonly ConditionalWeakTable<ClientState, AvatarOfFireRotation> AvatarRotations = new();
+    static readonly RuleTable<ClientState, AvatarOfFireRotation> AvatarRotations = new();
     public sealed record CarriedAvatar(uint[] Hosts, double Age);
 
     public static AvatarOfFireRotation AvatarRotationOf(ClientState conn) => AvatarRotations.GetOrCreateValue(conn);

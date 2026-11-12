@@ -38,7 +38,7 @@ public static partial class Game
             ? UtilityFlasks.OnslaughtSources(onslaught, Math.Max(0, 1 + character("onslaught_effect_+%") / 100d)) : [];
 
     sealed class ChargeOnslaughtVisual { public ushort Buff; public bool Active; }
-    static readonly ConditionalWeakTable<ClientState, ChargeOnslaughtVisual> ChargeOnslaughtVisuals = new();
+    static readonly RuleTable<ClientState, ChargeOnslaughtVisual> ChargeOnslaughtVisuals = new();
 
     // A permanent source has no countdown. Its ordinary buff is hidden while another Onslaught owner shows one;
     // the shared utility-source combiner still takes the strongest effect once.

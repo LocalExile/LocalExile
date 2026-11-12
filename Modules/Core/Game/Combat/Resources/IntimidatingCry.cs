@@ -31,8 +31,8 @@ public static partial class Game
         internal ushort Buff;
         internal double PresentedUntil;
     }
-    static readonly ConditionalWeakTable<ClientState, CryRuntime> CryRuntimes = new();
-    static readonly ConditionalWeakTable<SpawnedMonster, List<CryGift>> MinionCryGifts = new();
+    static readonly RuleTable<ClientState, CryRuntime> CryRuntimes = new();
+    static readonly RuleTable<SpawnedMonster, List<CryGift>> MinionCryGifts = new();
 
     static CryRuntime CryOf(ClientState conn)
     {

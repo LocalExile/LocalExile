@@ -30,7 +30,7 @@ public static partial class Game
     public const string HerEmbraceGain = "gain_her_embrace_for_x_ms_on_enemy_ignited";
     public const string HerEmbraceDegen = "%_maximum_es_and_life_taken_as_fire_damage_per_minute_per_level_while_in_her_embrace";
     public const ushort HerEmbraceBuffRow = 979;
-    static readonly ConditionalWeakTable<ClientState, HerEmbraceState> HerEmbraces = new();
+    static readonly RuleTable<ClientState, HerEmbraceState> HerEmbraces = new();
     public static HerEmbraceState HerEmbraceOf(ClientState conn) => HerEmbraces.GetOrCreateValue(conn);
     public sealed record CarriedHerEmbrace(uint[] Hosts, double Seconds, double Pending, double TakenCarry, double BypassCarry);
 
