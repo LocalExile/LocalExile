@@ -114,9 +114,10 @@ public static partial class Game
         for (int repeat = 0; repeat <= repeats; repeat++)
         {
             int left = repeats - repeat;
+            int ordinal = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
-                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay),
+                    CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay, repeat: ordinal),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -231,7 +232,7 @@ public static partial class Game
 
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null)
+        SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0, TotemState.Totem? totem = null, int repeat = 0)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -351,6 +352,11 @@ public static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
+        if (spell && repeat > 0)
+        {
+            double more = GreaterEchoHitMore(repeat, Own);
+            shot = shot with { Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more) };
+        }
         if (totem is not null)
         {
             double totemMore = Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d);
