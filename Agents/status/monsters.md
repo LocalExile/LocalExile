@@ -104,7 +104,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   `ai-native-attack-pacing.json` and `ai-native-menu-{paused,resumed}.json`.
   Docs: [11](../docs/protocol/11-skills.md) §6.
 - Monsters fight back: their first granted effect as a non-pathing skill with MonsterVarieties attack time, reach and
-  level damage; they swing (animated) when in reach and the player's life goes down after evasion, armour and block;
+  level damage. Leap goats use their melee swing when their first attack is the leap damage payload.
+  Monsters swing when in reach and the player's life goes down after evasion, armour and block;
   only monsters with a critical strike chance from their data or mods crit (none from their data yet; of Deadliness);
   walking away dodges; death plays and blocks moving; the death screen (S→C 0x55) shows "Resurrect in Town" /
   "Resurrect at Checkpoint" (hardcore: "Exit"), and both buttons work (C→S 0x54; in town: the last town); `/heal`.
