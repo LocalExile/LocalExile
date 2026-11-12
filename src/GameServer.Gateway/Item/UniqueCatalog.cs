@@ -279,30 +279,29 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     static Dictionary<string, UniqueName> LoadNames(string folder)
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("UniqueStashLayout")) || !ClientTables.Exists(Table("ItemVisualIdentity")))
+        if (!ClientTables.Has("Words") || !ClientTables.Has("UniqueStashLayout") || !ClientTables.Has("ItemVisualIdentity"))
             return result;
-        using var words = GameTables.Open(Table("Words"));
-        using var layout = GameTables.Open(Table("UniqueStashLayout"));
-        using var visuals = GameTables.Open(Table("ItemVisualIdentity"));
+        var words = ClientTables.Table("Words");
+        var layout = ClientTables.Table("UniqueStashLayout");
+        var visuals = ClientTables.Table("ItemVisualIdentity");
         // Unique names are wordlist 6 (rare names use 1 and 2); a layout row links the word to the unique artwork.
         // Keep every wordlist row, not only the definitions known at startup: a definition added to the database later
         // can then resolve its existing client word and art without a code change.
         var byWord = new Dictionary<int, string>();
-        for (int i = 0; i < words.RootElement.GetArrayLength(); i++)
-            if (words.RootElement[i].GetProperty("Wordlist").GetInt32() == 6
-                && words.RootElement[i].GetProperty("Text").GetString() is { Length: > 0 } text)
+        for (int i = 0; i < words.Count; i++)
+            if (words[i].Int("Wordlist") == 6
+                && words[i].Text("Text") is { Length: > 0 } text)
                 byWord[i] = text;
-        foreach (var r in layout.RootElement.EnumerateArray())
+        foreach (var r in layout)
         {
-            int wordsKey = r.GetProperty("WordsKey").GetInt32(), visualKey = r.GetProperty("ItemVisualIdentityKey").GetInt32();
+            int wordsKey = r.Int("WordsKey"), visualKey = r.Int("ItemVisualIdentityKey");
             if (!byWord.TryGetValue(wordsKey, out string? name) || visualKey < 0
-                || visualKey >= visuals.RootElement.GetArrayLength()) continue;
+                || visualKey >= visuals.Count) continue;
             name = NameKey(name);
             // A unique can have a second row with its alternate art (Headhunter2.dds); the ordinary art is the item's.
-            if (r.TryGetProperty("IsAlternateArt", out var alternate) && alternate.GetBoolean() && result.ContainsKey(name)) continue;
-            result[name] = new(words.RootElement[wordsKey].GetProperty("HASH32").GetUInt32(),
-                (ushort)visuals.RootElement[visualKey].GetProperty("HASH16").GetInt32());
+            if (r.BoolOrNull("IsAlternateArt") == true && result.ContainsKey(name)) continue;
+            result[name] = new(words[wordsKey].UInt("HASH32"),
+                (ushort)visuals[visualKey].Int("HASH16"));
         }
         return result;
     }

@@ -1,4 +1,5 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core;
 
 /// <summary>
 /// Izaro's Aspirant's Trials (roadmap world.md "The Labyrinth", step 1): each section of the day's Labyrinth ends in his
@@ -164,17 +165,13 @@ public static class IzaroFights
 
     static string? SecretId(int row) => row < 0 ? null : Tables.Value.Secrets.ElementAtOrDefault(row);
 
-    // NPCs (his row), NPCTextAudio (his lines by Id) and LabyrinthSecrets (Ids), from data/tables.
+    // NPCs (his row), NPCTextAudio (his lines by Id) and LabyrinthSecrets (Ids), from the client tables.
     static readonly Lazy<(ushort Npc, Dictionary<string, ushort> Lines, string[] Secrets)> Tables = new(() =>
     {
         ushort npc = 147;
         var lines = new Dictionary<string, ushort>(StringComparer.Ordinal);
         string[] secrets = [];
-        static IEnumerable<string?> Ids(string table)
-        {
-            using var d = GameTables.Open($"data/tables/{table}.json");
-            return [.. d.RootElement.EnumerateArray().Select(r => r.TryGetProperty("Id", out var id) ? id.GetString() : null)];
-        }
+        static IEnumerable<string?> Ids(string table) => [.. ClientTables.Table(table).Select(r => r.Has("Id") ? r.Text("Id") : null)];
         try
         {
             if (Ids("NPCs").ToList().IndexOf("Metadata/NPC/Izaro") is int row and >= 0) npc = (ushort)row;

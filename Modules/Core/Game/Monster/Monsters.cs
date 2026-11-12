@@ -421,6 +421,11 @@ public static partial class Game
             AreaPopulation.PopulationSeed(layout.Hash, conn.Seed), Spawnable, notes, scale,
             unassignedAtArrival: MapDevices.Value.IsMapArea(layout.Hash), roomPacks: [.. trialRooms.SelectMany(r => r.Points)],
             scatterable: trapClear.Count == 0 ? null : (x, y) => !trapClear.Contains((x, y))), mapMods).ToList();
+        foreach (var chest in QuestsOf(conn).Chests(layout.Id).Where(r => r.Guards is not null))
+            foreach (var room in placedRooms.Where(r => !trialRooms.Contains(r) && r.Objects.Any(o => o.Type == chest.ChestType)))
+                foreach (var point in room.Points.Where(p => chest.Guards!.Contains(p.Name)))
+                    if (Monsters.Find(point.Name) is { } guard && guard.Id == point.Name && Spawnable(guard.Row))
+                        spawns.Add(new AreaPopulation.Spawn(guard.Row, point.X, point.Y, MonsterRarity.Normal, "quest chest guard"));
         foreach (var room in trialRooms)
             foreach (var p in room.Points)
             {

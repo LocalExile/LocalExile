@@ -93,12 +93,11 @@ public static class CharacterSaves
     /// <see cref="UnreadableSaveException"/> and stays as it is.</summary>
     public static Save? Load(string character)
     {
-        var save = Saves.Load<Save>(SaveDatabase.Table.Characters, character, Opts);
+        var save = Saves.LoadCharacter(character);
         return save is not null && UnsavedExperience.TryGetValue(character, out uint xp) ? save with { Experience = xp } : save;
     }
 
-    public static void Write(string character, Save save) =>
-        Saves.Put(SaveDatabase.Table.Characters, character, JsonSerializer.Serialize(save, Opts));
+    public static void Write(string character, Save save) => Saves.PutCharacter(character, save);
 
     public static void SetHideoutPlacement(string character, string area, string key, HideoutPlacement placement) =>
         Update(character, save =>
@@ -306,7 +305,7 @@ public static class CharacterSaves
         uint before = 0, after = 0;
         // The last run of either function is the one stored (ConcurrentDictionary retries a lost race).
         UnsavedExperience.AddOrUpdate(character,
-            name => after = add(before = Saves.Load<Save>(SaveDatabase.Table.Characters, name, Opts)?.Experience ?? start),
+            name => after = add(before = Saves.LoadCharacter(name)?.Experience ?? start),
             (_, total) => after = add(before = total));
         return (before, after);
     }
@@ -320,7 +319,7 @@ public static class CharacterSaves
         {
             // Sample inside the write transaction: a queued flush must not restore XP captured before a level reset.
             if (!UnsavedExperience.TryGetValue(character, out uint xp)) return;
-            if (Saves.Load<Save>(SaveDatabase.Table.Characters, character, Opts) is { } save) Write(character, save with { Experience = xp });
+            if (Saves.LoadCharacter(character) is { } save) Write(character, save with { Experience = xp });
             flushed = xp;
         });
         if (flushed is { } saved)

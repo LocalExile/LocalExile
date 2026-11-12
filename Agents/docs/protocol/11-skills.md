@@ -1,8 +1,5 @@
 # 11 — Skills: how the client gets them, the default attack
 
-The standalone bow/wand and monster-action port is documented in [the port record](../dev/ranged-monster-actions-port.md).
-Its fresh automated results are separate from historical LocalExile native evidence quoted below.
-
 Status (live, 2026-10-17): the player has the default attack. It shows in the skill picker, can be put on the left mouse
 button, walks into range, swings at the Witch's attack speed (757 ms, or faster with `/set_stat attack_speed_+%`), and
 the server lowers the monster's life 2–5 per hit at the swing's contact point until it dies. Code: `GrantedSkill`, `PlayerObject` (`InstanceEntities.cs`), `SkillCatalog.cs` and `Attack` in the
@@ -153,9 +150,8 @@ Include these updates when reconstructing effective release inputs, without assu
 
 **Issue #75 evidence scope:** imported test counts and Standard/Ruthless native matrices in this document describe
 the original LocalExile revisions. They are retained as historical evidence, including their UNPROVED boundaries.
-This branch ports the completed ordinary-mode work without the source's private game-mode implementation.
-See [the port record](../dev/issue75-port.md) for revision mapping, fresh automated validation and native checks
-still required on the ported branch. Source `artifacts/issue75-completion/` paths refer to the LocalExile checkout.
+This branch ports the completed ordinary-mode work without the source's private game-mode implementation; its native
+checks are still to do. Source `artifacts/issue75-completion/` paths refer to the LocalExile checkout.
 
 Characters.dat `StartingMeleeSkill` is the GEPL row of each class's default attack: **4474** = `PlayerMelee` level 1
 for the Witch. Its stat set is GrantedEffects `StatSet1` = 476 (`PlayerMelee`), level 1 = GESSPL row **4430**.
@@ -214,7 +210,9 @@ unarmed, which counts as dual wielding for this bonus) adds PoB's `dual_wield_in
 The increased and more parts are combined into one integer `main_hand_attack_speed_+%` (75% increased and 10% more
 become 93%), which `SkillCatalog.Unarmed.Stats(player)` sends. Attack time = base / (1 + that / 100), at least one
 server tick (`Program.TickRate` = 30/s, so at most 30 attacks per second), and
-`hundred_times_attacks_per_second` = 100 / attack time. The panel's **Damage per Second** is the average hit × APS
+`hundred_times_attacks_per_second` = 100 / attack time.
+The character panel keeps its APS after a passive allocation until a relog (reopening it or switching its tab does
+not refresh it). The panel's **Damage per Second** is the average hit × APS
 (`hundred_times_damage_per_second`) and **Damage per Use** is the average hit
 (`display_hundred_times_damage_per_skill_use`), both in hundredths. `/set_stat` records raw attack-speed inputs and adds
 them on top of the passives, then sends the stats (0x1b3) and the skill again. Minion, totem and timed/conditional
@@ -726,7 +724,7 @@ It adds `extra_critical_rolls`, `extra_critical_rolls_while_on_low_life` when vi
 `extra_critical_rolls_during_focus` while `has_focus` holds, and one for `keystone_sharp_and_brittle`.
 Its final signed clamp at `0x1427ec5a9` is -1..1, after the addition; two lucky sources still mean two total rolls.
 There is no Attack or Melee restriction on the low-life term, so supported spell hits qualify too.
-`CriticalStrikePolicy` and `Program.CriticalStrikes` consume those raw inputs independently of any class choice.
+`CriticalStrikePolicy` and `Game.CriticalStrikes` consume those raw inputs independently of any class choice.
 Low life is derived from current living owner Life and maximum Life with an inclusive 50% default threshold.
 `low_life_threshold_%_override` takes precedence over `low_life_threshold_%` when positive.
 The not-full-Life and Vulnerability count-as-low-life flags use current Life and current curse-state stats.
@@ -965,7 +963,7 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   the server simulates. Only `monster_mortar_attack` is traced: the spell forms (`monster_mortar`,
   `monster_mortar_around_caster`) are another client action, and the server still creates their objects, with no row
   or total count on the record. The server simulates the flight for the hit
-  (`Program.ProjectileHostile.cs`), released at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
+  (`Modules/Core/Game/Projectile/ProjectileHostile.cs`), released at the clip's contact keyframe rather than halfway: MonsterMortar's `Animation`
   (row 20, Animation.dat `SpellProjectile`) names the ACT pool (`SpellProjectile = "attack1,attack2"`), the native
   selector seeded with the action's 0xffff sequence picks `attack1` (as it picks the player's wand clip), and that
   clip's `contact` is at 374.5 of 1000 ms in the Spitter's .ao (`exclude_metadata_events = true` replaces the rig's
@@ -1350,8 +1348,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   only queues the package until an action with that sequence consumes it, which the fabricated 0xffff never
   guarantees, and that 0x0400 asks the client to stun the target itself, with its own avoidance roll, through the
   same interruption routine as 0x1d1; the player's recovery is already the authoritative 0x1d1 below.
-  GGG's server does it differently (live capture 2026-10-29,
-  [ranged-monster-actions-port.md](../dev/ranged-monster-actions-port.md) "Live reference").
+  GGG's server does it differently (live capture 2026-10-29, §17).
   A bow's arrow hits, both the default attack's and the attack gem's, carry the main-hand bit `0x0200` and skill
   index 2, and the header after the attacker's id is a per-hit u32 and u16 1, not zeros. The arrow's packet carries
   the main-hand bit since 2026-10-30; index 2 and the header stay zero until their meaning is known (the decode says
@@ -1677,6 +1674,8 @@ use) with and without the stat is not checked live yet; the Gateway log's 0x01ab
 **Melee area attacks** land on the aimed point within the area's radius plus the weapon's range, in front of the
 player beyond it (`MeleeAreaCentre`). Holy Sweep's actions (`Sweep`, `SweepAltX`) swing around the player wherever
 aimed, as the client draws them: centred on the target, the server's circle sat 15 cells towards it (live 2026-11-08).
+Its hammers deal no damage: the client draws them, but the server has no hammerfall hits
+(`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server puts the player at the aimed
@@ -1694,7 +1693,8 @@ it strikes in place. A predictive client's 0x1ab echo snaps only at 92+ cells, s
 the landing (`FlickerStrike`); the action still keeps the use's sequence for the camera's smoothing (+0x11d0).
 Where GGG lands the player beside the target is not on the client; the Gateway uses the target's cell.
 Its buff (BuffDefinitions 1344 `flicker_strike_speed_boost`, `base_movement_velocity_+%`) is the server's too:
-each use gives it for the skill's duration, and its bonus is in the movement speed the Gateway sends.
+each use gives it for the skill's duration, and its bonus is in the movement speed the Gateway sends; increased buff
+effect does not scale it yet.
 
 **Channelled skills** (Cyclone): after the skill's 0x1ab start the client sends **C→S 0x197** (10 bytes: u32 BE x,
 u32 BE y) every ~80 ms while the button is held, and **C→S 0x199** (2 bytes) when it is let go (live captures
@@ -1723,6 +1723,61 @@ Pause still rejects contacts, and each timer revalidates that its gem remains av
 A freeze or a stun's hit recovery (`PlayerActionBlocked`) suspends the timer: no stage is paid or swept until it ends.
 A stage already paid when one lands is refused at its hit commit.
 The 0x197 updates are dropped while the player is blocked, so an interruption longer than a second ends the channel.
+
+**Storm Call** (`StormCall.cs`, `StormCallMarkers.cs`): each landing (the aim, a Spell Cascade area, a Spell Echo
+repeat) sets a marker that strikes its area when the skill duration ends, and that strike also calls down every other
+marker out; quality's chance strikes a new marker on cast. Marker and impact are server art from the worn skin.
+
+**Multi-strike** (`SkillMultiStrike.cs`, `GemAttackStrikeGap`): a gem attack whose StatSet carries
+`base_skill_number_of_additional_hits` repeats its whole sweep once per extra strike (Double Strike: 1). Each strike
+has its own target scan, hit chance, damage roll, on-hit effects and ailments, and all share the use's one critical
+roll ([poewiki Double Strike](https://www.poewiki.net/wiki/Double_Strike)); both use the main-hand weapon, as the wiki
+says. The next strike lands on the clip's next contact keyframe (`data/animation-contacts.json` key `contacts`;
+doublestrike_sword: 300 and 666 of 1000 ms on the Str rig, 299 and 899 of 1133 on the Dex rig), else half an attack
+later. Spells, channels and Ground Slam's wave never repeat: a clip's number of contact frames is not evidence that each
+deals damage (Cyclone's `whirl_*` has two per loop). The support form `skill_number_of_additional_hits` is not read, as
+no source shows whether the two add.
+
+**Ground Slam's wave** (`SkillArea.GroundSlamWave`): the skills whose ActionTypes action is `DistanceScaledGroundSlam`
+(GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale, PlaytestSlam) hit a sector from the
+player whose front advances to the skill's reach; each monster is hit as the front reaches it, and the rest of the
+sweep is dropped on death, area change or a closed connection. Vaal Ground Slam is a different action (a 40-cell radial
+blast). The gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
+`ExileGroundSlam` row, which no GemEffects row grants. No player stat set or 3.29 Mod holds the four `ground_slam_*`
+shape stats, so the wave uses estimates to calibrate live: 60 cells long at the generic 12-cell radius, shifted by the
+skill's own radius; half angle 30 deg (half `ground_slam_cone_angle_override`'s cone), grown by `ground_slam_angle_+%`;
+60 cells a second. Only the Vaal executor applies `groundslam_damage_to_close_targets_+%_final`.
+The client queues a Move clicked during a swing instead of cancelling the swing (live 2026-11-07), so a gem melee swing
+(`holdsItsSwing`: Melee, not channelled) keeps its hit over a moved action counter; only death, area change, pause,
+freeze or hit recovery ends it. Its contact comes from its own rig clip (`GemAttackContactDelay`: groundslam_maul at
+0.633 of the attack, attack1_maul at 0.692). The server walks on such a Move as it arrives while the client holds it
+until the clip's cut-in (`Lockstep.cs`), so the server leads by up to about 0.3 s during a swing; holding the Move until
+the contact (`HeldMove`) would align them.
+
+**Winter Orb** fires `Metadata/Projectiles/FrostFuryMortar` (the effect's own name has no Projectiles row). While
+channelling, a volley every `frost_fury_base_fire_interval_ms` (1200), with the 80% more while channelling and cast
+speed added (`display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed`), lands
+`base_number_of_projectiles` area hits along a line across the nearest enemy. Stages build at the channel cast tick
+(`hundred_times_casts_per_second` 400 with cast speed, the client's own rate) up to
+`frost_fury_max_number_of_stages` (8) plus quality's `frost_fury_additional_max_number_of_stages`, each adding
+`frost_fury_fire_speed_+%_per_stage` (20; the first none).
+The stages are BuffDefinitions 1216 `frost_fury_stage` on one 0x1c1 instance updated in place: the count is bit2, and
+after release the time left is bit1, drawn as a countdown under the count; a new instance per change restarts that
+clock. A standing channel sends its aim as C→S 0x198 only when the aimed cell changes, so the orb ignores aim silence
+while channelling. The orb is its own runtime: released, it fires at the released frequency while the stages decay one
+at a time over the remaining duration (`base_skill_effect_duration` 1600 ms grown by `frost_fury_duration_+%_per_stage`
+30 through `SkillDurationModifiers`: 5.44 s for 8 stages at level 1); re-channelling keeps the orb and its stages, and
+death, area change and reload retire it. The buff plays the client's channelling art, which draws the orb, so the
+server sends no orb object. Each shot is a `FrostFuryMortar` object glided to its cell at the row's 1500 units/s
+(`ProjectileSpeed`); the area hit and MiscAnimated `FrostFuryExplode` (250 ms) land on arrival.
+The 0x1c1 trailing u32 list must not be empty for this buff: its visual starts the channelling art
+(`0x1415d17d0` → `0x1417b6030`), which reads list entries 1 and 2 (buff +0x80) without a length check, so an empty
+list faulted (`0xc0000005` at offset `0x17b6067`). Three entries (first form, not a totem) are enough.
+
+**Dark Bargain**: at the cast's contact it explodes at the player's skeleton nearest the aim (else the player), paying
+12% of its maximum life (never the last point) as added base chaos damage, then chains to the nearest unused skeletons;
+with none in reach the player pays 12% of maximum life for 56% more damage. Radius 26, the default art scaled to it;
+the seek and chain ranges are estimates.
 
 ## 10. Projectiles (experimental)
 
@@ -1852,8 +1907,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   duplicates fire the base skill's row (the Lightning Arrow gem grants `LightningArrowRoyale`, whose row is
   `Metadata/Projectiles/LightningArrow`). `ProjectileFallbacks` covers the effects no suffix rule reaches, because their
   row is named otherwise (Elemental Hit's `ElementalHitArrowCombined`). Multiple projectiles are one object each, spread around the
-  aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°,
-  `Game_PROJECTILE_SPREAD`); the client also spawns its own copies of a gem use's volley (above), so those objects
+  aim (`ProjectileSpread`: `number_of_additional_projectiles`, `projectile_spread_radius` or 10°); the client also spawns its own copies of a gem use's volley (above), so those objects
   are no longer sent. Kinetic Blast's effect is ClusterBurst, which names no
   Projectiles row, so it falls back to the wand attack's `Metadata/Projectiles/WandProjectile` (3260) and plays
   `Metadata/Effects/Spells/cluster_burst/big.ao` where it lands; a landing on bare ground runs one area hit of the
@@ -1882,10 +1936,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   leaves the line before contact is missed, one that walks into it is hit, and the budget is spent only at real
   non-evaded contacts; blocked contacts still spend budget. The return leg is swept the same way as the projectile flies back.
 - **Returning projectiles.** A projectile whose stats allow it (`projectiles_return`, `attack_projectiles_return`,
-  `projectile_return_%_chance`; `skill_projectiles_cannot_return` forbids; `Game_PROJECTILE_RETURN` forces) returns
+  `projectile_return_%_chance`; `skill_projectiles_cannot_return` forbids) returns
   from a target/terrain collision or from maximum distance (Freezing Pulse only from a collision), flies back to the
-  caster and 15 m (150 cells) past them, and is then removed (`Game_PROJECTILE_RETURN_DISTANCE` in cells,
-  `returned_projectile_speed_+%`). Only one return per projectile; Spark and the other self-moving/rain/tornado
+  caster and 15 m (150 cells) past them, and is then removed (`returned_projectile_speed_+%`). Only one return per projectile; Spark and the other self-moving/rain/tornado
   secondary projectiles cannot return; Fireball explodes after the return. The return leg damages every monster along
   it except the one it returned from, with Returning Projectiles Support's less Damage
   (`support_return_returning_projectiles_damage_+%_final`), and `returning_projectiles_always_pierce` lets it hit all
@@ -2047,8 +2100,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   `Metadata/Effects/Spells/fireball/explode_new2.ao`, whose default animation `animate` plays the `splode` particles
   and the End sound (reader `0x141e5b9e0`: bit0 path, bit1 a 0x2c-table index, bit2 `0x141e5f300` attachments; no
   bit3 there). Only Fireball gets this explosion; a bow arrow's impact is `none` (it sticks/disappears and its
-  burning is the monster's debuff). The object is removed 1.5 s later. `Game_PROJECTILE_IMPACT_AO` overrides the path
-  (`none` turns it off). `Metadata/Effects/Effect` (Positioned, BaseEvents, Animated, LimitedLifespan) would be the
+  burning is the monster's debuff). The object is removed 1.5 s later. `Metadata/Effects/Effect` (Positioned, BaseEvents, Animated, LimitedLifespan) would be the
   cleaner carrier but is not known to be in the client's type register; an unknown type throws in `0x14218ddf0`.
 - **Tilt.** `Metadata/Projectiles/Projectile.ot` gives the client's Render `tilt_to_target` and
   `maintain_tilt_after_movement` (type data +0x76, +0x77; parser `0x1415f1720`). Render (`0x1415f7500`) pitches the
@@ -2106,7 +2158,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   cell step (duration / the path's longest axis), advancing +0x244 by the frame time (`0x141e35a50`). Sending the
   speed (95.7) made each step take ~1 s, so the fireball crawled (~10 world units/s, sampled with Frida); sending
   distance / speed it flies at ~1000 units/s. The fireball now starts `Game_PROJECTILE_AHEAD` cells (1.5) in front of
-  the caster and flies on to `Game_PROJECTILE_RANGE` cells (120, clamped to the area), stopped by the first
+  the caster and flies on to its range (clamped to the area), stopped by the first
   monster or wall contact described above. `/mob_move` and `Game_MOVE_MODE=move` still pass a speed in that field.
 - **Ordinary bow attacks (#203).** Ground and object uses share `LaunchOrdinaryRanged`:
   the action is confirmed, then the game clock waits for `attack1_bow` contact without the melee walk-in offset.
@@ -2177,7 +2229,7 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   Automated sweep, release snapshot, actual send-gate lifecycle and paused-input dispatch checks also pass.
   Surface/platform height, supports, pierce, fork and chain are outside this change.
 - **Ordinary wand attacks.** Ground and object default attacks use the shared ordinary ranged pipeline
-  (`OrdinaryRangedAttack`, `OrdinaryRangedShot`, `Program.RangedAttacks.cs`).
+  (`OrdinaryRangedAttack`, `OrdinaryRangedShot`, `Modules/Core/Game/Projectile/RangedAttacks.cs`).
   Wands create `Metadata/Projectiles/WandProjectile` (Projectiles row 62, speed 3260 world units/second) at the
   contact fraction of the actual ACT-selected main-hand attack clip, scaled to the native attack duration.
   Ranged release never takes the melee walk-in offset, and an object attack no longer also deals direct melee damage.
@@ -2217,6 +2269,32 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   verification in `artifacts/combat-validation/`. A real RMB default wand attack created type `0x8648b085`, hit
   a normal Drowned for 9, played native clip 0 with a 500 ms length, and removed the object 514 ms after impact.
   These observations establish projectile and impact behavior; the later captures above verify variant selection.
+- **Rows the name rules miss** (`SkillCatalog.ProjectileFallbacks`): Tornado Shot fires `TornadoShotArrow`, Split
+  Arrow `SplitArrowDefault`, Kinetic Bolt `ZigZagWandProjectile` and Ice Shot `IceArrow`; before, every use was
+  refused and the server walked on while the client stopped. Ice Shot's cone splash is not modelled.
+- **Lightning Arrow**: each hit calls secondary strikes on up to 3 nearby enemies within 18 cells (`ContactTargets`,
+  `lightning_arrow_maximum_number_of_extra_targets`), scaled by area of effect.
+- **Rolling Magma**: its base radius 14 and the 16 cells between impacts are estimates, not read from the client; its
+  slower bounces (375 ms each) make a bounce's hits land about 0.1 s early.
+- **Tornado Shot's secondaries**: each primary arrow pierces its contacts and emits three `TornadoShotSecondaryArrow`
+  flights at its endpoint, spaced around the client's terminal RNG ray
+  ([geometry](../re/projectiles/tornado-geometry.md)). The client predicts the primary and secondary arrows itself, so
+  the server hides both and only simulates damage; one secondary per set can hit an enemy, and the children keep
+  support Pierce/Fork/Chain. Their range uses the client's 0.3 s secondary action lifetime, so projectile speed scales
+  it, and Point Blank / Far Shot distance includes the primary leg.
+- **Bow arrow counts**: `number_of_additional_arrows` and
+  `number_of_additional_arrows_while_main_hand_accuracy_is_3000_or_more` add primary arrows on top of the generic
+  projectile additions, only for a real bow (not wand, spell or melee projectiles); the selected-skill panel publishes
+  the arrow total.
+- **Kinetic Bolt** (`KineticBoltLegs.cs`): `virtual_projectiles_cannot_fork = 1` turns forks into zig-zags, and the
+  record carries `kinetic_bolt_number_of_zig_zags`. A primary bolt travels 15 cells, then alternates ±45 deg (10 cells)
+  and ±90 deg (20 cells) at a leg's end, a non-evaded hit or a wall, without spending Pierce/Chain/Return, emitting
+  `ZigZagSecondaryWandProjectile` with shared hit history (`HidePredictedVisual = true` when the client predicts it);
+  the remaining Pierce/Chain/Return resume afterwards.
+- **Attack and projectile speed.** Gem attacks use the supported attack speed (gem and support stats plus the GEPL
+  inherent multiplier) for both admission and the swing interval, not `SkillAttackSeconds`. Projectile speed adds the
+  player's `projectile_speed_+%` to the skill's `base_projectile_speed_+%`; the final speed is rounded to an integer
+  before the flight duration.
 - **Still wrong.** Without a surface-height model the projectile uses the captured terrain height; on a platform or
   doodad (which the terrain grid does not include) it spawns below the player (issue #182). The direction floats of
   Positioned's f1 0x04 block are not used; sending (dx, dy, 0, 0) put the fireball under the ground, so the Gateway no
@@ -2439,7 +2517,7 @@ Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, Augury 
 blind), `[1, 2]` on the ally ones; that reading comes from comparing the rows, not from the client code.
 Only templates whose stats have a consumer are applied, through three views:
 
-- **Enemy auras** (`EnemyAurasFor`, `Program.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
+- **Enemy auras** (`EnemyAurasFor`, `Game.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
   `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
   BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50), `SaboteurBlind` (below) and
   Overwhelm (`SlayerCritMultiplier`, 1343: -30 to a monster's crits on the player, `EnemyAuraStatLocked`).
@@ -2555,6 +2633,9 @@ The Spirit chieftains are the first (section 10f).
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
+Local rule: an activated golem returns two game seconds after its death while its source is usable.
+Animated equipment admission respects melee/ranged variants, identification, item level and the six-socket weapon
+exclusion. Skitterbots apply scaled chill and shock and trigger placed traps and mines, rearming a mine once.
 Gem skill-id assignments live in the host too: a module-local allocator reset renumbered unchanged gems after reload,
 making the golem controller retire their still-equipped sources.
 
@@ -2821,6 +2902,19 @@ failed I/O, allocation limits, actual official values and every skill's successf
   cache. Existing-instance partial updates copy decoded `+70/+60/+64` into those fields; omitted bit2 count
   supplies 1, not preservation. See [the exact repeat state/input contract](../re/projectiles/repeat-source-state.md).
   This identifies a supported input route, not official server values or timing for those definitions.
+- **Rampage from items** (`Rampage.cs`, `RampageSession.cs`): `player_gain_rampage_stacks` starts a streak whose
+  kills feed "1% increased Rarity of Items found per X Rampage Kills" (whole groups of X); the melee-hit source grants
+  stacks on hits. The "on Rampage threshold" modifiers trigger once per tier crossed (life recovery, dispelling
+  ailments, physical damage immunity, phasing); per-stack area (per 25 kills) and Chain Hook / Shield Charge attack
+  speed (per 10) count, and a kill grants the extra Vaal Soul during a streak. Not modelled: the threshold smoke cloud,
+  Unholy Might, the frenzy charge every 50 kills, starting at maximum endurance charges and losing them at the end, map
+  and leaguestone Rampage modifiers, and Soulthirst's loss of eaten souls on flask use.
+- **Flesh and Stone and Blood and Sand** share one persisted stance (`AuraCatalog.FleshAndStone*`): recasting switches
+  both without releasing reservation, and `/auras off <name|effectId|all>` turns them off. Blood and Sand changes melee
+  area damage and area; Flesh and Stone uses the gem's distance-dependent more physical hit damage and less incoming hit
+  damage.
+- **Hexes and marks** (`MonsterCurses`) have their limits and combat effects; curse reflection and special payloads
+  are partial.
 - **Soul Eater** (`SoulEater.cs`): `gain_soul_eater_during_flask_effect` with any flask effect (a utility flask's
   running effect, Mageblood's permanent one, or a life/mana flask still recovering) puts `soul_eater_aura` (277,
   invisible; BuffVisuals 288's `soul_eater/epk.epk` attaches `souleater.ao`) and `soul_eater_player` (279, the icon and
@@ -2893,6 +2987,7 @@ failed I/O, allocation limits, actual official values and every skill's successf
   visuals through 0x1c1's BuffVisuals override and the ring's AO (`SkillArt`), also on the enemies' aura; NoRing
   draws no ring. A pick while the fire burns lights it again with the new art (casting again while it burns does
   nothing, so before 2026-10-23 a pick showed only after the fire ended).
+- **Righteous Fire's orbs** (MiscAnimated `RighteousFireOrb`) belong on bones and are not sent.
 - **The big burning circle** is not a buff visual: it is MiscAnimated `RighteousFireRing`
   (`Metadata/Effects/Spells/ri_fire/rifire.ao`), an effect object of its own. The client's effect script
   (`0x14208e210`) makes MiscAnimated effects as `Metadata/Effects/Effect`, `ServerEffect`, `PermanentServerEffect` …
@@ -3010,6 +3105,8 @@ failed I/O, allocation limits, actual official values and every skill's successf
   65% to the blocked share. Projectile block and other on-block triggers are not modelled. Lucky block
   (`base_block_luck`, `attack_block_luck`, `spell_block_luck`) uses `1 - (1 - p)²` (PoB CalcDefence); Svalinn's unique
   item modifiers themselves are not supported yet.
+  A shield's local `local_additional_block_chance_%` adds to its `ShieldTypes.Block` base, and `local_no_block_chance`
+  (Kongming's) removes it.
 
 ### The player's debuffs on monsters: passive enemy auras and taunt
 
@@ -3287,12 +3384,8 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
 
 ## 14. Character panel sums
 
-The [issue #75 ledger](../dev/issue75-stat-ledger.md) records all 357 virtual dependencies individually, with
-partial/pending review states and links to evidence or remaining work. The 387 rows also use 134 nonvirtual
-dependencies. `scripts/dev/audit-character-panel.py` checks the ledger's exact membership against the local
-tables. Decision: keep authored review state separate from source matches and historical native certificates;
-automatically treating those as completion would hide unresolved sources, consumers and lifecycle behavior.
-The ledger's counts are audit states, not numbers of completed implementations.
+The panel's 387 rows depend on 357 virtual stats and 134 nonvirtual ones. A matching source name or a historical
+native run does not make a virtual stat complete; each needs its sources, consumers and lifecycle traced.
 
 Whaletooth Bangle's owner duration is projected by `SkillDurationModifiers` in `CharacterPlayerStats`:
 `skill_effect_duration_+%` gains the signed per-ten-Strength value (key 2817) for each complete group of ten final Strength.
@@ -3353,7 +3446,7 @@ estimate; `chance_to_evade_%` is 100 − the reference monster's hit chance (`Da
 
 The Offence tab's remaining rows: a dual-wielded attack (the default attack and attack gems) sets `skill_uses_off_hand`
 and publishes the off hand's own `off_hand_accuracy_rating`, chance to hit (plain and evasive), `off_hand_attack_speed_+%`,
-critical strike chance and multiplier and the twelve `off_hand_*_damage` ranges (`Program.OffHandPanel.cs`: the shared
+critical strike chance and multiplier and the twelve `off_hand_*_damage` ranges (`Modules/Core/Game/Player/OffHandPanel.cs`: the shared
 character buckets with the off-hand item's local accuracy, critical chance and attack speed in the main hand's place,
 and the gem's own flat/increased accuracy and critical increases; a gem's off-hand hit is the same supported hit swung
 with that weapon). While dual wielding, Damage per Use, Damage per Second and Attacks per Second average the two
@@ -3363,7 +3456,7 @@ policy and the Assassin's `spell_critical_strikes_bifurcate` (`CriticalStrikePol
 and c² for both rolls). A spell flagged `display_skill_deals_secondary_damage` (Vaal Detonate Dead) also fills the
 `secondary_*` damage and critical rows; a flagged skill without spell base damage (Bear Trap, Herald of Ice) fills them
 from its own `secondary_*_base_*_damage` with the generic, area and projectile buckets only, the skill's base critical
-chance with generic increases and the critical-weighted Damage per Use (`Program.SecondaryPanel.cs`,
+chance with generic increases and the critical-weighted Damage per Use (`Modules/Core/Game/Player/SecondaryPanel.cs`,
 `SkillCatalog.SecondaryHitDamage`). `skill_show_average_damage_instead_of_dps` follows the skill's `base_` flag
 (movement skills). The Bleeding / Ignite / Poison damage per second rows per hand, spell and secondary context are
 `AilmentPanelStats` ([20-damage.md §3](20-damage.md#3-damage-over-time-and-ailments)).
@@ -3502,8 +3595,8 @@ combined results are below and new native checks remain pending.
 The added-base critical, native-default/mirror and selected-alias changes pass 93 new cases (52/19/22 respectively),
 plus 95 existing focused controls, for 188/188 with no skips. Fresh full suites pass Gateway 3803, Core 648 and Data 37:
 4488 freshly rerun cases, all passing without skips. The current diagnostic hook recorded six actual unobserved
-disposed-NetworkStream task faults, all `MonsterKilled` at `Program.Combat.cs:1260` through
-`Program.Send` / `Program.Connection.cs:326`; 385 first-chance records are separate from that fault count.
+disposed-NetworkStream task faults, all `MonsterKilled` at `Modules/Core/Game/Combat/Combat.cs` through
+`Program.Send` (`Program.Connection.cs`); 385 first-chance records are separate from that fault count.
 No diagnostic errors, text truncation or cap hit occurred, and no captured fault names a new operator path.
 Passing suites therefore do not establish fault-free background execution.
 Native validation of the defaults/mirrors and selected aliases remains outstanding; the bounded critical slice is in §5.
@@ -3697,7 +3790,7 @@ on the Defence tab as Stun Recovery 30%, the four Avoidance rows at 20% and "Can
 
 Issue #237, part of #75's Charges tab. Code: `Charges.cs` (state and limits), `ChargeGains.cs` (what grants them),
 `ChargeEffects.cs` (what they do), `ChargeSession.cs` (one connection's charges at work), `ChargeBuffs.cs` (the HUD
-buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the maxima).
+buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the maxima).
 
 - **Rules.** A charge lasts 10 seconds (poewiki's Charge page; Path of Building's CalcSetup `ChargeDuration` BASE 10;
   no game table holds it), × (1 + `charge_duration_+%` + `base_charge_duration_+%` + the type's own increase
@@ -3744,7 +3837,7 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   `Current_StatsKey` is `current_*_charges` itself) and swaps the buff when the flag changes. Live 2026-10-29 with the
   flags set by `/set_stat` (rows, buff swap and the swap back). Not modelled: the non-damaging ailment effect per
   Affliction Charge and the Absorption recoup (no consumer); no conversion unique is defined yet (#60).
-- **Blood Charges** (Reap; 2026-10-29; `BloodCharges.cs`, `Program.BloodCharges.cs`). ActiveSkills `reap`: a use whose
+- **Blood Charges** (Reap; 2026-10-29; `BloodCharges.cs`, `Modules/Core/Game/Combat/Resources/BloodCharges.cs`). ActiveSkills `reap`: a use whose
   hit leaves any enemy alive gives one charge, and the skill's `lose_blood_scythe_charge_on_kill` takes one per enemy
   its hit kills (`BloodCharges.Settle`, run by `AreaSkillHit` after the sweep's kills); the maximum is Character.ot's
   `maximum_blood_scythe_charges` 5 (PoB Misc.lua) plus the raw stat (the Reap enchantment). Each charge held is the
@@ -3756,9 +3849,8 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   Charges rows are gated by it); HUD: BuffDefinitions 1822 `blood_scythe_charge` with the count as stacks, re-sent on
   every change with `SendChargeStats`. Death takes them (`CancelOnDeath`). No game table or PoB gives them a duration,
   so they stay until a kill or death; an area change does not carry them; Vaal Reap's temporary maximum, Reap's
-  physical damage over time debuff and its life cost are not modelled. `BloodChargesTests` and
-  `BloodChargesGatewayTests` (a surviving target gives a charge, the next hit is floor(× 1.15), the cost × 1.4 at two
-  charges, a kill takes one); live 2026-10-29 with a socketed Reap (rows, gain, loss, buff).
+  physical damage over time debuff and its life cost are not modelled. Live 2026-10-29 with a socketed Reap (rows,
+  gain, loss, buff).
 - **Death and area changes.** Death takes every gained charge at once (`PlayerDied`; BuffDefinitions `CancelOnDeath`
   on the three rows), so a pause or Resurrect in Town cannot keep them; the minimum stays. An area change (`Transfer`)
   hands the charges to the destination ticket with the time they had left;
@@ -3843,6 +3935,11 @@ buffs), `Program.Charges.cs` (the Gateway glue) and `ChargePanelStats.cs` (the m
   server does not calculate (ailments, leech, damage taken, damage over time increases, wand-only or attack-only damage,
   mana cost, buff duration, Frenzy's and Flicker Strike's own per-charge attack speed and damage).
 
+**Discharge** and Discharge of Misery (`Discharge.cs`, `SkillHitPlan.cs`): per removable charge, Power adds
+lightning, Endurance fire and Frenzy cold base damage, plus the gem's more area per charge. A use spends the charges
+above the minimum once, shared by its Spell Echo repeat and kept by the quality chance; no removable charges deals
+nothing. The skins are drawn by the client (`skill_art_variation`).
+
 ## 16. Rage
 
 Generic Rage generation, loss, attack damage, transient ownership and native count/buff packets are implemented.
@@ -3852,6 +3949,38 @@ The gated snapshot reuses a list only while those inputs and the Rage value stil
 current state instead of publishing old skill stats alongside a new character snapshot.
 See [26-rage.md](26-rage.md) for inputs, primary evidence, versioned policies and the scoped native controls.
 Automated parsed-dispatch coverage does not constitute native verification.
+
+## 17. Live reference: ranged attacks on GGG's servers
+
+Two captures of the retail 3.29.3b client on GGG's servers, made with an outside packet sniffer; the capture files hold
+account data and are not committed.
+On 2026-10-29: a level 1 Ranger with a bow, character creation, the Twilight Strand and Lioneye's Watch, about two
+minutes, 30 default attacks and 15 uses of the starting gem.
+On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times by Sand Spitters.
+
+- **No arrow objects.** Over all 45 shots the server sent no `0x2bb` arrow and no `0x2bd` removal. A shot was the
+  `0x1ab` echo, `0x1ac` and a `0x2bc` on the player at once, then `0x1af`, `0x1b3` and `0x1b1` on the target when it
+  landed: the client draws its own arrows. The skill ids were `0x4000` for the default attack and `0x8002` for the gem.
+- **`0x1af` on the player's arrow hits (43 hits):** the object header is the attacker's id, then a u32 that differs on
+  every hit and u16 `0x0001`; the skill index byte is 2; the flags carry `0x0200` (main hand) on every hit, with
+  `0x4201`/`0x4601` and `0x0001` (blood) for the default attack and `0x4204`/`0x4604` with `0x0004` for the gem;
+  `0x0400` with a 300 ms stun on 22 hits, `0x0020` on 6 crits, `0x8000` once (meaning unknown). The damage code is 0
+  or 8 (Physical, variation 0 or 1) for the default attack and 2, 10 or 18 (Fire, variations 0–2) for the gem; the
+  kind is 3.
+- **Hit timing.** The hit arrives 258 ms + 3.25 ms per cell of shooter-to-target distance after the echo, so the arrow
+  flies about 308 cells/s (30 hits, 8–72 cells); delays fall on about 33 ms steps. The gem's hits fit 267 ms + 3.90 ms
+  per cell.
+- **Undecoded:** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
+  and a list of compact-int points, and may be the shot's path.
+- **Sand Spitters.** 0x20 registered `Metadata/Monsters/SandSpitters/SandSpitter12@1` (row 490); all 11 hits came from
+  three of them (type `0xe63d7611`). No `0x2bb` was created around the spits, so the client draws the mortar too.
+  Each spit is `0x1ab` flags `0x80` with the player as the target object and a real action sequence (`0x80bc`,
+  `0x80bd`, …; the Spitter's skills there were `0x4000`–`0x4002`). Each hit is `0x1af` kind 3, flags `0x4201`
+  (`0x4221` on the one crit), code 0, skill index 2, with the sequence of the spit that caused it.
+  10 hits took exactly 4 life each and the crit took 5; the level 1 Spitter's table damage (`DefaultMonsterStats`
+  level 1 `Damage` 4.99 × `DamageMultiplier` 120 = 5.99, ±20% `DamageSpread`) cannot give a constant 4, so the server
+  computes or rolls this hit differently; how is open.
+  A Spitter's spits were at least about 990 ms apart (its `AttackSpeed` 990), often 1–2.5 s.
 
 ## Open
 
@@ -3872,13 +4001,13 @@ ActiveAuras records per-character enabled intent by GrantedEffects Id. LoadProgr
 
 Campaign towns (WorldAreas.IsTown via WaypointCatalog) instantiate no aura runtime entries: no reservation, bonuses, source/recipient buffs, icons or floor effects. Saved intent stays untouched and restores automatically in hideouts, maps and campaign combat areas. Ground skill requests allow only Move in towns; gem/default attacks on objects and the shared gem cast entry point are refused there. NPC, stash and waypoint interactions remain available.
 
-Skill removal suspends runtime effects without deleting enabled intent. A skill-list refresh resumes remembered effects when their gems become available again. Manual toggles update intent normally. Actual death paths clear saved intent and runtime auras before the death screen; the player tick also handles death cleanup. Resurrection resets the per-death cleanup guard but does not reactivate cleared auras. Switching characters never changes another character's intent. AuraSaveTests cover independent characters, town round trips, all enabled effects despite transient reservation limits, fresh runtime ids and death reset. Live lifecycle verification pending.
+Skill removal suspends runtime effects without deleting enabled intent. A skill-list refresh resumes remembered effects when their gems become available again. Manual toggles update intent normally. Actual death paths clear saved intent and runtime auras before the death screen; the player tick also handles death cleanup. Resurrection resets the per-death cleanup guard but does not reactivate cleared auras. Switching characters never changes another character's intent. Live lifecycle verification pending.
 
 #### Aura restoration bootstrap correction
 
 A real town/hideout round trip restored only Vitality despite saved Precision and Clarity. The log marked the body armour inactive because Precision needed 22 dexterity while initial pools still contained the class base 14. CharacterStatSources was checking socketed gems against stale/uninitialized pools while constructing those very pools, then disabling the entire item's global modifiers and all its gems.
 
-Item activation now uses only the equipment's own requirements. Gem requirements remain enforced individually at socketing/casting against completed pools; an unavailable gem no longer suppresses its host armour, unrelated gems or their attributes. This removes the circular initialization gate on aura candidates. AuraEquipmentRestoreTests reproduces the fresh-connection equipment case and restores all 17 supported self auras, including 34 distinct source/recipient buff packets after town suppression. Restoration has no aura-count limit.
+Item activation now uses only the equipment's own requirements. Gem requirements remain enforced individually at socketing/casting against completed pools; an unavailable gem no longer suppresses its host armour, unrelated gems or their attributes. This removes the circular initialization gate on aura candidates. Restoration has no aura-count limit.
 
 ### Grace Period on combat-area entry
 

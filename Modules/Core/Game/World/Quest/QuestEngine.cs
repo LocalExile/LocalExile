@@ -60,7 +60,8 @@ public static partial class Game
     // left behind before the glyphs were placed).
     public static async Task RemoveDoneQuestItemsFromGround(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
-        var done = conn.Instance.Ground.All().Where(e => QuestFlagsOf(conn, e.Item.Item) is { } q && QuestItems.Removed(q, f => ClientHasQuestFlag(conn, f)))
+        var done = conn.Instance.Ground.All().Where(e => QuestFlagsOf(conn, e.Item.Item) is { } q
+            && QuestItems.Removed(q, f => ClientHasQuestFlag(conn, f)) && QuestDropVisibleTo(conn, e.Id))
             .Select(e => e.Id).ToList();
         foreach (uint id in done)
             if (conn.Instance.Ground.Take(id) is not null)
@@ -86,7 +87,7 @@ public static partial class Game
         bool carried = QuestItems.Carried(ItemsOf(conn)).Any(c => c.Item.Item.TypeHash == type.Hash);
         // This character's copy only: in a shared instance another player's quest item is theirs (SharedKills.cs).
         bool onGround = conn.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
-            && conn.Instance.Ground.Origin(e.Id) is var (by, shared) && (shared || by is ClientState c && CharacterName(c) == CharacterName(conn)));
+            && QuestDropVisibleTo(conn, e.Id));
         if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(conn, f), carried, onGround))
         {
             Console.WriteLine($"[gateway] {remote} {source}: no {type.Name}, the character has one or does not need it");
@@ -97,6 +98,12 @@ public static partial class Game
         uint id = conn.Instance.Ground.Add(ground, conn, shared: false);
         return [new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
             $"0x02bb quest item {type.Name} 0x{id:x} from {source} at ({x}, {y})", WorldId: id, CreatesObject: true), new(InstanceProtocol.EnterWakeZone(id), null, WorldId: id)];
+    }
+
+    internal static bool QuestDropVisibleTo(ClientState conn, uint id)
+    {
+        var (by, shared) = conn.Instance.Ground.Origin(id);
+        return shared || ReferenceEquals(by, conn) || by is ClientState { Character: { } name } && name == conn.Character;
     }
 
     // A party kill's quest items for another player in the instance (SharedKills.cs): their own copy, on their own client.
@@ -539,7 +546,7 @@ public static partial class Game
         List<(uint Id, Quests.ChestRule Rule, GlyphQuest.Placement At)> chests;
         lock (conn.QuestChests) chests = [.. conn.QuestChests.Where(c => c.Value.Rule.OpensWith is { } f && effective.Contains(f)).Select(c => (c.Key, c.Value.Rule, c.Value.At))];
         foreach (var (id, rule, at) in chests)
-            if (QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.TransitionableIndex(info.Components) is int index and >= 0 && !conn.Instance.ChestOpened(at.X, at.Y))
+            if (QuestObjectTypes.Find(rule.ChestType) is { } info && QuestObject.TransitionableIndex(info.Components) is int index and >= 0 && !conn.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(conn, rule)))
                 await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, (byte)index, QuestChestState(conn, rule, info, false)),
                     $"0x02bc quest chest 0x{id:x} {rule.ChestType.Split('/')[^1]} Transitionable → {QuestChestState(conn, rule, info, false)}");
     }
@@ -562,11 +569,10 @@ public static partial class Game
     public static readonly Lazy<Dictionary<string, string>> ChestModels = new(() =>
     {
         var models = new Dictionary<string, string>(StringComparer.Ordinal);
-        string path = Path.Combine("data", "tables", "Chests.json");
-        if (!ClientTables.Exists(path)) return models;
-        using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var r in doc.RootElement.EnumerateArray())
-            if (r.GetProperty("Id").GetString() is { Length: > 0 } id && r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString() is { Length: > 0 } model)
+        if (!ClientTables.Has("Chests")) return models;
+        var doc = ClientTables.Table("Chests");
+        foreach (var r in doc)
+            if (r.Text("Id") is { Length: > 0 } id && r.Texts("AOFiles").FirstOrDefault() is { Length: > 0 } model)
                 models.TryAdd(id, model);
         return models;
     });
@@ -576,10 +582,27 @@ public static partial class Game
     // A quest chest's Positioned size (Chest.ot object_size 2, blocking).
     public const int QuestChestSize = 1;
 
+    static string? QuestChestOwner(ClientState conn, Quests.ChestRule rule) => rule.Guards is null ? null : CharacterName(conn);
+
+    static bool PersonalChestComplete(ClientState conn, Quests.ChestRule rule) => rule.Guards is not null &&
+        QuestMarkerCollected(conn, rule.Item, QuestItems.Carried(ItemsOf(conn)).Select(i => i.Item.Item.TypeHash).ToHashSet());
+
+    public static bool QuestChestReady(ClientState conn, Quests.ChestRule rule)
+    {
+        if (rule.OpensWith is not { } flag || !ClientHasQuestFlag(conn, flag)) return false;
+        if (rule.Guards is null) return true;
+        lock (conn.Monsters)
+            return !conn.Monsters.Values.Any(m => m.Hostile && !m.Dead && m.Life > 0 && m.Variety is { } v && rule.Guards.Contains(v.Id));
+    }
+
+    // Only pending encounter chests need a transition when another player finishes the fight.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState,
+        System.Collections.Concurrent.ConcurrentDictionary<uint, Quests.ChestRule>> PendingEncounterChests = new();
+
     // Ordinary chests start untransitioned: FireflyChestBase disables targeting in create_transitioned.
     // Only a gated chest uses state 2 to signal that its prerequisite has unlocked it.
     public static byte QuestChestState(ClientState conn, Quests.ChestRule rule, QuestObjectTypes.Info info, bool opened) =>
-        (byte)(opened ? info.States : rule.OpensWith is { } flag && ClientHasQuestFlag(conn, flag) ? Math.Min(2, info.States) : 1);
+        (byte)(opened ? info.States : QuestChestReady(conn, rule) ? Math.Min(2, info.States) : 1);
 
     // A quest chest's 0x2bb blob: its type's components (QuestObjectTypes; a Chests.dat row without an .ot as its
     // InheritsFrom), else the Rhoa Nest's.
@@ -618,7 +641,7 @@ public static partial class Game
             conn.SetBlocker(next, at.X, at.Y, QuestChestSize);
             await SendWorldRemoval(remote, stream, ciphers, conn, id, null);
             await SendWorldCreate(remote, stream, ciphers, conn, next, InstanceEntities.CreateObject(next, InstanceEntities.ObjectTypeHash(rule.ChestType),
-                QuestChestBlob(conn, rule, at, conn.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
+                QuestChestBlob(conn, rule, at, rule.Guards is not null || conn.Instance.ChestOpened(at.X, at.Y), hideMinimapIcon: true)),
                 $"0x02bb quest chest 0x{next:x}: hide collected item marker ({rule.Item})");
             await SendWorldRecord(remote, stream, ciphers, conn, next, InstanceProtocol.EnterWakeZone(next), null);
             hidden.Add(next);
@@ -641,13 +664,16 @@ public static partial class Game
 
     public static async Task CreateQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, Quests.ChestRule rule, GlyphQuest.Placement at)
     {
-        bool opened = conn.Instance.ChestOpened(at.X, at.Y);
+        bool collected = PersonalChestComplete(conn, rule);
+        bool opened = collected || conn.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(conn, rule));
         uint id = conn.NextObjectId++;
         lock (conn.QuestChests) conn.QuestChests[id] = (rule, at);
         conn.SetBlocker(id, at.X, at.Y, QuestChestSize);
-        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, opened)),
+        bool pending = !opened && rule.Guards is not null && !QuestChestReady(conn, rule);
+        await SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ChestType), QuestChestBlob(conn, rule, at, opened, hideMinimapIcon: collected)),
             $"0x02bb quest chest 0x{id:x} {rule.ChestType} at ({at.X}, {at.Y}), opened={opened}" + (rule.OpensWith is { } f ? $", opens with {f}" : ""));
         await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null);
+        if (pending) PendingEncounterChests.GetOrCreateValue(conn)[id] = rule;
     }
 
     // C→S 0x24 on a quest chest: walk up, open it (once per instance; the opened chest replaces it under a new id, as
@@ -655,8 +681,8 @@ public static partial class Game
     public static async Task OpenQuestChest(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceTransfer.UseSkillOnObject use,
         Quests.ChestRule rule, GlyphQuest.Placement at, double requestedAt)
     {
-        if (conn.Instance.ChestOpened(at.X, at.Y)) return;
-        if (rule.OpensWith is { } needs && !ClientHasQuestFlag(conn, needs))
+        if (conn.Instance.ChestOpened(at.X, at.Y, QuestChestOwner(conn, rule)) || PersonalChestComplete(conn, rule)) return;
+        if (rule.OpensWith is { } needs && !QuestChestReady(conn, rule))
         {
             Console.WriteLine($"[gateway] {remote} {rule.ChestType}: cannot be opened before {needs}");
             return;
@@ -669,7 +695,7 @@ public static partial class Game
                 still: () => PlayerActionCurrent(conn, action));
         if (arrive > now) await Task.Delay(TimeSpan.FromSeconds(arrive - now));
         if (!PlayerActionCurrent(conn, action)) return;
-        if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), QuestChestSize, conn.Layout.Walkable) || !conn.Instance.OpenChest(at.X, at.Y))
+        if (!GameServer.Core.World.PlayerWalk.InReach(stop, (at.X, at.Y), QuestChestSize, conn.Layout.Walkable) || !conn.Instance.OpenChest(at.X, at.Y, QuestChestOwner(conn, rule)))
         {
             Console.WriteLine($"[gateway] {remote} {rule.ChestType}: out of reach from ({stop.X}, {stop.Y})");
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionEnded(PlayerId), null);
@@ -718,6 +744,16 @@ public static partial class Game
     // Every player tick: the sight rules for room objects and exits (Quests.NearRule, NearExitRule).
     public static async Task CheckQuestSights(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (int X, int Y) at)
     {
+        if (PendingEncounterChests.TryGetValue(conn, out var pending) && !pending.IsEmpty)
+            foreach (var (id, chest) in pending)
+            {
+                lock (conn.QuestChests)
+                    if (!conn.QuestChests.ContainsKey(id)) { pending.TryRemove(id, out _); continue; }
+                if (QuestChestReady(conn, chest) && pending.TryRemove(id, out _) &&
+                    QuestObjectTypes.Find(chest.ChestType) is { } info && QuestObject.TransitionableIndex(info.Components) is int slot and >= 0)
+                    await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.TransitionableUpdate(id, (byte)slot, 2),
+                        $"quest chest 0x{id:x} {chest.ChestType} unlocked");
+            }
         foreach (var (rule, x, y) in conn.QuestNear)
         {
             if (Dist(at, (x, y)) > Quests.SightRange || rule.Flags.All(conn.HasQuestFlag)) continue;
@@ -809,6 +845,8 @@ public static partial class Game
         {
             if (!m.ThresholdReached || m.Dead || !ReferenceEquals(conn.Monsters.GetValueOrDefault(id), m)) return;
             rule = m.Threshold;
+            if (rule is not null)
+                foreach (string state in rule.Flags.Where(Quests.IsInstanceFlag)) conn.Instance.SetState(state);
             m.Dead = true;
             m.Aggro = false;
             conn.Monsters.Remove(id);
@@ -816,6 +854,7 @@ public static partial class Game
         if (rule is null) return;
         Console.WriteLine($"[gateway] {remote} {m.Label} 0x{id:x} reached {rule.LifePct}% life: {string.Join(", ", rule.Flags)}; it leaves the fight");
         await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
-        await SetQuestFlags(remote, stream, ciphers, conn, rule.Flags);
+        var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
+        if (own.Length > 0) await SetQuestFlags(remote, stream, ciphers, conn, own);
     }
 }

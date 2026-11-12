@@ -1,6 +1,6 @@
 # Cluster jewel passives: full list
 
-Generated from the target client's `Mods.json` / `PassiveSkills.json` and Path of Building's `ModJewelCluster.lua` and `stat_descriptions.lua`. `works` means the server reads every stat and evaluates it unconditionally; `partial` means a condition is not modelled or some stats have no consumer; `inert` means the row exists but no stat is read; `not mapped` means the notable has no `PassiveSkills` row. Conditional stat names are flagged conservatively, so a `partial` row may still work when its condition happens to be irrelevant.
+Generated from the target client's `Mods` / `PassiveSkills` and Path of Building's `ModJewelCluster.lua` and `stat_descriptions.lua`. `works` means the server reads every stat and evaluates it unconditionally; `partial` means a condition is not modelled or some stats have no consumer; `inert` means the row exists but no stat is read; `not mapped` means the notable has no `PassiveSkills` row. Conditional stat names are flagged conservatively, so a `partial` row may still work when its condition happens to be irrelevant.
 
 ## Small-passive themes (42 distinct grants, 211 mods)
 

@@ -21,7 +21,8 @@ const string Usage = """
     LocalExile.exe migrate-saves            move an older release's data\saves.db into the new databases
 
       --client <folder>       the Path of Exile 3.29.3c install to use
-      --client-mode <mode>    copy (a separate copy, the default) or link (use the folder itself; its data is changed)
+      --client-mode <mode>    copy (a separate copy, the default), or for developers link: Client becomes a link to
+                              the folder, which LocalExile then changes and whose game updates can break LocalExile
       --no-client             start only the servers
       --port-base <n>         with --no-client: five ports in a row from n instead of the defaults
       --account <name>        the account to create when there is none

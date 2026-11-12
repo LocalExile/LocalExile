@@ -2,13 +2,15 @@ using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol;
 using GameServer.Core.Protocol.Login;
 using GameServer.Storage;
 using GameServer.Core;
 
 // GameServer.Auth — the login server the official client talks to (custom TCP, see Agents/docs/re/007 and 008).
 //   keygen <Game.exe> [keys.json]          new signing + static keys over the client's own DSA domain
-//   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys
+//   patch  <Game.exe> <out.exe> [keys.json] write a copy of the client that trusts those keys; in a Steam install's
+//                                          folder the copy also reads the loose game files (LooseFilesPatch)
 //   passwd <account> <password>            set a dev account's password (any length; restart Auth afterwards)
 //   accounts                               print how many accounts there are
 //   register <account>                     create an account; its password is the first line of standard input
@@ -55,8 +57,8 @@ switch (cmd)
     case "keygen" when args.Length >= 2:
     {
         string outPath = args.Length > 2 ? args[2] : DefaultKeys;
-        if (ClientTables.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
-        var keys = LoginServerKeys.Generate(new ClientImage(ClientTables.ReadAllBytes(args[1])));
+        if (File.Exists(outPath)) { Console.Error.WriteLine($"[auth] {outPath} exists; delete it to regenerate."); return 1; }
+        var keys = LoginServerKeys.Generate(new ClientImage(File.ReadAllBytes(args[1])));
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, keys.ToJson());
         Console.WriteLine($"[auth] wrote {outPath}");
@@ -66,16 +68,22 @@ switch (cmd)
     {
         if (Path.GetFullPath(args[1]).Equals(Path.GetFullPath(args[2]), StringComparison.OrdinalIgnoreCase))
         { Console.Error.WriteLine("[auth] refusing to overwrite the input; give a different output path."); return 1; }
-        var keys = LoginServerKeys.FromJson(ClientTables.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
-        var image = new ClientImage(ClientTables.ReadAllBytes(args[1]));
+        var keys = LoginServerKeys.FromJson(File.ReadAllText(args.Length > 3 ? args[3] : DefaultKeys));
+        var image = new ClientImage(File.ReadAllBytes(args[1]));
         Console.WriteLine($"[auth] login key blobs at file offset 0x{image.Offset:x}");
         image.Patch(keys);
+        string folder = Path.GetDirectoryName(Path.GetFullPath(args[2]))!;
+        if (GameServer.Data.Ggpk.ClientFiles.Resolve(folder)?.Layout == GameServer.Data.Ggpk.ClientLayout.Steam)
+        {
+            LooseFilesPatch.Apply(image.Bytes);
+            Console.WriteLine("[auth] Steam install: the copy reads the loose game files instead of Content.ggpk");
+        }
         File.WriteAllBytes(args[2], image.Bytes);
         Console.WriteLine($"[auth] wrote {args[2]}");
         return 0;
     }
     case "serve":
-        await Serve(LoginServerKeys.FromJson(ClientTables.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
+        await Serve(LoginServerKeys.FromJson(File.ReadAllText(args.Length > 1 ? args[1] : DefaultKeys)));
         return 0;
     default:
         Console.Error.WriteLine("usage: GameServer.Auth keygen <Game.exe> [keys.json] | patch <Game.exe> <out.exe> [keys.json] | serve [keys.json]");
@@ -113,17 +121,19 @@ static async Task Serve(LoginServerKeys keys)
     // WorldAreas comes from data/client.db (ClientTables): built and updated from sql/ first. The Gateway may be building
     // it at the same time; the updater applies each file once.
     SqlUpdater.Update(ClientTables.DefaultPath, "client");
-    // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without data/tables.
-    // A new instance of an area the Gateway generates itself (ServerLevelAreas) gets a random seed; every other area
-    // keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it cannot build seed 1
-    // (ServerLevelAreas.SeedsInPlaceOfOne). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
+    // Every town of the game data (one shared instance each, seed 1); only Lioneye's Watch without the WorldAreas table.
+    // A new instance of an area the Gateway generates itself (world.db's server_level_areas, generated = 1) gets a random
+    // seed; every other area keeps seed 1, the seed its captures were dumped at, or the seed the client can build when it
+    // cannot build seed 1 (server_level_areas.seed_in_place_of_one). Game_RANDOM_SEEDS=0 (or Game_SERVER_LEVELS=0, which turns the Gateway's
     // generation off) pins them all that way. Hideouts have a fixed layout: always 1 (GameServer.Core.World.AreaSeeds).
-    string worldAreas = Path.Combine("data", "tables", "WorldAreas.json");
-    string baseline = GameServer.Core.World.ServerLevelAreas.BaselineFile;
+    var worldAreas = ClientTables.TableOrNull("WorldAreas");
+    // world.db is the Gateway's too: the updater applies each file once, whichever server opens it first.
+    IReadOnlyList<GameDataStore.ServerLevelAreaRow> levelAreas;
+    using (var world = new GameDataStore(GameDataStore.DefaultPath)) levelAreas = world.LoadServerLevelAreas();
     // Game_SEED=<n> (dev) gives every new non-hideout instance that seed instead, for generation traces of one seed.
     uint? fixedSeed = uint.TryParse(Environment.GetEnvironmentVariable("Game_SEED"), out var s) ? s : null;
-    // The WorldAreas loads run on a thread of their own: the parse buffers ArrayPool keeps for a thread go with it (they
-    // were ~20 MB of the idle Auth's 33), then one collection gives their memory back (performance.md).
+    // The WorldAreas loads run on a thread of their own: the buffers ArrayPool keeps for a thread go with it, then one
+    // collection gives their memory back (performance.md).
     var (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne) = Isolated(() =>
     {
         var towns = GameServer.Core.World.WorldAreaTowns.Load(worldAreas);
@@ -132,9 +142,9 @@ static async Task Serve(LoginServerKeys keys)
         var randomAreas = Environment.GetEnvironmentVariable("Game_RANDOM_SEEDS") == "0" || Environment.GetEnvironmentVariable("Game_SERVER_LEVELS") == "0"
             ? new HashSet<ushort>()
             : GameServer.Core.World.ServerLevelAreas.Hashes(worldAreas,
-                GameServer.Core.World.ServerLevelAreas.Load(baseline, m => Console.WriteLine($"[auth] {m}")));
+                levelAreas.Where(r => r.Generated).Select(r => r.AreaId).ToHashSet(StringComparer.Ordinal));
         var inPlaceOfOne = GameServer.Core.World.ServerLevelAreas.ByHash(worldAreas,
-            GameServer.Core.World.ServerLevelAreas.SeedsInPlaceOfOne(baseline, m => Console.WriteLine($"[auth] {m}")));
+            levelAreas.Where(r => r.SeedInPlaceOfOne is not null).ToDictionary(r => r.AreaId, r => r.SeedInPlaceOfOne!.Value, StringComparer.Ordinal));
         return (towns, hideouts, hideoutAreas, randomAreas, inPlaceOfOne);
     });
     GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
@@ -278,16 +288,17 @@ static ILoginMessage Redact(ILoginMessage m) => m switch
     _ => m,
 };
 
-// A deleted character's save in the database went to deleted_characters with the deletion itself (SqliteAccountStore). A
+// A deleted character's save in the database is set aside with the deletion itself (character_saves.deleted_utc,
+// SqliteAccountStore). A
 // save from before the database (data/saves/<name>.json, the Gateway hasn't imported it yet) moves to data/saves/deleted/,
 // so a new character with that name starts with its class's kit and the old one can still be recovered by hand.
 static void SetSaveAside(string character)
 {
-    Console.WriteLine($"[auth] {character} deleted; its save, if it had one, is in deleted_characters ({SaveDatabase.DefaultPath})");
+    Console.WriteLine($"[auth] {character} deleted; its save, if it had one, is set aside in {SaveDatabase.DefaultPath} (character_saves.deleted_utc)");
     string folder = Path.Combine("data", "saves");
     string safe = string.Concat(character.Select(c => char.IsLetterOrDigit(c) || c is '_' or '-' ? c : '_'));
     string path = Path.Combine(folder, safe + ".json");
-    if (!ClientTables.Exists(path)) return;
+    if (!File.Exists(path)) return;
     string deleted = Path.Combine(folder, "deleted");
     Directory.CreateDirectory(deleted);
     string to = Path.Combine(deleted, $"{safe}-{DateTime.UtcNow:yyyyMMddHHmmss}.json");
