@@ -7,6 +7,9 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
 {
     bool consumed;
     public IReadOnlyList<(SingleUseCooldownState State, int Version, ushort Skill)> SharedUses { get; init; } = [];
+    // The cost paid when the use was accepted (mana, life), as the client pays it at the start of the use; null when the
+    // admission paid nothing and the cast pays when its effect starts.
+    public (uint Mana, uint Life)? Paid { get; init; }
     public bool Current(ClientState conn)
     {
         lock (conn.Monsters) return conn.ProjectileActive(ProjectileEpoch) && conn.PlayerLife > 0

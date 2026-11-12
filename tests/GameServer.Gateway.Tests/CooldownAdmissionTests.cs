@@ -31,6 +31,9 @@ public sealed class CooldownAdmissionTests
         Assert.Empty(c.SingleUseCooldowns);
         c.PlayerStats.Remove(Program.Stats.Key("keystone_blood_magic")!.Value); c.PlayerLife = 1000; c.PlayerMana = 1000;
         Assert.True(Start(ids[0], () => { }));
+        uint dashCost = ticket!.Paid!.Value.Mana;
+        Assert.True(dashCost > 0);
+        Assert.Equal(1000u - dashCost, c.PlayerMana);
         c.ClientSkillIds.UnionWith(ids);
         var current = Game.GemSkillEffects(c).Select(g => (g.Id, g.Effect)).ToArray();
         Assert.Null(Game.NativeCooldownRefresh(c, c.ProjectileEpoch, () => current));
@@ -38,11 +41,13 @@ public sealed class CooldownAdmissionTests
         Assert.NotNull(Game.NativeCooldownRefresh(c, c.ProjectileEpoch, () => current));
         Assert.False(Start(ids[1], () => throw new Exception("Another blink is still cooling down")));
         Assert.True(Start(ids[2], () => { }));
+        uint flameCost = ticket!.Paid!.Value.Mana;
+        Assert.True(flameCost > 0);
         Assert.True(Start(ids[2], () => { }));
         Assert.False(Start(ids[2], () => throw new Exception("Dash spent the first Flame Dash use")));
         Assert.Equal(3, c.SingleUseCooldowns[flame.Effect].SpentUses);
         Assert.Equal(1, c.SingleUseCooldowns[frost.Effect].SpentUses);
-        Assert.Equal(1000u, c.PlayerMana); // Admission only plans payment; the accepted cast pays exactly once.
+        Assert.Equal(1000u - dashCost - 2 * flameCost, c.PlayerMana);
         var expired = new SingleUseCooldownState(-100, 1);
         var expiredPlan = new SingleUseCooldown(1000, 0, 3, 9);
         for (int n = 0; n < 3; n++) Assert.True(expired.TryUse(-100, expiredPlan));
@@ -52,10 +57,48 @@ public sealed class CooldownAdmissionTests
         c.SingleUseCooldowns.Remove(frost.Effect); c.SkillReadyAt.Remove(frost.Effect);
         Assert.Equal(1, Game.CooldownStateLocked(c, frost.Effect, Game.CooldownForSkill(c, ids[1])!.Value, 0).SpentUses);
 
+        ushort link = f.Equip(PlayerInventories.Gloves, "Intuitive Link").Single();
+        c.PlayerMana = 0;
+        uint manaCostKey = Program.Stats.Key("mana_cost")!.Value;
+        c.PlayerStats[manaCostKey] = 20;
+        Assert.False(Game.CanPaySkillCost(c, link));
+        Assert.True(Start(link, () => { })); // Link costs are paid over time.
+        Assert.Equal(0u, c.PlayerMana);
+        c.PlayerStats.Remove(manaCostKey);
+        c.PlayerMana = 1000;
+
         // Native group 36 means per-skill: these two unrelated skills must retain independent pools.
         var independent = f.Equip(PlayerInventories.BodyArmour, "Frost Bomb", "Cold Snap");
         Assert.True(Start(independent[0], () => { }));
         Assert.True(Start(independent[1], () => { }));
+        CheckCooldownGroups(f);
+    }
+
+    static void CheckCooldownGroups(Fixture f)
+    {
+        var c = f.Conn;
+        bool Use(ushort id) => Game.TryBeginSkillCooldownUse(c, id, Game.SupportedSkill(c, id).Effect,
+            Game.CooldownForSkill(c, id), false, () => { }, out _);
+
+        var cries = f.Equip(PlayerInventories.Helmet, "Enduring Cry", "Seismic Cry", "Rallying Cry", "Infernal Cry");
+        Assert.True(Use(cries[0]));
+        Assert.True(Use(cries[1]));
+        c.PlayerStats[Program.Stats.Key("warcry_skills_share_cooldowns")!.Value] = 1;
+        Assert.False(Use(cries[0])); // Turning sharing on cannot spread an earlier independent use.
+        Assert.True(Use(cries[2]));
+        Assert.False(Use(cries[3]));
+
+        var stances = f.Equip(PlayerInventories.Boots, "Blood and Sand", "Flesh and Stone", "Convocation");
+        ushort recall = stances[2];
+        int recovery = Game.CooldownForSkill(c, recall)!.Value.RecoveryPercent;
+        c.PlayerStats[Program.Stats.Key("convocation_cooldown_speed_+%")!.Value] = 35;
+        Assert.Equal(recovery + 35, Game.CooldownForSkill(c, recall)!.Value.RecoveryPercent);
+
+        Assert.True(Use(stances[0]));
+        Assert.True(Use(stances[1]));
+        var guards = f.Equip(PlayerInventories.Offhand1, "Steelskin", "Molten Shell");
+        Assert.True(Use(guards[0]));
+        Assert.False(Use(guards[1]));
     }
 
     [Fact]
@@ -114,7 +157,15 @@ public sealed class CooldownAdmissionTests
         }
         internal ushort[] Equip(byte row, params string[] names)
         {
-            var host = ItemCatalog.Create(Program.Items.Find(row == PlayerInventories.Helmet ? "Iron Hat" : "Driftwood Wand")!);
+            string hostName = row switch
+            {
+                PlayerInventories.Helmet => "Iron Hat",
+                PlayerInventories.Boots => "Iron Greaves",
+                PlayerInventories.Gloves => "Iron Gauntlets",
+                PlayerInventories.BodyArmour => "Plate Vest",
+                _ => "Driftwood Wand"
+            };
+            var host = ItemCatalog.Create(Program.Items.Find(hostName)!);
             Game.ItemsOf(Conn).Add(row, 0, 0, host with
             {
                 Sockets = names.Select(n => new ItemSocket(SocketColour.White, ItemCatalog.Create(Program.Items.Find(n)!))).ToArray(),

@@ -1,6 +1,6 @@
 /// <summary>Generic recovery for ordinary stored uses. The native record retains BaseMilliseconds and
 /// consumes base-time units at RecoveryRate; it must not receive a pre-divided cooldown.</summary>
-public readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPercent, int Uses = 1, int Group = 36)
+public readonly record struct SingleUseCooldown(int BaseMilliseconds, int RecoveryPercent, int Uses = 1, int? SharedGroup = null)
 {
     public double RecoveryRate => Math.Max(0, 1 + RecoveryPercent / 100.0);
 
@@ -16,9 +16,12 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
     {
         int ms = skills.CooldownMs(effect, level);
-        if (ms <= 0 || skills.CooldownUses(effect, level) <= 0
-            || skills.CooldownPausesWhileActive(effect)
-            || !skills.IsSpell(effect) && !skills.IsAttack(effect) && !skills.IsWarcry(effect)) return null;
+        // The hidden "Trigger level X Summon Spirit of ..." skills (the Ancestral Spirit options and the Loyalty
+        // tattoos) are neither spells, attacks nor warcries, but their shared cooldown is still a plain stored use.
+        bool castable = skills.IsSpell(effect) || skills.IsAttack(effect) || skills.IsWarcry(effect)
+            || skills.EffectId(effect)?.StartsWith("TriggerSummonedAncestor", StringComparison.Ordinal) == true;
+        if (ms <= 0 || skills.CooldownUses(effect, level) <= 0 || skills.CooldownPausesWhileActive(effect) || !castable)
+            return null;
         int Get(IReadOnlyDictionary<uint, int> values, string name) => catalog.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;
         if (Unsupported.Any(name => Get(player, name) != 0 || Get(own, name) != 0)) return null;
         int uses = skills.CooldownUses(effect, level);
@@ -34,7 +37,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
             recovery += (long)Get(player, "golem_cooldown_recovery_+%") + Get(own, "golem_cooldown_recovery_+%");
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
-        return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses, skills.CooldownGroup(effect, level));
+        return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
     }
 }
 

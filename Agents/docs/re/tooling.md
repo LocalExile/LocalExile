@@ -382,6 +382,9 @@ Auth's `keygen` and `patch` and the constants extraction refuse any other. To ad
    `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 and 3.29.3d it is byte-identical to Steam's loose one, as
    `PathOfExileSteam.exe` is to `PathOfExile.exe`. `SteamManifests` are the depots' manifests in Steam's
    `steamapps\appmanifest_238960.acf` while that build is installed.
+   For a build Steam no longer installs, the ids come from the depots' manifest history. A depot's manifest lists
+   every file with its SHA-1, so two manifests compare file by file, and the executables manifest is the one whose
+   `PathOfExileSteam.exe` has the row's hash: two can appear seconds apart, as for the 3.29.3c release.
 4. Add the row, then play the live checklist on that build.
 
 5. Give the live scripts the build. Their data addresses are the 3.29.3c release's, and each of

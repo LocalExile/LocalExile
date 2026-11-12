@@ -79,6 +79,15 @@ public sealed partial class ProjectileRuntime
             Damage(p, target, recipe.Stage, hitEvent, new());
     }
 
+    /// <summary>Resolve a grounded projectile impact without a horizontal flight or a direct-hit victim.</summary>
+    public void Impact(ProjectileUse use, ProjectileVector centre, ProjectileAreaRecipe area)
+    {
+        long id = ++sequence;
+        var impact = new ProjectileEntity(id, id, id, 0, use, centre, centre - use.Origin, Now)
+            { Distance = (centre - use.Origin).Length };
+        Area(impact, area);
+    }
+
     void Area(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileActorKey? victim = null)
     {
         var context = recipe.Delay > 0 || recipe.Interval > 0 ? p.AreaSnapshot() : p;

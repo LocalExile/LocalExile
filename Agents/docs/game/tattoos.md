@@ -1,16 +1,19 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 75 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 90 tattoo rows client-verified and 8 partial).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Seventy-five rows are `works` (the ten pilot,
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Ninety rows are `works` (the ten pilot,
 22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row,
-the eleven Honoured rows, nine Makanga gates, three Journey tattoos and Journey Makanui), one is `partial` (Ancestral
-Bloodlines: ES recovery works, life/mana recovery stats are unread), two are `inert` (Hinekora and Kitava Makanga)
-and 22 are `not implemented`. The server enforces the client's per-group limits (Loyalty, Attribute Notable, Ancestral,
-Keystone and Ascendancy) independently of the client tooltip. This page records the 3.29.3b catalogue, the client
-mechanics, the protocol, the target/limit rules and the implementation groups. The `Status` column is per row;
-`Reason` names the missing layer.
+the eleven Honoured rows, the Herald, guard and Fortify rows, the corpse-consumption and Hinder rows, the ten Loyalty
+summons, nine Makanga gates, three Journey tattoos and Journey Makanui),
+eight are `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery stats are unread; and the
+seven event-only Forbidden ascendancy tattoos, whose server apply, random pick, stats and `0x33` work but
+whose separate client ascendancy-tattoo use flow is untraced), two are `inert` (Hinekora and Kitava
+Makanga) and none is `not implemented`. The server enforces the client's per-group limits
+(Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page
+records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules and the implementation
+groups. The `Status` column is per row; `Reason` names the missing layer.
 
 This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`, `PassiveSkillTattoos`,
 `PassiveSkillTattooTargetSets` and `PassiveSkillOverrides`, cross-checked with the poewiki
@@ -23,10 +26,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 48 | 0 | 0 | 5 |
-| Drop-disabled | 40 | 27 | 1 | 2 | 10 |
-| Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **75** | **1** | **2** | **22** |
+| Current (drop-enabled) | 53 | 53 | 0 | 0 | 0 |
+| Drop-disabled | 40 | 37 | 1 | 2 | 0 |
+| Event-only | 7 | 0 | 7 | 0 | 0 |
+| **Total** | **100** | **90** | **8** | **2** | **0** |
 
 | Status | Meaning |
 |---|---|
@@ -43,10 +46,10 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row and the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers). Not implemented: five rows that need new consumers (corpse consumption, Fortify-on-stun, guard duration, hinder and herald effect). |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers), the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun) and the corpse-consumption and Hinder rows (the killing blow's corpse and 10% maximum-life recovery; the spell-hit Hinder with its four seconds, 30% reduced movement speed and the client's hinder buff). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
-| 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
-| 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
+| 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works. The seven Forbidden tattoos are server-side complete and verified through the dev path: the class's non-multiple-choice ascendancy notables (PassiveSkillOverrides Type 17-23), the random pick saved in `TattooKeystones` (excluding the replaced node and every other allocated notable, so no stats count twice), the granted notable's ascendancy-policy stats, the chosen notable's `0x33` HASH16 and the Limit 40 refusal. Their client-side use flow (the items have `CurrencyUseType = 3`, not `apply_passive_tattoo`) is not traced, so they are `partial`. |
+| 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Works: the same data-driven Spirit path as the Ancestral Commander nodes reads each tattoo's `has_trigger_on_*` stat and its PassiveSkillOverrides.Effect (a level 1 TriggerSummonedAncestor skill), spends its shared 80 s stored use, and grants the spirit's Leadership buff and fighting chieftain for the skill's duration. The Presence-gated triggers require a living hostile Unique within 80 cells. A refunded node no longer triggers (the grant list checks allocation and timeless conquest). |
 
 ## What a tattoo is
 
@@ -119,7 +122,9 @@ Special limits and conditions:
   Replacing the tattoo on the **same node** is allowed; the limit only counts a second node. The 50-tattoo cap is
   separate. The client draws the "Limited to: 1 ..." line from its own tables; it is not a server message, so the
   Gateway enforces the group itself.
-- **Loyalty**: limited by the Limit 0 group; the ten Summon Spirit effects are not implemented yet.
+- **Loyalty**: limited by the Limit 0 group; the ten level 1 Summon Spirit effects are implemented (the trigger
+  stat in the tattoo's TattooStats row, the skill in PassiveSkillOverrides.Effect).
+  stat in the tattoo's TattooStats row, the skill in PassiveSkillOverrides.Effect).
 - **Honoured attribute notables**: the nine Honoured tattoos that replace a +30 attribute notable share the Limit 4
   group. The small-attribute Honoured tattoos have no group limit.
 - **Ancestral Tattoo of Bloodlines**: Limit 5.
@@ -280,7 +285,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Arohongui Moonwarden** | +6% to Cold Resistance | Small Dexterity | Te Onui | works | client apply; cold 211% -> 217% |
 | **Tattoo of the Arohongui Scout** | 10% chance to Avoid being Chilled<br>10% chance to Avoid being Frozen | Small Dexterity | Te Onui | works | live /stat base_avoid_chill_%/base_avoid_freeze_% = 10; the player-ailment roll reads the published panel totals |
-| **Tattoo of the Arohongui Shaman** | 5% increased Effect of Herald Buffs on you | Small Intelligence | Moti Aro | not implemented | needs Herald buff effect |
+| **Tattoo of the Arohongui Shaman** | 5% increased Effect of Herald Buffs on you | Small Intelligence | Moti Aro | works | live /stat herald_effect_on_self_+% = 5; AuraCatalog.RawStats scales the herald buff stats by it (unit test) |
 | **Tattoo of the Arohongui Warmonger** | 5% chance to Freeze | Small Intelligence | Moti Aro | works | live /stat base_chance_to_freeze_% = 5; the published chance_to_freeze_% total reaches the freeze roll |
 | **Tattoo of the Arohongui Warrior** | 5% increased Cold Damage | Small Dexterity | Te Onui | works | client apply; +5% cold damage |
 
@@ -299,7 +304,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
 | **Tattoo of the Kitava Blood Drinker** | 0.5% of Attack Damage Leeched as Life | Small Strength | Ngakanu | works | live /stat base_life_leech_from_attack_damage_permyriad = 50; LeechSources reads the attack coefficient |
-| **Tattoo of the Kitava Heart Eater** | Killing Blows have 4% chance to Consume corpses to recover 10% of Maximum Life | Small Intelligence | Moti Aro | not implemented | needs on-kill corpse consumption |
+| **Tattoo of the Kitava Heart Eater** | Killing Blows have 4% chance to Consume corpses to recover 10% of Maximum Life | Small Intelligence | Moti Aro | works | live /stat killing_blow_consumes_corpse_restore_10%_life_chance_% = 4; the killing blow consumes the corpse under the Monsters lock and recovers 10% of maximum life (unit test) |
 | **Tattoo of the Kitava Rebel** | 10% chance to Avoid Bleeding | Small Strength | Ngakanu | works | live /stat base_avoid_bleed_% = 10; the bleed path reads the published panel total |
 | **Tattoo of the Kitava Shaman** | Attacks have 5% chance to cause Bleeding | Small Strength | Ngakanu | works | live /stat bleed_on_hit_with_attacks_% = 5; the bleed settings consume it |
 | **Tattoo of the Kitava Warrior** | 5% increased Global Physical Damage | Small Strength | Ngakanu | works | client apply; +5% global physical damage |
@@ -330,7 +335,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Rongokurai Brute** | 10% increased Stun Threshold | Small Strength | Ngakanu | works | client apply; +10% stun threshold |
 | **Tattoo of the Rongokurai Goliath** | 10% increased Stun Duration on Enemies | Small Strength | Ngakanu | works | client apply; +10% stun duration |
-| **Tattoo of the Rongokurai Guard** | Guard Skills have 6% increased Duration | Small Strength | Ngakanu | not implemented | needs guard-skill duration |
+| **Tattoo of the Rongokurai Guard** | Guard Skills have 6% increased Duration | Small Strength | Ngakanu | works | live /stat guard_skill_effect_duration_+% = 6; GuardDuration adds it to the same increased-duration sum (unit test) |
 | **Tattoo of the Rongokurai Turtle** | You take 5% reduced Extra Damage from Critical Strikes | Small Intelligence | Moti Aro | works | client apply; -5% extra critical damage taken |
 | **Tattoo of the Rongokurai Warrior** | 6% increased Armour | Small Strength | Ngakanu | works | client apply; armour 319% -> 325% |
 
@@ -340,7 +345,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Tasalio Bladedancer** | Attacks have 5% chance to Maim on Hit | Small Strength | Ngakanu | works | live /stat maim_on_hit_% = 5; HitDebuffs rolls it on a hit |
 | **Tattoo of the Tasalio Scout** | 4% increased Effect of your Marks | Small Dexterity | Te Onui | works | live /stat mark_skills_curse_effect_+% = 4; Curses adds it to a mark's effect |
-| **Tattoo of the Tasalio Shaman** | 5% chance to Hinder Enemies on Hit with Spells | Small Intelligence | Moti Aro | not implemented | needs hinder on spell hit |
+| **Tattoo of the Tasalio Shaman** | 5% chance to Hinder Enemies on Hit with Spells | Small Intelligence | Moti Aro | works | live /stat spells_chance_to_hinder_on_hit_% = 5; spell hits Hinder for the client's four seconds and the walk factor is 30% reduced (unit test) |
 | **Tattoo of the Tasalio Tideshifter** | 10% chance to Avoid being Stunned | Small Dexterity | Te Onui | works | live /stat base_avoid_stun_% = 10; the stun-recovery path reads the published avoid_stun_% total |
 | **Tattoo of the Tasalio Warrior** | 5% chance to Blind Enemies on Hit with Attacks | Small Dexterity | Te Onui | works | live /stat attacks_chance_to_blind_on_hit_% = 5; HitDebuffs rolls it on an attack hit |
 
@@ -362,7 +367,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | **Tattoo of the Tukohama Shaman** | Regenerate 0.3% of Life per second | Small Strength | Ngakanu | works | client apply; 0.3%/s life regeneration |
 | **Tattoo of the Tukohama Warcaller** | 8% increased Warcry Cooldown Recovery Rate | Small Strength | Ngakanu | works | live /stat warcry_cooldown_speed_+% = 8; SingleUseCooldown reads it |
 | **Tattoo of the Tukohama Warmonger** | 5% increased Melee Damage | Small Strength | Ngakanu | works | client apply; +5% melee damage |
-| **Tattoo of the Tukohama Warrior** | Melee Hits which Stun have 5% chance to Fortify | Small Strength | Ngakanu | not implemented | needs fortify on stun |
+| **Tattoo of the Tukohama Warrior** | Melee Hits which Stun have 5% chance to Fortify | Small Strength | Ngakanu | works | live /stat chance_to_fortify_on_melee_stun_% = 5; the stun roll grants the hit's damage-based stacks through FortificationGainModel (unit test) |
 
 ### Valako (5)
 
@@ -425,16 +430,16 @@ Presence. All are drop-disabled in 3.29.
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Loyalty Tattoo of Ahuana** | Trigger level 1 Summon Spirit of Ahuana Skill when you Suppress Spell Damage from a Unique Enemy | Small Dexterity | drop-disabled | not implemented | needs Summon Spirit + suppress trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Akoya** | Trigger level 1 Summon Spirit of Akoya Skill when you reach Maximum Rage while a Unique Enemy is in your Presence | Small Strength | drop-disabled | not implemented | needs Summon Spirit + max-rage trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Ikiaho** | Trigger level 1 Summon Spirit of Ikiaho Skill when you use a Travel Skill while a Unique Enemy is in your Presence | Small Dexterity | drop-disabled | not implemented | needs Summon Spirit + travel-skill trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Kahuturoa** | Trigger level 1 Summon Spirit of Kahuturoa Skill when you take a Critical Strike from a Unique Enemy | Small Strength | drop-disabled | not implemented | needs Summon Spirit + crit-taken trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Kaom** | Trigger level 1 Summon Spirit of Kaom Skill when a Totem dies while a Unique Enemy is in your Presence | Small Strength | drop-disabled | not implemented | needs Summon Spirit + totem-death trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Kiloava** | Trigger level 1 Summon Spirit of Kiloava Skill when you Block Damage from a Unique Enemy | Small Intelligence | drop-disabled | not implemented | needs Summon Spirit + block trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Maata** | Trigger level 1 Summon Spirit of Maata Skill when you reach Low Life while a Unique Enemy is in your Presence | Small Intelligence | drop-disabled | not implemented | needs Summon Spirit + low-life trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Rakiata** | Trigger level 1 Summon Spirit of Rakiata Skill on Critical Strike against Marked Unique Enemy | Small Dexterity | drop-disabled | not implemented | needs Summon Spirit + marked-unique crit trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Tawhanuku** | Trigger level 1 Summon Spirit of Tawhanuku Skill when Energy Shield Recharge starts while a Unique Enemy is in your Presence | Small Intelligence | drop-disabled | not implemented | needs Summon Spirit + ES-recharge trigger; limit 1 Loyalty Tattoo |
-| **Loyalty Tattoo of Utula** | Trigger level 1 Summon Spirit of Utula Skill on taking a Savage Hit from a Unique Enemy | Small Strength | drop-disabled | not implemented | needs Summon Spirit + savage-hit trigger; limit 1 Loyalty Tattoo |
+| **Loyalty Tattoo of Ahuana** | Trigger level 1 Summon Spirit of Ahuana Skill when you Suppress Spell Damage from a Unique Enemy | Small Dexterity | drop-disabled | works | live /stat has_trigger_on_suppress_hit_from_unique 1; a suppressed spell hit from a Unique summons Spirit of Ahuana |
+| **Loyalty Tattoo of Akoya** | Trigger level 1 Summon Spirit of Akoya Skill when you reach Maximum Rage while a Unique Enemy is in your Presence | Small Strength | drop-disabled | works | live /stat has_trigger_on_reaching_maximum_rage_in_presence_of_unique 1; reaching maximum Rage with a Unique in Presence summons Spirit of Akoya |
+| **Loyalty Tattoo of Ikiaho** | Trigger level 1 Summon Spirit of Ikiaho Skill when you use a Travel Skill while a Unique Enemy is in your Presence | Small Dexterity | drop-disabled | works | live /stat has_trigger_on_travel_skill_use_in_presence_of_unique 1; a Travel Skill with a Unique in Presence summons Spirit of Ikiaho |
+| **Loyalty Tattoo of Kahuturoa** | Trigger level 1 Summon Spirit of Kahuturoa Skill when you take a Critical Strike from a Unique Enemy | Small Strength | drop-disabled | works | live apply + /stat has_trigger_on_crit_by_unique_enemy 1; a Unique's critical strike summons Spirit of Kahuturoa |
+| **Loyalty Tattoo of Kaom** | Trigger level 1 Summon Spirit of Kaom Skill when a Totem dies while a Unique Enemy is in your Presence | Small Strength | drop-disabled | works | live /stat has_trigger_on_totem_death_in_presence_of_unique 1; a totem death with a Unique in Presence summons Spirit of Kaom |
+| **Loyalty Tattoo of Kiloava** | Trigger level 1 Summon Spirit of Kiloava Skill when you Block Damage from a Unique Enemy | Small Intelligence | drop-disabled | works | live /stat has_trigger_on_block_hit_from_unique 1; a blocked Unique hit triggered Summon Spirit of Kiloava, its Leadership buff and the fighting chieftain |
+| **Loyalty Tattoo of Maata** | Trigger level 1 Summon Spirit of Maata Skill when you reach Low Life while a Unique Enemy is in your Presence | Small Intelligence | drop-disabled | works | live /stat has_trigger_on_reaching_low_life_in_presence_of_unique 1; reaching Low Life with a Unique in Presence summons Spirit of Maata |
+| **Loyalty Tattoo of Rakiata** | Trigger level 1 Summon Spirit of Rakiata Skill on Critical Strike against Marked Unique Enemy | Small Dexterity | drop-disabled | works | live /stat has_trigger_on_crit_vs_marked_unique 1; a critical strike on a marked Unique summons Spirit of Rakiata (Marks modelled by Curses) |
+| **Loyalty Tattoo of Tawhanuku** | Trigger level 1 Summon Spirit of Tawhanuku Skill when Energy Shield Recharge starts while a Unique Enemy is in your Presence | Small Intelligence | drop-disabled | works | live /stat has_trigger_on_es_recharge_in_presence_of_unique 1; Energy Shield Recharge starting with a Unique in Presence summons Spirit of Tawhanuku |
+| **Loyalty Tattoo of Utula** | Trigger level 1 Summon Spirit of Utula Skill on taking a Savage Hit from a Unique Enemy | Small Strength | drop-disabled | works | live /stat has_trigger_on_taking_savage_hit_from_unique 1; a Savage Hit from a Unique summons Spirit of Utula |
 
 ### Makanga (10)
 
@@ -462,13 +467,13 @@ Return of the Ancestors event.
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Forbidden Tattoo of the Duelist** | Grants a random Duelist Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Duelist ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Marauder** | Grants a random Marauder Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Marauder ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Ranger** | Grants a random Ranger Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Ranger ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Scion** | Grants a random Scion Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Scion ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Shadow** | Grants a random Shadow Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Shadow ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Templar** | Grants a random Templar Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Templar ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Witch** | Grants a random Witch Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Witch ascendancy notable; limit 1 Ascendancy Tattoo |
+| **Forbidden Tattoo of the Duelist** | Grants a random Duelist Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Duelist notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Marauder** | Grants a random Marauder Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Marauder notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Ranger** | Grants a random Ranger Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Ranger notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Scion** | Grants a random Scion Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Scion Ascendant option excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Shadow** | Grants a random Shadow Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Shadow notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Templar** | Grants a random Templar Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Templar notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Witch** | Grants a random Witch Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Witch notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
 
 ## Verification log
 
@@ -673,6 +678,71 @@ Ailment and avoidance rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev 
   catalogue rows and the published total's alias sum.
 - The right-click item flow is the `0x77` path verified for the earlier rows; these nine were applied through the dev
   command so the same nodes can be reused without spending currency.
+
+Herald, guard and Fortify rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** Arohongui Shaman (herald effect), Rongokurai Guard (guard duration) and Tukohama Warrior
+  (Fortify on a melee stun) on allocated passives, on 21301 (Strength). `/stat` read herald_effect_on_self_+% 5,
+  guard_skill_effect_duration_+% 6 and chance_to_fortify_on_melee_stun_% 5; `/tattoo_remove` restored every stat
+  to 0.
+- **Consumers:**
+  - Herald buff effect scales the herald buff stats through `AuraCatalog.RawStats`: Herald of Ash's
+    physical-as-fire stat doubles at 100% increased Effect of Herald Buffs on you (unit test).
+  - Guard duration adds `guard_skill_effect_duration_+%` into the same `skill_effect_duration_+%` sum
+    (`Game.GuardDuration`, used by the triggered guards), so the numbers do not come out high.
+  - Fortify on a melee stun: the successful stun roll in `HitReaction.TryFlinch` rolls the stat once and grants the
+    stacks `FortificationGainModel` computes from the hit's raw damage and the target's life and rarity, as the
+    on-hit Fortify path does; `cannot_gain_fortification_from_hits` blocks it and a hit that already fortified does
+    not fortify twice (`StunHit.Fortified`). `TattooConsumerTests` covers the catalogue rows and the three
+    consumers.
+
+Corpse-consumption and Hinder rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** Kitava Heart Eater on 21301 (Strength) and Tasalio Shaman on 21678 (Intelligence).
+  `/stat` read killing_blow_consumes_corpse_restore_10%_life_chance_% 4 and spells_chance_to_hinder_on_hit_% 5;
+  `/tattoo_remove` restored both stats to 0.
+- **Consumers:**
+  - The killing blow rolls the corpse-consumption chance under the Monsters lock (`MonsterKilled` ->
+    `ConsumeCorpseOnKillLocked`): the corpse leaves `conn.Monsters` and the summoning, explosion and warcry paths
+    (it is marked `CorpseConsumed`), `consumed_corpse` is recorded for the conditional items, and 10% of maximum life
+    is recovered (`cannot_recover_life` respected; a shattered or already consumed corpse is skipped).
+  - Hinder rolls on spell hits only, lasts the client's four seconds (`ReminderTextHinder`; `HitDebuffs.HinderSeconds`)
+    and reduces the walk factor by 30%. Maim and Hinder are both "reduced movement speed", so their reductions add
+    (0.4 together, not 0.49), and the ailment-idle skip no longer hides a monster whose only debuff is Maim or Hinder
+    (`TimedWalkDebuff`). `TattooCorpseHinderTests` covers the two catalogue rows, the spell-only roll, the walk
+    factor and the corpse consumption.
+
+Loyalty rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied, read back and limited:** Kaom on 21301 (small Strength), Kahuturoa on 21301, Kiloava on 32210 (small
+  Intelligence) and Ahuana on 27659 (small Dexterity); `/stat` read each row's `has_trigger_on_*` stat (the Kaom,
+  Kahuturoa, Kiloava and Ahuana triggers are 1). A second Loyalty tattoo was refused ("only one Loyalty Tattoo can
+  be applied") and `/tattoo_remove` restored the passive.
+- **Trigger and summon:** with Kiloava applied and the dev block chance at 75%, a Unique monster's blocked hit on the
+  player logged `TriggerSummonedAncestorKiloava triggered (has_trigger_on_block_hit_from_unique): buff 2279 for 12 s,
+  cooldown 80000 ms`, raised the Spirit of Kiloava beside the player (it attacked the Unique's minion-style, 0x01ab,
+  for its duration) and put the Leadership buff on; both ended after the skill's 12 s. The same
+  `TriggerSpiritChieftainLocked` path serves the Ancestral Commander nodes, so the shared 80 s stored use, the
+  Leadership row and the chieftain minion come from the client data (AncestralEmbraceVariations, BuffTemplates).
+- **Data and wiring:** `TattooLoyaltyTests` covers all ten rows' trigger stats, their level 1
+  `TriggerSummonedAncestor*` skill, the Leadership buff row, the chieftain variety, the 80 s stored use, the
+  tattoo-grant resolution (`TattooTriggeredGrantsLocked`) and that refunding the tattooed node ends the grant. The
+  presence check is covered too.
+
+Forbidden rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch/Occultist):
+
+- With Occultist selected and Void Beacon (27096) and Profane Bloom (37127) allocated, `/tattoo_apply Forbidden
+  Tattoo of the Witch 27096` granted a random Witch notable (Unholy Authority); `/stat` read its
+  number_of_additional_curses_allowed 1 and ignore_hexproof 1. A second Forbidden tattoo was refused ("only one
+  Ascendancy Tattoo can be applied") and `/tattoo_remove` restored both stats to 0.
+- The random pick, the saved choice (`TattooKeystones`), the replacement stats and the chosen notable's HASH16 in
+  `0x33` are covered by `TattooForbiddenTests` for all seven classes (Scion's multiple-choice option rows included).
+  The pick excludes the replaced node and every other allocated ascendancy notable (#849 review), and the granted
+  notable's stats go through `AscendancyPolicies.NodeStats` like a normally allocated ascendancy node's.
+- The client's own ascendancy-tattoo use flow is untraced: these items have `CurrencyUseType = 3` and no
+  `apply_passive_tattoo` action, so the real-client right-click path is unverified. Ascendancy effects that the code
+  keys to node allocation rather than to stats are not swapped either. That is why the seven rows are `partial`
+  rather than `works`.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.

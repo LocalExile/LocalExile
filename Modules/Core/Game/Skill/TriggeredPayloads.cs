@@ -9,7 +9,8 @@ public static partial class Game
 
     public static bool TriggerPayloadAvailable(ClientState conn, SupportedGem gem)
     {
-        if (TriggerGuardSpell(conn, gem)) return true;
+        if (TriggerGuardSpell(conn, gem) || TriggerSummonSpell(conn, gem)
+            || MinionUtility(SkillsFor(conn).EffectId(gem.Effect))) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(conn).EffectId(gem.Effect) ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(conn, gem))
@@ -26,12 +27,18 @@ public static partial class Game
         if (TriggerGuardSpell(conn, gem))
             return TriggerGuardReady(conn, conn.Clock.Elapsed.TotalSeconds)
                 ? () => StartTriggeredGuard(conn, session, id, conn.Clock.Elapsed.TotalSeconds) : null;
+        if (TriggerSummonSpell(conn, gem))
+            return () => session.Enqueue(() => ReleaseTriggeredSummon(conn, session, id, aim, current));
         if (UsesProjectileRuntime(gem.Effect))
         {
-            var use = CaptureGemProjectile(conn, session, id, skill, aim, CaptureSkillCriticalRoll(conn, id));
-            use = ClientDrawnVolley(conn, session, id, skill, use, 0, 0);
-            use = use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
-            return () => session.Schedule(session.Runtime.Now, current, () => use);
+            var sacrifice = new SacrificeUse(conn, id, skill.Effect, skill.Gem, triggered: true);
+            var critical = CaptureSkillCriticalRoll(conn, id);
+            return () => session.Schedule(session.Runtime.Now, () => current() && sacrifice.Current, () =>
+            {
+                var use = CaptureGemProjectile(conn, session, id, skill, aim, critical, sacrifice: sacrifice);
+                use = ClientDrawnVolley(conn, session, id, skill, use, 0, 0);
+                return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false } };
+            });
         }
         return () => session.Enqueue(() => ReleaseTriggeredNonProjectile(conn, session, id, aim, current));
     }
@@ -42,7 +49,19 @@ public static partial class Game
         var gem = SupportedSkill(conn, id);
         var skill = GemSkillEffects(conn).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !current()) return;
-        if (CurseCatalog.All.TryGetValue(SkillsFor(conn).EffectId(gem.Effect) ?? "", out var curse))
+        if (MinionUtility(SkillsFor(conn).EffectId(gem.Effect)))
+        {
+            lock (conn.Monsters)
+            {
+                if (!current() || !CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused || conn.PlayerLife == 0) return;
+                double now = AreaTime(conn);
+                string effect = SkillsFor(conn).EffectId(gem.Effect)!;
+                if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(conn, gem, now);
+                else StartOfferingLocked(conn, id, gem, effect, aim, 0, now);
+            }
+            await PublishMinionOutcomes(session.remote, session.stream, session.ciphers, conn);
+        }
+        else if (CurseCatalog.All.TryGetValue(SkillsFor(conn).EffectId(gem.Effect) ?? "", out var curse))
         {
             lock (conn.Monsters)
             {

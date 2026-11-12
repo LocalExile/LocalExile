@@ -44,6 +44,7 @@ public static class AilmentPanelStats
     static readonly More[] SupportMore =
     [
         new("doedre_aura_damage_+%_final"), new("cast_on_damage_taken_damage_+%_final"),
+        new("support_cast_while_channelling_triggered_skill_damage_+%_final"),
         new("support_echo_damage_+%_final"), new("support_reduced_duration_damage_+%_final"),
         new("support_spirit_strike_damage_+%_final"), new("support_storm_barrier_damage_+%_final"),
         new("support_pure_shock_damage_+%_final"), new("support_blood_thirst_damage_+%_final"),

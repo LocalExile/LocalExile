@@ -33,13 +33,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   `/atlas_points <n>` sets the dev budget. Live: with 30 points, three "Map Drop Chance" nodes allocated and the
   client updated the tree; the presets are saved. The budget now comes from the Atlas's completed maps: one point per
   map first completed, up to 100 (#382), derived at login/area entry from the saved completed set and awarded on a real
-  completion (the completed set still starts filled, see below, so the derivation is what a character sees). The Atlas
+  completion. A fresh save earns its first map point on its first completion. The Atlas
   graph itself is still the client's, so connectivity is left to it.
   The selected layout is kept in the character save (an AtlasNode Id, `CharacterSaves.SelectedAtlasLayout`, chosen with
   `/atlas <layout>`), and a restarted Gateway reads it back instead of resetting to the starting node (#382). Generic
   maps use their tier as the area level (tier + 67).
   Atlas progress (2026-11-01): killing a map's WorldAreas boss (or any unique) in it completes its AtlasNode, saved per
-  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one filled 0x1a3 with the 0x3d
+  character; S→C 0x1a4 and one chat line mark it the first time only. Area entry sends one 0x1a3 (both masks still include all on-Atlas rows) with the 0x3d
   presets, before 0x21, so login does not announce every saved map. `/atlas_complete <map | all>` and `/atlas_reset` (dev).
   Live: 0x1a4 for Chateau showed it completed and opened Springs and Arachnid Nest; the boss-kill trigger still needs a
   real-client check. Bonus objectives, Voidstones, map stash placement and official drop pools remain open.

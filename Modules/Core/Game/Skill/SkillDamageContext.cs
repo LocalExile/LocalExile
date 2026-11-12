@@ -5,11 +5,14 @@ using GameServer.Core.World;
 public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDictionary<uint, int> ActualCaster)
 {
     public bool Suppressed => Kind == SkillHitKind.Spell
-        && ActualCaster.GetValueOrDefault(StatKeys.SpellSkillsDealNoDamage) != 0;
+        && ActualCaster.GetValueOrDefault(StatKeys.SpellSkillsDealNoDamage) != 0
+        || Get("keystone_ancestral_bond") != 0 || Get("deal_no_damage_yourself") != 0;
+
+    int Get(string name) => Program.Stats.Key(name) is uint key ? ActualCaster.GetValueOrDefault(key) : 0;
 
     public DamagePacket Hit(DamagePacket packet) => Suppressed ? DamagePacket.Empty : DamageFactor == 1 ? packet : packet.Scale(DamageFactor);
 
-    // This is outgoing spell damage only. RF's independent self-burn must not pass through this context.
+    // Outgoing skill damage only. RF's independent self-burn must not pass through this context.
     // The caster's damage-type prohibitions (DamageStats.Prohibited) also stop a DoT of that type (PoB canDeal).
     public DamageOverTime OverTime(DamageOverTime damage) =>
         damage with

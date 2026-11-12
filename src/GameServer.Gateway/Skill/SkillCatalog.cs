@@ -751,6 +751,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["RollingMagma"] = "Metadata/Projectiles/MagmaOrbShort",
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
         ["EssenceDrain"] = "Metadata/Projectiles/Siphon",
         ["EssenceDrainAltX"] = "Metadata/Projectiles/Siphon",
         ["EssenceDrainAltY"] = "Metadata/Projectiles/Siphon",
