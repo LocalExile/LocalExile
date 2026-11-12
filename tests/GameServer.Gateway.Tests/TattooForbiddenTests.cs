@@ -39,6 +39,8 @@ public sealed class TattooForbiddenTests
             foreach (ushort notable in pool)
                 Assert.True(tree.Find(notable) is { IsAscendancy: true }, $"{name}: {notable}");
         }
+        // The client's Shadow pool includes the two option-labelled notables (Knife in the Back, For the Jugular).
+        Assert.Equal(26, ForbiddenTattoo.Pool("Forbidden Tattoo of the Shadow")!.Count);
     }
 
     [Fact]
@@ -70,5 +72,9 @@ public sealed class TattooForbiddenTests
         }
         Assert.Null(ForbiddenTattoo.Pick("Forbidden Tattoo of the Witch", 0, witchPool));
         Assert.Null(ForbiddenTattoo.Stats(tree, null));
+        // TattooBlockingPassive: the Duelist's Overwhelm row (hash 17315) blocks Sightless (passive row 5471, graph
+        // id 24698) from being replaced, and the pick never offers it for that node.
+        Assert.True(ForbiddenTattoo.Blocks(17315, 24698));
+        Assert.False(ForbiddenTattoo.Blocks(17315, 27096));
     }
 }
