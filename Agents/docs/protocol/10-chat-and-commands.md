@@ -113,7 +113,7 @@ Then it fires the instance +0xef8 listeners.
 The chat panel's Global and Trade tabs, greyed out before, become usable.
 It prints no line itself: S→C 0x12d with BackendErrors code 240 (JoinedGlobalChannel) printed "You have joined global
 chat channel {1} {0}." with the placeholders unfilled, so the Gateway sends that text filled in as a 0x17 line instead.
-The Gateway (`Program.Chat.cs`, `ChatChannels`) answers every 0x134 with 0x135: the number asked for, else the
+The Chat module (`Modules/Core/Player/Chat/`, `ChatChannels`) answers every 0x134 with 0x135: the number asked for, else the
 character's last channel of that kind, else channel 1, and the language echoed.
 After the answer it prints "You have joined global chat channel N." when the channel is new for the character or a
 command asked for it.
@@ -152,7 +152,14 @@ Other header consumers and indirect notification effects are separate questions.
 - The Stats component has no 0x2bc (component update) handler: its vtable slot +0xa0 is a no-op. So 0x1b3 is the way to
   change stats.
 
-## 4. Commands (Gateway, `Program.Commands.cs` `Commands`)
+## 4. Commands
+
+Where a command lives: the Gateway's own are `/commands`, `/mod`, `/mod_reload`, `/mod_enable`, `/mod_disable`, `/module`,
+`/module_reload`, `/reload` and `/lastpackets` (`ChatCommands.cs`, `Modding/Program.Commands.cs`); a module adds its own
+(`Core/Player/Commands`: `/oos`, `/passives`; `Core/World/Atlas`: `/atlas_complete`, `/atlas_reset`). Every other command
+below is a development command of the `gm-commands` mod in
+[LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) (`mods/gm-commands/`), so it exists only while that mod
+is installed and loaded ([modding](../dev/modding.md)).
 
 `/hit`, `/spellhit` and `/blockhit` are synthetic incoming enemy contacts for the
 [recent-hit armour model](../game/steel-willed-armour.md), including blocked and zero-damage results.
@@ -164,7 +171,7 @@ For tools outside the game (the desktop launcher's console), the built Gateway l
 usage and argument kinds as JSON lines (`Program.CommandUsages`, the loaded mods' commands not included).
 A command declares the kinds of its leading arguments where it registers (`ChatCommands.Add`: area, monster, item, gem,
 stat, npc, quest_flag), and `GameServer.Gateway.dll values <kind>` prints what such an argument can be, from the catalog
-the command looks it up in (`Program.CompletionValues`): a name only one row has, else the row's Id with the name as
+the command looks it up in (`Game.CompletionValues`): a name only one row has, else the row's Id with the name as
 its detail; `/goto`'s areas say whether the Gateway generates them, a capture has them, or only the client can.
 Both run before `ServerLog`, so their output is JSON lines only.
 
@@ -344,9 +351,9 @@ Sent, in order: **0x20** (once per variety and level on a connection), **0x2bb**
     2. S→C **0x1ab** on the monster with skill 0x0101, its own cell as start and target, aimed at itself (flags 0x0880),
        a rising sequence: the client plays the .act's `Emerge` clip (Gravel Eater: `emerge`, 1.0 s; Dripping Dead:
        `grasp_emerge`, 3.7 s).
-    3. S→C **0x1ac**: the action waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
-       (`0x141e9afc0`, looked at again every 0.25 s), and only then plays (`+0x1b0`). After the clip the monster chases
-       and attacks like any other.
+    3. S→C **0x1ac**: predictive mode waits in the Actor's pending slot (`+0x1b8`) until 0x1ac sets its go flag
+       (`0x141e9afc0`, otherwise checked every 0.25 s). Lockstep starts directly. Both modes end Emerge with its clip
+       (`0x141e99d50`), with no additional recovery tail; the monster then becomes eligible to chase and attack.
     Which monster rises when is the official server's (its `.ais` AI files are not in the client); the Gateway raises
     one when the player comes within 24 cells, or its aggro range if shorter, or when a lurking one is hit. The clip's
     time is game time (a pause stops it). Rising does not depend on `/ai`: a `/spawn_mob` emerge monster rises next to

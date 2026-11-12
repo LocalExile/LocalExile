@@ -156,21 +156,14 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     {
         var list = new List<ItemCatalog.BaseType>();
         var seen = new HashSet<int>();
-        string path = Path.Combine(folder, "tables", "Scarabs.json");
-        if (ClientTables.Exists(path))
+        if (ClientTables.Has("Scarabs"))
         {
-            using var doc = GameTables.Open(path);
-            foreach (var row in doc.RootElement.EnumerateArray())
-            {
-                if (!row.TryGetProperty("Items", out var items) || items.ValueKind != System.Text.Json.JsonValueKind.Array)
-                    continue;
-                foreach (var item in items.EnumerateArray().Where(v => v.ValueKind == System.Text.Json.JsonValueKind.Number))
+            foreach (var row in ClientTables.Table("Scarabs"))
+                foreach (int n in row.Ints("Items"))
                 {
-                    int n = item.GetInt32();
                     if (!seen.Add(n)) continue;
                     if (catalog.Row(n) is { Supported: true } type) list.Add(type);
                 }
-            }
         }
         if (list.Count == 0)
         {
@@ -324,6 +317,23 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
         ("Metadata/Items/DivinationCards/DivinationCardTheEndlessDarkness", 0.15),
     ];
 
+    public IReadOnlyList<Drop> EncounterJewels(string bossId, int monsterLevel, Random random, DropDataProvider.Snapshot data)
+    {
+        if (uniques is null || data.Bosses.TryGetValue(bossId, out var boss) && !boss.Enabled) return [];
+        var result = new List<Drop>();
+        foreach (var row in data.BossItems.Values)
+        {
+            if (row.BossId != bossId || row.ItemKind != "unique" || (row.OverrideChance ?? row.Chance) is not (> 0 and <= 1 and var chance))
+                continue;
+            if (uniques.Find(row.ItemId) is not { EncounterOnly: true } definition || definition.Name != row.ItemId
+                || random.NextDouble() >= chance || uniques.Create(definition, random) is not { } jewel
+                || catalog.ByHash(jewel.TypeHash) is not { } type) continue;
+            byte itemLevel = (byte)Math.Clamp(monsterLevel + ItemLevelBonus(MonsterRarity.Unique), 1, 100);
+            result.Add(new(jewel with { Identified = false, ItemLevel = itemLevel }, type));
+        }
+        return result;
+    }
+
     /// <summary>The King in the Mists' guaranteed unique, then its support gems and card. Corpse items (the 50% roll)
     /// are not modelled yet: the item system has no itemised-corpse consumer.</summary>
     public IReadOnlyList<Drop> KingInMists(int level, Random rng)
@@ -433,6 +443,7 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
             var byBase = new Dictionary<string, List<UniqueCatalog.Definition>>(StringComparer.Ordinal);
             foreach (var definition in all)
             {
+                if (definition.EncounterOnly) continue;
                 if (!byBase.TryGetValue(definition.BaseTypeId, out var list)) byBase[definition.BaseTypeId] = list = [];
                 list.Add(definition);
             }
@@ -471,14 +482,12 @@ public sealed class ItemDrops(ItemCatalog catalog, ItemRolls? rolls = null, stri
     static Dictionary<string, double> LoadUniqueWeights(string folder, bool hardMode)
     {
         var weights = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
-        string values = Path.Combine(folder, "tables", "VillageUniqueDisenchantValues.json"), words = Path.Combine(folder, "tables", "Words.json");
-        if (!ClientTables.Exists(values) || !ClientTables.Exists(words)) return weights;
-        using var wordsDoc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(words));
-        using var valuesDoc = System.Text.Json.JsonDocument.Parse(ClientTables.ReadAllBytes(values));
-        foreach (var row in valuesDoc.RootElement.EnumerateArray())
+        if (!ClientTables.Has("VillageUniqueDisenchantValues") || !ClientTables.Has("Words")) return weights;
+        var wordsDoc = ClientTables.Table("Words");
+        foreach (var row in ClientTables.Table("VillageUniqueDisenchantValues"))
         {
-            double value = row.GetProperty(hardMode ? "RuthlessValue" : "Value").GetDouble();
-            if (value > 0 && wordsDoc.RootElement[row.GetProperty("UniqueName").GetInt32()].GetProperty("Text").GetString() is { Length: > 0 } text)
+            double value = row.Real(hardMode ? "RuthlessValue" : "Value");
+            if (value > 0 && wordsDoc[row.Int("UniqueName")].Text("Text") is { Length: > 0 } text)
                 weights[UniqueCatalog.NameKey(text)] = Math.Min(1, 1 / value);
         }
         return weights;

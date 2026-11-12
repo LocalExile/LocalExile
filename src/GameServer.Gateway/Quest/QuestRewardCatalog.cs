@@ -24,41 +24,32 @@ public sealed class QuestRewardCatalog
     public static QuestRewardCatalog Load(string folder = "data", bool hardMode = false, bool supportGems = true)
     {
         var result = new QuestRewardCatalog();
-        string Table(string name) => ClientTables.ReadAllText(Path.Combine(folder, "tables", name + ".json"));
-        using var flags = JsonDocument.Parse(Table("QuestFlags"));
-        var names = flags.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString()!).ToArray();
-        using var choices = JsonDocument.Parse(Table("QuestRewards"));
+        var names = ClientTables.Table("QuestFlags").Select(f => f.Text("Id")!).ToArray();
+        var choices = ClientTables.Table("QuestRewards");
         HashSet<int> supportRows = [];
         if (!supportGems)
-        {
-            using var gems = JsonDocument.Parse(Table("SkillGems"));
-            supportRows = gems.RootElement.EnumerateArray().Where(r => r.GetProperty("IsSupport").GetBoolean())
-                .Select(r => r.GetProperty("BaseItemTypesKey").GetInt32()).ToHashSet();
-        }
+            supportRows = ClientTables.Table("SkillGems").Where(r => r.Bool("IsSupport"))
+                .Select(r => r.Int("BaseItemTypesKey")).ToHashSet();
         // Pinned 3.29 QuestRewards column16: 0 shared, 1 regular-only, 2 HardMode-only.
         // This selects the Uncarved Gemstone/gear alternatives rather than normal supports or movement gems.
-        var byOffer = choices.RootElement.EnumerateArray().Where(r => (!r.TryGetProperty("__col16", out var mode)
-                || mode.GetInt32() == 0 || mode.GetInt32() == (hardMode ? 2 : 1))
-                && (supportGems || !supportRows.Contains(r.GetProperty("Reward").GetInt32())))
-            .GroupBy(r => r.GetProperty("RewardOffer").GetInt32())
-            .ToDictionary(g => g.Key, g => g.Select(r => new Choice((uint)r.GetProperty("__col1").GetInt32() + 1,
-                r.GetProperty("Reward").GetInt32(), r.GetProperty("RewardLevel").GetInt32(), r.GetProperty("RewardStack").GetInt32(),
-                r.GetProperty("Characters").EnumerateArray().Select(c => c.GetInt32()).ToArray())
+        var byOffer = choices.Where(r => (!r.Has("__col16")
+                || r.Int("__col16") == 0 || r.Int("__col16") == (hardMode ? 2 : 1))
+                && (supportGems || !supportRows.Contains(r.Int("Reward"))))
+            .GroupBy(r => r.Int("RewardOffer"))
+            .ToDictionary(g => g.Key, g => g.Select(r => new Choice((uint)r.Int("__col1") + 1,
+                r.Int("Reward"), r.Int("RewardLevel"), r.Int("RewardStack"), r.Ints("Characters"))
             {
-                Rarity = r.TryGetProperty("__col5", out var rarity) && rarity.ValueKind == JsonValueKind.Number ? rarity.GetInt32() : null,
+                Rarity = r.IntOrNull("__col5"),
             }).ToArray());
-        using var offers = JsonDocument.Parse(Table("QuestRewardOffers"));
-        int row = 0;
-        foreach (var r in offers.RootElement.EnumerateArray())
+        foreach (var r in ClientTables.Table("QuestRewardOffers"))
         {
-            int index = row++;
+            int index = r.Index;
             // Without a QuestFlag the offer is taken when its quest item's flags say so (the Act 1 books: offers 5, 6, 9, 11).
-            if (r.GetProperty("QuestFlag") is not { ValueKind: JsonValueKind.Number } flag)
+            if (r.IntOrNull("QuestFlag") is not int f)
             {
                 result.offers[index] = new(index, null, byOffer.GetValueOrDefault(index) ?? []);
                 continue;
             }
-            int f = flag.GetInt32();
             if (f < 0 || f >= names.Length || names[f] == "NEVER_SET") continue;
             result.offers[index] = new(index, names[f], byOffer.GetValueOrDefault(index) ?? []);
         }

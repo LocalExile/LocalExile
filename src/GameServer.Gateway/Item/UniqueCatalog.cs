@@ -26,11 +26,14 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     /// <summary>How a stat of a mod rolls on one unique, or null for the mod's own range.</summary>
     public delegate (int Min, int Max)? StatRoll(ModCatalog.Mod mod, ModSection section, int stat);
 
+    public sealed record RollGroup(int Count, string[] Options, int? HighLevel = null, int? HighLevelCount = null);
+
     /// <summary>One unique. <paramref name="Implicits"/> replaces the base type's own when the unique differs from it
     /// (null keeps the base's). The first <paramref name="Fractured"/> of <paramref name="Mods"/> are fractured.</summary>
     public sealed record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
-        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0);
+        ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0, bool EncounterOnly = false,
+        RollGroup[]? RollGroups = null, int JewelLimit = 0);
 
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
@@ -112,6 +115,15 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
         };
+        if (definition.BaseTypeId == TimelessJewelCatalog.BaseId)
+        {
+            var legion = TimelessJewelCatalog.All.FirstOrDefault(entry => entry.Name == definition.Name);
+            if (legion is null || legion.Conquerors.Length == 0) return null;
+            var conqueror = legion.Conquerors[random.Next(legion.Conquerors.Length)];
+            var seeded = TimelessJewelCatalog.Create(items, legion.Name, conquerorIndex: conqueror.Index,
+                folder: folder, random: random);
+            return seeded is null ? null : item with { Mods = seeded.Mods };
+        }
         var mods = item.Mods.ToList();
         if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
         {
@@ -142,9 +154,25 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
             mods.RemoveAll(m => m.Section == ModSection.Implicit);
             mods.AddRange(Rolled(definition, implicits, ModSection.Implicit, random));
         }
+        if (definition.Name == "Grand Spectrum" && GrandSpectrum.Roll(type.Name, random) is { } variant)
+            definition = definition with { Mods = [variant] };
         mods.AddRange(Rolled(definition, definition.Mods, ModSection.Explicit, random));
         if (HiddenMods.TryGetValue($"{NameKey(definition.Name)}|{definition.BaseTypeId}", out var hidden))
             mods.AddRange(Rolled(definition, hidden, ModSection.Hidden, random));
+        foreach (var pool in definition.RollGroups ?? [])
+        {
+            int count = pool.HighLevel is int level && definition.ItemLevel >= level
+                ? pool.HighLevelCount ?? pool.Count : pool.Count;
+            var options = pool.Options.ToArray();
+            if (count < 0 || options.Length < count) return null;
+            for (int i = 0; i < count; i++)
+            {
+                int choice = random.Next(i, options.Length);
+                (options[i], options[choice]) = (options[choice], options[i]);
+                if (items.Mods.ById(options[i]) is not { } mod) return null;
+                mods.Add(mod.Roll(ModSection.Explicit, random));
+            }
+        }
         item = item with { Mods = mods };
         if (definition.Name.Equals("Tabula Rasa", StringComparison.OrdinalIgnoreCase)
             && definition.BaseTypeId == "Metadata/Items/Armours/BodyArmours/BodyInt1")
@@ -157,7 +185,8 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         var local = ItemModStats.Local(item, items.Mods);
         bool noWhite = local.ContainsKey("local_sockets_cannot_be_white");
         bool abyss = local.Keys.Any(id => id is "local_has_X_abyss_sockets" or "local_cannot_have_non_abyssal_sockets");
-        if (local.ContainsKey("local_has_no_sockets")) return item;
+        if (local.ContainsKey("local_has_no_sockets")) return item with { Sockets = [], Links = null };
+        if (type.Id == AbyssJewels.StygianVise) return AbyssJewels.StygianSockets(item, local);
         if (!abyss && local.ContainsKey("local_six_linked_random_sockets"))
         {
             int count = Math.Min(6, CurrencyEffects.SocketCapacity(item, type));
@@ -237,7 +266,7 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
         var candidates = new List<(Definition Definition, double Weight)>();
         foreach (var definition in All)
         {
-            if (definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
+            if (definition.EncounterOnly || definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
                 || weight(definition.Name) is not (> 0 and var chance) || items.Find(definition.BaseTypeId) is not { Supported: true } type
                 || type.Class != current.Class || type.Width != current.Width || type.Height != current.Height
                 || !_names.Value.TryGetValue(NameKey(definition.Name), out var name) || item.NameWords.Contains(name.Word)
@@ -263,30 +292,29 @@ public sealed class UniqueCatalog(ItemCatalog items, string folder = "data")
     static Dictionary<string, UniqueName> LoadNames(string folder)
     {
         var result = new Dictionary<string, UniqueName>(StringComparer.OrdinalIgnoreCase);
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("UniqueStashLayout")) || !ClientTables.Exists(Table("ItemVisualIdentity")))
+        if (!ClientTables.Has("Words") || !ClientTables.Has("UniqueStashLayout") || !ClientTables.Has("ItemVisualIdentity"))
             return result;
-        using var words = GameTables.Open(Table("Words"));
-        using var layout = GameTables.Open(Table("UniqueStashLayout"));
-        using var visuals = GameTables.Open(Table("ItemVisualIdentity"));
+        var words = ClientTables.Table("Words");
+        var layout = ClientTables.Table("UniqueStashLayout");
+        var visuals = ClientTables.Table("ItemVisualIdentity");
         // Unique names are wordlist 6 (rare names use 1 and 2); a layout row links the word to the unique artwork.
         // Keep every wordlist row, not only the definitions known at startup: a definition added to the database later
         // can then resolve its existing client word and art without a code change.
         var byWord = new Dictionary<int, string>();
-        for (int i = 0; i < words.RootElement.GetArrayLength(); i++)
-            if (words.RootElement[i].GetProperty("Wordlist").GetInt32() == 6
-                && words.RootElement[i].GetProperty("Text").GetString() is { Length: > 0 } text)
+        for (int i = 0; i < words.Count; i++)
+            if (words[i].Int("Wordlist") == 6
+                && words[i].Text("Text") is { Length: > 0 } text)
                 byWord[i] = text;
-        foreach (var r in layout.RootElement.EnumerateArray())
+        foreach (var r in layout)
         {
-            int wordsKey = r.GetProperty("WordsKey").GetInt32(), visualKey = r.GetProperty("ItemVisualIdentityKey").GetInt32();
+            int wordsKey = r.Int("WordsKey"), visualKey = r.Int("ItemVisualIdentityKey");
             if (!byWord.TryGetValue(wordsKey, out string? name) || visualKey < 0
-                || visualKey >= visuals.RootElement.GetArrayLength()) continue;
+                || visualKey >= visuals.Count) continue;
             name = NameKey(name);
             // A unique can have a second row with its alternate art (Headhunter2.dds); the ordinary art is the item's.
-            if (r.TryGetProperty("IsAlternateArt", out var alternate) && alternate.GetBoolean() && result.ContainsKey(name)) continue;
-            result[name] = new(words.RootElement[wordsKey].GetProperty("HASH32").GetUInt32(),
-                (ushort)visuals.RootElement[visualKey].GetProperty("HASH16").GetInt32());
+            if (r.BoolOrNull("IsAlternateArt") == true && result.ContainsKey(name)) continue;
+            result[name] = new(words[wordsKey].UInt("HASH32"),
+                (ushort)visuals[visualKey].Int("HASH16"));
         }
         return result;
     }

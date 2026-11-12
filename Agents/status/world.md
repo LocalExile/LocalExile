@@ -60,7 +60,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   arrives at its "entranceNdisabled" point (The Flooded Depths → The Submerged Passage's Depths return);
   Resurrect at Checkpoint revives there, or next to the area's waypoint once the character has activated it.
   `/tp` (dev) teleports the player to a cell or next to a named monster, NPC, transition, waypoint or captured object.
-  Code: `AreaLayout.Arrival`, `TeleportTargets.cs`, Gateway.
+  Code: `AreaLayout.Arrival`, Gateway; `/tp` is the `gm-commands` mod's (`Rules.TeleportTargets.cs`, LocalExile-Mods).
   Docs: [09](../docs/protocol/09-area-change.md) §4.
 - Instances: one per town (all 12 act towns from WorldAreas `IsTown`);
   other areas get private instances that live 6 minutes once empty.
@@ -90,9 +90,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). It
-  handles pickup/attack recovery, corpse collision and ground melee/chest approach;
-  crowd and predictive gaps remain ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
+- Lockstep is served whenever the client picks it (no server setting; the log notes Predictive is preferred). The
+  player's walk, attacks, spells (holds, repeats, channels, instant skills), pick-ups and object uses, monsters'
+  orders, hit recoveries, emerges and corpses, phasing and immobile monster types, and other players (copies stepped
+  in the observer's own frames) follow the client's frame rules, and world messages go out as explicit records in the
+  client's key order. On the 3.29.3b client held walks and pack fights with a wand, a bow and a sword stayed on the
+  client's cells; this is not measured again on 3.29.3c. Not validated: bosses with scripted movement, most gem
+  skills, the encounters that still send their own objects' messages outside the frame's records, and a real
+  network link. In both modes the King's scripted actions share its swing sequence and its dashes carry its origin,
+  an emerge ends with its clip, and a predictive player's pursuit retries at the client's interval and keeps its
+  stop's step time ([07](../docs/protocol/07-latency-visibility-movement.md) §5, §6).
 - League isolation is enforced by full league for towns and instance selection.
   SSF wilderness instances and Gateway ground-item state additionally belong to the stable character ID.
   Another character, including one reusing a deleted name, cannot inherit or join that state.
@@ -129,7 +136,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   it corrects errors of 20 cells or more and leaves smaller ones alone.
   Native-client checks cover a normal zombie, unique Hillock and an injected remote player object.
   Remote player creation, movement, life, departure and skill actions are replicated.
-  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Program.LivingCollision.cs`, `InstancePlayers.cs`.
+  Code: `LivingCollision.cs`, `ClientState.LivingCollision.cs`, `Modules/Core/Game/Combat/LivingCollision.cs`, `InstancePlayers.cs`.
   Docs: [07](../docs/protocol/07-latency-visibility-movement.md).
 - **Shared instance** (two clients, 2026-11-05): an instance's monsters are its own (`InstanceWorld`), on its clock and
   ids; every client is shown them, any player's hits hurt the same ones and each monster targets the nearest player.

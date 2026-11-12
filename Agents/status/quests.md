@@ -16,7 +16,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   character has `CompletedAllTutorials`); his death levels the character to 2, removes the wall and creates the gate
   into Lioneye's Watch (the Gateway checks the flag too); Portal Scrolls do nothing on the Strand (its area mod
   MapNoPortals); no Resurrect in Town before a town.
-  Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `AreaModCatalog.cs`.
+  Code: `Act1.cs`, `BossFights.cs`, `QuestBarriers` (QuestObjects module), `Rules.AreaModCatalog.cs` (Portals module).
   Docs: [12](../docs/protocol/12-quests.md) §5–6.
 - a1q4 "Breaking Some Eggs" in The Mud Flats (played through live, seed 1): the three Rhoa Nests stand at the captured
   tile records and each drops its glyph once per instance while the character still needs it.
@@ -57,9 +57,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest chest and Rhoa Nest markers disappear for the character once their item is collected or handed in.
   Quest passive points (QuestStaticRewards) are counted from the flags into the tree's `extra_skill_points` and stay
   after a relog; refund points are credited once (the Book of Regrets: 54 → 56); QuestStaticRewards' stats are stat
-  sources. `QuestSimulator` plays an act's events through the engine; `QuestEngineTests` checks Acts 1–6 against
-  `Act1Complete`, `Act2CompleteEramir`, `Act3Complete`, `Act4Complete` and every Act 5 and 6 quest's "complete" row,
-  and Acts 7–10 and the Epilogue after them against `E3EndOfAct8` and `EpilogueAtlasDemo`.
+  sources. `QuestSimulator` plays an act's events through the engine; no test runs it since the Gateway tests were wiped.
   What existing saves see: a character with `a10q3-SeenBoss` but without `EndGameAvailable` earned no longer has the
   Act 10 −30% resistance penalty (it follows `EndGameAvailable`, QuestStaticRewards 39); a second copy of a quest book
   (from `/item`) is used up without its points once the first was used; a quest item lying on the ground after its
@@ -96,7 +94,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   the gem), a2q8 (the Ancient Seal, the Dark Altar, the Vaal Oversoul, the pyramid's exit), a3q1–a3q5, a3q8, a3q9,
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
-  Act 2/3 quest log at "Quest Complete".
+  Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
+  are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
   The Library's candle opens the hidden door for the instance only.

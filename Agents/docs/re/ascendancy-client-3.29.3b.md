@@ -74,7 +74,7 @@ The secondary-ascendancy equivalents are `+0x284` and `+0x290`.
 An audit of all 40 extracted choices confirms unique `(family, packed class byte)` identities, one start per choice,
 three normal plus three Phrecia choices per non-Scion base class, and three normal plus one Phrecia choice for Scion.
 All 19 family pairs share their base class, ClassNo and start ID. This is a data/codec audit, not a live mechanics
-test of every class. `AscendancyWireIdentityTests` repeats it when the exact game data is extracted.
+test of every class.
 
 ## Exact PSG format and extraction
 

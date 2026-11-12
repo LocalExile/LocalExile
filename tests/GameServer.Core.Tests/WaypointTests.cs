@@ -73,29 +73,24 @@ public class WaypointTests
     [Fact]
     public void Waypoint_areas_are_the_has_waypoint_rows_of_kinds_1_2_5_11_in_table_order()
     {
-        string path = Path.Combine(Path.GetTempPath(), $"WorldAreas-{Guid.NewGuid():N}.json");
-        File.WriteAllText(path, """
+        var areas = TestTables.Rows("WorldAreas", """
             [{"Id":"1_1_1","Name":"The Twilight Strand","IsTown":false,"HasWaypoint":false,"HASH16":1,"__col51":2},
              {"Id":"1_1_town","Name":"Lioneye's Watch","IsTown":true,"HasWaypoint":true,"HASH16":9052,"__col51":1},
              {"Id":"1_1_2","Name":"The Coast","IsTown":false,"HasWaypoint":true,"HASH16":31442,"__col51":2},
              {"Id":"HideoutX","Name":"A hideout","IsTown":false,"HasWaypoint":true,"HASH16":5,"__col51":16},
              {"Id":"Labyrinth_Airlock","Name":"Aspirants' Plaza","IsTown":false,"HasWaypoint":true,"HASH16":65071,"__col51":11}]
             """);
-        try
-        {
-            var w = WorldAreaWaypoints.Load(path);
-            Assert.Equal(["1_1_town", "1_1_2", "Labyrinth_Airlock"], w.Entries.Select(e => e.Id));
-            Assert.Equal(1, w.BitOf(0x7ad2));
-            Assert.Null(w.BitOf(1));
-            Assert.True(w.Find(0x235c)!.IsTown);
-        }
-        finally { File.Delete(path); }
+        var w = WorldAreaWaypoints.Load(areas);
+        Assert.Equal(["1_1_town", "1_1_2", "Labyrinth_Airlock"], w.Entries.Select(e => e.Id));
+        Assert.Equal(1, w.BitOf(0x7ad2));
+        Assert.Null(w.BitOf(1));
+        Assert.True(w.Find(0x235c)!.IsTown);
     }
 
     [Fact]
     public void The_real_table_has_90_waypoints_from_lioneyes_watch_to_aspirants_plaza()
     {
-        string? table = FindUp("data/tables/WorldAreas.json");
+        var table = TestTables.Real("WorldAreas");
         if (table is null) return;   // needs the extracted game data
         var w = WorldAreaWaypoints.Load(table);
         Assert.Equal(90, w.Entries.Count);
@@ -134,17 +129,11 @@ public class WaypointTests
     [Fact]
     public void Waypoint_areas_carry_their_access_flags()
     {
-        string? table = FindUp("data/tables/WorldAreas.json");
+        var table = TestTables.Real("WorldAreas");
         if (table is null) return;
         var w = WorldAreaWaypoints.Load(table);
         Assert.Equal([0], w.Find(0x235c)!.AccessFlags);     // a1q1-KilledHillock
         Assert.Equal([24], w.Find(0x3275)!.AccessFlags);    // The Submerged Passage: a1q4-PlacedGlyphs
     }
 
-    static string? FindUp(string relative)
-    {
-        for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, relative))) return Path.Combine(dir.FullName, relative);
-        return null;
-    }
 }

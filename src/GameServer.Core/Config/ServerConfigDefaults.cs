@@ -96,7 +96,8 @@ Chat.Port = 6113
 # CLIENT
 #
 #    Client.Folder
-#        The Path of Exile 3.29.3c client folder (Content.ggpk, Game.exe),
+#        The Path of Exile 3.29.3c client folder (Game.exe and Content.ggpk,
+#        or a Steam install's Bundles2),
 #        relative to the repository root (or the release
 #        folder) or absolute. A repository checkout's
 #        scripts/dev/live.ps1 always uses Client.

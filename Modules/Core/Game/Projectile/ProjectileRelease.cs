@@ -35,7 +35,7 @@ public static partial class Game
                     ? width / 10.869565 : 60 / 10.869565,
                 FixedDegrees = get("projectile_remove_default_spread") != 0 ? -1 : get("fixed_projectile_spread"),
                 SpreadPercent = get("multiple_projectiles_projectile_spread_+%"),
-                Nova = get("projectiles_nova") != 0
+                Nova = profile.NativeVolley?.Nova == true || get("projectiles_nova") != 0
             }
         };
     }
@@ -148,6 +148,14 @@ public static partial class Game
                     Legs = _ => new SpectralThrowLegs(thrown), LegLeash = SpectralThrowLegs.Leash(thrown), ReturnOvershoot = 0,
                     ReturnSpeedMultiplier = use.Profile.ReturnSpeedMultiplier * SpectralThrowLegs.ReturnSpeedMultiplier
                 }
+            };
+        }
+        if (GatewayProjectileSkillProfiles.IsKineticBolt(SkillsFor(conn).EffectId(gem.Effect) ?? ""))
+        {
+            return use with
+            {
+                Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
+                Profile = GatewayProjectileSkillProfiles.WithKineticBoltLegs(use.Profile, sequence)
             };
         }
         if (SkillsFor(conn).EffectId(gem.Effect) is not ("Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark")) return use;
@@ -312,7 +320,9 @@ public static partial class Game
             // Spectral Throw's action draws its own weapon too (Frida 2026-11-02): a server object was a second one.
             // Arrow Nova's volley is drawn by the client (the 18 SplitArrowDefault children were client objects), but
             // its payload arrow is not, so the server still sends that one object.
-            ClientPredicted = totem is not null || spell || SkillsFor(conn).EffectId(gem.Effect) == "SpectralThrow",
+            // Kinetic Bolt's ZigZagProjectile action creates and zig-zags both primary and secondary projectiles locally.
+            ClientPredicted = totem is not null || spell
+                || SkillsFor(conn).EffectId(gem.Effect) is "SpectralThrow" or "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY",
             // Only where the skill's recipe draws nothing of its own (PresentationFor prefers this one).
             Presentation = rain
                 // Arrow Nova's payload is the support's rain rig: the official server sends no payload object, only

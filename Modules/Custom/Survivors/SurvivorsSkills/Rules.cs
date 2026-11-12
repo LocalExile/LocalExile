@@ -78,23 +78,14 @@ static partial class SurvivorsSkills
     internal static readonly Lazy<IReadOnlyDictionary<int, int>> HeraldBuffRows = new(() =>
     {
         var result = new Dictionary<int, int>();
-        string folder = Path.Combine("data", "tables");
-        if (!ClientTables.Exists(Path.Combine(folder, "GrantedEffects.json")) || !ClientTables.Exists(Path.Combine(folder, "ActiveSkills.json"))
-            || !ClientTables.Exists(Path.Combine(folder, "BuffDefinitions.json"))) return result;
-        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "GrantedEffects.json")));
-        using var actives = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "ActiveSkills.json")));
-        using var buffs = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "BuffDefinitions.json")));
+        if (ClientTables.TableOrNull("GrantedEffects") is not { } effects || ClientTables.TableOrNull("ActiveSkills") is not { } actives
+            || ClientTables.TableOrNull("BuffDefinitions") is not { } buffs) return result;
         var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < buffs.RootElement.GetArrayLength(); i++)
-            if (buffs.RootElement[i].TryGetProperty("Id", out var id) && id.GetString() is { } name) byId[name] = i;
-        for (int row = 0; row < effects.RootElement.GetArrayLength(); row++)
-        {
-            if (!effects.RootElement[row].TryGetProperty("ActiveSkill", out var active) || active.ValueKind != JsonValueKind.Number) continue;
-            int at = active.GetInt32();
-            if (at < 0 || at >= actives.RootElement.GetArrayLength()) continue;
-            if (actives.RootElement[at].TryGetProperty("Id", out var skill) && skill.GetString() is { } effectId
-                && byId.TryGetValue(effectId, out int buff)) result[row] = buff;
-        }
+        foreach (var b in buffs)
+            if (b.TextOrNull("Id") is { } name) byId[name] = b.Index;
+        foreach (var effect in effects)
+            if (effect.IntOrNull("ActiveSkill") is int at && actives.Row(at) is { } active
+                && active.TextOrNull("Id") is { } effectId && byId.TryGetValue(effectId, out int buff)) result[effect.Index] = buff;
         return result;
     });
 
@@ -140,14 +131,13 @@ static partial class SurvivorsSkills
         ushort id = SurvivorsSkillId(skill);
         if (id == 0) return;
         foreach (var aim in aims)
-            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, id, aim.X, aim.Y),
                 $"0x01ce survivors skill 0x{id:x4} used at ({aim.X}, {aim.Y})", still: () => ownership.Current);
         if (!ownership.Current) return;
         var definition = StateOf(conn).SurvivorsCatalog is { } catalog && skill < catalog.Count ? catalog[skill] : null;
         float total = (definition is null ? 1000 : SurvivorsSkillCooldownMs(definition, rank)) / 1000f;
         float remaining = (float)Math.Clamp(interval, 0, total);
-        await Send(remote, stream, ciphers,
-            InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.PlayerSingleUseCooldowns(PlayerId, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
             $"0x02bc survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
     }
 
@@ -539,7 +529,7 @@ static partial class SurvivorsSkills
             await SurvivorsPlayCastAnimation(remote, stream, ciphers, conn, skill, cast.Interval);
             if (!ownership.Current) return 0;
             ushort pulseId = SurvivorsSkillId(skillIndex);
-            await Send(remote, stream, ciphers, InstanceProtocol.InstantAction(PlayerId, pulseId, origin.X, origin.Y),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.InstantAction(PlayerId, pulseId, origin.X, origin.Y),
                 $"0x01ce survivors pulse 0x{pulseId:x4} {skill.Name} around ({origin.X}, {origin.Y})", still: () => ownership.Current);
             if (!ownership.Current) return 0;
             await SendSurvivorsCooldown(remote, stream, ciphers, conn, skillIndex, rank, [origin], cast.Interval);
@@ -593,7 +583,7 @@ static partial class SurvivorsSkills
         if (Animations.CastClip(ao, WeaponProfileFor(conn, activeSet: true), kind) is not { } clip) return;
         float speed = interval > 0 && clip.LengthMs > 0
             ? (float)Math.Clamp(clip.LengthMs / 1000.0 / interval, 0.1, 10) : 1;
-        await Send(remote, stream, ciphers, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.AnimationUpdate(PlayerId, 0, clip.Index, speed),
             $"0x01b2 survivors cast {clip.Name} ({kind}) for {skill.Name}: index {clip.Index}, " +
             $"{clip.LengthMs} ms over {interval:0.00} s (speed {speed:0.##})", still: () => ownership.Current);
     }
@@ -616,17 +606,16 @@ static partial class SurvivorsSkills
             id = conn.NextObjectId++;
             StateOf(conn).Effects.Add(id);
         }
-        await Send(remote, stream, ciphers,
-            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, ao).Blob()),
             $"0x02bb survivors herald {label} effect 0x{id:x} {ao} at ({x}, {y})", still: () => ownership.Current);
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null, still: () => ownership.Current);
         _ = Task.Run(async () =>
         {
             try { await Task.Delay(ms, ownership.Token); }
             catch (OperationCanceledException) when (ownership.Token.IsCancellationRequested) { }
             if (conn.ProjectileActive(epoch))
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+                await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
             lock (conn.Monsters) StateOf(conn).Effects.Remove(id);
         });
     }
@@ -681,12 +670,11 @@ static partial class SurvivorsSkills
             id = conn.NextObjectId++;
             orbs.Add(new(id, at.X, at.Y, experience));
         }
-        await Send(remote, stream, ciphers,
-            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(at.X, at.Y, SurvivorsOrbArt) { Scale = SurvivorsOrbScale }.Blob()),
             $"0x02bb survivors xp orb 0x{id:x} {experience} xp at ({at.X}, {at.Y})",
             still: () => StateOf(conn).Survivors is not null);
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
     }
 
@@ -705,7 +693,7 @@ static partial class SurvivorsSkills
         }
         foreach (var orb in taken)
         {
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(orb.Id), null,
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, orb.Id, null,
                 still: () => StateOf(conn).Survivors is not null);
             run.RecordOrbExperience(orb.Experience);
         }
@@ -727,7 +715,7 @@ static partial class SurvivorsSkills
             StateOf(conn).SurvivorsOrbs.Clear();
         }
         foreach (uint id in ids)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
     }
 
     /// <summary>Removes the run's death ground zones from the client and the state (run end or a fresh start).</summary>
@@ -741,7 +729,7 @@ static partial class SurvivorsSkills
             StateOf(conn).SurvivorsGroundZones.Clear();
         }
         foreach (uint id in ids)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null);
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null);
     }
 
     /// <summary>Drops one death ground zone for a killed monster: 50/50 under the monster or under the player, drawn
@@ -763,12 +751,11 @@ static partial class SurvivorsSkills
                 conn.Clock.Elapsed.TotalSeconds + SurvivorsRules.DeathZoneDurationSeconds,
                 SurvivorsRules.DeathZoneDamagePerSecond((int)conn.PlayerMaxLife)));
         }
-        await Send(remote, stream, ciphers,
-            InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+        await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 new EffectObject(x, y, SurvivorsDeathZoneArt).Blob()),
             $"0x02bb survivors death zone 0x{id:x} at ({x}, {y})",
             still: () => StateOf(conn).Survivors is not null);
-        await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(id), null,
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), null,
             still: () => StateOf(conn).Survivors is not null);
     }
 
@@ -800,7 +787,7 @@ static partial class SurvivorsSkills
             }
         }
         foreach (uint id in remove)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null,
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null,
                 still: () => StateOf(conn).Survivors is not null);
     }
 
@@ -824,7 +811,7 @@ static partial class SurvivorsSkills
                 if (Dist(here, (zone.X, zone.Y)) <= zone.Radius) { damagePerSecond = zone.DamagePerSecond; break; }
         }
         foreach (uint id in expired)
-            await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), null,
+            await global::Game.SendWorldRemoval(remote, stream, ciphers, conn, id, null,
                 still: () => StateOf(conn).Survivors is not null);
         if (damagePerSecond <= 0 || step <= 0) return;
         int damage = (int)Math.Round(damagePerSecond * step);
@@ -836,7 +823,7 @@ static partial class SurvivorsSkills
             life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
             conn.PlayerLife = life;
         }
-        await Send(remote, stream, ciphers, InstanceProtocol.LifeUpdate(PlayerId, life), "survivors death zone drain",
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life), "survivors death zone drain",
             still: () => StateOf(conn).Survivors is not null);
     }
 
@@ -1178,16 +1165,14 @@ static partial class SurvivorsSkills
             ushort skillId = SurvivorsSkillId(index);
             ushort aura = conn.NextBuff++;
             StateOf(conn).SurvivorsHeraldBuffs.Add(aura);
-            await Send(remote, stream, ciphers,
-                InstanceEntities.AddBuff(PlayerId, aura, (ushort)row, PlayerId, skillId, auraSource: true, displayState: 0),
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, aura, (ushort)row, PlayerId, skillId, auraSource: true, displayState: 0),
                 $"0x01c1 survivors herald aura {catalog[index].Name} (BuffDefinitions row {row})", still: () => ownership.Current);
             if (!ownership.Current) return;
             if (SkillsFor(conn).ActionHash(catalog[index].Effect) is ushort action)
             {
                 ushort icon = conn.NextBuff++;
                 StateOf(conn).SurvivorsHeraldBuffs.Add(icon);
-                await Send(remote, stream, ciphers,
-                    InstanceEntities.AddBuff(PlayerId, icon, (ushort)row, PlayerId, skillId, activeSkill: (skillId, action)),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, icon, (ushort)row, PlayerId, skillId, activeSkill: (skillId, action)),
                     $"0x01c1 survivors herald icon {catalog[index].Name}", still: () => ownership.Current);
             }
         }
@@ -1204,7 +1189,7 @@ static partial class SurvivorsSkills
             StateOf(conn).SurvivorsHeraldSkills.Clear();
         }
         foreach (ushort buff in buffs)
-            await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(PlayerId, buff), $"0x01c2 survivors herald buff {buff}");
+            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, buff), $"0x01c2 survivors herald buff {buff}");
     }
 
 }

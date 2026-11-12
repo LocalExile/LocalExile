@@ -63,35 +63,34 @@ public sealed class MapDevice
     {
         var byType = new Dictionary<uint, MapArea>();
         var byFragment = new Dictionary<uint, MapArea>();
-        string maps = Path.Combine(folder, "tables", "Maps.json"), areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (ClientTables.Exists(maps) && ClientTables.Exists(areas))
+        if (ClientTables.Has("Maps") && ClientTables.Has("WorldAreas"))
         {
-            using var m = GameTables.Open(maps);
-            using var a = GameTables.Open(areas);
-            int areaCount = a.RootElement.GetArrayLength();
-            foreach (var row in m.RootElement.EnumerateArray())
+            var m = ClientTables.Table("Maps");
+            var a = ClientTables.Table("WorldAreas");
+            int areaCount = a.Count;
+            foreach (var row in m)
             {
-                if (row.GetProperty("BaseItemTypesKey") is not { ValueKind: JsonValueKind.Number } item
-                    || row.GetProperty("Regular_WorldAreasKey") is not { ValueKind: JsonValueKind.Number } area
-                    || area.GetInt32() >= areaCount || hashOfRow(item.GetInt32()) is not uint hash) continue;
-                var wa = a.RootElement[area.GetInt32()];
-                byType.TryAdd(hash, new MapArea((ushort)wa.GetProperty("HASH16").GetInt32(), wa.GetProperty("Id").GetString() ?? "",
-                    wa.GetProperty("Name").GetString() ?? "", row.GetProperty("Tier").GetInt32())
+                if (row.IntOrNull("BaseItemTypesKey") is not int item
+                    || row.IntOrNull("Regular_WorldAreasKey") is not int area
+                    || area >= areaCount || hashOfRow(item) is not uint hash) continue;
+                var wa = a[area];
+                byType.TryAdd(hash, new MapArea((ushort)wa.Int("HASH16"), wa.Text("Id") ?? "",
+                    wa.Text("Name") ?? "", row.Int("Tier"))
                 {
-                    Level = wa.GetProperty("AreaLevel").GetInt32(),
+                    Level = wa.Int("AreaLevel"),
                 });
             }
             // A map fragment may open an area by itself: An Audience With The King opens the Crux of Nothingness.
             // The fragment's BaseItemTypes row is the map-device slot's type hash, not a Maps.dat row.
             if (catalog?.Find("Metadata/Items/MapFragments/RitualBossFragment") is { } fragment)
                 for (int i = 0; i < areaCount; i++)
-                    if (a.RootElement[i].GetProperty("Id").GetString() == "AzmeriLeagueBoss")
+                    if (a[i].Text("Id") == "AzmeriLeagueBoss")
                     {
-                        var wa = a.RootElement[i];
-                        byFragment[fragment.Hash] = new MapArea((ushort)wa.GetProperty("HASH16").GetInt32(),
-                            wa.GetProperty("Id").GetString() ?? "", wa.GetProperty("Name").GetString() ?? "", 0)
+                        var wa = a[i];
+                        byFragment[fragment.Hash] = new MapArea((ushort)wa.Int("HASH16"),
+                            wa.Text("Id") ?? "", wa.Text("Name") ?? "", 0)
                         {
-                            Level = wa.GetProperty("AreaLevel").GetInt32(),
+                            Level = wa.Int("AreaLevel"),
                         };
                         break;
                     }
@@ -103,21 +102,20 @@ public sealed class MapDevice
 
     static List<MapArea?> LoadWorldAreas(string folder)
     {
-        string areas = Path.Combine(folder, "tables", "WorldAreas.json");
-        if (!ClientTables.Exists(areas)) return [];
-        using var a = GameTables.Open(areas);
-        var list = new List<MapArea?>(a.RootElement.GetArrayLength());
-        foreach (var wa in a.RootElement.EnumerateArray())
+        if (!ClientTables.Has("WorldAreas")) return [];
+        var a = ClientTables.Table("WorldAreas");
+        var list = new List<MapArea?>(a.Count);
+        foreach (var wa in a)
         {
-            if (wa.GetProperty("HASH16") is not { ValueKind: JsonValueKind.Number } hash)
+            if (wa.IntOrNull("HASH16") is not int hash)
             {
                 list.Add(null);
                 continue;
             }
-            list.Add(new MapArea((ushort)hash.GetInt32(), wa.GetProperty("Id").GetString() ?? "",
-                wa.GetProperty("Name").GetString() ?? "", 0)
+            list.Add(new MapArea((ushort)hash, wa.Text("Id") ?? "",
+                wa.Text("Name") ?? "", 0)
             {
-                Level = wa.TryGetProperty("AreaLevel", out var lv) && lv.ValueKind == JsonValueKind.Number ? lv.GetInt32() : 0,
+                Level = (wa.IntOrNull("AreaLevel") ?? 0),
             });
         }
         return list;
@@ -250,6 +248,11 @@ public sealed class MapDevice
     /// <summary>The character's open map when they are in that area.</summary>
     public static OpenMap? Current(string character, ushort areaHash) =>
         OpenOf(character) is { } open && open.Area.Hash16 == areaHash ? open : null;
+
+    /// <summary>The map owner and run for this exact instance, including guests after its owner leaves.</summary>
+    public static (string Owner, OpenMap Map)? InInstance(ushort areaHash, ulong instance) =>
+        Open.Where(p => p.Value.Area.Hash16 == areaHash && p.Value.Instance == instance && instance != 0)
+            .Select(p => ((string Owner, OpenMap Map)?)(p.Key, p.Value)).FirstOrDefault();
 
     /// <summary>Takes the portal at place <paramref name="index"/> of the character's open map, so it does not come back.
     /// Returns the map as it was (its instance to enter, 0 for a new one) and how many portals are left, or null when no

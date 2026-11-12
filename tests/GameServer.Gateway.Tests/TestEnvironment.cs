@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using GameServer.Core;
 
 namespace GameServer.Gateway.Tests;
 

@@ -19,7 +19,7 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
         var own = skillConversion.ToDictionary(kv => kv.Item1, kv => kv.Item2);
         foreach (var (key, value) in own) conversion.TryAdd(key, value);
         var hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get), Get,
-            DamageStats.Conversion(conversion, catalog, attack: true), spell: false, projectile: true), Get), Get);
+            DamageStats.Conversion(conversion, catalog, attack: true), spell: false, projectile: true, wieldingBow: weapon.Bow), Get), Get);
         var impale = ImpaleStats.From(character, catalog, attack: true, own, weapon.LocalSources);
         return new(hit, accuracy, criticalChance, criticalMultiplier, impale.Chance)
         { ImpaleSettings = impale,

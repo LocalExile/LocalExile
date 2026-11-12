@@ -90,7 +90,10 @@ public static partial class Game
     /// The aura is its own buff (as a self aura's source buff is): its EPK draws the soul visuals; the counted buff is the
     /// icon the client shows.</summary>
     public static byte[]? SoulEaterPresentation(ClientState conn, string remote, NetworkStream stream,
-        ConnectionCiphers ciphers)
+        ConnectionCiphers ciphers) => SoulEaterRecords(conn, new WorldRecordBuilder(conn, null)) is { } batch
+            ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
+
+    static OutputBatch? SoulEaterRecords(ClientState conn, WorldRecordBuilder bytes)
     {
         lock (conn.Monsters)
         {
@@ -105,7 +108,6 @@ public static partial class Game
             bool statsChanged = auraChanged || stacks != conn.SoulEater.SentStacks || usingFlask != conn.SoulEater.SentUsingFlask;
             if (!active) conn.SoulEater.Souls.Clear();
             if (!statsChanged && conn.SoulEater.Souls.Count == 0) return null;
-            var bytes = new List<byte>();
             if (conn.SoulEater.Souls.Count > 0)
             {
                 // One line per soul, from the corpse to the player, as the official server's ServerBeamEffect.
@@ -113,10 +115,10 @@ public static partial class Game
                 foreach (var (soulId, sx, sy) in conn.SoulEater.Souls)
                 {
                     uint beam = conn.NextObjectId++;
-                    bytes.AddRange(InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
+                    bytes.Create(beam, InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
                         new BeamEffectObject(sx, sy, soulId, px * BeamEffectObject.WorldPerCell,
                             py * BeamEffectObject.WorldPerCell, PlayerId).Blob()));
-                    bytes.AddRange(InstanceProtocol.EnterWakeZone(beam));
+                    bytes.Presentation(beam, InstanceProtocol.EnterWakeZone(beam));
                     // The connection owns the expiry so the replacement Game module can retire it after a reload.
                     conn.TemporarySkillEffects[beam] = AreaTime(conn) + 0.6;
                 }
@@ -126,13 +128,13 @@ public static partial class Game
             {
                 if (!active)
                 {
-                    bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.AuraBuff));
+                    bytes.World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.AuraBuff));
                     conn.SoulEater.AuraBuff = 0;
                 }
                 else
                 {
                     conn.SoulEater.AuraBuff = conn.NextBuff++;
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.SoulEater.AuraBuff, SoulEaterAuraRow, PlayerId,
+                    bytes.World(PlayerId, InstanceEntities.AddBuff(PlayerId, conn.SoulEater.AuraBuff, SoulEaterAuraRow, PlayerId,
                         auraSource: true, displayState: 0));
                 }
             }
@@ -140,13 +142,13 @@ public static partial class Game
             {
                 if (stacks == 0)
                 {
-                    if (conn.SoulEater.Buff != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.Buff));
+                    if (conn.SoulEater.Buff != 0) bytes.World(PlayerId, InstanceEntities.RemoveBuff(PlayerId, conn.SoulEater.Buff));
                     conn.SoulEater.Buff = 0;
                 }
                 else
                 {
                     if (conn.SoulEater.Buff == 0) conn.SoulEater.Buff = conn.NextBuff++;
-                    bytes.AddRange(InstanceEntities.AddBuff(PlayerId, conn.SoulEater.Buff, SoulEaterBuffRow, PlayerId,
+                    bytes.World(PlayerId, InstanceEntities.AddBuff(PlayerId, conn.SoulEater.Buff, SoulEaterBuffRow, PlayerId,
                         stacks: (ushort)Math.Min(ushort.MaxValue, stacks)));
                 }
             }
@@ -154,18 +156,18 @@ public static partial class Game
             {
                 // Attack and cast speed are in the character's stats; the skill list carries the attack time the client
                 // swings with, so both go out when a soul is gained or lost.
-                bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
-                bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
+                bytes.World(PlayerId, PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
+                bytes.World(PlayerId, PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
                 conn.SoulEater.SentStacks = SoulEaterCount(conn, now);
                 conn.SoulEater.SentUsingFlask = usingFlask;
                 Console.WriteLine($"[gateway] {CharacterName(conn)} Soul Eater {conn.SoulEater.SentStacks}/{conn.SoulEater.Limit}");
             }
-            return [.. bytes];
+            return bytes.Build();
         }
     }
 
     public static Task SendSoulEater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn) =>
-        Send(remote, stream, ciphers, [], null, atGate: () => SoulEaterPresentation(conn, remote, stream, ciphers));
+        SendWorldBatch(conn, [], admission => SoulEaterRecords(conn, new(conn, admission)), transport: (remote, stream, ciphers));
 
     // The souls the client should see: none while the source is off or the player is dead, otherwise the decaying count.
     static int SoulEaterCount(ClientState conn, double now) =>

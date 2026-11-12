@@ -17,7 +17,7 @@ yet confirmed on screen).
 - **A kill** (`MonsterKilled`): the player gains experience when alive and within `Game_XP_RANGE` cells (default 150)
   of the monster when it dies (melee, Fireball or Righteous Fire). Amount (`Progression.MonsterExperience`):
   DefaultMonsterStats `Experience` at the monster's level × MonsterVarieties `ExperienceMultiplier` / 100 × rarity ×
-  the level penalty × the party share, rounded. The rarity multipliers are the hidden rarity mods in Mods.json
+  the level penalty × the party share, rounded. The rarity multipliers are the hidden rarity mods in the Mods table
   (`monster_slain_experience_+%`): magic +250% (×3.5), rare +750% (×8.5), unique +450% (×5.5).
 - **Level penalty** (`Progression.LevelPenalty`, the wiki's Experience page): safe zone 3 + level / 16; beyond it, with d
   the levels past it, ((L + 5) / (L + 5 + d^2.5))^1.5, at least 0.01 (L = the player's level). At level 95 and above
@@ -96,6 +96,10 @@ yet confirmed on screen).
   with the node's (`Passives.Stats`). Block Mastery's four effects are max attack block +2, max spell block +2, 20
   life and 20 mana gained on block, and +1% spell block per 5% attack block (the last is applied after the shield's
   base block).
+  Fire Mastery's "1 Life regenerated per second per 1% uncapped fire resistance" counts in life regeneration, for
+  positive resistance only. Wand Mastery's wand-only effects (an extra attack projectile, accuracy equal to
+  Intelligence) count only while a wand is held; its 0.5% attack life and mana leech is a generic effect that applies
+  with any weapon. Spellslinger's reservation efficiency has no consumer while Spellslinger is unimplemented.
 - **Stats** (`PassiveBonus`, `BaseStats`): the nodes' stats summed; attributes (`base_*`, `additional_*`, all and
   pairs), flat and increased life and mana, increased evasion, energy shield and melee physical damage go into the
   pools ([11](11-skills.md) §4); the other stats are sent as they are (the character panel shows them; nothing uses
@@ -133,7 +137,7 @@ The ordinary tree's 21 large jewel sockets are the client's `PassiveJewels1` inv
 inventory id 24, 60x1). Pane cell `x` is the `PassiveJewelSlots.dat` row; that row's first column (`Slot`) is the
 `PassiveSkills.dat` row of the socket node. Rows 21-56 are cluster-jewel expansion slots and rows 57-59 are
 ascendancy charm sockets, so only slots 0-20 are ordinary jewel sockets. `PassiveTree.JewelNodeForSlot` and
-`JewelSlotForNode` expose this mapping from `PassiveJewelSlots.json` and `PassiveSkills.json`.
+`JewelSlotForNode` expose this mapping from `PassiveJewelSlots` and `PassiveSkills`.
 
 A jewel is moved in like any inventory item: C->S 0x2a places the held item at (slot, 0), 0x4a swaps it onto an
 occupied cell, and 0x28 picks it up. The server checks that the slot is an ordinary socket, its node is allocated in
@@ -230,6 +234,13 @@ and league bases), item level = the monster's level, +1 magic, +2 rare, +3 uniqu
 unique, rare or magic, raised by item rarity. A unique is chosen among its base's by the inverse of its
 `VillageUniqueDisenchantValues` value (the client's measure of a unique's rarity; `RuthlessValue` in Ruthless); where a
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
+So a Mageblood is about 840 times as rare as a Wanderlust. The 1,527 weights are world.db's `unique_weights` (a CHECK
+keeps each in 0..1), with `unique_weight_overrides` on top; the client table is the fallback only while world.db is
+not open. The core currency weights come from `drop_currency_weights` (the compiled table is the fallback), still
+gated by each base's DropLevel. Affix spawn and generation weights (`SpawnWeight_*`, `GenerationWeight_*`, families
+and tags) still load from JSON; moving them also needs the affix-pool cache cleared on reload.
+One drop event's stackable items of one type become stacks up to the `CurrencyItems` StackSize (twenty-one Divine
+Orbs lie as 10, 10 and 1; `ItemDrops.Stacked`).
 `DropLoot` puts each as a WorldItem
 ([13](13-items.md) §5) 3–6 cells around the corpse, on a walkable cell when the walk map is known. `Game_DROPS=0` turns
 it off. In a map, the kill also rolls the base card and scarab chances (`drop_card_chance_pct`, `drop_scarab_chance_pct`,

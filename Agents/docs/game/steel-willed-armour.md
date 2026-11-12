@@ -17,7 +17,7 @@ and multiplies at `0x1428b7522`.
 It caps that contribution at 30 at `0x1428b77e4..0x1428b77f6`.
 It separately reads generic key 8404 at `0x1428b77a3` and adds it at `0x1428b77ff`.
 The 30% cap applies to the per-contact contribution, before adding the generic chance.
-See the [address index](../protocol/address-index.md#skills-11-skillsmd).
+See the [address index](../protocol/address-index.md#skills-11).
 
 Path of Building commit `16de4b82d57f1c0de6eb40f37143c32d4da36a02` corroborates the stat interpretation:
 

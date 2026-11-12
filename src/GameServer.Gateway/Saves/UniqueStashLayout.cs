@@ -13,25 +13,24 @@ public sealed class UniqueStashLayout
 
     public static UniqueStashLayout Load(string folder)
     {
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (new[] { "UniqueStashLayout", "UniqueStashTypes", "Words", "ItemVisualIdentity" }.Any(n => !ClientTables.Exists(Table(n)))) return new();
-        using var layout = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("UniqueStashLayout")));
-        using var types = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("UniqueStashTypes")));
-        using var words = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("Words")));
-        using var visuals = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("ItemVisualIdentity")));
-        var categories = types.RootElement.EnumerateArray().Select((r, i) => (r, i))
-            .Where(t => !t.r.GetProperty("IsDisabled").GetBoolean())
-            .ToDictionary(t => (ulong)t.i + 1, t => t.r.GetProperty("Id").GetString()!);
+        if (new[] { "UniqueStashLayout", "UniqueStashTypes", "Words", "ItemVisualIdentity" }.Any(n => !ClientTables.Has(n))) return new();
+        var layout = ClientTables.Table("UniqueStashLayout");
+        var types = ClientTables.Table("UniqueStashTypes");
+        var words = ClientTables.Table("Words");
+        var visuals = ClientTables.Table("ItemVisualIdentity");
+        var categories = types.Select((r, i) => (r, i))
+            .Where(t => !t.r.Bool("IsDisabled"))
+            .ToDictionary(t => (ulong)t.i + 1, t => t.r.Text("Id")!);
         var cells = new List<Cell>();
-        foreach (var r in layout.RootElement.EnumerateArray())
+        foreach (var r in layout)
         {
-            int word = r.GetProperty("WordsKey").GetInt32(), visual = r.GetProperty("ItemVisualIdentityKey").GetInt32();
-            ulong category = (ulong)r.GetProperty("UniqueStashTypesKey").GetInt32() + 1;
-            int x = r.GetProperty("__col3").GetInt32(), y = r.GetProperty("__col4").GetInt32();
-            if (!categories.ContainsKey(category) || word < 0 || word >= words.RootElement.GetArrayLength()
-                || visual < 0 || visual >= visuals.RootElement.GetArrayLength() || x < 0 || x > 253 || y < 0 || y > 3) continue;
-            cells.Add(new(words.RootElement[word].GetProperty("Text").GetString()!, category, (byte)x, (byte)y,
-                words.RootElement[word].GetProperty("HASH32").GetUInt32(), (ushort)visuals.RootElement[visual].GetProperty("HASH16").GetInt32()));
+            int word = r.Int("WordsKey"), visual = r.Int("ItemVisualIdentityKey");
+            ulong category = (ulong)r.Int("UniqueStashTypesKey") + 1;
+            int x = r.Int("__col3"), y = r.Int("__col4");
+            if (!categories.ContainsKey(category) || word < 0 || word >= words.Count
+                || visual < 0 || visual >= visuals.Count || x < 0 || x > 253 || y < 0 || y > 3) continue;
+            cells.Add(new(words[word].Text("Text")!, category, (byte)x, (byte)y,
+                words[word].UInt("HASH32"), (ushort)visuals[visual].Int("HASH16")));
         }
         return new() { Cells = cells, Categories = categories };
     }

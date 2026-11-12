@@ -24,7 +24,7 @@ using GameServer.Core;
 /// </summary>
 public static class ClusterJewelLayout
 {
-    public enum Kind { None, Small, Notable, Socket }
+    public enum Kind { None, Small, Notable, Socket, Keystone }
 
     public sealed record Layout(int Base, int Total, Dictionary<int, Kind> ByOffset, Dictionary<int, int> NotableOrders);
 
@@ -33,17 +33,15 @@ public static class ClusterJewelLayout
     static readonly Lazy<Dictionary<int, Template>> Templates = new(() =>
     {
         var templates = new Dictionary<int, Template>();
-        string path = Path.Combine("data", "tables", "PassiveTreeExpansionJewels.json");
-        if (!ClientTables.Exists(path)) return templates;
-        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var row in document.RootElement.EnumerateArray())
+        if (!ClientTables.Has("PassiveTreeExpansionJewels")) return templates;
+        foreach (var row in ClientTables.Table("PassiveTreeExpansionJewels"))
         {
-            int size = row.GetProperty("PassiveTreeExpansionJewelSizesKey").GetInt32();
+            int size = row.Int("PassiveTreeExpansionJewelSizesKey");
             templates[size] = new(
-                [.. row.GetProperty("SmallIndices").EnumerateArray().Select(v => v.GetInt32())],
-                [.. row.GetProperty("NotableIndices").EnumerateArray().Select(v => v.GetInt32())],
-                [.. row.GetProperty("SocketIndices").EnumerateArray().Select(v => v.GetInt32())],
-                row.GetProperty("TotalIndices").GetInt32());
+                [.. row.Ints("SmallIndices")],
+                [.. row.Ints("NotableIndices")],
+                [.. row.Ints("SocketIndices")],
+                row.Int("TotalIndices"));
         }
         return templates;
     });
@@ -87,17 +85,31 @@ public static class ClusterJewelLayout
         // of it, whatever the jewel's own size.
         bool compressed = cellSize != 2;
 
+        int Offset(int index)
+        {
+            int position = ((index + start) % total + total) % total;
+            return compressed ? position / 2 : position;
+        }
+        // A single-keystone small cluster creates its only node at index zero, rotated by the cell start.
+        if (size == 0 && keystones == 1 && nodes == 1)
+            return new Layout(block, compressed ? total / 2 : total, new() { [Offset(0)] = Kind.Keystone }, []);
+
         var kinds = new Dictionary<int, Kind>();
         var orders = new Dictionary<int, int>();
         void Put(int index, Kind kind, int order = -1)
         {
-            int position = ((index + start) % total + total) % total;
-            int offset = compressed ? position / 2 : position;
+            int offset = Offset(index);
             kinds[offset] = kind;
             if (order >= 0) orders[offset] = order;
         }
 
-        if (treeSocket)
+        if (size == 1 && nodes == 4 && notables == 3 && sockets == 0)
+        {
+            // Four-node medium ring: a small at the entrance, then the three sorted notables.
+            Put(0, Kind.Small);
+            for (int i = 0; i < 3; i++) Put(3 * (i + 1), Kind.Notable, i);
+        }
+        else if (treeSocket)
         {
             // The client's template layout: sockets take the first socket positions, the notables the first free notable
             // positions in ascending order (the item's notables in the client's order), the smalls the remaining list.

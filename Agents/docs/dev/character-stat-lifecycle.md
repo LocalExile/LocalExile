@@ -2,24 +2,13 @@
 
 ## Failure and ownership
 
-Character equipment qualification is published in `Program.InactiveItems`, keyed by character name.
+Character equipment qualification is published in `Game.InactiveItems`, keyed by character name.
 An area connection has its own raw developer inputs and stat-source cache.
 The native client keeps its old socket open while the destination connection starts.
 A retired source connection could still run recovery and panel publishers and replace the destination's active-item set.
 An equipped gem's skill could disappear from the current native Actor until another stat rebuild repaired it.
 
-The common fix belongs to the character-panel prerequisite, PR #318, before ordinary Inquisitor.
-The #318 author retains ownership of `issue-75-character-stats`.
-The contributor proposal updates `candidate/pr318-main361-admission` from exact owner head
-`58edf093c7885082bf70d4ec3bc0847e27fb4ce5`, containing main
-`c1b112e4890d909a11f612a68702b514e66bdb0d` and the owner's Arcane Might/stat composition.
-The current upstream main is `4602dd8ff8321574dfc8e26de0610bd77b931186`.
-#318 still needs its author's reconciliation with that newer base before upstream readiness.
-An exact merge-tree check finds nine conflicted paths, including the replaced bow executors and panel/combat code.
-The proposal follows the owner's head without taking over that broader integration.
-It supersedes the older admission proposal; the owner already performed that merge independently.
-The earlier candidate `f651d0e6` is retained locally as `archive/pr318-admission-f651`.
-The new diff contains no Inquisitor gameplay, fixtures, data generation or catalog-path changes.
+The common fix landed with the character-panel work, PR #318 (merged 2026-10-30).
 
 ## Publication and recovery contract
 
@@ -78,28 +67,6 @@ reconciliation after a cache hit.
 Historical measurements before the three-stage integration (Release, one character in Lioneye's Watch): one snapshot 64 µs and 150 KB before, 20-22 µs and 61 KB after;
 an idle player (the connection's loops over loopback) allocates 13-14 MB/s before and 5.4-6.1 MB/s after, on The Coast
 16-18 MB/s and 7-9 MB/s; its process CPU, on a shared machine, 42-56 ms/s before and 29-37 ms/s after in town.
-
-## Automated evidence
-
-The reviewed code revision is `576625933f964c3528848ab73d774868b1985866`.
-`AscendancyGatewayIntegrationTests.StatLifecycle.cs` adds 20 generic cases using real extracted items and gems.
-It covers three stale lifecycles, a refresh retired while queued at the send gate, active publication, real
-successful-transfer retirement, resource rollback/resumption, and seven continuous publishers.
-The same-character fixture gives the earlier connection insufficient raw Dexterity and the current connection enough
-to qualify a Short Bow containing Fireball.
-Assertions inspect the shared snapshot before a current rebuild could hide a stale write.
-The four stale-publication/resource-retirement cases fail on unmodified owner code `b001bfa3` and pass with the fix.
-Three review regressions cover all four independent recovery consumers, active leech through an actual refused
-`Transfer`, and preservation of the critical-context baseline across loading/resumption.
-The latter two fail with the reviewed loading/CriticalContext behavior restored and pass with these fixes.
-Evidence for the current review run uses `logs/pr318-review-*`; the initial validation below retains its old revision.
-On `57662593`, the solution builds with zero warnings/errors and passes Core 394, Data 34 and Gateway 3192.
-All suites have no failures or skipped tests; Gateway collections run serially.
-Passive graphs v5 are extracted through the standard read-only extraction script for the owner's jewel fixtures.
-
-Initial code `8b6a9c76` builds with zero warnings/errors and passes Core 389, Data 34 and Gateway 2578.
-These are historical counts for that revision; serial Gateway collections have no skipped tests.
-Ignored evidence: `logs/pr318-lifecycle-{build,core,data,gateway,before,focused}.log` and their TRX results.
 
 ## Native evidence and boundaries
 

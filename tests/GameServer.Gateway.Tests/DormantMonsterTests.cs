@@ -55,6 +55,24 @@ public class DormantMonsterTests
             using (var frame = conn.BeginMonsterBlockerFrame(0))
                 Assert.DoesNotContain(frame.Bodies, b => b.Id == 0x3042);
 
+            // A type that phases through objects (Stats set_phase_through_objects: Maven's orbs) is no body to the
+            // others, and no living body stops it: its own view holds the stationary objects only.
+            var orb = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrbSmall"));
+            Assert.True(orb.Phases);
+            Assert.False(drowned.Phases);
+            // The unique orb's type is Pathfinding immobile (the client never walks it); the small one's is not.
+            Assert.True(Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/MavenBoss/TheMavenMapBeamOrb")).Immobile);
+            Assert.False(orb.Immobile);
+            conn.Monsters[0x3043] = new SpawnedMonster("orb", new PlayerWalk(64, 50, 8), 60, 2, 23) { Variety = orb };
+            Assert.DoesNotContain(conn.Blockers, b => (b.X, b.Y) == (64, 50));
+            using (var frame = conn.BeginMonsterBlockerFrame(0))
+            {
+                Assert.DoesNotContain(frame.Bodies, b => b.Id == 0x3043);
+                Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), frame.For(0x3041));
+                Assert.Equal(conn.StationaryBlockers, frame.For(0x3043));
+            }
+            conn.Monsters.Remove(0x3043);
+
             // Phasing removes living bodies only from the player's collision view; terrain objects remain,
             // and a different monster still sees the dormant bodies but no longer sees the phased player.
             conn.SetBlocker(0x2000, 70, 70, 1);
@@ -90,6 +108,29 @@ public class DormantMonsterTests
             Assert.False(watching);
             Assert.Equal(4, conn.Monsters.Count);
 
+            // Emerge ends with its clip in both modes (141e933b0, 141e934b0); there is no extra idle tail.
+            var tide = Assert.IsType<MonsterCatalog.Variety>(catalog.Find("Metadata/Monsters/WaterElemental/WaterElementalTidal"));
+            foreach (bool lockstep in new[] { false, true })
+            {
+                var rising = new ClientState(new(1, "emerge-duration", 300, 300, 100, 100, null, []), 1, 1)
+                {
+                    LockstepClient = lockstep,
+                };
+                var strider = new SpawnedMonster("Tide Strider", new PlayerWalk(50, 50, 25), 60, 2, 23) { Variety = tide };
+                MonsterEmerge.AddLocked(rising, 0x3000, strider, EmergeKind.Lurking, unrisen: true);
+                var rise = Assert.Single(emerge.RiseLocked(rising, (60, 50), 1, out _));
+                Assert.Equal(.866, rise.Seconds);
+                Assert.Equal(1.866, strider.BusyUntil);
+                Assert.False(MonsterAiCadence.Due(1.865, strider.BusyUntil));
+                Assert.True(MonsterAiCadence.Due(1.866, strider.BusyUntil));
+                // A lockstep client ends the Emerge in the tick that uses its time up, the order's own frame counted
+                // (27 frames of 33 ms for 0.866 s), and an order sent in that frame would wait for that tick: the
+                // monster is busy to that frame's end. A predictive client's time is left as it is.
+                rising.LockstepFrame = (1.023, 1.056);
+                Game.EmergeStartsLocked(rising, strider, rise.Seconds);
+                Assert.Equal(lockstep ? 1.023 + 27 * 0.033 : 1.866, strider.BusyUntil, 9);
+            }
+
             first.Life = 0;
             Assert.True(conn.Monsters.Remove(0x3040));
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
@@ -99,7 +140,7 @@ public class DormantMonsterTests
 
             // Life and Positioned's blocking lifetime differ: a post-kill path still sees the death cell until
             // the clear is sent. A replacement at the same ID must not inherit the old corpse's body.
-            conn.RetainCorpseBody(0x303f, first, 2);
+            conn.RetainCorpseBody(0x303f, first, 5);
             Assert.Contains(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             Assert.False(LivingCollision.StepsWithBodies(first));
             using (var frame = conn.BeginMonsterBlockerFrame(2))
@@ -108,9 +149,74 @@ public class DormantMonsterTests
             conn.ReleaseCorpseBody(0x303f, first);
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             conn.LockstepClient = false;
-            conn.RetainCorpseBody(0x303f, first, 2);
+            conn.RetainCorpseBody(0x303f, first, 5);
             Assert.DoesNotContain(new ClientPathfinder.Blocker(53, 50, 2), conn.Blockers);
             conn.LockstepClient = true;
+
+            // The corpse is the client's monster: it walks until the frame its death is written in, takes that frame's
+            // steps and stands (0.125 s a cell from 0.9: the step due at 1.025), and its body lasts the death clip's
+            // ticks from that frame on, leaving in its own turn of the last one. A 150 ms remove_collidability event
+            // is the fifth tick of 33 ms; a clip without the event clears the body with the death.
+            Assert.Equal([5, 6, 56, 0], new int?[] { 150, 166, 1833, null }.Select(Game.CorpseBodyTicks));
+            (double Start, double End) sending = (0.967, 1.0);
+            var walker = new PlayerWalk(100, 100, 8) { FrameOf = at => (Math.Min(at, sending.Start), sending.End) };
+            walker.Order(110, 100, now: 0.9);
+            var dying = new SpawnedMonster("dying", walker, 60, 2, 23) { Life = 0 };
+            conn.Monsters[0x3050] = dying;
+            conn.RetainCorpseBody(0x3050, dying, 5);
+            Assert.True(conn.CorpseAwaitsDeath);
+            Assert.True(conn.CorpseWalks(0x3050, dying));
+            Assert.Equal(new ClientPathfinder.Blocker(100, 100, 2), conn.MonsterBody(0x3050, dying, 0.967));
+            conn.LockstepFrame = sending = (1.0, 1.033);
+            conn.CorpseDied(0x3050, sending);
+            Assert.False(conn.CorpseAwaitsDeath);
+            conn.LockstepFrame = sending = (1.033, 1.066);
+            Assert.False(walker.Moving(1.033));
+            Assert.Equal(new ClientPathfinder.Blocker(101, 100, 2), conn.MonsterBody(0x3050, dying, 1.033));
+            conn.LockstepFrame = sending = (1.132, 1.165);
+            Assert.False(conn.CorpseClears(0x3050, 1.099));
+            Assert.True(conn.CorpseClears(0x3050, 1.132));
+            using (var frame = conn.BeginMonsterBlockerFrame(1.132))
+            {
+                Assert.Contains(new ClientPathfinder.Blocker(101, 100, 2), frame.For(0x3041));
+                frame.Remove(0x3050);
+                Assert.False(ClientPathfinder.ObjectBlocks(frame.For(0x3041), 101, 100, 3, 6));
+            }
+            conn.LockstepFrame = sending = (1.165, 1.198);
+            Assert.Null(conn.MonsterBody(0x3050, dying, 1.165));
+            conn.ReleaseCorpseBody(0x3050, dying);
+            conn.RetainCorpseBody(0x3050, dying, 0);
+            Assert.NotNull(conn.MonsterBody(0x3050, dying, 1.165));
+            conn.CorpseDied(0x3050, sending);
+            Assert.Null(conn.MonsterBody(0x3050, dying, 1.165));
+            conn.ReleaseCorpseBody(0x3050, dying);
+            conn.Monsters.Remove(0x3050);
+
+            // The death message can be written before the kill has kept the corpse, and twice (the periodic view of
+            // the monsters writes it too, a frame before or after the hit's own). The client's monster dies with the
+            // first one, so the corpse begins there: the second message and the kill's own keeping start nothing
+            // again, and a kill that comes after the body is gone keeps none.
+            var early = new SpawnedMonster("early", new PlayerWalk(120, 100, 8), 60, 2, 23) { Life = 0 };
+            conn.Monsters[0x3051] = early;
+            var written = conn.WorldOutput.PublishedObject(0x3051);
+            OutputBatch Life(uint life) => new(OutputRecord.World(written, WorldOrder.First, GameServer.Core.Protocol.Instance.InstanceProtocol.LifeUpdate(0x3051, life)));
+            conn.LockstepFrame = (2.0, 2.033);
+            Game.CorpseDeathsWritten(conn, Life(0));
+            Assert.True(conn.CorpseWalks(0x3051, early));
+            Assert.False(conn.CorpseAwaitsDeath);
+            conn.LockstepFrame = (2.033, 2.066);
+            Game.CorpseDeathsWritten(conn, Life(0));
+            Assert.True(conn.RetainCorpseBody(0x3051, early, 5));
+            Assert.False(conn.CorpseAwaitsDeath);
+            Assert.False(conn.CorpseClears(0x3051, 2.099));
+            Assert.True(conn.CorpseClears(0x3051, 2.132));   // the fifth tick from 2.0, not from 2.033
+            conn.ReleaseCorpseBody(0x3051, early);
+            Assert.False(conn.RetainCorpseBody(0x3051, early, 5));
+            Game.CorpseDeathsWritten(conn, Life(5));         // alive again: its next death is a first one
+            Assert.True(conn.RetainCorpseBody(0x3051, early, 5));
+            conn.ReleaseCorpseBody(0x3051, early);
+            conn.Monsters.Remove(0x3051);
+            conn.LockstepFrame = (0, .033);
 
             // A nonblocking mover must still take collision-checked movement turns. Without StepWalkers admitting
             // it, Position would advance analytically through the dormant neighbour instead of stopping at 0.1 s.
@@ -269,7 +375,7 @@ public class DormantMonsterTests
             var origin = conn.Instance.World.MonsterOrigins[buriedEntry.Key];
             Assert.Equal(MonsterEmerge.UnrisenState, origin.Object.TransitionState);
             byte[] dormantCreate = GameServer.Core.Protocol.Instance.InstanceEntities.CreateObject(buriedEntry.Key,
-                origin.Type, (origin.Object with { Life = buriedEntry.Value.Life }).Blob());
+                origin.Type, (origin.Object with { Life = buriedEntry.Value.Life }).Blob(), headerU32: uint.MaxValue);
             await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
             Assert.Contains(sent, bytes => bytes.AsSpan().IndexOf(dormantCreate) >= 0);
             Assert.Contains(buriedEntry.Key, peer.MonsterViews.Keys);
@@ -326,7 +432,9 @@ public class DormantMonsterTests
             conn.Instance.World.Runner = conn;
             lock (conn.Monsters) Assert.True(conn.Monsters.Remove(risen.Id));
             await Game.SyncInstanceMonsters("restore-peer", stream, peerCiphers, peer);
-            Assert.Equal(GameServer.Core.Protocol.Instance.InstanceProtocol.RemoveObject(risen.Id), Assert.Single(sent));
+            var removal = GameServer.Core.Protocol.Instance.InstanceProtocol.RemoveObject(risen.Id);
+            BinaryPrimitives.WriteUInt32BigEndian(removal.AsSpan(6), uint.MaxValue);
+            Assert.Equal(removal, Assert.Single(sent));
             Assert.DoesNotContain(risen.Id, peer.MonsterViews.Keys);
             Assert.DoesNotContain(risen.Id, peer.AwakeMonsters);
         }
