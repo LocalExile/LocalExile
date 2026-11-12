@@ -1,15 +1,16 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 90 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 90 tattoo rows client-verified and 8 partial).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
 `0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Ninety rows are `works` (the ten pilot,
 22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row,
 the eleven Honoured rows, the Herald, guard and Fortify rows, the corpse-consumption and Hinder rows, the ten Loyalty
 summons, nine Makanga gates, three Journey tattoos and Journey Makanui),
-one is `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery stats are unread), two are
-`inert` (Hinekora and Kitava Makanga) and 7 are `not implemented`. The server enforces the
-client's per-group limits
+eight are `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery stats are unread; and the
+seven event-only Forbidden ascendancy tattoos, whose server apply, random pick, stats and `0x33` work but
+whose separate client ascendancy-tattoo use flow is untraced), two are `inert` (Hinekora and Kitava
+Makanga) and none is `not implemented`. The server enforces the client's per-group limits
 (Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page
 records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules and the implementation
 groups. The `Status` column is per row; `Reason` names the missing layer.
@@ -27,8 +28,8 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 |---|---:|---:|---:|---:|---:|
 | Current (drop-enabled) | 53 | 53 | 0 | 0 | 0 |
 | Drop-disabled | 40 | 37 | 1 | 2 | 0 |
-| Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **90** | **1** | **2** | **7** |
+| Event-only | 7 | 0 | 7 | 0 | 0 |
+| **Total** | **100** | **90** | **8** | **2** | **0** |
 
 | Status | Meaning |
 |---|---|
@@ -47,7 +48,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
 | 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers), the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun) and the corpse-consumption and Hinder rows (the killing blow's corpse and 10% maximum-life recovery; the spell-hit Hinder with its four seconds, 30% reduced movement speed and the client's hinder buff). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
-| 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
+| 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works. The seven Forbidden tattoos are server-side complete and verified through the dev path: the class's non-multiple-choice ascendancy notables (PassiveSkillOverrides Type 17-23), the random pick saved in `TattooKeystones` (excluding the replaced node and every other allocated notable, so no stats count twice), the granted notable's ascendancy-policy stats, the chosen notable's `0x33` HASH16 and the Limit 40 refusal. Their client-side use flow (the items have `CurrencyUseType = 3`, not `apply_passive_tattoo`) is not traced, so they are `partial`. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Works: the same data-driven Spirit path as the Ancestral Commander nodes reads each tattoo's `has_trigger_on_*` stat and its PassiveSkillOverrides.Effect (a level 1 TriggerSummonedAncestor skill), spends its shared 80 s stored use, and grants the spirit's Leadership buff and fighting chieftain for the skill's duration. The Presence-gated triggers require a living hostile Unique within 80 cells. A refunded node no longer triggers (the grant list checks allocation and timeless conquest). |
 
 ## What a tattoo is
@@ -122,6 +123,7 @@ Special limits and conditions:
   separate. The client draws the "Limited to: 1 ..." line from its own tables; it is not a server message, so the
   Gateway enforces the group itself.
 - **Loyalty**: limited by the Limit 0 group; the ten level 1 Summon Spirit effects are implemented (the trigger
+  stat in the tattoo's TattooStats row, the skill in PassiveSkillOverrides.Effect).
   stat in the tattoo's TattooStats row, the skill in PassiveSkillOverrides.Effect).
 - **Honoured attribute notables**: the nine Honoured tattoos that replace a +30 attribute notable share the Limit 4
   group. The small-attribute Honoured tattoos have no group limit.
@@ -465,13 +467,13 @@ Return of the Ancestors event.
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Forbidden Tattoo of the Duelist** | Grants a random Duelist Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Duelist ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Marauder** | Grants a random Marauder Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Marauder ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Ranger** | Grants a random Ranger Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Ranger ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Scion** | Grants a random Scion Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Scion ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Shadow** | Grants a random Shadow Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Shadow ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Templar** | Grants a random Templar Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Templar ascendancy notable; limit 1 Ascendancy Tattoo |
-| **Forbidden Tattoo of the Witch** | Grants a random Witch Ascendancy Notable | Ascendancy Notable | event only | not implemented | needs random Witch ascendancy notable; limit 1 Ascendancy Tattoo |
+| **Forbidden Tattoo of the Duelist** | Grants a random Duelist Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Duelist notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Marauder** | Grants a random Marauder Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Marauder notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Ranger** | Grants a random Ranger Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Ranger notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Scion** | Grants a random Scion Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Scion Ascendant option excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Shadow** | Grants a random Shadow Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Shadow notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Templar** | Grants a random Templar Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Templar notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
+| **Forbidden Tattoo of the Witch** | Grants a random Witch Ascendancy Notable | Ascendancy Notable | event only | partial | server dev apply works (random Witch notable excluding allocated ones, its ascendancy-policy stats, `0x33`, Limit 40 refusal); client ascendancy-tattoo use flow untraced |
 
 ## Verification log
 
@@ -726,6 +728,21 @@ Loyalty rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witc
   `TriggerSummonedAncestor*` skill, the Leadership buff row, the chieftain variety, the 80 s stored use, the
   tattoo-grant resolution (`TattooTriggeredGrantsLocked`) and that refunding the tattooed node ends the grant. The
   presence check is covered too.
+
+Forbidden rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch/Occultist):
+
+- With Occultist selected and Void Beacon (27096) and Profane Bloom (37127) allocated, `/tattoo_apply Forbidden
+  Tattoo of the Witch 27096` granted a random Witch notable (Unholy Authority); `/stat` read its
+  number_of_additional_curses_allowed 1 and ignore_hexproof 1. A second Forbidden tattoo was refused ("only one
+  Ascendancy Tattoo can be applied") and `/tattoo_remove` restored both stats to 0.
+- The random pick, the saved choice (`TattooKeystones`), the replacement stats and the chosen notable's HASH16 in
+  `0x33` are covered by `TattooForbiddenTests` for all seven classes (Scion's multiple-choice option rows included).
+  The pick excludes the replaced node and every other allocated ascendancy notable (#849 review), and the granted
+  notable's stats go through `AscendancyPolicies.NodeStats` like a normally allocated ascendancy node's.
+- The client's own ascendancy-tattoo use flow is untraced: these items have `CurrencyUseType = 3` and no
+  `apply_passive_tattoo` action, so the real-client right-click path is unverified. Ascendancy effects that the code
+  keys to node allocation rather than to stats are not swapped either. That is why the seven rows are `partial`
+  rather than `works`.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.

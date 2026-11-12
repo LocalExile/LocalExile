@@ -94,12 +94,20 @@ public static partial class Game
                 .ToDictionary(kv => kv.Key, kv => kv.Value);
             conn.Tattoos = (save?.Tattoos ?? []).Where(kv => PassivesFor(conn).Find(kv.Key) is not null
                 && TattooCatalogue.Find(kv.Value) is not null).ToDictionary(kv => kv.Key, kv => kv.Value);
+            // A random tattoo (Journey Makanui's keystone, a Forbidden ascendancy notable) keeps its saved pick; one
+            // whose pick did not survive validation is dropped with the tattoo.
+            bool RandomPickSaved(ushort node, ushort chosen)
+            {
+                if (conn.Tattoos.GetValueOrDefault(node) is not { } name) return false;
+                if (name == "Journey Tattoo of Makanui") return JourneyMakanuiCatalogue.FindByGraphId(chosen) is not null;
+                return ForbiddenTattoo.IsForbidden(name) && ForbiddenTattoo.Pool(name)?.Contains(chosen) == true;
+            }
             conn.TattooKeystones = (save?.TattooKeystones ?? [])
-                .Where(kv => conn.Tattoos.GetValueOrDefault(kv.Key) == "Journey Tattoo of Makanui"
-                    && JourneyMakanuiCatalogue.FindByGraphId(kv.Value) is not null)
+                .Where(kv => RandomPickSaved(kv.Key, kv.Value))
                 .ToDictionary(kv => kv.Key, kv => kv.Value);
             foreach (ushort node in conn.Tattoos
-                .Where(kv => kv.Value == "Journey Tattoo of Makanui" && !conn.TattooKeystones.ContainsKey(kv.Key))
+                .Where(kv => kv.Value == "Journey Tattoo of Makanui" || ForbiddenTattoo.IsForbidden(kv.Value))
+                .Where(kv => !conn.TattooKeystones.ContainsKey(kv.Key))
                 .Select(kv => kv.Key).ToList())
                 conn.Tattoos.Remove(node);
             conn.TattooRevision++;
@@ -262,7 +270,7 @@ public static partial class Game
         if (tattoos.Count > 0)
             foreach (var (node, name) in tattoos)
                 if (allocated.Contains(node) && nodeStats.ContainsKey(node)
-                    && tree.Find(node) is { IsAscendancy: false }
+                    && (tree.Find(node) is { IsAscendancy: false } || ForbiddenTattoo.IsForbidden(name))
                     && TattooCatalogue.Find(name) is { } entry)
                 {
                     IReadOnlyList<(uint Key, int Value)>? tattooStats = TattooStats.For(name);
@@ -270,6 +278,13 @@ public static partial class Game
                         tattooStats = tattooKeystones.TryGetValue(node, out ushort chosen)
                             && tree.Find(chosen) is { IsKeystone: true } chosenKeystone
                                 ? chosenKeystone.Stats : [];
+                    else if (ForbiddenTattoo.IsForbidden(name) && tattooKeystones.TryGetValue(node, out ushort granted)
+                        && tree.Find(granted) is { IsAscendancy: true } grantedPassive)
+                        // The granted notable replaces this node's stats, so it goes through the same ascendancy
+                        // policy as a normally allocated ascendancy node (per-node choices included).
+                        tattooStats = selectedDefinition is not null
+                            ? AscendancyPolicies.NodeStats(conn, selectedDefinition, granted, grantedPassive.Stats)
+                            : grantedPassive.Stats;
                     if (tattooStats is null) continue;
                     int adjacent = OrdinaryPassives.Adjacent(node, family).Count(allocated.Contains);
                     bool tattooActive = entry.RequiresAdjacent > 0
@@ -1408,6 +1423,10 @@ public static partial class Game
                         && conn.TattooKeystones.TryGetValue(kv.Key, out ushort chosen)
                         && JourneyMakanuiCatalogue.FindByGraphId(chosen) is { } keystone)
                         hash = keystone.OverrideHash;
+                    // A Forbidden tattoo sends the granted ascendancy notable's own HASH16 (its PassiveSkillGraphId),
+                    // the same value the client's random override row carries.
+                    else if (ForbiddenTattoo.IsForbidden(kv.Value) && conn.TattooKeystones.TryGetValue(kv.Key, out ushort notable))
+                        hash = notable;
                     return (Node: kv.Key, Hash: hash, Entry: entry);
                 })
                 .Where(pair => pair.Entry is not null)

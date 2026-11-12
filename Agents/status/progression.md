@@ -54,4 +54,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   guard duration and herald effect), the ten Loyalty summons and the seven Forbidden ascendancy tattoos.
 - Tattoos: 85 rows work in the client; 12 rows are missing: five new-consumer rows (corpse consumption,
   Fortify-on-stun, guard duration, hinder and herald effect) and the seven Forbidden ascendancy tattoos.
+- Tattoos: 85 rows work and 8 are partial in the client; 5 new-consumer rows (corpse consumption,
+  Fortify-on-stun, guard duration, hinder and herald effect) are missing. The seven Forbidden ascendancy
+  tattoos are server-side complete and partial only on their client use flow.
   Docs: [tattoos](../docs/game/tattoos.md).
