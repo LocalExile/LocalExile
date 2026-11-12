@@ -11,10 +11,16 @@ namespace GameServer.Core.Protocol;
 /// builds whose code does not.</param>
 /// <param name="SteamIndexSha256">SHA-256 of <c>Bundles2/_.index.bin</c> in its Steam install; null when that build's
 /// Steam files were never checked, and then its Steam install is not accepted.</param>
-public sealed record ClientBuild(string Version, string Name, string ExecutableSha256, long HncMaskVa, string? SteamIndexSha256 = null)
+/// <param name="SteamManifests">Steam's manifest of each depot of <see cref="ClientBuilds.SteamApp"/> that holds this
+/// build, for a tool that downloads it; null when they are not all known.</param>
+public sealed record ClientBuild(string Version, string Name, string ExecutableSha256, long HncMaskVa, string? SteamIndexSha256 = null,
+    IReadOnlyList<SteamManifest>? SteamManifests = null)
 {
     public override string ToString() => $"{Version} ({Name})";
 }
+
+/// <summary>One depot of the game on Steam at one build: the game files are depot 238961, the Windows executables 238962.</summary>
+public sealed record SteamManifest(uint Depot, ulong Manifest);
 
 /// <summary>A client executable that is none of <see cref="ClientBuilds.Allowed"/>.</summary>
 public sealed class UnknownClientBuildException(string message) : FormatException(message);
@@ -27,18 +33,22 @@ public sealed class UnknownClientBuildException(string message) : FormatExceptio
 /// </summary>
 public static class ClientBuilds
 {
+    /// <summary>Path of Exile's app id on Steam.</summary>
+    public const uint SteamApp = 238960;
+
     public static IReadOnlyList<ClientBuild> Allowed { get; } =
     [
         new("3.29.3c", "release, build 327984",
             "cc8aa38345be2a837575215d2ce142ebecf7b007345843265b335ebb8ac5964c", 0x142feaed0),
         new("3.29.3c", "3.29.3.5 hotfix of 2026-11-09, build 328126",
             "01a22facf36886b39bca74793c0d8c7295b1495f1625b4ebc7b23c2de32a70cf", 0x142feaed0,
-            // Steam app 238960, depot 238961 manifest 2467965126630699088.
+            // Its game files are depot 238961 manifest 2467965126630699088; the manifest of its executables is not known here.
             SteamIndexSha256: "d23c78997206716586041a3e47a89dde0eb516f1488df4a1ccf39b0d51be54d0"),
         new("3.29.3d", "release of 2026-11-10, build 328228",
             "e9ba3d31c4d922e1826ef01d02fd22178a001b29e17264b68fc2446efd41f53d", 0x142feaeb0,
-            // The standalone client's Bundles2/_.index.bin; Steam's depot 238961 manifest 5379264335337066375.
-            SteamIndexSha256: "53560cc6391d2b11276f480ce5ebe86eb75a26935064c846aa99499f376bac29"),
+            // Steam build 26554937: the index and PathOfExileSteam.exe are byte-identical to the standalone client's.
+            SteamIndexSha256: "53560cc6391d2b11276f480ce5ebe86eb75a26935064c846aa99499f376bac29",
+            SteamManifests: [new(238961, 5379264335337066375), new(238962, 8687196073893351989)]),
     ];
 
     /// <summary>The versions of <see cref="Allowed"/>, for messages: "3.29.3c", or "3.29.3c or 3.29.3d".</summary>

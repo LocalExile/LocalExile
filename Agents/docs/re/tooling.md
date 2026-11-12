@@ -379,7 +379,9 @@ Auth's `keygen` and `patch` and the constants extraction refuse any other. To ad
 2. Decode both clients' tables (`PoEDataExtractor decode`) and run `compare_tables.py`: no difference. Compare the
    other files the servers read too (`game-pack pack` on each client), and look at each one that differs.
 3. `SteamIndexSha256` is the hash of `Bundles2/_.index.bin`. The standalone client holds the same file inside
-   `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 it is byte-identical to Steam's loose one.
+   `Content.ggpk` (`PoEDataExtractor raw`): for 3.29.3.5 and 3.29.3d it is byte-identical to Steam's loose one, as
+   `PathOfExileSteam.exe` is to `PathOfExile.exe`. `SteamManifests` are the depots' manifests in Steam's
+   `steamapps\appmanifest_238960.acf` while that build is installed.
 4. Add the row, then play the live checklist on that build.
 
 `client-control.js` and `nullifier.js` find their globals through the code that uses them (`globalAt`), so they

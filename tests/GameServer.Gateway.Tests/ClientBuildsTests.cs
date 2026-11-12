@@ -38,6 +38,13 @@ public class ClientBuildsTests
             if (build.SteamIndexSha256 is not null) Assert.Matches(hash, build.SteamIndexSha256);
             Assert.InRange(build.HncMaskVa, 0x140000000, 0x150000000);
             Assert.False(string.IsNullOrWhiteSpace(build.Version) || string.IsNullOrWhiteSpace(build.Name));
+            // A build a tool can download from Steam is one whose Steam files are accepted, a depot named once.
+            if (build.SteamManifests is { } manifests)
+            {
+                Assert.NotNull(build.SteamIndexSha256);
+                Assert.NotEmpty(manifests);
+                Assert.Equal(manifests.Count, manifests.Select(m => m.Depot).Distinct().Count());
+            }
         });
         Assert.Equal(ClientBuilds.Allowed.Count, ClientBuilds.Allowed.Select(b => b.ExecutableSha256).Distinct().Count());
         var steam = ClientBuilds.Allowed.Where(b => b.SteamIndexSha256 is not null).Select(b => b.SteamIndexSha256).ToList();

@@ -7,6 +7,7 @@ using LocalExile;
 //   run (default)  everything above, until the client closes
 //   setup          everything above except the servers and the client
 //   check          say whether a folder holds a client build LocalExile runs (ClientBuilds); changes nothing
+//   builds         list those builds, with what a tool needs to recognize or download one; changes nothing
 //   stop           stop this install's servers and client
 //   account create <name>
 //   migrate-saves  split a data\saves.db from an older release into data\auth.db and data\characters.db (the
@@ -16,7 +17,7 @@ using LocalExile;
 //          --no-update-check --json
 
 string Usage = $"""
-    LocalExile.exe [run|setup|check|stop|version|client-command|help] [options]
+    LocalExile.exe [run|setup|check|builds|stop|version|client-command|help] [options]
     LocalExile.exe account create <name> [--password-stdin]
     LocalExile.exe migrate-saves            move an older release's data\saves.db into the new databases
 
@@ -59,6 +60,9 @@ try
             return 0;
         case "client-command":
             log.Value("client-command", ClientLaunch.CommandLine(ports.Patch));
+            return 0;
+        case "builds":
+            foreach (var build in GameServer.Core.Protocol.ClientBuilds.Allowed) log.Build(build);
             return 0;
         case "check":
             ClientInstall.Check(options.Client ?? GameServer.Core.ServerConfig.ClientFolder, log);

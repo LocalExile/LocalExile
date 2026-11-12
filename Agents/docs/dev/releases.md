@@ -100,6 +100,7 @@ Every event has `schema` (1), `event` and `time`; a change that breaks a reader 
 | `progress` | `id`, `message`, optional `current`, `total`: at least every 10 s during long work |
 | `info`, `warning`, `done` | `message` |
 | `value` | `name`, `value`: the answer of `version`, `client-command`, `check` |
+| `build` | `version`, `name`, `executableSha256`, optional `steamIndexSha256`, `steamApp`, `steamManifests` (`depot`, `manifest`): one per allowed client build, the answer of `builds`. Steam's ids are text |
 | `needs-input` | `option`, `message`, optional `suggestion`: run again with that option |
 | `ready` | `patch`, `login`, `gateway`, optional `clientPid` (none with `--no-client`) |
 | `error` | `code`, `kind`, `message` |
