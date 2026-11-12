@@ -63,6 +63,8 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
 - **Write all commit messages and pull request titles and descriptions in English.**
   Subjects follow Conventional Commits (`feat:`, `fix:`, `docs:`, ...): they become the
   [release](Agents/docs/dev/releases.md) notes.
+- **Write the pull request description from `.github/pull_request_template.md`:** keep its headings and their order,
+  and fill each one in or mark it not applicable. GitHub's web page starts from the template; `gh` and the API do not.
 - **Verify the current integration base before declaring a PR ready.** Fetch the latest `main` and update the
   branch using the requested repository workflow; resolve shared code by preserving both mechanics.
   Re-run the solution build and all three required test suites, including regressions for the combined behavior.
