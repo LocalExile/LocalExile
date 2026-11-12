@@ -1,7 +1,7 @@
 # Releases
 
 A release is a zip for each system: unzip, run `LocalExile.exe` (`./LocalExile` on Linux), and with their own 3.29.3c
-client Windows players need nothing else; Linux players also need umu-launcher and Python 3.
+client Windows players need nothing else; Linux players also need umu-launcher. A release ships no Python.
 Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../../GettingStarted.md)).
 
 ## Making one
@@ -19,8 +19,8 @@ Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../.
 To build it again, delete the draft and start the workflow again.
 The same package builds by hand in a clean checkout: `.\scripts\release\build-release.ps1 -Version 0.2.0`
 (in `artifacts\release\`; it needs the .NET SDK and npm).
-Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the system's Python,
-the client under Proton through umu-run.
+Under pwsh on Linux the same script builds `LocalExile-v<version>-linux-x64.zip`: native servers, the client under Proton
+through umu-run.
 
 ## Versions
 
@@ -47,15 +47,16 @@ Merge commits stay; no history is rewritten.
 | Path | What |
 |---|---|
 | `LocalExile.exe` | the launcher (`src/LocalExile`), one self-contained file |
-| `app/` | self-contained win-x64: the Auth, Patch and Gateway servers and the extraction tools, sharing one runtime |
+| `app/` | self-contained win-x64, English only: the Auth, Patch and Gateway servers and GamePack (the extraction), sharing one runtime |
+| `sql/` | the SQL the servers build the `data/*.db` databases from ([databases](databases.md)) |
 | `Modules/`, `Mods/Binaries/`, `Leagues/` | built modules and mods; leagues as source, which the Gateway compiles when it starts |
-| `Tools/python/`, `Tools/node/`, `Tools/ooz/` | the embeddable Python and Node (pinned by hash in `build-release.ps1`), ooz-wasm |
-| `Tools/extract-manifest.json` | `extract-data.ps1`'s manifest, with each entry's program |
-| `scripts/re/*.py`, `scripts/re/levelgen/gate-baseline.json`, `Agents/docs/re/components.json`, `data/schema/` | what the generators and servers read at those paths |
-| `licenses/`, `README.txt`, `release.json` | licenses and the commit it was built from, the player's guide, the version |
+| `Tools/node/`, `Tools/ooz/` | Node (pinned by hash in `build-release.ps1`) and ooz-wasm: GamePack's Oodle decoder |
+| `Tools/extract-manifest.json` | `extract-data.ps1`'s `-Servers` entries, each with its published program (never Python) |
+| `app/licenses/` | the licenses and the commit it was built from |
+| `README.txt`, `release.json` | the player's guide, the version |
 
 The Linux zip is the same without `.exe`: `LocalExile` and `app/` are self-contained linux-x64, `Tools/node/` holds Linux
-Node, and it has no `Tools/python/`, since the system's Python runs the extraction.
+Node.
 `release.json` names its `runtime`.
 
 It keeps a checkout's relative paths, so the servers and tools run unchanged, with the install as working directory.
@@ -67,21 +68,25 @@ A new `dotnet` tool in the extraction manifest must be published there too; the 
 
 ## The launcher
 
-`LocalExile.exe` always works from its own folder. In order: it checks the client (`Client\`, or asks for a folder, then
-to copy it or link to it), runs the extraction with the same manifest and stamps as `extract-data.ps1`, makes the keys and
+`LocalExile.exe` always works from its own folder. In order: it checks the client (`Client\`, or asks for a folder and
+copies it), runs the extraction with the same manifest and stamps as `extract-data.ps1`, makes the keys and
 `Game.patched.exe`, creates an account if there is none, points the client's login list at the local server, starts the
 servers, and starts the client. It stays running until the client closes, and the servers end with it (a job object:
 also on a crash or a closed window).
 
 **The client starts only one way:** `Client\Game.patched.exe --patching-server 127.0.0.1:<patch port>`, in `ClientLaunch.cs`.
-Any other start can update it. The version check needs both the login key blobs (`ClientImage`) and the HNC mask's hash.
+Any other start can update it. The client must be an allowed build (`ClientBuilds.cs`: the SHA-256 of its unpatched
+executable), and a Steam install's game files must be that build's too. At `check`, at setup and at
+every start the launcher says which build the client is and which versions are supported.
 
 The login list is the one client archive write, the same as `live.ps1`'s: only when it does not already name the local
-server, with the original kept in `data/gateway_list.original.txt`. That is why copying is the default: with
-`--client-mode link` it writes to the player's only copy of 3.29.3c.
+server, with the original kept in `data/gateway_list.original.txt`. That is why the launcher always copies: a linked
+`Client\` writes to the player's only copy of 3.29.3c, and shares its game data, so an update of the player's game can
+break the install. `--client-mode link` stays for developers and is never offered; when the link leads to anything but
+another LocalExile's `Client\`, every start warns (`ClientInstall.WarnIfLinked`).
 
 `LocalExile.exe --help` lists the commands. `setup` does everything before the servers, `stop` ends this install's
-processes, `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
+processes, `builds` lists the client builds it runs (for a GUI: what to recognize, and what to fetch from Steam), `--no-client --port-base <n>` runs just the servers on other ports. It asks GitHub once per run whether a newer
 release exists and only says so (`--no-update-check` turns it off); it never downloads anything.
 
 ### For a GUI: `--json`
@@ -96,6 +101,7 @@ Every event has `schema` (1), `event` and `time`; a change that breaks a reader 
 | `progress` | `id`, `message`, optional `current`, `total`: at least every 10 s during long work |
 | `info`, `warning`, `done` | `message` |
 | `value` | `name`, `value`: the answer of `version`, `client-command`, `check` |
+| `build` | `version`, `name`, `executableSha256`, optional `steamIndexSha256`, `steamApp`, `steamManifests` (`depot`, `manifest`): one per allowed client build, the answer of `builds`. Steam's ids are text |
 | `needs-input` | `option`, `message`, optional `suggestion`: run again with that option |
 | `ready` | `patch`, `login`, `gateway`, optional `clientPid` (none with `--no-client`) |
 | `error` | `code`, `kind`, `message` |

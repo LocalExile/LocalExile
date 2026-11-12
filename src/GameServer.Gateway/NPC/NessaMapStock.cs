@@ -15,10 +15,9 @@ public static class NessaMapStock
 
     public static List<Entry> Build(ItemCatalog items, string folder = "data")
     {
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(Table("Maps"))) return [];
-        using var maps = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("Maps")));
-        var rows = maps.RootElement.EnumerateArray().ToArray();
+        if (!ClientTables.Has("Maps")) return [];
+        var maps = ClientTables.Table("Maps");
+        var rows = maps.ToArray();
         // The generic map keys name their tier themselves (MapKey component); the client reads the tier from the base.
         var result = new List<Entry>();
         for (int tier = 1; tier <= 16; tier++)
@@ -44,34 +43,33 @@ public static class NessaMapStock
                 }, name, tier) { Originator = true });
             }
         }
-        if (!ClientTables.Exists(Table("UniqueMaps")) || !ClientTables.Exists(Table("Words")) || !ClientTables.Exists(Table("ItemVisualIdentity"))) return result;
-        using var uniques = GameTables.Open(Table("UniqueMaps"));
-        using var words = GameTables.Open(Table("Words"));
-        using var visuals = GameTables.Open(Table("ItemVisualIdentity"));
-        foreach (var unique in uniques.RootElement.EnumerateArray().GroupBy(r => r.GetProperty("Name").GetString())
-            .Select(g => g.First()).OrderBy(r => r.GetProperty("Name").GetString()))
+        if (!ClientTables.Has("UniqueMaps") || !ClientTables.Has("Words") || !ClientTables.Has("ItemVisualIdentity")) return result;
+        var uniques = ClientTables.Table("UniqueMaps");
+        var words = ClientTables.Table("Words");
+        var visuals = ClientTables.Table("ItemVisualIdentity");
+        foreach (var unique in uniques.GroupBy(r => r.Text("Name"))
+            .Select(g => g.First()).OrderBy(r => r.Text("Name")))
         {
-            int area = unique.GetProperty("WorldAreasKey").GetInt32();
-            var match = rows.Where(r => r.GetProperty("Unique_WorldAreasKey") is { ValueKind: JsonValueKind.Number } a
-                    && a.GetInt32() == area)
-                .Select(r => (Row: r, Type: items.Row(r.GetProperty("BaseItemTypesKey").GetInt32())))
+            int area = unique.Int("WorldAreasKey");
+            var match = rows.Where(r => r.IntOrNull("Unique_WorldAreasKey") is int a
+                    && a == area)
+                .Select(r => (Row: r, Type: items.Row(r.Int("BaseItemTypesKey"))))
                 .FirstOrDefault(p => p.Type is { Supported: true, Class: "Map" }
                     && p.Type.Id.StartsWith("Metadata/Items/Maps/MapWorlds", StringComparison.Ordinal));
-            string name = unique.GetProperty("Name").GetString()!;
+            string name = unique.Text("Name")!;
             // 3.29's maps are the generic MapKeyTierN bases (MapStashUniqueMapInfo's BaseItem is the tier-1 one), so a
             // unique map with no MapWorlds base of its own still gets one and can be created (`/item Mao Kun`).
             var type = match.Type ?? (name == "Infused Beachhead" ? items.Find("MapWorldsHarbingerUber")
                 : name == "The Tower of Ordeals" ? items.Find("MapWorldsTrialmaster")
                 : items.Find("Metadata/Items/Maps/MapKeyTier1"));
             if (type is not { Supported: true }) continue;
-            uint word = words.RootElement[unique.GetProperty("WordsKey").GetInt32()].GetProperty("HASH32").GetUInt32();
+            uint word = words[unique.Int("WordsKey")].UInt("HASH32");
             var item = ItemCatalog.Create(type) with
             {
                 Rarity = ItemRarity.Unique, NameWords = [word],
-                VisualIdentity = (ushort)visuals.RootElement[unique.GetProperty("ItemVisualIdentityKey").GetInt32()]
-                    .GetProperty("HASH16").GetInt32()
+                VisualIdentity = (ushort)visuals[unique.Int("ItemVisualIdentityKey")].Int("HASH16")
             };
-            result.Add(new(type, item, name, match.Type is null ? 16 : match.Row.GetProperty("Tier").GetInt32()));
+            result.Add(new(type, item, name, match.Type is null ? 16 : match.Row.Int("Tier")));
         }
         return result;
     }

@@ -37,7 +37,8 @@ enter_area area=1_1_2
 ## Layout
 
 - `GameServer.Core` — `AccountService`, `InstanceManager`, `GameSession` (protocol logic, no sockets)
-- `GameServer.Storage` — `JsonAccountStore` (atomic JSON file)
+- `GameServer.Storage` — `SqliteAccountStore` (accounts in `data/auth.db`, characters in `data/characters.db`); `JsonAccountStore`
+  reads an older `accounts.json` for its one-time import
 - `GameServer.Host` — TCP host; `GameServer.DevClient` — console client
 - Tests: `tests/GameServer.Core.Tests` (service, store, instances, and full TCP flows)
 
@@ -50,14 +51,14 @@ key exchange (Agents/docs/re/008), then decodes the client's messages with `Logi
 message. After an id it doesn't know, it can't find the next message boundary (there's no length prefix), so it
 hex-dumps the rest of that connection. It answers account login (0x03 → 0x04) against the same account store as
 `GameServer.Host` (`data/characters.db`, [saves](saves.md)), so register accounts with the dev client first. Each account also stores a verifier
-for the client's SHA-256 password digest, and accounts made before that get it on their next dev-protocol login. Don't
-change accounts in Host and Auth at the same time: each keeps its own in-memory copy of the file.
+for the client's SHA-256 password digest, and accounts made before that get it on their next dev-protocol login.
+Host and Auth read and write the database directly and cache no accounts, so both can run at once.
 
 ```powershell
 dotnet run --project src/GameServer.Auth -- keygen Client/Game.exe                  # writes data/login-keys.json (private keys; untracked)
 dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.patched.exe
 dotnet run --project src/GameServer.Auth                                            # serve on tcp/20493 (Game_LOGIN_PORT)
-dotnet run --project src/GameServer.Auth -- passwd devtester " "                    # set a dev account's password (any length)
+dotnet run --project src/GameServer.Auth -- passwd <account> " "                    # set a dev account's password (any length)
 ```
 
 `passwd` changes both stored hashes (dev login and the client's digest) with a new salt; restart Auth afterwards
@@ -70,7 +71,7 @@ keeping their sizes. To point the client at this server, use the `gateway_list.t
 ## Patching server and web root (`GameServer.Patch`)
 
 `GameServer.Patch` runs the client's patching protocol on tcp/12995 (`Game_PATCH_TCP_PORT`) and an HTTP web root on
-`http://0.0.0.0:8080` (`Game_PATCH_URL`). `scripts/dev/live.ps1` starts the client with
+`http://127.0.0.1:8080` (`Game_PATCH_URL`). `scripts/dev/live.ps1` starts the client with
 `--patching-server 127.0.0.1:12995`; the welcome carries the GGPK's root hash, so the client logs "No patching
 required" and goes to the login screen. **Client files must never be updated** — an update would replace the patched
 client.

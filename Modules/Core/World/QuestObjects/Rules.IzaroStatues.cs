@@ -25,7 +25,7 @@ static partial class QuestobjectsRules
         for (int i = 0; i < Math.Min(statues.Count, arena.Lifts.Count); i++)
         {
             var (statue, lift) = (statues[i], arena.Lifts[i]);
-            uint id = conn.NextObjectId++;
+            uint id = conn.TakeObjectId();
             await Send(remote, stream, ciphers, [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(statue.Type),
                 IzaroStatues.Blob(statue, lift.At.X, lift.At.Y, lift.At.Angle, IzaroStatues.Lowered)), .. InstanceProtocol.EnterWakeZone(id)],
                 $"0x02bb {statue.Id} 0x{id:x} under ({lift.At.X}, {lift.At.Y})");

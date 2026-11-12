@@ -118,12 +118,10 @@ public static class ImpossibleEscapeCatalogue
     static List<Keystone> Load()
     {
         var result = new List<Keystone>();
-        string path = Path.Combine("data", "tables", "MavenJewelRadiusKeystones.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var entry in document.RootElement.EnumerateArray())
+        if (!ClientTables.Has("MavenJewelRadiusKeystones")) return result;
+        foreach (var entry in ClientTables.Table("MavenJewelRadiusKeystones"))
         {
-            int row = entry.GetProperty("Keystone").GetInt32();
+            int row = entry.Int("Keystone");
             ushort? graphId = Program.Passives.GraphIdForRow(row);
             if (graphId is null && Program.Passives.Find((ushort)row) is { IsKeystone: true } direct)
                 graphId = direct.GraphId;

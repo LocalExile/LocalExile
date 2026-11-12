@@ -151,7 +151,8 @@ The renderer has a sixth device type besides DirectX 11/12, Vulkan and the conso
   the vertex array). That is the triangle test of the mesh ray cast `0x142bf06f0` (`0x142beff90`, called per
   triangle with three vertex pointers `vertices + index × stride`). It asks the index buffer to describe itself
   (vtable `+0x20`, out: u32 format, `0x65` = 16-bit, `0x66` = 32-bit; u32) and then Maps it (`+0x10`). The Null
-  device's index buffer (vtable `0x143218858`, a 0x150-byte object made in `0x140e95cd0`) keeps a zero-filled byte
+  device's index buffer (vtable `0x143218858` in 3.29.3c, read from the `lea` at `0x140e95fe2` so that it is found in
+  every allowed build; a 0x150-byte object made in `0x140e95cd0`) keeps a zero-filled byte
   vector of the buffer's size at `+0x130` (Map returns its start) and the index kind at `+0x148` (1: 16-bit, 2:
   32-bit; the DirectX 12 buffer keeps the same value at `+0x318`, and its describe `0x140ee9cb0` returns `0x65`/`0x66`),
   but its describe slot is the shared no-op `ret` `0x1400f1180`. The caller then compared an uninitialised format,

@@ -44,7 +44,7 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
 
     readonly SkillCatalog _skills = skills ?? new(folder);
     readonly MonsterCatalog _monsters = new(folder);
-    readonly StatCatalog _stats = new(folder);
+    readonly StatCatalog _stats = new();
     readonly Lazy<(Metadata? Data, string? Error)> _metadata = new(() => Load(folder));
     readonly ConcurrentDictionary<ushort, Lazy<Companion?>> resolved = new();
 
@@ -115,29 +115,27 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
         string[] files = ["PassiveSkills", "GrantedEffects", "GrantedEffectsPerLevel", "GrantedEffectStatSets",
             "GrantedEffectStatSetsPerLevel", "Stats", "AddBuffToTargetVarieties", "BuffDefinitions", "MinionType",
             "MonsterVarieties", "Mods"];
-        string? missing = files.Select(f => Path.Combine(folder, "tables", f + ".json")).Append(Path.Combine(folder, "object-types.json"))
-            .FirstOrDefault(f => !ClientTables.Exists(f));
+        string? missing = files.Append("object_types").Where(f => !ClientTables.Has(f)).Select(f => $"the {f} client table").FirstOrDefault();
         if (missing is not null) return (null, $"Harbinger companion data missing: {missing}");
-        var docs = new Dictionary<string, JsonDocument>();
+        var docs = files.ToDictionary(f => f, ClientTables.Table);
         try
         {
-            foreach (string file in files) docs[file] = JsonDocument.Parse(ClientTables.ReadAllBytes(Path.Combine(folder, "tables", file + ".json")));
-            var perLevel = docs["GrantedEffectsPerLevel"].RootElement;
+            var perLevel = docs["GrantedEffectsPerLevel"];
             var grants = new Dictionary<ushort, (int, int)>();
-            foreach (var row in docs["PassiveSkills"].RootElement.EnumerateArray())
+            foreach (var row in docs["PassiveSkills"])
                 if (Int(row, "PassiveSkillGraphId") is > 0 and <= ushort.MaxValue and var node && Sources.Any(s => s.Node == node)
-                    && Int(row, "GrantedEffectsPerLevel") is >= 0 and var index && index < perLevel.GetArrayLength())
+                    && Int(row, "GrantedEffectsPerLevel") is >= 0 and var index && index < perLevel.Count)
                 {
                     var grant = perLevel[index];
                     grants[(ushort)node] = (Int(grant, "GrantedEffect"), Int(grant, "Level"));
                 }
-            var effects = docs["GrantedEffects"].RootElement.EnumerateArray().Select((r, i) => (r, i))
-                .ToDictionary(x => x.i, x => (Int(x.r, "SkillID"), Bool(x.r, "CooldownNotRecoverDuringActive")));
-            var definitions = docs["BuffDefinitions"].RootElement.EnumerateArray().Select((r, i) => new Definition(
-                checked((ushort)i), r.GetProperty("Id").GetString() ?? "", Keys(r, "StatsKeys"), Bool(r, "IsRecovery"), Bool(r, "__col44"), Int(r, "BuffCategory"))).ToArray();
+            var effects = docs["GrantedEffects"]
+                .ToDictionary(r => r.Index, r => (Int(r, "SkillID"), Bool(r, "CooldownNotRecoverDuringActive")));
+            var definitions = docs["BuffDefinitions"].Select(r => new Definition(
+                checked((ushort)r.Index), r.TextOrNull("Id") ?? "", Keys(r, "StatsKeys"), Bool(r, "IsRecovery"), Bool(r, "__col44"), Int(r, "BuffCategory"))).ToArray();
             var bindings = new Dictionary<int, Binding>();
             int bindingRow = 0;
-            foreach (var row in docs["AddBuffToTargetVarieties"].RootElement.EnumerateArray())
+            foreach (var row in docs["AddBuffToTargetVarieties"])
             {
                 int id = Int(row, "__col5"), definition = Int(row, "BuffDefinitions");
                 if (id >= 0 && definition >= 0 && definition < definitions.Length
@@ -147,22 +145,22 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
             }
             var limits = new Dictionary<string, uint>(StringComparer.Ordinal);
             var counts = new Dictionary<string, uint>(StringComparer.Ordinal);
-            foreach (var row in docs["MinionType"].RootElement.EnumerateArray())
-                if (row.GetProperty("Id").GetString() is { } id && Int(row, "LimitStat") is >= 0 and var stat)
+            foreach (var row in docs["MinionType"])
+                if (row.TextOrNull("Id") is { } id && Int(row, "LimitStat") is >= 0 and var stat)
                 {
                     limits[id] = checked((uint)stat + 1);
                     if (Int(row, "ActiveCountStat") is >= 0 and var count) counts[id] = checked((uint)count + 1);
                 }
             var minionStats = new Dictionary<string, IReadOnlyDictionary<uint, int>>(StringComparer.Ordinal);
-            var mods = docs["Mods"].RootElement;
-            foreach (var row in docs["MonsterVarieties"].RootElement.EnumerateArray())
+            var mods = docs["Mods"];
+            foreach (var row in docs["MonsterVarieties"])
             {
-                string id = row.GetProperty("Id").GetString() ?? "";
+                string id = row.TextOrNull("Id") ?? "";
                 if (!Sources.Any(s => s.Variety == id)) continue;
                 var values = new Dictionary<uint, int>();
                 foreach (int index in Ints(row, "ModsKeys"))
                 {
-                    if (index < 0 || index >= mods.GetArrayLength()) return (null, $"Invalid Harbinger mod reference: {index}");
+                    if (index < 0 || index >= mods.Count) return (null, $"Invalid Harbinger mod reference: {index}");
                     var mod = mods[index];
                     for (int i = 1; i <= 8; i++)
                         if (Int(mod, $"StatsKey{i}") is >= 0 and var key)
@@ -177,16 +175,14 @@ sealed class HarbingerCompanionCatalog(string folder = "data", SkillCatalog? ski
             }
             return (new(grants, effects, bindings, limits, counts, minionStats), null);
         }
-        catch (Exception e) when (e is JsonException or InvalidOperationException or OverflowException)
+        catch (Exception e) when (e is InvalidCastException or InvalidOperationException or OverflowException)
         {
             return (null, $"Invalid Harbinger companion data: {e.Message}");
         }
-        finally { foreach (var doc in docs.Values) doc.Dispose(); }
     }
 
-    static int Int(JsonElement row, string name) => row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
-    static bool Bool(JsonElement row, string name) => row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
-    static int[] Ints(JsonElement row, string name) => row.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
-        ? [.. v.EnumerateArray().Select(x => x.GetInt32())] : [];
-    static uint[] Keys(JsonElement row, string name) => [.. Ints(row, name).Select(x => checked((uint)x + 1))];
+    static int Int(ClientRow row, string name) => row.IntOrNull(name) ?? -1;
+    static bool Bool(ClientRow row, string name) => row.BoolOrNull(name) == true;
+    static int[] Ints(ClientRow row, string name) => row.Ints(name);
+    static uint[] Keys(ClientRow row, string name) => [.. Ints(row, name).Select(x => checked((uint)x + 1))];
 }

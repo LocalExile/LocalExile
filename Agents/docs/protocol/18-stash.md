@@ -105,7 +105,7 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   - Live 2026-10-29: the stash opened much faster after the heavy tabs were visited, with no crash.
 - **Area entry preloads only shop currency.** Vendors price items against the currency the client knows of, so the
   tabs that can hold it (a currency tab or a grid tab) go out on area entry when they hold class `StackableCurrency`
-  (`Program.PreloadsForPrices`). Before, every tab with a stackable item went out: a full divination tab alone is
+  (`Game.PreloadsForPrices`). Before, every tab with a stackable item went out: a full divination tab alone is
   470 items.
 - Sizes (`AccountStash.Types`): StashType StorageSlots × column 4: Normal and Premium 12 × 12, Quad 24 × 24; the special
   tabs (Currency 142 × 4, Essence 110 × 4, Fragment 255 × 9, Map 12 × 6, Flask 250 × 4, Gem 250 × 2, Delve 41 × 4,
