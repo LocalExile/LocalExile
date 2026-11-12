@@ -81,6 +81,7 @@ per line, flush stdin, and read one JSON result line. This retains the Frida att
 {"command":"command","text":"/pos","wait":0.5}
 {"command":"tp","target":"RhoaChest","index":2}
 {"command":"tp","x":120,"y":340}
+{"command":"act","kind":"walkTo","x":512,"y":740}
 {"command":"chat","text":"#hello"}
 {"command":"game:status"}
 ```
@@ -179,6 +180,47 @@ dotnet build
 (Get-Item src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll).VersionInfo.ProductVersion
 Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Algorithm SHA256
 ```
+
+## Walking with real input (act)
+
+`act` moves the character the way a player moves it, for an operator outside the client
+([ai-operator](ai-operator.md)); it is not a test shortcut:
+
+```json
+{"command":"act","kind":"walkTo","x":512,"y":740}
+```
+
+It clicks inside the client's own window through the no-focus route of `scripts/re/frida/drive-input.js`, so the
+client's own action code decides what the server is sent, and it reports what the client itself resolved. That is the
+opposite of `move`, which writes the C→S 0x25 itself so the client predicts nothing; `move` stays for tests that need
+a fixed packet.
+
+The result is a verdict, not an error: `{"reached":true,"cell":[512,740],"target":[512,740],"clicks":3,
+"predicted":[508,742],"order":[508,742],"elapsedMs":…}`; when it does not get there, `reached` is false and `reason`
+says why in a sentence an operator can act on (`blocked: 4 cells short of [512, 740] after 3 clicks`, `gave up …`),
+with the same fields. `clicks` counts the clicks it took, `predicted` is the cell the client resolved while aiming,
+`order` is the cell it resolved when the button went down (null if the client never asked for an action). Optional
+`tolerance` (cells, default 1), `timeout` (seconds, default 25) and `clicks` (budget, default 30).
+
+Nobody is teleported and no walk packet is written: the client's own order is the one that reaches the server, and
+`order` is the bridge's record of it.
+
+### What a click resolves to
+
+The client converts its cursor into a world point every frame and publishes it at `instance + 0xc7f4` (x) and
+`instance + 0xc7f8` (y) in world units; that pair is what its click asks for. The bridge reads it rather than guessing:
+
+- `0x140df5100 int *f(int out_cell[2], const float world_xy[2])` is the client's own world→cell conversion,
+  `out[i] = (int)rintf(world[i] * DAT_1436adb60)`, `DAT_1436adb60 = 0.092f` (1 cell = 10.8696 units, 23 cells = 250, the
+  tile size). It is a pure function — no entity, no map, no per-area state — so a probe calls it directly.
+- The per-frame pump `0x14011a070` calls `0x14011a610` unconditionally and that publishes the pair; there is no
+  left-button test in it, so moving the cursor without clicking already updates what a click would walk to. That is
+  what makes aiming free, and why `GetForegroundWindow` must answer the session window (the block producer upstream is
+  gated on it; `scripts/re/frida/drive-input.js` keeps that hook for the same reason).
+- `0x1421660b0` is where the client asks for the action, and its fourth argument points at the cell it resolved — the
+  bridge's own record that the client aimed.
+- One click saturates: the target is `player_world + R(yaw)·v̂·(min(|v|,1)·150 + 30)` world units, so it reaches about
+  16.6 cells. `walkTo` therefore aims, clicks, waits for that walk to end and aims again.
 
 ## Targeted development interactions
 

@@ -21,6 +21,12 @@
     .venv/Scripts/python.exe scripts/dev/client_control.py item:pickup 1027
     echo '{"command":"character:create","name":"CampaignWitch","class":"Witch"}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
     echo '{"command":"inventory:pickup","inventoryId":1,"id":1027}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
+    echo '{"command":"act","kind":"walkTo","x":512,"y":740}' | .venv/Scripts/python.exe scripts/dev/client_control.py --stdio
+
+`act` is the primitive that moves the character the way a person does: a click into the client's own window, aimed
+from the client's own answers (the local player's cell, and the cell the client itself resolved the click to), never a
+walk packet written by the bridge. It exists for an outside operator (Agents/docs/dev/ai-operator.md), not for tests:
+the `move` command below writes the C→S walk packet itself, so the client predicts nothing.
 
 Use --stdio for persistent JSON-lines RPC (one request/result per line). Each request is
 {"command":"character:play","name":"OfflineWitch"}; login takes account/password fields.
@@ -37,6 +43,7 @@ from ctypes import wintypes
 import getpass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -52,6 +59,9 @@ import clientdb
 ROOT = Path(__file__).resolve().parents[2]
 CLIENT = ROOT / "Client" / "Game.patched.exe"
 AGENT = Path(__file__).with_name("client-control.js")
+# The input agent, loaded into the same Frida session as AGENT by the `act` command (one session, more than one script:
+# two tools attached at once crash the client).
+ACT = Path(__file__).with_name("client-act.js")
 # live.ps1 writes both: the stack's ports when it runs on its own (-PortBase), and each client's PID record.
 STACK = ROOT / "data" / "stack.json"
 CLIENTS = ROOT / "data" / "clients"
@@ -498,7 +508,7 @@ def collect_replies(start, wait=1.5, quiet=0.25, path=GATEWAY_LOG, ports=None):
 class ClientControl:
     def __init__(self, client_session=None):
         self.device = frida.get_local_device()
-        self.session = self.script = None
+        self.session = self.script = self.act = None
         self.pid = None
         self.detached = False
         self.client_session = session_name(os.environ.get("Game_CLIENT_SESSION") if client_session is None else client_session)
@@ -509,7 +519,7 @@ class ClientControl:
                 self.session.detach()
             except frida.InvalidOperationError:
                 pass
-        self.session = self.script = None
+        self.session = self.script = self.act = None
         self.pid = None
 
     def __enter__(self):
@@ -555,6 +565,167 @@ class ClientControl:
     def rpc(self, op, **fields):
         self.attach()
         return self.script.exports_sync.command({"op": op, **fields})
+
+    def act_rpc(self):
+        """The input agent (client-act.js), loaded once into the same Frida session as client-control.js."""
+        self.attach()
+        if self.act is None:
+            errors = []
+            script = self.session.create_script(ACT.read_text(encoding="utf-8"), name="localexile-client-act")
+            script.on("message", lambda message, data: errors.append(message.get("description", "Agent error"))
+                      if message.get("type") == "error" else None)
+            try:
+                script.load()
+                script.exports_sync.attach()
+            except Exception:
+                self.act = None
+                if errors:
+                    raise RuntimeError(errors[0]) from None
+                raise
+            self.act = script
+        return self.act.exports_sync
+
+    @staticmethod
+    def act_gap(cell, goal):
+        return max(abs(cell[0] - goal[0]), abs(cell[1] - goal[1]))
+
+    @classmethod
+    def act_target(cls, value):
+        """The cell the client says a click would walk to right now (client-act.js reads it; no click, no walking)."""
+        published = value.get("target")
+        cell = (published or {}).get("cell") if isinstance(published, dict) else None
+        if not cell:
+            raise RuntimeError("The client is not publishing a walk target; is the character in game?")
+        return (int(cell[0]), int(cell[1]))
+
+    def act_probe(self, act, point, frames=2, timeout=1.0):
+        """Point the client's cursor and read back what it resolved. Nothing is clicked and the character stands still.
+
+        The client republishes what a click would walk to once per frame, and a session client runs at about 9 fps, so
+        the read waits for frames to pass instead of sleeping a guess.
+        """
+        before = act.state().get("frame", 0)
+        act.cursor(int(point[0]), int(point[1]))
+        deadline, value = time.monotonic() + timeout, None
+        while time.monotonic() < deadline:
+            value = act.state()
+            if value.get("frame", 0) - before >= frames:
+                break
+            time.sleep(.01)
+        return value if value is not None else act.state()
+
+    def act_aim(self, act, goal, viewport, margin=12, tries=10):
+        """Where to put the cursor so a click walks toward `goal`, from the client's own answers.
+
+        The cursor-to-cell mapping is measured with two free reads (it is the same everywhere in the view), then the
+        cursor is stepped toward the goal with a damped Newton step. Beyond the client's reach the resolved cell
+        saturates, so the best resolution seen is what the click gets; the character then walks that far and walksTo
+        aims again. Returns (point, cell the client resolved for it).
+        """
+        limit = max(40, min(viewport) // 3)
+        far = (max(margin, viewport[0] - margin - 1), max(margin, viewport[1] - margin - 1))
+
+        def place(p):
+            return (min(max(int(round(p[0])), margin), far[0]), min(max(int(round(p[1])), margin), far[1]))
+
+        point = place((viewport[0] / 2, viewport[1] / 2))
+        cell = self.act_target(self.act_probe(act, point))
+        best = (self.act_gap(cell, goal), point, cell)
+        step = 16
+        right = self.act_target(self.act_probe(act, place((point[0] + step, point[1]))))
+        down = self.act_target(self.act_probe(act, place((point[0], point[1] + step))))
+        j = ((right[0] - cell[0]) / step, (down[0] - cell[0]) / step,
+             (right[1] - cell[1]) / step, (down[1] - cell[1]) / step)
+        det = j[0] * j[3] - j[1] * j[2]
+        if abs(det) < 1e-9:
+            return best[1], best[2]
+        for unused in range(tries):
+            if cell == goal:
+                break
+            dx, dy = goal[0] - cell[0], goal[1] - cell[1]
+            offset = ((j[3] * dx - j[1] * dy) / det, (j[0] * dy - j[2] * dx) / det)
+            length = math.hypot(*offset)
+            if length < 1.0:
+                break
+            if length > limit:
+                offset = (offset[0] * limit / length, offset[1] * limit / length)
+            moved = place((point[0] + offset[0], point[1] + offset[1]))
+            if moved == point:
+                break
+            cell = self.act_target(self.act_probe(act, moved))
+            gap = self.act_gap(cell, goal)
+            if gap < best[0]:
+                best = (gap, moved, cell)
+            elif gap > 2 * best[0] + 2:
+                break                                       # the step took us away from it: keep the best
+            point = moved
+        return best[1], best[2]
+
+    def act_step(self, act, before, timeout=2.5):
+        """After the button: wait for the client's own walk to end (the cell moved and the player stopped)."""
+        deadline, value = time.monotonic() + timeout, act.state()
+        while time.monotonic() < deadline:
+            time.sleep(.05)
+            value = act.state()
+            moved = value.get("cell")
+            if moved and tuple(int(v) for v in moved) != before and value.get("moving") is False:
+                return value
+        return value
+
+    @staticmethod
+    def act_result(reached, cell, goal, clicks, predicted, order, started, reason=None):
+        result = {"reached": reached, "cell": [int(v) for v in cell], "target": [int(v) for v in goal],
+                  "clicks": clicks, "predicted": predicted, "order": order,
+                  "elapsedMs": round((time.monotonic() - started) * 1000)}
+        if reason is not None:
+            result["reason"] = reason
+        return result
+
+    def act_walk_to(self, x, y, tolerance=1, timeout=25.0, clicks=30):
+        """Walk the character to cell (x, y) the way a person does: aim, click, look, and click again.
+
+        The client resolves the click with its own cursor maths and its own pathfinder, so the order that reaches the
+        server is the client's own; the bridge writes no walk packet and never teleports. A click reaches about a
+        screen radius, so a far cell takes several clicks. The answer is a verdict rather than an exception:
+        {"reached": True, cell, target, clicks, predicted, order, elapsedMs}, or reached False with a short `reason`
+        ("blocked: …", "gave up …") that an operator can act on. `predicted` is the cell the client resolved while
+        aiming and `order` is the cell it resolved when the button went down (null if it never spoke).
+        """
+        act = self.act_rpc()
+        started, used, stalled, previous = time.monotonic(), 0, 0, None
+        deadline = started + float(timeout)
+        goal = (int(x), int(y))
+        predicted = order = None
+        while True:
+            value = act.state()
+            cell = value.get("cell")
+            if cell is None:
+                raise RuntimeError("The client has no local player position; is the character in game?")
+            cell = (int(cell[0]), int(cell[1]))
+            gap = self.act_gap(cell, goal)
+            if gap <= tolerance:
+                return self.act_result(True, cell, goal, used, predicted, order, started)
+            # A click that leaves the character where it stood is the honest sign of a blocked walk: three in a row
+            # and the caller gets the reason instead of a silent retry loop.
+            stalled = stalled + 1 if used and cell == previous else 0
+            previous = cell
+            if stalled >= 3:
+                return self.act_result(False, cell, goal, used, predicted, order, started,
+                                       f"blocked: {gap} cells short of {goal} after {used} clicks")
+            if used >= clicks or time.monotonic() >= deadline:
+                return self.act_result(False, cell, goal, used, predicted, order, started,
+                                       f"gave up {gap} cells short of {goal} after {used} clicks")
+            viewport = tuple(int(v) for v in (value.get("viewport") or (0, 0)))
+            if not all(viewport):
+                raise RuntimeError("The client reported no window size")
+            before = value.get("clicks", 0)
+            point, resolved = self.act_aim(act, goal, viewport)
+            predicted = [int(v) for v in resolved]
+            act.click(int(point[0]), int(point[1]))
+            used += 1
+            value = self.act_step(act, cell)
+            if value.get("clicks", 0) > before and value.get("click"):
+                order = [int(v) for v in value["click"]]
 
     def status(self):
         if self.script is None and self._find_client() is None:
@@ -805,6 +976,21 @@ class ClientControl:
             if not 0<=x<=0x7fffffff or not 0<=y<=0x7fffffff:
                 raise ValueError("Movement cells must be nonnegative int32 values")
             return self.rpc("interaction",bytes=list(struct.pack(">HIIHHH",0x25,x,y,0x2909,0,0x408)))
+        if command == "act":
+            # The hands of an outside operator: one primitive, clicked through the client's own input, with the
+            # client's own answers as the result (Agents/docs/dev/ai-operator.md). Only walkTo exists yet.
+            kind = request.get("kind")
+            if kind != "walkTo":
+                raise ValueError(f"Unknown act kind: {kind!r}; this bridge has walkTo")
+            for field in ("x", "y"):
+                if field not in request:
+                    raise ValueError(f"act walkTo needs {field} (a cell)")
+            x, y = int(request["x"]), int(request["y"])
+            if not -(2**31) <= x < 2**31 or not -(2**31) <= y < 2**31:
+                raise ValueError("Cell coordinates must be int32 values")
+            return self.act_walk_to(x, y, tolerance=int(request.get("tolerance", 1)),
+                                    timeout=float(request.get("timeout", 25)),
+                                    clicks=int(request.get("clicks", 30)))
         if command == "npc:option":
             index = int(request["index"])
             if not 0 <= index <= 255:
