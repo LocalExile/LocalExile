@@ -427,57 +427,48 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
 
     static List<string> LoadTagNames(string folder)
     {
-        string path = Path.Combine(folder, "tables", "Tags.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var t = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. t.RootElement.EnumerateArray().Select(r => r.GetProperty("Id").GetString() ?? "")];
+        if (!ClientTables.Has("Tags")) return [];
+        return [.. ClientTables.Table("Tags").Select(r => r.Text("Id") ?? "")];
     }
 
     static Dictionary<int, IReadOnlySet<string>> LoadVarietyTags(string folder)
     {
-        string path = Path.Combine(folder, "tables", "MonsterVarieties.json");
         var result = new Dictionary<int, IReadOnlySet<string>>();
-        if (!ClientTables.Exists(path)) return result;
+        if (!ClientTables.Has("MonsterVarieties")) return result;
         var tags = LoadTagNames(folder);
-        using var d = GameTables.Open(path);
+        var d = ClientTables.Table("MonsterVarieties");
         int row = 0;
-        foreach (var r in d.RootElement.EnumerateArray())
-            result[row++] = r.GetProperty("TagsKeys").EnumerateArray().Select(k => k.GetInt32())
+        foreach (var r in d)
+            result[row++] = r.Ints("TagsKeys")
                 .Where(k => k >= 0 && k < tags.Count).Select(k => tags[k]).ToHashSet();
         return result;
     }
 
     static List<ItemRolls.Word> LoadWords(string folder)
     {
-        string path = Path.Combine(folder, "tables", "Words.json");
-        if (!ClientTables.Exists(path)) return [];
+        if (!ClientTables.Has("Words")) return [];
         var tags = LoadTagNames(folder);
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray()
-            .Where(r => r.GetProperty("Wordlist").GetInt32() is MonsterPrefixWords or MonsterSuffixWords)
-            .Select(r => new ItemRolls.Word(r.GetProperty("HASH32").GetUInt32(), r.GetProperty("Text").GetString() ?? "",
-                r.GetProperty("Wordlist").GetInt32(),
-                [.. r.GetProperty("SpawnWeight_Tags").EnumerateArray().Zip(r.GetProperty("SpawnWeight_Values").EnumerateArray(),
-                    (k, v) => (k.GetInt32() < tags.Count ? tags[k.GetInt32()] : "", v.GetInt32()))]))];
+        return [.. ClientTables.Table("Words")
+            .Where(r => r.Int("Wordlist") is MonsterPrefixWords or MonsterSuffixWords)
+            .Select(r => new ItemRolls.Word(r.UInt("HASH32"), r.Text("Text") ?? "",
+                r.Int("Wordlist"),
+                [.. r.Ints("SpawnWeight_Tags").Zip(r.Ints("SpawnWeight_Values"),
+                    (k, v) => (k < tags.Count ? tags[k] : "", v))]))];
     }
 
     static (int[], int[]) LoadLifeTables(string folder)
     {
         int[] Table(string name)
         {
-            string path = Path.Combine(folder, "tables", name + ".json");
-            if (!ClientTables.Exists(path)) return [];
-            using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-            return [.. d.RootElement.EnumerateArray().OrderBy(r => r.GetProperty("Level").GetInt32()).Select(r => r.GetProperty("Life").GetInt32())];
+            if (!ClientTables.Has(name)) return [];
+            return [.. ClientTables.Table(name).OrderBy(r => r.Int("Level")).Select(r => r.Int("Life"))];
         }
         return (Table("MagicMonsterLifeScalingPerLevel"), Table("RareMonsterLifeScalingPerLevel"));
     }
 
     static (int, int)[] LoadRarity(string folder)
     {
-        string path = Path.Combine(folder, "tables", "Rarity.json");
-        if (!ClientTables.Exists(path)) return [];
-        using var d = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        return [.. d.RootElement.EnumerateArray().Select(r => (r.GetProperty("MaxPrefix").GetInt32(), r.GetProperty("MaxSuffix").GetInt32()))];
+        if (!ClientTables.Has("Rarity")) return [];
+        return [.. ClientTables.Table("Rarity").Select(r => (r.Int("MaxPrefix"), r.Int("MaxSuffix")))];
     }
 }

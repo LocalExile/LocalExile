@@ -5,7 +5,13 @@
 -- guard_skill_effect_duration_+% adds into the skill_effect_duration_+% sum of a triggered guard
 -- (TriggeredGuards.GuardDuration); chance_to_fortify_on_melee_stun_% is rolled by the successful melee stun in
 -- HitReaction.TryFlinch and grants FortificationGainModel's damage-based stacks.
-INSERT INTO catalog_entries (kind, key, payload, enabled) VALUES
-('tattoo_effect', 'Tattoo of the Arohongui Shaman', '{"Name":"Tattoo of the Arohongui Shaman","Stats":[{"Stat":"herald_effect_on_self_+%","Value":5}]}', 1),
-('tattoo_effect', 'Tattoo of the Rongokurai Guard', '{"Name":"Tattoo of the Rongokurai Guard","Stats":[{"Stat":"guard_skill_effect_duration_+%","Value":6}]}', 1),
-('tattoo_effect', 'Tattoo of the Tukohama Warrior', '{"Name":"Tattoo of the Tukohama Warrior","Stats":[{"Stat":"chance_to_fortify_on_melee_stun_%","Value":5}]}', 1);
+
+INSERT INTO tattoo_effects (name, enabled) VALUES
+('Tattoo of the Arohongui Shaman', 1),
+('Tattoo of the Rongokurai Guard', 1),
+('Tattoo of the Tukohama Warrior', 1);
+
+INSERT INTO tattoo_effect_stats (tattoo, ord, stat, value) VALUES
+('Tattoo of the Arohongui Shaman', 0, 'herald_effect_on_self_+%', 5),
+('Tattoo of the Rongokurai Guard', 0, 'guard_skill_effect_duration_+%', 6),
+('Tattoo of the Tukohama Warrior', 0, 'chance_to_fortify_on_melee_stun_%', 5);

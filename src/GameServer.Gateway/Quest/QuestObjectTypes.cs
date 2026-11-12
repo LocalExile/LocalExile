@@ -37,44 +37,31 @@ public static class QuestObjectTypes
     /// missed (live 2026-11-03).</summary>
     public static bool OpensInPlace(string type) => type == "Metadata/Terrain/Labyrinth/Objects/LabyrinthAirlockDoor";
 
-    static readonly Lazy<Dictionary<string, Info>> Catalog = new(() => Load());
+    static readonly Lazy<Dictionary<string, Info>> Catalog = new(Load);
 
-    public static Dictionary<string, Info> Load(string folder = "data")
+    public static Dictionary<string, Info> Load()
     {
         var types = new Dictionary<string, Info>(StringComparer.Ordinal);
-        string file = Path.Combine(folder, "object-types.json");
-        if (!ClientTables.Exists(file)) return types;
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(file)))
-            foreach (var t in doc.RootElement.GetProperty("types").EnumerateArray())
-            {
-                string id = t.GetProperty("type").GetString() ?? "";
-                int read = t.GetProperty("read").GetInt32();
-                var components = t.GetProperty("components").EnumerateArray().Select(c => c.GetString() ?? "").Take(read).ToList();
-                int states = t.TryGetProperty("transitionable", out var tr) && tr.ValueKind == JsonValueKind.Object
-                    && tr.TryGetProperty("num_states", out var n) && n.ValueKind == JsonValueKind.Number ? n.GetInt32() : 2;
-                int size = 1;
-                bool blocking = false;
-                if (t.TryGetProperty("positioned", out var pos) && pos.ValueKind == JsonValueKind.Object)
-                {
-                    if (pos.TryGetProperty("object_size", out var os) && int.TryParse(os.GetString(), out int s)) size = Math.Max(1, s - 1);
-                    blocking = pos.TryGetProperty("blocking", out var b) && b.GetString() == "true";
-                }
-                types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
-                {
-                    OwnModel = !components.Contains("Animated") || t.TryGetProperty("animated_object", out var ao) && ao.ValueKind == JsonValueKind.String,
-                };
-            }
-        // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
-        string chests = Path.Combine(folder, "tables", "Chests.json");
-        if (ClientTables.Exists(chests))
+        foreach (var (id, t) in ObjectTypes.All())
         {
-            using var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(chests));
-            foreach (var r in doc.RootElement.EnumerateArray())
+            var components = ObjectTypes.Components(t);
+            int states = t.IntOrNull("transitionable_num_states") ?? 2;
+            int size = t.TextOrNull("positioned_object_size") is { } os && int.TryParse(os, out int s) ? Math.Max(1, s - 1) : 1;
+            bool blocking = ObjectTypes.Flag(t, "positioned_blocking") == true;
+            types[id] = new Info(id, components, Math.Max(2, states), size, blocking, null)
             {
-                if (r.GetProperty("Id").GetString() is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;
-                string? model = r.GetProperty("AOFiles").EnumerateArray().FirstOrDefault().GetString();
+                OwnModel = !components.Contains("Animated") || t.TextOrNull("animated_object") is not null,
+            };
+        }
+        // Chests.dat rows without an .ot: their InheritsFrom's components, the row's model.
+        if (ClientTables.Has("Chests"))
+        {
+            foreach (var r in ClientTables.Table("Chests"))
+            {
+                if (r.Text("Id") is not { Length: > 0 } id || !id.StartsWith("Metadata/Chests/QuestChests/", StringComparison.Ordinal)) continue;
+                string? model = r.Texts("AOFiles").FirstOrDefault();
                 if (types.TryGetValue(id, out var own)) { types[id] = own with { Model = model }; continue; }
-                if (r.GetProperty("InheritsFrom").GetString() is { } parent && types.TryGetValue(parent, out var basis))
+                if (r.Text("InheritsFrom") is { } parent && types.TryGetValue(parent, out var basis))
                     types[id] = basis with { Type = id, Model = model };
             }
         }

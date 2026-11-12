@@ -10,7 +10,7 @@ using GameServer.Core;
 /// raises both skills its one gem grants (its Vaal skill and its base skill) and a transfigured Raise Zombie keeps
 /// its gem's family. Supports carry family tags too (Scornful Herald, Frigid Bond, the Vaal supports); the stats
 /// raise skill gems only, so EffectiveGemLevel excludes supports when the bonus is applied.
-/// Reads data/tables (game data, loaded on first use); without them no stat has members.
+/// Reads the client tables (client.db, loaded on first use); without them no stat has members.
 /// </summary>
 public sealed class SkillGemFamilies(string folder = "data")
 {
@@ -31,39 +31,36 @@ public sealed class SkillGemFamilies(string folder = "data")
     // stat, and those with a variant whose GemTags row carries the stat in its Stat1..Stat4 columns.
     static Dictionary<int, HashSet<int>> Load(string folder)
     {
-        string Table(string n) => Path.Combine(folder, "tables", n + ".json");
         string[] needed = ["GemTags", "GemEffects", "SkillGems"];
         var members = new Dictionary<int, HashSet<int>>();
-        if (needed.Any(n => !ClientTables.Exists(Table(n)))) return members;
-        using var tags = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("GemTags")));
-        using var effects = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("GemEffects")));
-        using var gems = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("SkillGems")));
-        static int Int(JsonElement r, string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : -1;
+        if (needed.Any(n => !ClientTables.Has(n))) return members;
+        var tags = ClientTables.Table("GemTags");
+        var effects = ClientTables.Table("GemEffects");
+        var gems = ClientTables.Table("SkillGems");
+        static int Int(ClientRow r, string name) => (r.IntOrNull(name) ?? -1);
         // A GemTags row's stat rows (Stat1..Stat4): the family stats whose gems carry the tag.
         var tagStats = new Dictionary<int, int[]>();
         int row = 0;
-        foreach (var t in tags.RootElement.EnumerateArray())
+        foreach (var t in tags)
         {
             int[] stats = [.. new[] { Int(t, "Stat1"), Int(t, "Stat2"), Int(t, "Stat3"), Int(t, "Stat4") }.Where(s => s >= 0).Distinct()];
-            if (t.TryGetProperty("Id", out var id) && id.GetString() == "exceptional") stats = [ExceptionalFamily];
+            if (t.TextOrNull("Id") == "exceptional") stats = [ExceptionalFamily];
             if (stats.Length > 0) tagStats[row] = stats;
             row++;
         }
-        int effectRows = effects.RootElement.GetArrayLength();
+        int effectRows = effects.Count;
         row = 0;
-        foreach (var g in gems.RootElement.EnumerateArray())
+        foreach (var g in gems)
         {
             int gemRow = Int(g, "BaseItemTypesKey");
             if (gemRow >= 0)
             {
                 if (Int(g, "MinionGlobalSkillLevelStat") is int global and >= 0) Add(global, gemRow);
-                if (g.TryGetProperty("GemVariants", out var variants))
-                    foreach (var v in variants.EnumerateArray())
-                        if (v.ValueKind == JsonValueKind.Number && v.GetInt32() is int variant and >= 0 && variant < effectRows &&
-                            effects.RootElement[variant].TryGetProperty("GemTags", out var carried))
-                            foreach (var t in carried.EnumerateArray())
-                                if (t.ValueKind == JsonValueKind.Number && tagStats.TryGetValue(t.GetInt32(), out var stats))
-                                    foreach (int stat in stats) Add(stat, gemRow);
+                foreach (int variant in g.Ints("GemVariants"))
+                    if (variant >= 0 && variant < effectRows)
+                        foreach (int t in effects[variant].Ints("GemTags"))
+                            if (tagStats.TryGetValue(t, out var stats))
+                                foreach (int stat in stats) Add(stat, gemRow);
             }
             row++;
         }

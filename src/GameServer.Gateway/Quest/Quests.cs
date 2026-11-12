@@ -421,6 +421,10 @@ public static partial class Quests
             [.. Of<HandInRule>().Where(r => r.Npc == npcId && r.Option == option && (r.Row is null || r.Row == row)).Select(r => r.Item)];
 
         /// <summary>The monsters using the object brings (<see cref="SpawnRule"/>).</summary>
+        public bool SpawnEncounterFinished(string area, string variety, Func<string, bool> has) =>
+            OnMonsterKilled(area, variety).Any(has) || ThresholdOf(area, variety)?.Flags.Any(has) == true
+            || KilledAllOf(area, variety).Any(rule => rule.Flags.Any(has));
+
         public IReadOnlyList<string> SpawnsOnUse(string areaId, string objectType) =>
             [.. In<SpawnRule>(areaId).Where(r => r.ObjectType == objectType).Select(r => r.Variety)];
 
@@ -670,25 +674,20 @@ public static partial class Quests
     }
 
 
-    /// <summary>QuestFlags.dat rows by Id, from an extracted QuestFlags.json (the row is what the client keeps).</summary>
-    public static Dictionary<string, int> ParseRows(string json)
+    /// <summary>QuestFlags rows by Id (the row is what the client keeps); none without the table.</summary>
+    public static Dictionary<string, int> FlagRows(ClientTable? flags)
     {
-        using var doc = JsonDocument.Parse(json);
         var rows = new Dictionary<string, int>();
-        int i = 0;
-        foreach (var r in doc.RootElement.EnumerateArray())
-        {
-            if (r.TryGetProperty("Id", out var id) && id.GetString() is { } name) rows.TryAdd(name, i);
-            i++;
-        }
+        if (flags is null) return rows;
+        foreach (var r in flags)
+            if (r.TextOrNull("Id") is { } name) rows.TryAdd(name, r.Index);
         return rows;
     }
 
     static readonly Lazy<Dictionary<string, int>> TableRows = new(() =>
     {
-        const string file = "data/tables/QuestFlags.json";
-        try { return ClientTables.Exists(file) ? ParseRows(ClientTables.ReadAllText(file)) : []; }
-        catch (Exception ex) when (ex is IOException or JsonException) { Console.WriteLine($"[gateway] {file}: {ex.Message}"); return []; }
+        try { return FlagRows(ClientTables.TableOrNull("QuestFlags")); }
+        catch (Exception ex) when (ex is IOException or Microsoft.Data.Sqlite.SqliteException) { Console.WriteLine($"[gateway] QuestFlags: {ex.Message}"); return []; }
     });
 
     /// <summary>The QuestFlags rows of these flag Ids, ascending; unknown Ids are skipped.</summary>

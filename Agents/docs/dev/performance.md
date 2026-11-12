@@ -127,6 +127,12 @@ starting an Oodle worker. The old runtime decoder timer, bundle release and HNC 
 The measurements below predate that migration; they are historical comparisons, not measurements of current main.
 The `single` and `area` scenarios use the extracted pack and no longer measure runtime decoder caches.
 
+Combat caches: message/frame and per-release projectile snapshots; skill and equipment caches checked against their
+inputs, which ignore gem XP within a level and extended recent windows; reused item-local stats, condition parsers and
+projectile recipes. Aura reconciliation compares live sources, restrictions, equipment and reservation; support
+resolution shares raw gem sources, and projectile motion is reused only until the next contact
+(`PlayerStatsCache.cs`, `OwnAuras.cs`, `GemLevels.cs`, `ProjectileRuntime.cs`, `StatConditions.cs`).
+
 ## One player per stack (2026-10-31, before the extracted-pack migration)
 
 The target is one server stack and one client per worktree, eight of them on one PC, so a stack's idle and
@@ -157,17 +163,15 @@ What changed:
   returning thread's slot and per-core stacks and trims only during a later full collection, at least 30-60 s after the
   buffer's last use; a lightly loaded server rarely runs one. The startup loads left ~240 MB in the main thread
   (Mods.json's alone is 128 MB), a player's first loads another ~250 MB in connection threads. `GameTables.Isolated`
-  runs a load on a thread of its own, whose pool slots go with it; the Gateway's startup (`GameData.Open`), the
-  2 MB-and-larger tables (57 sites, through `GameTables.Open`), area-transitions.json, the area mods and Auth's
+  runs a load on a thread of its own, whose pool slots go with it; the Gateway's startup (`GameData.Open`) and Auth's
   WorldAreas loads use it. A periodic background collection to let the pool trim was tried first: it freed the buffers,
   but the memory stayed committed as free space between the catalogues' large objects.
 - **Debug temporaries.** A Debug build keeps a temporary alive until its method returns, and `Main` runs for the
   Gateway's life: the 76 MB client executable read for the HNC mask stayed. It is now read on its own thread.
 - **The GGPK index** is searched in its records sorted by hash instead of a 39 MB dictionary beside them.
-- **Level generation's caches.** The compressed bundles are released after each generation (the decompressed chunks
-  serve the repeated reads; ~80 MB less after a first area); the Node worker and the decompressed chunks go a minute
-  after the last generation (`ServerLevels.DecoderIdle`). Everything stays per stack: no decoder, cache or game data is
-  shared between stacks, whose code and tables may differ.
+- **Level generation's files** come from `data/game-files.zip` (`GamePack`), extracted once, not from the GGPK: no
+  bundle decoder or decompressed chunks stay in memory. Nothing is shared between stacks, whose code and tables may
+  differ.
 - **`live.ps1 -Release`** runs the Release builds without `dotnet watch`; the monster AI is 1.6-2.3x faster there, the
   memory the same (the `single` scenario within 1 MB).
 
@@ -188,10 +192,9 @@ allocation, not JIT code quality).
 
 ## Where the remaining cost is
 
-- **Table parsing.** Most catalogues still parse whole JSON tables with `JsonDocument` (~190 sites); WorldAreas.json is
-  read by nine loaders (Auth alone four times at startup, ~0.1 s). Reading the biggest ones with `Utf8JsonReader` into
-  compact rows would lower the peak memory of the first loads. Several `JsonDocument`s open at once keep their pooled
-  buffers: parse one at a time.
+- **Generated tables.** The client tables and the generated ones (object types, room points, ...) are read as columnar
+  rows (`ClientTable`, straight from client.db, cached per version of the database); no generated file is parsed as JSON
+  at run time any more.
 - **Monster AI.** `PlanMonsterAi` is still ~1 ms per step for a crowd of 60: half in `MonsterSurround.Assign` (the
   free cells' reservation queries), the rest mostly `PlayerWalk.Order`'s client-pathfinder searches.
 - **An idle player's loops** (58 ms CPU and 13 MB allocated per second in town): the player stat snapshot

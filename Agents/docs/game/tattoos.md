@@ -219,7 +219,7 @@ icon and tooltip. The other lists are unchanged: second empty, third cluster jew
 - The currency item carries **no effect mods**: the replacement passive's stats are the effect. Path of Building's
   `TattooPassives.lua` gives the effect text and stat keys for 92 items; the eight special items (Journey Makanui and
   the seven Forbidden tattoos) need random generation or a special replacement.
-- `PassiveSkillOverrides.json` has 343 rows. `PassiveSkillTattoos.Override` indexes this table; the client needs the
+- `PassiveSkillOverrides` has 343 rows. `PassiveSkillTattoos.Override` indexes this table; the client needs the
   row's `HASH16`, not the row index. Firewalker is `Override = 0` ? `Ngamahu1`, HASH16 23594; the row also carries
   the replacement icon, stats, `RequiresAdjacent`/`MaxAdjacent` and `TattooBlockingPassive`.
 - The client's `Override` index is therefore decoded: use `PassiveSkillOverrides[Override].HASH16` in `0x33`'s

@@ -49,41 +49,36 @@ public sealed class QuestStates
     public static QuestStates Load(string folder = "data")
     {
         var result = new QuestStates();
-        string Table(string name) => Path.Combine(folder, "tables", name + ".json");
-        if (!ClientTables.Exists(Table("QuestFlags")) || !ClientTables.Exists(Table("Quest"))) return result;
+        if (!ClientTables.Has("QuestFlags") || !ClientTables.Has("Quest")) return result;
         string[] flags, ids;
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("QuestFlags"))))
-            flags = [.. doc.RootElement.EnumerateArray().Select(f => f.GetProperty("Id").GetString() ?? "")];
-        string? Flag(JsonElement e) => e.ValueKind == JsonValueKind.Number && e.GetInt32() is >= 0 and var i && i < flags.Length ? flags[i] : null;
-        string[] Flags(JsonElement r, string name) => r.TryGetProperty(name, out var v) ? [.. v.EnumerateArray().Select(Flag).OfType<string>()] : [];
-        using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("Quest"))))
+        flags = [.. ClientTables.Table("QuestFlags").Select(f => f.Text("Id") ?? "")];
+        string? Flag(int? e) => e is >= 0 and int i && i < flags.Length ? flags[i] : null;
+        string[] Flags(ClientRow r, string name) => [.. r.Ints(name).Select(i => Flag(i)).OfType<string>()];
+        var doc = ClientTables.Table("Quest");
         {
-            ids = [.. doc.RootElement.EnumerateArray().Select(q => q.GetProperty("Id").GetString() ?? "")];
-            foreach (var q in doc.RootElement.EnumerateArray())
-                result.quests.TryAdd(q.GetProperty("Id").GetString() ?? "", (q.GetProperty("Act").GetInt32(), q.GetProperty("Name").GetString() ?? ""));
+            ids = [.. doc.Select(q => q.Text("Id") ?? "")];
+            foreach (var q in doc)
+                result.quests.TryAdd(q.Text("Id") ?? "", (q.Int("Act"), q.Text("Name") ?? ""));
         }
-        if (ClientTables.Exists(Table("QuestStates")))
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("QuestStates"))))
-                foreach (var s in doc.RootElement.EnumerateArray())
-                {
-                    if (s.GetProperty("Quest") is not { ValueKind: JsonValueKind.Number } qv || qv.GetInt32() is not (>= 0 and var q) || q >= ids.Length) continue;
-                    if (!result.byQuest.TryGetValue(ids[q], out var list)) result.byQuest[ids[q]] = list = [];
-                    list.Add(new(s.GetProperty("Order").GetInt32(), Flags(s, "FlagsPresent"), Flags(s, "FlagsMissing"),
-                        s.GetProperty("Text").GetString() ?? "", s.TryGetProperty("Message", out var m) ? m.GetString() ?? "" : ""));
-                }
-        if (ClientTables.Exists(Table("CharacterStartQuestState")))
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("CharacterStartQuestState"))))
-                foreach (var p in doc.RootElement.EnumerateArray())
-                {
-                    string id = p.GetProperty("Id").GetString() ?? "";
-                    result.presets.TryAdd(id, new(id,
-                        [.. p.GetProperty("QuestKeys").EnumerateArray().Select(k => k.GetInt32()).Where(k => k >= 0 && k < ids.Length).Select(k => ids[k])],
-                        Flags(p, "QuestFlags")));
-                }
-        if (ClientTables.Exists(Table("SessionQuestFlags")))
-            using (var doc = JsonDocument.Parse(ClientTables.ReadAllBytes(Table("SessionQuestFlags"))))
-                foreach (var s in doc.RootElement.EnumerateArray())
-                    if (Flag(s.GetProperty("QuestFlag")) is { } f) result.session.Add(f);
+        if (ClientTables.Has("QuestStates"))
+            foreach (var s in ClientTables.Table("QuestStates"))
+            {
+                if (s.IntOrNull("Quest") is not int qv || qv is not (>= 0 and var q) || q >= ids.Length) continue;
+                if (!result.byQuest.TryGetValue(ids[q], out var list)) result.byQuest[ids[q]] = list = [];
+                list.Add(new(s.Int("Order"), Flags(s, "FlagsPresent"), Flags(s, "FlagsMissing"),
+                    s.Text("Text") ?? "", s.TextOrNull("Message") ?? ""));
+            }
+        if (ClientTables.Has("CharacterStartQuestState"))
+            foreach (var p in ClientTables.Table("CharacterStartQuestState"))
+            {
+                string id = p.Text("Id") ?? "";
+                result.presets.TryAdd(id, new(id,
+                    [.. p.Ints("QuestKeys").Where(k => k >= 0 && k < ids.Length).Select(k => ids[k])],
+                    Flags(p, "QuestFlags")));
+            }
+        if (ClientTables.Has("SessionQuestFlags"))
+            foreach (var s in ClientTables.Table("SessionQuestFlags"))
+                if (Flag(s.IntOrNull("QuestFlag")) is { } f) result.session.Add(f);
         return result;
     }
 }

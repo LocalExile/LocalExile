@@ -14,7 +14,7 @@ Arakaali (`a7q4`) dies and the exit to Act 8 (The Sarn Ramparts `2_8_1`) opens. 
 Gruthkul, 1 passive). Pantheon souls of this act: Ralakesh (`a7q1-KilledBoss`), Arakaali (major, `a7q4-KilledBoss`),
 Gruthkul (`a7q9-KilledBoss`); Maligaro gives no Pantheon soul.
 
-Sources: client tables (`data/tables`), the generated layouts (`lg.ps1 questobjects` / `generate`, seed 1; 2_7_2 at
+Sources: client tables (client.db), the generated layouts (`lg.ps1 questobjects` / `generate`, seed 1; 2_7_2 at
 seed 1585866662), the unpacked game text (`.ot`/`.it`), the wiki (Fandom mirror, 2026-10-30). The sections after the status are the
 research done before the act was built: their "Risks" are what was expected then, the status says how it went.
 
@@ -26,9 +26,8 @@ chest, `BanditBlock` and `YeenaPositionMarker` are all short lines, found with `
 
 On the quest engine (`Modules/Core/World/QuestObjects/Acts/Act7.cs`, [12](../../protocol/12-quests.md) §16), with
 driver steps `a7q5`, `a7q2`, `a7q3`, `a7q1`, `a7q8`, `a7q9`, `a7q7`, `a7q6`, `a7q4` (a7q2 before a7q3: Silk appears with
-the map). Played live on 2026-10-31 before the game moved into modules; on the modules the oracle (`QuestEngineTests`:
-after Act 6 every quest of the act completes and Act 8 ends with `E3EndOfAct8`'s act 7–8 quest flags) and the offline
-exit audit (`scripts/re/exits --quests`) check it, not yet the client.
+the map). Played live on 2026-10-31 before the game moved into modules; on the modules the offline exit audit
+(`scripts/re/exits --quests`) checks it, not yet the client.
 What differs from the sections below:
 - Every boss is placed (the numbered boss points: Maligaro, Black Death and Fidelitas at `mapboss1–3`; Gruthkul at
   `mapboss1`; The Ashen Fields' boss is Greust when all three bandit lords died, else the spared lord's avatar: each of

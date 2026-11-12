@@ -1511,7 +1511,9 @@ the target open, so the recorder's write of the fourth object threw and left the
   against its own trace (every logged load has one since the capture tours), for its draws and first difference. It
   also prints the work queue: seed-1 traces grouped by the client's caller at the first difference, every wrong
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
-  the change); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  the change). The servers do not read the baseline: they read world.db's `server_level_areas` (the areas they
+  generate, and the seed in place of seed 1), so a baseline that gains or loses an area also needs a world update
+  of those rows (`ServerLevelAreas`' rules); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
   An area with no seed-1 trace (the client fails seed 1) has each traced load at another seed checked as fully as a
   seed-1 capture, as `load <area> <seed>` (§7: what makes such an area supported).
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a

@@ -1,7 +1,7 @@
 # Agent instructions
 
-LocalExile is a local server for the Path of Exile 3.29.3c client, built by people and AI agents working together.
-All agent and contributor documentation is in [Agents/](Agents/). Read these first:
+LocalExile is a local server for the Path of Exile 3.29.3c and 3.29.3d clients, built by people and AI agents working
+together. All agent and contributor documentation is in [Agents/](Agents/). Read these first:
 
 1. [Agents/GettingStarted.md](Agents/GettingStarted.md): setup from a fresh clone, the rules for running the client,
    the third-party tools, troubleshooting.
@@ -46,6 +46,15 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
 - **Start the client only through `scripts/dev/live.ps1`, and only one at a time unless each has its own session**
   (`-Session`; checkouts' servers side by side need `-PortBase`: [live testing](Agents/docs/dev/live-testing.md)).
   Any other launch contacts the official patch servers and can update the client, which breaks the setup.
+- **Only the client builds in `src/GameServer.Core/Protocol/ClientBuilds.cs` run; any other is refused.** A new Path
+  of Exile patch becomes a row only when `scripts/re/port/compare_builds.py` and the table comparison show the same
+  code and data and a live run passes ([tooling](Agents/docs/re/tooling.md) §11). A build that differs needs a port.
+  Never loosen the check, and never add a row without that evidence in the pull request.
+- **Addresses in the docs and scripts are the 3.29.3c release's** (build 327984). Code addresses and message ids hold
+  for every allowed build; addresses of data (globals, vtables, strings) do not. A script that reads the running
+  client finds a global through an instruction that uses it (`globalAt` in `scripts/dev/client-control.js`), or
+  lists where it sits in each later build (`MOVED` in `scripts/re/frida/common.js`, from
+  `compare_builds.py --data-map`). Never write a later build's data address into a doc or a script as the release's.
 - **Run commands from the repository root.**
 - **Keep production game-data paths relative to the repository root (`data/`).** Do not add parent-directory
   searching, an absolute `DataFolder`, or catalog-path changes to accommodate tests or one machine.
@@ -70,7 +79,9 @@ description. The details are in [modules](Agents/docs/dev/modules.md) and [mods]
   credentials of the official services.
 - **Databases are built from `sql/`** ([databases](Agents/docs/dev/databases.md)): a data or schema change is a new
   file in `sql/updates/pending_<db>/`. Never edit a merged update file or put rows in `sql/base/`; a fix is a new update.
-- **Other game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs it). A change that adds a game-data file
+  Read the client tables from `client.db` by name (`data/tables/X.json` in old text means table `X`); new
+  server-owned data goes in world.db through `sql/updates/pending_world/`, never in a new JSON file.
+- **Other game data comes from `scripts/dev/extract-data.ps1`** (`live.ps1` runs its `-Servers` part). A change that adds a game-data file
   under `data/`, or changes what a generator writes, adds or bumps that file's entry in the script's manifest (and in
   the Gateway's `GameDataFiles.cs`) in the same PR, instead of a "regenerate after pulling" note. A file the
   servers read from `client.db` (`FILES` in `scripts/dev/client_sql.py`) also gets its rows from `client-sql.ps1 diff`.
