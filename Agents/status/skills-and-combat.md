@@ -632,6 +632,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   its own duration and the strongest deals damage. One that dies affected spreads it in the cast radius for the time it
   had left (Subsiding at 75%), drawn in the worn Contagion skin's circle (`ContagionSkinAo`) for every player. Not yet:
   the debuff icon (BuffDefinitions 504 crashes the client), Transference. Code: `MonsterContagion(s).cs`, `AreaSkillHit`.
+- **Essence Drain (verified live, 3.29.3c).** Fires its old name's projectile row (`Siphon`, `ProjectileFallbacks`); a
+  surviving hit gets a chaos DoT (strongest instance wins) leeching 0.5% of its damage as life to its caster only.
+  Contagion's spread carries it for its remaining duration. Not yet: the debuff icon (503 crashes the client), Of
+  Desperation's life loss, the debuff in Survivors. Code: `MonsterEssenceDrain(s).cs`, `Projectiles.cs` hit.
 - Hexes/marks have limits and combat effects; reflection and special payloads remain partial (`MonsterCurses`).
 - Totems: Rejuvenation, adopted projectile spells and bow/wand ballistas execute ([11](../docs/protocol/11-skills.md) §10g).
 - Passive self buffs (`PassiveBuffAuras`): a passive's BuffTemplates buff on the player adds its stats to the

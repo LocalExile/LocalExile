@@ -306,6 +306,7 @@ public static partial class Game
             Ignite = WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get), player, own,
                 spell, spell ? "spell" : "main_hand"),
             Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local),
+            EssenceDrain = EssenceDrainCast(conn, skillId, gem.Effect),
             Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(conn, activeSet: true).Bow),
             AccuracyMoreUnique = conn.Pools.AccuracyMoreVsUniquePct,

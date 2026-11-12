@@ -131,16 +131,18 @@ static partial class Game
 
     /// <summary>A monster died: if it was affected by Contagion with time left, that Contagion goes on every other live hostile
     /// monster within the cast's radius of where it fell, for the time it had left (Subsiding's at three quarters of the
-    /// damage). Returns where it spread
-    /// from, the radius and the art; null when the monster was not affected.</summary>
+    /// damage), and with it the monster's Essence Drain debuff, at its full damage for the time it had left ("The debuff is
+    /// spread by Contagion"). Returns where it spread from, the radius and the art; null when the monster was not affected.</summary>
     internal static ((int X, int Y) At, int Radius, string Ao)? SpreadContagion(ClientState conn, uint id, SpawnedMonster m)
     {
         int spread = 0;
         (int X, int Y) at;
         MonsterContagion.Cast? cast;
+        MonsterEssenceDrain.Cast? drain;
         using (ProjectileMutation(conn))
         {
             double now = ProjectileWorldTime(conn);
+            drain = m.EssenceDrain.TakeSpread(now);
             // PoE1: the spread carries the time the dead monster's Contagion had left; nothing spreads with none left.
             cast = m.Contagion.TakeSpread(now);
             if (cast is null) return null;
@@ -151,10 +153,12 @@ static partial class Game
                     && Dist(other.Walk.Position(now), at) <= cast.Radius)
                 {
                     other.Contagion.Apply(now, next);
+                    if (drain is not null) other.EssenceDrain.Apply(now, drain);
                     spread++;
                 }
         }
-        Console.WriteLine($"[gateway] contagion spread from 0x{id:x} to {spread} monster(s)");
+        Console.WriteLine($"[gateway] contagion spread from 0x{id:x} to {spread} monster(s)" + (drain is null ? ""
+            : $", with essence drain {drain.DamagePerSecond:0.#}/s for {drain.Seconds:0.##} s"));
         return (at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo);
     }
 
