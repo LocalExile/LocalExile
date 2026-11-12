@@ -20,12 +20,16 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   [tattoos.md](../docs/game/tattoos.md). The client flow, the plain stats, the nine ailment and avoidance rows,
   the nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows, the Herald, guard
   and Fortify rows, nine Makanga gates,
+  the nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows, the
+  corpse-consumption and Hinder rows, nine Makanga gates,
   three Journey tattoos and Journey Makanui are client-verified (Hinekora/Kitava Makanga are inert; Ancestral
   Bloodlines is partial): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring
   removal. The
   five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. Next:
   the two rows that need new consumers (corpse consumption and hinder) and the ten Loyalty summons; the seven
   Forbidden ascendancy tattoos use a separate client flow. Also still open:
+  the three rows that need new consumers (Fortify-on-stun, guard duration and herald effect) and the ten
+  Loyalty summons; the seven Forbidden ascendancy tattoos use a separate client flow. Also still open:
   replace/reallocation and the 50-tattoo cap.
 - **Accuracy Mastery:** all five effects currently offered by the target client's Accuracy group are modelled
   for the existing default-attack accuracy roll ([Status](../status/skills-and-combat.md),

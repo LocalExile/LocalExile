@@ -1,13 +1,14 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 78 tattoo rows client-verified).** The
+**Status: in progress (documentation complete, catalogue 100/100; 80 tattoo rows client-verified).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Seventy-eight rows are `works` (the ten pilot,
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Eighty rows are `works` (the ten pilot,
 22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row,
-the eleven Honoured rows, the Herald, guard and Fortify rows, nine Makanga gates, three Journey tattoos and Journey Makanui),
+the eleven Honoured rows, the Herald, guard and Fortify rows, the corpse-consumption and Hinder rows, nine Makanga
+gates, three Journey tattoos and Journey Makanui),
 one is `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery stats are unread), two are
-`inert` (Hinekora and Kitava Makanga) and 19 are `not implemented`. The server enforces the
+`inert` (Hinekora and Kitava Makanga) and 17 are `not implemented`. The server enforces the
 client's per-group limits
 (Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page
 records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules and the implementation
@@ -24,10 +25,10 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
-| Current (drop-enabled) | 53 | 51 | 0 | 0 | 2 |
+| Current (drop-enabled) | 53 | 53 | 0 | 0 | 0 |
 | Drop-disabled | 40 | 27 | 1 | 2 | 10 |
 | Event-only | 7 | 0 | 0 | 0 | 7 |
-| **Total** | **100** | **78** | **1** | **2** | **19** |
+| **Total** | **100** | **80** | **1** | **2** | **17** |
 
 | Status | Meaning |
 |---|---|
@@ -44,7 +45,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 | Group | Contents | State |
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
-| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers) and the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun). Not implemented: two rows that need new consumers (corpse consumption and hinder). |
+| 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers), the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun) and the corpse-consumption and Hinder rows (the killing blow's corpse and 10% maximum-life recovery; the spell-hit Hinder with its four seconds, 30% reduced movement speed and the client's hinder buff). |
 | 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works; the seven Forbidden tattoos are not implemented. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Not implemented. |
@@ -300,7 +301,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
 | **Tattoo of the Kitava Blood Drinker** | 0.5% of Attack Damage Leeched as Life | Small Strength | Ngakanu | works | live /stat base_life_leech_from_attack_damage_permyriad = 50; LeechSources reads the attack coefficient |
-| **Tattoo of the Kitava Heart Eater** | Killing Blows have 4% chance to Consume corpses to recover 10% of Maximum Life | Small Intelligence | Moti Aro | not implemented | needs on-kill corpse consumption |
+| **Tattoo of the Kitava Heart Eater** | Killing Blows have 4% chance to Consume corpses to recover 10% of Maximum Life | Small Intelligence | Moti Aro | works | live /stat killing_blow_consumes_corpse_restore_10%_life_chance_% = 4; the killing blow consumes the corpse under the Monsters lock and recovers 10% of maximum life (unit test) |
 | **Tattoo of the Kitava Rebel** | 10% chance to Avoid Bleeding | Small Strength | Ngakanu | works | live /stat base_avoid_bleed_% = 10; the bleed path reads the published panel total |
 | **Tattoo of the Kitava Shaman** | Attacks have 5% chance to cause Bleeding | Small Strength | Ngakanu | works | live /stat bleed_on_hit_with_attacks_% = 5; the bleed settings consume it |
 | **Tattoo of the Kitava Warrior** | 5% increased Global Physical Damage | Small Strength | Ngakanu | works | client apply; +5% global physical damage |
@@ -341,7 +342,7 @@ These three drop-enabled Journey tattoos count themselves for their own per-allo
 |---|---|---|---|---|---|
 | **Tattoo of the Tasalio Bladedancer** | Attacks have 5% chance to Maim on Hit | Small Strength | Ngakanu | works | live /stat maim_on_hit_% = 5; HitDebuffs rolls it on a hit |
 | **Tattoo of the Tasalio Scout** | 4% increased Effect of your Marks | Small Dexterity | Te Onui | works | live /stat mark_skills_curse_effect_+% = 4; Curses adds it to a mark's effect |
-| **Tattoo of the Tasalio Shaman** | 5% chance to Hinder Enemies on Hit with Spells | Small Intelligence | Moti Aro | not implemented | needs hinder on spell hit |
+| **Tattoo of the Tasalio Shaman** | 5% chance to Hinder Enemies on Hit with Spells | Small Intelligence | Moti Aro | works | live /stat spells_chance_to_hinder_on_hit_% = 5; spell hits Hinder for the client's four seconds and the walk factor is 30% reduced (unit test) |
 | **Tattoo of the Tasalio Tideshifter** | 10% chance to Avoid being Stunned | Small Dexterity | Te Onui | works | live /stat base_avoid_stun_% = 10; the stun-recovery path reads the published avoid_stun_% total |
 | **Tattoo of the Tasalio Warrior** | 5% chance to Blind Enemies on Hit with Attacks | Small Dexterity | Te Onui | works | live /stat attacks_chance_to_blind_on_hit_% = 5; HitDebuffs rolls it on an attack hit |
 
@@ -691,6 +692,22 @@ Herald, guard and Fortify rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` 
     on-hit Fortify path does; `cannot_gain_fortification_from_hits` blocks it and a hit that already fortified does
     not fortify twice (`StunHit.Fortified`). `TattooConsumerTests` covers the catalogue rows and the three
     consumers.
+
+Corpse-consumption and Hinder rows 2026-11-10 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch):
+
+- **Applied and read back:** Kitava Heart Eater on 21301 (Strength) and Tasalio Shaman on 21678 (Intelligence).
+  `/stat` read killing_blow_consumes_corpse_restore_10%_life_chance_% 4 and spells_chance_to_hinder_on_hit_% 5;
+  `/tattoo_remove` restored both stats to 0.
+- **Consumers:**
+  - The killing blow rolls the corpse-consumption chance under the Monsters lock (`MonsterKilled` ->
+    `ConsumeCorpseOnKillLocked`): the corpse leaves `conn.Monsters` and the summoning, explosion and warcry paths
+    (it is marked `CorpseConsumed`), `consumed_corpse` is recorded for the conditional items, and 10% of maximum life
+    is recovered (`cannot_recover_life` respected; a shattered or already consumed corpse is skipped).
+  - Hinder rolls on spell hits only, lasts the client's four seconds (`ReminderTextHinder`; `HitDebuffs.HinderSeconds`)
+    and reduces the walk factor by 30%. Maim and Hinder are both "reduced movement speed", so their reductions add
+    (0.4 together, not 0.49), and the ailment-idle skip no longer hides a monster whose only debuff is Maim or Hinder
+    (`TimedWalkDebuff`). `TattooCorpseHinderTests` covers the two catalogue rows, the spell-only roll, the walk
+    factor and the corpse consumption.
 
 Not yet verified through the client: replace, reallocating a tattooed node, the 50 cap and the seven Forbidden
 tattoos.

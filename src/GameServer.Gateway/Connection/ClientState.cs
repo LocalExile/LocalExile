@@ -241,6 +241,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
+    // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
+    // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
+    public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
+    public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
     // Hallowing Flame (Hallow Support): until when the next attack against it gains extra fire, and that share.

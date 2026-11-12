@@ -239,7 +239,10 @@ public static partial class Game
             }
             var a = m.Ailments;
             double vines = ToxicWalkFactor(m);
-            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1) continue;
+            // Maim and Hinder raise no ailment magnitude, so an idle monster with only them would never get its walk
+            // factor recomputed; they are checked before the idle skip (the knockback above stays first: an idle
+            // monster still moves).
+            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1 && !TimedWalkDebuff(now, m)) continue;
             foreach (var (kind, removed, added, magnitude) in a.Present(now))
             {
                 if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
@@ -248,8 +251,8 @@ public static partial class Game
             double action = m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
                 : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
             double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
-            // Maim: 30% reduced movement speed while maimed (PoB: MovementSpeed INC -30 with the Maimed condition).
-            if (m.MaimedUntil > now) walk *= 0.7;
+            // Maim (30% reduced movement speed) and Hinder (30%) add; they are both "reduced movement speed".
+            walk = TimedDebuffWalkFactor(m, now, walk);
             if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
             if (walk != a.WalkFactor)
             {

@@ -2378,9 +2378,17 @@ public static partial class Game
             // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
             // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
             // ids stay NotModelled rather than being answered wrongly.
+            bool corpseConsumed;
             lock (conn.Monsters)
-                conn.RecentEvents.Record(StatConditions.KilledEnemy, conn.Clock.Elapsed.TotalSeconds);
+            {
+                now = conn.Clock.Elapsed.TotalSeconds;
+                conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
+                corpseConsumed = ConsumeCorpseOnKillLocked(conn, id, m, now);
+            }
             await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
+            if (corpseConsumed)
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id),
+                    $"0x02bd corpse 0x{id:x} ({m.Label}) consumed by the killing blow");
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, id, at);
