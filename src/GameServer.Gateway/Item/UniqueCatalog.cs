@@ -10,8 +10,9 @@ using GameServer.Core;
 /// </summary>
 public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "data")
 {
-    // Several native names use a typographic apostrophe while the definition export uses ASCII.
-    public static string NameKey(string name) => name.Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
+    // Several native names use a typographic apostrophe while the definition export uses ASCII; one ends in a space
+    // ("Demigod's Immortality ").
+    public static string NameKey(string name) => name.Trim().Replace('\u2019', '\'').Replace('\u2018', '\'').Replace('\u02bc', '\'') switch
     {
         "Rigwald's Charge" => "Rigvald's Charge",
         "The Broken Elegy" => "Broken Elegy",

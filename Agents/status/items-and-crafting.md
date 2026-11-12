@@ -65,10 +65,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   and artwork (`UniqueStashLayout` → `ItemVisualIdentity`), but not its mods, so `UniqueCatalog` holds each definition:
   1,299 generated from Path of Building with their current base, implicits and rolls (`scripts/re/unique_items.py`,
   which maps seven uniques the 3.29 client renamed), compared with poedb's item cards, with the differences that remain
-  on the roadmap. Precursor's Emblem (one row per ring base, one random charge modifier), the two Forbidden Shakos and
-  Pearl of Tsoatha, which Path of Building builds in code, are written by hand from their client mods (not seen in the
-  client yet). Not defined: Vorana's March, Skin of the Lords, Replica Dragonfang's Flight, Forbidden Flame and Flesh
-  (their pools are not pinned down), and the race rewards and other uniques no source lists. Divine and Blessed Orbs reroll
+  on the roadmap. The uniques Path of Building builds in code or leaves out (Precursor's Emblem, Vorana's March, Skin
+  of the Lords, the Forbidden jewels and Shakos, Pearl of Tsoatha, the race rewards, the fishing uniques) come from
+  the PoE wiki's item data, with their random lines as roll groups (not seen in the client yet). Every client unique
+  but the maps (named-map catalogue), Impossible Escape, watchstones and the six unique Heist contracts (the item
+  writer has no HeistContract component) has a definition. Divine and Blessed Orbs reroll
   within a unique's own rolls, and a range in world.db's `mod_stat_overrides` wins over them.
   Ordinary uniques get default sockets; Tabula gets six linked whites and hidden overrides (tests; live check pending).
   Skin of the Loyal gets its six linked random-colour sockets, and the 3.29 hidden no-white-socket property is on it and

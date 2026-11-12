@@ -263,7 +263,7 @@ def text_map(path):
 
 def name_key(name):
     """As UniqueCatalog.NameKey: Words writes some apostrophes otherwise, and spells three names its own way."""
-    key = name.replace("\u2019", "'").replace("\u2018", "'").replace("\u02bc", "'")
+    key = name.strip().replace("\u2019", "'").replace("\u2018", "'").replace("\u02bc", "'")
     return NAME_SPELLINGS.get(key, key).lower()
 
 
