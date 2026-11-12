@@ -28,10 +28,16 @@ public class BossModsTests
         Assert.False(BossMods.NoRewards(brutus));
         Assert.False(BossMods.GivesNoItems(brutus));
 
+        // The repeat-stun immunity is a stat value on the mod, not a flag: every act boss row states 2000 ms after a stun
+        // ends, which replaces the wiki's 4 s for uniques (HitReaction.TryFlinch).
+        Assert.Equal(2000, BossMods.StunImmunityMilliseconds(malachai));
+        Assert.Equal(2000, BossMods.StunImmunityMilliseconds(brutus));
+
         // And an ordinary monster carries neither list, so nothing changed for it.
         var zombie = Variety("Metadata/Monsters/Zombies/ZombieBite");
         Assert.False(BossMods.GivesNoItems(zombie));
         Assert.False(BossMods.KnockbackImmune(zombie));
+        Assert.Null(BossMods.StunImmunityMilliseconds(zombie));
     }
 
     [Fact]

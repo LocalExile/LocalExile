@@ -125,14 +125,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Vaal Oversoul: campaign encounter; AI timing uncalibrated ([Act 2](../docs/game/campaign/act2.md)).
 
-- Act bosses' own row mods decide two things the tables state outright, and only these two are read so far:
+- Act bosses' own row mods decide three things the tables state outright, and only these three are read so far:
   a boss whose row names `ImmuneToKnockback` (Dominus, both Malachai forms, Avarius, Vilenta, Piety's beast …) is no
   longer shoved — that used to be asked of the client's component list, which falls back to the eight base components
   and so never carried it — and the death of a stage whose row names `MonsterNoDropsOrExperience` (Malachai's first
   form, Shakari, Piety's escape) gives no items and no experience, while `MonsterNoDrops` (Abberath, Shavronne's tower,
-  Maligaro's souls) gives no items and keeps its experience. `BossHealOnPlayerDeath` and its Minor form are not read:
+  Maligaro's souls) gives no items and keeps its experience. The same rows state the repeat-stun immunity
+  (`StunRepeatImmunityActBoss`: 2000 ms after a stun ends), which now replaces the wiki's 4 s for uniques — Brutus,
+  Dominus, Malachai, Piety's beast and the rest of the act bosses share it. `BossHealOnPlayerDeath` and its Minor form are not read:
   the extracted stat it uses is 0 for both, so the two tiers cannot be told apart. Code: `BossMods.cs`,
-  `Knockback.cs`, `Combat.cs`, `MinionOutcomes.cs`. Not yet played against the real client.
+  `Knockback.cs`, `HitReaction.cs`, `Combat.cs`, `MinionOutcomes.cs`. Not yet played against the real client.
 - The King in the Mists' Crux of Nothingness encounter: `An Audience With The King` alone opens the area in the map
   device; the humanoid form fights with the default attack, spell projectile, Vine Slam and Vine Cascade, spawns the three
   Mystic Fetishes as visible shrines, teleports next to them and channels its `0x400e` ritual into one (the fetish is

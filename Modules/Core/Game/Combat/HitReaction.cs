@@ -11,7 +11,7 @@ public readonly record struct StunHit(double Damage, int ThresholdReductionPct =
 /// A monster's stun, presented as its hit reaction (native Actor TakeHit recovery, sent by <c>SendMonsterFlinch</c>).
 /// wiki Stun: chance = 200 x stunning damage / threshold, ignored at 20% or less, certain at half the threshold; a
 /// reduction above 75% diminishes; duration = 350 ms x attacker's increases / defender's recovery; a boss cannot be
-/// stunned for 4 s after a stun. Damage over time and reflect do not get here. An accepted stun stops the server's walk,
+/// stunned for 4 s after a stun, or for the 2 s its own row names (BossMods). Damage over time and reflect do not get here. An accepted stun stops the server's walk,
 /// invalidates its ordinary attack and holds AI for that same recovery; the native ACT selects the TakeHit animation.
 /// </summary>
 public static class HitReaction
@@ -59,7 +59,10 @@ public static class HitReaction
         m.SwingGeneration = null;
         m.ActionGeneration++;
         m.FlinchUntil = now + Seconds(hit, m);
-        if (m.Rarity == MonsterRarity.Unique) m.StunImmuneUntil = m.FlinchUntil + BossImmunitySeconds;
+        // An act boss's row states its own repeat immunity (2 s after the stun ends); a unique without one keeps the wiki's 4 s.
+        double immunity = BossMods.StunImmunityMilliseconds(m.Variety) is int ms ? ms / 1000d
+            : m.Rarity == MonsterRarity.Unique ? BossImmunitySeconds : 0;
+        if (immunity > 0) m.StunImmuneUntil = m.FlinchUntil + immunity;
         return true;
     }
 }
