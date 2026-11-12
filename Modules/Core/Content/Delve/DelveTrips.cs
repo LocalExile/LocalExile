@@ -182,7 +182,7 @@ public sealed partial class DelveModule
                 {
                     var lampAt = trip.At(nextLamp).At;
                     uint lamp;
-                    lock (conn.Monsters) lamp = conn.NextObjectId++;
+                    lock (conn.Monsters) lamp = conn.TakeObjectId();
                     await global::Game.SendWorldCreate(remote, stream, ciphers, conn, lamp, InstanceEntities.CreateObject(lamp,
                         InstanceEntities.ObjectTypeHash(DelveTrailLightObject.MetadataPath),
                         new DelveTrailLightObject(lampAt.X, lampAt.Y, previousLamp).Blob()), $"Delve trail lamp {lamp} at {lampAt}, link {previousLamp}", valid);

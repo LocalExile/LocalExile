@@ -74,7 +74,7 @@ static partial class Game
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
-            foreach (var _ in arts) ids.Add(conn.NextObjectId++);
+            foreach (var _ in arts) ids.Add(conn.TakeObjectId());
         }
         for (int i = 0; i < arts.Count; i++)
         {

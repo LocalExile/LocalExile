@@ -673,6 +673,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
         set { if (Instance is { } i) i.World.NextObjectId = value; else ownNextObjectId = value; }
     }
     uint ownNextObjectId = 0x3000;
+    public uint TakeObjectId() => Instance is { } instance ? instance.World.TakeObjectId() : Interlocked.Increment(ref ownNextObjectId) - 1;
     // Every 0x1ab action on this connection gets a fresh sequence. The official server increments it per action (the
     // King's first actions are 0x8011, 0x8012, …); reusing 0xffff for several actors left the client's channel object
     // without a current action and crashed StartChannelling (0xc0000005 at 0x19e37bf, live 2026-10-31).

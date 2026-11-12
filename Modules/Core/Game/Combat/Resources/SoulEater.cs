@@ -145,7 +145,7 @@ public static partial class Game
                 var (px, py) = conn.Walk.Position(now);
                 foreach (var (soulId, sx, sy) in conn.SoulEater.Souls)
                 {
-                    uint beam = conn.NextObjectId++;
+                    uint beam = conn.TakeObjectId();
                     bytes.Create(beam, InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
                         new BeamEffectObject(sx, sy, soulId, px * BeamEffectObject.WorldPerCell,
                             py * BeamEffectObject.WorldPerCell, PlayerId).Blob()));
