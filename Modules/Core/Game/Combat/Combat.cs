@@ -1842,8 +1842,8 @@ public static partial class Game
                         m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                     // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
                     SoulEaterHit(conn, m);
-                    // Devour: a killing blow recovers the support's life/mana.
-                    if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
+                    // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
+                    if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
                     AilmentsOnHitLocked(conn, m, mitigated, spell, critical, multiplier, player, skillStats, at, Random.Shared,
                         reflected, poison, sourceSkill: skillId);
                     // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
@@ -2408,17 +2408,19 @@ public static partial class Game
             // "Killed an enemy recently" (issue #504). The variant stats (a cursed enemy, a shattered one, a frozen one)
             // need a fact about the victim the server does not track yet, so only the plain event is recorded and those
             // ids stay NotModelled rather than being answered wrongly.
-            bool corpseConsumed;
+            bool corpseConsumed, devoured;
             lock (conn.Monsters)
             {
                 now = conn.Clock.Elapsed.TotalSeconds;
                 conn.RecentEvents.Record(StatConditions.KilledEnemy, now);
-                corpseConsumed = ConsumeCorpseOnKillLocked(conn, id, m, now);
+                // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
+                devoured = ConsumeDevouredCorpseLocked(conn, id, m, now);
+                corpseConsumed = devoured || ConsumeCorpseOnKillLocked(conn, id, m, now);
             }
             bool explodedCorpse = await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
             if (corpseConsumed && !explodedCorpse)
                 await Game.SendWorldRemoval(remote, stream, ciphers, conn, id,
-                    $"0x02bd corpse 0x{id:x} ({m.Label}) consumed by the killing blow");
+                    $"0x02bd corpse 0x{id:x} ({m.Label}) {(devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, id, at);

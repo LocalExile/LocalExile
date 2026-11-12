@@ -219,8 +219,9 @@ public static partial class Game
         if (milliseconds > 0) m.ExcommunicatedUntil = Math.Max(m.ExcommunicatedUntil, now + milliseconds / 1000.0);
     }
 
-    // Devour Support: a killing blow recovers its flat life/mana (the corpse itself is not removed by this server yet).
-    public static void DevourOnKill(ClientState conn, IReadOnlyDictionary<uint, int>? skill)
+    // Devour Support: a killing blow recovers its flat life/mana and consumes the corpse. The kill path removes the
+    // corpse object (ConsumeDevouredCorpseLocked), so the death, its loot and its corpse-blocking cleanup run first.
+    public static void DevourOnKill(ClientState conn, SpawnedMonster corpse, IReadOnlyDictionary<uint, int>? skill)
     {
         int Get(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
         int life = Get("killing_blow_consumes_corpse_restore_x_life");
@@ -229,6 +230,9 @@ public static partial class Game
             conn.PlayerLife = (uint)Math.Min(conn.PlayerMaxLife, (long)conn.PlayerLife + life);
         if (mana > 0 && conn.PlayerLife > 0)
             conn.PlayerMana = (uint)Math.Min(UnreservedMana(conn), (long)conn.PlayerMana + mana);
+        // A shattered or already consumed corpse has nothing left to consume; its life/mana still recovered above, as
+        // before, but the kill sends no removal for an object that is already gone.
+        if ((life > 0 || mana > 0) && !corpse.Ailments.Shattered && IsCorpse(corpse)) corpse.DevourCorpse = true;
     }
 
     // FireBeam's duration slot (0x1419ea070) uses base cast time / cast speed, including fractional milliseconds.
