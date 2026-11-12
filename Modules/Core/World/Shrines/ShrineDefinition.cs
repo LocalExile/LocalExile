@@ -6,9 +6,12 @@ namespace GameServer.Modules.Shrines;
 /// what the game does, its stat list and duration.
 /// <para>Everything it does not name comes from its Shrines row: the name, the Shrines row the client draws the icon
 /// from, the buff row the player sees, the visual variations, the guard packs and (by default) the buff's stats and
-/// duration. Adding a shrine type is therefore one definition in <see cref="ShrineRegistry.RegisterDefaults"/> — the
-/// manager, the lifecycle and the packet writers do not change, and a behaviour that several shrines share is one
-/// <see cref="IShrineEffect"/> class.</para>
+/// duration.</para>
+/// <para>A new type is this checklist and nothing else: its client row, one <see cref="ShrineDefinition"/> in
+/// <see cref="ShrineRegistry.RegisterDefaults"/> (its <see cref="Model"/>, <see cref="BeforeActivation"/>,
+/// <see cref="AfterActivation"/>, <see cref="PlayerStats"/> and <see cref="Duration"/> as needed), and one reusable
+/// <see cref="IShrineEffect"/> class per new behaviour. <see cref="ShrineManager"/> and the lifecycle never change for a
+/// type, and no type's code is touched by another's.</para>
 /// </summary>
 public sealed class ShrineDefinition
 {
@@ -20,6 +23,11 @@ public sealed class ShrineDefinition
 
     /// <summary>The buff's duration in seconds; null takes the Shrines row's <c>Duration</c>.</summary>
     public int? Duration { get; init; }
+
+    /// <summary>The statue model this type stands as; null keeps the model the level generator's room line named (the
+    /// generic shrine for <c>/shrines</c>). The standard rows carry no <c>ShrineVisualArtVariations</c>, so a type with
+    /// its own statue names it here.</summary>
+    public string? Model { get; init; }
 
     /// <summary>
     /// The player buff's stats by client stat name, when the registered gameplay is the authority rather than the row.

@@ -15,7 +15,6 @@ sealed class MonsterAuraEffect : IShrineEffect
 {
     sealed class Buffed
     {
-        public ushort Instance;
         /// <summary>The monster's EncounterStats before the aura (null when it had none).</summary>
         public IReadOnlyDictionary<string, int>? Previous;
     }
@@ -32,10 +31,9 @@ sealed class MonsterAuraEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
-    public async Task OnNearbyMonsterEnter(ShrineContext ctx, ShrineInstance shrine, uint monster)
+    public Task OnNearbyMonsterEnter(ShrineContext ctx, ShrineInstance shrine, uint monster)
     {
-        if (shrine.Definition.Monster is not { } buff || buffed.ContainsKey(monster)) return;
-        var (remote, stream, ciphers) = ctx.Conn.Wire;
+        if (shrine.Definition.Monster is not { } buff || buffed.ContainsKey(monster)) return Task.CompletedTask;
         var stats = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var (key, value) in buff.Stats)
             if (key >= 1 && key <= Stats.Names.Count)
@@ -43,21 +41,22 @@ sealed class MonsterAuraEffect : IShrineEffect
                 string name = Stats.Name(key);
                 stats[name] = stats.GetValueOrDefault(name) + value;
             }
-        if (stats.Count == 0) return;
-        ushort instance;
+        if (stats.Count == 0) return Task.CompletedTask;
         lock (ctx.Conn.Monsters)
         {
-            if (!ctx.Conn.Monsters.TryGetValue(monster, out var m) || m.Dead) return;
-            instance = ctx.Conn.NextBuff++;
+            if (!ctx.Conn.Monsters.TryGetValue(monster, out var m) || m.Dead) return Task.CompletedTask;
             var merged = new Dictionary<string, int>(StringComparer.Ordinal);
             if (m.EncounterStats is { } previous)
                 foreach (var (name, value) in previous) merged[name] = value;
             foreach (var (name, value) in stats) merged[name] = merged.GetValueOrDefault(name) + value;
-            buffed[monster] = new Buffed { Instance = instance, Previous = m.EncounterStats };
+            buffed[monster] = new Buffed { Previous = m.EncounterStats };
             m.EncounterStats = merged;
         }
-        await Send(remote, stream, ciphers, InstanceEntities.AddBuff(monster, instance, buff.BuffRow, monster),
-            $"0x01c1 monster 0x{monster:x} has shrine aura {buff.Template} (BuffDefinitions row {buff.BuffRow})");
+        // No buff is sent to the client for the aura: the stats are the server's own, and a shrine buff row would draw
+        // its icon over the monster's head, which the monsters around an unclaimed shrine should not wear.
+        Console.WriteLine($"[gateway] {ctx.Conn.Wire.Remote} monster 0x{monster:x} has shrine aura {buff.Template} " +
+            $"(BuffDefinitions row {buff.BuffRow}), server-side only");
+        return Task.CompletedTask;
     }
 
     public Task OnNearbyMonsterLeave(ShrineContext ctx, ShrineInstance shrine, uint monster) => Remove(ctx, monster);
@@ -75,13 +74,11 @@ sealed class MonsterAuraEffect : IShrineEffect
         return Task.CompletedTask;
     }
 
-    async Task Remove(ShrineContext ctx, uint monster)
+    Task Remove(ShrineContext ctx, uint monster)
     {
-        if (!buffed.Remove(monster, out var entry)) return;
-        var (remote, stream, ciphers) = ctx.Conn.Wire;
+        if (!buffed.Remove(monster, out var entry)) return Task.CompletedTask;
         lock (ctx.Conn.Monsters)
             if (ctx.Conn.Monsters.TryGetValue(monster, out var m)) m.EncounterStats = entry.Previous;
-        await Send(remote, stream, ciphers, InstanceEntities.RemoveBuff(monster, entry.Instance),
-            $"0x01c2 monster 0x{monster:x} shrine aura ends");
+        return Task.CompletedTask;
     }
 }

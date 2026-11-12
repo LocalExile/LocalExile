@@ -73,7 +73,7 @@ public static class ShrineManager
             Definition = definition,
             At = (x, y),
             Rotation = rotation,
-            Model = model,
+            Model = registered?.Model ?? model,
             Before = ShrineRegistry.Before(definition),
             After = ShrineRegistry.After(definition),
             Stats = registered?.PlayerStats is { } stats ? Resolve(stats, definition.Id) : definition.Stats,
@@ -214,6 +214,16 @@ public static class ShrineManager
         await SendWorldRecord(remote, stream, ciphers, conn, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
     }
 
+    /// <summary>Whether this shrine's buff grants a stat the client only reads from the skill panel, so the panel has to
+    /// be rebuilt when the buff starts or ends (every other shrine leaves the panel alone: re-sending it mid-fight is a
+    /// long message and the client desyncs on it).</summary>
+    static bool TouchesSkillPanel(ShrineInstance shrine)
+    {
+        if (Stats.Key("skill_repeat_count") is not uint repeat || Stats.Key("base_spell_repeat_count") is not uint baseRepeat)
+            return false;
+        return shrine.Stats.Any(s => (s.Key == repeat || s.Key == baseRepeat) && s.Value > 0);
+    }
+
     /// <summary>Grants the shrine's buff for its row's duration and starts its effect. A second shrine of the same row
     /// replaces the first: its buff is removed before the new one, and the older timer cannot remove the newer buff.</summary>
     static async Task Grant(ClientState conn, ShrineInstance shrine, ShrineContext ctx)
@@ -255,6 +265,10 @@ public static class ShrineManager
                     return [.. bytes];
                 }
             });
+        // The repeat count a shrine can grant (Echoing's skill_repeat_count) is part of the skill panel, not of the
+        // character stats the client re-reads, so the panel is rebuilt for the shrines that grant one and no others:
+        // a full rebuild re-sends every gem's skill and the skill bar, which the client cannot take mid-fight.
+        if (TouchesSkillPanel(shrine)) await SendSkills(remote, stream, ciphers, conn);
         foreach (var effect in shrine.After) await effect.OnBuffApplied(ctx, shrine);
     }
 
@@ -280,6 +294,7 @@ public static class ShrineManager
             }
         });
         if (!removed || conn.Closed || conn.LeavingArea) return;
+        if (TouchesSkillPanel(buff.Shrine)) await SendSkills(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         var ctx = new ShrineContext(conn, conn.Clock.Elapsed.TotalSeconds);
         foreach (var effect in buff.Shrine.After) await effect.OnExpired(ctx, buff.Shrine);
     }
@@ -318,6 +333,10 @@ public static class ShrineManager
                     leaves.Add((shrine, id));
                 }
             }
+            // An unclaimed shrine's own effects tick too: the ones that cast while it stands (Lightning's Shock Nova)
+            // have nothing else to drive them.
+            foreach (var shrine in state.Instances.Values.Where(s => s.State == ShrineState.Inactive))
+                foreach (var effect in shrine.Before) effects.Add((shrine, effect));
             foreach (var (row, buff) in state.Buffs)
             {
                 if (buff.EndsAt <= now) { ended.Add((row, buff)); continue; }

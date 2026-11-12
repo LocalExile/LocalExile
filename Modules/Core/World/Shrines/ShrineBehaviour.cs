@@ -37,7 +37,8 @@ public interface IShrineEffect
     /// <summary>The buff was sent and its stats are in the character's sum.</summary>
     Task OnBuffApplied(ShrineContext ctx, ShrineInstance shrine) => Task.CompletedTask;
 
-    /// <summary>One player tick while the buff is active.</summary>
+    /// <summary>One tick while this effect runs: every tick for an unclaimed shrine's effects, and every tick of the
+    /// player's buff for the ones its activation runs (an effect reads <see cref="ShrineInstance.State"/>).</summary>
     Task Tick(ShrineContext ctx, ShrineInstance shrine) => Task.CompletedTask;
 
     /// <summary>The buff ended by its duration: remove every object and mark this effect left.</summary>

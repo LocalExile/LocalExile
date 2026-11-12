@@ -94,11 +94,25 @@ Part of [Status](../Status.md); what to build next in this area is in
   ground, typed from the area seed; a click in walk-up range grants that Shrines row's buff for its duration (45 s,
   the Divine shrine 20 s) with its BuffTemplates stats in the character's sum, and the used object leaves after the
   click's animation. The fifteen basic types are what a map rolls; the guard packs and monster buffs of the boss and
-  influence rows come from the data. The Lightning shrine's Shock Novas and shocked ground run while its buff is up,
+  influence rows come from the data. The Lightning shrine's Shock Novas and shocked ground run around the shrine while it
+  stands unclaimed and around the player once its buff is up (an unclaimed shrine's own effects tick, so an effect that
+  casts has a driver; claiming it clears the ground it laid),
+  drawn with the gem's ring art (MiscAnimated 3350, its one `animate` clip is 1000 ms, so the object is kept 250 ms
+  past it rather than removed on the cast interval; the 3351 donut is not sent). The five ground patches are refreshed
+  in place while they stay around the caster, and the player's Shocked Ground icon (BuffDefinitions 232) is not sent:
+  that buff write desynced the client, while the ground, its monster shock and the nova hit are fine.
   and `/shrines [Id …]` places types around the player for checking.
   Code: `Modules/Core/World/Shrines` (`ShrinesModule.cs`, `ShrineManager.cs`, `ShrineBehaviour.cs`, `ShrineRegistry.cs`,
   `Effects/ShockNovaEffect.cs`), `src/GameServer.Gateway/World/Shrines` (`ShrineCatalog.cs`, `ShrinePlacement.cs`),
   `src/GameServer.Core/Protocol/Instance/ShrineObject.cs`.
+  The on-kill explosion a shrine can promise (`explode_enemies_for_25%_life_as_chaos_on_kill_chance_%`, Gloom's 40%
+  for 25% of the dead monster's maximum life as chaos) is the existing kill explosion (`Game.ExplodeOnKill`), which
+  now reads that stat as well as `enemies_explode_for_%_life_as_physical_damage`.
+  `base_cannot_be_damaged` (the Divine shrine's buff) is honoured by both damage paths: the player's hit in
+  `DamagePlayerHitTyped` and a monster's at the hit funnel (`ApplyMonsterHitLocked`, so no path around it), which reads
+  the shrine aura's EncounterStats: a monster already in the shrine's radius gets it on the next tick, as one that walks in does.
+  The aura is server-side only: no 0x01c1 buff is sent for it, so the monsters around an unclaimed shrine wear no icon
+  (the stats still apply, and are restored when they leave, the shrine is claimed or the area unloads).
   Not verified with the client yet. The other types' active effects (Freezing and Burning novae, Skeletal summons,
   Smoke's cloud) are not built, and the tables carry no activated statue state for the standard rows, so a used shrine
   is consumed rather than dimmed.

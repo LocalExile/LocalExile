@@ -37,8 +37,34 @@ sealed class ShockNovaEffect : IShrineEffect
     /// <summary>Stat 16700 <c>base_damage_taken_+%_from_shock</c>, the shocked ground's own value (15% base).</summary>
     internal const int ShockPct = 15;
 
-    /// <summary>The client's Shock Nova art (the cast's nova, not its ring of ground).</summary>
-    internal const string NovaArt = "Metadata/Effects/Spells/shock_nova/new/shock_nova.ao";
+    /// <summary>The client's Shock Nova art, its two halves: MiscAnimated 3350 `ShockNovaScaledEffect` (the ring the
+    /// skill's own area covers, `__col4` 359 world units at scale 1) and 3351 `ShockNovaAlsoScaledEffect` (the wider
+    /// donut past it, 283). The gem draws both. `shock_nova/new/shock_nova.ao` was not it: that file is MiscAnimated 2546
+    /// `BetrayalTaserNet`, whose two arcs are what a shrine used to show.</summary>
+    internal const string NovaArt = "Metadata/Effects/Spells/shock_nova_accurate/shock_nova_accurate.ao";
+
+    /// <summary>The second half of the cast's art, the donut beyond the ring (<see cref="NovaArt"/>). Not drawn: the pair
+    /// is one create a second more than the ring alone.</summary>
+    internal const string NovaDonutArt = "Metadata/Effects/Spells/shock_nova_accurate/shock_nova_donut.ao";
+
+    /// <summary>How long the nova art plays, from the client's own rig: `Art/Models/Effects/shock_nova_accurate/shock_nova.amd`
+    /// has one `animate` clip of 1000 ms, played once (the donut's `shock_donut.amd` is the same). It is very nearly the
+    /// cast cadence, so removing the object on the cast interval took it away on the frame its clip ended, every second:
+    /// the art is kept a margin past its clip instead, and two novae overlap by that margin.</summary>
+    internal const int NovaArtMs = 1000;
+
+    /// <summary>The margin a nova object outlives its clip by.</summary>
+    internal const double NovaArtMargin = 0.25;
+
+    /// <summary>BISECT: whether the shocked ground is placed at all. Off while the client desyncs on this shrine's
+    /// stream, so the nova art and its hit can be played without any of the ground the shrine lays. A method rather than a
+    /// constant, so the code it guards stays compiled while it is off.</summary>
+    internal static bool GroundEnabled() => true;
+
+    /// <summary>The Shocked Ground icon the client draws on the player for standing in a patch (BuffDefinitions 232). Off:
+    /// the shrine desynced the client while it was sent, and that buff write is the only thing the ground does that the
+    /// art and the monster shock do not. The ground itself, and what it does to the monsters in it, stays on.</summary>
+    internal static bool PlayerGroundIcon() => false;
 
     /// <summary>GroundEffects' lightning art (GroundEffectTypes Lightning, its first variation).</summary>
     internal const string GroundArt = "Metadata/Effects/Spells/ground_effects/lightning/lightning_ground_01.ao";
@@ -126,12 +152,16 @@ sealed class ShockNovaEffect : IShrineEffect
             if (now < _nextCast) return;
             cast = true;
             _nextCast = now + CastSeconds(conn);
-            var at = conn.Walk.Position(now);
+            // While the shrine is unclaimed the nova is cast around the shrine itself, which is what the standing
+            // shrine does; once claimed the shrine's own instance is gone and this one follows the player.
+            var at = shrine.State == ShrineState.Inactive ? shrine.At : conn.Walk.Position(now);
             double seconds = Seconds(conn);
             var own = Own(conn);
             radius = SkillArea.Radius(GenericRadius, n => Stat(own, n), spell: true);
             nova = Nova(conn, at, radius, now);
-            Place(conn, at, now, seconds);
+            // BISECT: the shocked ground (its art objects, the shock they keep on monsters and the player's ground buff)
+            // is off while the client desyncs; the nova art and its hit still run. Remove this guard to bring it back.
+            if (GroundEnabled()) Place(conn, at, now, seconds);
             foreach (var (id, m) in conn.Monsters)
                 if (m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
                     && Dist(m.Walk.Position(now), at) <= radius) targets.Add((id, m));
@@ -140,6 +170,27 @@ sealed class ShockNovaEffect : IShrineEffect
         }
         if (!cast) return;
         var packet = NovaDamage(conn);
+        // The standing shrine's nova is a hazard for the player, not for the monsters it guards: an unclaimed shrine
+        // damages whoever walks into it, and only the claimed one turns its nova on the monsters.
+        if (shrine.State == ShrineState.Inactive)
+        {
+            if (packet.MaxTotal <= 0) return;
+            // The standing shrine casts on itself, so the reach is measured from the statue (`at` is the caster's cell
+            // inside the tick's lock; recompute the radius here where that scope has closed).
+            var statue = shrine.At;
+            double reach = SkillArea.Radius(GenericRadius, n => Stat(Own(conn), n), spell: true);
+            if (Dist(conn.Walk.Position(now), statue) > reach) return;
+            int damage = (int)((packet.MinTotal + packet.MaxTotal) / 2);
+            if (damage <= 0) return;
+            long before = conn.PlayerLife;
+            DamagePlayerHitTyped(conn, 0, damage, 0, now, CharacterPlayerStats(conn), packet);
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine Shock Nova at ({statue.X}, {statue.Y}) hits the player for " +
+                $"{damage}: life {before} -> {conn.PlayerLife}");
+            if (conn.PlayerLife != (uint)before)
+                conn.Minions.OutputQueue.Add(new(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+                    "0x01b1 player hit by a shrine Shock Nova"));
+            return;
+        }
         if (packet.MaxTotal > 0)
             foreach (var (id, m) in targets)
             {
@@ -163,9 +214,13 @@ sealed class ShockNovaEffect : IShrineEffect
     }
 
     /// <summary>The buff is expiring: the ground, its shocks and the nova arts go with it.</summary>
-    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine)
+    /// <summary>The shrine was claimed while this instance watched it: the ground and novae of its unclaimed state go.</summary>
+    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+
+    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Conn);
+
+    Task Clear(ClientState conn)
     {
-        var conn = ctx.Conn;
         if (conn.Closed || conn.LeavingArea) return Task.CompletedTask;
         lock (conn.Monsters)
         {
@@ -188,6 +243,9 @@ sealed class ShockNovaEffect : IShrineEffect
     /// then it is removed. Called under the connection's monsters lock.</summary>
     uint Nova(ClientState conn, (int X, int Y) at, double radius, double now)
     {
+        // One art per cast: the ring, scaled by the radius it covers. The gem also draws the donut beyond it, and both
+        // objects were sent while the client was already desyncing on the shrine's stream, so the pair is not used until
+        // the cause of that is known: one create per cast instead of two.
         uint id = conn.NextObjectId++;
         var art = new EffectObject(at.X, at.Y, NovaArt)
         {
@@ -197,7 +255,7 @@ sealed class ShockNovaEffect : IShrineEffect
         conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             art.Blob()), null));
         conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(id), null));
-        _novas.Add(new() { Object = id, Until = now + CastSeconds(conn) });
+        _novas.Add(new() { Object = id, Until = now + NovaArtMs / 1000.0 + NovaArtMargin });
         return id;
     }
 
@@ -207,32 +265,42 @@ sealed class ShockNovaEffect : IShrineEffect
     {
         int count = Math.Max(0, Stat(Own(conn), "shock_nova_places_X_ground_lightning_patches"));
         double until = now + seconds;
-        int made = 0;
+        // A ring that is still down and still around the caster is refreshed where it lies: its objects stay with the
+        // client and only their lifetime moves. Laying a fresh five every cast meant five 0x02bb creates a second, up to
+        // twenty live ground objects, and the client desynced on the stream while walking through them.
+        if (count > 0 && _patches.Count == count && _patches.TrueForAll(p => p.Until > now)
+            && Dist(_patches[0].At, at) <= GroundRing * 2)
+        {
+            foreach (var patch in _patches) patch.Until = Math.Max(patch.Until, until);
+            Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine Shock Nova at ({at.X}, {at.Y}): " +
+                $"the {count} shocked ground patches are refreshed for {seconds:0.#} s");
+            return;
+        }
+        // A ring that expired, or that the caster walked out of, is replaced outright: the ground follows the caster
+        // rather than trailing behind him.
+        foreach (var previous in _patches)
+            conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(previous.Object), null));
+        _patches.Clear();
         for (int i = 0; i < count; i++)
         {
             double angle = Math.PI * 2 * i / count;
             int x = at.X + (int)Math.Round(Math.Cos(angle) * GroundRing);
             int y = at.Y + (int)Math.Round(Math.Sin(angle) * GroundRing);
-            if (_patches.FirstOrDefault(p => p.Until > now && p.At == (x, y)) is { } kept)
-            {
-                kept.Until = Math.Max(kept.Until, until);
-                continue;
-            }
             uint id = conn.NextObjectId++;
             _patches.Add(new() { At = (x, y), Until = until, Object = id });
             var art = new EffectObject(x, y, GroundArt) { Flags0 = EffectObject.FixedRotation };
             conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                 art.Blob()), null));
-            made++;
         }
         Console.WriteLine($"[gateway] {conn.Wire.Remote} shrine Shock Nova at ({at.X}, {at.Y}): " +
-            $"{made}/{count} shocked ground patches for {seconds:0.#} s");
+            $"{count} shocked ground patches laid for {seconds:0.#} s");
     }
 
     /// <summary>The player's Shocked Ground icon (BuffDefinitions 232) while they stand in a patch, with the time left of
     /// it; a refreshed patch is a new instance, as the shrine buffs replace theirs.</summary>
     void MaintainPlayerBuff(ClientState conn, double now)
     {
+        if (!PlayerGroundIcon()) return;
         var here = conn.Walk.Position(now);
         var patch = _patches.Where(p => p.Until > now && Dist(p.At, here) <= GroundRadius).MaxBy(p => p.Until);
         if (patch is not null && (_buff == 0 || Math.Abs(patch.Until - _buffUntil) > .25))
