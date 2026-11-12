@@ -62,7 +62,9 @@ public static partial class Game
         session.RainArt(use.Origin, up, 1);
         double spacing = blast ? Math.Max(0, Get("blast_rain_arrow_delay_ms")) / 1000d : toxic ? 0 : .04;
         double duration = SkillDurationModifiers.Seconds(Own("base_skill_effect_duration"), Player, Own);
-        double dps = toxic ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) : 0;
+        var damageContext = new SkillDamageContext(SkillHitKind.Attack, shot.ActualCaster ?? player);
+        double dps = toxic && !damageContext.Suppressed
+            ? ToxicPodDps(Get, Own) * (mirage ? MirageDamageFactor(own) : 1) : 0;
         for (int i = 0; i < landings.Count; i++)
         {
             var at = landings[i];
@@ -91,7 +93,7 @@ public static partial class Game
         double more = 1;
         foreach (var stat in new[] { "support_void_manipulation_chaos_damage_+%_final", "support_rapid_decay_damage_over_time_+%_final",
             "support_efficacy_damage_over_time_+%_final", "support_phys_chaos_projectile_chaos_damage_over_time_+%_final",
-            "support_concentrated_effect_skill_area_damage_+%_final" }) more *= Math.Max(0, 1 + own(stat) / 100d);
+            "support_area_concentrate_area_damage_+%_final" }) more *= Math.Max(0, 1 + own(stat) / 100d);
         return Math.Max(0, get("base_chaos_damage_to_deal_per_minute") / 60d) * more * Math.Max(0, 1 + increased / 100)
             * Math.Max(0, 1 + ((double)get("dot_multiplier_+") + get("chaos_dot_multiplier_+")) / 100);
     }
