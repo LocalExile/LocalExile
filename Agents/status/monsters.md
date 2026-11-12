@@ -224,7 +224,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 ## Not working yet
 
 - Area monsters: a placed room's "normal", "magic" and "rare" points stand a pack of that rarity at the point
-  (The Aqueduct: 15 room points), and the scattered set fills the rest of the per-area budget; how many packs an
+  (The Aqueduct: 15 room points), and the scattered set fills the rest of the per-area budget, on cells the player can
+  walk to from the arrival only: a generated map's walk map has pockets walled off from the entrance (Forbidden Woods
+  24 422 of 527 383 walkable cells, 2 376 of them deep enough to stand a pack), and a pack standing there was a
+  monster nobody could reach or kill; how many packs an
   area has beyond its points, the magic/rare chances and the rare mod counts are still our own numbers;
   Act 1 Twilight Strand caps new populations at a provisional 45 including Hillock and the tutorial zombie.
   The reference capture misses its opening, so this is calibration rather than a verified official total;
