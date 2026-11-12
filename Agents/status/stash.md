@@ -63,7 +63,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   map has one page of its own (group 1, keyed by its visual identity) and a conqueror's or elder guardian's map goes to
   its guardian's page (groups 2 and 3), found from the `MapConquerorContainsBossN`/`MapElderContainsBossN` modifiers first
   and the influence flags as the fallback; a page only takes maps that belong to it.
-  Unique collections use 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
+  New and existing Unique collections accept ordinary deposits through 22 hidden category inventories and the native collection cells; `/item_tab Уники 1` fills
   each available collection cell once, preserving existing items. Verified in the real client: 1309 items, including
   unique maps and inactive tinctures. Repeat filling does not duplicate occupied cells. Seven old catalogue names
   have no matching client collection cell and are reported as unavailable; unique Heist contracts are not generated.

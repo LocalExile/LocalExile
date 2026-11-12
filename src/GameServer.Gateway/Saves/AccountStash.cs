@@ -164,6 +164,7 @@ public sealed partial class AccountStash
                 stash.Persist([.. repaired]);
             // A map tab gets a page per tier (#477): the client shows a map only on a page of its own.
             stash.EnsureMapChildren();
+            stash.EnsureUniqueChildren();
             return stash;
         });
 
