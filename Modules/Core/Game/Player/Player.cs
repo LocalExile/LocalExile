@@ -696,6 +696,14 @@ public static partial class Game
         }
     }
 
+    // Time inside [4,5), [8,9), ... since the regeneration modifier became active.
+    internal static double PeriodicRegenSeconds(double elapsed)
+    {
+        if (elapsed <= 4) return 0;
+        double sinceFirst = elapsed - 4;
+        return Math.Floor(sinceFirst / 4) + Math.Min(1, sinceFirst % 4);
+    }
+
     // One writer for continuous recovery: regeneration, flask recovery and the player's RF burn.
     // The game clock excludes pause; scheduling/network delays change the step size, never the per-second rate.
     public static async Task RunResourceRecovery(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerUpdatesState updates)
@@ -703,6 +711,8 @@ public static partial class Game
         double lifeCarry = 0, manaCarry = 0, burnCarry = 0, trapCarry = 0, flaskCarry = 0, last = updates.Schedule.Now(conn);
         double ratesAt = double.NegativeInfinity, lifeRate = 0, manaRate = 0, burnPerSecond = 0, preventedPerSecond = 0;
         bool zealotsOath = false, convertLifeRegen = false;
+        double? periodicRegenStart = null;
+        double periodicRegenPerSecond = 0;
         double nextVitalsSave = last + 5;
         Dictionary<uint, int> recoveryStats = [];
         int RecoveryStat(string name) => Stats.Key(name) is uint key ? recoveryStats.GetValueOrDefault(key) : 0;
@@ -733,6 +743,7 @@ public static partial class Game
                     // A failed transfer can resume this connection. Do not catch up old cached rates through loading.
                     // These sessions accrue independently of 'last'; settle and discard their loading-time recovery.
                     DiscardLoadingRecovery(conn, now);
+                    periodicRegenStart = null;
                     last = now;
                     ratesAt = double.NegativeInfinity;
                     continue;
@@ -753,6 +764,9 @@ public static partial class Game
                     conn.PetrifiedBlood.RefreshThreshold(LowLifeThresholdPct(recoveryStats));
                     preventedPerSecond = PreventedDamageRecovery.PerSecond(
                         PanelStats.WhileMoving(RecoveryStat, conn.Walk.Moving(conn.Clock.Elapsed.TotalSeconds)));
+                    int periodic = RecoveryStat("virtual_gain_life_regeneration_per_minute_%_for_1_second_every_4_seconds");
+                    periodicRegenStart = periodic > 0 && conn.PlayerLife > 0 ? periodicRegenStart ?? now : null;
+                    periodicRegenPerSecond = conn.PlayerMaxLife * (double)periodic / 6000 * PanelStats.LifeRegenerationMultiplier(RecoveryStat);
                     zealotsOath = PanelStats.ZealotsOath(RecoveryStat);
                     convertLifeRegen = zealotsOath && EnergyShield.ConversionAllowed(RecoveryStat);
                     burnPerSecond = rf is null ? 0 : DamageModel.Mitigate((conn.PlayerMaxLife * (double)rf.BurnPctPerMinute + conn.Pools.EnergyShield * (double)rf.EnergyShieldBurnPctPerMinute) / 6000.0,
@@ -781,6 +795,7 @@ public static partial class Game
                     PreventedDamageOf(conn).Clear();
                     conn.EnergyShield.Empty();
                     ClearAntiquarianOnDeath(conn);
+                    periodicRegenStart = null;
                     lifeAfter = lifeBefore;
                     manaAfter = manaBefore;
                 }
@@ -803,7 +818,9 @@ public static partial class Game
                     int lifeTrap = IncomingResourceDefences.DamageOverTime(conn.EnergyShield, trapWhole,
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref conn.NonChaosDotBypassCarry);
                     conn.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
-                    conn.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds : 0));
+                    double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
+                        * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
+                    conn.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
                     double fortificationLife = FortificationOf(conn).TakeRecovery(conn.Clock.Elapsed.TotalSeconds);
                     if (convertLifeRegen) conn.EnergyShield.Gain(fortificationLife);
                     double antiquarianLife = conn.Antiquarian.TakeRecovery(now);
@@ -815,7 +832,7 @@ public static partial class Game
                     double recoupLife = conn.LifeRecoup.Take(now);
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
-                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds) + (zealotsOath ? 0 : fortificationLife)
+                    double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife) + (zealotsOath ? 0 : fortificationLife)
                         + leeched.Life + (zealotsOath ? 0 : antiquarianLife) + (zealotsOath ? 0 : enduringCryLife + preventedLife) + recoupLife;
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(conn, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);

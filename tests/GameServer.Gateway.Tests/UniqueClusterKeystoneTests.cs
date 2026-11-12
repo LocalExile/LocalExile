@@ -24,9 +24,9 @@ public class UniqueClusterKeystoneTests
             {
                 var layout = ClusterJewelLayout.For(cell, jewel)!;
                 var position = Assert.Single(layout.ByOffset);
+                Assert.Equal(cell == 20 ? 199 : 208, layout.Base + position.Key);
                 Assert.Equal(ClusterJewelLayout.Kind.Keystone, position.Value);
                 ushort id = (ushort)(layout.Base + position.Key);
-                if (cell == 20) Assert.Equal(199, (int)id);
                 InventoryItem[] placed = [new(11, (byte)cell, 0, jewel)];
                 conn.ClusterPassives.Clear();
                 Assert.Empty(ClusterJewelStats.For(conn, placed, items.Mods, Program.Stats));

@@ -15,7 +15,7 @@ static class UniqueBeltsFeature
         double now = conn.Clock.Elapsed.TotalSeconds;
         if (Stats.Key(StolenMods.SourceStat) is uint belt && stats.GetValueOrDefault(belt) > 0)
             conn.StolenMods.Steal(m.Mods, catalog, now);
-        else if (Stats.Key(StolenMods.RandomSourceStat) is uint jewel)
+        if (Stats.Key(StolenMods.RandomSourceStat) is uint jewel)
             conn.StolenMods.StealRandom(m.Mods, catalog, stats.GetValueOrDefault(jewel), now, Random.Shared);
     }
 
@@ -53,21 +53,26 @@ static class UniqueBeltsFeature
             {
                 foreach (var packet in StepMagebloodBuffs(conn))
                     await Send(remote, stream, ciphers, packet, "0x01c1/0x01c2 Mageblood flask buff");
-                if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0) is not var (stacks, remaining)) continue;
-                ushort old, buff = 0;
+                if (conn.StolenMods.Step(conn.Clock.Elapsed.TotalSeconds, conn.PlayerLife == 0, out var belt, out var jewel) is null)
+                    continue;
+                List<byte[]> packets = [];
                 lock (conn.Monsters)
                 {
                     RecomputePoolsAndSpeed(conn);
-                    old = conn.StolenModsBuff;
-                    conn.StolenModsBuff = stacks > 0 ? buff = conn.NextBuff++ : (ushort)0;
+                    Update(ref conn.StolenModsBuff, StolenMods.BuffRow, belt);
+                    Update(ref conn.InspiredLearningBuff, StolenMods.InspiredLearningBuffRow, jewel);
                 }
-                // As charges: a change of count or time is the old buff off and a new one on.
-                if (old != 0) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old), "0x01c2 player buff: Headhunter");
-                if (buff != 0)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, StolenMods.BuffRow, PlayerId,
-                            u68: BitConverter.SingleToUInt32Bits((float)remaining), stacks: (ushort)stacks),
-                        $"0x01c1 player buff: Headhunter x {stacks}, {remaining:0.#} s");
-                await SendCharacterStats(remote, stream, ciphers, conn, $"Headhunter: {stacks} modifier(s)");
+                foreach (var packet in packets)
+                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, packet, "stolen modifier buff");
+                await SendCharacterStats(remote, stream, ciphers, conn, "stolen modifiers");
+
+                void Update(ref ushort instance, ushort row, StolenMods.Buff state)
+                {
+                    if (instance != 0) packets.Add(InstanceEntities.RemoveBuff(PlayerId, instance));
+                    instance = state.Count > 0 ? conn.NextBuff++ : (ushort)0;
+                    if (instance != 0) packets.Add(InstanceEntities.AddBuff(PlayerId, instance, row, PlayerId,
+                        u68: BitConverter.SingleToUInt32Bits((float)state.Remaining), stacks: (ushort)state.Count));
+                }
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
             {

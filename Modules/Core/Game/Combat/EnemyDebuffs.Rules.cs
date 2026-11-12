@@ -65,6 +65,12 @@ public static partial class Game
                     : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(conn).HardMode, EnemyAuraActs);
                 var auras = current.Where(a => a.Template != PassiveBuffAuras.BlindTemplate).ToList();
                 int? blindRadius = PassiveBuffAuras.BlindRadius(current);
+                var player = CharacterPlayerStats(conn);
+                // The influenced blind and unique intimidate BuffTemplates use 35 and 25 cells respectively.
+                if (StatOf(player, "virtual_nearby_enemies_are_blinded") > 0)
+                    blindRadius = Math.Max(blindRadius ?? 0, 35);
+                if (StatOf(player, "virtual_nearby_enemies_are_intimidated") > 0)
+                    auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
                 var config = conn.EnemyDebuffs;
                 bool alive = conn.PlayerLife > 0;
                 var here = conn.Walk.Position(now);

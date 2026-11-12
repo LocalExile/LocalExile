@@ -131,6 +131,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
   (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. First Snow and Frozen Trail add projectiles, Omen on the Winds grants Ice Shot pierce,
   and Hazardous Research and Ring of Blades enable circular volleys for their respective skills. Other skill-specific consumers remain partial and
+  an attribute threshold. `ThresholdJewels.cs` parses the target/attribute mask, sums every ordinary passive in radius
+  (allocated or not, PoB's `Threshold` pass) and adds the mapped stat when the total is met. Live: `Combat Focus Cobalt` in socket
+  36634 logged `elemental_hit_cannot_roll_fire_damage 1` (60 Int); `Collateral Damage` in socket 60735 logged
+  `galvanic_arrow_area_damage_+% 50` and `shrapnel_shot_radius_+% 25` (60 Dex); `Spirited Response` in socket 6
+  (cell 8) changed mana 2355 -> 2476 from its 10% maximum mana global. The skill-specific consumers remain partial and
   targets without a client stat row are skipped. Unnatural Instinct in cell 3 changed life 5520 -> 5685, mana
   2355 -> 2326 and ES 277 -> 285 from three allocated Int smalls and three unallocated Life/ES smalls. Lioneye's Fall's
   radius now converts melee and melee-weapon stats with native bow equivalents, including physical damage, attack
@@ -206,6 +211,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Juggernaut: all 14 ordinary nodes apply and passed native acceptance, [node by node](../docs/game/juggernaut.md).
 - Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech,
   [node by node](../docs/game/slayer.md).
+- Slayer: every ordinary node's stats apply except Impact's melee range, checked in the client except overkill leech
+  and the while-leeching defences, [node by node](../docs/game/slayer.md).
 
 - Gambler: every node in its installed graph has a gameplay consumer, including both Block Luck choices and drawbacks.
   Legal eight-point builds, exclusive choices, paid refunds, failed-save rollback and reload have Gateway coverage.
