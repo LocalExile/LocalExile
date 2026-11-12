@@ -15,14 +15,14 @@ public static partial class Game
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
                 && Get("all_damage_taken_can_chill") == 0) return;
         var previousAilments = conn.ElementalAilments.Snapshot(now);
-        double previousFreeze = conn.ElementalAilments.FreezeUntil(now);
+        double previousFreeze = conn.ElementalAilments.FreezeStatusUntil(now);
         double previousAction = conn.ElementalAilments.ActionFactor(now);
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
         int fire = critical ? baseHit[DamageType.Fire].Roll(conn.IncomingHitRandom) : 0;
         var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
         conn.ElementalAilments.Apply(ailmentBase, taken, critical, conn.PlayerMaxLife, now, Get, conn.IncomingHitRandom, source);
-        if (conn.ElementalAilments.FreezeUntil(now) > previousFreeze)
+        if (conn.ElementalAilments.FreezeStatusUntil(now) > previousFreeze)
             conn.RecentEvents.Record(StatConditions.BeenFrozen, now);
         QueueFlaskAilmentChanges(conn, previousAilments, conn.ElementalAilments.Snapshot(now));
         PlayerAilmentsChangedLocked(conn, previousAction, now);

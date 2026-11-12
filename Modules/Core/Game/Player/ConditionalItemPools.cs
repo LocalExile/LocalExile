@@ -27,7 +27,7 @@ public static partial class Game
             + PetrifiedBlood.RequiredMana(conn.Pools, conn.PetrifiedBlood)
             + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false);
         int manaReserved = (int)Math.Min(conn.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
-        var lowLifeSources = SelfCurseConditionInputs(conn, activeItems);
+        var lowLifeSources = SelfCurseConditionInputs(conn, activeItems, conditionTime: now);
         bool lowLife = alive && CriticalOnLowLife(conn, lowLifeSources);
         var physicalAegis = PhysicalAegisStatus(conn, now);
         string stance = StanceCatalog.Selected(conn.Auras.Values);
@@ -167,24 +167,30 @@ public static partial class Game
 
     // A named event is answerable only when a production commit records it. Other mechanics retain their dedicated
     // stat id until their owning subsystem supplies the event; an absent unsupported event is not evidence of false.
-    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>
+    public static readonly IReadOnlySet<string> TrackedItemRecentEvents = CreateTrackedItemRecentEvents();
+    static HashSet<string> CreateTrackedItemRecentEvents()
     {
-        StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
-        StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
-        StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
-        StatConditions.BeenFrozen,
-        StatConditions.SpentMana,
-        StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
-        StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
-        StatConditions.UsedMovementSkill, StatConditions.UsedFireSkill, StatConditions.UsedColdSkill,
-        StatConditions.UsedSkill, StatConditions.UsedVaalSkill,
-        StatConditions.UsedDash, StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask,
-        StatConditions.UsedTopazFlask, StatConditions.UsedAmethystFlask,
-        StatConditions.NonCrit, StatConditions.Crit8Seconds,
-        StatConditions.ChangedStance,
-        StatConditions.DetonatedMine,
-        StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
-    };
+        var tracked = new HashSet<string>
+        {
+            StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
+            StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
+            StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
+            StatConditions.BeenFrozen,
+            StatConditions.SpentMana,
+            StatConditions.FrozeEnemy, StatConditions.ShockedEnemy, StatConditions.IgnitedEnemy,
+            StatConditions.ShatteredEnemy, StatConditions.UsedWarcry, StatConditions.ConsumedCorpse,
+            StatConditions.UsedMovementSkill, StatConditions.UsedFireSkill, StatConditions.UsedColdSkill,
+            StatConditions.UsedSkill, StatConditions.UsedVaalSkill,
+            StatConditions.UsedDash, StatConditions.UsedRubyFlask, StatConditions.UsedSapphireFlask,
+            StatConditions.UsedTopazFlask, StatConditions.UsedAmethystFlask,
+            StatConditions.NonCrit, StatConditions.Crit8Seconds,
+            StatConditions.ChangedStance,
+            StatConditions.DetonatedMine,
+            StatConditions.GainedFrenzyCharge, StatConditions.GainedPowerCharge, StatConditions.GainedEnduranceCharge,
+        };
+        tracked.UnionWith(TrackedCurseCastEvents());
+        return tracked;
+    }
     sealed class ConditionalItemPoolState
     {
         public StatSourcesResult? Applied;

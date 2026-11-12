@@ -118,6 +118,9 @@ public static partial class Game
         ushort skill, (int X, int Y) aim, uint target, int recovery, Func<bool> current)
     {
         var gem = SupportedSkill(conn, skill); string effect = SkillsFor(conn).EffectId(gem.Effect)!;
+        PlayerSkillSource? source;
+        lock (conn.Monsters) source = CurrentPlayerSkillSourceLocked(conn, skill);
+        if (source is not { Active: true }) return false;
         double release = AreaTime(conn) + (CastMs(conn, gem.Effect, skill) ?? 1000) / 1000d;
         var lifetime = CombatLifetime;
         while (true)
@@ -129,7 +132,13 @@ public static partial class Game
                 if (!conn.Paused && AreaTime(conn) >= release)
                 {
                     double now = AreaTime(conn); var player = CharacterPlayerStats(conn);
-                    var currentGem = SupportedSkill(conn, skill); int radius = CurseRadius(conn, skill, false, currentGem, player);
+                    var currentSource = CurrentPlayerSkillSourceLocked(conn, skill);
+                    var currentGem = SupportedSkill(conn, skill);
+                    if (currentSource is not { Active: true } || currentSource.Identity != source.Identity
+                        || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
+                        || GemSkillInstanceDisabled(conn, currentGem.Effect, skill) is not null) return false;
+                    RecordCompletedCurseCast(conn, effect, conn.Clock.Elapsed.TotalSeconds);
+                    int radius = CurseRadius(conn, skill, false, currentGem, player);
                     foreach (var (id, m) in conn.Monsters)
                         if (CurseCatalog.All[effect].Mark ? id == target : Dist(m.Walk.Position(now), aim) <= radius)
                             ApplyCurseLocked(conn, m, skill, now, false, currentGem, player);

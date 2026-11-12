@@ -204,6 +204,8 @@ public static class StatConditions
         // "…_recently": the whole condition sits at the end, so everything before it is the plain stat.
         var recent = RecentId.Match(statId);
         if (recent.Success) return Trim(statId, recent.Index, recent.Index + recent.Length);
+        var cast = RecentCastId.Match(statId);
+        if (TryRecentCast(statId, out _, out _)) return Trim(statId, cast.Index, cast.Index + cast.Length);
         var eightSecond = RecentEightSecondsId.Match(statId);
         if (eightSecond.Success) return Trim(statId, eightSecond.Index, eightSecond.Index + eightSecond.Length);
         foreach (var expression in new[] { RecentCountThreshold, RecentAmountId })
@@ -270,6 +272,10 @@ public static class StatConditions
             "life_gain_per_target" => "base_life_gain_per_target",
             "damage_taken_+%" => "base_damage_taken_+%",
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
+            "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
+            "cooldown_recovery_+%" => "base_cooldown_speed_+%",
+            "action_speed_cannot_be_slowed_below_base" => "action_speed_cannot_be_reduced_below_base",
+            "take_no_extra_damage_from_critical_strikes" => "self_take_no_extra_damage_from_critical_strikes",
             "extra_damage_taken_from_crit_+%" => "base_self_critical_strike_multiplier_-%",
             "additional_critical_strike_chance_permyriad" => "additional_base_critical_strike_chance",
             "critical_strike_chance_+%_for_spells" => "spell_critical_strike_chance_+%",
@@ -282,6 +288,12 @@ public static class StatConditions
             "block_%" => "additional_block_%",
             "chance_to_deal_triple_damage_%" => "base_chance_to_deal_triple_damage_%",
             "double_damage_chance_%" => "chance_to_deal_double_damage_%",
+            "chance_to_deal_double_damage_+%" => "chance_to_deal_double_damage_%",
+            "intimidate_enemies_on_hit" => "chance_to_intimidate_on_hit_%",
+            "inflict_withered_for_2_seconds_on_hit" => "withered_on_hit_for_2_seconds_%_chance",
+            "inflict_fire_exposure" => "base_inflict_fire_exposure_on_hit_%_chance",
+            "inflict_cold_exposure" => "base_inflict_cold_exposure_on_hit_%_chance",
+            "inflict_lightning_exposure" => "base_inflict_lightning_exposure_on_hit_%_chance",
             "burning_damage_+%" => "burn_damage_+%",
             "attacks_bleed_on_hit" => "global_bleed_on_hit",
             "gain_crimson_dance" => "keystone_crimson_dance",
@@ -290,7 +302,7 @@ public static class StatConditions
             "life_leech_from_fire_damage_permyriad" => "base_life_leech_from_fire_damage_permyriad",
             "life_leech_from_spell_damage_permyriad" => "base_life_leech_from_spell_damage_permyriad",
             "energy_shield_leech_from_lightning_damage_permyriad" => "base_energy_shield_leech_from_lightning_damage_permyriad",
-            "unaffected_by_bleeding" => "base_unaffected_by_bleeding",
+            "unaffected_by_bleeding" or "unaffected_by_bleed" => "base_unaffected_by_bleeding",
             "unaffected_by_poison" => "base_unaffected_by_poison",
             "damage_removed_from_mana_before_life_%" => "base_damage_removed_from_mana_before_life_%",
             "physical_damage_reduction_%" => "base_additional_physical_damage_reduction_%",
@@ -355,8 +367,13 @@ public static class StatConditions
         return Fold(statId, exists) is { } plain ? [plain] : [];
     }
 
-    public static int ValueForFold(string statId, int value) =>
-        PlainOf(statId) == "extra_damage_taken_from_crit_+%" ? ActorScale.Saturate(-(long)value) : value;
+    public static int ValueForFold(string statId, int value) => PlainOf(statId) switch
+    {
+        "extra_damage_taken_from_crit_+%" => ActorScale.Saturate(-(long)value),
+        "intimidate_enemies_on_hit" or "inflict_withered_for_2_seconds_on_hit" or "inflict_fire_exposure"
+            or "inflict_cold_exposure" or "inflict_lightning_exposure" => value == 0 ? 0 : 100,
+        _ => value,
+    };
 
     // Suffixes that name a weapon/shield subject. Checked longest first so the specific one wins.
     const string DualWield = "_while_dual_wielding";
@@ -707,6 +724,11 @@ public static class StatConditions
     public static bool TryRecentEvent(string statId, out string key, out bool negated)
     {
         key = ""; negated = false;
+        if (TryRecentCast(statId, out string spell, out int seconds))
+        {
+            key = CastEventKey(spell, seconds);
+            return true;
+        }
         var m = RecentId.Match(statId);
         if (!m.Success) return false;
         string phrase = m.Groups["phrase"].Value;
@@ -723,6 +745,19 @@ public static class StatConditions
                 return true;
             }
         return false;
+    }
+
+    static readonly System.Text.RegularExpressions.Regex RecentCastId =
+        new(@"_if_cast_(?<spell>[a-z_]+)_in_past_(?<seconds>\d+)_seconds$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    public static string CastEventKey(string spell, int seconds) => $"cast_{spell}_past_{seconds}_seconds";
+
+    public static bool TryRecentCast(string statId, out string spell, out int seconds)
+    {
+        var match = RecentCastId.Match(statId);
+        spell = match.Success ? match.Groups["spell"].Value : "";
+        seconds = 0;
+        return match.Success && int.TryParse(match.Groups["seconds"].Value, out seconds) && seconds > 0;
     }
 
     static readonly System.Text.RegularExpressions.Regex ThresholdId =

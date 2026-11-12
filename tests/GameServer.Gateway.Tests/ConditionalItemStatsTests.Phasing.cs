@@ -174,6 +174,7 @@ public partial class ConditionalItemStatsTests
             Qualified_low_life_resistances_reach_pools(conn, Wear);
             Blood_dance_target_life_uses_pre_hit_state_and_frozen_charges(conn, Wear);
             Qualified_vaal_use_and_during_flask_sources_have_final_consumers(conn, Wear);
+            Explicit_curse_cast_histories_reach_actual_item_consumers(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);

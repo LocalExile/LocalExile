@@ -145,6 +145,7 @@ public sealed partial class ReservationCurseSummonTests
             Assert.Equal(0, victim.Mods.Effects["base_fire_damage_resistance_%"]);
             Assert.Single(victim.Curses.All);
             victim.Curses.Clear();
+            await ManualCurseCastCommitFixture(conn, lifetime, wire, name => Equip(name));
 
             foreach (var (name, stat) in new[] {
                 ("Summon Reaper", "number_of_reapers_allowed"), ("Summon Holy Relic", "number_of_relics_allowed"),

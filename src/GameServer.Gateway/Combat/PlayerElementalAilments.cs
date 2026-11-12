@@ -24,7 +24,7 @@ public sealed class PlayerElementalAilments
         }
     }
     double actionFloor, actionCeiling = double.PositiveInfinity, freezeEffect = 1;
-    bool chillReversed, unaffectedByChill, unaffectedByShock, unaffectedByIgnite;
+    bool chillReversed, unaffectedByChill, unaffectedByFreeze, unaffectedByShock, unaffectedByIgnite;
 
     public (bool Ignite, int Chill, bool Freeze, int Shock) Snapshot(double now) =>
         (Magnitude(Kind.Ignite, now) > 0, (int)Magnitude(Kind.Chill, now), Magnitude(Kind.Freeze, now) > 0,
@@ -41,6 +41,12 @@ public sealed class PlayerElementalAilments
     /// <summary>When the freeze on the player ends; <paramref name="now"/> without one.</summary>
     public double FreezeUntil(double now)
     {
+        lock (effects) return unaffectedByFreeze ? now : FreezeStatusUntil(now);
+    }
+
+    // Unaffected suppresses its action hold, but the retained freeze still produces "been Frozen" history.
+    public double FreezeStatusUntil(double now)
+    {
         lock (effects) return effects.Where(e => e.Kind == Kind.Freeze && e.From <= now && now < e.Until)
             .Select(e => e.Until).DefaultIfEmpty(now).Max();
     }
@@ -52,7 +58,8 @@ public sealed class PlayerElementalAilments
     /// still stops you (wiki Changing Seasons).</summary>
     public double TotalActionFactor(double now, double statReduction)
     {
-        double freeze = Magnitude(Kind.Freeze, now) * freezeEffect, chill = unaffectedByChill ? 0 : Magnitude(Kind.Chill, now);
+        double freeze = unaffectedByFreeze ? 0 : Magnitude(Kind.Freeze, now) * freezeEffect,
+            chill = unaffectedByChill ? 0 : Magnitude(Kind.Chill, now);
         double change = (chillReversed && freeze <= 0 ? chill : -Math.Max(freeze, chillReversed ? 0 : chill)) - statReduction;
         return Math.Min(actionCeiling, Math.Max(actionFloor, 1 + change / 100));
     }
@@ -74,6 +81,7 @@ public sealed class PlayerElementalAilments
             effects.RemoveAll(e => Immune(e.Kind, get));
             freezeEffect = Math.Max(0, 1 + get("base_frozen_effect_on_self_+%") / 100.0);
             unaffectedByChill = get("unaffected_by_chill") != 0;
+            unaffectedByFreeze = get("unaffected_by_freeze") != 0;
             unaffectedByShock = get("unaffected_by_shock") != 0;
             unaffectedByIgnite = get("unaffected_by_ignite") != 0;
             actionFloor = get("action_speed_cannot_be_reduced_below_base") != 0
