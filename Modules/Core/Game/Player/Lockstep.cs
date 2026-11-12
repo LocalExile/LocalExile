@@ -385,7 +385,8 @@ public static partial class Game
         bool cannotCancelBeforeContact = Has("cannot_cancel_skill_before_contact_point");
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
-            start, duration / (1d + repeats), cannotCancelBeforeContact);
+            start, duration / (1d + repeats + .1 * UnleashSeals(conn, skill, SupportedSkill(conn, skill), ProjectileWorldTime(conn))),
+            cannotCancelBeforeContact);
         return window is { } cast ? cast with
         {
             Duration = duration,
