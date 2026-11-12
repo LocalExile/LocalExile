@@ -9,7 +9,7 @@ files), which open pull request it is stacked on, which protected paths it chang
 the labels needs-author, BLOCKED and protected-files that adds up to, next to the labels it has. Nothing clears a
 label by itself, so it ends with the labels to add and the ones nothing was found for, each with its reason: for
 needs-author, whether the author has pushed or replied since it was set. It only reads: nothing is checked out,
-merged, labelled or posted. Exit code: 0, or 1 when something could not be read.
+merged, labelled or posted. Needs Git 2.41 or newer. Exit code: 0, or 1 when something could not be read.
 """
 import argparse
 import json
@@ -57,6 +57,14 @@ def merge_conflicts(root, main, head):
     if result.returncode not in (0, 1):
         raise RuntimeError("git merge-tree: " + result.stderr.decode("utf-8", "replace").strip()[:300])
     return [] if result.returncode == 0 else result.stdout.decode("utf-8", "replace").splitlines()[1:]
+
+
+def check_git(root, main):
+    """Stop with a plain message on a Git without --attr-source (2.41) or merge-tree --write-tree (2.38)."""
+    probe = run(["git", "-C", str(root), f"--attr-source={main}", "merge-tree", "--write-tree", main, main])
+    if probe.returncode != 0:
+        version = run(["git", "--version"]).stdout.decode("utf-8", "replace").strip()
+        raise RuntimeError(f"pr_queue.py needs Git 2.41 or newer; this is {version}")
 
 
 class Queue:
@@ -219,6 +227,7 @@ def main(argv=None):
         url = f"https://github.com/{args.repo}"
         git(ROOT, "fetch", "-q", "--no-tags", url, "main")
         main_commit = git(ROOT, "rev-parse", "FETCH_HEAD").strip()
+        check_git(ROOT, main_commit)
         if pulls:   # every open head, drafts too: a pull request can be stacked on any of them
             git(ROOT, "fetch", "-q", "--no-tags", url, *(f"pull/{number}/head" for number in pulls))
         queue = Queue(ROOT, main_commit, pulls)

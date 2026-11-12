@@ -89,6 +89,8 @@ It ends with the labels to add and the ones nothing was found for, each with its
 the author has pushed or replied since it was set. A person may have set `needs-author` or `BLOCKED` for a reason Git
 does not show, so look before taking one off. Offline checks: `python scripts/dev/test_pr_queue.py`.
 
+Both scripts need Python 3.9 or newer. `pr_queue.py` also needs Git 2.41 or newer and says so on an older one.
+
 ## Merging lists
 
 `.gitattributes` merges the status, roadmap and index files by keeping both sides' lines, in local Git only.
