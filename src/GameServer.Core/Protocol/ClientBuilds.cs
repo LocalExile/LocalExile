@@ -38,9 +38,12 @@ public static class ClientBuilds
 
     public static IReadOnlyList<ClientBuild> Allowed { get; } =
     [
-        // Its executables are depot 238962 manifest 6963407386864245615; its Steam game files were never checked.
+        // What Steam served from 2026-11-06 until the hotfix of 2026-11-09. By Steam's own file lists its game files are
+        // the hotfix's but for Tiny_02.bundle.bin and the index, the two files that patch changed.
         new("3.29.3c", "release, build 327984",
-            "cc8aa38345be2a837575215d2ce142ebecf7b007345843265b335ebb8ac5964c", 0x142feaed0),
+            "cc8aa38345be2a837575215d2ce142ebecf7b007345843265b335ebb8ac5964c", 0x142feaed0,
+            SteamIndexSha256: "60264b4fc9182a442d95c29d49c0bb5097586b5081ac8f8b3032b74cdcbf19ac",
+            SteamManifests: [new(238961, 1636342548316019276), new(238962, 6963407386864245615)]),
         new("3.29.3c", "3.29.3.5 hotfix of 2026-11-09, build 328126",
             "01a22facf36886b39bca74793c0d8c7295b1495f1625b4ebc7b23c2de32a70cf", 0x142feaed0,
             SteamIndexSha256: "d23c78997206716586041a3e47a89dde0eb516f1488df4a1ccf39b0d51be54d0",

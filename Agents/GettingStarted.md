@@ -37,7 +37,8 @@ To play without developing, a [release](https://github.com/LocalExile/LocalExile
 | Python 3.9+ | the full data extraction (maintainers, step 7); with `pip install frida`, walk maps (step 9, optional) | `python --version`; `python -c "import frida"` |
 | ~same free space as the client | you work on a copy of it | |
 
-**Steam installs:** Steam's 3.29.3c as of the 2026-11-09 hotfix (3.29.3.5) and Steam's 3.29.3d work; LocalExile checks
+**Steam installs:** Steam's 3.29.3c (the release it served from 2026-11-06, and the 3.29.3.5 hotfix of 2026-11-09) and
+Steam's 3.29.3d work; LocalExile checks
 the install's `Bundles2\_.index.bin`. The Steam layout keeps the game files loose in `Bundles2\` instead of a `Content.ggpk`, and
 `PathOfExileSteam.exe` is the same executable as the standalone `PathOfExile.exe`. The client still runs in standalone
 mode: step 5 patches it to read the loose files, and Steam is never started or needed.
