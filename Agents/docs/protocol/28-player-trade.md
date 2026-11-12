@@ -65,7 +65,7 @@ player's offer grid (the window copies the struct at `0x140c32980`; `0x140c372c0
 - The player trade uses the sale's offer inventory ids (`NpcShops.FirstTabId + 0x10` and `+ 0x11`); a player is never in
   both.
 
-## 4. The Gateway (`Program.Social.cs`)
+## 4. The server (the Social module, `Modules/Core/Player/Social/SocialModule.cs`)
 
 Trade requires living, connected players in the same instance presence and full league, with matching modes.
 Either SSF flag refuses the request and acceptance, including forged packets in a shared SSF town.
@@ -86,7 +86,7 @@ containing both inventory saves. Failed settlement leaves both durable inventori
 
 ## 5. Party (live 2026-10-29, two clients in one town)
 
-Invite, accept and leave work. The Gateway keeps the parties (`Program.Social.cs`: `PartyInvites`, `Parties`).
+Invite, accept and leave work. The Social module keeps the parties (`Modules/Core/Player/Social/SocialModule.cs`: `PartyInvites`, `Parties`).
 
 - **S→C 0xa9** (class `0x1435e7740`, read `0x1421a8220`, dispatcher case 0x2a at `0x142152e8c`) has this layout:
   1. u32 party id (`+0x68`);

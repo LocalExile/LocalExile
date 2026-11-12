@@ -15,9 +15,14 @@ using GameServer.Core.World;
 public sealed class KillOnslaught
 {
     public IReadOnlyList<(int Chance, double Seconds)> Rolls = [];
+    // "You gain Onslaught for 4 seconds on Hit" (gain_onslaught_on_hit_duration_ms): every hit, no roll.
+    public int HitMs;
     public double Until = double.NegativeInfinity;
     public double SentUntil = double.NegativeInfinity;
     public ushort Buff;
+    // A refresh that moves the shown deadline by less than this keeps the client's buff: a hit every tick would
+    // otherwise remove and re-add it every tick (#849 review follow-up).
+    const double RepresentSeconds = 1;
     public bool Applied => double.IsFinite(SentUntil);
 
     public static IReadOnlyList<(int Chance, double Seconds)> From(Func<string, int> get)
@@ -43,19 +48,32 @@ public sealed class KillOnslaught
         return true;
     }
 
+    /// <summary>One hit at <paramref name="now"/>: whether it started or lengthened Onslaught ("You gain Onslaught for
+    /// X seconds on Hit"). A gain never shortens the Onslaught running.</summary>
+    public bool Hit(double now)
+    {
+        if (HitMs <= 0 || now + HitMs / 1000.0 <= Until) return false;
+        Until = now + HitMs / 1000.0;
+        return true;
+    }
+
     /// <summary>What the client is told at <paramref name="now"/>, marked as told: the buff to remove (0 for none), the
     /// seconds of a new one (null for none; the caller numbers it into <see cref="Buff"/>), whether the stats change.
     /// Null when nothing changed. Death ends it; <paramref name="hidden"/> (a flask shows its own Onslaught) hides the
-    /// buff but not the stats.</summary>
+    /// buff but not the stats. A running buff is re-added only when the shown deadline is extended by at least
+    /// <see cref="RepresentSeconds"/>, so a hit every tick does not re-send it every tick.</summary>
     public (ushort Removed, double? Seconds, bool Stats)? Present(double now, bool alive, bool hidden)
     {
         if (!alive) Until = double.NegativeInfinity;
         double until = now < Until ? Until : double.NegativeInfinity;
         bool show = double.IsFinite(until) && !hidden;
-        if (until == SentUntil && show == (Buff != 0)) return null;
-        var change = (Buff, show ? until - now : (double?)null, double.IsFinite(until) != Applied);
+        bool applied = double.IsFinite(until);
+        bool remove = Buff != 0 && !show;
+        bool add = show && (Buff == 0 || until - SentUntil >= RepresentSeconds);
+        if (!remove && !add && applied == Applied) return null;
+        var change = (Buff, add ? until - now : (double?)null, applied != Applied);
         Buff = 0;
-        SentUntil = until;
+        SentUntil = applied ? until : double.NegativeInfinity;
         return change;
     }
 }
@@ -69,7 +87,12 @@ public static partial class Game
     public static void ConfigureKillOnslaught(ClientState conn, Func<string, int> get)
     {
         var rolls = KillOnslaught.From(get);
-        lock (conn.Monsters) KillOnslaughtOf(conn).Rolls = rolls;
+        lock (conn.Monsters)
+        {
+            var onslaught = KillOnslaughtOf(conn);
+            onslaught.Rolls = rolls;
+            onslaught.HitMs = get("gain_onslaught_on_hit_duration_ms");
+        }
     }
 
     // A hostile monster the player killed (MonsterKilled, CommitProjectileKill): whether Onslaught started or lengthened.
@@ -78,6 +101,12 @@ public static partial class Game
     {
         lock (conn.Monsters)
             return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Kill(conn.Clock.Elapsed.TotalSeconds, Random.Shared);
+    }
+
+    // "You gain Onslaught for X seconds on Hit" (the Honoured Berserker tattoo and other sources): every player hit.
+    public static bool OnslaughtOnHitLocked(ClientState conn, double now)
+    {
+        lock (conn.Monsters) return conn.PlayerLife > 0 && KillOnslaughtOf(conn).Hit(now);
     }
 
     // The kill Onslaught's stats while applied, as sources of the same buff as a Silver Flask's (UtilityStats): with both,
@@ -113,7 +142,7 @@ public static partial class Game
                 RecomputePoolsAndSpeed(conn);
                 bytes.AddRange(PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)));
                 bytes.AddRange(PlayerSkillsIfChanged(conn, PlayerSkills(conn)));
-                Console.WriteLine($"[gateway] Onslaught on kill {(o.Applied ? "started" : "ended")}");
+                Console.WriteLine($"[gateway] Onslaught {(o.Applied ? "started" : "ended")}");
             }
             return [.. bytes];
         }

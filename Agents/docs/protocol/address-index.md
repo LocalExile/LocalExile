@@ -186,7 +186,10 @@ G = global / static data.
 |---|---|---|
 | `0x1428f3c7e` | call site | "No patching required" decision |
 | `0x1421d3460` | Fn | local GGPK root hash is non-zero |
-| `0x1428f31c0` | Fn | compare a local directory hash with the welcome |
+| `0x1428f31c0` | Fn | compare a local directory hash with the welcome; no pack file → "differs" (`0x1428f3221`, `LooseFilesPatch`) |
+| `0x140df9010` | Fn | distribution mode from the exe name or a flag: 0 standalone, 1 Steam ("Steam", `--steam`), 4 Kakao ("KG"), 5 Epic ("EGS"); 2/3 a "Hotcool" build |
+| `0x1400fc3f0` | Fn | opens `Content.ggpk` unless the mode is 1, 3 or 5 (loose files; branch `0x1400fc426`, `LooseFilesPatch`) |
+| `0x1400f8654` | call site | `SteamAPI_Init` in Steam mode ("Unable to init Steam API"), after `SteamAPI_RestartAppIfNecessary` |
 
 ## Inventories and UI
 | Address | Kind | What |
@@ -561,6 +564,8 @@ Bounded static research for 3.29.3b; detailed fields, concrete vtables, evidence
 | `0x141e9fa80` | Fn | Duration-based ACT animation eligibility and weighted reservoir selection |
 | `0x141fe51f0` | Fn | 0x1d1/0x1d2 reader: duration float, Animation.dat type byte, boolean |
 | `0x141e9c700` | Fn | 0x1d1 Actor animation: cancel prediction, select stance ACT, lock input during recovery |
+| `0x141e9c200` | Fn | Actor death handler: cancel the action, pick the death clip, clear Positioned blocking when the clip has no remove_collidability event |
+| `0x141e9a160` | Fn | Actor animation event handler: event 0xbbd2 (remove_collidability) clears Positioned blocking (+0x1e5 & 8) |
 | `0x14219b333` | Code | Actor 0x1d1 dispatch to virtual `+0xe0` recovery handler |
 | `0x141e941a0` | Fn | Action-start gate: Actor `+0x219` bit 2 blocks input during recovery |
 | `0x141e96fe0` | Fn | End local predicted action (Actor +0x1b8) |

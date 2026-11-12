@@ -14,7 +14,7 @@ public class GgpkMaintenanceTests
         string ggpk = Path.Combine("Client", "Content.ggpk");
         if (!File.Exists(ggpk)) return;
         using var client = new FileStream(ggpk, FileMode.Open, FileAccess.Read, FileShare.Read);
-        byte[]? list = GgpkMaintenance.TryReadFile(ggpk, "Bundles2/gateway_list.txt") ?? GgpkMaintenance.TryReadFile(ggpk, "gateway_list.txt");
+        byte[]? list = ClientFiles.TryReadFile(ggpk, "Bundles2/gateway_list.txt") ?? ClientFiles.TryReadFile(ggpk, "gateway_list.txt");
         Assert.NotNull(list);
         Assert.Equal(32, GgpkMaintenance.RootHash(ggpk).Length);
     }

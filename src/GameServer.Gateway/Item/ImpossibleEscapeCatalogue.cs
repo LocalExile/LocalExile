@@ -23,6 +23,10 @@ public static class ImpossibleEscapeCatalogue
 
     public static IReadOnlyList<Keystone> All => Entries.Value;
 
+    // Current items store a graph ID; older items stored the row of the same Maven keystone.
+    public static Keystone? ForStoredValue(int value) =>
+        All.FirstOrDefault(entry => entry.GraphId == value) ?? All.FirstOrDefault(entry => entry.Row == value);
+
     public static string[] Names => [.. All.Select(entry => entry.Name)];
 
     public static Keystone? Find(string query)
@@ -63,8 +67,7 @@ public static class ImpossibleEscapeCatalogue
     public static Item Migrate(Item item, ModCatalog mods)
     {
         if (Read(item, mods) is not { } read) return item;
-        if (Program.Passives.Find((ushort)read.Value) is { IsKeystone: true }) return item;
-        if (Program.Passives.GraphIdForRow(read.Value) is not ushort graphId) return item;
+        if (ForStoredValue(read.Value) is not { GraphId: var graphId } || graphId == read.Value) return item;
         var rewritten = new List<ItemMod>(item.Mods.Count);
         foreach (var itemMod in item.Mods)
         {
@@ -115,12 +118,10 @@ public static class ImpossibleEscapeCatalogue
     static List<Keystone> Load()
     {
         var result = new List<Keystone>();
-        string path = Path.Combine("data", "tables", "MavenJewelRadiusKeystones.json");
-        if (!ClientTables.Exists(path)) return result;
-        using var document = JsonDocument.Parse(ClientTables.ReadAllBytes(path));
-        foreach (var entry in document.RootElement.EnumerateArray())
+        if (!ClientTables.Has("MavenJewelRadiusKeystones")) return result;
+        foreach (var entry in ClientTables.Table("MavenJewelRadiusKeystones"))
         {
-            int row = entry.GetProperty("Keystone").GetInt32();
+            int row = entry.Int("Keystone");
             ushort? graphId = Program.Passives.GraphIdForRow(row);
             if (graphId is null && Program.Passives.Find((ushort)row) is { IsKeystone: true } direct)
                 graphId = direct.GraphId;

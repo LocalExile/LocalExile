@@ -41,6 +41,12 @@ public static partial class Game
         Put("virtual_number_of_forks_for_projectiles_final", profile.CannotFork ? 0 : profile.Fork);
         Put("virtual_projectiles_cannot_chain", profile.CannotChain ? 1 : 0);
         Put("virtual_projectiles_cannot_fork", profile.CannotFork ? 1 : 0);
+        if (Get("kinetic_bolt_forks_apply_to_zig_zags") != 0 || profile.ZigZags > 0)
+        {
+            Put("kinetic_bolt_number_of_zig_zags", profile.ZigZags);
+            if (Get("kinetic_bolt_forks_apply_to_zig_zags") != 0)
+                Put("theoretical_number_of_forks", Math.Max(Get("theoretical_number_of_forks"), profile.Fork));
+        }
         Put("virtual_projectile_number_to_split", profile.CannotSplit ? 0 : profile.Split);
         Put("projectiles_cannot_split", profile.CannotSplit ? 1 : 0);
         Put("projectiles_return", !profile.CannotReturn && profile.Returns ? 1 : 0);
@@ -48,6 +54,7 @@ public static partial class Game
         Put("skill_projectiles_cannot_return", profile.CannotReturn ? 1 : 0);
         Put("returning_projectiles_always_pierce", !profile.CannotReturn && !profile.CannotPierce
             && (profile.Returns || profile.ReturnChancePercent > 0) && profile.PierceAllOnReturn ? 1 : 0);
+        if (profile.NativeVolley?.Nova == true) Put("projectiles_nova", 1);
         parameters.PanelStats?.Invoke(profile, stats);
 
         void Put(string name, int value) { if (Stats.Key(name) is uint key) stats[key] = value; }

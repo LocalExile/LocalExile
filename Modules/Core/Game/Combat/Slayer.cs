@@ -41,6 +41,24 @@ public static class Slayer
     public static long AreaFromKills(Func<string, int> get) =>
         Math.Min(50, (long)get(AreaPerEnemyKilled) * get(EnemiesKilledRecently));
 
+    /// <summary>A count stopped where the capped product above stops changing (10 enemies at +10 per enemy, 10 kills at
+    /// 5% per kill). The tick compares these to decide a resend; the counts it sends stay uncapped, as other stats read
+    /// them with their own caps (the client reads number_of_nearby_enemies in about ten calculators).</summary>
+    public static int UpToCap(int count, int perUnit, int cap) =>
+        perUnit > 0 ? Math.Min(count, (cap + perUnit - 1) / perUnit) : count;
+
+    // Other stats the client reads in the same calculators as number_of_nearby_enemies (0x18a1: 0x14251aa40,
+    // 0x142525b99, 0x142710f20, 0x142753203, 0x14285d770) or number_of_enemies_killed_recently (0x1f22, area
+    // 0x14274c820), each with its own cap or threshold.
+    static readonly string[] OtherNearbyReaders =
+    [
+        "physical_damage_reduction_%_per_nearby_enemy", "movement_speed_+%_per_nearby_enemy",
+        "movement_speed_+%_per_nearby_enemy_up_to_50%", "attack_and_cast_speed_+%_per_nearby_enemy_up_to_30%",
+        "additional_block_%_with_5_or_more_nearby_enemies", "self_take_no_extra_damage_from_critical_strikes_if_only_one_nearby_enemy",
+    ];
+    static readonly string[] OtherKillReaders =
+        ["area_of_effect_+%_per_enemy_killed_recently", "area_of_effect_+%_per_enemy_killed_recently_up_to_25%"];
+
     /// <summary>Bane of Legends' two more multipliers on one hit, against a unique target or not.</summary>
     public static double DamageMore(Func<string, int> get, bool uniqueTarget) =>
         (uniqueTarget ? Math.Max(0, 1 + get(MoreVsUnique) / 100.0) : 1)
@@ -57,6 +75,8 @@ public static class Slayer
         // Counts each applied change: the player stats cache (PlayerStatsKey) rebuilds on it, as the pools do not hold
         // everything these values change (the area total).
         public long Revision;
+        // Bane of Legends' last logged multiplier: an area hit changes target on every hit, so only a new value logs.
+        public double BaneLogged = 1;
 
         public int KilledWithin(double now)
         {
@@ -118,6 +138,9 @@ public static class Slayer
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         double more = DamageMore(Get, target.Rarity == MonsterRarity.Unique);
+        var state = Of(conn);
+        if (state.BaneLogged == more) return more == 1 ? rolled : rolled.Scale(more);
+        state.BaneLogged = more;
         if (more == 1) return rolled;
         Console.WriteLine($"[gateway] Bane of Legends: {more:0.###}x on {target.Rarity} {target.Label}"
             + $" ({(target.Rarity == MonsterRarity.Unique ? "unique" : "not unique")}, killed recently: {Get(HaveKilledRecently) != 0})");
@@ -142,22 +165,33 @@ public static class Slayer
                 state.MovementUntil = state.AttackSpeedUntil = double.NegativeInfinity;
                 state.Kills.Clear();
             }
-            int killed = state.KilledWithin(now);
-            if (Raw(conn, AreaPerEnemyKilled) == 0 && Raw(conn, MoreIfKilledRecently) == 0) killed = 0;
-            int nearby = 0;
-            if (alive && Raw(conn, CritPerNearbyEnemy) != 0)
+            int killed = state.KilledWithin(now), areaPerKill = Raw(conn, AreaPerEnemyKilled);
+            bool readsKills = areaPerKill != 0 || Raw(conn, MoreIfKilledRecently) != 0;
+            if (!readsKills) killed = 0;
+            int nearby = 0, critPerEnemy = Raw(conn, CritPerNearbyEnemy);
+            if (alive && critPerEnemy != 0)
             {
+                // Awake hostile monsters the client has been shown, as Flicker Strike's targets (FlickerDestination).
                 var here = conn.Walk.Position(now);
-                foreach (var m in conn.Monsters.Values)
-                    if (m is { Hostile: true, Dead: false, Life: > 0 } && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
+                foreach (var (id, m) in conn.Monsters)
+                    if (m is { Hostile: true, Dead: false, Life: > 0 } && !conn.AsleepMonsters.Contains(id)
+                        && (conn.Instance is null || conn.MonsterViews.ContainsKey(id))
+                        && Dist(m.Walk.Position(now), here) <= NearbyRadius) nearby++;
             }
             int movement = now < state.MovementUntil ? Raw(conn, MovementOnKill) : 0;
             int attackSpeed = now < state.AttackSpeedUntil ? Raw(conn, AttackSpeedOnRareKill) : 0;
-            changed = (nearby, killed, movement, attackSpeed) != (state.Nearby, state.Killed, state.Movement, state.AttackSpeed);
+            // The counts sent are the real ones; a resend happens when a value one of the player's stats reads changes.
+            // With only Slayer's stats that is each count up to where its capped product stops (at one for Bane's
+            // "killed recently" alone); another stat reading a count makes every change of it count.
+            bool otherNearby = OtherNearbyReaders.Any(n => Raw(conn, n) != 0), otherKills = OtherKillReaders.Any(n => Raw(conn, n) != 0);
+            int Near(int count) => otherNearby ? count : UpToCap(count, critPerEnemy, 100);
+            int Kills(int count) => otherKills ? count : areaPerKill != 0 ? UpToCap(count, areaPerKill, 50) : Math.Min(count, 1);
+            changed = (Near(nearby), Kills(killed), movement, attackSpeed)
+                != (Near(state.Nearby), Kills(state.Killed), state.Movement, state.AttackSpeed);
             Present(conn, ref state.MovementBuff, ref state.MovementShown, MovementBuffRow, movement != 0, state.MovementUntil, now, packets);
             Present(conn, ref state.AttackSpeedBuff, ref state.AttackSpeedShown, AttackSpeedBuffRow, attackSpeed != 0,
                 state.AttackSpeedUntil, now, packets);
-            (state.Nearby, state.Killed, state.Movement, state.AttackSpeed) = (nearby, killed, movement, attackSpeed);
+            if (changed) (state.Nearby, state.Killed, state.Movement, state.AttackSpeed) = (nearby, killed, movement, attackSpeed);
             if (changed)
             {
                 state.Revision++;

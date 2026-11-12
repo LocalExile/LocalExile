@@ -162,16 +162,12 @@ public sealed class TimelessJewelEngine(string folder = "data")
 
     static Data? Load(string folder)
     {
-        string versionsPath = Path.Combine(folder, "tables", "AlternateTreeVersions.json");
-        string skillsPath = Path.Combine(folder, "tables", "AlternatePassiveSkills.json");
-        string additionsPath = Path.Combine(folder, "tables", "AlternatePassiveAdditions.json");
-        if (!new[] { versionsPath, skillsPath, additionsPath }.All(ClientTables.Exists)) return null;
+        if (!new[] { "AlternateTreeVersions", "AlternatePassiveSkills", "AlternatePassiveAdditions" }.All(ClientTables.Has)) return null;
 
         var versions = new Dictionary<int, TreeVersion>();
-        using (var d = GameTables.Open(versionsPath))
         {
             int row = 0;
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("AlternateTreeVersions"))
             {
                 int key = row++;
                 if (key == 0) continue;
@@ -183,10 +179,9 @@ public sealed class TimelessJewelEngine(string folder = "data")
 
         var skills = new Dictionary<(int, int), List<AltSkill>>();
         var keystones = new Dictionary<(int, int, int), AltSkill>();
-        using (var d = JsonDocument.Parse(ClientTables.ReadAllBytes(skillsPath)))
         {
             int row = 0;
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("AlternatePassiveSkills"))
             {
                 var types = Ints(r, "PassiveType");
                 var skill = new AltSkill(row++, Str(r, "Id"), Str(r, "Name"), Int(r, "AlternateTreeVersionsKey"),
@@ -205,10 +200,9 @@ public sealed class TimelessJewelEngine(string folder = "data")
         }
 
         var additions = new Dictionary<(int, int), List<AltAddition>>();
-        using (var d = JsonDocument.Parse(ClientTables.ReadAllBytes(additionsPath)))
         {
             int row = 0;
-            foreach (var r in d.RootElement.EnumerateArray())
+            foreach (var r in ClientTables.Table("AlternatePassiveAdditions"))
             {
                 var addition = new AltAddition(row++, Str(r, "Id"), Int(r, "AlternateTreeVersionsKey"),
                     Ints(r, "PassiveType"), Ints(r, "StatsKeys"),
@@ -229,19 +223,13 @@ public sealed class TimelessJewelEngine(string folder = "data")
             keystones);
     }
 
-    static string Str(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+    static string Str(ClientRow e, string name) => e.Has(name) ? e.TextOrNull(name) ?? "" : "";
 
-    static int Int(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetInt32() : 0;
+    static int Int(ClientRow e, string name) => e.Has(name) ? e.IntOrNull(name) ?? 0 : 0;
 
-    static bool Bool(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+    static bool Bool(ClientRow e, string name) => e.Has(name) && e.BoolOrNull(name) == true;
 
-    static int[] Ints(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
-            ? [.. v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetInt32())]
-            : [];
+    static int[] Ints(ClientRow e, string name) => e.Ints(name);
 }
 
 /// <summary>The client's TinyMT32 generator, ported from Vilsol/timeless-jewels' random/main.go. Legion jewels use the

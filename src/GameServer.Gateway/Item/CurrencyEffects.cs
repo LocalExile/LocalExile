@@ -324,7 +324,7 @@ public static class CurrencyEffects
 
     public const string MirrorOfKalandra = "Metadata/Items/Currency/CurrencyDuplicate";
 
-    /// <summary>Mirror of Kalandra (as the official one): a mirrored copy of a non-unique equipment item that is neither
+    /// <summary>Mirror of Kalandra: a mirrored copy of non-unique equipment, a flask or a tier 1-16 map that is neither
     /// corrupted nor mirrored, with every property kept (mods and their values, fractured mods, quality, sockets, links,
     /// socketed gems, name). The original stays as it was. Null when the item cannot be mirrored.</summary>
     public static Item? Mirror(Item item, ItemRolls rolls) => rolls.Mirror(item);
@@ -445,9 +445,10 @@ public static class CurrencyEffects
     /// </summary>
     public static Item? Chromatic(Item item, (int Str, int Dex, int Int) requirements, Random random)
     {
-        if (item.Sockets.Count == 0) return null;
-        int forced = random.Next(item.Sockets.Count);
-        var sockets = item.Sockets.Select((socket, i) => socket with
+        var ordinary = Enumerable.Range(0, item.Sockets.Count).Where(i => item.Sockets[i].Colour != SocketColour.Abyss).ToArray();
+        if (ordinary.Length == 0) return null;
+        int forced = ordinary[random.Next(ordinary.Length)];
+        var sockets = item.Sockets.Select((socket, i) => socket.Colour == SocketColour.Abyss ? socket : socket with
         {
             Colour = i == forced ? SocketColours.Colour(requirements, random)
                 : SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random, chromatic: true),

@@ -9,7 +9,8 @@ public static class GatewayProjectileSkillProfiles
     public const double ClusterIntervalSeconds = 1d / 30;
     public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
-        { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY" });
+        { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
+            "KineticBolt", "KineticBoltAltX", "KineticBoltAltY" });
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
@@ -22,6 +23,7 @@ public static class GatewayProjectileSkillProfiles
         { ProjectileEndReason.Distance, ProjectileEndReason.Returned };
 
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
+    public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
 
@@ -80,16 +82,67 @@ public static class GatewayProjectileSkillProfiles
         // pass below adds the skill's and the support's extra arrows to it.
         if (get("projectiles_rain") != 0 || get("skill_is_rain_skill") != 0) p = ArrowNovaChildren(p);
 
-        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows);
+        // These player stats belong to a particular active skill, including its transfigured variants.
+        int extraProjectiles = effect switch
+        {
+            "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale"
+                => get("freezing_pulse_number_of_additional_projectiles"),
+            "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
+                => get("frostbolt_number_of_additional_projectiles"),
+            _ => 0
+        };
+        int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
+            ? get("ice_shot_pierce_+") : 0;
+        bool nova = effect switch
+        {
+            "Spark" or "SparkAltX" or "SparkAltY" or "VaalSpark" => get("spark_projectiles_nova") != 0,
+            "EtherealKnives" or "EtherealKnivesAltX" or "EtherealKnivesAltY" or "EtherealKnivesRoyale"
+                => get("ethereal_knives_projectiles_nova") != 0,
+            _ => false
+        };
+        if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
+            p = p with { NativeVolley = new() { Nova = true } };
+        p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
     }
+
+    public static ProjectileProfile WithKineticBoltLegs(ProjectileProfile parent, ushort sequence = 0)
+    {
+        var secondary = KineticBoltSecondary(parent);
+        return parent with
+        {
+            Legs = i => new KineticBoltLegs(sequence, parent.SequentialDelay > 0 ? i : 0, parent.ZigZags,
+                parent.Speed, parent.Range, secondary),
+            LegLeash = 0
+        };
+    }
+
+    public static ProjectileProfile KineticBoltSecondary(ProjectileProfile parent) => parent with
+    {
+        Id = "Metadata/Projectiles/ZigZagSecondaryWandProjectile",
+        Count = 1,
+        NativeVolley = null,
+        SpreadRadians = 0,
+        AimSpreadDistance = 0,
+        SequentialDelay = 0,
+        CountConsumer = ProjectileCountConsumer.Primary,
+        Returns = false,
+        ReturnChancePercent = 0,
+        ReturnRolls = null,
+        CannotReturn = true,
+        ZigZags = 0,
+        Legs = null,
+        LegLeash = 0,
+        HidePredictedVisual = true
+    };
 
     static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
 

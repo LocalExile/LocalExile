@@ -74,7 +74,7 @@ public static partial class Game
         var quests = QuestsOf(conn);
         foreach (var c in candidates)
         {
-            bool want = c.Present(quests, Has);
+            bool want = c.Present(quests, Has) && KitavaActTen.PreFightNpcShown(conn, c.Npc.Id);
             bool transitioned;
             lock (conn.QuestNpcs) transitioned = QuestsOf(conn).NpcTransitioned(area, c.Npc.Id, Has) || QuestsOf(conn).NpcFreed(area, c.Npc.Id, conn.KilledVarieties);
             bool transitionable = c.Npc.Components?.Contains("Transitionable") == true;
@@ -93,7 +93,7 @@ public static partial class Game
                 lock (conn.Npcs) conn.Npcs.Remove(id);
                 conn.RemoveBlocker(id);
                 if (conn.TalkingTo == id) { conn.TalkingTo = 0; conn.InNpcTalk = false; }
-                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(id), $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
+                await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd quest npc 0x{id:x} {c.Npc.Name} goes: {why}");
             }
             else if (want && transitioned && transitionable)
             {
@@ -104,7 +104,7 @@ public static partial class Game
                 {
                     spawned.State = last;
                     int component = c.Npc.Components!.ToList().IndexOf("Transitionable");
-                    await Send(remote, stream, ciphers, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
+                    await SendWorldRecord(remote, stream, ciphers, conn, c.Id, InstanceEntities.TransitionableUpdate(c.Id, (byte)component, last),
                         $"0x02bc quest npc 0x{c.Id:x} {c.Npc.Name} transitions to state {last}: {why}");
                 }
             }

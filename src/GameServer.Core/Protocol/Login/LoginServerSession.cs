@@ -9,6 +9,8 @@ namespace GameServer.Core.Protocol.Login;
 /// </summary>
 public sealed class LoginServerSession(AccountService accounts)
 {
+    /// <summary>The class byte from saved progression, including the main ascendancy.</summary>
+    public Func<Character, byte> CharacterListClass { get; init; } = c => (byte)c.Class;
     /// <summary>0x04 result codes. 0 moves the client to logged-in state 3 (0x142145ae0 case 4). Non-zero codes are
     /// BackendErrors rows + 1: the client showed 5 as "The specified account does not exist." (row 4, live 2026-10-16),
     /// so 6 is row 5 InvalidPassword.</summary>
@@ -140,7 +142,10 @@ public sealed class LoginServerSession(AccountService accounts)
         // Flags0 bit 5 → login+0xea8: the account's email is verified. With it clear the character screen builds the
         // "Your account is not verified" panel (0x140d19600) and chat/trade features are locked.
         byte[] remembered = m.Flag94 ? accounts.SavedClientCredential(Session.AccountId, m.MachineIdA, m.MachineIdB) : new byte[32];
-        return [new LoginResult(ResultOk, "", remembered, FlagVerified, 0, []),
+        // Data (login+0xe30) is the account name in UTF-8: listener 0x140d0fd50 hands it to the item filter manager, which
+        // needs it to fetch the online filter list when Options opens; that fetch is what rescans the local filter folder.
+        byte[] accountName = System.Text.Encoding.UTF8.GetBytes(Account?.Name ?? m.Account);
+        return [new LoginResult(ResultOk, "", remembered, FlagVerified, 0, accountName),
                 new LeagueList(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), Leagues.Entries(), false, false)];
     }
 
@@ -256,5 +261,5 @@ public sealed class LoginServerSession(AccountService accounts)
             // The character screen draws U46 (+0x46), the portrait variation, in U44 (+0x44), the frame (0x140841260 →
             // 0x14242d610, 0x1408406b0).
             new ListEntry15(c.Name, c.League, (byte)(c.HardcoreDeath?.PermanentlyDead == true || !HardcoreDeathRules.CanEnter(c) || !Leagues.CanEnter(c.League) ? 1 : 0), 0,
-                (byte)Math.Clamp(c.Level, 0, 255), 0, (byte)c.Class, c.PortraitFrame, c.Portrait, 0, 0))];
+                (byte)Math.Clamp(c.Level, 0, 255), 0, CharacterListClass(c), c.PortraitFrame, c.Portrait, 0, 0))];
 }

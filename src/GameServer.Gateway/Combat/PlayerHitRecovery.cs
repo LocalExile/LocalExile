@@ -41,10 +41,13 @@ public sealed class PlayerHitRecovery
     public static bool EnergyShieldPresent(Func<string, int> get, int equippedBase = 0) =>
         equippedBase > 0 || get("maximum_energy_shield") > 0 || get("base_maximum_energy_shield") > 0;
 
+    // cannot_be_stunned_while_leeching (Endless Hunger) is supported: the stats fold it into cannot_be_stunned while
+    // is_leeching, which Chance reads.
     public static bool UnsupportedStat(string name) =>
         name.StartsWith("cannot_be_stunned_", StringComparison.Ordinal)
             && name is not ("cannot_be_stunned_by_attacks" or "cannot_be_stunned_by_hits_of_only_physical_damage"
-                or "cannot_be_stunned_by_spells" or "cannot_be_stunned_by_suppressed_spell_damage" or "cannot_be_stunned_by_blocked_hits")
+                or "cannot_be_stunned_by_spells" or "cannot_be_stunned_by_suppressed_spell_damage" or "cannot_be_stunned_by_blocked_hits"
+                or "cannot_be_stunned_while_leeching")
         || name.StartsWith("base_cannot_be_stunned_", StringComparison.Ordinal)
         || name.Contains("avoid_stun", StringComparison.Ordinal) && name is not ("avoid_stun_%" or "base_avoid_stun_%")
         || name.Contains("stun_avoid", StringComparison.Ordinal)

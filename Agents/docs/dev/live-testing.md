@@ -1,13 +1,13 @@
 # Live testing against the real client
 
-How to run the patched 3.29.3b client against our servers safely and repeatably.
+How to run the patched 3.29.3c client against our servers safely and repeatably.
 
 ## Rules
 
 1. **Never let the client update.** An update replaces the patched client and data. Start it only through
    `scripts/dev/live.ps1`, which passes `--patching-server 127.0.0.1:12995`. The patch server advertises only
    `http://127.0.0.1:8080/` and answers 404 for everything except `gateway_list.txt`. Check
-   `Tools/re/out/live-patch.log` for `cdn passthrough off`.
+   `logs\live-patch.log` for `cdn passthrough off`.
 2. **Never start a second client other than through `live.ps1`** (that includes computer-use
    `open_application("Game.patched")`). A second instance started without the patching-server argument tried to
    download `PathOfExile.exe` from the real CDN on 2026-10-16. Several clients at once are named sessions
@@ -15,16 +15,16 @@ How to run the patched 3.29.3b client against our servers safely and repeatably.
    ```powershell
    Add-Type -Namespace W -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool ShowWindow(System.IntPtr h, int c); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);'
    $h = (Get-Process -Name Game.patched).MainWindowHandle; [W.U]::ShowWindow($h, 9); [W.U]::SetForegroundWindow($h)
+   ```
    If the window stays minimized (`ShowWindow` from a background process is ignored), post a restore command instead:
    ```powershell
    Add-Type -Namespace W3 -Name U -MemberDefinition '[DllImport("user32.dll")] public static extern bool PostMessage(System.IntPtr h, uint m, System.IntPtr w, System.IntPtr l);'
    [W3.U]::PostMessage((Get-Process -Name Game.patched).MainWindowHandle, 0x0112, [IntPtr]0xF120, [IntPtr]0)
    ```
-   ```
 3. With "Save Login Details" ticked the client auto-submits the saved login at startup. If it fails, Auth now closes
    the connection and Log In works again. In the client the password field needs a click before typing; Enter does not
    submit, click Log In.
-4. The dev account is `devtester` (password in `data/dev-login.txt`, untracked). Its characters live in
+4. Accounts are made with `GameServer.DevClient` ([GettingStarted](../../GettingStarted.md) step 8); characters live in
    `data/characters.db` ([saves](../saves.md)).
 
 ## One-time setup
@@ -35,12 +35,11 @@ dotnet run --project src/GameServer.Auth -- patch Client/Game.exe Client/Game.pa
 ```
 
 Also point the GGPK gateway list at the local login server (`GameServer.Patch gateway --login 127.0.0.1:20493`; the
-original is backed up to `data/gateway_list.original.txt`), and register the dev account with `GameServer.DevClient`.
+original is backed up to `data/gateway_list.original.txt`), and register an account with `GameServer.DevClient`.
 
 ## A run
 
 ```powershell
-$env:Game_GATEWAY_ENTER = '1'      # also send 0x21 (enter area). Leave unset to stop after the player object
 & .\scripts\dev\live.ps1           # -NoClient keeps a running client, -NoBuild skips the builds
 ```
 
@@ -49,11 +48,11 @@ Gateway env: `Game_MOVE_MODE` = `echo` (default: only the 0x1ab echo), `move` (a
 default attack's hit past its contact keyframe ([11](../protocol/11-skills.md) §5).
 
 `live.ps1` stops this checkout's servers and clients (anything else on its ports is reported, not stopped), builds
-Auth, Patch and Gateway, starts all three (logs in `Tools/re/out/live-*.log`), waits for the patch server and launches the
+Auth, Patch and Gateway, starts all three (logs in `logs\live-*.log`), waits for the patch server and launches the
 client. Then:
 
 1. wait for "Loading in" in `Client/logs/Client.txt` (startup takes about a minute; the file check is local)
-2. log in as `devtester` and select DevWitch
+2. log in and select a character
 3. Play
 
 To restart only the Gateway: `.\scripts\dev\live.ps1 -Only Gateway`. The client drops to the login screen and you
@@ -215,12 +214,6 @@ These are suggestions that have worked well, for people and agents alike; use yo
   ones replace them; the other modules' hooks are absent between their unload and load.
 - **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).
-  Keep the monster AI cadence collection nonparallel: its socket-latency assertion retains its 300 ms limit, so
-  parallel catalogue loads and their GC pauses must not run beside it. Arcane Might's area fixture measures its
-  projectile range from the weapon-contact origin to the target, rather than assuming the player is the origin.
-  Tests of a single area sweep await its executor, so a sustained channel cannot add a second contact during assertions.
-  Gateway collections run sequentially by default; this retains all tests, assertions and in-test concurrency while
-  avoiding unrelated catalogue-load/GC contention. Expect less overlap between test classes.
 - **Auth and Patch are not watched.** Changes there still need `live.ps1 -Only Auth` or `-Only Patch`.
 
 ## What a good run looks like
@@ -253,11 +246,26 @@ Source [Lioneye's Watch]". Then the HUD appears.
 | `WerFault.exe` appears / window masked in screenshots | client crash. Event log id 1000 has the fault offset (VA − 0x140000000). Attach Frida before Play next time |
 | "Area reported by instance does not exist" | the 0x14 area hash is not a WorldAreas.HASH16 |
 | client back at the login screen, "An unexpected disconnection occurred" | the instance connection closed (Gateway restarted or crashed) |
-| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` unset). The world queues 0x2bb and waits |
+| nothing after 0x7d | 0x21 not sent (`Game_GATEWAY_ENTER` set to something other than `1`). The world queues 0x2bb and waits |
 | extra map icons with no label (e.g. three area transition icons at the town gate) | the client's **minimap cache** remembers icons of objects it has seen, per area, in `%LOCALAPPDATA%\Path of Exile\Minimap\` (hash-named, encrypted files). Moving an object around (dev commands, changed defaults) leaves its old icons there, across restarts. Close the client and move the files away; seen 2026-10-17 |
 
 Window position and size change between launches; take a screenshot before clicking. At half scale, the password
 field, character row and Play button were near (245, 217), (375, 61) and (455, 263) in one layout and moved in others.
+
+## Dev commands that lie
+
+Four things that made a live boss check read as broken when it was not (all seen 2026-11-11, checking the Pantheon):
+
+| What you do | What actually happens |
+|---|---|
+| `/tp <x> <y>` onto the monster's own cell (`/mobs` prints it) | it neither moves nor attacks: stand 8–10 cells off. A boss that reads as idle, or as never swinging, is usually this |
+| `/mob_life <id> 0` on a boss with life phases | one smite, so the life stops at the next threshold (the Brine King's 75, 50, 25) and the phase runs; smite again once the log says that phase is over. The phase only begins with the player inside the arena, so smiting from the entrance leaves the boss clamped and looking unkillable |
+| `/quest_flag <flag>-HaveItem` | it is set and the quest-item sync takes it back within the millisecond — the log shows `set` and then `cleared`. A gate that needs an item only opens with the real item in the bag |
+| `rawpacket` | the fields are big-endian: C→S 0x24 (use an object or a ground item) wants the entity id as `04 00 00 00` for `0x4000000`. Little-endian is accepted silently and the server reads `TargetId = 4` |
+
+Counting a boss's actions from the log has the same shape: `attacks the player` is not every swing — the Brine King's
+only ever show as `player hit by monster 0x…`. Count `player hit by monster <id>` and `uses area skill` instead, or a boss
+that deals damage every second reads as idle.
 
 ## Env vars
 
@@ -269,10 +277,10 @@ field, character row and Play button were near (245, 217), (375, 61) and (455, 2
 | `Game_LOGIN_PORT` | 20493 | Auth |
 | `Game_GATEWAY_PORT` | 6112 | Gateway, and Auth (where Play sends the client) |
 | `Game_AUTH_CONTROL_PORT` | 20495 | Auth and Gateway |
-| `Game_GATEWAY_ENTER` | unset | Gateway: `1` sends 0x21 |
+| `Game_GATEWAY_ENTER` | `1` (set by `live.ps1` and `LocalExile.exe`) | Gateway: `1` sends 0x21; unset, it stops after the player object |
 | `Game_INSTANCE_SECRET` | `data/instance-secret.bin` | Auth and Gateway (must match) |
 | `Game_CHARACTERS_DB` | `data/characters.db` | Gateway, Auth, Host |
 | `Game_AUTH_DB` | `data/auth.db` (beside another characters database: `<name>-auth.db`) | Gateway, Auth, Host |
 | `Game_SQL_DIR` | `sql` | Gateway, Auth, Host |
-| `Game_PATCH_TCP_PORT`, `Game_PATCH_URL`, `Game_PATCH_WEB_ROOT` | 12995, http://0.0.0.0:8080, http://127.0.0.1:8080/ | Patch |
+| `Game_PATCH_TCP_PORT`, `Game_PATCH_URL`, `Game_PATCH_WEB_ROOT` | 12995, http://127.0.0.1:8080, the listen URL as 127.0.0.1 | Patch |
 | `Game_CDN_PASSTHROUGH` | unset | Patch: `1` proxies to the real CDN (only to repair data on purpose, with a backup of `Client/`) |

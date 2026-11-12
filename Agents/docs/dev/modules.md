@@ -119,4 +119,4 @@ they wrap instead, or call a static method.
 
 A module reaches the framework through `GameEvents` (`Modding/GameEvents.cs`), the one hook system for modules and mods ([modding](modding.md), "Hooks"). It subscribes with its id as the owner, `GameEvent.For(conn)` runs only the modules of that connection's league, and the host releases everything the id holds when the module unloads. Add a new hand-over there, in general terms, instead of naming a module in the framework.
 
-Code: `GameEvents.cs`, `ModHost.cs` (one class, three instances in `Program.Mods.cs`), `ServerLeagues.cs`, `Program.ModuleWorld.cs`, `LeagueCatalog.cs`.
+Code: `GameEvents.cs`, `ModHost.cs` (one class, three instances in `Program.Mods.cs`), `ServerLeagues.cs`, `Modules/Core/Game/Player/ModuleWorld.cs`, `LeagueCatalog.cs`.

@@ -1,7 +1,13 @@
 # usage: python -I scripts/re/monster_takehit.py [--json data/monster-takehit.json]
 #
 # For every MonsterVarieties row: the indexes of its TakeHit clips in the rig's animation list, and their lengths; and
-# its Emerge clip ("emerge": index and length), for monsters that rise from the ground.
+# its Emerge clip ("emerge": index and length), for monsters that rise from the ground; and its death clips ("death":
+# their names and "unblock", the time in ms of their remove_collidability event, null without one). The client's Actor
+# clears a corpse's body from its paths at that event of the death clip it plays, or at once when the clip has none
+# (07-latency-visibility-movement.md "Corpses"). "unblock" is the Death animation's (3.29.3c: 150 ms for most
+# varieties, none for about 1900, 166 ms and 1833 ms for a few); "unblockByKind" lists the other death animations of
+# the .act whose clips differ from it (DeathFromDegen and the like, a handful of varieties). The clips of one
+# animation always agree; if they ever do not, the extraction fails instead of writing a guess.
 # The client's S->C 0x1b2 "play animation" takes an index into the actor's animation list, and that list is the rig
 # .amd's animations in file order (0-based). Live 2026-10-25 on the Sanctum zombie: index 156 = flinch_unarmed and
 # 151 = flinch_pitchfork played the flinch *with its SoundEvent*, both at the position of the clip in
@@ -15,6 +21,7 @@ import json, os, re, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ot_components import REPO, amd_animations, amd_map, animation_controller, extends_of, fetch, read_text  # noqa: E402
+import clientdb  # noqa: E402  (on the path through ot_components)
 
 
 def fetch_ao_chain(paths):
@@ -55,12 +62,16 @@ def expand_clips(value, entries, seen):
     return clips
 
 
+DEATHS = ("Death", "DeathFromDegen", "DeathWhileMoving", "DeathForward", "DeathBackward", "DeathLeft", "DeathRight")
+
+
 def act_takehit(act):
     """The clips an .act maps TakeHit to ("@Name" aliases and "clip:condition" variants resolved), the .ao it animates,
-    and the first clip of its Emerge animation (None without one)."""
+    the first clip of its Emerge animation (None without one), and the clips of its death animations (Animation.dat
+    Death and the six the death handler picks instead: from a degen, while moving, by direction)."""
     text = read_text(act)
     if text is None:
-        return [], None, None
+        return [], None, None, []
     entries = {m.group(1): m.group(2).strip() for m in re.finditer(r'^\s*([A-Za-z0-9_]+)\s*=\s*"([^"]*)"\s*;', text, re.M)}
     clips = expand_clips(entries.get("TakeHit") or "", entries, set())
     m = re.search(r'^\s*animated_object\s+"([^"]+)"', text, re.M)
@@ -68,12 +79,18 @@ def act_takehit(act):
     # effect after the clip: Emerge = "grasp_emerge" effect_detached "...";
     e = re.search(r'^\s*Emerge\s*=\s*"([^"]*)"', text, re.M)
     emerge = (expand_clips(e.group(1), entries, set()) or [None])[0] if e else None
-    return clips, (m.group(1) if m else None), emerge
+    deaths = []   # (kind, its clips), Death first
+    for kind in DEATHS:
+        d = re.search(rf'^\s*{kind}\s*=\s*"([^"]*)"', text, re.M)
+        found = expand_clips(d.group(1), entries, set()) if d else []
+        if found:
+            deaths.append((kind, found))
+    return clips, (m.group(1) if m else None), emerge, deaths
 
 
 def main():
     dest = sys.argv[sys.argv.index("--json") + 1] if "--json" in sys.argv else os.path.join(REPO, "data", "monster-takehit.json")
-    rows = json.load(open(os.path.join(REPO, "data", "tables", "MonsterVarieties.json"), encoding="utf-8"))
+    rows = clientdb.table("MonsterVarieties")
     variants = [r for r in rows if isinstance(r, dict) and r.get("Id")]
 
     # One batch per kind of file: the per-file fetch opened the 69 GB GGPK for every row before.
@@ -104,7 +121,9 @@ def main():
         if amd not in rigs:
             anims = {}
             for i, a in enumerate(amd_animations(amd, fetch_missing=False) or []):
-                anims.setdefault(a["name"], (i, a["length"]))   # a repeated name: the first one, as names.index did
+                unblock = [int(t) for name, t, _ in a["events"] if name == "remove_collidability" and t.isdigit()]
+                # a repeated name: the first one, as names.index did
+                anims.setdefault(a["name"], (i, a["length"], min(unblock) if unblock else None))
             rigs[amd] = anims
         return rigs[amd]
 
@@ -112,11 +131,11 @@ def main():
     for n, row in enumerate(variants, 1):
         key = (tuple(row.get("ACTFiles") or []), tuple(row.get("AOFiles") or []))
         if key not in cache:
-            index, emerge = None, None
+            index, emerge, death = None, None, None
             for act in key[0]:
                 if act not in act_clips:
                     act_clips[act] = act_takehit(act)
-                clips, act_ao, emerge_clip = act_clips[act]
+                clips, act_ao, emerge_clip, death_clips = act_clips[act]
                 for ao in ([act_ao] if act_ao else []) + list(key[1]):
                     amd = amds.get(ao)
                     anims = rig(amd) if amd else {}
@@ -125,10 +144,23 @@ def main():
                         index = ([anims[c][0] for c in found], [anims[c][1] for c in found], found, amd, act)
                     if emerge_clip in anims and not emerge:
                         emerge = {"index": anims[emerge_clip][0], "length": anims[emerge_clip][1], "clip": emerge_clip}
-                if index and (emerge or not emerge_clip):
+                    dying = [(kind, [c for c in kind_clips if c in anims]) for kind, kind_clips in death_clips]
+                    dying = [(kind, found) for kind, found in dying if found]
+                    if dying and dying[0][0] == "Death" and not death:
+                        by_kind = {}
+                        for kind, found in dying:
+                            times = {anims[c][2] for c in found}
+                            if len(times) != 1:
+                                raise SystemExit(f"{act}: {kind} clips {found} disagree on remove_collidability: {sorted(times, key=str)}")
+                            by_kind[kind] = times.pop()
+                        death = {"clips": dying[0][1], "unblock": by_kind["Death"]}
+                        other = {kind: t for kind, t in by_kind.items() if t != by_kind["Death"]}
+                        if other:
+                            death["unblockByKind"] = other
+                if index and (emerge or not emerge_clip) and (death or not death_clips):
                     break
-            cache[key] = (index, emerge)
-        index, emerge = cache[key]
+            cache[key] = (index, emerge, death)
+        index, emerge, death = cache[key]
         entry = {}
         if index:
             indexes, lengths, clips, amd, act = index
@@ -138,6 +170,10 @@ def main():
             # The Emerge clip (index in the rig, length in ms): how long a burrowed monster takes to rise
             # (MonsterEmerge.cs).
             entry["emerge"] = emerge
+        if death:
+            # The death clips and when they clear the corpse's body (ms; null = at once): PlayerWalk's bodies on a
+            # lockstep client (ClientState.LivingCollision.cs).
+            entry["death"] = death
         if entry:
             out[row["Id"]] = entry
         if n % 1000 == 0:
@@ -145,7 +181,8 @@ def main():
     with open(dest, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1, sort_keys=True)
     print(f"wrote {dest}: {sum('index' in e for e in out.values())} of {len(variants)} monster varieties have a TakeHit "
-          f"index, {sum('emerge' in e for e in out.values())} an Emerge clip", file=sys.stderr, flush=True)
+          f"index, {sum('emerge' in e for e in out.values())} an Emerge clip, {sum('death' in e for e in out.values())} "
+          f"a death clip", file=sys.stderr, flush=True)
 
 
 if __name__ == "__main__":

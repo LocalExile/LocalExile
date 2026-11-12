@@ -50,7 +50,7 @@ NPC collision uses the same inherited Positioned metadata as the client, includi
 OT is the row's Metadata. Server routing and overlap escape register every spawned NPC with its own footprint,
 in both towns and hideouts; moving an NPC replaces its registered footprint rather than adding a second one.
 NPCs explicitly marked nonblocking stay nonblocking. Their model hull is used when the type is static.
-The common implementation is `StationaryCollision` / `Program.StationaryCollision.cs` (21, installed furniture).
+The common implementation is `StationaryCollision` / `Modules/Core/Game/Combat/StationaryCollision.cs` (21, installed furniture).
 
 ## 2. Where town NPCs stand
 
@@ -296,8 +296,7 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
   items were already hidden. Closing dialogue or reopening/switching vendor windows cancels the previous sale first.
   Acceptance persists item removal and payment together; a refused sale leaves the offer open. NPC reward previews
   are generated UI items, not paid inventory, and are never granted on cancellation. Player-to-player trade is not
-  implemented by this NPC sale path. Coverage: SaleImprintTests (duplicates, currency exclusion, cancel, restart,
-  held-item recovery and atomic accepted sale). Live visibility verification pending.
+  implemented by this NPC sale path. Live visibility verification pending.
 - S→C 0x87 opens the quest reward window (u16 = QuestRewardOffers row, `0x140c2f9d0`); a wrong row crashes the client.
 
 ## 6. Dev commands

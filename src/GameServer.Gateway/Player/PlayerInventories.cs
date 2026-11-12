@@ -309,7 +309,7 @@ public sealed class PlayerInventories
             why = "";
             if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
             var held = cursor[0];
-            if (shapeOf(held.Item)?.Class is not ("Active Skill Gem" or "Support Skill Gem")) { why = "the held item is not a gem"; return null; }
+            var heldClass = shapeOf(held.Item)?.Class;
             var items = ItemsIn(row);
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) { why = "no such item"; return null; }
@@ -317,6 +317,12 @@ public sealed class PlayerInventories
             var item = items[at];
             if (socket < 0 || socket >= item.Item.Sockets.Count) { why = "no such socket"; return null; }
             var sockets = item.Item.Sockets.ToList();
+            if (sockets[socket].Colour == SocketColour.Abyss ? heldClass != "AbyssJewel"
+                : heldClass is not ("Active Skill Gem" or "Support Skill Gem"))
+            {
+                why = sockets[socket].Colour == SocketColour.Abyss ? "an Abyss socket requires an Abyss jewel" : "the held item is not a gem";
+                return null;
+            }
             var old = sockets[socket].Gem;
             sockets[socket] = sockets[socket] with { Gem = held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
@@ -382,7 +388,7 @@ public sealed class PlayerInventories
     {
         lock (_lock)
             return [.. VisibleSlots.Keys.Order().SelectMany(r => (_items.TryGetValue(r, out var l) ? l : []).Select(i => (Row: r, Item: i)))
-                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem)).Where(g => g.Gem is not null)
+                .SelectMany(x => x.Item.Item.Sockets.Select((s, socket) => (x.Row, x.Item.Id, socket, s.Gem, s.Colour)).Where(g => g.Colour != SocketColour.Abyss && g.Gem is not null)
                     .Select(g => (g.Row, g.Id, g.socket, g.Gem!)))];
     }
 
@@ -407,7 +413,7 @@ public sealed class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket].Gem is { } gem && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && change(items[at].Id, gem) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
@@ -1029,26 +1035,24 @@ public sealed class PlayerInventories
     {
         var inv = new PlayerInventories();
         if (Environment.GetEnvironmentVariable("Game_START_ITEMS") == "0") return inv;
-        string chars = Path.Combine(folder, "tables", "Characters.json"), gems = Path.Combine(folder, "tables", "SkillGems.json");
-        if (catalog.Error is not null || !ClientTables.Exists(chars) || !ClientTables.Exists(gems))
+        if (catalog.Error is not null || !ClientTables.Has("Characters") || !ClientTables.Has("SkillGems"))
         {
             // The empty kit is saved like any other, so this character stays empty: say why.
-            Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no {chars} or {gems}"} (extract the tables and data/item-types.json first, Agents/GettingStarted.md)");
+            Console.WriteLine($"[gateway] start kit is empty: {catalog.Error ?? $"no Characters or SkillGems client table in {ClientTables.DefaultPath}"}");
             return inv;
         }
-        using var c = GameTables.Open(chars);
-        using var g = GameTables.Open(gems);
-        var row = c.RootElement[characterRow];
+        var c = ClientTables.Table("Characters");
+        var g = ClientTables.Table("SkillGems");
+        var row = c[characterRow];
         void Put(byte inventory, byte x, byte y, ItemCatalog.BaseType? t)
         {
             if (t is { Supported: true }) inv.Add(inventory, x, y, ItemCatalog.Create(t));
         }
         ItemCatalog.BaseType? Gem(string column) =>
-            row.GetProperty(column) is { ValueKind: JsonValueKind.Number } k
-                ? catalog.Row(g.RootElement[k.GetInt32()].GetProperty("BaseItemTypesKey").GetInt32()) : null;
+            row.IntOrNull(column) is int k
+                ? catalog.Row(g[k].Int("BaseItemTypesKey")) : null;
         // The start weapon with two linked white sockets (3.29: gems fit any colour), empty, for its gems.
-        if (row.GetProperty("StartWeapons").EnumerateArray().FirstOrDefault() is { ValueKind: JsonValueKind.Number } w &&
-            catalog.Row(w.GetInt32()) is { Supported: true } weapon)
+        if (row.Ints("StartWeapons") is [var w, ..] && catalog.Row(w) is { Supported: true } weapon)
         {
             var item = ItemCatalog.Create(weapon, [new(SocketColour.White), new(SocketColour.White)], [2]);
             // Pending until the character picks it up from the beach.
