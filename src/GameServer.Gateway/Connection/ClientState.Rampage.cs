@@ -14,6 +14,8 @@ public sealed partial class ClientState
     public bool ElusiveCritPending;
     // The movement speed the last sent movement stat held, so the decaying effect rebuilds the pools only when it changes.
     public int ElusiveMovementPct;
+    // The effect percentage last put in the buff's +0x82, -1 while no buff is shown.
+    public int ElusiveEffectPercent = -1;
     public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
     public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
     public ITransientCombatState? OwnedCombatState;
@@ -62,6 +64,7 @@ public sealed partial class ClientState
             ElusiveUntil = 0;
             ElusiveStart = 0;
             ElusiveMovementPct = 0;
+            ElusiveEffectPercent = -1;
             SentRampage = default;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));

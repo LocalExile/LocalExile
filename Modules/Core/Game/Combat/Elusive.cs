@@ -52,7 +52,8 @@ public static partial class Game
     }
 
     /// <summary>The Elusive buff on the client: added when it starts, removed when its effect reaches zero or the
-    /// player dies. The avoidance and movement speed come from <see cref="ElusiveFactor"/> at their consumers; the
+    /// player dies, and re-sent with the current effect as it decays (the client draws 100% plus the row's +0x82
+    /// percentage). The avoidance and movement speed come from <see cref="ElusiveFactor"/> at their consumers; the
     /// movement speed also reaches the client as one movement stat so its walk keeps up with the server's.</summary>
     public static async Task SyncElusive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
@@ -69,19 +70,29 @@ public static partial class Game
             if (conn.Closed || conn.LeavingArea) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             bool active = conn.PlayerLife > 0 && conn.ElusiveUntil > now;
-            if (active && conn.ElusiveBuff == 0)
-            {
-                conn.ElusiveBuff = conn.NextBuff++;
-                // Row 1374 ("elusive") has the __col44 bool (+0xff), so its 0x1c1 must carry the u16 at +0x82.
-                buffBytes = InstanceEntities.AddBuff(PlayerId, conn.ElusiveBuff, ElusiveBuffRow.Value, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)(conn.ElusiveUntil - now)), u82: 0);
-                Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} for {conn.ElusiveUntil - now:0.###} s (row {ElusiveBuffRow.Value})");
-            }
-            else if (!active && conn.ElusiveBuff != 0)
+            if (!active && conn.ElusiveBuff != 0)
             {
                 buffBytes = InstanceEntities.RemoveBuff(PlayerId, conn.ElusiveBuff);
                 Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} ended");
                 conn.ElusiveBuff = 0;
+                conn.ElusiveEffectPercent = -1;
+            }
+            else if (active)
+            {
+                // The icon shows 100% plus the +0x82 percentage, so below full effect the value is negative.
+                int percent = (int)Math.Round(ElusiveFactor(conn) * 100);
+                if (percent != conn.ElusiveEffectPercent)
+                {
+                    bool created = conn.ElusiveBuff == 0;
+                    if (created) conn.ElusiveBuff = conn.NextBuff++;
+                    conn.ElusiveEffectPercent = percent;
+                    // Row 1374 ("elusive") has the __col44 bool (+0xff), so its 0x1c1 must carry the u16 at +0x82.
+                    buffBytes = InstanceEntities.AddBuff(PlayerId, conn.ElusiveBuff, ElusiveBuffRow.Value, PlayerId,
+                        u68: BitConverter.SingleToUInt32Bits((float)(conn.ElusiveUntil - now)),
+                        u82: unchecked((ushort)(percent - 100)));
+                    if (created)
+                        Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} for {conn.ElusiveUntil - now:0.###} s at {percent}% (row {ElusiveBuffRow.Value})");
+                }
             }
             // The effect loses 20% per second, so the movement speed changes a handful of times per buff: rebuild the
             // pools then, and send only that one stat rather than a full character snapshot every tick.
