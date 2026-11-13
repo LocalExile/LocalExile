@@ -44,6 +44,9 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 
 public sealed partial class InstanceState
 {
+    /// <summary>Encounter snapshots as text, owned by this instance rather than a reloadable assembly. Not character saves.</summary>
+    public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> ContentState = new(StringComparer.Ordinal);
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();

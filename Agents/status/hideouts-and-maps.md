@@ -70,6 +70,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Simulacrum: five arenas and a 15-wave controller; opening and the native wave-start prompt are verified, wave combat and reward HUD remain unverified or partial.
+
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.
   Live player and waypoint records used the same saved cell.
