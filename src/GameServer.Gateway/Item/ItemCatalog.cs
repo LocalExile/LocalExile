@@ -80,6 +80,9 @@ public sealed class ItemCatalog
         IReadOnlyList<string> Components, int MaxCharges, string Class = "", byte Stance = 0xff, int DropLevel = 0, ushort MaxStack = 1,
         int FullStackRow = -1, IReadOnlyList<ModCatalog.Mod>? Implicits = null)
     {
+        // Fixed one-socket base implicits also occur on amulets, belts and quivers.
+        public bool HasOneSocket { get; } = Implicits?.Any(mod => mod.Stats.Any(stat =>
+            stat.Id == "local_has_X_sockets" && stat.Min == 1 && stat.Max == 1)) == true;
         /// <summary>Tags.dat Ids for mod spawn weights: the .it chain's Base tags (item-types.json) and the row's TagsKeys.</summary>
         public IReadOnlySet<string> Tags { get; init; } = new HashSet<string>();
         /// <summary>BaseItemTypes SizeOnGround (1 to 3): the size of the item's object on the ground, which the client's
@@ -586,6 +589,7 @@ public sealed class ItemCatalog
         // (SocketColours). Both sockets of a new item still start linked.
         var requirements = Requirements(t);
         random ??= Random.Shared;
+        if (t.HasOneSocket) return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [1]);
         return ([new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite)),
                  new(SocketColours.Roll(requirements, itemLevel, quality, random, noWhite: noWhite))], [2]);
     }
@@ -596,7 +600,7 @@ public sealed class ItemCatalog
 
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DropSockets(BaseType type, int level, Random random)
     {
-        if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise)
+        if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
             return DefaultSockets(type, level, random: random);
         int capacity = Math.Min(SystemSettings.Default.SocketMax(type.Class), DropSocketCounts.Length);
         int total = 0, maximum = 0;
@@ -652,8 +656,8 @@ public sealed class ItemCatalog
             DefenceBaseRoll = defenceBaseRoll ?? (t.Components.Contains("Armour") ? (byte)random.Next(Item.MaximumDefenceBaseRoll + 1) : (byte)0),
             Charges = t.MaxCharges,
             Sockets = ResonatorSockets(t) > 0 ? ResonatorSocketList(t)
-                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : []),
-            Links = ResonatorSockets(t) > 0 ? null : links,
+                : sockets ?? (t.Id == AbyssJewels.StygianVise ? [new(SocketColour.Abyss)] : t.HasOneSocket ? [new(SocketColour.White)] : []),
+            Links = ResonatorSockets(t) > 0 ? null : links ?? (t.HasOneSocket && sockets is null ? [(byte)1] : null),
             Mods = t.Components.Contains("Mods")
                 ? [.. t.Cluster?.Roll(random) ?? [], .. (t.Implicits ?? []).Select(m => m.Roll(ModSection.Implicit, random))] : [],
         };
