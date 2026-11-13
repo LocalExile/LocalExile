@@ -194,10 +194,12 @@ static partial class QuestobjectsRules
         {
             foreach (var (id, monster) in conn.Monsters)
             {
-                if (monster.Variety?.Id != trial.Variety) continue;
+                // The Goddess of Justice on his back goes with him, or she would stay attached to a removed parent.
+                if (monster.Variety?.Id != trial.Variety && monster.Variety?.Id != IzaroGoddess.Variety) continue;
                 monster.Dead = true;
                 monster.Life = 0;
                 monster.ActionGeneration++;
+                monster.NoRewards = true;   // retired, not killed: the fight that owned him is not won (IzaroTrial)
                 ids.Add(id);
             }
             foreach (uint id in ids)
@@ -312,12 +314,13 @@ static partial class QuestobjectsRules
             // The fight, until he dies (the last trial) or his life reaches the trial's end (the others).
             while (Here())
             {
-                bool dead, leaves = false;
+                bool dead, retired, leaves = false;
                 int action = 0;
                 double free = 0;
                 lock (conn.Monsters)
                 {
                     dead = boss.Dead || !ReferenceEquals(conn.Monsters.GetValueOrDefault(izaro), boss);
+                    retired = boss.NoRewards;   // taken down for another entry's fight (LeftoverIzaro)
                     if (!dead && boss.LifePhases is { } gate && gate.Begin(boss.Life, boss.MaxLife))
                     {
                         leaves = true;
@@ -329,7 +332,7 @@ static partial class QuestobjectsRules
                 }
                 if (dead)
                 {
-                    if (!trial.Last) return;   // gone some other way: the trial is not won
+                    if (!trial.Last || retired) return;   // gone some other way: the trial is not won
                     Console.WriteLine($"[gateway] {remote} {what}: Izaro 0x{izaro:x} dies");
                     string? finish = await EndIzaroMechanics(remote, stream, ciphers, conn);
                     _ = IzaroGoddessFliesUp(remote, stream, ciphers, conn, mechanics);
