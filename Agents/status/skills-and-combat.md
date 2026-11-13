@@ -74,6 +74,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
+  attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
+  hit roll and drops them along the swing.
+  Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).
 - Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
@@ -172,8 +176,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spirit of Utula's Leadership and Rakiata's Mark trigger need their own chieftain executors.
   Docs: [11](../docs/protocol/11-skills.md) §10f.
 - Where Flicker Strike lands beside the monster is the server's guess, and its buff ignores increased buff effect.
-  Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Holy Sweep's hammers deal no damage: the server has no hammerfall hits.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Effects attached to bones (Righteous Fire's orbs) are not sent; banners and combat auras are not implemented.
   Docs: [11](../docs/protocol/11-skills.md) §12.
