@@ -283,6 +283,44 @@ public static partial class Game
         }
     }
 
+    // An attack gem used at the ground out of the weapon's reach (an attack-move): the client's action walks up to the
+    // weapon's range less one of the aim and swings there by itself, with no word to the server (07 §5: an aim 17 cells
+    // off with range 10 walked 8 and 5 cells, then swung, near a monster and on empty ground). Without this the server
+    // only walked, and that swing hit nothing. On the estimate's arrival, if no other action replaced the walk, the server
+    // swings at the aim as CastOn does after its walk-up: it pays, echoes the swing from where it stands and runs the skill.
+    public static async Task SwingAtGroundOnArrival(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        InstanceProtocol.UseSkillAtLocation use, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        int action, double arrive)
+    {
+        try
+        {
+            while (true)
+            {
+                if (conn.Closed || conn.LeavingArea || !PlayerActionCurrent(conn, action)) return;
+                if (!conn.Paused && conn.Clock.Elapsed.TotalSeconds >= arrive) break;
+                await Task.Delay(16);
+            }
+            if (!AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out _)) return;
+            (int X, int Y) stop = default;
+            if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect, CooldownForSkill(conn, use.SkillId), false,
+                () => stop = conn.Walk.Position(ProjectileWorldTime(conn)), out var cooldownUse, actionToken: action)) return;
+            (int X, int Y) aim = (use.X, use.Y);
+            bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
+            if (projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
+                sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
+            bool acknowledged = false;
+            await SendWorldRecords(remote, stream, ciphers, conn, PlayerId, () => [InstanceProtocol.ActionStarted(PlayerId, stop.X, stop.Y,
+                aim.X, aim.Y, use.SkillId, use.Slot, use.Flags), InstanceProtocol.ActionEnded(PlayerId)],
+                $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} at ({aim.X}, {aim.Y}) from ({stop.X}, {stop.Y}) after its walk-up (t={conn.Clock.Elapsed.TotalSeconds:0.000})",
+                still: () => acknowledged = SkillAcknowledgementAllowed(conn, gem.Effect, use.SkillId,
+                    () => cooldownUse?.CommitNativeUse(conn, use.SkillId) ?? PlayerActionCurrent(conn, action)));
+            if (acknowledged) await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+            if (!projectileRuntime && acknowledged) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, stop, aim,
+                sequence: use.Slot, actionToken: action, cooldownUse: cooldownUse);
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+    }
+
     // The player uses a skill on a monster (C→S 0x24, e.g. the default attack on a left click). The client walks into range
     // first, so the server walks its estimate too (WalkUpToSwing, reach = the weapon's MaxAttackDistance in cells less one,
     // centre to centre) and only then starts the swing: it echoes the action aimed at the monster (0x1ab, flags | 0x80 +

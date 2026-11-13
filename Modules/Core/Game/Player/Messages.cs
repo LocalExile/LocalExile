@@ -168,9 +168,19 @@ public static partial class Game
                     if (GroundAttackWalks(here, (use.X, use.Y), WeaponFor(conn).Range))
                     {
                         int walkAction = 0;
+                        double arrive = at;
+                        // A predictive client's action walks up to the weapon's range less one of the aim and swings there
+                        // by itself (07 §5), so the estimate stops there too and swings on arrival (SwingAtGroundOnArrival).
                         if (!TryBeginSkillCooldownUse(conn, use.SkillId, gem.Effect,
                             CooldownForSkill(conn, use.SkillId), false,
-                            () => { at = Math.Max(at, ProjectileWorldTime(conn)); walkAction = Interlocked.Increment(ref conn.ActionCount); conn.Walk.Order(use.X, use.Y, at); conn.ChannelSkill = 0; },
+                            () =>
+                            {
+                                at = Math.Max(at, ProjectileWorldTime(conn));
+                                walkAction = Interlocked.Increment(ref conn.ActionCount);
+                                if (conn.LockstepClient) conn.Walk.Order(use.X, use.Y, at);
+                                else arrive = conn.Walk.Approach(use.X, use.Y, WalkUpRange(WeaponFor(conn)), at).At;
+                                conn.ChannelSkill = 0;
+                            },
                             out var approachTicket, reserve: false, requestedAt: at)) continue;
                         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActionStarted(PlayerId, here.X, here.Y, use.X, use.Y, use.SkillId, use.Slot, use.Flags),
                             $"0x01ab {gem.Name}: attack-move to ({use.X}, {use.Y}) from ({here.X}, {here.Y}) (t={at:0.000})",
@@ -185,6 +195,8 @@ public static partial class Game
                             await SendPlayerMana(remote, stream, ciphers, conn,
                                 $"0x01b1 player mana {conn.PlayerMana} (attack-move, cost back)");
                         }
+                        if (!conn.LockstepClient)
+                            _ = SwingAtGroundOnArrival(remote, stream, ciphers, conn, use, gem, walkAction, arrive);
                         continue;
                     }
                 }
