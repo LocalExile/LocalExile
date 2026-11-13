@@ -54,4 +54,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Saving quest progress, quest passive/refund rewards and native Labyrinth/Altar acquisition (#151).
 - Tattoos: 90 rows work in the client and 8 are partial (Ancestral Bloodlines, whose life/mana recovery stats are
   unread, and the seven Forbidden ascendancy tattoos, whose client use flow is untraced); two are inert.
+- Tattoos: 87 rows work in the client and 11 are partial (Ancestral Bloodlines, the three Loyalty summons Akoya,
+  Ikiaho and Rakiata whose Leadership buff stats have no reader, and the seven Forbidden ascendancy tattoos,
+  whose client use flow is untraced); two are inert. The vendor recipe works (three same-tribe tattoos for one
+  weighted random tattoo of that tribe; not live-checked).
   Docs: [tattoos](../docs/game/tattoos.md).
