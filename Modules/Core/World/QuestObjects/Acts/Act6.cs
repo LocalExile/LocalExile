@@ -169,7 +169,7 @@ sealed class Act6 : Act
             {
                 On.Seen(PrisonersGateAct6, Act6Monsters.Abberath, "a6q7-SeenBoss"),
                 On.Seen(PrisonersGateAct6, Act6Monsters.Abberath2, "a6q7-SeenBoss"),
-                On.SecondForm(PrisonersGateAct6, Act6Monsters.Abberath, Act6Monsters.Abberath2),
+                On.Forms(PrisonersGateAct6, [Act6Monsters.Abberath], Act6Monsters.Abberath2),
                 On.Killed(PrisonersGateAct6, Act6Monsters.Abberath2, "a6q7-KilledBoss"),
                 On.Appears(PrisonersGateAct6, Act6Monsters.Abberath2, Act6Npcs.SinAbberath, "SinAberrathReward"),
             },
