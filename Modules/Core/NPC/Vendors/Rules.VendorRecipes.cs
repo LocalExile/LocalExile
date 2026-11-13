@@ -244,8 +244,10 @@ sealed partial class VendorRecipes
         // Three tattoos of one tribe vendor into one random tattoo of that tribe (tattoos.md, "Vendor"; the weights
         // live in TattooCatalogue.VendorPool because the client tables carry the tribe but not the recipe weights).
         // Loyalty, Makanga and event-only tattoos count as tattoos of their tribe on the input side.
-        foreach (var group in pool.Where(i => i.Left > 0 && TattooCatalogue.Find(i.Type.Name) is { Tribe: >= 0 and <= 9 })
-                     .GroupBy(i => TattooCatalogue.Find(i.Type.Name)!.Tribe).ToList())
+        // By base type id: TattooCatalogue.Find also matches part of a name, which takes an Awl for a Brawler tattoo.
+        static int TattooTribe(string id) => TattooCatalogue.All.FirstOrDefault(entry => entry.Id == id)?.Tribe ?? -1;
+        foreach (var group in pool.Where(i => i.Left > 0 && TattooTribe(i.Type.Id) is >= 0 and <= 9)
+                     .GroupBy(i => TattooTribe(i.Type.Id)).ToList())
         {
             var entries = group.ToList();
             while (entries.Sum(i => i.Left) >= 3)
