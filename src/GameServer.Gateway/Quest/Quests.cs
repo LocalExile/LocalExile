@@ -129,7 +129,7 @@ public static partial class Quests
     /// scripts spawn them, no room places them. Until <see cref="GoneWith"/> (null: it stays for the instance); with
     /// GoneWith set it also stands beside the boss on a later visit while the boss's kill flags are set and GoneWith is not
     /// (SinInnocence gives a5q6 only there).</summary>
-    public sealed record AppearsRule(string Area, string Variety, string NpcType, string? GoneWith) : Rule;
+    public sealed record AppearsRule(string Area, string Variety, string NpcType, string? GoneWith, bool StayAfterReward = false) : Rule;
     /// <summary>A dialogue row of the NPC with this option text hands in every carried copy of the item, setting its
     /// remove_flag in the same save, for rows whose own flags do not (Hargan's "Victario's Holdfasts" takes each Platinum
     /// Bust carried: a3q11-DeliveredBust1–3 have no NPCTalk setter).</summary>
@@ -218,7 +218,8 @@ public static partial class Quests
             new NpcRule(area, npcType, goneWith, transitionedBy, shownBy) { FreedBy = freedBy, AtObject = atObject };
         public static Rule Exists(string objectType, string? from = null, string? until = null, string? to = null) =>
             new ExistsRule(objectType, from, until) { To = to };
-        public static Rule Appears(string area, string variety, string npcType, string? goneWith = null) => new AppearsRule(area, variety, npcType, goneWith);
+        public static Rule Appears(string area, string variety, string npcType, string? goneWith = null, bool stayAfterReward = false) =>
+            new AppearsRule(area, variety, npcType, goneWith, stayAfterReward);
         public static Rule HandIn(string npc, string option, string item, int? row = null) => new HandInRule(npc, option, item) { Row = row };
         public static Rule TalkRow(int row, params string[] flags) => new TalkRowRule(row, flags);
         public static Rule Portal(string area, string atObject, string to, string type) => new PortalRule(area, atObject, to, type);

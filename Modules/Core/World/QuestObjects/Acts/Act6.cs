@@ -107,7 +107,7 @@ sealed class Act6 : Act
                 On.Object(BrineKingsReef, Act6Objects.ReefCrest, "a6q1-KilledBoss"),
                 On.Seen(BrineKingsReef, Act6Monsters.BrineKing, "a6q1-SeenBoss"),
                 On.Killed(BrineKingsReef, Act6Monsters.BrineKing, "a6q1-KilledBoss"),
-                On.Appears(BrineKingsReef, Act6Monsters.BrineKing, Act6Npcs.SinBrineKing, "SinBrineKingReward"),
+                On.Appears(BrineKingsReef, Act6Monsters.BrineKing, Act6Npcs.SinBrineKing, "SinBrineKingReward", stayAfterReward: true),
             },
             // a6q2 "Essence of Umbra": Shavronne the Returned and Reassembled Brutus in her tower (boss1.arm
             // mapboss1/mapboss2); her death sets KilledBoss (the gate of Prisoner's Gate and the forests; which death sets it
@@ -117,7 +117,7 @@ sealed class Act6 : Act
             {
                 On.Seen(ShavronnesTower, Act6Monsters.Shavronne, "a6q2-SeenBoss"),
                 On.Killed(ShavronnesTower, Act6Monsters.Shavronne, "a6q2-KilledBoss"),
-                On.Appears(ShavronnesTower, Act6Monsters.Shavronne, Act6Npcs.SinShavronne, "SinShavronneReward"),
+                On.Appears(ShavronnesTower, Act6Monsters.Shavronne, Act6Npcs.SinShavronne, "SinShavronneReward", stayAfterReward: true),
             },
             // a6q3 "The Father of War": the Dishonoured Queen (floodedcave.arm mapboss1, with three Forgotten Warriors) drops
             // the Eye of Conquest (wiki; KaruiEye.it: grant a6q3-HaveItem, remove a6q3-DeliveredItem), which opens the totem
@@ -138,7 +138,7 @@ sealed class Act6 : Act
                 On.Seen(KaruiFortress, Act6Monsters.Tukohama, "a6q3-SeenBoss"),
                 On.Killed(KaruiFortress, Act6Monsters.Tukohama, "a6q3-KilledBoss"),
                 On.Exit(KaruiFortress, Ridge, "a6q3-KilledBoss"),
-                On.Appears(KaruiFortress, Act6Monsters.Tukohama, Act6Npcs.SinTukohama, "SinTukohamaReward"),
+                On.Appears(KaruiFortress, Act6Monsters.Tukohama, Act6Npcs.SinTukohama, "SinTukohamaReward", stayAfterReward: true),
                 On.Exists(Act6Objects.LillyShip, until: "a6q3-KilledBoss"),
             },
             // a6q4 "Fallen from Grace": Lilly's task, then every monster of The Twilight Strand dies ("Clear the Twilight
@@ -159,7 +159,7 @@ sealed class Act6 : Act
             {
                 On.Seen(WetlandsAct6, Act6Monsters.Ryslatha, "a6q6-SeenBoss"),
                 On.Killed(WetlandsAct6, Act6Monsters.Ryslatha, "a6q6-KilledBoss"),
-                On.Appears(WetlandsAct6, Act6Monsters.Ryslatha, Act6Npcs.SinRyslatha, "SinRyslathaReward"),
+                On.Appears(WetlandsAct6, Act6Monsters.Ryslatha, Act6Npcs.SinRyslatha, "SinRyslathaReward", stayAfterReward: true),
             },
             // a6q7 "The Cloven One": Abberath fights at Prisoner's Gate in two phases (bossphase1/2.arm, mapboss1WG /
             // mapboss2WG); the second phase's death sets KilledBoss (inferred: the final death), his Pantheon unlock, and Sin
@@ -171,7 +171,7 @@ sealed class Act6 : Act
                 On.Seen(PrisonersGateAct6, Act6Monsters.Abberath2, "a6q7-SeenBoss"),
                 On.SecondForm(PrisonersGateAct6, Act6Monsters.Abberath, Act6Monsters.Abberath2),
                 On.Killed(PrisonersGateAct6, Act6Monsters.Abberath2, "a6q7-KilledBoss"),
-                On.Appears(PrisonersGateAct6, Act6Monsters.Abberath2, Act6Npcs.SinAbberath, "SinAberrathReward"),
+                On.Appears(PrisonersGateAct6, Act6Monsters.Abberath2, Act6Npcs.SinAbberath, "SinAberrathReward", stayAfterReward: true),
             },
         ];
 }
