@@ -33,7 +33,9 @@ public static partial class Game
         int bleedingPercent = Get("bleeding_enemies_explode_for_%_life_as_physical_damage");
         bool bleeding;
         lock (conn.Monsters) bleeding = corpse.Bleeds.Burning;
-        int percent = bleeding && bleedingPercent > 0 ? bleedingPercent : generic;
+        // A bleeding kill has both explosion modifiers; their percentages add (the generic one and the bleeding one
+        // are separate sources on the same kill).
+        int percent = generic + (bleeding ? bleedingPercent : 0);
         if (percent <= 0) return false;
         int amount = (int)Math.Min(int.MaxValue, corpse.MaxLife * (long)percent / 100);
         if (amount <= 0) return false;
@@ -62,7 +64,7 @@ public static partial class Game
             conn.Monsters.Remove(corpseId);
             effect = conn.TakeObjectId();
         }
-        Console.WriteLine($"[gateway] {remote} kill explosion 0x{corpseId:x} for {amount} physical within {radius} cells:" +
+        Console.WriteLine($"[gateway] {remote} kill explosion{(bleeding ? " (bleeding)" : "")} 0x{corpseId:x} for {amount} physical within {radius} cells:" +
             $" {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
         await SendWorldCreate(remote, stream, ciphers, conn, effect, InstanceEntities.CreateObject(effect, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
             new EffectObject(at.X, at.Y, KillExplosionAo).Blob()),
