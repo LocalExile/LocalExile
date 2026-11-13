@@ -32,10 +32,7 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     public sealed partial record Definition(string Name, string BaseTypeId, string[] Mods, byte ItemLevel = 86,
         bool Corrupted = false, string[]? Implicits = null, RollRange[]? Ranges = null, bool Mirrored = false,
         ItemInfluence Influences = ItemInfluence.None, byte Fractured = 0, bool EncounterOnly = false,
-        RollGroup[]? RollGroups = null, int JewelLimit = 0)
-    {
-        public string? VisualIdentityId { get; init; }
-    }
+        RollGroup[]? RollGroups = null, int JewelLimit = 0);
 
     /// <summary>Hidden mods that the Path of Building export does not carry, keyed by <c>name|base type</c>. They are
     /// sent in the item's hidden list. The level overrides are the game's generic LevelRequirementOverrideUnique__N
@@ -281,16 +278,6 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
     }
 
     sealed record UniqueName(uint Word, ushort VisualIdentity);
-
-    UniqueName? Identity(Definition definition)
-    {
-        if (definition.VisualIdentityId is not { Length: > 0 } visualId)
-            return _names.Value.GetValueOrDefault(NameKey(definition.Name));
-        if (items.Visual(visualId) is not ushort visual || !ClientTables.Has("Words")) return null;
-        uint? word = ClientTables.Table("Words").Where(r => r.Int("Wordlist") == 6
-            && NameKey(r.Text("Text") ?? "") == NameKey(definition.Name)).Select(r => (uint?)r.UInt("HASH32")).FirstOrDefault();
-        return word is null ? null : new(word.Value, visual);
-    }
 
     static Dictionary<string, UniqueName> LoadNames(string folder)
     {
