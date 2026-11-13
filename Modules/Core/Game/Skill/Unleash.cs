@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-
 public static partial class Game
 {
     sealed class SealProgress(SupportedGem source, double now)
@@ -8,7 +6,7 @@ public static partial class Game
         public double Since = now;
     }
 
-    static readonly ConditionalWeakTable<ClientState, Dictionary<ushort, SealProgress>> Seals = new();
+    static readonly RuleTable<ClientState, Dictionary<ushort, SealProgress>> Seals = new();
 
     static void RemoveMissingSealSources(ClientState conn, IEnumerable<ushort> ids)
     {
