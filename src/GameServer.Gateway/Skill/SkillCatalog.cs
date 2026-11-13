@@ -19,6 +19,11 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
 
     private readonly Lazy<Tables?> _tables = new(() => Tables.Load(folder));
     private readonly StatCatalog _stats = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
+
+    public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
+        _stats.Key("cast_on_death_%") is uint key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
+
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
     // require resolution; explicit row-based calls retain their exact identity (including monster effects).
