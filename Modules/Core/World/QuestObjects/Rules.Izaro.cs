@@ -247,7 +247,8 @@ static partial class QuestobjectsRules
                 $"0x02bc Izaro's elevator 0x{lift:x} rises, his life's floor {(trial.Last ? 0 : trial.LeavesAtPercent)}%");
             if (Emerges.SkillId is ushort emerge)
                 await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(izaro, elevator.X, elevator.Y, elevator.X, elevator.Y, emerge, 0xffff, conn.MonsterOrderFlags),
-                    .. InstanceProtocol.ActionEnded(izaro)], $"0x01ab Izaro 0x{izaro:x} rises on the elevator");
+                    .. InstanceProtocol.ActionEnded(izaro), .. IzaroGoddessEmerges(mechanics, elevator.X, elevator.Y, conn)],
+                    $"0x01ab Izaro 0x{izaro:x} rises on the elevator{(mechanics.Goddess != 0 ? ", the Goddess of Justice on his back" : "")}");
             await IzaroSays(remote, stream, ciphers, izaro, IzaroFights.StartLine(trial));
             RiseIzaroMechanics(remote, stream, ciphers, conn, mechanics, izaro, boss, Here);
             foreach (var (id, door) in doors)

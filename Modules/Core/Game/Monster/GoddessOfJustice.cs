@@ -56,8 +56,9 @@ static class GoddessOfJustice
         return list.Count == 0 ? null : list;
     }
 
-    // What she is doing: the end of her cast or beam; nothing else starts before it.
-    sealed class Casting { public double Until; }
+    // What she is doing: whether the fight has begun (she casts nothing before Izaro fights), and the end of her cast or
+    // beam; nothing else starts before it.
+    sealed class Casting { public bool Fighting; public double Until; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, Casting> Casts = new();
 
     /// <summary>Her place kept on Izaro's and her volleys while <paramref name="fighting"/> holds.</summary>
@@ -65,6 +66,8 @@ static class GoddessOfJustice
         SpawnedMonster izaro, Func<bool> fighting)
     {
         var cast = Casts.GetValue(goddess, _ => new());
+        // Called when Izaro fights: her first volley a cooldown later.
+        lock (conn.Monsters) cast.Fighting = true;
         double nextVolley = conn.Clock.Elapsed.TotalSeconds + IzaroGoddess.MortarCooldown;
         try
         {
@@ -94,7 +97,8 @@ static class GoddessOfJustice
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} the Goddess of Justice stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    // Waits until she is free (a volley or a beam plays out), then holds her for `seconds`. False when she is gone.
+    // Waits until she is free (Izaro fights, and a volley or a beam has played out), then holds her for `seconds`. False
+    // when she is gone.
     static async Task<bool> Hold(ClientState conn, SpawnedMonster goddess, double seconds)
     {
         var cast = Casts.GetValue(goddess, _ => new());
@@ -104,7 +108,7 @@ static class GoddessOfJustice
             {
                 if (goddess.Dead) return false;
                 double now = conn.Clock.Elapsed.TotalSeconds;
-                if (now >= cast.Until) { cast.Until = now + seconds; return true; }
+                if (cast.Fighting && now >= cast.Until) { cast.Until = now + seconds; return true; }
             }
             await Task.Delay(100);
         }

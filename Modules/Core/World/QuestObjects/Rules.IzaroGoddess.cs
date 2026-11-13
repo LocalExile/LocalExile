@@ -25,6 +25,13 @@ static partial class QuestobjectsRules
         }
     }
 
+    // She rides up on him (the original, live): her .ot creates her held at her emerge clip's start, unseen until an action
+    // plays (live: she showed with her first volley), so her Emerge (her Actor's basic action) starts with his.
+    static byte[] IzaroGoddessEmerges(IzaroArena arena, int x, int y, ClientState conn) =>
+        arena.Goddess != 0 && Emerges.SkillId is ushort emerge
+            ? [.. InstanceProtocol.ActionStarted(arena.Goddess, x, y, x, y, emerge, 0xffff, conn.MonsterOrderFlags), .. InstanceProtocol.ActionEnded(arena.Goddess)]
+            : [];
+
     // Izaro has died: she turns slowly and flies up (her death clip, live), and is gone after it.
     static async Task IzaroGoddessFliesUp(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena)
     {
