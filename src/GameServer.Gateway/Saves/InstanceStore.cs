@@ -75,6 +75,19 @@ public sealed partial class InstanceState
         lock (_startWeapons) return _startWeapons.TryGetValue(character, out var placed) && placed.Id == id;
     }
 
+    readonly Dictionary<string, (int X, int Y)> _positions = new(StringComparer.Ordinal);
+
+    /// <summary>Remembers a rule's first position in this instance, including across connection and module reloads.</summary>
+    public void RememberPosition(string key, (int X, int Y) position)
+    {
+        lock (_positions) _positions.TryAdd(key, position);
+    }
+
+    public (int X, int Y)? RememberedPosition(string key)
+    {
+        lock (_positions) return _positions.TryGetValue(key, out var position) ? position : null;
+    }
+
     readonly HashSet<string> _states = new(StringComparer.Ordinal);
 
     /// <summary>The instance's own quest states (Quests.InstanceFlag: the Library's hidden door, opened by its candle for
