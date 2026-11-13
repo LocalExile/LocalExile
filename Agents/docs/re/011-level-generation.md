@@ -1527,11 +1527,13 @@ This enables manual recording and Gateway `/tour`; `tourloop.py` and `client_con
   of those rows (`ServerLevelAreas`' rules); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
   An area with no seed-1 trace (the client fails seed 1) has each traced load at another seed checked as fully as a
   seed-1 capture, as `load <area> <seed>` (§7: what makes such an area supported).
-  Three Labyrinth boss rooms are listed by hand in a world update (`pending_world/1_labyrinth_boss_rooms.sql`) because
-  the snapshot drops them: `1_Labyrinth_boss_1` and `1_Labyrinth_boss_2` for one logged load the port cannot build
-  (its oracle entry all 0/-1), and `2_Labyrinth_boss_2_end` for two transition objects more than its capture. Every
-  captured seed of each room matches, and the Gateway builds all three at seed 1 and at random seeds, placing the
-  three Izaros `WorldAreas.json` lists for them. Regenerating the list drops them again.
+  A Labyrinth room played in a day's Labyrinth is built with the day's node (the AreaInstance's labyrinth data,
+  `LEVELGEN_LAB=seed:row:difficulty`), which `Client.txt` does not record: the oracle runs it without one and does not
+  match (`1_Labyrinth_OH_straight` 820631882, day 20770 node 1: client 2944466374, the port with the node the same,
+  without it 1506586991). `ServerLevelAreas` therefore does not count a Labyrinth room's oracle against it; five Normal
+  rooms left out that way came back in a world update (`labyrinth_day_rooms.sql`), as did `1_Labyrinth_boss_1` and
+  `1_Labyrinth_boss_2` (`2026_11_12_130843_labyrinth_boss_rooms.sql`, oracle entries all 0/-1). `2_Labyrinth_boss_2_end` is listed by
+  hand for two transition objects more than its capture: regenerating the list drops it again.
 - **Check:** `lg.ps1 hash <trace.gen.json>…` recomputes the tile hash from a
   traced grid. `… generate <area> <seed> [trace.gen.json]` runs the port and, with a trace, compares draw by draw
   (kind, argument, result; the first difference names the client's caller; the object scripts' LCG draws,

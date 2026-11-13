@@ -20,7 +20,7 @@ public static class ServerLevelAreas
     /// capture does not count against it), and each area whose seed 1 the client and the port fail alike ("failure
     /// &lt;area&gt; 1" matching: no seed-1 trace can exist) with a "load &lt;area&gt; &lt;seed&gt;" (a trace at another
     /// seed) passing the same checks. An area is left out when any of its "oracle", "load" or "failure" entries does not
-    /// match. Empty without the file.</summary>
+    /// match, except a Labyrinth room's "oracle" (<see cref="IsLabyrinthRoom"/>). Empty without the file.</summary>
     public static HashSet<string> Load(string file, Action<string>? log = null) => Read(file, log).Supported;
 
     /// <summary>The seed each area whose seed-1 load the client fails ("failure &lt;area&gt; 1") is played at wherever
@@ -56,8 +56,11 @@ public static class ServerLevelAreas
                 switch (kind)
                 {
                     case "oracle":
-                        if (!hash) failed.Add(area);
-                        else Lowest(builtSeeds, area, seed);
+                        // A Labyrinth room played in a day's Labyrinth is built with that day's node (the Gateway's
+                        // AreaInstance names it, LabyrinthDay), which the client's log does not record: such a load
+                        // matches only with its node, so its oracle, run without one, says nothing about the room.
+                        if (!hash && !IsLabyrinthRoom(area)) failed.Add(area);
+                        else if (hash) Lowest(builtSeeds, area, seed);
                         break;
                     case "failure":
                         // The port must fail where the client does; a seed-1 failure leaves the area without a capture.
@@ -90,6 +93,11 @@ public static class ServerLevelAreas
         }
         return (supported, inPlaceOfOne);
     }
+
+    /// <summary>Whether an area is a room of the Labyrinth's tiers (<c>1_Labyrinth_…</c> to <c>EndGame_Labyrinth_…</c>), the
+    /// areas a day's Labyrinth builds with its node.</summary>
+    public static bool IsLabyrinthRoom(string areaId) =>
+        System.Text.RegularExpressions.Regex.IsMatch(areaId, "^(1|2|3|EndGame)_Labyrinth_");
 
     // Every check of a traced load: draws (or the port stopping after the last one it makes), both grids, the doodads
     // (unless the trace has none), the cell heights and the transitions (each unless no capture had them).
