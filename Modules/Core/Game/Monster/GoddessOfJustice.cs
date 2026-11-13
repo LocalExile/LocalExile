@@ -13,25 +13,42 @@ using static Program;
 /// </summary>
 static class GoddessOfJustice
 {
-    // Her actor's skill for the turn (the official monsters' ids start at 0x4000, KingInMists.Kit).
-    const ushort FaceSkillId = 0x4000;
+    // Her actor's skills: the turn and the Spirit Mortar (the official monsters' ids start at 0x4000, KingInMists.Kit).
+    const ushort FaceSkillId = 0x4000, MortarSkillId = 0x4001;
 
     // How often her loop looks.
     const double TickSeconds = 0.1;
 
     public static bool IsGoddess(MonsterCatalog.Variety? variety) => variety?.Id == IzaroGoddess.Variety;
 
-    /// <summary>The actor's skill list: her default skill, then the turn, with the 0x1ab id it names.</summary>
+    /// <summary>The actor's skill list: her default skill, the turn and the Spirit Mortar, with the 0x1ab ids they name.
+    /// The mortar's action (ActionTypes <c>LbBossSpiritMortar</c>, a projectile action: 0x1419a3c00 → 0x141a0bd30 on
+    /// 0x1419f13b0) is the client's own: it plays her volley and fires its mortars, arc, trail and impact, but only with a
+    /// count on the record (as the Sand Spitter's, 11-skills.md), and its <c>monster_projectile_variation</c> must be 0
+    /// or 1 (0x141a0bb50: "Mortar Variation not recognized").</summary>
     internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
     {
         if (!IsGoddess(variety)) return null;
         var catalog = Game.SkillsFor(conn);
-        int effect = IzaroGoddess.FaceEffect;
         // A spell's cast-time stats: the client's cast-duration path crashed on an actor record with only attack stats
         // (Monsters.cs, the King's Death Effigy).
-        var stats = (attack with { SkillId = FaceSkillId, Spell = true, Seconds = catalog.CastTimeMs(effect) / 1000.0 }).SkillStats();
-        if (catalog.FindByRow(FaceSkillId, effect, catalog.MonsterEffectLevel(effect, level), stats) is not { } face) return null;
-        return skill is null ? [face] : [skill, face];
+        GrantedSkill? Spell(ushort id, int effect, IEnumerable<(uint, int)> extra)
+        {
+            int effectLevel = catalog.MonsterEffectLevel(effect, level);
+            var own = (attack with { SkillId = id, Spell = true, Seconds = catalog.CastTimeMs(effect) / 1000.0 }).SkillStats().Concat(extra).ToList();
+            var taken = own.Select(s => s.Item1).ToHashSet();
+            foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
+            return catalog.FindByRow(id, effect, effectLevel, [.. catalog.EffectStats(effect, effectLevel).Where(s => !taken.Contains(s.Item1)), .. own]);
+        }
+        int count = IzaroGoddess.MortarCount;
+        List<(uint, int)> mortarStats = [(StatKeys.TotalProjectilesToFire, count), (StatKeys.VirtualTotalProjectiles, count), (StatKeys.VirtualTotalArrows, count)];
+        if (Stats.Key("monster_projectile_variation") is uint variationKey) mortarStats.Add((variationKey, 0));
+        var list = new List<GrantedSkill>();
+        if (skill is not null) list.Add(skill);
+        if (Spell(FaceSkillId, IzaroGoddess.FaceEffect, []) is { } face) list.Add(face);
+        if (Spell(MortarSkillId, IzaroGoddess.MortarEffect, mortarStats) is { } mortar) list.Add(mortar);
+        Console.WriteLine($"[gateway] the Goddess of Justice's skills: {string.Join(", ", list.Select(s => $"0x{s.Id:x4}"))}");
+        return list.Count == 0 ? null : list;
     }
 
     // What she is doing: the end of her cast (no turn cuts it).
@@ -71,7 +88,7 @@ static class GoddessOfJustice
                     }
                     if (face || volley) (nextFace, facing) = (now + IzaroGoddess.FaceSeconds, angle);
                 }
-                if (face || volley) await Face(remote, stream, ciphers, conn, id, goddess);
+                if (face && !volley) await Face(remote, stream, ciphers, conn, id, goddess);
                 if (volley) await Volley(remote, stream, ciphers, conn, id, goddess, fighting);
             }
         }
@@ -90,22 +107,36 @@ static class GoddessOfJustice
             var (from, player) = (goddess.Walk.Position(now), conn.Walk.Position(now));
             return [.. InstanceProtocol.ActionEnded(id),
                 .. InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, FaceSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: PlayerId)];
-        });
+        }, $"0x01ab the Goddess of Justice 0x{id:x} turns to the player");
     }
 
-    // Her volley: the volly clip, a Spirit Mortar at each of its contacts, each to where the player stands at that moment.
+    // Her volley: the Spirit Mortar's action at the player's cell, which the client plays and fires (SkillsFor). The server
+    // lands the same mortars there, unseen, one at each of the volly clip's contacts, for their hits.
     static async Task Volley(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess, Func<bool> fighting)
     {
-        double started = conn.Clock.Elapsed.TotalSeconds;
-        await Send(remote, stream, ciphers, InstanceProtocol.ActorAnimation(id, (float)IzaroGoddess.VolleySeconds, IzaroGoddess.VolleyAnimation),
-            $"0x01d1 the Goddess of Justice 0x{id:x} lobs her Spirit Mortars");
+        int action;
+        lock (conn.Monsters) action = ++goddess.ActionGeneration;
+        double started = 0;
+        (int X, int Y) aim = default;
+        if (!await SendMonsterAction(remote, stream, ciphers, conn, id, goddess, action, () =>
+        {
+            started = conn.Clock.Elapsed.TotalSeconds;
+            var from = goddess.Walk.Position(started);
+            aim = conn.Walk.Position(started);
+            return [.. InstanceProtocol.ActionEnded(id),
+                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, MortarSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags)];
+        }, $"0x01ab the Goddess of Justice 0x{id:x} lobs her Spirit Mortars")) return;
         var mortar = MortarAttack(conn, goddess);
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
-        foreach (double contact in IzaroGoddess.VolleyContacts)
-            session.Schedule(ProjectileRuntime.Time(started + contact), () => fighting() && conn.PlayerLife > 0 && !InGracePeriod(conn),
-                () => Mortar(session, conn, id, goddess, IzaroGoddess.SpiritMortar, conn.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond),
-                    new HostileProjectileOffense(id, goddess, mortar, goddess.ActionGeneration, "the Goddess of Justice's Spirit Mortar")));
+        double cast = Game.SkillsFor(conn).CastTimeMs(IzaroGoddess.MortarEffect) / 1000.0;
+        for (int i = 0; i < IzaroGoddess.MortarCount; i++)
+        {
+            double release = started + cast * IzaroGoddess.VolleyContacts[Math.Min(i, IzaroGoddess.VolleyContacts.Length - 1)] / IzaroGoddess.VolleySeconds;
+            session.Schedule(ProjectileRuntime.Time(release), () => fighting() && conn.PlayerLife > 0 && !InGracePeriod(conn),
+                () => Mortar(session, conn, id, goddess, IzaroGoddess.SpiritMortar, aim,
+                    new HostileProjectileOffense(id, goddess, mortar, action, "the Goddess of Justice's Spirit Mortar"), hidden: true));
+        }
     }
 
     // LabyrinthSpiritMortar: fire, its FloatStatsValues of the monster damage at her level, landing round its cell.
@@ -150,7 +181,7 @@ static class GoddessOfJustice
 
     // A mortar from her (her place, the volley's height) to a cell: a damaging one lands its area there.
     static ProjectileUse Mortar(ProjectileSession session, ClientState conn, uint id, SpawnedMonster goddess, string metadata, (int X, int Y) target,
-        object payload)
+        object payload, bool hidden = false)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var from = ProjectileSession.Vector(goddess.Walk.Position(now));
@@ -162,6 +193,8 @@ static class GoddessOfJustice
             Speed = speed, Radius = 2, Count = 1, Lobbed = true, Range = distance, DirectDamage = false,
             EndArea = damages ? new ProjectileAreaRecipe("Goddess of Justice mortar", IzaroGoddess.MortarRadius) : null,
             EndAreaReasons = damages ? new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain } : null,
+            // The client draws her Spirit Mortars itself (its action), so the server's are not shown.
+            HideVisual = hidden,
         };
         var presentation = (MonsterProjectilePresentation(Game.SkillsFor(conn).Clips(metadata), distance / speed) ?? new())
             with { LaunchHeight = new ContactPoint(0, 0, IzaroGoddess.VolleyHeight).HeightSteps };

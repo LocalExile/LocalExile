@@ -2,7 +2,7 @@
 /// The Goddess of Justice (<c>Metadata/Monsters/Labyrinth/GoddessOfJustice</c>): a monster that cannot be damaged or
 /// targeted and does not move, riding on Izaro's <c>jnt_back_spirit</c> bone in every trial (the original, live: always
 /// with him, turning to the player a little late). She lobs her Spirit Mortars at the player (<c>LabyrinthSpiritMortar</c>:
-/// 3.5 s cooldown, her <c>volly</c> clip's six contacts, one mortar each, each where the player stands then), and from
+/// 3.5 s cooldown: five mortars at once to where the player stood, the client's own action), and from
 /// when Izaro is hurt to 90 % of his life (the wiki) her Guardians' mortars (<c>LbBossMortarSummon</c>) open circles at
 /// random places of the arena, six every 20 s (<c>skill_repeat_count</c>), two Guardians in each
 /// (<c>IzaroSummonSkeletonGhostflame</c>: <c>number_of_monsters_to_summon</c> 2, <c>projectile_minimum_range</c> 25;
@@ -40,6 +40,9 @@ public static class IzaroGoddess
     /// FloatStatsValues of the monster damage at her level (StatInterpolations 3: 0.6 to 1 below the row at level 66, 0.8 to
     /// 1.2 from it). Its landing's radius is not in the data (ours), nor how far she throws (ours).</summary>
     public const double MortarCooldown = 3.5, MortarRadius = 8, MortarReach = 90;
+
+    /// <summary>The Spirit Mortars of a volley (the original, live: five, one after another; the data names no count).</summary>
+    public const int MortarCount = 5;
     public const int MortarSpeed = 750;
 
     /// <summary>How often she turns to the player at most, and from how far off (ours).</summary>
