@@ -24,6 +24,12 @@ public static partial class Game
         return Math.Max(0, conn.ElusiveEffectMultiplier - 0.2 * (now - conn.ElusiveStart));
     }
 
+    /// <summary>The effect's chance to avoid damage from hits, 15% at 100% effect, for the server's avoidance roll.</summary>
+    public static int ElusiveAvoidPct(ClientState conn) => (int)Math.Floor(15 * ElusiveFactor(conn));
+
+    /// <summary>The effect's movement speed, 30% at 100% effect: the pools add it while the buff runs.</summary>
+    public static int ElusiveMovementPct(ClientState conn) => (int)Math.Floor(30 * ElusiveFactor(conn));
+
     /// <summary>"X% chance to gain Elusive on Critical Strike": a player critical hit rolls it unless Elusive is
     /// already running (the buff cannot be refreshed).</summary>
     public static void GainElusiveOnCrit(ClientState conn)
@@ -41,13 +47,13 @@ public static partial class Game
             conn.ElusiveStart = now;
             conn.ElusiveEffectMultiplier = effect;
             conn.ElusiveUntil = now + 5 * effect;
-            conn.StatSourcesCache = null;
         }
         Console.WriteLine($"[gateway] elusive on crit: {chance}% -> {5 * effect:0.###} seconds ({effect * 100:0.#}% effect)");
     }
 
     /// <summary>The Elusive buff on the client: added when it starts, removed when its effect reaches zero or the
-    /// player dies. Its stat contribution decays through <see cref="ElusiveFactor"/>.</summary>
+    /// player dies. The avoidance and movement speed come from <see cref="ElusiveFactor"/> at their consumers; the
+    /// movement speed also reaches the client as one movement stat so its walk keeps up with the server's.</summary>
     public static async Task SyncElusive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         // The critical hit only flags the roll: build the character stats here, outside the combat lock.
@@ -56,7 +62,8 @@ public static partial class Game
             conn.ElusiveCritPending = false;
             GainElusiveOnCrit(conn);
         }
-        byte[]? bytes = null;
+        byte[]? buffBytes = null;
+        byte[]? statBytes = null;
         lock (conn.Monsters)
         {
             if (conn.Closed || conn.LeavingArea) return;
@@ -65,18 +72,29 @@ public static partial class Game
             if (active && conn.ElusiveBuff == 0)
             {
                 conn.ElusiveBuff = conn.NextBuff++;
-                bytes = InstanceEntities.AddBuff(PlayerId, conn.ElusiveBuff, ElusiveBuffRow.Value, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)(conn.ElusiveUntil - now)));
+                // Row 1374 ("elusive") has the __col44 bool (+0xff), so its 0x1c1 must carry the u16 at +0x82.
+                buffBytes = InstanceEntities.AddBuff(PlayerId, conn.ElusiveBuff, ElusiveBuffRow.Value, PlayerId,
+                    u68: BitConverter.SingleToUInt32Bits((float)(conn.ElusiveUntil - now)), u82: 0);
                 Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} for {conn.ElusiveUntil - now:0.###} s (row {ElusiveBuffRow.Value})");
             }
             else if (!active && conn.ElusiveBuff != 0)
             {
-                bytes = InstanceEntities.RemoveBuff(PlayerId, conn.ElusiveBuff);
+                buffBytes = InstanceEntities.RemoveBuff(PlayerId, conn.ElusiveBuff);
                 Console.WriteLine($"[gateway] elusive buff {conn.ElusiveBuff} ended");
                 conn.ElusiveBuff = 0;
-                conn.StatSourcesCache = null;
+            }
+            // The effect loses 20% per second, so the movement speed changes a handful of times per buff: rebuild the
+            // pools then, and send only that one stat rather than a full character snapshot every tick.
+            int movement = ElusiveMovementPct(conn);
+            if (movement != conn.ElusiveMovementPct)
+            {
+                conn.ElusiveMovementPct = movement;
+                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                conn.ApplyMovementSpeedAt(now);
+                statBytes = InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.MovementVelocityPct, conn.Pools.MovementVelocityPct)]);
             }
         }
-        if (bytes is not null) await Send(remote, stream, ciphers, bytes, "elusive buff");
+        if (buffBytes is not null) await Send(remote, stream, ciphers, buffBytes, "elusive buff");
+        if (statBytes is not null) await Send(remote, stream, ciphers, statBytes, "elusive movement");
     }
 }

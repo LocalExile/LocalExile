@@ -78,23 +78,25 @@ public static class PlayerDamageTaken
             ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach]);
 
     /// <summary>"X% chance to Avoid Fire Damage from Hits" and the other types', plus "... Damage of each Type": this
-    /// type's chance that a hit deals none of it, at most 75% (wiki Avoidance).</summary>
-    public static int AvoidPct(DamageType type, Func<string, int> get) =>
-        Math.Clamp(get(TypedAvoid(type)) + get(AvoidEach), 0, AvoidCap);
+    /// type's chance that a hit deals none of it, at most 75% (wiki Avoidance). <paramref name="extraEach"/> is a
+    /// chance added to each type outside the stat view (Elusive).</summary>
+    public static int AvoidPct(DamageType type, Func<string, int> get, int extraEach = 0) =>
+        Math.Clamp(get(TypedAvoid(type)) + get(AvoidEach) + extraEach, 0, AvoidCap);
 
     /// <summary>One roll of this type's avoidance; a type without a chance draws nothing.</summary>
-    public static bool Avoids(DamageType type, Func<string, int> get, Random random) =>
-        RandomRolls.Chance(AvoidPct(type, get), 100, random);
+    public static bool Avoids(DamageType type, Func<string, int> get, Random random, int extraEach = 0) =>
+        RandomRolls.Chance(AvoidPct(type, get, extraEach), 100, random);
 
     /// <summary>The hit without the types it avoids, each rolled once in the packet's order (physical, lightning, cold,
     /// fire, chaos), after the shift (the types taken). Avoiding damage does not stop the hit: when-hit effects still
     /// happen (wiki Avoidance). The same packet when nothing is avoided.</summary>
-    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided)
+    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided,
+        int extraEach = 0)
     {
         var kept = DamagePacket.Empty;
         var dropped = new List<DamageType>();
         foreach (var (type, range) in hit.Components)
-            if (Avoids(type, get, random)) dropped.Add(type);
+            if (Avoids(type, get, random, extraEach)) dropped.Add(type);
             else kept = kept.Add(type, range);
         avoided = [.. dropped];
         return dropped.Count > 0 ? kept : hit;
