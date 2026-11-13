@@ -25,7 +25,7 @@ public static partial class Game
     public static void ChargesOnHit(ClientState conn, SpawnedMonster m, bool critical, bool spell, int effect = -1, int level = 1,
         int quality = 0, bool? melee = null, bool primary = true)
     {
-        if (critical) GainElusiveOnCrit(conn);
+        if (critical) conn.ElusiveCritPending = true;
         if (m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.RareHit);
         Func<string, int>? skill = null;

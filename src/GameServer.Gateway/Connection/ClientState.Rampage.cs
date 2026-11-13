@@ -13,6 +13,7 @@ public sealed partial class ClientState
     public double ElusiveUntil;
     public double ElusiveEffectMultiplier = 1;
     public ushort ElusiveBuff;
+    public bool ElusiveCritPending;
     public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
     public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
     public ITransientCombatState? OwnedCombatState;

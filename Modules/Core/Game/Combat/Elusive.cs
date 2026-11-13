@@ -50,6 +50,12 @@ public static partial class Game
     /// player dies. Its stat contribution decays through <see cref="ElusiveFactor"/>.</summary>
     public static async Task SyncElusive(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        // The critical hit only flags the roll: build the character stats here, outside the combat lock.
+        if (conn.ElusiveCritPending)
+        {
+            conn.ElusiveCritPending = false;
+            GainElusiveOnCrit(conn);
+        }
         byte[]? bytes = null;
         lock (conn.Monsters)
         {
