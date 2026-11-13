@@ -2689,8 +2689,11 @@ that split is the point of the rest of this section.
   `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203. Ranged placement is 0.5 s since 3.28,
   despite older Totem references listing 0.35 s, and ballista-only bonus slots do not let an ordinary totem exceed its
   own cap.
-- A totemified skill that is neither of the two — Arc, for one — is refused before action or cost admission, as are the
-  other unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate.
+- A totemified skill that is neither of the two — a skill with no projectile and no chain to resolve — is refused before
+  action or cost admission, as are the other unimplemented payloads, including Artillery's mortar sequence and Focused
+  Ballista's owner-attack gate.
+  Arc is the one non-projectile totemified spell that runs: it chains from its target as the ordinary spell does
+  (`ArcTotems.cs`).
 Native client acceptance of both paths remains pending, and enemy targeting of totems, placement range and the aura
 buff's totem source remain unimplemented.
 
