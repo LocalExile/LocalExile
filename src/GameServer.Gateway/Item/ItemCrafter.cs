@@ -157,6 +157,8 @@ public static class ItemCrafter
     /// The item a spec describes, or null with the reason. Mods are taken as given (any mod on any base, values outside
     /// the roll range too): this is a dev tool, as /item_mod is. Missing values are rolled, a rare without a name gets
     /// one, sockets default as for /item ("" for none), and the item level defaults to <paramref name="level"/>.
+    /// A cluster jewel whose mods do not say how many passives it adds keeps the enchantments a new one has, since it
+    /// is nothing without them.
     /// </summary>
     public static Item? Build(ItemCatalog items, ItemRolls rolls, string json, int level, Random random, out string? error)
     {
@@ -185,6 +187,8 @@ public static class ItemCrafter
             if (m.Section is { } s && !Enum.TryParse(s, true, out section)) { error = $"no mod list {s}"; return null; }
             mods.Add(mod.With(section, m.Values ?? [], random));
         }
+        if (type.Cluster is { } cluster && !mods.Any(m => m.Hash == cluster.Passives.Hash))
+            mods.InsertRange(0, item.Mods.Where(m => m.Section == ModSection.Enchant));
         item = item with
         {
             Mods = mods,
