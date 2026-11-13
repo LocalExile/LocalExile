@@ -30,7 +30,9 @@ public static class CharacterSaves
         int GemVariant = 0, bool Corrupted = false, byte Fractured = 0, bool Mirrored = false, byte GemFlags = 0, ushort? Visual = null,
         byte DefenceBaseRoll = 0, ItemInfluence Influences = ItemInfluence.None, bool Split = false, bool Synthesised = false,
         bool Foreseeing = false, uint ForeseeSeed = 0, byte? AlternateQualityType = null,
-        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? OriginalItem = null);
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] SavedItem? OriginalItem = null,
+        bool Vestigial = false,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] HeistBlueprintState? HeistBlueprint = null);
 
     public sealed record SavedPlacement(uint Id, byte X, byte Y, SavedItem Item);
 
@@ -532,7 +534,7 @@ public static class CharacterSaves
         [.. i.Mods.Select(m => new SavedMod(mods?.ByHash(m.Hash)?.Id ?? $"0x{m.Hash:x4}", m.Section, [.. m.Values]))],
         i.NameWords.Count == 0 ? null : [.. i.NameWords], i.GemVariant, i.Corrupted, i.FracturedCount, i.Mirrored, i.GemFlags, i.Rarity == ItemRarity.Unique ? i.VisualIdentity : null,
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
-        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods));
+        i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint);
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -551,7 +553,8 @@ public static class CharacterSaves
                 : [.. (s.Sockets ?? []).Select(k => new ItemSocket(k.Colour, k.Gem is null ? null : FromSaved(k.Gem, catalog)))],
             Links = emptyResonator ? null : s.Links, Rarity = s.Rarity, Identified = s.Identified, NameWords = s.Name ?? [], Corrupted = s.Corrupted, FracturedCount = s.Fractured, Mirrored = s.Mirrored,
             OriginalItem = s.OriginalItem is null ? null : FromSaved(s.OriginalItem, catalog),
-            Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised,
+            Influences = s.Influences, Split = s.Split, Synthesised = s.Synthesised, Vestigial = s.Vestigial,
+            HeistBlueprint = s.HeistBlueprint,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };

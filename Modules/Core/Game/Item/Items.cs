@@ -1229,7 +1229,7 @@ public static partial class Game
         var random = foreseeing ? ItemRolls.ForeseeRandom(target.Item, used.Item.TypeHash) : Random.Shared;
         Item? result = type?.Id == CurrencyEffects.HinekorasLock
             ? RollsFor(conn).ApplyLock(target.Item, random)
-            : target.Item.Mirrored ? null
+            : target.Item.Mirrored || target.Item.Vestigial ? null
             : target.Item.Corrupted && type?.Id != Wisdom ? null
             : CurrencyResult(conn, target.Item, used.Item.TypeHash, random);
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the

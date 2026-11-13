@@ -17,6 +17,8 @@ public sealed class DivinationCardTests
         var uniques = new UniqueCatalog(items);
         var rolls = new ItemRolls(items);
         Assert.Equal(470, DivinationRewards.All.Count);
+        Assert.Equal(456, DivinationRewards.All.Values.Count(r => r.Enabled));
+        Assert.All(DivinationRewards.All.Values, r => Assert.True(r.Enabled || r.Kind == "disabled", r.Card));
         var doctor = DivinationRewards.Find(items.Find("The Doctor")!.Id)!;
         Assert.Equal(8, doctor.Stack);
         var belt = DivinationRewards.Create(doctor, items, uniques, rolls, new Random(499));
@@ -110,6 +112,77 @@ public sealed class DivinationCardTests
                 Assert.Contains(type.Name, new[] { "Empower Support", "Enhance Support", "Enlighten Support" });
         }
         Assert.Null(DivinationRewards.Create(doctor with { Kind = "gem_pool", Name = "Unknown gem pool" }, items, uniques, rolls, new Random(1)));
+        var failures = new List<string>();
+        foreach (var reward in DivinationRewards.All.Values.Where(r => r.Enabled && r.Equipment is not null))
+        {
+            foreach (var member in reward.Members.Where(m => DivinationEquipmentRewards.Eligible(m, reward.Equipment, reward.Count, items, rolls)))
+                if (DivinationRewards.Create(reward with { Members = [member] }, items, uniques, rolls, new Random(499)) is null)
+                    failures.Add(reward.Card + " member=" + member.Id + " base=" + member.Base);
+            foreach (var member in reward.Members.Where(m => m.Kind == "base"))
+            {
+                var type = items.Find(member.Id)!;
+                Assert.True(type.Supported && type.Name.Length > 0, member.Id);
+                Assert.True(type.MaxStack >= reward.Count, member.Id);
+            }
+            for (int seed = 0; seed < 16; seed++)
+            {
+                var result = DivinationRewards.Create(reward, items, uniques, rolls, new Random(seed));
+                if (result is null) { failures.Add(reward.Card + " seed=" + seed); continue; }
+                if (reward.Kind == "set_pool")
+                {
+                    Assert.Equal(result.Payload(), CharacterSaves.FromSaved(CharacterSaves.ToSaved(result, items.Mods), items).Payload());
+                    continue;
+                }
+                var rule = reward.Equipment!;
+                Assert.Equal(rule.Influences, result.Influences & rule.Influences);
+                if (rule.RandomInfluences > 0)
+                    Assert.True(System.Numerics.BitOperations.PopCount((uint)result.Influences) >= rule.RandomInfluences);
+                if (rule.Fractured) Assert.Equal(1, result.FracturedCount);
+                if (rule.Modifiers > 0) Assert.Equal(rule.Modifiers, result.Mods.Count(m => m.Section == ModSection.Explicit));
+                if (rule.Links > 0) Assert.Contains((byte)rule.Links, result.Links!);
+                if (rule.Special == "vestigial")
+                {
+                    Assert.True(result.Vestigial);
+                    Assert.Null(rolls.Reforge(result, new Random(seed)));
+                }
+                if (rule.Special == "synthesised")
+                {
+                    Assert.True(result.Synthesised);
+                    Assert.Equal(3, result.Mods.Count(m => m.Section == ModSection.Implicit));
+                    Assert.All(result.Mods.Where(m => m.Section == ModSection.Implicit), m =>
+                        Assert.StartsWith("SynthesisImplicit", items.Mods.ByHash(m.Hash)!.Id));
+                }
+                if (rule.Special == "foulborn")
+                    Assert.Contains(result.Mods, m => items.Mods.ByHash(m.Hash)!.Id == "MutatedUniqueBelt43MagicUtilityFlasksAlwaysApplyRightmost");
+                if (rule.Special == "perfect_eldritch")
+                    Assert.Contains(result.Mods, m => items.Mods.ByHash(m.Hash) is { GenerationType: 28 or 29 } mod
+                        && mod.Id.EndsWith("EldritchImplicit6", StringComparison.Ordinal));
+                if (rule.Special == "corrupted_blood")
+                    Assert.Contains(result.Mods, m => m.Section == ModSection.Implicit
+                        && items.Mods.ByHash(m.Hash)!.Id.Contains("CorruptedBloodImmunity", StringComparison.Ordinal));
+                if (rule.Special == "double_veiled")
+                    Assert.Equal(2, result.Mods.Count(m => items.Mods.ByHash(m.Hash)!.Domain == 26));
+                if (rule.Special == "blueprint")
+                {
+                    var blueprint = result.HeistBlueprint!;
+                    Assert.NotNull(blueprint);
+                    Assert.Equal(83, blueprint.AreaLevel);
+                    Assert.InRange(blueprint.Wings.Count, 3, 4);
+                    Assert.All(blueprint.Wings, w =>
+                    {
+                        Assert.True(w.Revealed);
+                        Assert.Equal(3, w.Jobs.Count);
+                        Assert.All(w.Rooms, r => Assert.True(r.Revealed));
+                        Assert.Contains(w.Rooms, r => GameServer.Core.ClientTables.Table("HeistChestRewardTypes")[r.Row].Text("Id") == "EscapeRoom");
+                    });
+                }
+                Assert.Equal(!rule.Unidentified, result.Identified);
+                Assert.NotEmpty(result.Payload());
+                var restored = CharacterSaves.FromSaved(CharacterSaves.ToSaved(result, items.Mods), items);
+                Assert.Equal(result.Payload(), restored.Payload());
+            }
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
         var unresolved = DivinationRewards.All.Values.Where(r => r.Enabled
             && DivinationRewards.Create(r, items, uniques, rolls, new Random(499)) is null).Select(r => r.Card).ToArray();
         Assert.True(unresolved.Length == 0, string.Join("\n", unresolved));
@@ -177,7 +250,7 @@ public sealed class DivinationCardTests
             foreach (var remove in items.Items(0).Where(i => i.Y == 0 && i.X < 2).ToArray()) items.Remove(0, remove.Id);
             Assert.NotNull(items.Place(0, 0, 0, Game.ShapeOf, out _));
             var unknown = items.Add(InstanceDivination.InventoryRow, 0, 0,
-                ItemCatalog.Create(Program.Items.Find("The Void")!));
+                ItemCatalog.Create(Program.Items.Find("Broken Promises")!) with { StackSize = 2 });
             Assert.True(await GameEvents.AnyPacket(conn, 0x19a, [1, 0x9a]));
             Assert.Equal(unknown, Assert.Single(items.Items(InstanceDivination.InventoryRow)));
             items.Remove(InstanceDivination.InventoryRow, unknown.Id);

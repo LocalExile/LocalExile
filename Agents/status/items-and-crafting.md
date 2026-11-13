@@ -34,7 +34,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- NPC divination card exchange supports named rewards and client-tagged gem pools; other random pools and extra reward constraints remain open.
+- NPC divination card exchange supports all 456 active 3.29.3d card definitions and preserves 14 client-disabled cards; random selection uses local weights, with official exchange probabilities unrecovered.
   Docs: [17](../docs/protocol/17-npcs.md).
 
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
