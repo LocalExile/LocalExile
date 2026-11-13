@@ -141,7 +141,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 
 - Native composition with supported projectiles, area sweeps, equipment sources, notification delays and slow
   destination loading; queued refreshes across expiry and decay-speed modifiers.
-  Measure official capped-attempt refresh and area-loading timer parity before replacing policy v1.
+  Capped regeneration now refreshes activity at any advance cadence (policy v2, `LeadershipConsumersTests`); measure
+  official capped-attempt refresh for discrete gains and area-loading timer parity before replacing policy v2.
   See [26-rage.md](../docs/protocol/26-rage.md).
 
 ### Vaal execution and remaining soul checks
