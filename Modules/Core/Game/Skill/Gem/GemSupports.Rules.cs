@@ -295,6 +295,15 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get("support_projectile_attack_speed_+%_final") / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get("support_attack_totem_attack_speed_+%_final") / 100d);
+        int barrageTime = Get("support_barrage_attack_time_+%_per_projectile_fired");
+        if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
+        {
+            var projectiles = projectileParameters.Resolve(Get, 1, ArrowsFor(conn, gem.Effect));
+            int count = Get("projectiles_rain") != 0 && projectiles.EndEmission is { } rain
+                ? rain.Child.Count : projectiles.Count;
+            // The native final-speed consumer divides by 1 + the per-projectile time penalty before rounding.
+            more /= 1 + (double)barrageTime * count / 100;
+        }
         // Rage Support: "19% increased Attack Speed with at least 10 Rage" (the rage stat set carries current_rage).
         if (Get("current_rage") >= 10 && Get("attack_speed_+%_with_at_least_10_rage") is int rageSpeed and > 0
             && Stats.Key("main_hand_attack_speed_+%") is uint rageBucket)

@@ -171,6 +171,47 @@ public class ArrowRainAndMirageTests
         }
     }
 
+    [Theory]
+    [InlineData("Split Arrow", "Crude Bow")]
+    [InlineData("Power Siphon", "Driftwood Wand")]
+    public void Barrage_support_paces_attacks_using_the_resolved_projectile_count(string skill, string weapon)
+    {
+        using var b = new Battle(skill, "Barrage Support");
+        var items = Game.ItemsOf(b.Conn);
+        var bow = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => ItemCatalog.Create(Program.Items.Find(weapon)!) with
+        { Sockets = item.Sockets, Links = item.Links });
+        var gem = Game.GemSkillEffects(b.Conn).Single();
+        uint penaltyKey = Program.Stats.Key("support_barrage_attack_time_+%_per_projectile_fired")!.Value;
+        uint countKey = Program.Stats.Key("total_number_of_projectiles_to_fire")!.Value;
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
+        double baseline = Game.SupportedAttackSeconds(b.Conn, gem.Id);
+        int increased = Game.SupportedMainHandAttackSpeedPct(b.Conn, gem.Id);
+        float nativeSpeed = (increased + 100) * (float)Game.Supports.AttackSpeedMultiplier(gem.Effect, gem.Level);
+        int baselineSpeed = (int)MathF.Round(nativeSpeed - 100, MidpointRounding.AwayFromZero);
+        Assert.Equal(0, Game.SupportedSkill(b.Conn, gem.Id).Stats.GetValueOrDefault(penaltyKey));
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [2] });
+        int initialCount = 0;
+        foreach (int extra in new[] { 0, 2 })
+        {
+            b.Conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = extra;
+            var stats = Game.SupportedStats(b.Conn, gem.Id);
+            int penalty = stats[penaltyKey];
+            Assert.True(penalty > 0);
+            Game.ApplyProjectilePanelStats(gem.Effect, stats);
+            int count = stats[countKey];
+            Assert.True(count > extra + 1);
+            if (extra == 0) initialCount = count;
+            Assert.Equal(initialCount + extra, count);
+            int speed = (int)MathF.Round(nativeSpeed / (1 + penalty * count / 100f) - 100,
+                MidpointRounding.AwayFromZero);
+            double expected = baseline * (baselineSpeed + 100) / (speed + 100);
+            Assert.Equal(expected, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
+        }
+        items.Change(PlayerInventories.Weapon1, bow.Id, item => item with { Links = [1, 1] });
+        Assert.Equal(baseline, Game.SupportedAttackSeconds(b.Conn, gem.Id), 6);
+    }
+
     [Fact]
     public void Mirage_attacks_bypass_only_owner_restrictions_and_end_with_their_source()
     {
