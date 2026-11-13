@@ -25,9 +25,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   conditional consumers are partial. Docs: [unique jewels](../docs/game/unique-jewels.md).
 - Ordinary ascendancy selection, point awards, allocations, paid refunds and saves.
   Docs: [ascendancies](../docs/game/ascendancies.md).
-- Descendancy (the Bloodline and Wildwood classes) and the Wildwood Primalist's nodes; Primal Wisps found waits for the
-  Wildwood Wisp system. Docs: [15](../docs/protocol/15-progression.md) §2, [16](../docs/protocol/16-waypoints.md) §3,
-  [05](../docs/protocol/05-inventories-and-ui.md).
+- Descendancy (the Bloodline and Wildwood classes) and the Wildwood Primalist's nodes; the charm modifiers chain
+  projectiles off terrain, gain phasing on kill, add physical damage after a recent critical strike and explode
+  bleeding kills; Primal Wisps found waits for the Wildwood Wisp system. Docs: [15](../docs/protocol/15-progression.md) §2,
+  [16](../docs/protocol/16-waypoints.md) §3, [05](../docs/protocol/05-inventories-and-ui.md).
 - Elementalist Shaper of Flames. Docs: [20](../docs/protocol/20-damage.md) §3.
 - Antiquarian. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Juggernaut. Docs: [Juggernaut](../docs/game/juggernaut.md).
