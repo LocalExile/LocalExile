@@ -245,6 +245,7 @@ public static class InstanceNpcs
 public sealed record NpcObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0,
     StateMachineData? StateMachine = null, byte TransitionState = 1, string? Model = null, float? Height = null)
 {
+    public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     /// <summary>Deserialized components of <c>Metadata/NPC/NPC</c> in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents = ["Positioned", "Animated", "BaseEvents", "InteractionAction", "NPC", "MinimapIcon"];
 

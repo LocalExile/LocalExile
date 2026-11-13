@@ -11,6 +11,9 @@ public sealed class InstanceWorld
     /// <summary>Created monsters waiting to emerge, under the same Monsters lock and instance lifetime.</summary>
     public readonly SortedDictionary<uint, SpawnedMonster> DormantMonsters = [];
 
+    /// <summary>The instance's other monsters waiting to emerge, and its emerge watch (ClientState.EmergeGround).</summary>
+    public readonly EmergeGround EmergeGround = new();
+
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
     public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
@@ -43,4 +46,15 @@ public sealed class InstanceWorld
     /// <summary>The connection whose loops step the monsters (AI, collisions, wake zone) until the instance runs them itself:
     /// the first in, then whoever is still here.</summary>
     public ClientState? Runner;
+}
+
+/// <summary>Monsters lying in wait for a player to come near, besides the buried ones (DormantMonsters), and whether a
+/// connection's emerge watch looks for them. Under the Monsters lock. The instance's, so they outlast the player who placed
+/// them and a reload of the game's rules: the new rules' watch raises them.</summary>
+public sealed class EmergeGround
+{
+    /// <summary>Lurking monsters by object id: in the instance's monsters, busy until they rise.</summary>
+    public readonly HashSet<uint> Lurking = [];
+    /// <summary>Whether a connection's watch runs for them.</summary>
+    public bool Watching;
 }

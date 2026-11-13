@@ -20,9 +20,9 @@ public sealed partial class DelveModule
         await RemoveStartBoundary(player, state);
         uint id = state.Crawler + 6;
         state.StartTrigger = id;
-        // The native mesh's radius is 509.017 world units; match the server boundary in grid cells.
+        // 509.017 is the mesh's full span. Keep the visible edge and gameplay radius in the same units.
         var blob = new EffectObject(at.X, at.Y, StartCircleModel)
-            { Scale = DelveJourney.StartRadius * (250f / 23) / 509.017f }.Blob();
+            { Scale = DelveJourney.StartRadius * (250f / 23) / (509.017f / 2) }.Blob();
         await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id,
             InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob), "Delve starting circle: waiting for player to leave");
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id));

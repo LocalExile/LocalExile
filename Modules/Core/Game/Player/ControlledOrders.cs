@@ -12,7 +12,7 @@ public static partial class Game
         public ControlledIntent? Intent;
         public ControlledReceipt? Receipt;
     }
-    static readonly ConditionalWeakTable<ClientState, ControlledBrain> ControlledBrains = new();
+    static readonly RuleTable<ClientState, ControlledBrain> ControlledBrains = new();
 
     public static void ClearControlledIntent(ClientState conn)
     {

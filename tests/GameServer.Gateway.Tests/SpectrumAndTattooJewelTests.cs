@@ -60,6 +60,17 @@ public class SpectrumAndTattooJewelTests
             Assert.Equal(initial, Resist(near, far));
             Game.ItemsOf(conn).Remove(PlayerInventories.PassiveJewels, 12);
             Assert.Equal(initial, Resist(near, far, socket));
+
+            // The +10 Dexterity passive 36287 is within both radii on the 3.29.3c tree.
+            byte Slot(ushort node) => (byte)Enumerable.Range(0, 60).Single(i => tree.JewelNodeForSlot(i) == node);
+            var meek = new UniqueCatalog(Program.Items).Create("Might of the Meek", new Random(3))!;
+            conn.Tattoos[36287] = "Tattoo of the Arohongui Moonwarden";
+            conn.TattooRevision++;
+            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(12, Slot(32763), 0, jewel));
+            Game.ItemsOf(conn).Put(PlayerInventories.PassiveJewels, new(13, Slot(60735), 0, meek));
+            uint cold = Program.Stats.Key("base_cold_damage_resistance_%")!.Value;
+            int Cold(params ushort[] nodes) => Game.EquipmentStatSources(conn, [], nodes, 100).Sources.GetValueOrDefault(cold);
+            Assert.Equal(15, Cold(32763, 60735, 36287) - Cold(32763, 60735));
         }
         finally
         {

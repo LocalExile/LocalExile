@@ -32,13 +32,19 @@ public static class InstanceTransfer
     /// 2026-10-18): the picked-up item goes to the cursor instead of the inventory.</summary>
     public const ushort InventoryOpenFlag = 0x0002;
 
+    /// <summary>0x24 flag bit set when Alt is held and the target has an NPC component (the client's 0x1401285b0, which
+    /// also sets 0x0400: GetKeyState(VK_MENU) after the lookup of "NPC" among the target's components). With
+    /// <see cref="CtrlFlag"/> it chooses an NPC's shortcut (17-npcs.md §3).</summary>
+    public const ushort AltFlag = 0x0200;
+
     /// <summary>
     /// C→S 0x24 (12 bytes, 0x25's sibling aimed at an object): u32 target object id, u16 skill id (0x0266 = interact,
-    /// seen on area transitions), u16 sequence, u16 flags (0x0408; | 0x0004 with Ctrl).
+    /// seen on area transitions), u16 sequence, u16 flags (0x0408; | 0x0004 with Ctrl; | 0x0200 with Alt on an NPC).
     /// </summary>
     public sealed record UseSkillOnObject(uint TargetId, ushort SkillId, ushort Sequence, ushort Flags)
     {
         public bool Ctrl => (Flags & CtrlFlag) != 0;
+        public bool Alt => (Flags & AltFlag) != 0;
 
         /// <summary>The use's start (0x1ab) has already gone to the client: a lockstep client's frame pass sends it before
         /// the handler runs, so the handler sends none of its own. A second start put the client back to its from cell

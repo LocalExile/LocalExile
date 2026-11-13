@@ -14,8 +14,8 @@ public static class DoedreSewers
     const int Melee = 406, Wand = 6437, Burst = 6440, Warp = 6447, Emerge = 6742, Drain = 6743;
     static readonly int[] Effects = [Melee, Warp, Drain, Wand, Burst, Emerge];
     static readonly string[] Colours = ["Red", "Purple", "Green"];
-    static readonly ConditionalWeakTable<InstanceState, Fight> Fights = new();
-    static readonly ConditionalWeakTable<ClientState, Exposure> Exposures = new();
+    static readonly RuleTable<InstanceState, Fight> Fights = new();
+    static readonly RuleTable<ClientState, Exposure> Exposures = new();
     sealed class Exposure
     {
         public int Red, Green, Purple;

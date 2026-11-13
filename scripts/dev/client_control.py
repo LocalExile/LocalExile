@@ -398,12 +398,13 @@ def travel_packet(hash16):
     return list(struct.pack(">HHIB", 0x4d, hash16, 0x2f00, 0))
 
 
-def interact_packet(target, skill=0x266):
+def interact_packet(target, skill=0x266, ctrl=False, alt=False):
     """C→S 0x24 on an object with flags 0x408: skill 0x266 is the default left-click interaction (a ground item goes to
-    the first free main-inventory cell); another skill id uses that skill on the target."""
+    the first free main-inventory cell); another skill id uses that skill on the target. `ctrl` and `alt` add the bits
+    the client sets while those keys are held (0x004; 0x200, on an NPC only): an NPC's shortcuts (17-npcs.md §3)."""
     if isinstance(target, bool) or not isinstance(target, int) or not 0 < target <= 0xffffffff:
         raise ValueError("Object id must be a positive uint32")
-    return list(struct.pack(">HIHHH", 0x24, target, skill, 0, 0x408))
+    return list(struct.pack(">HIHHH", 0x24, target, skill, 0, 0x408 | (0x004 if ctrl else 0) | (0x200 if alt else 0)))
 
 
 def lockstep_interact_packet(target, skill=0x266):
@@ -1076,8 +1077,9 @@ class ClientControl:
             skill = int(request.get("skill", 0x266))
             if not 0 < skill <= 0xffff:
                 raise ValueError("Skill id must be a positive uint16")
-            packet = lockstep_interact_packet if request.get("lockstep") else interact_packet
-            return self.rpc("interaction", bytes=packet(target, skill))
+            if request.get("lockstep"):
+                return self.rpc("interaction", bytes=lockstep_interact_packet(target, skill))
+            return self.rpc("interaction", bytes=interact_packet(target, skill, bool(request.get("ctrl")), bool(request.get("alt"))))
         if command == "item:pickup":
             return {**self.rpc("interaction", bytes=interact_packet(request.get("id"))), "id": request["id"]}
         if command == "waypoint:travel":

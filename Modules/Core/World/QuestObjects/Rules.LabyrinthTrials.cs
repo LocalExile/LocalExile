@@ -103,9 +103,9 @@ static partial class QuestobjectsRules
             [.. all.Where(o => o.Type == LabyrinthTrials.Switch).Select(o => (o.X, o.Y))],
             all.FirstOrDefault(o => o.Type == LabyrinthTrials.IntroDoor) is { } entrance ? (entrance.X, entrance.Y) : default,
             labyrinth ? LabyrinthScratches(conn) : null, all, links);
-        // The Bronze Monograph at the trial's door: an NPCs.dat row on StoryGlyphBase, read like any NPC (its NPCTalk
-        // "Read" row), with the room line's StoryGlyph.ao.
-        var glyphs = all.Where(o => o.Type.StartsWith(LabyrinthTrials.GlyphPrefix, StringComparison.Ordinal)).ToList();
+        // The Bronze Monograph at the trial's door and the Bronze Inscription before Izaro's arena: an NPCs.dat row on
+        // StoryGlyphBase, read like any NPC (its NPCTalk "Read" row), with the room line's StoryGlyph.ao.
+        var glyphs = all.Where(o => LabyrinthTrials.IsGlyph(o.Type)).ToList();
         Console.WriteLine($"[gateway] {remote} {what}: {glyphs.Count} monograph(s) in its rooms");
         foreach (var glyph in glyphs)
         {
@@ -218,7 +218,8 @@ static partial class QuestobjectsRules
         links.AddRange(level.RoomLinks);
         // The tiles' own (the doorways' rollers, the abyss edges' blades) after the rooms', whose indexes the links are.
         return [.. level.RoomObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y,
-            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, o.Code), o.Scale, float.IsNaN(o.Z) ? null : o.Z, o.Code is >= 4 and < 8)),
+            LabyrinthTrials.PlacedAngle(o.Model, o.Rotation, LabyrinthTrials.PlacedMirrored(o.Code, o.Flip)), o.Scale,
+            float.IsNaN(o.Z) ? null : o.Z, LabyrinthTrials.PlacedMirrored(o.Code, o.Flip))),
             .. level.TileLabyrinthObjects.Select(o => new AreaPopulation.RoomObject(o.Type, o.Model, o.X, o.Y, o.Rotation, o.Scale,
                 o.Z == 0 ? null : o.Z, o.Code is >= 4 and < 8))];
     }

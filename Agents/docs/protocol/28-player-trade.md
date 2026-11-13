@@ -86,7 +86,7 @@ containing both inventory saves. Failed settlement leaves both durable inventori
 
 ## 5. Party (live 2026-10-29, two clients in one town)
 
-Invite, accept and leave work. The Social module keeps the parties (`Modules/Core/Player/Social/SocialModule.cs`: `PartyInvites`, `Parties`).
+Invite, accept and leave work. The Social module keeps human and module-owned participants in `Modules/Core/Player/Social/PartyRoster.cs`.
 
 - **S→C 0xa9** (class `0x1435e7740`, read `0x1421a8220`, dispatcher case 0x2a at `0x142152e8c`) has this layout:
   1. u32 party id (`+0x68`);
@@ -104,7 +104,8 @@ Invite, accept and leave work. The Social module keeps the parties (`Modules/Cor
   - the second wstr is an account name in the known players (`0x14216d350` → `0x14216d400`), so both sides get 0xa7 first;
   - `+0x6c` is 0 and `+0x6d` is non-zero.
 
-  The Gateway sends a fresh id per invite, `+0x6d` = 1, and both members with status 0.
+  To reuse an existing party id, discard only the invitee's old known-party entry with 0xaa before the invite.
+  Invitations set `+0x6d` = 1; accepted membership uses the same id with `+0x6d` = 0.
 - **Accept** is C→S 0x95. Accept and Decline call `0x142169480` and `0x1421693e0` (C→S 0x80 with u16 0x200 / 0x100) only
   for a non-empty name; live, Accept sent 0x95. Decline is not answered yet.
 - **The party.** Every member gets 0xa9 with its own `+0x6e`, the leader with status 2 and the others with 1, members by
@@ -152,7 +153,7 @@ Friend notes, ignore lists and account status editing remain separate features.
 
 ## Open
 
-- Party: Decline, kicking and promoting members, a member's disconnect or area change, the party panel's other fields
+- Party: Decline and promoting members, a member's disconnect or area change, the party panel's other fields
   (`+0x6c`, `+0x6f`, the leader's character string), and parties across instances.
 - Friends: notes, ignore lists and account status editing.
 - The exact meaning of 0xa7's other fields (class, league, online state) and of the request option `0x19`.

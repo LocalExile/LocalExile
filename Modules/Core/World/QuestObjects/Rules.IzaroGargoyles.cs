@@ -37,16 +37,17 @@ static partial class QuestobjectsRules
     {
         var gargoyles = IzaroEffects.Of(IzaroGargoyles.Mechanic, arena.Trial.Tier, returning: false);
         for (int i = 0; i < Math.Min(gargoyles.Count, arena.Lifts.Count); i++)
-            if (await SpawnIzaroGargoyle(remote, stream, ciphers, conn, gargoyles[i], arena.Lifts[i].At, null, null) is { } slot)
+            if (await SpawnIzaroGargoyle(remote, stream, ciphers, conn, gargoyles[i], FacingCentre(arena, arena.Lifts[i].At), null, null) is { } slot)
             {
                 slot.Lift = arena.Lifts[i];
                 arena.Gargoyles.Add(slot);
             }
     }
 
-    // A gargoyle as a statue: out of the AI and taking little damage (the original, live: little until its beam starts,
-    // all of it after; how little is ours), never stunned; one an earlier trial left takes none until it comes out (it is
-    // behind its railing). Not kept with the instance (the arena places it again).
+    // A gargoyle as a statue: out of the AI, never stunned, taking no hits until it is up (the original, live: what rises
+    // can be hit only once it has risen), then little damage (live: little until its beam starts, all of it after; how
+    // little is ours); one an earlier trial left takes none until it comes out (it is behind its railing). Not kept with
+    // the instance (the arena places it again).
     static async Task<GargoyleSlot?> SpawnIzaroGargoyle(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         IzaroEffects.Effect effect, AreaPopulation.RoomObject at, string? carried, uint? railing)
     {
@@ -61,7 +62,7 @@ static partial class QuestobjectsRules
         lock (conn.Monsters)
         {
             if (conn.Monsters.GetValueOrDefault(id) is not { } m) return null;
-            (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId) = (double.PositiveInfinity, false, carried is not null, 0);
+            (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId) = (double.PositiveInfinity, false, true, 0);
             m.StunImmuneUntil = double.PositiveInfinity;
             m.EncounterStats = Dormant;
             return new GargoyleSlot(effect, id, m, (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), Emerges.Seconds(variety))
@@ -94,13 +95,16 @@ static partial class QuestobjectsRules
     {
         var carried = arena.Gargoyles.Where(g => g.Carried is not null).ToList();
         foreach (uint railing in carried.Select(g => g.Railing).OfType<uint>().Distinct())
-        {
-            await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(railing, IzaroFights.TransitionableIndex, IzaroFights.RailingDown),
-                .. InstanceEntities.BlockageUpdate(railing, false)], $"0x02bc alcove railing 0x{railing:x} lowers");
-            OpenIzaroDoor(conn, railing);
-        }
+            await LowerIzaroRailing(remote, stream, ciphers, conn, railing);
         foreach (var g in carried)
             await WakeIzaroGargoyle(remote, stream, ciphers, conn, arena, g, IzaroFights.RailingSeconds, "comes out of the alcove");
+    }
+
+    static async Task LowerIzaroRailing(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint railing)
+    {
+        await Send(remote, stream, ciphers, [.. InstanceEntities.TransitionableUpdate(railing, IzaroFights.TransitionableIndex, IzaroFights.RailingDown),
+            .. InstanceEntities.BlockageUpdate(railing, false)], $"0x02bc alcove railing 0x{railing:x} lowers");
+        OpenIzaroDoor(conn, railing);
     }
 
     // The arena's gargoyles rise together with Izaro, stand, then one at a time a beam runs from it to Izaro (the Beam's
@@ -128,8 +132,11 @@ static partial class QuestobjectsRules
             {
                 if (!here()) return;
                 foreach (var g in own)
+                {
+                    g.Monster.EntranceGrace = false;
                     bytes.AddRange([.. LiftState(conn, g.Lift!.Value.Id, g.Lift.Value.At, IzaroFights.Raised),
                         .. InstanceEntities.TransitionableUpdate(g.Id, g.Transitionable, GargoyleRaised)]);
+                }
             }
             await Send(remote, stream, ciphers, [.. bytes], "0x02bc Izaro's gargoyles up");
             await Task.Delay(TimeSpan.FromSeconds(IzaroGargoyles.StandSeconds));

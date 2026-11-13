@@ -210,7 +210,8 @@ These are suggestions that have worked well, for people and agents alike; use yo
   that module and leaves the Gateway running. It compiles against the Gateway's DLL on disk, so a member added only by a
   hot reload is not visible to it until a restart.
 - **A reload wave costs one collection.** Forced collections stop every player's tick, so `UnloadCollector` runs one
-  pass after the last unload or load of a wave. While the game module reloads its old rules keep running, until the new
+  pass after the last unload or load of a wave: rounds half a second apart for as long as they free load contexts (six
+  for a reload of the game module, whose own context goes last). While the game module reloads its old rules keep running, until the new
   ones replace them; the other modules' hooks are absent between their unload and load.
 - **Tests while it runs.** The watched Gateway holds its `bin\` folder; build and test elsewhere, for example
   `dotnet test tests/GameServer.Gateway.Tests --artifacts-path C:\Temp\lx` (Troubleshooting in GettingStarted).

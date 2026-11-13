@@ -27,13 +27,14 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls of the shared defence base. Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence overrides and ES-to-Life conversion. Docs: [13](../docs/protocol/13-items.md) §2,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
-- Gold: per account and league, dropped by monsters and picked up by itself.
+- Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
 - Loot: currency, gems, flasks, equipment and uniques by weight, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
 
+- Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 
 - Character-build previews and imports through the mod SDK; the POB mod and converter are external.
@@ -48,8 +49,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
   Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence rules and local requirement percentages. Docs: [13](../docs/protocol/13-items.md) §2-§2d.
-- Unique items, Mageblood, Headhunter and abyss jewels; most uniques' own mechanics are missing.
-  Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
+- Unique items, Mageblood, Headhunter and abyss jewels; most uniques' own mechanics are missing. Every client unique
+  has a definition (from Path of Building, or the PoE wiki for those it lacks) but the maps, Impossible Escape,
+  watchstones and the six unique Heist contracts. Docs: [13](../docs/protocol/13-items.md) §2e, §8a.
 - Ruthless items, flasks, drops and vendors. Docs: [league modes](../docs/game/league-modes.md).
 - Essence crafting. Docs: [13](../docs/protocol/13-items.md), "Essence crafting".
 - Quiver eligibility: every hand sends its weapon type. Docs: [13](../docs/protocol/13-items.md),

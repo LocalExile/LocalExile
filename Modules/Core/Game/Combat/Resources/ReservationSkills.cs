@@ -226,6 +226,7 @@ public static partial class Game
     static void ReservationArcticTrailLocked(ClientState conn, double now)
     {
         var state = conn.Reservations;
+        state.Trail.RemoveAll(patch => patch.Epoch is int epoch && epoch != conn.ProjectileEpoch);
         foreach (var expired in state.Trail.Where(t => t.Until <= now).ToArray())
         { state.Trail.Remove(expired); if (expired.Object is uint obj) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(obj), null, WorldId: obj, RemovesObject: true)); }
         var arctic = ReservationAura(conn, "ArcticArmour");
@@ -241,16 +242,24 @@ public static partial class Game
         {
             state.NextIce = now + .25;
             var at = conn.Walk.Position(now);
-            uint obj = conn.TakeObjectId();
-            var art = new EffectObject(at.X, at.Y, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao")
-            { Flags0 = EffectObject.FixedRotation, Scale = (float)(4.0 / 23) };
-            conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()), null, WorldId: obj, CreatesObject: true));
-            conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
-            state.Trail.Add(new(at, now + ReservationDuration(conn, arctic, "base_skill_effect_duration", 2500), obj));
+            AddChilledGroundLocked(conn, at, now + ReservationDuration(conn, arctic, "base_skill_effect_duration", 2500),
+                4, "Metadata/Effects/Spells/ground_effects_v3/chilled/chilled_grd_arctic_armour.ao");
         }
         foreach (var m in conn.Monsters.Values)
-            if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= 4))
+            if (m is { Hostile: true, Dead: false, Life: > 0 } && state.Trail.Any(t => Dist(t.At, m.Walk.Position(now)) <= t.Radius))
                 m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .3, now, _ => 0, n => m.Mods.Effects[n], stated: 10);
+    }
+
+    static void AddChilledGroundLocked(ClientState conn, (int X, int Y) at, double until, int radius, string artPath)
+    {
+        if (radius <= 0) return;
+        uint obj = conn.TakeObjectId();
+        var art = new EffectObject(at.X, at.Y, artPath)
+        { Flags0 = EffectObject.FixedRotation, Scale = radius / 23f };
+        conn.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(obj, InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
+            art.Blob()), null, WorldId: obj, CreatesObject: true));
+        conn.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(obj), null, WorldId: obj));
+        conn.Reservations.Trail.Add(new(at, until, obj, radius, conn.ProjectileEpoch));
     }
 
     static byte[] RecallTemporalRiftLocked(ClientState conn)

@@ -21,14 +21,16 @@ public static partial class Game
     // it its Emerge basic action in place, and 0x1ac at once lets the action play: the .act's Emerge clip, from the paused
     // first frame. Meanwhile it is busy (RiseLocked: the clip's length), so the AI only chases and attacks after it.
     // Rising does not wait for the AI (/ai off still lets a /spawn_mob emerge monster rise next to the player); it waits
-    // while the game is paused or the player is dead.
+    // while the game is paused or the player is dead. The watch ends with the rules that started it: what still waits is
+    // the instance's (ClientState.EmergeGround), and after a reload the new rules' SyncInstanceMonsters watches it.
     public static async Task RunEmergeWatch(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
+        var rules = CombatLifetime;
         try
         {
-            while (!conn.Closed)
+            while (!conn.Closed && rules is not { IsActive: false })
             {
-                await Task.Delay(250);
+                await (rules is null ? Task.Delay(250) : Task.Delay(250, rules.Stopping));
                 if (conn.Paused || conn.PlayerLife == 0) continue;
                 double now = conn.Clock.Elapsed.TotalSeconds;
                 List<(uint Id, SpawnedMonster Monster, (int X, int Y) At, double Seconds)> risen;
@@ -52,9 +54,13 @@ public static partial class Game
         {
             // The connection closed while sending.
         }
+        catch (OperationCanceledException) when (rules is { IsActive: false })
+        {
+            // Its rules unloaded.
+        }
         finally
         {
-            // Whoever runs the instance next watches the rest (SyncInstanceMonsters).
+            // Whoever runs the instance next, or the next rules, watches the rest (SyncInstanceMonsters).
             lock (conn.Monsters) MonsterEmerge.StopWatch(conn);
         }
     }

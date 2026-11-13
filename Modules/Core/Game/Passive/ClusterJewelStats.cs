@@ -46,7 +46,7 @@ public static class ClusterJewelStats
     const string KeystonePrefix = "local_jewel_expansion_keystone_";
 
     // The item's local stat and the PassiveSkills ID sometimes use different names.
-    public static PassiveTree.Node? Keystone(Item jewel)
+    public static PassiveTree.Node? Keystone(Item jewel, PassiveTree? tree = null)
     {
         foreach (var (stat, value) in Entries(jewel))
         {
@@ -58,7 +58,7 @@ public static class ClusterJewelStats
                 "veterans_awareness" => "veteran's_awareness",
                 var id => id,
             };
-            if (Program.Passives.FindById("affliction_keystone_" + suffix) is { IsKeystone: true } node) return node;
+            if ((tree ?? Program.Passives).FindById("affliction_keystone_" + suffix) is { IsKeystone: true } node) return node;
         }
         return null;
     }
@@ -95,7 +95,7 @@ public static class ClusterJewelStats
                 switch (layout.ByOffset.GetValueOrDefault(offset))
                 {
                     case ClusterJewelLayout.Kind.Keystone:
-                        if (Keystone(item.Item) is { } keystone)
+                        if (Keystone(item.Item, Game.PassivesFor(conn)) is { } keystone)
                             foreach (var stat in keystone.Stats) yield return stat;
                         break;
                     case ClusterJewelLayout.Kind.Small:

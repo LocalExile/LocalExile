@@ -86,16 +86,17 @@ Nothing yet.
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
-  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Devour, Sacrifice, Spellblade, Hallow and
-  Excommunicate apply too. Sacrifice adds chaos damage at a valid spell release, including projectile hits and poison
+  Immolate, Bloodthirst, Bonechill, Coursing Current, Fist of War, Sacrifice, Spellblade, Hallow and
+  Excommunicate apply too. Devour recovers life/mana and consumes the killing blow's corpse. Sacrifice adds chaos
+  damage at a valid spell release, including projectile hits and poison
   ([25](../docs/protocol/25-gem-supports.md)).
-  Mirage Archer uses a linked bow skill after its arrows hit, including Ice Shot.
+  Mirage Archer uses linked bow skills after arrow hits; owner-only damage restriction changes await a client check.
   Arcane Surge tracks each spell's mana spent and grants its buff; Inspiration gains charges on mana spent; Controlled
   Blaze scales ignite damage and hit damage by enemies ignited recently
   ([25](../docs/protocol/25-gem-supports.md)).
   A real-client Cyclone control accepted the item-support records and displayed blue s/c, red W and white d.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
-  Spell Echo repeats a supported spell's releases and area hits a cast time apart, with its 40% more cast speed
+  Spell Echo repeats supported releases and area hits, including ordinary Ice Nova rings, a cast time apart
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
   Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
   Meat Shield reduces damage taken by supported minions, and Elemental Army scales their elemental damage paths.

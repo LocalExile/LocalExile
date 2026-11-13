@@ -65,7 +65,7 @@ public static partial class Game
         public long Revision, Presented;
     }
 
-    static readonly ConditionalWeakTable<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
+    static readonly RuleTable<ClientState, ConditionalItemPoolState> ConditionalItemPools = new();
 
     // A changed condition must reach the final pools as well as the raw stat dictionary. Compare effective sources:
     // another hit can extend the same four-second window without requiring another pool build.

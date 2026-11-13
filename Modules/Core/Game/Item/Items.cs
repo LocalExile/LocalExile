@@ -237,6 +237,10 @@ public static partial class Game
     public static bool IsNormalJewel(Item item) => Items.ByHash(item.TypeHash) is { Class: "Jewel" or "AbyssJewel" } type
         && !type.Id.StartsWith("Metadata/Items/Jewels/JewelPassiveTreeExpansion", StringComparison.Ordinal);
 
+    /// <summary>A Wildwood charm (ItemClasses AnimalCharm): a single-modifier magic item that goes in one of the
+    /// Primalist's three charm sockets, not in an ordinary jewel socket.</summary>
+    public static bool IsCharm(Item item) => Items.ByHash(item.TypeHash) is { Class: "AnimalCharm" };
+
     /// <summary>The Large Cluster Jewel base type: the only cluster jewel the tree sockets take so far (Voices).</summary>
     public const string LargeClusterJewelId = "Metadata/Items/Jewels/JewelPassiveTreeExpansionLarge";
 
@@ -365,6 +369,18 @@ public static partial class Game
     public static string? PassiveJewelRefusal(ClientState conn, int x, int y, Item? item)
     {
         if (y != 0) return "a passive jewel socket is one cell";
+        if (Passives.CharmNodeForSlot(x) is { } charmNode)
+        {
+            if (item is null) return "no held item";
+            if (ItemsFor(conn).ByHash(item.TypeHash) is not { } charmType) return "unknown item type";
+            if (charmType.Class != "AnimalCharm") return "only a Wildwood charm goes in a charm socket";
+            lock (conn.Monsters)
+                if (!conn.Passives.Contains(charmNode) && !conn.DescendancyNodes.Contains(charmNode))
+                    return "the charm socket is not allocated";
+            int charmNeeds = ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(conn).Mods);
+            return conn.Pools.Level < charmNeeds
+                ? $"{charmType.Name} requires level {charmNeeds} (character is {conn.Pools.Level})" : null;
+        }
         bool expansion = Passives.ClusterNodeForSlot(x) is not null;
         if (!expansion && Passives.JewelNodeForSlot(x) is not { } node) return "not a passive jewel socket";
         if (expansion)
@@ -381,9 +397,14 @@ public static partial class Game
         if (type.Class is not ("Jewel" or "AbyssJewel")) return $"{type.Class} does not go in a passive jewel socket";
         if (!IsNormalJewel(item) && ClusterSize(item) is null) return "that cluster jewel size is not supported yet";
         var jewelMods = ItemsFor(conn).Mods;
-        if (GrandSpectrum.IsSpectrum(item, jewelMods) && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
-            .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= 3)
-            return "only three Grand Spectrum jewels can be socketed";
+        bool spectrum = GrandSpectrum.IsSpectrum(item, jewelMods);
+        if (spectrum)
+        {
+            int limit = ItemsFor(conn).Limits.Get("grand_spectrum", 3);
+            if (limit > 0 && ItemsOf(conn).Items(PlayerInventories.PassiveJewels)
+                .Count(placed => placed.X != x && GrandSpectrum.IsSpectrum(placed.Item, jewelMods)) >= limit)
+                return $"only {limit} Grand Spectrum jewels can be socketed";
+        }
         if (TimelessJewelCatalog.IsTimeless(item, ItemsFor(conn)))
         {
             if (expansion) return "timeless jewels go in an ordinary passive tree socket";
@@ -398,7 +419,8 @@ public static partial class Game
                     : $"only {limit} Historic timeless jewels can be socketed";
             }
         }
-        if (item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
+        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
+        if (!spectrum && radius is not { TattooEffectPct: > 0 } && item.Rarity == ItemRarity.Unique && item.NameWords is [var nameWord])
         {
             var uniques = UniquesFor(conn);
             var limitedJewel = uniques.All.FirstOrDefault(d => d.JewelLimit > 0 && uniques.NameWord(d) == nameWord);
@@ -419,10 +441,13 @@ public static partial class Game
                     : $"only {limit} Impossible Escape can be socketed";
             }
         }
-        var radius = RadiusJewelCatalogue.ReadConversion(item, jewelMods);
-        if (radius is { TattooEffectPct: > 0 } && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Any(placed =>
-            placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }))
-            return "only one Warrior's Tale can be socketed";
+        if (radius is { TattooEffectPct: > 0 })
+        {
+            int limit = ItemsFor(conn).Limits.Get("radius:Warrior's Tale", 1);
+            if (limit > 0 && ItemsOf(conn).Items(PlayerInventories.PassiveJewels).Count(placed =>
+                placed.X != x && RadiusJewelCatalogue.ReadConversion(placed.Item, jewelMods) is { TattooEffectPct: > 0 }) >= limit)
+                return $"only {limit} Warrior's Tale can be socketed";
+        }
         if (expansion && radius is not null)
             return "radius unique jewels go in an ordinary passive tree socket";
         if (RadiusJewelCatalogue.EntryOf(item, ItemsFor(conn).Mods) is { } limited)
@@ -576,12 +601,14 @@ public static partial class Game
     {
         var items = ItemsOf(conn);
         HashSet<ushort> allocated;
-        lock (conn.Monsters) allocated = [.. conn.Passives];
+        lock (conn.Monsters) allocated = [.. conn.Passives, .. conn.DescendancyNodes];
         foreach (var item in items.Items(PlayerInventories.PassiveJewels).ToArray())
         {
-            bool valid = Passives.ClusterNodeForSlot(item.X) is not null
-                ? ClusterSlotOpen(conn, item.X) && JewelFitsCell(item.X, item.Item)
-                : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
+            bool valid = Passives.CharmNodeForSlot(item.X) is { } charmNode
+                ? IsCharm(item.Item) && allocated.Contains(charmNode)
+                : Passives.ClusterNodeForSlot(item.X) is not null
+                    ? ClusterSlotOpen(conn, item.X) && JewelFitsCell(item.X, item.Item)
+                    : Passives.JewelNodeForSlot(item.X) is { } node && allocated.Contains(node) && JewelFitsCell(item.X, item.Item);
             if (valid) continue;
             var removed = items.Remove(PlayerInventories.PassiveJewels, item.Id);
             if (removed is null) continue;
@@ -722,7 +749,7 @@ public static partial class Game
             return;
         }
         var (x, y) = conn.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
-        var ground = new WorldItemObject(x, y, held.Item);
+        var ground = new WorldItemObject(x, y, held.Item) { PlayerDropped = true };
         uint id = conn.Instance.Ground.Add(ground, conn);
         await SendGroundItem(remote, stream, ciphers, conn, id, ground,
             $"0x02bb create world item 0x{id:x} at ({x}, {y})", justDropped: true);
@@ -779,37 +806,12 @@ public static partial class Game
         byte row = toCursor ? PlayerInventories.Cursor : PlayerInventories.MainInventory;
         if (!toCursor && shape.MaxStack > 1)
         {
-            // A stack goes onto the inventory's stacks of its type first, then into free cells; all of it or nothing. Nothing
-            // awaits between the check, the take and the add, and only this connection changes the character's items.
-            PlayerInventories.Stacking stacked;
-            WorldItemObject? rest = null;
-            uint restId = 0;
+            GroundPickup? pickup;
             lock (conn.Monsters)
             {
-                if (HardcoreProgressBlocked(conn)) return;
-                if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf))
-                {
-                    Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: no room in the inventory for {ground.Item.StackSize}");
-                    return;
-                }
-                if (conn.Instance.Ground.Take(id) is null) return;   // already picked up
-                stacked = KeepOnGroundIfNotSaved(conn, ground, () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf));
-                if (stacked.Left > 0)
-                {
-                    // Fits said yes, so this is not expected; the rest goes back on the ground rather than vanish.
-                    rest = new WorldItemObject(ground.GridX, ground.GridY, ground.Item with { StackSize = (ushort)stacked.Left });
-                    restId = conn.Instance.Ground.Add(rest, conn, shared: true, justDropped: false);
-                }
+                if (HardcoreProgressBlocked(conn) || (pickup = TakeGroundStack(conn, id, ground)) is null) return;
             }
-            if (rest is not null)
-            {
-                Console.WriteLine($"[gateway] {remote} world item 0x{id:x}: {stacked.Left} didn't fit, back on the ground as 0x{restId:x}");
-                await SendWorldCreate(remote, stream, ciphers, conn, restId, InstanceEntities.CreateObject(restId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
-                    $"0x02bb create world item 0x{restId:x} (the rest of 0x{id:x})");
-            }
-            await Game.SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (picked up from ({stop.X}, {stop.Y}))");
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), stacked.RemovedIds, stacked.AddedItems),
-                $"0x00bf inventory 1: {ground.Item.StackSize} picked up ({stacked.Changed.Count} stack(s) grown, {stacked.Added.Count} new)");
+            await SendPickup(remote, stream, ciphers, conn, id, pickup);
             return;
         }
         InventoryItem? placed;
@@ -879,23 +881,71 @@ public static partial class Game
                     > SystemSettings.Default.GoldAutoLootRadius) return null;
                 var (by, shared) = conn.Instance.Ground.Origin(id);
                 if (!shared && !ReferenceEquals(by, conn)) return null;
-                if (conn.Instance.Ground.Take(id, ground) is null) return null;
-                uint total = KeepOnGroundIfNotSaved(conn, ground,
-                    () => PersonalStashOf(conn).AddGold(ground.Item.StackSize), id);
+                if (TakeGroundStack(conn, id, ground) is not { } pickup) return null;
                 conn.SeenGround.Remove(id);
-                return [.. InstanceProtocol.RemoveObject(id), .. InstanceEntities.Gold(total)];
+                return [.. InstanceProtocol.RemoveObject(id), .. pickup.Update];
             }
         });
+    }
+
+    public sealed record GroundPickup(byte[] Update, string Log, uint RestId = 0, WorldItemObject? Rest = null);
+
+    public static async Task SendPickup(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
+        uint id, GroundPickup pickup)
+    {
+        if (pickup.Rest is { } rest)
+            await SendWorldCreate(remote, stream, ciphers, conn, pickup.RestId,
+                InstanceEntities.CreateObject(pickup.RestId, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), rest.Blob()),
+                $"0x02bb create remainder 0x{pickup.RestId:x} from 0x{id:x}");
+        await SendWorldRemoval(remote, stream, ciphers, conn, id, $"0x02bd remove world item 0x{id:x} (pickup)");
+        await Send(remote, stream, ciphers, pickup.Update, pickup.Log);
+    }
+
+    // Commits the visible gold or stack once. The caller checks reach and sends the captured update after the lock.
+    public static GroundPickup? TakeGroundStack(ClientState conn, uint id, WorldItemObject ground)
+    {
+        lock (conn.Monsters)
+        {
+            var origin = conn.Instance.Ground.Origin(id);
+            if ((!origin.Shared && !ReferenceEquals(origin.By, conn)) || HardcoreProgressBlocked(conn)) return null;
+            if (!IsGold(ground) && ShapeOf(ground.Item) is not { MaxStack: > 1 }) return null;
+            if (IsGold(ground))
+            {
+                if (conn.Instance.Ground.Take(id, ground) is null) return null;
+                uint total = KeepOnGroundIfNotSaved(conn, ground,
+                    () => PersonalStashOf(conn).AddGold(ground.Item.StackSize), id, origin);
+                return new(InstanceEntities.Gold(total), $"0x02aa gold: {total} (+{ground.Item.StackSize})");
+            }
+            var items = ItemsOf(conn);
+            if (!items.Fits(PlayerInventories.MainInventory, ground.Item, ShapeOf)
+                || conn.Instance.Ground.Take(id, ground) is null) return null;
+            var stacked = KeepOnGroundIfNotSaved(conn, ground,
+                () => items.AddStacked(PlayerInventories.MainInventory, ground.Item, ShapeOf), id, origin);
+            WorldItemObject? rest = null;
+            uint restId = 0;
+            if (stacked.Left > 0)
+            {
+                rest = ground with { Item = ground.Item with { StackSize = (ushort)stacked.Left } };
+                restId = conn.Instance.Ground.Add(rest, origin.By, shared: origin.Shared, justDropped: false);
+            }
+            return new(InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+                items.NextRevision(PlayerInventories.MainInventory), stacked.RemovedIds, stacked.AddedItems),
+                "pickup inventory", restId, rest);
+        }
     }
 
     // A pickup whose save fails puts the item back on the ground before the error closes the connection: it left the ground
     // first, and the items are loaded again as saved (Saves).
     public static T KeepOnGroundIfNotSaved<T>(ClientState conn, WorldItemObject ground, Func<T> pickUp, uint? originalId = null)
+        => KeepOnGroundIfNotSaved(conn, ground, pickUp, originalId, (null, true));
+
+    static T KeepOnGroundIfNotSaved<T>(ClientState conn, WorldItemObject ground, Func<T> pickUp, uint? originalId,
+        (object? By, bool Shared) origin)
     {
         try { return pickUp(); }
         catch
         {
-            if (originalId is uint id) conn.Instance.Ground.Restore(id, ground);
+            if (originalId is uint id) conn.Instance.Ground.Restore(id, ground, origin.By, origin.Shared);
             else conn.Instance.Ground.Add(ground, conn);
             throw;
         }
@@ -917,7 +967,7 @@ public static partial class Game
                 return;
             }
             Console.WriteLine($"[gateway] {remote} <= 0x007c split {split} in stash tab {tab}" + (left is null ? " (the whole stack: picked up)" : ""));
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(split.InventoryId, stash.NextRevision(tab), [left?.Id ?? part.Id], left is null ? [] : [left], stash.IsGuild ? InstanceStash.GuildManager : (byte)0),
+            await SendTabChange(remote, stream, ciphers, conn, stash, tab, [left?.Id ?? part.Id], left is null ? [] : [left],
                 left is null ? $"0x00bf stash tab {tab}: remove item {part.Id}" : $"0x00bf stash tab {tab}: stack {left.Id} now {left.Item.StackSize}");
             await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
                 items.NextRevision(PlayerInventories.Cursor), [], [part]), $"0x00bf cursor: hold {part.Item.StackSize} as item {part.Id}");
@@ -1208,16 +1258,17 @@ public static partial class Game
         if (stashTab is not null || targetTab is not null)
         {
             // The stash is in it (currency from a tab, or the target in one): one transaction, then one 0xbf per place changed
-            // (one for both when they share it), removing and adding the same ids as the client needs.
+            // (one for both when they share it), removing and adding the same ids as the client needs. A tab the panel
+            // shows again after a tab switch unloaded it is loaded again first (SendTabChange, #710).
             if (ItemMoves.UseAcross(items, stash, new(stashTab, usedRow, used.Id), new(targetTab, targetRow, target.Id), _ => result)
                 is not var (left, changedItem)) return;
             identified = changedItem;
-            byte manager = stash.IsGuild ? InstanceStash.GuildManager : (byte)0;
-            async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what) =>
-                await Send(remote, stream, ciphers, tab is int t
-                    ? InstanceItems.InventoryChange(stash.InventoryOf(t), stash.NextRevision(t), gone, now, manager)
-                    : InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
-                    $"0x00bf {(tab is int st ? $"stash tab {st}" : $"inventory {PlayerInventories.InventoryId(row)}")}: {what}");
+            async Task SendPlace(int? tab, byte row, List<uint> gone, List<InventoryItem> now, string what)
+            {
+                if (tab is int t) await SendTabChange(remote, stream, ciphers, conn, stash, t, gone, now, $"0x00bf stash tab {t}: {what}");
+                else await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), gone, now),
+                    $"0x00bf inventory {PlayerInventories.InventoryId(row)}: {what}");
+            }
             List<InventoryItem> usedNow = left is { } l ? [l] : [];
             if (stashTab == targetTab && (stashTab is not null || usedRow == targetRow))
                 await SendPlace(targetTab, targetRow, [used.Id, target.Id], [.. usedNow, identified], $"item {target.Id} changed, {type!.Name} used");

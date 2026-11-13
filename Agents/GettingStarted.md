@@ -67,7 +67,11 @@ runs under Proton, through [umu-launcher](https://github.com/Open-Wine-Component
   `GAMEID` (default `umu-238960`), `Game_CLIENT_RUNNER` (default `umu-run`), and anything else in the shell. On a laptop
   with two GPUs, `__NV_PRIME_RENDER_OFFLOAD=1 __VK_LAYER_NV_optimus=NVIDIA_only __GLX_VENDOR_LIBRARY_NAME=nvidia` picks
   an NVIDIA GPU.
-- Not on Linux yet: `-Walkmaps`, and named `-Session`, `-Nullifier` and `-Agent` clients. They stop with a message;
+- `-Walkmaps` on Linux x86_64 needs `g++` on its first run. It downloads the pinned official Frida GumJS development
+  kit (SHA-256 checked) and builds a helper in ignored `Tools/frida/`. No Python Frida package is needed on Linux.
+  Recording must start with the client; to enable it for an existing client, use `-Stop -ClientOnly`, then
+  `-ClientOnly -Walkmaps`. Restart the Gateway with `-Only Gateway -Walkmaps` if it was started without recording.
+- Not on Linux yet: named `-Session`, `-Nullifier` and `-Agent` clients. They stop with a message;
   with `-NoClient` the servers start as usual.
 
 ### Third-party tools (only to extend the server)

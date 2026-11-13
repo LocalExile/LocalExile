@@ -7,7 +7,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    public static readonly ConditionalWeakTable<ClientState, FortificationSession> FortificationSessions = new();
+    public static readonly RuleTable<ClientState, FortificationSession> FortificationSessions = new();
     public static readonly ConcurrentDictionary<uint, (DateTime At, FortificationState.Transfer State)> CarriedFortification = new();
     public static FortificationSession FortificationOf(ClientState conn) =>
         FortificationSessions.GetValue(conn, _ => new());

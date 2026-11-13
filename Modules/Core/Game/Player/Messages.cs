@@ -331,6 +331,8 @@ public static partial class Game
                 await ChooseLabyrinth(remote, stream, ciphers, conn, bytes[2]);
             else if (id == InstanceWaypoints.AscendancyChosenId && bytes.Length >= InstanceWaypoints.AscendancyChosenLength)
                 await ChooseAscendancyClass(remote, stream, ciphers, conn, bytes[2]);
+            else if (id == InstanceWaypoints.DescendancyChosenId && bytes.Length >= InstanceWaypoints.DescendancyChosenLength)
+                await ChooseDescendancy(remote, stream, ciphers, conn, bytes[2]);
             else if (id == InstanceProtocol.UseInstantSkillAtLocationId)
             {
                 var (x, y, skill) = InstanceProtocol.ReadUseInstantSkillAtLocation(bytes);
@@ -376,7 +378,10 @@ public static partial class Game
                 if (u2 == 0 && u6 != 0)
                     await ChangeClusterPassive(remote, stream, ciphers, conn, node, allocate: true);
                 else if (u2 == 0)
-                    await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree");
+                {
+                    string? error = await ChangePassives(remote, stream, ciphers, conn, [node], allocate: true, "Passive Skill Tree");
+                    if (error is not null) await conn.Commands!.Reply(error);
+                }
                 else
                 {
                     Console.WriteLine($"[gateway] {remote} allocation refused: 32-bit passive ids are not supported");
@@ -398,9 +403,15 @@ public static partial class Game
                 else if (!expansion && node <= ushort.MaxValue)
                 {
                     if (gold)
-                        await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Respecialisation", goldRespec: true);
+                    {
+                        string? error = await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Respecialisation", goldRespec: true);
+                        if (error is not null) await conn.Commands!.Reply(error);
+                    }
                     else
-                        await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Refund points", refundPoints: true);
+                    {
+                        string? error = await ChangePassives(remote, stream, ciphers, conn, [(ushort)node], allocate: false, "Refund points", refundPoints: true);
+                        if (error is not null) await conn.Commands!.Reply(error);
+                    }
                 }
                 else
                 {
@@ -727,7 +738,7 @@ public static partial class Game
                         await conn.Commands!.Reply(ServerLevels.UnsupportedMessage);
                     await GameEvents.RunAreaGenerated(conn);
                     ActivateResourceEffects(conn, ProjectileWorldTime(conn));
-                    _ = RunLockstepFrames(remote, stream, ciphers, conn);
+                    StartWorldFrames(remote, stream, ciphers, conn);
                     Program.ActivatePlayerUpdates(conn);
                     _ = conn.RampageWorld;
                     lock (conn.Monsters)

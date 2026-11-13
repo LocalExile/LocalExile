@@ -174,10 +174,10 @@ public static class InstanceEntities
     /// </summary>
     public static byte[] CharacterPassives(byte level, byte classByte, IReadOnlyList<ushort>? nodes = null, ushort questPoints = 0,
         ushort refundPoints = 0, ushort ascendancyPoints = 0, IReadOnlyDictionary<ushort, ushort>? masteryEffects = null,
-        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null)
+        IReadOnlyList<ushort>? clusterNodes = null, IReadOnlyDictionary<ushort, ushort>? tattoos = null, byte descendancy = 0)
     {
         var w = new LoginWriter().U16(CharacterPassivesId).U16(refundPoints).U16(questPoints).U16(ascendancyPoints)
-            .U8(level).U8(classByte).U8(0).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
+            .U8(level).U8(classByte).U8(descendancy).U8(0).U16(checked((ushort)(nodes?.Count ?? 0)));
         foreach (ushort n in (nodes ?? []).Order()) w.U8((byte)n).U8((byte)(n >> 8));
         // The second list stays empty; the cluster jewel nodes of the expansion cells (the client's own small ids,
         // not PassiveSkillGraphIds) go in the third, which is where the client looks for them.
@@ -625,9 +625,14 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     MonsterRarity Rarity = MonsterRarity.Normal, string? Name = null, StateMachineData? StateMachine = null, byte TransitionState = 1,
     ushort Team = 1, IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null)
 {
+    // An instance keeps its monsters' records for the clients that come later: their lists are the record's own (Owned).
+    public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
+    public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
+    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
+
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
-    public IReadOnlyList<VisibleItem>? Equipped { get; init; }
+    public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
 
@@ -722,11 +727,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>The monster's mods in ObjectMagicProperties' lists (Gateway MonsterModCatalog): the rarity's own mods
     /// and the rolled affixes, one value per stat of each Mods.dat row.</summary>
-    public IReadOnlyList<ItemMod> Mods { get; init; } = [];
+    public IReadOnlyList<ItemMod> Mods { get; init => field = Owned.List(value); } = [];
 
     /// <summary>A rare monster's name: Words.dat HASH32 keys (flags bit 8), prefix then suffix; a custom
     /// <see cref="Name"/> wins.</summary>
-    public IReadOnlyList<uint> NameWords { get; init; } = [];
+    public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
 }
 
 /// <summary>
@@ -740,6 +745,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 /// </summary>
 public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<string>? Components = null, StateMachineData? StateMachine = null)
 {
+    public IReadOnlyList<string>? Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public static readonly string[] BaseComponents = ["Positioned", "Stats", "Pathfinding", "Buffs", "Life", "Animated", "Actor", "PetAi"];
 
     static readonly HashSet<string> Extras = ["StateMachine", "Functions", "BaseEvents"];
@@ -996,6 +1002,8 @@ public sealed record BlockerObject(int GridX, int GridY, float Rotation, float S
 /// define_shared_timer entries (scripts/re/ot_components.py "shared_states" / "shared_timers").</summary>
 public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int SharedTimers, IReadOnlyList<string>? Names = null)
 {
+    public IReadOnlyList<int> SharedStates { get; init => field = Owned.List(value); } = Owned.List(SharedStates);
+    public IReadOnlyList<string>? Names { get; init => field = Owned.List(value); } = Owned.List(Names);
     /// <summary>States the server set (<see cref="Set"/>): sent with flags 0x02, which makes the client keep the sent
     /// value (the update reader 0x141e42a90 takes the type's default for a flag-0 state the client controls).</summary>
     public IReadOnlySet<int> Overridden { get; init; } = new HashSet<int>();
@@ -1037,12 +1045,13 @@ public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int Share
 /// CooldownMs is the skill's cooldown, which the client takes from the record, not from the data.</summary>
 public sealed record GrantedSupport(uint EffectsPerLevelRow, uint StatSetsPerLevelRow, uint Source = 0)
 {
-    public IReadOnlyList<uint> ExtraStatSets { get; init; } = [];
+    public IReadOnlyList<uint> ExtraStatSets { get; init => field = Owned.List(value); } = [];
 }
 
 public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatSetsPerLevelRow,
     IReadOnlyList<(uint Key, int Value)>? Stats = null, uint CooldownMs = 0)
 {
+    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
     public (uint Object, ushort Skill)? Parent { get; init; }
     /// <summary>The record's u8 → skill +0xcc: the charge the client lets the skill spend while it cools down
     /// (GrantedEffectsPerLevel CooldownBypassType: 1 Endurance, 2 Frenzy, 3 Power; 0x141ea4290, 0x141ea4560). At 0
@@ -1051,11 +1060,11 @@ public sealed record GrantedSkill(ushort Id, uint EffectsPerLevelRow, uint StatS
     /// <summary>Skill-record bit1 (0x02): retain native GEPL Vaal soul inputs, regardless of current cost or balance.</summary>
     public bool VaalResourcesEnabled { get; init; }
     /// <summary>Native support references (GEPL row and source metadata), read by 0x14219d650.</summary>
-    public IReadOnlyList<GrantedSupport> Supports { get; init; } = [];
+    public IReadOnlyList<GrantedSupport> Supports { get; init => field = Owned.List(value); } = [];
     /// <summary>The effect's additional stat sets (GrantedEffects StatSet2, e.g. Volcanic Fissure's), in order: each one's
     /// GrantedEffectStatSetsPerLevel row and stats. The record must carry one of each per set, or the client misreads it
     /// (and crashed, live 2026-10-23).</summary>
-    public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init; } = [];
+    public IReadOnlyList<(uint Row, IReadOnlyList<(uint Key, int Value)> Stats)> ExtraStatSets { get; init => field = Owned.Lists(value); } = [];
 }
 
 /// <summary>One ordinary stored-use budget; the native duration is base time, not wall time.</summary>
@@ -1106,6 +1115,14 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
     ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
 {
+    // The connection keeps its player's record: its lists are the record's own (Owned).
+    public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
+    public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
+    public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); } = Owned.List(Equipped);
+    public IReadOnlyCollection<int>? QuestFlags { get; init => field = Owned.Collection(value); } = Owned.Collection(QuestFlags);
+    public IReadOnlyCollection<int>? LeagueQuestFlags { get; init => field = Owned.Collection(value); } = Owned.Collection(LeagueQuestFlags);
+    public IReadOnlyList<VaalSoulBudget>? Souls { get; init => field = Owned.List(value); } = Owned.List(Souls);
+
     /// <summary>Start in the client's washed-up beach state, which handles lying down and getting up on input.</summary>
     public bool WashedUp { get; init; }
     public float Rotation { get; init; }
@@ -1117,6 +1134,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
     public byte PantheonMajor { get; init; }
     public byte PantheonMinor { get; init; }
+
+    /// <summary>The Descendancy.dat row the client's tree panel draws as the second ascendancy layer (Player +0x1b0):
+    /// Affliction's Wildwood specialisations and the 3.29 Bloodline classes, 0 = none.</summary>
+    public byte Descendancy { get; init; }
 
     /// <summary>The Inventories component's index in the player object's component order (04 §3).</summary>
     public const byte InventoriesComponentIndex = 8;
@@ -1184,7 +1205,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U8((byte)(WashedUp ? 1 : 0)) // +0x1b1 (non-zero → "WashedUp" state)
          .U8(PantheonMajor)  // +0x1ae: the major Pantheon god, PantheonPanelLayout row + 1 (0 = none; campaign/pantheon.md §5)
          .U8(PantheonMinor)  // +0x1ad: the minor god, the same way
-         .U8(0).U8(0).U8(0)  // +0x1b0, +0x1af, +0x238
+         .U8(Descendancy)    // +0x1b0: the Descendancy.dat row (the Bloodline/Wildwood second ascendancy layer, 0 = none)
+         .U8(0)              // +0x1af
+         .U8(0)              // +0x238
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears

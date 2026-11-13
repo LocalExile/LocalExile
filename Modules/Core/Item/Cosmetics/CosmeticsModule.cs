@@ -16,6 +16,7 @@ public sealed class CosmeticsModule : IModule
         {
             return CosmeticsFeature.SpawnPets(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, conn);
         });
+        GameEvents.Tick.Add(module.Manifest.Id, (conn, _) => CosmeticsFeature.StepPetFollow(conn));
         GameEvents.Packet(InstanceMicrotransactions.RequestId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             var asked = InstanceMicrotransactions.ReadRequest(bytes);
@@ -36,7 +37,7 @@ public sealed class CosmeticsModule : IModule
     }
 }
 
-static class CosmeticsFeature
+public static class CosmeticsFeature
 {
     // The Microtransactions panel, the store and the hideout picker ask for their lists with C→S 0x1f2 and show "Loading…"
     // until each one arrives (23-microtransactions.md). Every account owns every microtransaction; the hideout and guild
@@ -131,7 +132,7 @@ static class CosmeticsFeature
     }
 
     // The worn pets (Pet slots 18 and 19): one PetObject each beside the player, owned by it (PetAi). A pick removes the
-    // old ones first. RunPetFollow walks them after the player.
+    // old ones first. StepPetFollow walks them after the player.
     internal static async Task SpawnPets(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         List<uint> old;
@@ -156,7 +157,6 @@ static class CosmeticsFeature
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
             lock (conn.Pets) conn.Pets[id] = new SpawnedPet(conn.NewWalk(x, y, conn.Walk.Speed), worn.Slot == 18 ? 1 : -1);
         }
-        if (!conn.PetFollowRunning) { conn.PetFollowRunning = true; _ = RunPetFollow(remote, stream, ciphers, conn); }
     }
 
     // Where a pet stands by the player: PetDistance cells to the player's side (side +1 or −1, the two Pet slots), on the
@@ -167,34 +167,52 @@ static class CosmeticsFeature
         return conn.Layout.Walkable is { } w && !w(spot.X, spot.Y) ? player : spot;
     }
 
-    // Pets follow the player: when one is farther than PetFollowRange from the player it walks (0x1ab Move, as monsters do)
-    // to its spot beside the player, which keeps it near but never on top of the player. Ends with the connection.
-    internal static async Task RunPetFollow(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
+    // One finite walk. Ordinary following resumes after arrival, including when the caller has gone away.
+    public static Task<bool> WalkPetTo(ClientState conn, uint id, (int X, int Y) to, Func<bool>? still = null) =>
+        global::Game.SendWorldRecord(conn, id, () =>
+        {
+            lock (conn.Pets)
+            {
+                if (conn.Closed || conn.LeavingArea || conn.Paused || !conn.Pets.TryGetValue(id, out var pet)) return null;
+                pet.Target = null; // No owner-follow destination while this walk is running.
+                return PetMove(conn, id, pet, to, conn.Clock.Elapsed.TotalSeconds);
+            }
+        }, still: still);
+
+    static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now)
     {
-        const ushort Move = 0x2909;
+        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
+        var from = pet.Walk.Order(to.X, to.Y, now);
+        return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
+    }
+
+    // Pets follow the player, every player tick (GameEvents.Tick): when one is farther than PetFollowRange from the player
+    // it walks (0x1ab Move, as monsters do) to its spot beside the player, which keeps it near but never on top of the
+    // player. On the tick rather than a loop of the module's own, so a reload's new module walks them and the old one stops.
+    internal static async Task StepPetFollow(ClientState conn)
+    {
         try
         {
-            while (!conn.Closed)
-            {
-                await Task.Delay(PlayerTickMs);
-                if (conn.Paused) continue;
-                double now = conn.Clock.Elapsed.TotalSeconds;
-                var player = conn.Walk.Position(now);
-                var orders = new List<(uint Id, (int X, int Y) From, (int X, int Y) To)>();
-                lock (conn.Pets)
-                    foreach (var (id, pet) in conn.Pets)
-                    {
-                        var here = pet.Walk.Position(now);
-                        if (Dist(here, player) <= PetFollowRange) continue;
-                        var to = PetSpot(conn, player, pet.Side);
-                        if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
-                        pet.Target = to;
-                        pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
-                        orders.Add((id, pet.Walk.Order(to.X, to.Y, now), to));
-                    }
-                foreach (var (id, from, to) in orders)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, Move, 0xffff, 0x0408), null);
-            }
+            double now = conn.Clock.Elapsed.TotalSeconds;
+            var player = conn.Walk.Position(now);
+            var orders = new List<(uint Id, (int X, int Y) To, byte[] Move)>();
+            lock (conn.Pets)
+                foreach (var (id, pet) in conn.Pets)
+                {
+                    if (pet.Target is null && now <= pet.Walk.ArrivesAt + PlayerTickMs / 1000d) continue;
+                    var here = pet.Walk.Position(now);
+                    if (Dist(here, player) <= PetFollowRange) continue;
+                    var to = PetSpot(conn, player, pet.Side);
+                    if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
+                    pet.Target = to;
+                    orders.Add((id, to, PetMove(conn, id, pet, to, now)));
+                }
+            var (remote, stream, ciphers) = conn.Wire;
+            foreach (var (id, to, move) in orders)
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, id, [], null, atGate: () =>
+                {
+                    lock (conn.Pets) return conn.Pets.TryGetValue(id, out var pet) && pet.Target == to ? move : null;
+                });
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
         {

@@ -47,7 +47,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Movement speed and action speed. Docs: [07](../docs/protocol/07-latency-visibility-movement.md) §3.
 - Block and Spell Block. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Endurance, Frenzy, Power, converted and Blood Charges. Docs: [11](../docs/protocol/11-skills.md) §15.
+- Endurance, Frenzy, Power, converted and Blood Charges, including Reap's life cost and mixed-target hits. Docs: [11](../docs/protocol/11-skills.md) §15.
 - Discharge and Discharge of Misery. Docs: [11](../docs/protocol/11-skills.md) §15.
 - Character panel sums. Docs: [11](../docs/protocol/11-skills.md) §14.
 - Character-panel leech limits and hit leech. Docs: [20](../docs/protocol/20-damage.md) §5b.
@@ -127,15 +127,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Passive-granted footstep skill (Abberath's Fury). Docs: [11](../docs/protocol/11-skills.md) §12.
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
-  over time and burst.
+  over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
-- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and Frostblink. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
+- Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps.
   Docs: [11](../docs/protocol/11-skills.md) §10h.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) §12.
-- Totems: Rejuvenation, projectile spells and ballistas; placement validates the linked source again at release.
+- Totems: Rejuvenation, Arc, projectile spells and ballistas; placement validates the linked source again at release.
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) §12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) §8a.
