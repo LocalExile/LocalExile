@@ -910,6 +910,8 @@ public static partial class Game
             return await CastMinionUtility(conn, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && GolemData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(remote, stream, ciphers, conn, skillId, golem, to, recoveryGeneration, Current);
+        if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "LightningWarp")
+            return ScheduleLightningWarp(remote, stream, ciphers, conn, gem, to, Current, criticalRoll);
         if (gem.Name is not null && SummonData.Find(SkillsFor(conn).EffectId(gem.Effect)) is { } summon)
             return await CastSummon(remote, stream, ciphers, conn, skillId, summon, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && SkillsFor(conn).EffectId(gem.Effect) == "Desecrate")

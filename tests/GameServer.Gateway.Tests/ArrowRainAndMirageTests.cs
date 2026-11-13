@@ -5,12 +5,34 @@ namespace GameServer.Gateway.Tests;
 
 public class ArrowRainAndMirageTests
 {
+    [Theory]
+    [InlineData("Blink Arrow", true)]
+    [InlineData("Mirror Arrow", false)]
+    public async Task Arrow_clone_and_owner_land_at_their_respective_positions(string name, bool blink)
+    {
+        using var b = new Battle(name);
+        var c = b.Conn;
+        c.Clock.Start();
+        var gem = Game.GemSkillEffects(c).Single();
+        Assert.False(Game.LandsAtAim(c, gem.Effect));
+        var origin = c.Walk.Position(Game.AreaTime(c));
+        var aim = (origin.X + 24, origin.Y);
+        Assert.True(Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, Game.CooldownForSkill(c, gem.Id), false,
+            () => c.ActionCount++, out var paid));
+        Assert.True(await Game.CastGemSkill("clone", b.Stream, b.Ciphers, c, gem.Id, origin, aim, cooldownUse: paid));
+        var clone = Assert.Single(c.Summons.Fighters.Values);
+        Assert.Equal(blink ? origin : aim, clone.Monster.Walk.Position(Game.AreaTime(c)));
+        Assert.Equal(blink ? aim : origin, c.Walk.Position(Game.ProjectileWorldTime(c)));
+    }
+
     sealed class Battle : IDisposable
     {
         readonly IGameLogic? previous = Program.GameLogicOrNull;
         readonly GameServer.Modding.IModuleLifetime? previousLifetime = Game.CombatLifetime;
         readonly ModuleLifetime lifetime = new("Game");
         readonly SpellTotemExecutionTests.Wire wire = new();
+        public System.Net.Sockets.NetworkStream Stream => wire.Stream;
+        public GameServer.Core.Protocol.Login.ConnectionCiphers Ciphers => wire.Ciphers;
         public readonly ClientState Conn;
         public readonly Game.ProjectileSession Session;
         public readonly SpawnedMonster Enemy = new("target", new(120, 100, 0), 0, 0, 100000) { Hostile = true };

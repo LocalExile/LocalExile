@@ -206,6 +206,31 @@ public class SacrificeSupportTests
         Assert.Equal(2, conn.Reservations.Trail.Count);
     }
 
+    [Fact]
+    public async Task Lightning_warp_moves_at_release_and_hits_both_endpoints()
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("LightningWarp");
+        var c = fixture.Conn;
+        var gem = Game.GemSkillEffects(c).Single(g => g.Gem != 0);
+        c.Walk.Teleport(100, 100, 0);
+        c.Walk.SetSpeed(40, 0);
+        foreach (var (id, x) in new[] { (301u, 100), (302u, 160), (303u, 130) })
+            c.Monsters[id] = new("warp target", new(x, 100, 0), 0, 0, 100000) { Hostile = true };
+        Assert.False(Game.LandsAtAim(c, gem.Effect));
+        Assert.True(await Game.CastGemSkill("warp", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (160, 100)));
+        Assert.Equal((100, 100), c.Walk.Position(0));
+        double start = Math.Max(c.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(c));
+        fixture.Session.AdvanceTo(ProjectileRuntime.Time(start + 4));
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Session.Enqueue(() => { sent.SetResult(); return Task.CompletedTask; });
+        await sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal((160, 100), c.Walk.Position(start + 4));
+        Assert.True(c.Monsters[301].Life < 100000);
+        Assert.True(c.Monsters[302].Life < 100000);
+        Assert.Equal(100000u, c.Monsters[303].Life);
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"sacrifice-{Guid.NewGuid():N}.db");

@@ -134,6 +134,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
+- Blink Arrow leaves its clone at departure. Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps.
