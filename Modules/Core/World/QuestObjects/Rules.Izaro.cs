@@ -253,7 +253,8 @@ static partial class QuestobjectsRules
             // An Izaro already up in this instance (a player who died and came back through the corridor, or a second
             // connection into the same instance) is taken down first: one Izaro, one life bar, one set of shutting doors
             // and one death belong to one fight (live 2026-11-11: two of him, both chasing the player).
-            foreach (uint stale in LeftoverIzaro(conn, trial))
+            // Highest id first: the Goddess on his back was created after him and goes before him, as when he leaves.
+            foreach (uint stale in LeftoverIzaro(conn, trial).OrderByDescending(i => i))
             {
                 await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
                 // The others in the instance see him too: each gets its own bytes (a send encrypts them in place).
@@ -332,7 +333,9 @@ static partial class QuestobjectsRules
                 }
                 if (dead)
                 {
-                    if (!trial.Last || retired) return;   // gone some other way: the trial is not won
+                    // Gone some other way: the trial is not won. A retired fight's mechanics stop with it.
+                    if (retired) lock (conn.Monsters) mechanics.Over = true;
+                    if (!trial.Last || retired) return;
                     Console.WriteLine($"[gateway] {remote} {what}: Izaro 0x{izaro:x} dies");
                     string? finish = await EndIzaroMechanics(remote, stream, ciphers, conn);
                     _ = IzaroGoddessFliesUp(remote, stream, ciphers, conn, mechanics);
