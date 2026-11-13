@@ -1290,7 +1290,10 @@ and absorbs its non-chaos self-damage through ES before life. Special keystones 
 not included (CI, Zealot's Oath, Wicked Ward, leech and related substitutions).
 Eldritch Battery: with only `keystone_eldritch_battery` sent, the client spent Mana on costs and drew ES over Life
 (live 2026-11-13); network stats run no calculator, so the Gateway sends its derived
-`virtual_spend_energy_shield_for_costs_before_mana` and `virtual_energy_shield_protects_mana` (not checked live yet). Only the ordinary hit path routes around ES for it;
+`virtual_spend_energy_shield_for_costs_before_mana` and `virtual_energy_shield_protects_mana`. Its client spends its
+own ES on costs and refills it only with a recharge rate to predict, so for it the Gateway sends the rate whenever its
+recharge would run, full or not; at full with no rate the globe stayed below full after a cast (live 2026-11-13).
+The ES it pays a Mana cost with is not Mana spent (a player's 2025 test: Indigon did not count it). Only the ordinary hit path routes around ES for it;
 trial traps and Sirus's damage still spend ES first.
 The native rolled base rounds before local modifiers; the final item ES rounds after local increases and quality.
 This avoids the former intermediate truncation: Simple Robe roll 16, 50% local ES and 20 quality yields 31 ES.

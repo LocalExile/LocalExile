@@ -389,7 +389,8 @@ public static partial class Game
     // Blood's base life cost while it runs and the player is not on Low Life. Lifetap Support replaces the whole
     // mana cost with Life. An Energy Shield cost (es_cost) is paid from Energy Shield, and Eldritch Battery pays the
     // Mana cost from what Energy Shield is left before Mana. False when the player lacks the pool it actually uses.
-    // cost is what Mana paid; the Mana spent (ManaSpentLocked) is the whole Mana cost, the part Energy Shield paid included.
+    // cost is what Mana paid, and only that is Mana spent (ManaSpentLocked: Ravenous Passion's Rage, recoup): the part
+    // Energy Shield paid is not (a player's test, 2025: Indigon did not count it; no official statement found).
     public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var supported = SupportedSkill(conn, skillId);
@@ -418,8 +419,8 @@ public static partial class Game
                 lifeCost = (uint)life;
                 Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
-            ManaSpentLocked(conn, manaCost, player);
-            SupportManaSpentLocked(conn, skillId, own, manaCost, conn.Clock.Elapsed.TotalSeconds);
+            ManaSpentLocked(conn, cost, player);
+            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
