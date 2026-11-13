@@ -167,9 +167,7 @@ static class PortalsFeature
             $"0x00e8 Ctrl + click: item {request.ItemId} into row {move.To} at ({move.Placed.X}, {move.Placed.Y})");
     }
 
-    // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
-    // portal again at its cell; in the town or hideout it leads to, a portal back beside the arrival, which brings the player
-    // to that cell (SpotArrivals).
+    // Whether Auth's list of the area's live instances, when it answered, no longer has the portal's instance.
     internal static bool OriginExpired(ControlResponse response, ulong instance) =>
         response.Ok && response.Instances is { } available && available.All(i => i.Id != instance);
 
@@ -181,6 +179,9 @@ static class PortalsFeature
         return true;
     }
 
+    // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
+    // portal again at its cell; in the town or hideout it leads to, a portal back beside the arrival, which brings the player
+    // to that cell (SpotArrivals).
     internal static async Task SpawnTownPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!OpenPortals.TryGetValue(CharacterName(conn), out var open)) return;
