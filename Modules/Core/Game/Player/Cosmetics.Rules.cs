@@ -106,7 +106,11 @@ public static partial class Game
     /// </summary>
     public static Morph? WornMorph(ClientState conn)
     {
-        if (!InTown(conn) && HideoutCatalog.ByArea(conn.Layout.Hash) is null) return null;
+        // is_in_town_or_hideout_or_heist_hub: the Rogue Harbour (HeistHub, HeistHubEndless) is neither a town nor a
+        // hideout in WorldAreas. Nowhere else: the transformation sets have an idle, a run and Emerge, and map a hit,
+        // death and casts to the idle clip; they have no attack.
+        if (!InTown(conn) && HideoutCatalog.ByArea(conn.Layout.Hash) is null
+            && !conn.Layout.Id.StartsWith("HeistHub", StringComparison.Ordinal)) return null;
         var worn = new Dictionary<uint, int>();
         foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
             foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])

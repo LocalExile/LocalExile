@@ -125,7 +125,9 @@ buff whose art follows a variation ([11](11-skills.md) §12). Seen live 2026-11-
 `mtx_tencent_lunar_set_polymorph` 4 → 18 (19, 20 by `mtx_tencent_lunar_back_attachment` 1, 2);
 `tencent_wuzhiqi_set_polymorph` 10 → 27; `mtx_goblin_morph` 1 → 28, 2 → 29; `mtx_skeleton_body_paint` 1 → 30;
 `mtx_marionettes_revenge_skin_variation` 1 to 4 → 31 to 34. Nothing sets the in-town stat on the client and no
-message carries it, so the server applies the rule in towns and hideouts. About thirty client functions read the
+message carries it, so the server applies the rule in towns, hideouts and the Rogue Harbour (`HeistHub`, which
+WorldAreas marks as neither). The forms are not meant for anywhere else: a transformation set has an idle, a run and
+`Emerge`, maps a hit, death and casts to the idle clip and has no attack. About thirty client functions read the
 result and every one only tests it for zero: a morphed character hides its weapons, flasks, footprints and stat-driven
 visuals (`0x141fea550`) and takes the stance "default" (`0x141e9da30`). No client table or file maps the number to a
 model: the model and the animation set arrive as paths. In the player's blob the Animated component's .ao
