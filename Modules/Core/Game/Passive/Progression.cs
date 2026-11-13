@@ -1387,7 +1387,8 @@ public static partial class Game
             BlockChanceInc: Get("block_chance_+%"), BlockChanceMore: Get("keystone_glancing_blows") != 0
                 ? 2 * Get("block_chance_+%_final") + 100 : Get("block_chance_+%_final"),
             SpellBlockPer5AttackBlock: Get("spell_block_%_per_5_attack_block"),
-            LifeGainedOnBlock: Get("life_gained_on_block"), ManaGainedOnBlock: Get("mana_gained_on_block"),
+            LifeGainedOnBlock: Get("life_gained_on_block") + Get("recover_X_life_on_block"),
+            ManaGainedOnBlock: Get("mana_gained_on_block"),
             VersatileCombatant: Get("keystone_versatile_combatant") != 0,
             AttackBlockLucky: attackBlockLuck > 0, AttackBlockUnlucky: attackBlockLuck < 0,
             SpellBlockLucky: spellBlockLuck > 0, SpellBlockUnlucky: spellBlockLuck < 0,
