@@ -795,6 +795,7 @@ public static partial class Game
         AttributeDefenceSources.Apply(sources, Stats, finalAttributes.Strength);
         LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
         OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts, dev);
+        ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags, dev);
         conn.StatSourcesCache = new(sourcesKey with { Before = inactive }, new(sources), attributes, inactive, wornItems);
         PublishQualifiedItemLifeReservationPercent(conn, qualifiedItemReservationPercent);
         return (sources, attributes, inactive, wornItems);

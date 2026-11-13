@@ -38,6 +38,8 @@ public static partial class Game
         bool catsAgility = catAspect && conn.Reservations.Cat == ReservationState.CatPhase.Agility;
         var flags = new Dictionary<string, bool>
         {
+            [RecentSavageHitItemFlag] = alive && !conn.Closed && !conn.LeavingArea
+                && conn.RecentEvents.Happened(StatConditions.TakenSavageHit, now),
             ["_while_on_full_life"] = CountsAsFullLife(conn.PlayerLife, conn.PlayerMaxLife, lowLifeSources),
             ["_while_on_low_life"] = lowLife,
             ["_while_not_low_life"] = alive && !lowLife,

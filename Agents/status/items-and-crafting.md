@@ -97,6 +97,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Living totem/minion coefficients feed armour, block, attack/cast speed and regeneration.
   Named Core facts gate Glitterdisc's always-Ignite and the Hunger chest's Life bonus from qualified equipment tags.
   Oro and Replica Oro grant their charge only after the player's attack successfully ignites or freezes, respectively.
+  Hezmana's recent Savage Hit bonus reaches final attack speed through the existing four-second incoming-hit history.
   Infernal Mantle's low-Mana condition reaches incoming Spell hits through the canonical Spell damage-taken input.
   Rathpith and Scales of Justice scale Spell offence and added Fire from completed full maximum Life and Mana.
   Wyrmsign's standard Endurance efficiency reduces ordinary Mana costs independently of converted or additional Life costs.

@@ -192,6 +192,7 @@ public partial class ConditionalItemStatsTests
             Qualified_endurance_mana_efficiency_reaches_payment(conn, Wear);
             Qualified_named_facts_reach_life_and_ignite_consumers(conn, Wear);
             Attack_ailment_sources_grant_charges_only_after_accepted_effects(conn, Wear);
+            Savage_hit_item_speed_reaches_final_attack_timing(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);
