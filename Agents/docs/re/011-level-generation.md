@@ -1524,7 +1524,9 @@ This enables manual recording and Gateway `/tour`; `tourloop.py` and `client_con
   logged load the same way (the biggest causes by loads held back), and stops grouped by reason. `-Save` makes the run the baseline (commit it with
   the change). The servers do not read the baseline: they read world.db's `server_level_areas` (the areas they
   generate, and the seed in place of seed 1), so a baseline that gains or loses an area also needs a world update
-  of those rows (`ServerLevelAreas`' rules); `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
+  of those rows (`ServerLevelAreas`' rules). The gate prints a `WARNING` naming each area the new baseline would
+  leave out, with or without `-Save`: a newly logged load that does not match is a new entry, not a lost one, so
+  "lost 0" does not mean no area was dropped. `-NoTests`, `--only <area regex>`, `--no-oracle`, `--jobs N`.
   An area with no seed-1 trace (the client fails seed 1) has each traced load at another seed checked as fully as a
   seed-1 capture, as `load <area> <seed>` (§7: what makes such an area supported).
   Three Labyrinth boss rooms are listed by hand in a world update (`pending_world/1_labyrinth_boss_rooms.sql`) because
