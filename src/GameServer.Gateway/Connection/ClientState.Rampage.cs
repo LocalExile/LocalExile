@@ -7,6 +7,13 @@ public sealed partial class ClientState
     public double PhasingUntil;
     public ushort PhasingBuff;
     public double PhasingSentUntil;
+    // Elusive: the buff starts at 100% + elusive effect and loses 20% of base effect per second; it cannot be
+    // refreshed while running.
+    public double ElusiveStart;
+    public double ElusiveUntil;
+    public double ElusiveEffectMultiplier = 1;
+    public ushort ElusiveBuff;
+    public bool IsElusive => ElusiveUntil > Clock.Elapsed.TotalSeconds;
     public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
@@ -52,6 +59,10 @@ public sealed partial class ClientState
             if (PhasingBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, PhasingBuff));
             PhasingBuff = 0;
             PhasingSentUntil = 0;
+            if (ElusiveBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, ElusiveBuff));
+            ElusiveBuff = 0;
+            ElusiveUntil = 0;
+            ElusiveStart = 0;
             SentRampage = default;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));

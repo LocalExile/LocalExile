@@ -227,6 +227,7 @@ public static partial class Game
         double? recentExpiry;
         int strength, dexterity, intelligence, life, mana, energyShield;
         IReadOnlyDictionary<string, bool> conditionFlags;
+        double elusiveFactor;
         lock (conn.Monsters)
         {
             auraEffects = StatConditions.AuraSet(AffectingAuras(conn).Select(a => a.EffectId));
@@ -240,13 +241,14 @@ public static partial class Game
             mana = (int)conn.Pools.Mana;
             energyShield = (int)Math.Min(int.MaxValue, conn.Pools.EnergyShield);
             conditionFlags = ItemConditionFlags(conn, conditionNow);
+            elusiveFactor = ElusiveFactor(conn);
         }
         // The sum below is a pure function of these inputs (items are immutable records), and the combat paths ask for
         // it many times a second (every monster hit): reuse the last result while none of them changed.
         var sourcesKey = new StatSourcesKey([.. nodes], masteries, worn, dev, conn.ClassRow, conn.God, level ?? conn.Pools.Level,
             before, [.. conn.ClusterPassives.Order()], conn.TattooRevision, [.. exemptions.Order()],
             auraEffects, recentEvents, recentExpiry, strength, dexterity, intelligence, life, mana, energyShield, conditionFlags,
-            ItemsFor(conn));
+            ItemsFor(conn), ElusiveFactor: elusiveFactor);
         if (conn.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);
         // A timeless jewel replaces (or augments) the stats of allocated ordinary nodes in its radius. The item is a
@@ -671,6 +673,13 @@ public static partial class Game
                 _ => (int?)null,
             }, KnownRecent: TrackedItemRecentEvents, Flags: conditionFlags);
         var sources = ItemModStats.Plus(passives, ItemModStats.Global(active, ItemsFor(conn).Mods, Stats, conditionSubject));
+        if (elusiveFactor > 0)
+        {
+            if (Stats.Key("avoid_damage_%") is uint avoidKey)
+                sources[avoidKey] = sources.GetValueOrDefault(avoidKey) + (int)Math.Floor(15 * elusiveFactor);
+            if (Stats.Key("base_movement_velocity_+%") is uint elusiveMove)
+                sources[elusiveMove] = sources.GetValueOrDefault(elusiveMove) + (int)Math.Floor(30 * elusiveFactor);
+        }
         // The tree's base_devotion and the item's ..._per_10_devotion stats meet here: replace the latter with their
         // normal stat at floor(Devotion / 10) steps before the pools and panels read this view.
         DevotionStats.Apply(sources, Stats);
@@ -721,7 +730,7 @@ public static partial class Game
         IReadOnlySet<uint>? Before, ushort[] ClusterPassives, int TattooRevision, uint[] RunItems,
         IReadOnlySet<string> Auras, IReadOnlySet<string> Recent, double? RecentExpiry,
         int Strength, int Dexterity, int Intelligence, int Life, int Mana, int EnergyShield = 0,
-        IReadOnlyDictionary<string, bool>? Flags = null, ItemCatalog? Catalog = null)
+        IReadOnlyDictionary<string, bool>? Flags = null, ItemCatalog? Catalog = null, double ElusiveFactor = 0)
     {
         public bool Matches(StatSourcesKey o) =>
             ClassRow == o.ClassRow && God == o.God && Level == o.Level && TattooRevision == o.TattooRevision
@@ -739,6 +748,7 @@ public static partial class Game
             && Auras.SetEquals(o.Auras) && Recent.SetEquals(o.Recent)
             && Strength == o.Strength && Dexterity == o.Dexterity && Intelligence == o.Intelligence
             && Life == o.Life && Mana == o.Mana && EnergyShield == o.EnergyShield
+            && ElusiveFactor == o.ElusiveFactor
             && (Flags?.Count ?? 0) == (o.Flags?.Count ?? 0)
             && (Flags is null || Flags.All(p => o.Flags is not null && o.Flags.TryGetValue(p.Key, out bool active) && p.Value == active));
     }
