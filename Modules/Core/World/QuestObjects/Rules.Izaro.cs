@@ -276,6 +276,7 @@ static partial class QuestobjectsRules
                 }
             }
             if (boss is null) return;
+            await SpawnIzaroGoddess(remote, stream, ciphers, conn, mechanics, izaro, level, (elevator.X, elevator.Y));
             byte transitionable = (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable");
             // The rise: the elevator's raise and his Emerge (lift_raise_*), both about 10.7 s, with the mechanic's line; the
             // arena's doors shut. No life bar while he rises (the original, live): the boss bar waits for the fight
@@ -285,7 +286,8 @@ static partial class QuestobjectsRules
                 $"0x02bc Izaro's elevator 0x{lift:x} rises, his life's floor {(trial.Last ? 0 : trial.LeavesAtPercent)}%");
             if (Emerges.SkillId is ushort emerge)
                 await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionStarted(izaro, elevator.X, elevator.Y, elevator.X, elevator.Y, emerge, 0xffff, conn.MonsterOrderFlags),
-                    .. InstanceProtocol.ActionEnded(izaro)], $"0x01ab Izaro 0x{izaro:x} rises on the elevator");
+                    .. InstanceProtocol.ActionEnded(izaro), .. IzaroGoddessEmerges(mechanics, elevator.X, elevator.Y, conn)],
+                    $"0x01ab Izaro 0x{izaro:x} rises on the elevator{(mechanics.Goddess != 0 ? ", the Goddess of Justice on his back" : "")}");
             await IzaroSays(remote, stream, ciphers, izaro, IzaroFights.StartLine(trial));
             RiseIzaroMechanics(remote, stream, ciphers, conn, mechanics, izaro, boss, Here);
             foreach (var (id, door) in doors)
@@ -330,6 +332,7 @@ static partial class QuestobjectsRules
                     if (!trial.Last) return;   // gone some other way: the trial is not won
                     Console.WriteLine($"[gateway] {remote} {what}: Izaro 0x{izaro:x} dies");
                     string? finish = await EndIzaroMechanics(remote, stream, ciphers, conn);
+                    _ = IzaroGoddessFliesUp(remote, stream, ciphers, conn, mechanics);
                     await IzaroSays(remote, stream, ciphers, 0, IzaroFights.EndLine(trial));
                     _ = IzaroSaysLater(remote, stream, ciphers, conn, finish, Here);
                     await WinIzaroTrial(remote, stream, ciphers, conn, trial, doors);
@@ -387,8 +390,9 @@ static partial class QuestobjectsRules
             boss.Dead = true;
             if (ReferenceEquals(conn.Monsters.GetValueOrDefault(izaro), boss)) conn.Monsters.Remove(izaro);
         }
+        byte[] goddess = IzaroArenas.TryGetValue(conn, out var arena) ? IzaroGoddessGone(conn, arena) : [];
         if (!here()) return;
-        await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Down),
+        await Send(remote, stream, ciphers, [.. LiftState(conn, lift, elevator, IzaroFights.Down), .. goddess,
             .. InstanceProtocol.RemoveObject(izaro)], $"0x02bd Izaro 0x{izaro:x} is gone");
     }
 

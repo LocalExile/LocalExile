@@ -305,6 +305,9 @@ The stationary Crawler's wheels use zero values for these optional fields and th
 An empty bone name means `<root>` and `*` means `<lock>` (`0x141dc6820`). The attachment kind is a mask on the transform
 (`0x142909a50`): 1 drops the scale, 2 the translation, 4 the rotation, and 0x08 / 0x10 / 0x20 the same for the bone alone.
 Righteous Fire's ring rides on the player's `<root>` with kind 4, so it does not turn with the player.
+A monster rides the same way (the Goddess of Justice on Izaro's `jnt_back_spirit`, kind 0, mask 3). The attached
+object's facing comes from the bone and parent alone: `0x142909a50` never reads its own Positioned rotation, so an
+action aimed elsewhere does not turn it (live).
 Bit3: u32, f32, u32 (animation + speed). Bit5: two u32. Bit4: several
 u32. With 0 nothing else is read.
 
