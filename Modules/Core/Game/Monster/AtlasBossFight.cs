@@ -65,6 +65,7 @@ abstract class AtlasBossFight
         if (boss.Variety is not null)
         {
             var (remote, stream, ciphers) = conn.Wire;
+            lock (conn.Monsters) boss.BossBarShown = true;   // ShowBossLifeBar sends only a bar that is meant to show
             await ShowBossLifeBar(remote, stream, ciphers, id, boss, conn);
         }
     }

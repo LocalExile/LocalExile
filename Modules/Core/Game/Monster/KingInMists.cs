@@ -434,6 +434,7 @@ public static class KingInMists
                     if (!_barShown && now >= _graceUntil)
                     {
                         _barShown = true;
+                        lock (conn.Monsters) boss.BossBarShown = true;   // ShowBossLifeBar sends only a bar that is meant to show
                         await ShowBossLifeBar(remote, stream, ciphers, id, boss, conn);
                     }
                     if (_phase == 1 && now < _graceUntil) continue;
