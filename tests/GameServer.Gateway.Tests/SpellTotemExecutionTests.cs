@@ -445,6 +445,9 @@ public sealed class SpellTotemExecutionTests
                 new(SocketColour.White, Gem("SupportGemFocusedBallista"))], Links = [2] });
             var focused = Game.GemSkillEffects(conn).Single();
             Assert.False(Game.BallistaPathAvailable(conn, focused.Id));
+            // The dedicated-skill clause must not place what the ballista path refuses: this is a SummonsTotem skill,
+            // so the clause alone admitted it, and SpellTotemCurrent kept it alive through the same gate.
+            Assert.False(Game.TotemPathAvailable(conn, focused.Id, focused.Effect));
         }
         finally
         {
