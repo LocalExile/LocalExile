@@ -84,8 +84,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) §10.
 - Lifetap Support. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Blood Magic. Docs: [25](../docs/protocol/25-gem-supports.md).
-- Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery paying Mana
-  costs from Energy Shield first (not checked live); its Energy Shield protecting Mana and less recharge are missing.
+- Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
+  from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
+  Docs: [20](../docs/protocol/20-damage.md).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) §10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) §3.
 - Tornado Shot's terminal secondary arrows. Docs: [11](../docs/protocol/11-skills.md) §10,

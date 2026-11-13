@@ -52,7 +52,9 @@ public sealed class EnergyShield
         get("cannot_recharge_energy_shield") != 0 || get("no_energy_shield_recharge_or_regeneration") != 0
             || get("keystone_ghost_reaver") != 0 ? 0 :
         max * 20.0 * Math.Max(0, 1 + get("energy_shield_recharge_rate_+%") / 100.0)
-        * Math.Max(0, 1 + get("energy_shield_recovery_rate_+%") / 100.0);
+        * Math.Max(0, 1 + get("energy_shield_recovery_rate_+%") / 100.0)
+        // Eldritch Battery: "50% less Energy Shield Recharge Rate".
+        * (get("keystone_eldritch_battery") != 0 ? 0.5 : 1);
     public static double RegenPerMinute(uint max, Func<string, int> get) =>
         get("no_energy_shield_recharge_or_regeneration") != 0 ? 0 :
         Math.Max(0, get("base_energy_shield_regeneration_rate_per_minute") + max * get("base_energy_shield_regeneration_rate_per_minute_%") / 100.0)

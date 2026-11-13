@@ -360,7 +360,9 @@ public static partial class Game
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
         es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
         if (es > conn.EnergyShield.Current) return false;
-        if (Stats.Key("keystone_eldritch_battery") is uint battery && player.GetValueOrDefault(battery) != 0)
+        var paying = player;
+        bool Has(string name) => Stats.Key(name) is uint key && paying.GetValueOrDefault(key) != 0;
+        if (Has("virtual_spend_energy_shield_for_costs_before_mana") || Has("keystone_eldritch_battery"))
             fromEs = Math.Min(cost, conn.EnergyShield.Current - es);
         return conn.PlayerMana >= cost - fromEs && !(life > 0 && conn.PlayerLife <= (uint)life);
     }

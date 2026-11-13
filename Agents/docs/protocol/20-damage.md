@@ -1287,7 +1287,11 @@ quality, intelligence, passive ES and global defence increases. Offhand shields 
 spends ES before life; chaos bypasses it. A positive damaging hit interrupts recharge; a zero/blocked hit does not.
 Death empties ES; existing heal/resurrection/entry refills include it. Righteous Fire uses its life and ES burn inputs
 and absorbs its non-chaos self-damage through ES before life. Special keystones and conditional mastery effects are
-not included (CI, Eldritch Battery, Zealot's Oath, Wicked Ward, leech and related substitutions).
+not included (CI, Zealot's Oath, Wicked Ward, leech and related substitutions).
+Eldritch Battery: with only `keystone_eldritch_battery` sent, the client spent Mana on costs and drew ES over Life
+(live 2026-11-13); network stats run no calculator, so the Gateway sends its derived
+`virtual_spend_energy_shield_for_costs_before_mana` and `virtual_energy_shield_protects_mana` (not checked live yet). Only the ordinary hit path routes around ES for it;
+trial traps and Sirus's damage still spend ES first.
 The native rolled base rounds before local modifiers; the final item ES rounds after local increases and quality.
 This avoids the former intermediate truncation: Simple Robe roll 16, 50% local ES and 20 quality yields 31 ES.
 Character-wide ES retains the local shield as a separate contribution so shield-only increases add to its global
@@ -1480,7 +1484,7 @@ Not read: the conditional shift stats (while affected by a Purity, with four inf
 ring-slot local stats, `physical_damage_from_hits_%_taken_as_random_element`, the Divine Flesh and Tempered by War
 keystones (their other effects, bypassing Energy Shield and less resistances, are not modelled), projectile and spell
 damage taken, the increased damage taken on damage over time (ignite ticks, Righteous Fire), and for Mana before Life:
-damage over time, Eldritch Battery's energy shield before it, the Focus and Clarity forms, and Mind Over Matter at
+damage over time, the Focus and Clarity forms, and Mind Over Matter at
 maximum Power Charges; for avoidance: the per Frenzy Charge, while Phasing and soul gain prevention forms, and
 projectile avoidance.
 
