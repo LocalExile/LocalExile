@@ -1959,7 +1959,7 @@ public static partial class Game
         // the client centres them (its controller's +0x35c is the owner's cell).
         if (hammer is null && !spell && HolySweepHammers.For(Stat) is { } hammers)
             _ = RunHolyHammers(remote, stream, ciphers, conn, skillId, gem, hammers, skillStats, from, to, radius,
-                hammerTargets, damageMore, sequence, repeat);
+                hammerTargets, damageMore, sequence, repeat, criticalRoll);
         if (BloodCharges.Uses(Stat) && player is not null)
         {
             bool changed;
@@ -1993,11 +1993,11 @@ public static partial class Game
     // the use's sequence, in the client's grid order (ClientEntityGrid). They outlive the swing (a later action does not
     // stop them); a death, an area change or a closed connection does. The hammer hits send no 0x1af: the client draws
     // its own hammers (11-skills.md §9a). Its Holy Sweep candidates are the enemies its own hit roll accepted, which can
-    // differ from the server's struck ones.
+    // differ from the server's struck ones. The hammers are hits of the sweep's use, so they share its critical roll.
     static async Task RunHolyHammers(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, HolySweepHammers.Settings hammers,
         IReadOnlyDictionary<uint, int> skillStats, (int X, int Y) centre, (int X, int Y) facing, int sweepRadius,
-        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat)
+        List<(uint Id, (int X, int Y) At)> struck, double damageMore, ushort sequence, int repeat, SkillCriticalRoll? criticalRoll)
     {
         try
         {
@@ -2025,8 +2025,11 @@ public static partial class Game
             {
                 int Own(string name) => Stats.Key(name) is uint k ? skillStats.GetValueOrDefault(k) : 0;
                 double duration = SkillDurationModifiers.Seconds(hammers.DurationMs, Area, Own);
-                // The rate the client's controller holds (the combined_main_hand_attack_speed_+% the skill's stats carry).
-                int attackSpeed = SupportedMainHandAttackSpeedPct(conn, skillId);
+                // The rate the client's controller holds: the combined_main_hand_attack_speed_+% of the skill list it last
+                // received, not the character's attack speed now (a Rage or charge change since is not in it until the
+                // list goes out again).
+                int attackSpeed = SentSkillStat(conn, skillId, "combined_main_hand_attack_speed_+%")
+                    ?? SupportedMainHandAttackSpeedPct(conn, skillId);
                 double every = HolySweepHammers.WaveSeconds(hammers.RateSeconds, attackSpeed);
                 var times = HolySweepHammers.WaveTimes(every, duration);
                 Console.WriteLine($"[gateway] {remote} skill 0x{skillId:x4} {gem.Name}: hammerfall at ({centre.X}, {centre.Y}) "
@@ -2056,7 +2059,8 @@ public static partial class Game
                     if (!await WaitProjectileTime(conn, start + at + HolySweepHammers.HammerfallHitSeconds, epoch)) return;
                     foreach (var (_, point) in wave)
                         await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
-                            melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                            melee: false, damageMore: damageMore * hammers.More, criticalRoll: criticalRoll, repeat: repeat,
+                            radiusOverride: radius, hammer: hammers);
                 }
                 return;
             }
@@ -2065,7 +2069,8 @@ public static partial class Game
                 if (!await WaitProjectileTime(conn, start + at, epoch)) return;
                 foreach (var point in points)
                     await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, point, point, immediate: true, sequence: sequence,
-                        melee: false, damageMore: damageMore * hammers.More, repeat: repeat, radiusOverride: radius, hammer: hammers);
+                        melee: false, damageMore: damageMore * hammers.More, criticalRoll: criticalRoll, repeat: repeat,
+                        radiusOverride: radius, hammer: hammers);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
