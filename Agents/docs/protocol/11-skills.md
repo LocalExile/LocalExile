@@ -1644,7 +1644,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   Attacks use the independently decoded `BaseMultiplier` for the local weapon packet and `DamageEffectiveness`
   for already-supported additions; local weapon flat damage stays in the former.
   Level-2 Tornado Shot offsets 110/100 mean 101.1%/101%, while Rain of Arrows -5140/-5100 mean 48.6%/49%.
-  Pinned PoB `16de4b82`, `CalcOffence.lua` lines 3258–3264 applies these coefficients separately.
+  Pinned PoB `16de4b82`, `CalcOffence.lua` lines 3350–3356 applies these coefficients separately.
   New skill-specific added-damage inputs remain outside this correction (#368); native validation remains open.
   Normal KB's 40% less area damage is applied by the secondary-explosion profile, not the main-hit panel.
 - **Per-level stats** add to a ConstantStats value of the same stat instead of replacing it (Righteous Fire's radius:
