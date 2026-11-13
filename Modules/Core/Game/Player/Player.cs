@@ -556,8 +556,6 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncExpandedInventory(conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
-            await SyncPhasing(remote, stream, ciphers, conn);
-            if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SyncElusive(remote, stream, ciphers, conn);
             if (!PlayerUpdatesCurrent(conn, updates)) return;
             await SendConditionalItemStats(remote, stream, ciphers, conn);

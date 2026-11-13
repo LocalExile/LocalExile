@@ -5,8 +5,6 @@ public sealed partial class ClientState
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
-    public ushort PhasingBuff;
-    public double PhasingSentUntil;
     // Elusive: the buff starts at 100% + elusive effect and loses 20% of base effect per second; it cannot be
     // refreshed while running.
     public double ElusiveStart;
@@ -57,9 +55,6 @@ public sealed partial class ClientState
             CombatRushUse = null;
             if (RampageBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, RampageBuff));
             RampageBuff = 0;
-            if (PhasingBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, PhasingBuff));
-            PhasingBuff = 0;
-            PhasingSentUntil = 0;
             if (ElusiveBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, ElusiveBuff));
             ElusiveBuff = 0;
             ElusiveUntil = 0;
