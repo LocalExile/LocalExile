@@ -87,5 +87,32 @@ public class ItemCrafterTests
         Assert.Equal("{0:+d} to maximum Life", (string?)desc["variants"]![0]!["text"]);
         Assert.Contains(lines, l => (string?)l["type"] == "word" && (int)l["list"]! == 1);
         Assert.DoesNotContain(lines, l => (string?)l["type"] == "base" && items.Find((string)l["id"]!) is { } t && items.Gem(t) is not null);
+
+        // A cluster jewel is its enchantments, which no implicit list or pool names: the base has the ones a tool starts
+        // from, and what they can be changed to. A theme opens its own affix pool, where its notables are.
+        Assert.DoesNotContain(ring, p => p.Key is "enchants" or "cluster");
+        var large = lines.Single(l => (string?)l["type"] == "base" && (string?)l["name"] == "Large Cluster Jewel");
+        Assert.Equal("""[{"id":"JewelExpansionPassiveNodes","values":[1,8],"ranges":[[1,17],[8,12]]},{"id":"JewelExpansionJewelNodesLarge2___","values":[2],"ranges":[[2,2]]}]""",
+            large["enchants"]!.ToJsonString());
+        var cluster = large["cluster"]!;
+        Assert.Equal("""{"mod":"JewelExpansionPassiveNodes","min":8,"max":12}""", cluster["passives"]!.ToJsonString());
+        Assert.Equal("""[{"count":1,"mod":"JewelExpansionJewelNodesLarge1"},{"count":2,"mod":"JewelExpansionJewelNodesLarge2___"}]""", cluster["sockets"]!.ToJsonString());
+        var themes = cluster["themes"]!.AsArray();
+        Assert.Equal(Enumerable.Range(1, 17), themes.Select(t => (int)t!["value"]!));
+        var fire = themes.Single(t => (string?)t!["name"] == "Fire Damage")!;
+        var grants = Assert.Single(fire["stats"]!.AsArray())!;
+        Assert.Equal((13, "affliction_fire_damage", "fire_damage_+%", 12),
+            ((int)fire["value"]!, (string)fire["tag"]!, (string)grants["id"]!, (int)grants["value"]!));
+        Assert.Contains("AfflictionNotablePrismaticHeart__", pools[(int)fire["pool"]!]);
+        Assert.DoesNotContain("AfflictionNotablePrismaticHeart__", pools[(int)large["pool"]!]);
+        Assert.Contains(lines, l => (string?)l["type"] == "mod" && (string?)l["id"] == "AfflictionNotablePrismaticHeart__");
+        // The medium themes come after the large ones, the small ones last; a small jewel has no socket enchantment.
+        var small = lines.Single(l => (string?)l["type"] == "base" && (string?)l["name"] == "Small Cluster Jewel");
+        Assert.Equal("""[{"id":"JewelExpansionPassiveNodes","values":[39,2],"ranges":[[39,55],[2,3]]}]""", small["enchants"]!.ToJsonString());
+        Assert.Empty(small["cluster"]!["sockets"]!.AsArray());
+        // Rows the game no longer gives a new jewel are not offered.
+        var medium = lines.Single(l => (string?)l["type"] == "base" && (string?)l["name"] == "Medium Cluster Jewel")["cluster"]!["themes"]!.AsArray();
+        Assert.Equal(19, medium.Count);
+        Assert.DoesNotContain(medium, t => ((string)t!["tag"]!).StartsWith("old_do_not_use", StringComparison.Ordinal));
     }
 }
