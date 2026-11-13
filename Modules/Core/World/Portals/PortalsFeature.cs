@@ -170,6 +170,17 @@ static class PortalsFeature
     // The character's open town portal (OpenPortals) on entering an area: in the area it stands in (the same instance), the
     // portal again at its cell; in the town or hideout it leads to, a portal back beside the arrival, which brings the player
     // to that cell (SpotArrivals).
+    internal static bool OriginExpired(ControlResponse response, ulong instance) =>
+        response.Ok && response.Instances is { } available && available.All(i => i.Id != instance);
+
+    internal static async Task<bool> ExpireTownPortal(ClientState conn, OpenPortal portal)
+    {
+        var response = await InstanceControl.CallAsync(new ControlRequest { Op = "list", Ticket = conn.Ticket, Area = portal.Area });
+        if (!OriginExpired(response, portal.Instance)) return false;
+        OpenPortals.TryRemove(new KeyValuePair<string, OpenPortal>(CharacterName(conn), portal));
+        return true;
+    }
+
     internal static async Task SpawnTownPortals(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn)
     {
         if (!OpenPortals.TryGetValue(CharacterName(conn), out var open)) return;
@@ -178,7 +189,8 @@ static class PortalsFeature
             await OpenTownPortal(remote, stream, ciphers, conn, open.X, open.Y, "town portal again", replace: false);
             return;
         }
-        if (open.LeadsTo != conn.Layout.Hash) return;
+        if (open.LeadsTo != conn.Layout.Hash || await ExpireTownPortal(conn, open) || conn.Closed || conn.LeavingArea
+            || !OpenPortals.TryGetValue(CharacterName(conn), out var current) || current != open) return;
         var (x, y) = conn.Layout.Near((conn.Layout.SpawnX + 4, conn.Layout.SpawnY));
         uint id = conn.TakeObjectId();
         await global::Game.SendWorldCreate(remote, stream, ciphers, conn, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
