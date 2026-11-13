@@ -34,6 +34,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- NPC divination card exchange supports configured named rewards; random pools and extra reward constraints remain open.
+  Docs: [17](../docs/protocol/17-npcs.md).
+
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 
