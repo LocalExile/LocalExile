@@ -44,7 +44,10 @@ public static partial class Game
         bool Active() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && conn.PlayerLife > 0;
         lock (conn.Monsters)
         {
-            long release = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(started + cast / 1000d));
+            // At the cast clip's contact like every other spell, not at its end: the next action arrives about then
+            // and would retire this one (current) with its cost already paid.
+            long release = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(started + cast / 1000d
+                * Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject)));
             session.Runtime.Schedule(release, () =>
             {
                 if (!Active() || !current() || !SameTriggerSource(source, SupportedSkill(conn, gem.Id))
