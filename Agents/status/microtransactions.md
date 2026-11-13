@@ -32,6 +32,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   says; the character list shows it at once. Verified live 2026-10-31: the client loaded the `SupporterIconFrame` art at
   selection and in game, and another player's client in a party; the frame stayed as it was through area changes until
   the next login, and emptying the slot went back to the default.
+  Verified live 2026-11-12: a quiver skin on the worn quiver (a skin or weapon effect is drawn only on an item of a
+  class it lists), the Goblin Shaman Skin's town and hideout form (the server sends the morph, its model and
+  animation set), Alternate Charge Skins (the charge buffs name the skin's art), and a portal effect on a Portal
+  Scroll's portal, which is listed twice so that a slow client cannot miss it and is restyled by a pick while it stands.
   Code: `InstanceMicrotransactions.cs`, `Microtransactions.cs` (`MtxCatalog`, `CosmeticEffects`), Gateway
   (`AnswerMtxRequest`, `PickCosmetic`, `Looks`, `CosmeticStats`), `CharacterSaves.Cosmetics`, `PetObject`,
   `SpawnPets`, `StepPetFollow`, `SkillSlots`.
@@ -49,6 +53,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   The reported native picker mismatch still needs user verification; packet tests do not establish a UI fix.
   Protocol evidence, limits and client acceptance steps: [23](../docs/protocol/23-microtransactions.md) §4.
 
+- Cosmetics whose stat the client reads only as a derived stat: the morph (two goblins) and the charge skins are sent;
+  the other derived stats are listed, not sent ([23](../docs/protocol/23-microtransactions.md) §3 and §4).
+
 ## Not working yet
 
-Nothing yet.
+- Skill Gem Effects' surge, hit-effect and ailment art (their derived stats on the skill), the three buff-art rings, the
+  phasing ring, and every cosmetic that counts kills, hits, blocks or skills used:
+  [23](../docs/protocol/23-microtransactions.md) §4.
+- Morphs other than the Goblin Shaman Skins (Lunar and Wuzhiqi sets, skeleton body paint, Marionette's Revenge skins,
+  polymorph wands, pet morphs), and the Portal slot's two "random effect" choices:
+  [23](../docs/protocol/23-microtransactions.md) §4.

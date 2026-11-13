@@ -87,6 +87,13 @@ public sealed class CosmeticEffects(string folder = "data")
         public IReadOnlyList<string>? PetComponents { get; init; }
         public StateMachineData? PetStates { get; init; }
 
+        /// <summary>The ItemClasses rows of the items this cosmetic dresses (a quiver skin: Quiver; a "Bow and Quiver"
+        /// skin: both), empty for any. A skin or weapon effect is drawn only on an item of one of them.</summary>
+        public IReadOnlyList<int> ItemClasses { get; init; } = [];
+
+        /// <summary>Whether the cosmetic dresses an item of this ItemClasses row.</summary>
+        public bool Fits(int classRow) => ItemClasses.Count == 0 || ItemClasses.Contains(classRow);
+
         /// <summary>A portrait's variation (MicrotransactionCharacterPortraitVariations <c>__col1</c>), 0 otherwise: the
         /// Player component's u16 at +0x1aa and the character list's U46.</summary>
         public ushort Portrait { get; init; }
@@ -143,6 +150,7 @@ public sealed class CosmeticEffects(string folder = "data")
             foreach (var (stat, v) in row.Ints("Stats").Zip(row.Ints("__col7"))) stats.Add(((uint)stat + 1, v));
             effects.TryAdd(hash, new Effect(visual, effect, stats)
             {
+                ItemClasses = row.Ints("ItemClasses"),
                 Skill = skillEffects.Contains(hash) && row.Ints("__col8").Contains(27)
                     && Int(row, "EffectSlotType") is int slotType
                     ? new(slotType, row.Ints("BaseItemTypes"), row.Ints("ItemClasses")) : null,

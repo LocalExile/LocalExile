@@ -287,6 +287,16 @@ public static class InstanceEntities
     public static byte[] AnimatedModel(uint entityId, byte animatedIndex, string ao) =>
         ComponentUpdate(entityId, animatedIndex, new BlobWriter().U8(1).WStr32(ao).ToArray());
 
+    public const ushort ActorFileId = 0x1b6;
+
+    /// <summary>
+    /// S→C 0x1b6 (class 0x1435e82b8, read 0x141fe4570; handled by the Actor, 0x14219aa10): object header, wstr, u8. The
+    /// path is an .act file the Actor loads in place of its own animation set, and the u8 the stance it takes there
+    /// (0 the base one); the live counterpart of the Actor's leading path in the object blob.
+    /// </summary>
+    public static byte[] ActorFile(uint entityId, string act, byte stance = 0) =>
+        new LoginWriter().U16(ActorFileId).U32(entityId).U32(0).U16(0).WStr(act).U8(stance).ToArray();
+
 
     /// <summary>
     /// Changes the player's skills (0x2bc to the Actor, flags 0x20 → <c>0x14219f170</c>): u8 records, u8 ids, the skill
@@ -1130,6 +1140,13 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public const byte WashedUpStance = 68;
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
+    /// <summary>The Animated component's index in the same order.</summary>
+    public const byte AnimatedIndex = 5;
+
+    /// <summary>The Actor's leading path (0x1421993f0): an .act file that replaces the type's own animation set, which a
+    /// replacement <see cref="AnimatedObject"/> of another rig needs (a morph: 23-microtransactions.md §3). Null or
+    /// empty keeps the class's.</summary>
+    public string? ActorFile { get; init; }
 
     /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
     public byte PantheonMajor { get; init; }
@@ -1215,7 +1232,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
         // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32("").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);

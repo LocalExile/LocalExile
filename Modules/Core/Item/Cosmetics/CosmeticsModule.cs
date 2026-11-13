@@ -99,6 +99,7 @@ public static class CosmeticsFeature
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
+        var morph = WornMorph(conn);
         CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
         conn.WornCosmetics = null;
         if (pick.Slot == InstanceMicrotransactions.PortalSlot)
@@ -112,6 +113,8 @@ public static class CosmeticsFeature
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the pick");
         // The model and the stats: skins, attachments, character effects, footprints, apparitions.
         await SendEquipment(remote, stream, ciphers, conn, ItemsOf(conn));
+        // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
+        await SendMorph(remote, stream, ciphers, conn, morph);
         if (pick.Slot is 18 or 19) await SpawnPets(remote, stream, ciphers, conn);
         if (pick.Slot == PortraitSlot)
         {
