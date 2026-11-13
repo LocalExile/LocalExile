@@ -237,6 +237,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
   Normal's last two mechanics: the Chrono Statues' idols rise with him, fill and cast their circles, and go down when he
   leaves; the Lieutenants rise one at a time with their weapons and skills. Checked live 2026-11-11.
+  Coming into an arena the instance already holds retires the Izaro it had — dead, out of life, out of the
+  connection's monsters and the instance's origins — and sends 0x02bd for him to every player in the instance, so the
+  arena holds one fight rather than two. Checked by the build and the suites; not yet with the client.
   Not yet: the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
