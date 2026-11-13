@@ -17,14 +17,16 @@ public static partial class Game
     /// <summary>The charm's "X% chance to gain Phasing for 4 seconds on Kill": one roll per kill, resetting the
     /// connection's timed phasing (<see cref="ClientState.IsPhasing"/>). Phasing already keeps monsters from blocking
     /// the player and answers the <c>_while_phasing</c> item conditions.</summary>
-    public static void GainPhasingOnKill(ClientState conn, double now)
+    public static void GainPhasingOnKill(ClientState conn)
     {
         if (Stats.Key("phasing_for_4_seconds_on_kill_%") is not uint key) return;
         int chance = CharacterPlayerStats(conn).GetValueOrDefault(key);
         if (chance <= 0 || Random.Shared.Next(100) >= Math.Min(100, chance)) return;
+        // The game clock, the one SyncPhasing reads: projectile contacts carry their own quanta origin.
+        double at = conn.Clock.Elapsed.TotalSeconds;
         lock (conn.Monsters)
-            conn.PhasingUntil = Math.Max(conn.PhasingUntil, now + 4);
-        Console.WriteLine($"[gateway] phasing on kill: {chance}% -> 4 seconds");
+            conn.PhasingUntil = Math.Max(conn.PhasingUntil, at + 4);
+        Console.WriteLine($"[gateway] phasing on kill: {chance}% -> 4 seconds (until {conn.PhasingUntil:0.###})");
     }
 
     /// <summary>Tells the client about the timed phasing buff: add it while the charm's phasing runs, refresh it when
@@ -47,11 +49,13 @@ public static partial class Game
                     conn.PhasingSentUntil = conn.PhasingUntil;
                     bytes = InstanceEntities.AddBuff(PlayerId, buff, PhaseRunBuffRow.Value, PlayerId,
                         u68: BitConverter.SingleToUInt32Bits((float)(conn.PhasingUntil - now)));
+                    Console.WriteLine($"[gateway] phasing buff {buff} for {conn.PhasingUntil - now:0.###} s (row {PhaseRunBuffRow.Value})");
                 }
             }
             else if (conn.PhasingBuff != 0)
             {
                 bytes = InstanceEntities.RemoveBuff(PlayerId, conn.PhasingBuff);
+                Console.WriteLine($"[gateway] phasing buff {conn.PhasingBuff} ended");
                 conn.PhasingBuff = 0;
                 conn.PhasingSentUntil = 0;
             }
