@@ -60,17 +60,8 @@ public static partial class Game
         }
     }
 
-    static readonly Lazy<HashSet<string>> SoulArrivalNpcs = new(() => ObjectTypes.All()
-        .Where(t => t.Row.Texts("chain").Contains("Metadata/NPC/Act6/SinBossDeathParent")
-            || t.Row.TextOrNull("client_transitionable_create_untransitioned")?
-                .Contains("Metadata/Effects/Spells/monsters_effects/act5/Sin/absorb/", StringComparison.Ordinal) == true)
-        .Select(t => t.Type).ToHashSet(StringComparer.Ordinal));
-
-    // State zero runs the native entrance/absorb scripts. A later visit uses the catalog's idle state.
-    public static QuestNpc AppearingNpc(string area, Quests.AppearsRule rule, NpcCatalog.Npc npc, int x, int y,
-        bool arriving = false) =>
-        new(arriving && SoulArrivalNpcs.Value.Contains(npc.Id) ? npc with { TransitionState = 0 } : npc,
-            x, y, 0, area, rule.NpcType, rule, roomState: false);
+    public static QuestNpc AppearingNpc(string area, Quests.AppearsRule rule, NpcCatalog.Npc npc, int x, int y) =>
+        new(npc, x, y, 0, area, rule.NpcType, rule, roomState: false);
 
     // The quest NPCs as the flags have them: created when they stand there now, removed when they no longer do, moved to
     // their last Transitionable state when a flag transitions them.
@@ -147,7 +138,7 @@ public static partial class Game
                 {
                     if (viewer.QuestNpcs.Any(c => c.Npc.Id == rule.NpcType && (c.Appears is not null || c.Id != 0))) continue;
                     var (x, y) = viewer.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? viewer.Layout.Near(at) : at;
-                    viewer.QuestNpcs.Add(AppearingNpc(area, rule, npc, x, y, arriving: true));
+                    viewer.QuestNpcs.Add(AppearingNpc(area, rule, npc, x, y));
                 }
             }
             await UpdateQuestNpcs(address, output, keys, viewer, $"{variety.Name} died");

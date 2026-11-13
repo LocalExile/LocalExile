@@ -41,23 +41,6 @@ public sealed class PlayerAct78Tests
         });
     }
 
-    [Fact]
-    public void A_new_soul_absorber_plays_its_entrance_but_a_later_visit_does_not()
-    {
-        var npcs = NpcCatalog.Load();
-        foreach (string id in new[] { "Metadata/NPC/Act6/SinTukohama", "Metadata/NPC/Act7/SinArakaali",
-            "Metadata/NPC/Act8/SinYugul", "Metadata/NPC/Act8/SinSolarisLunaris" })
-        {
-            var npc = Assert.IsType<NpcCatalog.Npc>(npcs.Find(id));
-            var rule = new Quests.AppearsRule("area", "boss", id, null);
-            Assert.True(Game.AppearingNpc("area", rule, npc, 10, 10, arriving: true).Npc.TransitionState == 0, id);
-            Assert.Equal(npc.TransitionState, Game.AppearingNpc("area", rule, npc, 10, 10).Npc.TransitionState);
-        }
-        var town = Assert.IsType<NpcCatalog.Npc>(npcs.Find("Metadata/NPC/Act8/SinTown"));
-        Assert.Equal(town.TransitionState, Game.AppearingNpc("area",
-            new("area", "boss", town.Id, null), town, 10, 10, arriving: true).Npc.TransitionState);
-    }
-
     static void InGame(Action<ClientState> body)
     {
         var previousLogic = Program.GameLogicOrNull;
