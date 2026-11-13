@@ -10,7 +10,7 @@ public static partial class Game
     {
         if (!ClientTables.Has("BuffDefinitions")) return (ushort)65;
         foreach (var row in ClientTables.Table("BuffDefinitions"))
-            if (row.Text("Id") == "phase_run") return (ushort)row.Int("_row");
+            if (row.Text("Id") == "phase_run") return (ushort)row.Index;
         return (ushort)65;
     });
 
