@@ -2,12 +2,14 @@ namespace GameServer.Gateway.Tests;
 
 /// <summary>The map device's Atlas layout choice survives a Gateway restart (382): it lives in the character save, not in
 /// the catalogue's memory.</summary>
-public class AtlasLayoutPersistenceTests
+public class AtlasLayoutPersistenceTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     [Fact]
     public void The_selected_layout_is_read_back_from_the_character_save()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-atlas-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("atlas");
         var catalog = new ItemCatalog("data");
         var atlas = new AtlasCatalog(catalog);
         var chosen = atlas.Layouts.First(l => l.Id != atlas.Default?.Id);
