@@ -23,15 +23,20 @@ Part of [Status](../Status.md); what to build next in this area is in
   in the world: equipment skins and weapon effects (including the bow in its left-hand model slot), attachments and character effects on the model (Inventories component
   references), footprints and apparitions through the stats, portals (the map device's), cursors and flask skins.
   Verified live 2026-10-23.
-  Built, awaiting live verification: pets (spawned beside the player, following it, not blocking;
-  not yet their idle-relaxed animations, e.g. the Goblin Troupe's song), the portrait (character panel and selection
-  screen), skill effects (the Cosmetics tab's skill slots, picked with C→S 0x1fa, the effect's stats on that skill,
+  Verified live 2026-11-12: a pet (Kiwi: spawned, beside the player again after a teleport, gone when the slot is
+  emptied; not yet the idle-relaxed animations, e.g. the Goblin Troupe's song) and a portrait in the character panel.
+  Built, awaiting live verification: the portrait on the selection screen, skill effects (the Cosmetics tab's skill
+  slots, picked with C→S 0x1fa, the effect's stats on that skill,
   Righteous Fire's ring and buff visuals, restyled at once while it burns, and the projectile and explosion of
   projectile skills such as Fireball).
   Portrait frames (the Social Frame slot): a pick is saved and applies at the next login, as the client's own chat line
   says; the character list shows it at once. Verified live 2026-10-31: the client loaded the `SupporterIconFrame` art at
   selection and in game, and another player's client in a party; the frame stayed as it was through area changes until
   the next login, and emptying the slot went back to the default.
+  Verified live 2026-11-12: a quiver skin on the worn quiver (a skin or weapon effect is drawn only on an item of a
+  class it lists), the Goblin Shaman Skin's town and hideout form (the server sends the morph, its model and
+  animation set), Alternate Charge Skins (the charge buffs name the skin's art), and a portal effect on a Portal
+  Scroll's portal, which is listed twice so that a slow client cannot miss it and is restyled by a pick while it stands.
   Code: `InstanceMicrotransactions.cs`, `Microtransactions.cs` (`MtxCatalog`, `CosmeticEffects`), Gateway
   (`AnswerMtxRequest`, `PickCosmetic`, `Looks`, `CosmeticStats`), `CharacterSaves.Cosmetics`, `PetObject`,
   `SpawnPets`, `StepPetFollow`, `SkillSlots`.
@@ -49,6 +54,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   The reported native picker mismatch still needs user verification; packet tests do not establish a UI fix.
   Protocol evidence, limits and client acceptance steps: [23](../docs/protocol/23-microtransactions.md) §4.
 
+- The Portal slot's two "random effect" choices give each portal a random effect; the panel's own display of the
+  choice was not checked ([23](../docs/protocol/23-microtransactions.md) §4).
+- Cosmetics whose stat the client reads only as a derived stat: the morphs (goblins, skeleton, Lunar and Wuzhiqi
+  seen), the charge skins (seen) and the choices of art (surge, hit effect, ailment, mine and ring art, chest
+  effects, floating: sent, not seen on screen): [23](../docs/protocol/23-microtransactions.md) §3 and §4.
+
 ## Not working yet
 
-Nothing yet.
+- The phasing ring, the summoning rings' surges, and every cosmetic that counts kills, hits, blocks or skills used:
+  [23](../docs/protocol/23-microtransactions.md) §4.
+- The Ashbringer Wyvern, polymorph wand and pet morphs: [23](../docs/protocol/23-microtransactions.md) §4.

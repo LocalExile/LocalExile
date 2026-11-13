@@ -367,8 +367,8 @@ public static partial class Game
             Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
-            Ignite = WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get), player, own,
-                spell, spell ? "spell" : "main_hand"),
+            Ignite = NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get),
+                player, own, spell, spell ? "spell" : "main_hand")),
             Poison = MonsterPoisons.Settings.From(ailmentRows, spell ? "spell" : "main_hand", Get, local),
             EssenceDrain = EssenceDrainCast(conn, skillId, gem.Effect),
             Bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,

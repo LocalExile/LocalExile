@@ -122,7 +122,7 @@ public static partial class Game
         }
         foreach (var (id, buff, stacks, remaining) in updated)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.AddBuff(id, buff, PoisonBuffRow, PlayerId, stacks: (ushort)Math.Clamp(stacks, 1, ushort.MaxValue),
-                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining))), null);
+                    u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0, remaining)), visual: AilmentArtVisual(conn, "poison")), null);
         foreach (var (id, m, life, damage) in hits)
         {
             if (life == 0)
