@@ -82,6 +82,7 @@ public static class InstanceProtocol
     public static int? KnownClientLength(ushort id) => id switch
     {
         InstanceDivination.TurnInId => InstanceDivination.TurnInLength,
+        InstanceDivination.MoveId => InstanceDivination.MoveLength,
         InstanceDelve.UpgradesRequestId => 2, InstanceDelve.UpgradeId => 4, InstanceDelve.PurchaseId => 4,
         TickId => 7, AreaGeneratedId => 10, UseSkillAtLocationId => 16, 0x015a => 2, 0x01ef => 2, 0x0099 => 4, 0x0129 => 2,
         InstanceChat.LinkItemId => InstanceChat.LinkItemLength, InstanceChat.LinkOtherId => InstanceChat.LinkOtherLength,

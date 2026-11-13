@@ -203,6 +203,8 @@ Divination cards still use NPC dialogue in 3.29.3d: NPCTalk rows 616/1310 (Tasun
 have category `TradeDivinationCards` (36).
 S→C 0x7b kind 0x0c opens `DivinationWindow`; its first u32 selects a `DivinationWindowVisuals` row.
 The window uses player inventory row 27 (`DivinationCardTrade`), already registered with the player inventories.
+C→S 0xea (8 bytes, sender `0x14216e8d0`, writer `0x141f993f0`) is u32 BE item id, u8 expanded-inventory boolean, u8 into-window boolean.
+The Ctrl-click branch at `0x14030faa4` arms a client flag; the slot listener `0x140bb3210` calls `0x140bb41f0`, which submits the ordinary `0x19a` exchange for a complete set.
 Its exchange button (`0x140bb2980`) sends C→S 0x19a with no fields only when the slot holds one complete set.
 Its close handler (`0x140bb2f00`) sends C→S 0x85.
 An ordinary card pickup remains C→S 0x28; it is not an exchange request.

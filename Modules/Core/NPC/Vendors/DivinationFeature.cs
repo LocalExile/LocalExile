@@ -53,6 +53,13 @@ static class DivinationFeature
                     ItemsOf(conn).NextRevision(Row), [changed.Id], [changed]), "divination card set exchanged");
             return true;
         });
+        GameEvents.Packet(InstanceDivination.MoveId).Add(module.Manifest.Id, async (conn, bytes) =>
+        {
+            foreach (var change in Move(conn, InstanceDivination.ReadMove(bytes)))
+                await Send(conn, InstanceItems.InventoryChange(PlayerInventories.InventoryId(change.Row),
+                    ItemsOf(conn).NextRevision(change.Row), change.Removed, change.Added), "NPC divination Ctrl click");
+            return true;
+        });
     }
 
     internal static bool Current(ClientState conn) => !conn.Closed && !conn.LeavingArea && conn.PlayerLife > 0
@@ -93,6 +100,67 @@ static class DivinationFeature
         Program.Send(conn.Wire.Remote, conn.Wire.Stream, conn.Wire.Ciphers, packet, label);
 
     sealed class Cleanup(Action run) : IDisposable { public void Dispose() => run(); }
+
+    internal sealed record Change(byte Row, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added);
+
+    internal static IReadOnlyList<Change> Move(ClientState conn, InstanceDivination.Move request) =>
+        Saves.Atomically<IReadOnlyList<Change>>(() =>
+    {
+        if (!Current(conn) || request.Expanded && (!request.IntoWindow || !Game.ExpandedInventoryGranted(conn))) return [];
+        var items = ItemsOf(conn);
+        byte main = PlayerInventories.MainInventory;
+        byte source = request.IntoWindow ? (request.Expanded ? PlayerInventories.ExpandedInventory : main) : Row;
+        if (items.Items(PlayerInventories.Cursor).Count != 0 || items.Offered().Any(i => i.Id == request.ItemId)
+            || items.Items(source).FirstOrDefault(i => i.Id == request.ItemId) is not { } clicked) return [];
+        byte[] rows = [main, Row, PlayerInventories.ExpandedInventory];
+        var before = rows.ToDictionary(r => r, items.Items);
+        if (request.IntoWindow)
+        {
+            if (ItemsFor(conn).ByHash(clicked.Item.TypeHash) is not { Class: "DivinationCard" } type
+                || clicked.Item.StackSize < 1 || clicked.Item.StackSize > type.MaxStack) return [];
+            var existing = items.Items(Row);
+            if (existing.Count > 1) return [];
+            if (existing.FirstOrDefault() is { } slot)
+            {
+                if (ItemsFor(conn).ByHash(slot.Item.TypeHash)?.Class == "DivinationCard")
+                {
+                    if (slot.Item.TypeHash != clicked.Item.TypeHash || slot.Item.StackSize >= type.MaxStack) return [];
+                    int take = Math.Min(clicked.Item.StackSize, type.MaxStack - slot.Item.StackSize);
+                    items.SetStackSize(Row, slot.Id, slot.Item.StackSize + take);
+                    if (take == clicked.Item.StackSize) items.Remove(source, clicked.Id);
+                    else items.SetStackSize(source, clicked.Id, clicked.Item.StackSize - take);
+                    return Changes();
+                }
+                // Returning the previous reward may use the cell freed by this card. Preview before either mutation.
+                var preview = new PlayerInventories();
+                foreach (var inMain in items.Items(main).Where(i => source != main || i.Id != clicked.Id)) preview.Put(main, inMain);
+                if (Game.ShapeOf(slot.Item) is null || !preview.Fits(main, slot.Item, Game.ShapeOf)) return [];
+                items.Remove(source, clicked.Id);
+                items.Remove(Row, slot.Id);
+                if (items.AddStacked(main, slot.Item, Game.ShapeOf).Left != 0)
+                    throw new InvalidOperationException("Divination reward no longer fits after preview");
+            }
+            else items.Remove(source, clicked.Id);
+            items.Put(Row, clicked with { X = 0, Y = 0 });
+            // The native slot listener submits 0x19a for a complete Ctrl-clicked set; moving alone never redeems it.
+        }
+        else
+        {
+            if (Game.ShapeOf(clicked.Item) is null) return [];
+            var stacked = items.AddStacked(main, clicked.Item, Game.ShapeOf);
+            if (!stacked.Any) return [];
+            if (stacked.Left == 0) items.Remove(Row, clicked.Id);
+            else items.SetStackSize(Row, clicked.Id, stacked.Left);
+        }
+        return Changes();
+
+        IReadOnlyList<Change> Changes() => rows.Select(row =>
+        {
+            var after = items.Items(row);
+            return new Change(row, before[row].Where(i => !after.Contains(i)).Select(i => i.Id).ToArray(),
+                after.Where(i => !before[row].Contains(i)).ToArray());
+        }).Where(c => c.Removed.Count + c.Added.Count > 0).ToArray();
+    });
 
     internal static InventoryItem? TurnIn(ClientState conn, Random? random = null) => Saves.Atomically(() =>
     {
