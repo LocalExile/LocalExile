@@ -89,7 +89,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   on a lockstep client a walking monster's re-order waits for a frame start right after its estimate's step, at most
   two steps past the cadence ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
   A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
-  30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
+  30). A straight projectile shooter inside range approaches when the projectile grid blocks its shot. It keeps
+  moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
   live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.
   A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one

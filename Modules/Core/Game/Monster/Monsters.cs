@@ -767,7 +767,9 @@ public static partial class Game
                 // and any attack on a predictive client, where a walking player has already gone farther: no swing right
                 // at the edge of the reach. A lockstep client's walking melee monster swings only by its chase's goal test
                 // (above): standing in reach, it gets the chase, which starts the swing in the order's own frame.
-                if (m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
+                bool blockedShot = m.Hostile && m.Attack is { Projectile.Lobbed: false } shot && d <= shot.Range
+                    && conn.Layout.Sight is { } sight && GameServer.Core.World.ClientPathfinder.LineBelow((mx, my), (px, py), sight, 1);
+                if (!blockedShot && m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
                     && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
                     && SummonReadyLocked(conn, id, m, a, now))
                 {
@@ -863,8 +865,8 @@ public static partial class Game
                 // but still chases: retain its direct approach without reserving space in the surround.
                 if (LivingCollision.Size(m) < 0)
                 {
-                    if (d <= m.StopRange) continue;
-                    double f = (m.StopRange - 1) / d;
+                    if (d <= m.StopRange && !blockedShot) continue;
+                    double f = blockedShot ? 0 : (m.StopRange - 1) / d;
                     (int X, int Y) to = ((int)Math.Round(px + (mx - px) * f), (int)Math.Round(py + (my - py) * f));
                     if (!conn.Layout.WalkableFor(to.X, to.Y, 0) || conn.Barrier.Contains(to)) to = (px, py);
                     if (!LockstepReorderDue(conn, plan, m, cadence, now) || !cadence.TryChase(m, to, now, walking: now < m.Walk.ArrivesAt || m.Leg is not null)) continue;
@@ -876,7 +878,7 @@ public static partial class Game
                 }
                 else if (LivingCollision.StepsWithBodies(m))
                     askers.Add((new(id, mx, my, LivingCollision.Size(m), m.LastTarget,
-                        m.Attack?.Range ?? double.PositiveInfinity, m.Attack?.Ranged == true), m, d));
+                        m.Attack?.Range ?? double.PositiveInfinity, !blockedShot && m.Attack?.Ranged == true), m, d));
             }
             if (askers.Count == 0) return plan;
             // Every other living body near the player keeps its place: the chasers' cells go around it.
