@@ -71,6 +71,45 @@ public sealed class DivinationCardTests
             Assert.Equal("DivinationCard", card.Class);
             Assert.Equal(card.MaxStack, reward.Stack);
         }
+        var taggedCards = new Dictionary<string, string> { ["Deathly Designs"] = "trap", ["The Bitter Blossom"] = "chaos",
+            ["The Cataclysm"] = "spell", ["The Rite of Elements"] = "golem", ["The Summoner"] = "minion",
+            ["The Wilted Rose"] = "aura", ["Terrible Secret of Space"] = "golem", ["Volatile Power"] = "vaal" };
+        var gemRows = GameServer.Core.ClientTables.Table("SkillGems");
+        var effects = GameServer.Core.ClientTables.Table("GemEffects");
+        var tags = GameServer.Core.ClientTables.Table("GemTags");
+        foreach (var reward in DivinationRewards.All.Values.Where(r => r.Kind == "gem_pool" && r.Enabled
+            || r.Name == "Portal" && r.QualityMax > 0))
+        for (int seed = 0; seed < 16; seed++)
+        {
+            var gem = DivinationRewards.Create(reward, items, uniques, rolls, new Random(seed))!;
+            Assert.NotNull(gem);
+            var type = items.ByHash(gem.TypeHash)!;
+            var details = items.Gem(type)!;
+            Assert.True(details.Variant(gem.GemVariant).Creatable);
+            Assert.Equal(reward.GemLevel > 0 ? reward.GemLevel : 1, items.GemLevel(gem));
+            Assert.Equal(reward.Corrupted, gem.Corrupted);
+            Assert.InRange((int)gem.Quality, reward.Quality, reward.QualityMax > 0 ? reward.QualityMax : reward.Quality);
+            var cardName = items.Find(reward.Card)!.Name;
+            if (taggedCards.TryGetValue(cardName, out string? tag))
+            {
+                var source = gemRows.First(r => r.IntOrNull("BaseItemTypesKey") == type.Row);
+                int effect = source.Ints("GemVariants").ElementAt(gem.GemVariant);
+                Assert.Contains(effects[effect].Ints("GemTags").Select(t => tags[t].Text("Id")), actual => actual == tag);
+            }
+            if (reward.Name.StartsWith("Transfigured", StringComparison.Ordinal))
+            {
+                Assert.True(gem.GemVariant > 0);
+                Assert.False(details.IsSupport || details.IsVaalOrAwakened);
+            }
+            if (reward.Name is "Exceptional Support Gem" or "Awakened Exceptional Gem")
+            {
+                Assert.True(details.IsSupport && details.IsExceptional);
+                Assert.Equal(reward.Name == "Awakened Exceptional Gem", details.IsAwakened);
+            }
+            if (reward.Name == "Empower, Enhance or Enlighten")
+                Assert.Contains(type.Name, new[] { "Empower Support", "Enhance Support", "Enlighten Support" });
+        }
+        Assert.Null(DivinationRewards.Create(doctor with { Kind = "gem_pool", Name = "Unknown gem pool" }, items, uniques, rolls, new Random(1)));
         var unresolved = DivinationRewards.All.Values.Where(r => r.Enabled
             && DivinationRewards.Create(r, items, uniques, rolls, new Random(499)) is null).Select(r => r.Card).ToArray();
         Assert.True(unresolved.Length == 0, string.Join("\n", unresolved));

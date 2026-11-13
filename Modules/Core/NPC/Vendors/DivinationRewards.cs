@@ -4,7 +4,10 @@ static class DivinationRewards
 {
     internal sealed record Reward(string Card, int Stack, string Kind, string Name, int Count,
         bool Corrupted, bool TwoImplicit, int Quality, int GemLevel, bool SixLink, int ItemLevel,
-        bool WhiteSockets, bool Enabled);
+        bool WhiteSockets, bool Enabled)
+    {
+        public int QualityMax { get; init; }
+    }
 
     static int revision = -1;
     static IReadOnlyDictionary<string, Reward> rewards = new Dictionary<string, Reward>();
@@ -22,7 +25,7 @@ static class DivinationRewards
                 var reward = new Reward(S("card_id"), N("stack_size"), S("reward_kind"), S("reward_name"),
                     N("reward_count"), N("corrupted") != 0, N("two_implicit") != 0, N("quality"),
                     N("gem_level"), N("six_link") != 0, N("item_level"), N("white_sockets") != 0,
-                    N("enabled") != 0);
+                    N("enabled") != 0) { QualityMax = N("quality_max") };
                 next.Add(reward.Card, reward);
             }
             rewards = next;
@@ -46,6 +49,14 @@ static class DivinationRewards
             if (definition is null || (item = uniques.Create(definition, random)) is null) return null;
             type = items.ByHash(item.TypeHash);
         }
+        else if (reward.Kind == "gem_pool")
+        {
+            var pool = DivinationGemRewards.Pool(reward, items);
+            if (pool.Count == 0) return null;
+            var choice = pool[random.Next(pool.Count)];
+            type = choice.Type;
+            item = DivinationGemRewards.Create(choice, reward.GemLevel);
+        }
         else if (reward.Kind == "gem")
         {
             if (items.FindGem(reward.Name) is not { } gem
@@ -67,8 +78,11 @@ static class DivinationRewards
         else return null;
         if (type is not { Supported: true } || reward.Count > Math.Max(1, (int)type.MaxStack)) return null;
         int levelOfItem = reward.ItemLevel > 0 ? reward.ItemLevel : Math.Clamp(characterLevel, 1, 80);
+        if (reward.Quality < 0 || reward.Quality > 255 || reward.QualityMax < 0 || reward.QualityMax > 255
+            || reward.QualityMax > 0 && reward.QualityMax < reward.Quality) return null;
+        int quality = reward.QualityMax > 0 ? random.Next(reward.Quality, reward.QualityMax + 1) : reward.Quality;
         item = item with { ItemLevel = (byte)Math.Clamp(levelOfItem, 1, 100), StackSize = (ushort)reward.Count,
-            Quality = reward.Quality > 0 ? (byte)reward.Quality : item.Quality };
+            Quality = quality > 0 ? (byte)quality : item.Quality };
         if (reward.Kind == "rare") item = rolls.Alchemy(item, random);
         else if (reward.Kind == "magic") item = rolls.Transmute(item, random);
         if (item is null) return null;
