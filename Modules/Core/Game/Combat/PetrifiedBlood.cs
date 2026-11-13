@@ -54,7 +54,7 @@ public static partial class Game
     public static void RestoreRememberedPetrifiedBlood(ClientState conn)
     {
         if (conn.PetrifiedBlood.Active || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0
-            || InTown(conn) || CharacterSaves.Load(CharacterName(conn))?.PetrifiedBlood != true
+            || InTown(conn) || !CharacterSaves.Remembered(CharacterName(conn)).PetrifiedBlood
             || SpellsDisabled(conn)) return;
         var gem = GemSkillEffects(conn).FirstOrDefault(g => SkillsFor(conn).EffectId(g.Effect) == PetrifiedBlood.EffectId);
         if (gem.Name is null || GemSkillInstanceDisabled(conn, gem.Effect, gem.Id) is not null

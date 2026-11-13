@@ -100,6 +100,32 @@ public static class CharacterSaves
 
     public static void Write(string character, Save save) => Saves.PutCharacter(character, save);
 
+    // The saves as last read, for the readers below that only look at a part: a fight asks for the skill cosmetics, the
+    // remembered auras and a module's text many times a second, and reading the whole save from its tables each time (its
+    // items and their mods with it) held the send gate and the instance's lock for seconds in a crowd (2026-11-13: 1766
+    // reads in ten seconds for 1000 kills). A save is kept only while SaveDatabase.Unchanged says nothing can have changed,
+    // so the first read after any write, this server's or another process's, is from the tables again. It is never handed
+    // out whole: its lists and dictionaries are the kept copy's own, and Load still gives every caller a save of its own.
+    sealed class SeenSaves
+    {
+        public (long Own, long Others) At;
+        public readonly Dictionary<string, Save?> ByName = new(StringComparer.Ordinal);
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SaveDatabase, SeenSaves> Seen = [];
+
+    static Save? Look(string character)
+    {
+        var db = Saves.Db;
+        return db.Read(() =>
+        {
+            if (db.Unchanged is not { } at) return Saves.LoadCharacter(character);
+            var seen = Seen.GetOrCreateValue(db);
+            if (seen.At != at) { seen.ByName.Clear(); seen.At = at; }
+            if (!seen.ByName.TryGetValue(character, out var save)) seen.ByName[character] = save = Saves.LoadCharacter(character);
+            return save;
+        });
+    }
+
     public static void SetHideoutPlacement(string character, string area, string key, HideoutPlacement placement) =>
         Update(character, save =>
         {
@@ -136,7 +162,7 @@ public static class CharacterSaves
 
 
     /// <summary>A module's saved text (IPlayerWorld.CharacterData). A save from before Delve was a module has its sulphite here.</summary>
-    public static string? ModuleData(string character, string key) => Load(character) is not { } save ? null
+    public static string? ModuleData(string character, string key) => Look(character) is not { } save ? null
         : save.ModuleData?.GetValueOrDefault(key) ?? (key == "delve.sulphite" ? save.Sulphite?.ToString() : null);
 
     /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
@@ -204,6 +230,11 @@ public static class CharacterSaves
     /// aura).</summary>
     public static void SetPetrifiedBlood(string character, bool active) =>
         Update(character, save => save with { PetrifiedBlood = active });
+
+    /// <summary>What the character's save remembers to restore outside a town: the auras that were on (GrantedEffects
+    /// Ids), the stance and whether Petrified Blood was on.</summary>
+    public static (IReadOnlyList<string> Auras, string? Stance, bool PetrifiedBlood) Remembered(string character) =>
+        Look(character) is { } save ? (save.ActiveAuras ?? (IReadOnlyList<string>)[], save.Stance, save.PetrifiedBlood == true) : ([], null, false);
 
     /// <summary>Records what a skill bar slot holds (see <see cref="Save.SkillBar"/>), keeping the saved items.</summary>
     public static void SetSkillBar(string character, byte slot, string entry) => Update(character, save =>
@@ -277,14 +308,14 @@ public static class CharacterSaves
 
     /// <summary>The character's skill cosmetics by <see cref="SkillCosmeticKey"/>; empty when none are saved.</summary>
     public static IReadOnlyDictionary<string, SavedCosmetic> SkillCosmetics(string character) =>
-        Load(character)?.SkillCosmetics ?? new Dictionary<string, SavedCosmetic>();
+        Look(character)?.SkillCosmetics ?? new Dictionary<string, SavedCosmetic>();
 
     /// <summary>The character's worn cosmetics by MicrotransactionSlot Id; empty when none are saved.</summary>
     public static IReadOnlyDictionary<byte, SavedCosmetic> Cosmetics(string character) =>
-        Load(character)?.Cosmetics ?? new Dictionary<byte, SavedCosmetic>();
+        Look(character)?.Cosmetics ?? new Dictionary<byte, SavedCosmetic>();
 
     /// <summary>The character's portal cosmetic, 0 (the base effect) when none is saved.</summary>
-    public static ushort PortalCosmetic(string character) => Load(character)?.PortalCosmetic ?? 0;
+    public static ushort PortalCosmetic(string character) => Look(character)?.PortalCosmetic ?? 0;
 
     /// <summary>How long experience may wait in memory before it is saved (<see cref="SaveExperience()"/>).</summary>
     public static readonly TimeSpan ExperienceSaveInterval = TimeSpan.FromSeconds(5);
@@ -389,7 +420,7 @@ public static class CharacterSaves
         Update(character, s => s with { SelectedAtlasLayout = layout });
 
     /// <summary>The Atlas layout the character selected (an AtlasNode Id), or null before it picked one (382).</summary>
-    public static string? AtlasLayout(string character) => Load(character)?.SelectedAtlasLayout;
+    public static string? AtlasLayout(string character) => Look(character)?.SelectedAtlasLayout;
 
     /// <summary>Records the three Atlas passive presets (PassiveSkillGraphId lists) and the points the character has.</summary>
     public static void SetAtlasPassives(string character, IReadOnlyList<IReadOnlyList<ushort>> presets, ushort points) =>
