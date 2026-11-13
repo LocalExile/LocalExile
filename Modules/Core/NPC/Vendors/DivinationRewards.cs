@@ -80,24 +80,27 @@ static class DivinationRewards
                 reward.WhiteSockets ? SocketColour.White : SocketColours.Roll(requirements, item.ItemLevel, item.Quality, random)))],
                 Links = [6] };
         }
-        if (reward.TwoImplicit)
+        if (reward.TwoImplicit || reward.Corrupted && type.Components.Contains("Mods") && !type.Components.Contains("SkillGem"))
         {
-            if (TwoImplicits(item, type, items, random) is not { } corrupted) return null;
+            if (CorruptionImplicits(item, type, items, random, reward.TwoImplicit ? 2 : 1) is not { } corrupted) return null;
             item = corrupted;
         }
         return item with { Identified = true, Corrupted = item.Corrupted || reward.Corrupted };
     }
 
-    static Item? TwoImplicits(Item item, ItemCatalog.BaseType type, ItemCatalog items, Random random)
+    static Item? CorruptionImplicits(Item item, ItemCatalog.BaseType type, ItemCatalog items, Random random, int count)
     {
         if (!type.Components.Contains("Mods") || type.Components.Contains("SkillGem")) return null;
         var kept = item.Mods.Where(m => m.Section != ModSection.Implicit).ToList();
         var families = new HashSet<int>();
-        for (int index = 0; index < 2; index++)
+        var hashes = new HashSet<ushort>();
+        for (int index = 0; index < count; index++)
         {
             var pool = items.Mods.All.Where(m => m.GenerationType == 5 && m.Domain == type.ModDomain
-                && m.Level <= item.ItemLevel && m.WeightFor(type.Tags) > 0 && !m.Families.Any(families.Contains)).ToArray();
-            if (pool.Length == 0) return null;
+                && m.Level <= item.ItemLevel && m.WeightFor(type.Tags) > 0
+                && !hashes.Contains(m.Hash) && !m.Families.Any(families.Contains)).ToArray();
+            if (pool.Length == 0)
+                return index == 0 && count == 1 ? item with { Corrupted = true } : null;
             long draw = random.NextInt64(pool.Sum(m => (long)m.WeightFor(type.Tags)));
             var picked = pool[^1];
             foreach (var mod in pool)
@@ -107,6 +110,7 @@ static class DivinationRewards
             }
             kept.Insert(index, picked.Roll(ModSection.Implicit, random));
             families.UnionWith(picked.Families);
+            hashes.Add(picked.Hash);
         }
         return item with { Mods = kept, Corrupted = true };
     }

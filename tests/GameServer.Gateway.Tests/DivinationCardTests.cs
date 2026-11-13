@@ -37,11 +37,25 @@ public sealed class DivinationCardTests
         var implicits = amulet.Mods.Where(m => m.Section == ModSection.Implicit).ToArray();
         Assert.Equal(2, implicits.Length);
         Assert.All(implicits, m => Assert.Equal(5, items.Mods.ByHash(m.Hash)!.GenerationType));
+        var singleImplicit = DivinationRewards.Create(doubleImplicit with { TwoImplicit = false }, items, uniques, rolls, new Random(1))!;
+        var corruption = Assert.Single(singleImplicit.Mods, m => m.Section == ModSection.Implicit);
+        Assert.Equal(5, items.Mods.ByHash(corruption.Hash)!.GenerationType);
         var humble = DivinationRewards.Find(items.Find("Humility")!.Id)!;
         var robe = DivinationRewards.Create(humble, items, uniques, rolls, new Random(1))!;
         Assert.Equal(6, robe.Sockets.Count);
         Assert.Equal(6, Assert.Single(robe.Links!));
         Assert.All(robe.Sockets, s => Assert.Equal(SocketColour.White, s.Colour));
+        var atlas = new AtlasCatalog(items);
+        foreach (var (name, tier) in new[] { ("Cartographer's Delight", 5), ("Rain Tempter", 6),
+            ("The Arena Champion", 12), ("The Surveyor", 14), ("Lost Worlds", 15), ("The Trial", 15) })
+        {
+            var definition = DivinationRewards.Find(items.Find(name)!.Id)!;
+            var map = DivinationRewards.Create(definition, items, uniques, rolls, new Random(499))!;
+            Assert.Equal(tier, atlas.TierOf(map.TypeHash));
+            Assert.Equal(name == "The Trial" ? ItemRarity.Rare : ItemRarity.Normal, map.Rarity);
+            Assert.Equal(name == "The Trial", map.Corrupted);
+        }
+        Assert.Equal(14, DivinationRewards.All.Values.Count(r => r.Kind == "disabled" && !r.Enabled));
         foreach (var (name, level, corrupted) in new[] { ("The Artist", 4, true), ("The Dragon's Heart", 4, true),
             ("The Enlightened", 3, false), ("Wealth and Power", 4, true) })
         {
