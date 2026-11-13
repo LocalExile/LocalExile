@@ -74,7 +74,7 @@ application is a separate ascendancy-tattoo flow that still needs a client trace
 | Remove | Use an Orb of Scouring on the tattooed passive. The tattoo is removed and the original passive is restored; the passive stays allocated. |
 | Unallocate | Unallocating the passive does **not** remove the tattoo. The tattooed state persists on the node and returns when the passive is allocated again. |
 | Limit | A character can have at most **50 applied tattoos**. The state is per character, not per item. |
-| Vendor | Three tattoo items from the same tribe can be vendored for one random tattoo of the same tribe. |
+| Vendor | Three tattoo items from the same tribe vendor for one random tattoo of that tribe. The output is one of the tribe's five tradeable tattoos, weighted 3:3:3:1:1 (Kitava may be 4:2:2:2:1) from the wiki's 60,000-tattoo vendoring sample; Loyalty and Makanga tattoos count as tribe tattoos on the input side, while the untagged Honoured, Journey, Ancestral and Forbidden rows (`PassiveSkillTattoos.Tribe` 11) cannot enter. Input acceptance and the five-item output pool are this recipe's reading, not live-checked; the client tables carry the tribe but no weights. |
 
 ### Targets and limits
 
@@ -253,8 +253,10 @@ icon and tooltip. The other lists are unchanged: second empty, third cluster jew
    `PassiveSkillOverrides` Type 15, excludes the target node's keystone and saves the choice in `TattooKeystones`,
    so relog does not reroll; `0x33` sends the chosen keystone's HASH16. The seven Forbidden tattoos still need to
    choose a random non-multiple-choice ascendancy notable from the class's base ascendancies and save it.
-8. **Vendor recipe (not started).** Three same-tribe tattoo items -> one random same-tribe tattoo, using the existing
-   vendor recipe path. Event-only and drop-disabled items need an explicit availability rule.
+8. **Vendor recipe (done).** Three same-tribe tattoo items vendor for one random tattoo of that tribe through the
+   existing vendor recipe path (`VendorRecipes`); the output pool and the wiki's weights live in
+   `TattooCatalogue.VendorPool`, and `VendorTattooRecipeTests` covers the recipe and the pool/tribe mapping. The
+   three-to-one groups run before the ordinary sale fallback, so leftover same-tribe units are still sold normally.
 9. **Tests (pilot coverage).** Unit tests cover the 100-item catalogue, the target map, the pilot stat mapping, the
    Firewalker pool change, the `0x33` fifth-list layout, the 48-keystone Makanui pool/choice and the five limit
    groups. Live client checks cover apply, display, relog and Orb of Scouring removal for the Firewalker, plus the
@@ -711,6 +713,12 @@ Loyalty rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witc
   `TriggerSummonedAncestor*` skill, the Leadership buff row, the chieftain variety, the 80 s stored use, the
   tattoo-grant resolution (`TattooTriggeredGrantsLocked`) and that refunding the tattooed node ends the grant. The
   presence check is covered too.
+
+Vendor recipe 2026-11-13 (code, no live vendor): `VendorTattooRecipeTests` puts three Arohongui tattoos in an offer
+and gets one tattoo back from the Arohongui pool (recipe quoted once, no extra reward); three tattoos from different
+tribes do not match the recipe and produce no tattoo; the ten pools match their entries' tribes, are drop-enabled and
+total 11 each, and the weighted pick reaches every pool member. The weights are the wiki sample because the client
+tables carry the tribe (`PassiveSkillTattoos.Tribe`) but no recipe weights.
 
 Forbidden rows 2026-11-11 (real 3.29.3b client, `/tattoo_apply` dev path on a Witch/Occultist):
 

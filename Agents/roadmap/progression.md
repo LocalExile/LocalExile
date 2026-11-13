@@ -22,7 +22,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   partial: their Leadership buff stats have no reader), nine Makanga gates,
   three Journey tattoos and Journey Makanui are client-verified (Hinekora/Kitava Makanga are inert; Ancestral
   Bloodlines is partial): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The
-  five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. The seven
+  five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. The vendor
+  recipe works (three same-tribe tattoos for one weighted random tattoo of that tribe; not live-checked). The seven
   event-only Forbidden ascendancy tattoos are applied by the server (random class notable saved in
   `TattooKeystones`, ascendancy-policy stats, `0x33` HASH16) and are partial: the client's separate use flow is
   untraced. Also still open: replace/reallocation and the 50-tattoo cap.

@@ -241,6 +241,30 @@ sealed partial class VendorRecipes
                 foreach (var i in entries.Where(i => i.Left > 0)) { rewards.Add(i.Item with { StackSize = (ushort)i.Left }); i.Left = 0; }
         }
 
+        // Three tattoos of one tribe vendor into one random tattoo of that tribe (tattoos.md, "Vendor"; the weights
+        // live in TattooCatalogue.VendorPool because the client tables carry the tribe but not the recipe weights).
+        // Loyalty, Makanga and event-only tattoos count as tattoos of their tribe on the input side.
+        foreach (var group in pool.Where(i => i.Left > 0 && TattooCatalogue.Find(i.Type.Name) is { Tribe: >= 0 and <= 9 })
+                     .GroupBy(i => TattooCatalogue.Find(i.Type.Name)!.Tribe).ToList())
+        {
+            var entries = group.ToList();
+            while (entries.Sum(i => i.Left) >= 3)
+            {
+                int take = 3;
+                foreach (var entry in entries)
+                {
+                    if (take == 0) break;
+                    int used = Math.Min(take, entry.Left);
+                    entry.Left -= used;
+                    take -= used;
+                }
+                recipes.Add("three tattoos of one tribe");
+                if (TattooCatalogue.VendorTattoo(group.Key, rng) is { } name
+                    && TattooCatalogue.Create(_catalog, name) is { } tattoo)
+                    rewards.Add(tattoo);
+            }
+        }
+
         FlaskRecipes(pool, rewards, recipes, rng, Has, Spend);
 
         // 40 quality must be covered by disjoint item subsets, not floor(total / 40).

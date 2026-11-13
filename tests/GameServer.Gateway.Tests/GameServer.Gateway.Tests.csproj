@@ -31,5 +31,7 @@
     <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
+    <!-- The tattoo vendor recipe (VendorTattooRecipeTests). -->
+    <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
   </ItemGroup>
 </Project>
