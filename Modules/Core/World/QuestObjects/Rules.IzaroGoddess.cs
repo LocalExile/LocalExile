@@ -41,8 +41,10 @@ static partial class QuestobjectsRules
         await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.AnimationUpdate(id, 0, IzaroGoddess.DeathClip, 1)],
             $"0x02bc the Goddess of Justice 0x{id:x} flies up");
         await Task.Delay(TimeSpan.FromSeconds(IzaroGoddess.DeathSeconds));
+        // She leaves the instance's monsters also when the player has gone, or a later entry would find her still here.
+        byte[] gone = IzaroGoddessGone(conn, arena);
         if (conn.Closed || conn.LeavingArea || !ReferenceEquals(conn.Layout, layout)) return;
-        await Send(remote, stream, ciphers, IzaroGoddessGone(conn, arena), $"0x02bd the Goddess of Justice 0x{id:x} is gone");
+        await Send(remote, stream, ciphers, gone, $"0x02bd the Goddess of Justice 0x{id:x} is gone");
     }
 
     // Her removal, with Izaro's when he leaves (she rides down on him).
