@@ -127,6 +127,18 @@ public static class AreaTransitionCatalog
     // around the Reverie Device) or on it (Sin's EpiloguePortal is the room object itself), unless the layout made it already.
     static void AddQuestPortals(List<AreaTransitionObject> placed, string id, uint seed, List<string> notes)
     {
+        foreach (var rule in Quests.Everything.PointPortals(id))
+        {
+            if (HashOf(rule.To) is not { } destination || Quests.Everything.SourceOf(rule) is not { } source
+                || QuestObjectTypes.Find(rule.Type)?.AnimatedModel is not { Length: > 0 } model) continue;
+            foreach (var exit in placed.Where(t => t.DestinationHash16 == destination && t.Model is null && t.TeleportTo is null
+                         && t.SourceType is null && t.QuestSource is null).ToArray())
+            {
+                int index = placed.IndexOf(exit);
+                placed[index] = exit with { QuestReplaced = true, QuestSource = source };
+                placed.Add(exit with { Model = model, SourceType = rule.Type, QuestSource = source });
+            }
+        }
         foreach (var portal in Quests.Portals(id))
         {
             if (placed.Any(t => t.SourceType == portal.Type)) continue;

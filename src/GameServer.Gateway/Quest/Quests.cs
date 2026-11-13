@@ -149,6 +149,8 @@ public static partial class Quests
     /// beside itself; Sin's EpiloguePortal back to the docks). Gate it with an <see cref="ExitRule"/>: hidden until the flag,
     /// as its Transitionable is untargetable until then.</summary>
     public sealed record PortalRule(string Area, string AtObject, string To, string Type) : Rule;
+    /// <summary>A model-less exit at a named entrance stands in for this quest portal.</summary>
+    public sealed record PointPortalRule(string Area, string To, string Type) : Rule;
     /// <summary>A door opened individually by use, or by the death of the monster in its named room.</summary>
     public sealed record PlacedDoorRule(string Area, string Type, string? Room = null, string? Monster = null) : Rule;
     /// <summary>A room or tile quest object the engine creates where the area places it (<see cref="QuestObjectTypes"/>): a
@@ -382,6 +384,7 @@ public static partial class Quests
 
         /// <summary>The area's quest portals (<see cref="PortalRule"/>).</summary>
         public IReadOnlyList<PortalRule> Portals(string areaId) => In<PortalRule>(areaId);
+        public IReadOnlyList<PointPortalRule> PointPortals(string areaId) => In<PointPortalRule>(areaId);
 
         /// <summary>The flags a dialogue row sets beyond its own columns (<see cref="TalkRowRule"/>).</summary>
         public IReadOnlyList<string> OnTalkRow(int row) => [.. Of<TalkRowRule>().Where(r => r.Row == row).SelectMany(r => r.Flags).Distinct()];

@@ -110,7 +110,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Act3Complete`, the campaign runner unattended; on the modules checked by the oracle, not yet with the client): a4q2
   (Voll, Deshret's Banner, the seal opens the Mines), a4q6 (Deshret's spirit, the book), a4q3 and a4q4 (Dialla at the
   Rapture, Kaom, Daresso, both Eyes handed in), a4q5 (the Rapture Device, Piety in the Belly and her talk, the three
-  guardians' organs in one click to open the Black Core), a4q1 (Malachai's second form at the second arena's boss point, the withered Dialla opening the Ascent,
+  guardians' organs in one click to open the Black Core), a4q1 (Malachai's second form at the second arena's boss point, his return portal to Highgate, the withered Dialla opening the Ascent,
   her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
   the arena shortcut after Innocence falls in that instance, burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
   a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,

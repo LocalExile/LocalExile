@@ -104,6 +104,8 @@ sealed class Act4 : Act
                 On.Seen(Harvest, Act4Monsters.Malachai2, "a4q1-SeenMalachai"),
                 On.Forms(Harvest, [Act4Monsters.Malachai], Act4Monsters.Malachai2),
                 On.Killed(Harvest, Act4Monsters.Malachai2, "a4q1-QuestComplete"),
+                new PointPortalRule(Harvest, Highgate, "Metadata/QuestObjects/Act4/MalachaiDeathPortal"),
+                On.Exit(Harvest, Highgate, "a4q1-QuestComplete"),
                 On.Exit(Highgate, Ascent, "DiallaOnMalachaiDead"),
             },
             // a4q2 "Breaking the Seal": Voll stands at mapboss1 of The Dried Lake's boss room and drops Deshret's Banner (wiki:
