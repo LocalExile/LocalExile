@@ -29,7 +29,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency, gems, flasks, equipment and uniques by weight, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: currency, gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working

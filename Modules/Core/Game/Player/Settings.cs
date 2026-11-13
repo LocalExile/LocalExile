@@ -90,7 +90,9 @@ public static partial class Game
     // Map portal timing (ms): each portal's 0x8f after its create, the gap between portals, the first one after entering
     // the hideout (Game_MAP_PORTAL_LIST_MS, _GAP_MS, _ENTRY_MS).
     public static readonly int MapPortalListMs = EnvMs("Game_MAP_PORTAL_LIST_MS", 100), MapPortalGapMs = EnvMs("Game_MAP_PORTAL_GAP_MS", 150),
-        MapPortalEntryMs = EnvMs("Game_MAP_PORTAL_ENTRY_MS", 1500);
+        MapPortalEntryMs = EnvMs("Game_MAP_PORTAL_ENTRY_MS", 1500),
+        // A portal is listed once more this long after its first 0x8f (Game_MAP_PORTAL_RELIST_MS): Game.ListPortal.
+        MapPortalRelistMs = EnvMs("Game_MAP_PORTAL_RELIST_MS", 600);
     public static int EnvMs(string name, int fallback) => int.TryParse(Environment.GetEnvironmentVariable(name), out int ms) && ms >= 0 ? ms : fallback;
     // Unique items the server can create (names/art from the client data, mods curated: UniqueCatalog).
     public static readonly UniqueCatalog Uniques = new(Items);

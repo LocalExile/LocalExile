@@ -4,11 +4,13 @@ namespace GameServer.Gateway.Tests;
 
 /// <summary>/stash_add's primitive: tabs are appended at the end, named uniquely, and the header is saved so a reload
 /// of the account shows them. A map tab's hidden pages are children and must not count as tabs the player sees.</summary>
-public class StashAddTabsTests
+public class StashAddTabsTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     static AccountStash Open(ItemCatalog catalog, string account)
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-stashadd-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("stashadd");
         return AccountStash.For(account, catalog);
     }
 

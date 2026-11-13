@@ -22,8 +22,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  Party and guild lines are not sent. A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
-  Code: `Modules/Core/Player/Chat`, `src/GameServer.Core/Chat`.
+  Guild lines are not sent. A `%` party line reaches every member of the sender's party, in whatever area each one is
+  (S→C 0x17 with the sender prefixed `%`); a player in no party is sent none (tested, not yet checked with the real
+  client).
+  A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
+  Code: `Modules/Core/Player/Chat`, `Modules/Core/Player/Social`, `src/GameServer.Core/Chat`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §6.
 - NPCs in every campaign town (acts 1-10, Oriath, the Karui Shores): each town room's own NPC lines, placed as the
   client places the room (checked against its walk-map capture of every town), with name, minimap icon, model and

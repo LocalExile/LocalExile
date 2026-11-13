@@ -7,10 +7,11 @@ static partial class Game
     {
         var gem = SupportedSkill(conn, source);
         int repeats = triggered ? 0 : SpellRepeats(conn, source, gem.Effect);
+        int seals = triggered ? 0 : UnleashSeals(conn, source, gem, ProjectileWorldTime(conn), spend: true);
         double interval = Math.Max(.001, (CastMs(conn, gem.Effect, source) ?? 1000) / 1000d);
         double due = AreaTime(conn) + (triggered ? 0 : interval);
         var lifetime = CombatLifetime;
-        for (int repeat = 0; repeat <= repeats; repeat++, due += interval)
+        for (int releaseIndex = 0; releaseIndex <= repeats + seals; releaseIndex++)
         {
             while (true)
             {
@@ -24,6 +25,7 @@ static partial class Game
                 await AreaWait(PlayerUpdateRole.Minions, 25);
             }
             if (!await release()) return false;
+            due += releaseIndex < seals ? interval * .1 : interval;
         }
         return true;
     }

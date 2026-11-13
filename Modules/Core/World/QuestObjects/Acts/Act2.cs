@@ -101,6 +101,7 @@ sealed class Act2 : Act
             new Quest("a2q6")
             {
                 On.Near(ChamberOfSins2, Act2Objects.HelenaSins, "a2q6-SeenHelena"),
+                On.Object(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Near(ChamberOfSins2, Act2Objects.PietySins, "a2q6-SeenPiety"),
                 On.Killed(ChamberOfSins2, Act2Monsters.Fidelitas, "a2q6-KilledDemon"),
                 On.Npc(ChamberOfSins2, Act2Objects.HelenaSins, goneWith: "a2q6-HelenaInTown", transitionedBy: "a2q6-KilledDemon"),

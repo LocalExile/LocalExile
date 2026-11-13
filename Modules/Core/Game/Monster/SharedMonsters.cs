@@ -73,6 +73,13 @@ public static partial class Game
     {
         // Only a client that was shown the monster can be sent its actions and component updates (SharedKills.ToOthers).
         if (conn.Instance is not null && m.Target is null && !conn.MonsterViews.ContainsKey(id)) return false;
+        double TargetDistance(ClientState owner, double distance)
+        {
+            if (m.Attack is null || InTown(owner) || InGracePeriod(owner)) return distance;
+            var minion = GolemTargetLocked(owner, id, m, at, now, distance);
+            return minion.G is null ? distance : Math.Min(distance, minion.Distance);
+        }
+        d = TargetDistance(conn, d);
         var t = m.Target;
         bool live = t is not null && !t.Closed && !t.LeavingArea && t.PlayerLife > 0 && ReferenceEquals(t.Instance, conn.Instance);
         if (live && ReferenceEquals(t, conn))
@@ -87,7 +94,7 @@ public static partial class Game
         {
             var there = t!.Walk.Position(now);
             double dt = Math.Sqrt((double)(at.X - there.X) * (at.X - there.X) + (double)(at.Y - there.Y) * (at.Y - there.Y));
-            if (d + TargetMargin >= dt) return false;
+            if (d + TargetMargin >= TargetDistance(t, dt)) return false;
         }
         // From another player: what it did for that one ends (its next pass orders after this one).
         if (t is not null)

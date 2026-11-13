@@ -2,12 +2,14 @@ using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
 
-public class FlaskStashFillTests
+public class FlaskStashFillTests : IDisposable
 {
+    public void Dispose() => TestEnvironment.ReleaseOwnSaves();
+
     [Fact]
     public void Fill_preserves_existing_flasks_and_reloads_bases_tinctures_and_unique_identities()
     {
-        Saves.Open(Path.Combine(Path.GetTempPath(), "LocalExile-flasks-" + Guid.NewGuid().ToString("N") + ".db"));
+        TestEnvironment.OpenOwnSaves("flasks");
         var catalog = new ItemCatalog("data");
         PlayerInventories.Shape? Shape(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
         string account = "FlaskFill" + Guid.NewGuid().ToString("N");

@@ -14,6 +14,9 @@ static partial class QuestobjectsRules
         public readonly IzaroFights.Trial Trial = trial;
         public uint Izaro;
         public SpawnedMonster? Boss;
+        // The Goddess of Justice on his back (IzaroGoddess).
+        public uint Goddess;
+        public SpawnedMonster? GoddessMonster;
         public bool Over, AllGargoylesDeadSaid, AllPortalsDeadSaid;
         // Izaro's elevator: what rises on the small elevators faces it (the original, live).
         public AreaPopulation.RoomObject? Centre;
@@ -170,6 +173,8 @@ static partial class QuestobjectsRules
         await ReleaseIzaroPortals(remote, stream, ciphers, conn, arena, here);
         await ReleaseIzaroIdols(remote, stream, ciphers, conn, arena, here);
         await ReleaseIzaroLieutenants(remote, stream, ciphers, conn, arena, here);
+        if (arena.GoddessMonster is { } goddess)
+            _ = GoddessOfJustice.Run(remote, stream, ciphers, conn, arena.Goddess, goddess, boss, () => here() && !arena.Over);
         _ = RunIzaroGuardians(remote, stream, ciphers, conn, arena, here);
         if (arena.Gargoyles.Count > 0) _ = WatchIzaroGargoyles(remote, stream, ciphers, conn, arena, here);
         if (arena.Lieutenants.Count > 0) _ = WatchIzaroLieutenants(remote, stream, ciphers, conn, arena, here);

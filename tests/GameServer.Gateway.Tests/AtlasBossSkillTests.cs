@@ -75,10 +75,7 @@ public class AtlasBossSkillTests
 
         // A gem id here makes the client start that gem's action instead of the boss's clip (0xc0000005, live 2026-10-31).
         foreach (ushort id in ids)
-        {
             Assert.True(id >= 0x4000, $"skill id 0x{id:x4} is in the player's range");
-            Assert.False(id is >= 0x0103 and <= 0x0142, $"skill id 0x{id:x4} is a gem id");
-        }
         Assert.Equal(ids.Count, ids.Distinct().Count());
         // The families are what keeps them apart: the Shaper and the Elder stand in one arena together.
         Assert.All(AtlasBosses.SirusEffects, e => Assert.InRange(AtlasBosses.Skill(sirus, e), 0x4020, 0x403f));

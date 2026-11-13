@@ -19,6 +19,13 @@ public static partial class Game
         return CooldownPlan(conn, supported, CharacterPlayerStats(conn));
     }
 
+    // Ikiaho's Leadership: travel skills recover cooldowns faster (the level 1 spirit's 100 is a 2x rate).
+    public static int TravelSkillCooldownSpeed(SkillCatalog skills, int effect,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own) =>
+        skills.IsTravel(effect)
+            ? GolemStat(player, "travel_skill_cooldown_speed_+%") + GolemStat(own, "travel_skill_cooldown_speed_+%")
+            : 0;
+
     static SingleUseCooldown? CooldownPlan(ClientState conn, SupportedGem supported, IReadOnlyDictionary<uint, int> player)
     {
         var skills = SkillsFor(conn);
@@ -27,6 +34,10 @@ public static partial class Game
         var own = supported.Stats;
         if (skills.EffectId(effect) is "Convocation" or "ConvocationOld" && Stats.Key("base_cooldown_speed_+%") is uint recovery)
             own = new(own) { [recovery] = own.GetValueOrDefault(recovery) + GolemStat(player, "convocation_cooldown_speed_+%") };
+        int travelRecoveryPct = TravelSkillCooldownSpeed(skills, effect, player, own);
+        if (skills.IsTravel(effect) && travelRecoveryPct != 0
+            && Stats.Key("base_cooldown_speed_+%") is uint travelRecovery)
+            own = new(own) { [travelRecovery] = own.GetValueOrDefault(travelRecovery) + travelRecoveryPct };
         if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, player, own) is not { } plan) return null;
         int? shared = skills.CooldownGroup(effect, supported.Level) switch
         {

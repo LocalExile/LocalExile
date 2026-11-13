@@ -294,8 +294,7 @@ public static partial class Game
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(remote, stream, ciphers, conn, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
                     actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
-                // The server lands a movement skill at once, and the client can refuse it or take its time (a Lightning Warp
-                // often does neither, live 2026-11-01): the resync settles which, once the action is over.
+                // Reconcile the skills that use the immediate landing estimate once their action has finished.
                 if (cast && gem.Name is not null && chargeBonus == 0 && LandsAtAim(conn, gem.Effect))
                     ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
                 if (!PlayerActionCurrent(conn, action)) continue;
