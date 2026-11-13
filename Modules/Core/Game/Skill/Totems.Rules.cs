@@ -116,11 +116,21 @@ public static partial class Game
                 // A dedicated totem skill whose row is a ranged attack totem is a ballista: it places only through the
                 // ballista path, so a payload main refuses there (Focused Ballista Support off a bow) is refused here
                 // too instead of being placed by the dedicated-skill clause and then kept alive by it.
-                || SkillsFor(conn).HasType(effect, TotemSkillType)
+                || SkillsFor(conn).HasType(effect, TotemSkillType) && TotemDoesSomething(conn, skill, effect)
                     && (GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0
                         || BallistaPathAvailable(conn, skill))
                 || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null
                 || BallistaPathAvailable(conn, skill));
+
+    /// <summary>Whether a dedicated totem skill has anything this module can run behind it: an aura
+    /// (<see cref="TotemAuras"/>), one of the two behaviours that are not a hit (Devouring Totem's corpse meal,
+    /// Decoy Totem's taunt), or a hit of its own to land as the totem's use. A dedicated totem skill with none of
+    /// them rises and does nothing, so it is refused rather than paid for — which is what every dedicated totem
+    /// skill got before this branch.</summary>
+    static bool TotemDoesSomething(ClientState conn, ushort skill, int effect) =>
+        TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
+        || SkillsFor(conn).EffectId(effect) is "DevouringTotem" or "DecoyTotem"
+        || SupportedHitFor(conn, skill, suppress: false) is { IsZero: false };
 
     // After placement pays its cost, the totem rises at the aimed point. Placement speed and owner action speed
     // scale this delay; the proxy's spell/weapon speed only controls its subsequent attacks (GrantedEffects CastTime,
