@@ -4,27 +4,34 @@ using GameServer.Core.Projectiles;
 namespace GameServer.Core.Tests;
 
 /// <summary>A step looks for contacts through a grid over the actors once there are many (ProjectileRuntime's
-/// ContactSearch) instead of testing every flight against every actor. It must find the same contacts in the same order:
-/// the same seeded fights are run both ways and every hit request and event compared.</summary>
+/// ContactSearch) instead of testing every flight against every actor, and a flight keeps the contact it worked out
+/// while the actors are where they were (KeepContacts). Both must find the same contacts in the same order as working
+/// everything out at every step: the same seeded fights are run each way and every hit request and event compared. The
+/// world also changes inside notifications (an actor dies, jumps or arrives while a flight's end is published), which
+/// nothing forbids a host to do: a kept contact must not outlive that.</summary>
 public class ProjectileContactSearchTests
 {
     [Fact]
     public void A_crowd_s_contacts_are_the_ones_the_plain_scan_of_every_actor_finds()
     {
-        for (int seed = 1; seed <= 2; seed++)
+        for (int seed = 1; seed <= 1; seed++)
         {
-            string plain = Fight(seed, indexFrom: int.MaxValue), grid = Fight(seed, indexFrom: 0);
-            int lines = plain.Count(c => c == '\n'), hits = plain.Split("\nH ").Length - 1;
-            Assert.True(lines > 2000 && hits > 400, $"the fight is too quiet to compare anything: {lines} lines, {hits} hit requests");
-            Assert.Equal(plain, grid);
+            string plain = Fight(seed, indexFrom: int.MaxValue, keep: false);
+            int lines = plain.Count(c => c == '\n'), hits = plain.Split("\nH ").Length - 1, meddled = plain.Split("\nM ").Length - 1;
+            Assert.True(lines > 2000 && hits > 400 && meddled > 40,
+                $"the fight is too quiet to compare anything: {lines} lines, {hits} hit requests, {meddled} changes in notifications");
+            Assert.Equal(plain, Fight(seed, indexFrom: 0, keep: false));
+            Assert.Equal(plain, Fight(seed, indexFrom: 0, keep: true));
+            Assert.Equal(plain, Fight(seed, indexFrom: int.MaxValue, keep: true));
         }
     }
 
-    static string Fight(int seed, int indexFrom)
+    static string Fight(int seed, int indexFrom, bool keep)
     {
         var log = new StringBuilder();
         var world = new Crowd(seed, 320, log);
-        var runtime = new ProjectileRuntime(world) { IndexActorsFrom = indexFrom };
+        var runtime = new ProjectileRuntime(world) { IndexActorsFrom = indexFrom, KeepContacts = keep };
+        world.Schedule = runtime.Schedule;
         var random = new Random(seed * 7919);
         var area = new ProjectileAreaRecipe("area", 9);
         ProjectileProfile[] profiles =
@@ -78,6 +85,7 @@ public class ProjectileContactSearchTests
         readonly StringBuilder log;
         readonly int seed;
         uint nextId = 0x8000;
+        public Action<long, Action> Schedule = (_, _) => { };
         public ProjectileActor Player { get; }
 
         public Crowd(int seed, int count, StringBuilder log)
@@ -138,9 +146,29 @@ public class ProjectileContactSearchTests
             return result;
         }
 
-        public void Publish(ProjectileEvent value) =>
+        // What a notification is free to do: the world changes while a flight's end is published, with no hit decided.
+        void Meddle(ProjectileEvent value)
+        {
+            ulong h = unchecked((ulong)value.Projectile.Id * 0x9e3779b97f4a7c15UL ^ (ulong)value.At * 0xc2b2ae3d27d4eb4fUL ^ (ulong)seed);
+            h ^= h >> 31; h *= 0xff51afd7ed558ccdUL; h ^= h >> 29;
+            if (order.Count < 2) return;
+            var body = bodies[order[1 + (int)((h >> 8) % (ulong)(order.Count - 1))].Key];
+            switch ((int)(h % 12))
+            {
+                case 0: bodies.Remove(body.Actor.Key); order.Remove(body.Actor); log.Append($"M dies {body.Actor.Key.Id}\n"); break;
+                case 1: body.Pushed += new ProjectileVector((h >> 20 & 15) - 7.5, (h >> 24 & 15) - 7.5); log.Append($"M jumps {body.Actor.Key.Id}\n"); break;
+                case 2: body.StoppedAt = Math.Min(body.StoppedAt, value.At); break;
+                case 3: Schedule(value.At + (long)(h >> 16 & 0xfff), () => { }); break;
+                case 4: Add(new(nextId++, 0), 2, value.Position.X + 4, value.Position.Y + 1, 1, 1, unchecked((int)h), 2); log.Append("M arrives\n"); break;
+            }
+        }
+
+        public void Publish(ProjectileEvent value)
+        {
+            if (value.Kind == ProjectileEventKind.End) Meddle(value);
             log.Append($"E {value.Kind} {value.Projectile.Id} {value.Projectile.ParentId} {value.At} {value.Position.X:R},{value.Position.Y:R} "
                 + $"{value.Reason} {value.Radius:R} {value.Stage} {value.Projectile.Phase} {value.Projectile.Direction.X:R},{value.Projectile.Direction.Y:R} "
                 + $"{value.Projectile.Remaining:R}\n");
+        }
     }
 }

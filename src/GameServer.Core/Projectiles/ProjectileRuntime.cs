@@ -146,7 +146,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             while (true)
             {
-                while (scheduled.TryPeek(out _, out var due) && due.At <= Now) scheduled.Dequeue()();
+                while (scheduled.TryPeek(out _, out var due) && due.At <= Now)
+                {
+                    contactEpoch++;
+                    scheduled.Dequeue()();
+                }
                 if (projectiles.Count == 0)
                 {
                     if (Now == until) break;
@@ -159,7 +163,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 // Every projectile used to sort the same actors and evaluate their walks repeatedly.
                 // This snapshot lasts only until the next contact/scheduled callback: deaths, new actors
                 // and motion changes from a hit are read again on the very next simulation iteration.
-                search.Take(actors, Now, horizon, IndexActorsFrom);
+                if (search.Take(actors, Now, horizon, IndexActorsFrom)) contactEpoch++;
                 Contact? first = null;
                 foreach (var p in projectiles.Values)
                 {
@@ -184,6 +188,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
         finally
         {
+            contactEpoch++;
             search.Release();
             spareSearch = search;
         }
@@ -243,21 +248,41 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         // cells centred on integers, so the square's half-width is half a cell wider.
         int? cells = p.Profile.ContactCells;
         var motion = search.Motion;
+        // The first actor the flight meets, by itself: the earliest contact, and of several at one instant the first in
+        // the actors' order. It is set against the flight's own end, terrain and walls below.
+        Contact? hit = null;
+        int met = -1;
         // With the actor where it is at the horizon (or still at its start), a contact needs the actor near the path:
         // only those are looked at, in the same order (ContactSearch). A flight that ends between the two asks each
-        // actor where it is then, which can be off the straight line: it scans them all.
-        if ((end == horizon || end == Now)
-            && search.Near(p.Position, to, cells is int most ? most + search.MaxSize + .5 : p.Profile.Radius + search.MaxRadius, out var near))
+        // actor where it is then, which can be off the straight line: it scans them all, every step.
+        bool straight = end == horizon || end == Now;
+        if (straight && KeepContacts && p.ContactEpoch == contactEpoch && p.ContactEnd == end && p.ContactFrom == p.Position && p.ContactTo == to)
         {
-            ForgetLeft(p, search, cells, directRule);
-            foreach (int i in near) Sweep(in motion[i]);
+            // Worked out in an earlier step of this instant, and nothing it came from has changed (contactEpoch).
+            if (p.ContactIndex >= 0) hit = new(p.ContactAt, p, motion[p.ContactIndex].Actor, null, default);
         }
         else
-            for (int i = 0; i < search.Count; i++) Sweep(in motion[i]);
+        {
+            if (straight && search.Near(p.Position, to, cells is int most ? most + search.MaxSize + .5 : p.Profile.Radius + search.MaxRadius, out var near))
+            {
+                ForgetLeft(p, search, cells, directRule);
+                foreach (int i in near) Sweep(i);
+            }
+            else
+                for (int i = 0; i < search.Count; i++) Sweep(i);
+            if (straight)
+                (p.ContactEpoch, p.ContactEnd, p.ContactFrom, p.ContactTo, p.ContactIndex, p.ContactAt) =
+                    (contactEpoch, end, p.Position, to, met, hit?.At ?? 0);
+        }
+        // Terrain wins coincident contact. An actor at the range endpoint still receives its contact.
+        if (hit is { } actorHit && (best is null || actorHit.At < best.Value.At
+            || (actorHit.At == best.Value.At && best.Value.End != ProjectileEndReason.Terrain && best.Value.Target is null)))
+            return hit;
         return best;
 
-        void Sweep(in ActorMotion sweep)
+        void Sweep(int index)
         {
+            ref readonly var sweep = ref motion[index];
             var actor = sweep.Actor;
             if (actor.Team == p.Use.Team || actor.Key == p.Use.Owner || actor.Key == p.TurnaroundTarget) return;
             if (cells is not null && actor.Size < 0) return;
@@ -281,9 +306,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             long at = Now + (long)Math.Ceiling((end - Now) * f);
             if (skipDenied && !ledger.CanHit(directRule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId,
                 p.Phase, "direct", actor.Key, at, p.CreatedAt, directRule)) return;
-            // Terrain wins coincident contact. An actor at the range endpoint still receives its contact.
-            if (best is null || at < best.Value.At || (at == best.Value.At && best.Value.End != ProjectileEndReason.Terrain
-                && best.Value.Target is null)) best = new(at, p, actor, null, default);
+            if (hit is null || at < hit.Value.At) { hit = new(at, p, actor, null, default); met = index; }
         }
     }
 
@@ -315,6 +338,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void Resolve(Contact c, IReadOnlyList<ProjectileActor> actors)
     {
         var p = c.Projectile;
+        p.ContactEpoch = -1;
         if (c.TerrainPoint is { } point)
         {
             // Contact time is quantized upward, but geometry must stay on the surface. Otherwise
@@ -422,6 +446,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     {
         rule ??= (admissionStage ?? stage) == "direct" ? DirectHitRule(p) : p.Profile.HitRule;
         long g = group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId);
+        contactEpoch++;
         var result = ProjectileHitResult.Blocked;
         ledger.TryHit(g, p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
@@ -558,6 +583,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     /// <summary>Retires one owner's live flights and delayed areas without disturbing other actors' uses.</summary>
     public void Discard(Func<ProjectileUse, bool> matches)
     {
+        contactEpoch++;
         foreach (var p in projectiles.Values.Where(p => matches(p.Use)).ToArray())
             End(p, ProjectileEndReason.Teardown, allowReturn: false);
         foreach (var pair in pendingAreas.Where(pair => matches(pair.Value.Use)).ToArray())
@@ -566,6 +592,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     public void Clear()
     {
+        contactEpoch++;
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);
         scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
     }

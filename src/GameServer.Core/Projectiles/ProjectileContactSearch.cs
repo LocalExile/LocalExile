@@ -30,15 +30,21 @@ public sealed partial class ProjectileRuntime
 
         double left, top, cell;
         int columns, rows, query;
+        long takenAt = -1, takenUntil = -1;
         int[] starts = [], cursor = [], items = [], seen = [], found = [];
 
         static bool Before(ProjectileActorKey a, ProjectileActorKey b) =>
             a.Id != b.Id ? a.Id < b.Id : a.Generation < b.Generation;
 
-        public void Take(IReadOnlyList<ProjectileActor> actors, long now, long horizon, int fewest)
+        /// <summary>Takes the step's actors and asks each where it is. False when they are the same actors at the same
+        /// places as the step before, between the same two instants: every actor is asked every time, so whatever the
+        /// host did in between (a hit, a notification, anything) shows here if it moved, removed or added one. Then the
+        /// grid stands, and so does what each flight worked out from these actors.</summary>
+        public bool Take(IReadOnlyList<ProjectileActor> actors, long now, long horizon, int fewest)
         {
             int before = Count;
-            Count = actors.Count;
+            bool same = before == actors.Count && takenAt == now && takenUntil == horizon;
+            Count = actors.Count; takenAt = now; takenUntil = horizon;
             if (Motion.Length < Count) Motion = new ActorMotion[Math.Max(Count, Motion.Length * 2)];
             bool ordered = true;
             for (int i = 1; i < Count && ordered; i++) ordered = !Before(actors[i].Key, actors[i - 1].Key);
@@ -46,18 +52,32 @@ public sealed partial class ProjectileRuntime
                 for (int i = 0; i < Count; i++)
                 {
                     var actor = actors[i];
-                    Motion[i] = new(actor, actor.Position(now), actor.Position(horizon));
+                    var taken = new ActorMotion(actor, actor.Position(now), actor.Position(horizon));
+                    same = same && Same(in Motion[i], in taken);
+                    Motion[i] = taken;
                 }
             else
             {
                 int i = 0;
                 foreach (var actor in actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
-                    Motion[i++] = new(actor, actor.Position(now), actor.Position(horizon));
+                {
+                    var taken = new ActorMotion(actor, actor.Position(now), actor.Position(horizon));
+                    same = same && Same(in Motion[i], in taken);
+                    Motion[i++] = taken;
+                }
             }
             if (before > Count) Array.Clear(Motion, Count, before - Count);
+            if (same) return false;
             Indexed = false;
             if (Count >= fewest) Index();
+            return true;
         }
+
+        // Everything a contact test reads of an actor. The host may give a new record for the same actor each time.
+        static bool Same(in ActorMotion a, in ActorMotion b) =>
+            (ReferenceEquals(a.Actor, b.Actor) || a.Actor.Key == b.Actor.Key && a.Actor.Team == b.Actor.Team
+                && a.Actor.Radius == b.Actor.Radius && a.Actor.Size == b.Actor.Size)
+            && a.From == b.From && a.To == b.To;
 
         /// <summary>Lets go of the actors: the search is kept between advances, the actors are the host's.</summary>
         public void Release()
@@ -65,6 +85,7 @@ public sealed partial class ProjectileRuntime
             Array.Clear(Motion, 0, Count);
             Count = 0;
             Indexed = false;
+            takenAt = takenUntil = -1;
         }
 
         void Index()
@@ -194,6 +215,16 @@ public sealed partial class ProjectileRuntime
     // Kept between advances so a step allocates nothing for its actors. An advance that starts inside another (a hit's
     // callback that advances the runtime) takes a search of its own.
     ContactSearch? spareSearch;
+
+    // Changes whenever something a flight's first actor contact was worked out from may have changed: the step's actors
+    // or its two instants (ContactSearch.Take), a hit's admission (Damage: the ledger), a scheduled command (it can do
+    // anything), the end of an advance. A flight keeps its contact while this stands and the flight itself has not been
+    // resolved (ProjectileEntity.ContactEpoch): most steps are one flight ending, which changes nothing for the others.
+    long contactEpoch;
+
+    /// <summary>Whether a flight keeps the first actor contact it worked out while nothing it came from has changed
+    /// (contactEpoch). Off, every flight works it out again at every step: the same contacts either way.</summary>
+    public bool KeepContacts { get; init; } = true;
 
     /// <summary>The number of actors from which a step looks for contacts through the grid (ContactSearch); with fewer
     /// the plain scan of every actor is as cheap. Both find the same contacts in the same order.</summary>

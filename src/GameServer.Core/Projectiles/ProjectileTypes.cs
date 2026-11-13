@@ -290,6 +290,11 @@ public sealed class ProjectileEntity
     public Random ReactionRandomSource { get; }
     internal readonly HashSet<ProjectileActorKey> Contacts = [];
     internal readonly HashSet<long> Interactions = [];
+    // The first actor this flight meets (its place in the step's actors, -1 for none, and when), as last worked out
+    // (ProjectileRuntime.NextContact), with the runtime's contactEpoch and the flight's path then: kept while both stand.
+    internal long ContactEpoch = -1, ContactAt, ContactEnd;
+    internal int ContactIndex = -1;
+    internal ProjectileVector ContactFrom, ContactTo;
 
     // Freeze trigger-time flight state while sharing the use's chronological combat RNG streams.
     internal ProjectileEntity AreaSnapshot() => (ProjectileEntity)MemberwiseClone();
