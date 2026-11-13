@@ -780,6 +780,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         ["TornadoShotAltY"] = "Metadata/Projectiles/TornadoShotArrow",
         ["SparkAltX"] = "Metadata/Projectiles/Spark",
         ["SparkAltY"] = "Metadata/Projectiles/Spark",
+        ["VaalFireball"] = "Metadata/Projectiles/Fireball",
         ["VaalSpark"] = "Metadata/Projectiles/Spark",
         ["ElementalHit"] = "Metadata/Projectiles/ElementalHitArrowCombined",
         ["ElementalHitAltX"] = "Metadata/Projectiles/ElementalHitArrowCombined",

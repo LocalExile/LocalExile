@@ -111,6 +111,51 @@ public static partial class Game
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.
         // shortcut: a repeat keeps the cast's aim point; check live whether the client re-aims at a moving target.
+        if (SkillsFor(conn).EffectId(gem.Effect) == "VaalSpark")
+        {
+            if (conn.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
+                return Task.CompletedTask;
+            session.Schedule(ProjectileRuntime.Time(acceptedAt + delay), () => Valid() && VaalAdmissionCurrent(conn, paid), () =>
+            {
+                var use = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, sacrifice: sacrifice);
+                var own = SupportedSkill(conn, skillId).Stats;
+                // The default profile substitutes one shot for a missing base count. Vaal Spark
+                // already supplies that base as its hundred-shot stream; quality adds to the stream.
+                int extra = use.Profile.Count - (GolemStat(own, "base_number_of_projectiles") > 0 ? 0 : 1);
+                int count = Math.Clamp(GolemStat(own, "base_number_of_projectiles_in_spiral_nova") + extra, 1, 256);
+                long interval = ProjectileRuntime.Time(GolemStat(own, "projectile_spiral_nova_time_ms") / (1000d * count));
+                var profile = use.Profile with { Count = count, SequentialDelay = interval, ShareSequentialHits = true };
+                use = ClientDrawnVolley(conn, session, skillId, gem, use with { Profile = profile }, sequence, 0);
+                var angles = RandomVolleyAngles(sequence, count, use.Emitter.Id, use.Aim - use.Origin);
+                return use with { CanEmit = () => session.Active && conn.PlayerLife > 0 && conn.ProjectileActive(epoch),
+                    Profile = use.Profile with { NativeVolley = new() { Angles = angles } } };
+            });
+            return Task.CompletedTask;
+        }
+        if (SkillsFor(conn).EffectId(gem.Effect) == "VaalFireball")
+        {
+            if (conn.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
+                return Task.CompletedTask;
+            var own = SupportedSkill(conn, skillId).Stats;
+            int count = GolemStat(own, "base_number_of_projectiles_in_spiral_nova");
+            int span = GolemStat(own, "projectile_spiral_nova_time_ms");
+            int degrees = GolemStat(own, "projectile_spiral_nova_angle");
+            // Capture once at the cast contact. Walking after release cannot interrupt a paid spiral.
+            ProjectileUse? captured = null;
+            for (int i = 0; i < count; i++)
+            {
+                double turn = i / (double)count;
+                session.Schedule(ProjectileRuntime.Time(acceptedAt + delay + turn * span / 1000d),
+                    () => session.Active && conn.PlayerLife > 0 && (captured is not null || Valid() && VaalAdmissionCurrent(conn, paid)),
+                    () =>
+                    {
+                        captured ??= CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, sacrifice: sacrifice);
+                        var direction = (captured.Aim - captured.Origin).Unit.Rotate(turn * degrees * Math.PI / 180);
+                        return captured with { Aim = captured.Origin + direction * captured.Profile.Range };
+                    });
+            }
+            return Task.CompletedTask;
+        }
         int repeats = attack ? 0 : SpellRepeats(conn, skillId, gem.Effect);
         for (int repeat = 0; repeat <= repeats; repeat++)
         {

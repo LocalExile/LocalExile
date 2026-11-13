@@ -9,6 +9,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     readonly PriorityQueue<Action, (long At, long Order)> scheduled = new();
     readonly ProjectileHitLedger ledger = new();
     readonly Dictionary<long, ProjectileEntity> pendingAreas = [];
+    readonly HashSet<long> pendingEmissions = [];
     long sequence, commandSequence;
     public long Now { get; private set; }
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;
@@ -38,13 +39,15 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (spread is > 0 and < Math.PI && use.Profile.AimSpreadDistance > 0)
             spread = 2 * Math.Atan(Math.Tan(spread / 2) * use.Profile.AimSpreadDistance
                 / Math.Max(.001, (use.Aim - use.Origin).Length));
+        bool sharedSeries = use.Profile.SequentialDelay > 0 && use.Profile.ShareSequentialHits && count > 1;
+        if (sharedSeries) pendingEmissions.Add(emission);
         for (int i = 0; i < count; i++)
         {
             double angle = use.Profile.NativeVolley is { } volley ? volley.Angle(i, count, (use.Aim - use.Origin).Length)
                 : random is not null ? spread * (random.NextDouble() - .5) : count <= 1 ? 0 : spread *
                 (i / (double)((use.Profile.CircularSpread ?? spread >= Math.Tau) ? count : count - 1) - .5);
             var direction = (use.Aim - use.Origin).Unit.Rotate(angle);
-            long group = use.Profile.SequentialDelay > 0 && i > 0 ? ++sequence : emission;
+            long group = use.Profile.SequentialDelay > 0 && !use.Profile.ShareSequentialHits && i > 0 ? ++sequence : emission;
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
             if (unresolved.ReturnRolls is { } rolls)
@@ -57,7 +60,12 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                     Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
             }
             int index = i;
-            void Emit() => Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
+            void Emit()
+            {
+                if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
+                if (use.CanEmit?.Invoke() != false)
+                    Spawn(projectileUse, useId, group, 0, use.Origin, direction, index: index);
+            }
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
             else Emit();
         }
@@ -173,7 +181,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
         // Detached delayed areas still need the triggering flight's phase-specific admission history.
         ledger.RetainGroups(projectiles.Values.Concat(pendingAreas.Values)
-            .SelectMany(p => new[] { p.Id, p.EmissionId, p.ChildEmission }).ToHashSet());
+            .SelectMany(p => new[] { p.Id, p.EmissionId, p.ChildEmission }).Concat(pendingEmissions).ToHashSet());
     }
 
     readonly record struct Contact(long At, ProjectileEntity Projectile, ProjectileActor? Target,
@@ -512,6 +520,6 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     public void Clear()
     {
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);
-        scheduled.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
+        scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
     }
 }
