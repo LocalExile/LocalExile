@@ -73,7 +73,7 @@ public static partial class Game
     static readonly (string Buff, string Stat)[] AilmentArtStats =
         [("ignite", "virtual_ignite_visual_override"), ("poison", "virtual_poison_art_variation"), ("bleed", "virtual_bleed_art_variation")];
 
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
+    static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
 
     /// <summary>Notes the art of the ailments this skill's use can cause (AilmentArt), where its ignite is worked out:
     /// its gem's worn Skill Gem Effect's stats and the character's cosmetics, by the client's rules (DerivedArt).</summary>

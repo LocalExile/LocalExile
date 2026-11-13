@@ -32,7 +32,7 @@ public static partial class Game
 
     // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
     // town portal): object id → the area it leads to, for the connection that made them.
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
+    static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
 
     /// <summary>
     /// Lists a portal that stands without a map device, <paramref name="afterMs"/> after its create and once more
