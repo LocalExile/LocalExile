@@ -447,8 +447,10 @@ public static partial class Quests
         public int LevelAfterKill(string areaId, string varietyId) =>
             In<LevelRule>(areaId).Where(r => r.Variety == varietyId).Select(r => r.Level).DefaultIfEmpty(0).Max();
 
-        /// <summary>The flag a character needs to take the exit from one area to the other, or null.</summary>
+        /// <summary>The flag that opens the area's initially disabled teleports, or null.</summary>
         public string? DisabledTeleportFlag(string area) => In<DisabledTeleportRule>(area).FirstOrDefault()?.Flag;
+
+        /// <summary>The flag a character needs to take the exit from one area to the other, or null.</summary>
         public string? FlagToEnter(string fromArea, string toArea) => ExitOf(fromArea, toArea)?.Flag;
 
         /// <summary>The rule that gates the exit from one area to the other, or null.</summary>
