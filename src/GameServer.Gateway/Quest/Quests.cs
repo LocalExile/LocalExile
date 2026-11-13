@@ -69,6 +69,8 @@ public static partial class Quests
     /// <summary>Flags set when the last hostile monster of the area's instance dies (a1q8: "Clear the Fetid Pool"), for a
     /// character that has <see cref="After"/> (null: any).</summary>
     public sealed record ClearedRule(string Area, string[] Flags, string? After = null) : Rule;
+    /// <summary>The initially disabled teleports in this area open when the flag is set.</summary>
+    public sealed record DisabledTeleportRule(string Area, string Flag) : Rule;
     /// <summary>The exit from one area to the other needs the flag: the Gateway refuses it and creates it only once the
     /// client has the flag.</summary>
     public sealed record ExitRule(string From, string To, string Flag) : Rule;
@@ -446,6 +448,7 @@ public static partial class Quests
             In<LevelRule>(areaId).Where(r => r.Variety == varietyId).Select(r => r.Level).DefaultIfEmpty(0).Max();
 
         /// <summary>The flag a character needs to take the exit from one area to the other, or null.</summary>
+        public string? DisabledTeleportFlag(string area) => In<DisabledTeleportRule>(area).FirstOrDefault()?.Flag;
         public string? FlagToEnter(string fromArea, string toArea) => ExitOf(fromArea, toArea)?.Flag;
 
         /// <summary>The rule that gates the exit from one area to the other, or null.</summary>
