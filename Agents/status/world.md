@@ -244,7 +244,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   Coming into an arena the instance already holds retires the Izaro it had — dead, out of life, out of the
   connection's monsters and the instance's origins — and sends 0x02bd for him to every player in the instance, so the
   arena holds one fight rather than two. Checked by the build and the suites; not yet with the client.
-  Not yet: the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
   The Goddess of Justice rides up on his back and turns with him, lobs her Spirit Mortars (five a volley), throws the
   mortars her Guardians' circles open under, casts the gargoyles' awakening beam from her hands, goes down with him and
   flies up when he dies. Checked live 2026-11-12. Code: `GoddessOfJustice.cs`, `Rules.IzaroGoddess.cs`.
