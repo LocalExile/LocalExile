@@ -72,7 +72,10 @@ computed from a camera ray. The client turns the screen vector measured from the
 (`min(|v|, 1.0f) * DAT_1436ae9e4 + DAT_1436ae664`), yaw-rotates it and adds the player's world position, and publishes
 the result at `game+0xc7f4` / `game+0xc7f8`. So a click reaches about one screen radius at most, and a distant `walkTo`
 is a series of clicks with the position re-read in between — which is also what a person does; the bridge can read
-`game+0xc7f4/+0xc7f8` back to see what its own click resolved to. A monster or a ground item is aimed at its projected
+`game+0xc7f4/+0xc7f8` back to see what its own click resolved to. Measured on the Twilight Strand: a click resolves a
+cell **about 16 cells** from the character at most, whatever the skill's own reach says — `/aiop why` reported Hillock
+"in reach (79.0 of 125)" while the bridge refused with `the closest the cursor reaches is (1386, 336), 27 cells short of
+[1359, 318]`, so the 120-cell wand range is the server's reach for the swing, not what one click can point at. A monster or a ground item is aimed at its projected
 body pixel (`0x140fd3b40`, camera from `**(longlong**)(FUN_140fcb430() + 8)`); objects have no click rect of their own,
 they are resolved screen point → UI element → game object.
 
@@ -137,15 +140,33 @@ cursor and sends it; the hands only produce the cursor and button input, and nev
   checkouts' gateways; since then `Get-CimInstance` and `tasklist` never return, and because `live.ps1` uses WMI for
   every start and stop, no stack can be started or stopped until `Winmgmt` is restarted or the machine reboots. That is
   a system change, so it is the user's call; there is no script-side workaround worth having.
+- **A stale dev mod can kill the connection, not just fail to load.** `gm-commands` 1.1.1 loads (2 hooks) but its
+  `/set_level 20` throws `MissingMethodException: Method not found: 'UInt32 CharacterStats.ExperienceFor(Int32,
+  System.String)'` inside the handler for chat `0x0015`; the gateway logs
+  `DISCONNECT … handler error handling 0x0015` and drops the client to the character screen. It looks exactly like
+  "the bridge is broken" (`Chat requires an active area` afterwards), so read the gateway log for
+  `handler error handling` before blaming the rig. Do not use `/set_level` on this base.
+- **`logs/` is shared with the other checkout too.** With `/f/lx-pr-pantheon/data` symlinked here and both stacks
+  writing `logs/live-gateway.log`, another session's areas and characters (a level-18 map, `BossVerify`) appear in the
+  same file. Filter by the client's remote port or by the character's name before concluding anything about a run.
 
 ## f) Interfaces (draft)
 
 Bridge, line-delimited JSON over stdio — `{"command":"act","kind":"walkTo","x":512,"y":740}`,
 `useSkill` `{slot,target}`, `loot`/`interact` `{object}`, `stop`; each answered `{ok, result, elapsedMs}`.
 
-Mod, chat commands shaped like gm-commands: `/ai world [radius]` (area, pos, life, monsters, ground, exits),
-`/ai reach <x> <y>` (reachable, steps, blockedBy), `/ai item <id>` (dist, pickupRange, ok), `/ai why <id>` (one
-sentence). Every command carries a `session` field for later; v1 serves one character.
+Mod, chat commands shaped like gm-commands, all read-only: **`/aiop world [radius]`** (`area`, `seed`, `pos`,
+`life`, `monsters`, `ground`, `exits` with the cell each exit stands on), **`/aiop reach <x> <y>`** (`reachable`,
+`steps`, `exact`, `standAt`/`standDist` when the cell itself cannot be stood on, `goalWalkable`, `blockedBy`,
+`basis`), **`/aiop item <id>`** (`dist`, `pickupRange`, `ok`, `why`), **`/aiop why <id>`** (one sentence plus the
+numbers behind it: `weaponRange`, `monsterBody`, `reach`, `canAttackNow`). The command is `aiop`, not `ai`:
+gm-commands owns `/ai` (the monster AI switch) and a command name belongs to one mod, so `/ai world` answered the
+switch and this mod never ran.
+
+Every answer is derived from the server's own state. `reach` says so explicitly in `basis`, because the server's
+walk grid is a capture and the client keeps its own: a `false` means the server sees no route, which the routine
+loop treats as advice — the client's own result decides what happened. v1 serves one character; the session is the
+bridge's concept, not the server's.
 
 ## g) Routine scripts, model operations, and what decides between them
 
@@ -184,3 +205,112 @@ line protocol), `gate.py` (`/ai world`, `/ai reach`, `/ai item`, `/ai why` over 
 (the deterministic loop above), `brain.py` (the model adapter: snapshot in, one intent out, the intent schema
 validated), `session.py` (the record of every intent, every primitive and its duration, and every refusal).
 `session.py` writes the three record types the acceptance needs; nothing else may write them.
+
+## h) Acceptance (the v1 run)
+
+The original wording ("Lioneye's Watch → The Twilight Strand → kill Hillock → pick up his drop → back to town")
+does not describe this server, and the run has to be judged against what the server actually is:
+
+- **Lioneye's Watch has exactly one area transition: The Coast** (`AreaLayouts.TownFallback`, id
+  `AreaTransitionCatalog.FirstId`, cell `(388, 231)`; `/aiop world` in town lists no other exit).
+- **The Twilight Strand is a one-way arrival into town.** `AreaLayouts.cs:51-54` keeps
+  `OneWayArrivals[(LioneyesWatch, 0xf00a /* 1_1_1 The Twilight Strand */)] = (123, 308)`: The Strand's own
+  transition leads into Lioneye's Watch, and the town layout's door back to the beach is the one its `.dgr` places
+  as `entrance1disabled`. There is therefore no walk from town to The Strand, and Hillock can never be reached from
+  town on foot.
+
+So the acceptance run, unchanged in spirit and honest about the map, is:
+
+> **With no human keystrokes, the operator starts on The Twilight Strand, finds and kills Hillock, picks up his
+> drop, and then walks into Lioneye's Watch through The Strand's own transition.**
+
+The starting cell comes from the character's own save (`area_id = 1_1_1`), not from a `/tp` and not from a packet
+the bridge writes: the character is put there the way a fresh character is, and every step of the route is walked.
+A new character is created on The Strand by the server itself, so seeding the private save is setup, and it is
+stated as such in the run's report.
+
+What has to survive the run, in `tools/ai-operator/` records (written by `session.py` and nothing else):
+
+1. **every round's intent JSON, in time order** — the LLM's own decisions, including the ones a script then
+   executed, so the run can be read as a sequence of decisions rather than as a trace of packets;
+2. **every bridge action with its duration** — kind, arguments, `ok`, the client's own `order`, and `elapsedMs`;
+3. **at least one refusal by the gate** — a primitive the routine wanted and the gate refused, with the reason, so
+   the gate is shown to be doing work rather than decorating the loop.
+
+When the run stalls, the records have to say which of the three it was: the hands failed (the bridge's answer),
+the gate refused (the refusal), or the model chose wrong (the intent next to the world snapshot it chose from).
+Hillock's own numbers matter for judging a "failed" kill: 311 life, but a first-kill script refills him at the
+three-second cast (`BossFights.cs:23 ["Metadata/Monsters/ZombieBoss/ZombieBossHillockNormal"] = new(50, 2612, 3.0, 2)`),
+so the honest route is hit-and-run with the starting flasks rather than standing in his slam.
+
+## i) What a run's rig has to get right (found live, 2026-11-13)
+
+Four things cost a session each when they are wrong, and none of them is the operator's own logic.
+
+- **The character's row must be readable, or the login dies silently.** A character made by copying a save
+  (`Tools/re/out/ai-operator/make_character.py`) works only with `hardcore_death_league`, `hardcore_death_utc` and
+  `hardcore_death_permanent` left **NULL**. Writing the string `'None'` there (what some existing rows look like in a
+  dump) makes `SqliteAccountStore.Characters` do `Date(r.GetString(13))` on a NULL, throw `UnreadableSaveException`,
+  and — because `GameServer.Auth/Program.cs`'s catch covers only I/O, sockets and crypto — the connection task dies
+  with nothing in `logs/live-auth.log`. The client just drops back to the login screen on its 0x18 (character list):
+  `0x04 LoginResult { Result = 0x0 }`, then `<= 0x18`, then silence. A character list that never answers means
+  "a row is unreadable", never "the password is wrong".
+- **The area seed has to be the seed the walk grid was captured at.** `data/walkability/` holds one dump per
+  `(area, seed)` and, for generated areas, seed 1 is the one everybody has. An area generated at another seed gives
+  the gate a *different map*: `/aiop reach` then answers "the goal cell is not walkable and no walkable cell around it
+  can be reached" for cells the character is standing next to, and every walk stops after a few cells. Measured on
+  `1_1_1` at seed 1325937496 against `data/walkability/1_1_1_seed1.bin`. Pin it (`Game_SEED=1`, or
+  `Game_RANDOM_SEEDS=0`) before believing a refusal, or the gate is answering about a map nobody is on.
+- **A dead character's clicks do nothing, and `/heal` does not undo that.** `/heal` (gm-commands) restores the
+  server's life — `/aiop world` then shows full life — but the client keeps its own death state: presses reach the
+  client (its click counter moves) and no order goes out, no walk, no skill, and the run reads it as "the click landed
+  on the ground". Live: leaving to the character screen and playing again fixed it at once (a click moved the
+  character 8 cells). So a death in a run has to end in a character re-select, not in a heal, and the run's records
+  must say which happened.
+- **The client's own object readback needs the client to be the focused window.** `game:objects` answered `[]` while
+  another window had the focus and filled (three rows, monsters with their screen pixel) once the client's window was
+  brought forward; the label pass it reads runs only then. A run that wants to aim at what the client draws has to
+  keep the game in front for its whole length — which is also the honest picture of a person playing.
+
+Two more, from the same session, about pressing and about skills:
+
+- **A press has to be move → frame → down → frame → up.** The bridge's `click` moved the cursor, pressed and released
+  inside one call (`client-act.js`), and the client picks what is under the cursor once per frame, so every press
+  landed on whatever had been under the cursor *before* it moved. Split that way the same pixel is what the client
+  picks; a click aimed at a monster's own cell then resolves to exactly that cell instead of to the ground beside him.
+  The same split is what a key press needs: move the cursor to the target first, then press the bar key.
+- **A left click sends the bar's slot-0 skill, and for this character that is "Move" (`SkillId = 10505`, the id the
+  gateway logs as `walk ends at`).** Clicking a monster's cell with the left button is therefore a walk, however well
+  it is aimed, and no attack packet ever goes out. What the server sends with `0x0053` is built by `SendSkillBar`
+  from the character's saved bar plus the gems it finds in the equipment (`GemSkillEffects`), and this character's bar
+  arrives with slot 0 only, although its save names `Fireball` (slot 2) and `LightningTendrils` (slot 3): the saved
+  names do not resolve to a skill of the equipment, so the bar keeps just the default entry. Until the character has
+  an attack the bar can fire — a gem the server resolves, or the default attack on a weapon it recognises — an
+  operator cannot kill anything, and "the click landed on the ground" is the honest report of that, not a bug in the aim.
+
+And one that changes what the operator can do at all:
+
+- **The screen can be read without taking the focus.** `PrintWindow` gives a D3D client's title bar and a black client
+  area, and a screen grab gives whatever is on top, so "look at the game" used to mean "bring the game forward" — which
+  is not something an operator sharing a machine with a person can do. Windows Graphics Capture (`game:screen`, the
+  `windows-capture` package) asks DWM for the window's own composited surface: one frame in 0.3 s with the game neither
+  focused nor foreground, 804x647. That is what the death panel needs: when the character dies, the client waits for a
+  click on *Resurrect in Town*, `/heal` leaves it waiting, and the operator can now photograph the panel and press the
+  button instead of logging the character out and in again. The hands still only produce cursor and button input; the
+  picture is a readback like any other.
+
+The death panel, measured (`19` above is what made this possible):
+
+- `/death_screen` (gm-commands) shows the panel without dying, so the whole path can be exercised on a live character.
+- The panel is centred and its two buttons sit at **half the client width**, at **0.283** and **0.325** of the client
+  height: RESURRECT IN TOWN above RESURRECT AT CHECKPOINT. On an 800x600 client that is `(400, 170)` and `(400, 195)`,
+  which is what was pressed.
+- The picture comes from `game:screen` (the window is neither focused nor in front) and the press from `act click`,
+  and the panel is gone afterwards: two round trips, one press. `/heal` is not a substitute — it restores the server's
+  life and leaves the panel up, and every later press goes to a dead character (nothing in the gateway log at all).
+
+Where it lives now: `Routine.resurrect` (`tools/ai-operator/routine.py`) is an intent of the routine's own —
+`{"kind": "resurrect"}` — produced by `routine_step` whenever the snapshot's life is 0 and refused to a brain
+(`brain.ROUTINE_ONLY`). It photographs the panel into the run's folder, presses RESURRECT IN TOWN, re-reads the life
+from the gate, and only then falls back to RESURRECT AT CHECKPOINT; `run.py`'s declared `--heal` is the last resort
+and records itself as a dev setup. Live: photographed + pressed + read back in one intent, one primitive.

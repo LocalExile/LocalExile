@@ -56,6 +56,7 @@ import re
 import subprocess
 import struct
 import sys
+import threading
 import time
 
 import frida
@@ -765,8 +766,57 @@ class ClientControl:
     ACT_SLOTS = {0: None, 1: 0x51, 2: 0x57, 3: 0x45, 4: 0x52, 5: 0x54}
 
     def act_objects(self, radius=60):
-        """What the client's label pass has seen recently: {world, cell} per visible object inside `radius` cells."""
+        """What the client's label pass has seen recently: {world, cell, screen} per object inside `radius` cells."""
         return self.act_rpc().objects(int(radius))
+
+    def act_radius_for(self, cell):
+        """How far the client's object readback has to reach to include `cell`, in cells."""
+        try:
+            here = self.act_rpc().state().get("cell")
+        except Exception:
+            return 80
+        if not here or not cell:
+            return 80
+        return max(24, min(400, self.act_gap((int(here[0]), int(here[1])), (int(cell[0]), int(cell[1]))) + 12))
+
+    def act_drawn_point(self, act, object_id, cell=None, agree=2):
+        """The pixel the client draws an object at, and the pixel of its floating label when it has one.
+
+        The client projects every object it has been told about with its own camera (`client-act.js` objects()), so a
+        click meant for a monster or a ground item can be aimed at the thing itself rather than at the cell under it
+        and a blind lift above it. A ground item and an NPC answer only when the cursor is on their label, which the
+        client draws separately and names with no id of its own: it is matched to the object by its cell.
+
+        The row is only used when the client's cell for the object agrees with the one the caller was given
+        (`agree` cells): a monster walks, so a row older than the caller's snapshot points where the monster *was*,
+        and a click there is a move in the wrong direction — measured live: a stale row sent the character 68 cells
+        away from the target it was asked to attack.
+
+        Returns (body pixel, label pixel, the client's row for the object). Any of them is None when the client has
+        not seen the object, or has not seen it lately — it is not streamed in yet, it is behind the camera, or it
+        has moved — and the caller then aims at the cell, which is what this did before.
+        """
+        if not object_id:
+            return None, None, None
+        try:
+            rows = self.act_objects(radius=self.act_radius_for(cell))
+        except Exception:
+            return None, None, None                    # no readback is not an error: the cell aim still works
+        mine = next((row for row in rows if int(row.get("id") or 0) == int(object_id)), None)
+        if mine is None:
+            return None, None, None
+        at = mine.get("cell") or cell
+        if cell and at and self.act_gap((int(at[0]), int(at[1])), (int(cell[0]), int(cell[1]))) > agree:
+            return None, None, mine                     # the client's row is stale: it names another place
+        label = None
+        for row in rows:
+            if int(row.get("id") or 0) != 0 or not row.get("screen") or not at:
+                continue
+            row_cell = row.get("cell")
+            if row_cell and list(row_cell) == list(at):
+                label = row["screen"]
+                break
+        return mine.get("screen"), label, mine
 
     def act_wait_frames(self, act, frames=3, timeout=1.5):
         """Wait for the client to draw frames, so a press and the order it produced are both visible."""
@@ -789,20 +839,54 @@ class ClientControl:
         point, resolved = self.act_aim(act, goal, viewport)
         return point, resolved
 
-    def act_press(self, act, point, button="left", key=None, slot=None):
+    BAR_KEYS = (None, 0x51, 0x57, 0x45, 0x52, 0x54)   # 0 is the left button; 1-5 are the bar's Q W E R T
+
+    def act_move_cursor(self, act, point, frames=2):
+        """Put the cursor on a pixel and let the client draw a frame there before anything is pressed.
+
+        The client picks what is under the cursor once per frame, so a `click` (move, down and up inside one frame)
+        presses on whatever was under the cursor *before* it moved. Measured live on Hillock: aiming exactly at his
+        cell and clicking in one call sent `UseSkillAtLocation` at his cell with no object — the client had not looked
+        at the cursor's new place yet. Split into move, frame, press, the same pixel is what the client picks.
+        """
+        act.cursor(int(point[0]), int(point[1]))
+        self.act_wait_frames(act, frames)
+
+    def act_press(self, act, point, button="left", key=None, slot=None, frames=3):
         """Press what fires the skill: a bar key, the right button (the bar's second skill), or the left button.
 
         The game's own layout: the left button is move and the default attack, the right button is the other skill.
+        `slot` names a bar slot instead of a bare key — 0 is the left button, 1-5 are Q/W/E/R/T — which is the only
+        way to fire anything but the left button's own skill. Measured live: this character's left button sends
+        `UseSkillAtLocation { SkillId = 10505 }` ("Move") whatever it is aimed at, and its bar has slot 2 = Fireball,
+        so a left click was a walk however well it was aimed.
+
+        Every press moves the cursor first and waits a frame, so the client's pick sees the cursor where it is
+        (`act_move_cursor`), and holds the button across frames because the client reads it per frame.
         """
         if key is not None:
+            self.act_move_cursor(act, point)
             act.keyDown(int(key))
             self.act_wait_frames(act, 2)
             act.keyUp(int(key))
             return "key"
+        if slot is not None and int(slot) != 0:
+            self.act_move_cursor(act, point)
+            code = self.BAR_KEYS[int(slot)]
+            act.keyDown(code)
+            self.act_wait_frames(act, 2)
+            act.keyUp(code)
+            return f"slot {int(slot)}"
         if button == "right":
+            # `skill` moves the cursor and presses in one call; the move is to the same pixel the cursor is already on,
+            # so the client's pick has had its frame (act_move_cursor) and the press lands on what it picked.
+            self.act_move_cursor(act, point)
             act.skill(int(point[0]), int(point[1]))
             return "right"
-        act.click(int(point[0]), int(point[1]))
+        self.act_move_cursor(act, point)
+        act.down()
+        self.act_wait_frames(act, max(1, int(frames) - 1))
+        act.up()
         return "left"
 
     @staticmethod
@@ -814,13 +898,16 @@ class ClientControl:
         return result
 
     def act_object_act(self, kind, cell, object_id=None, button="left", key=None, slot=None, frames=3, rise=12):
-        """One primitive aimed at a world cell: loot, interact, or a skill used on whatever stands there.
+        """One primitive aimed at an object: loot, interact, or a skill used on whatever stands there.
 
-        The aim is the client's own answer (the published cell under the cursor), and the result is the order the
-        client sent (`order.cell`, `order.object`, `order.walk`, `order.from`). Nothing is written to the socket and
-        nothing is teleported. A ground item and an interactable object start talking only when the cursor is on their
-        label, which sits above their cell, so the press is retried a few pixels higher until the client sends an
-        object-form order; a monster answers a cell-form order, which is the same order a human's click produces.
+        The result is the order the client sent (`order.cell`, `order.object`, `order.walk`, `order.from`). Nothing is
+        written to the socket and nothing is teleported.
+
+        Aiming happens in the order a person would try it, and every point comes from the client's own readback:
+        the pixel it draws the object at, then the pixel of its floating label (a ground item and an NPC answer only
+        on their label), and only then the cell under it, pressed and lifted a few pixels at a time. The client's
+        object pass is what makes the first two possible; without it (an object it has not streamed in yet) the cell
+        aim is exactly what this did before.
         """
         act = self.act_rpc()
         started = time.monotonic()
@@ -831,37 +918,148 @@ class ClientControl:
             return self.act_action_result(False, kind, started,
                                           "the client did not resolve a cell under the cursor; is the character in game?",
                                           cell=list(cell))
-        attempts, last, sent, order = 0, None, False, {}
-        for lift in [0] + [int(rise) * step for step in (1, 2, 3, 4, -1)]:
-            spot = (int(point[0]), int(point[1]) - lift)
+        body, label, seen = self.act_drawn_point(act, object_id, cell)
+        spots = []                                      # (how, point), tried in this order
+        if body:
+            spots.append(("drawn", (int(body[0]), int(body[1]))))
+        if label:
+            spots.append(("label", (int(label[0]), int(label[1]))))
+        spots += [("cell" if not lift else f"cell+{lift}px", (int(point[0]), int(point[1]) - int(lift)))
+                  for lift in [0] + [int(rise) * step for step in (1, 2, 3, 4, -1)]]
+
+        attempts, sent, order, pressed, hows = 0, False, {}, tuple(point), []
+        pressed_how = None
+        for how, spot in spots:
             before = act.state()
-            how = self.act_press(act, spot, button=button, key=key, slot=slot)
+            pressed_how = self.act_press(act, spot, button=button, key=key, slot=slot)
             after = self.act_wait_frames(act, frames)
             sent = after.get("clicks", 0) > before.get("clicks", 0)
             order = {"cell": after.get("click"), "object": int(after.get("clickObject", 0) or 0),
                      "walk": bool(after.get("clickWalk")), "from": after.get("clickFrom")}
-            last = after
             attempts += 1
+            pressed, hows = spot, hows + [how]
             if not sent:
                 continue
-            if kind == "useSkill" or order["object"]:
+            # The click has to name the thing that was asked for. Any object-form order would do when the caller named
+            # no id, but with an id in hand the wrong object is a miss, not a hit: keep trying the next point.
+            if order["object"] and (not object_id or order["object"] == int(object_id)):
+                break
+            # A click resolves within about sixteen cells of the character. An order that named a cell far beyond
+            # that is not a near miss to be lifted away from: it is the client aiming somewhere else entirely, and
+            # pressing again only asks it to move there. Stop and say so.
+            if order["cell"] and self.act_gap(tuple(int(v) for v in order["cell"]), cell) > 6:
                 break
         answer = self.act_action_result(
             sent, kind, started,
-            None if sent else f"the client sent no order at {point}; the click landed on nothing",
+            None if sent else f"the client sent no order at {pressed}; the click landed on nothing",
             cell=list(cell), resolved=list(resolved) if resolved else None, target=object_id,
-            pressed=list(point), attempts=attempts, how=how, sent=sent, order=order)
+            pressed=list(pressed), attempts=attempts, how=pressed_how, tried=hows, sent=sent, order=order)
+        hit = bool(order["object"]) and (not object_id or order["object"] == int(object_id))
+        if sent and order["object"] and not hit:
+            answer["ok"] = False
+            answer["reason"] = (f"the click named object {order['object']} instead of {int(object_id)}: something "
+                                "else is drawn over it — move away from it and try again")
         # A click reaches about 16 cells (the client clamps its aim to a screen's worth of ground), so a resolved cell
         # far from the target means the cursor is pointing at ground between here and there, not at the thing itself.
-        if resolved and not order["object"] and self.act_gap(resolved, cell) > 1:
+        elif resolved and not hit and self.act_gap(resolved, cell) > 1:
             answer["ok"] = False
             answer["reason"] = (f"the closest the cursor reaches is {resolved}, {self.act_gap(resolved, cell)} cells "
                                 f"short of {list(cell)}; a click reaches about 16 cells, so walk closer first")
-        elif sent and kind != "useSkill" and not order["object"]:
+        elif sent and not hit:
             answer["ok"] = False
-            answer["reason"] = (f"the client walked instead of acting on an object ({kind}); "
-                                "the label was not under the cursor")
+            answer["reason"] = (f"the click landed on the ground instead of on an object ({kind}); if this was a "
+                                "monster, its body was not under the cursor, and the order that went out was a move")
         return answer
+
+    def screen(self, out=None, title="Path of Exile", timeout=6.0):
+        """Save the client's own frame to a PNG and say where it is, without touching the focus or the window.
+
+        Windows Graphics Capture asks DWM for the window's composited surface, which is right even while another
+        window covers the game. The optional `windows_capture` package is what talks to it; without it this says so
+        and nothing else changes.
+        """
+        try:
+            from windows_capture import WindowsCapture
+        except Exception as exc:                       # noqa: BLE001 - an optional extra, reported as a sentence
+            raise RuntimeError("game:screen needs the windows_capture package "
+                               f"(pip install windows-capture): {exc}") from exc
+        out = os.path.abspath(out or os.path.join("logs", "client-screen.png"))
+        os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+        done, failure = threading.Event(), []
+        # A machine can have more than one client open and they all share the title "Path of Exile", so the capture
+        # would sometimes return the *other* one's picture. This client's own window is found by pid and its title is
+        # set to a name only it has, for the length of the capture.
+        title, restore = self._own_window_title(title)
+
+        capture = WindowsCapture(cursor_capture=False, draw_border=None, window_name=title)
+
+        @capture.event
+        def on_frame_arrived(frame, control):
+            try:
+                frame.save_as_image(out)
+            except Exception as exc:                   # noqa: BLE001 - a callback may not raise
+                failure.append(f"{type(exc).__name__}: {exc}")
+            finally:
+                done.set()
+                control.stop()
+
+        @capture.event
+        def on_closed():
+            done.set()
+
+        worker = threading.Thread(target=capture.start, daemon=True)
+        worker.start()
+        if not done.wait(timeout):
+            raise RuntimeError(f"the client drew no frame within {timeout:g} s (a minimised window never does)")
+        worker.join(2)
+        if failure:
+            raise RuntimeError(f"the frame could not be saved: {failure[0]}")
+        if not os.path.exists(out):
+            raise RuntimeError("the capture produced no image")
+        if restore is not None:
+            self._set_window_title(restore[0], restore[1])
+        return {"path": out, "bytes": os.path.getsize(out), "window": title}
+
+    def _windows_for_pid(self, pid):
+        """Every visible top-level window of a process, as (hwnd, title) — one client, two windows, no guessing."""
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        found = []
+
+        @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def each(hwnd, _):
+            owner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value != int(pid) or not user32.IsWindowVisible(hwnd):
+                return True
+            size = user32.GetWindowTextLengthW(hwnd)
+            if not size:
+                return True
+            buffer = ctypes.create_unicode_buffer(size + 1)
+            user32.GetWindowTextW(hwnd, buffer, size + 1)
+            found.append((hwnd, buffer.value))
+            return True
+
+        user32.EnumWindows(each, 0)
+        return found
+
+    def _set_window_title(self, hwnd, title):
+        import ctypes
+        ctypes.windll.user32.SetWindowTextW(hwnd, ctypes.c_wchar_p(title))
+
+    def _own_window_title(self, title):
+        """Give this client's window a title no other window has, and return (title, (hwnd, old title) or None)."""
+        windows = [row for row in self._windows_for_pid(self.pid) if row[1] == title]
+        if len({row[1] for row in self._windows_for_pid(self.pid)}) == 0:
+            return title, None
+        if len(windows) != 1:
+            return title, None
+        hwnd, old = windows[0]
+        unique = f"{title} ({os.getpid()}-{int(hwnd)})"
+        self._set_window_title(hwnd, unique)
+        time.sleep(0.2)
+        return unique, (hwnd, old)
 
     def status(self):
         if self.script is None and self._find_client() is None:
@@ -1127,6 +1325,20 @@ class ClientControl:
                 return self.act_walk_to(x, y, tolerance=int(request.get("tolerance", 1)),
                                         timeout=float(request.get("timeout", 25)),
                                         clicks=int(request.get("clicks", 30)))
+            if kind == "click":
+                # A press at a pixel of the client's own window. The interface is not made of world objects: the death
+                # panel's RESURRECT IN TOWN, a vendor's row, a stash tab are drawn at a place and answered by a click
+                # there, so `screen` is how a caller finds the place and this is how it presses it. Same press as any
+                # other (move, frame, down, frame, up), so what the client picks is where the cursor was put.
+                act = self.act_rpc()
+                started = time.monotonic()
+                before = act.state()
+                how = self.act_press(act, (int(request["x"]), int(request["y"])),
+                                     button=str(request.get("button", "left")), slot=request.get("slot"))
+                after = self.act_wait_frames(act, int(request.get("frames", 3)))
+                return self.act_action_result(True, "click", started, None, x=int(request["x"]),
+                                              y=int(request["y"]), how=how,
+                                              clicks=int(after.get("clicks", 0)) - int(before.get("clicks", 0)))
             if kind in ("useSkill", "loot", "interact"):
                 # The aim is a cell: this client does not expose the object ids it draws, so the caller says where the
                 # thing stands (the world snapshot has the cell) and the client resolves what is there when clicked.
@@ -1176,6 +1388,21 @@ class ClientControl:
             # Main-loop frames since the bridge attached and the rate since the previous call (client-control.js).
             self.attach()
             return {"pid": self.pid, **self.script.exports_sync.frames()}
+        if command == "game:objects":
+            # What the client's own object pass has seen recently (client-act.js objectsNow): the ids the client uses
+            # for them (its own, not the server's), the cell and world position it has for each, and the screen pixel
+            # it draws that at. A click aimed at an object has to land on that pixel, so the caller can ask for it
+            # instead of converting a cell and hoping the body is under the cursor (Agents/docs/dev/ai-operator.md).
+            self.attach()
+            return {"pid": self.pid, "objects": self.act_objects(radius=float(request.get("radius", 60)))}
+        if command == "game:screen":
+            # The client's own frame, taken from its composited surface (Windows Graphics Capture), so it works while
+            # the game is neither focused nor the top window: GDI cannot see a Direct3D frame at all (PrintWindow
+            # returns a black client area) and a screen grab returns whatever is on top. The operator needs this for
+            # the death panel, tooltips and anything else the world readbacks do not describe.
+            self.attach()                                  # so the capture can find this client's own window by pid
+            return self.screen(request.get("out"), request.get("title", "Path of Exile"),
+                               float(request.get("timeout", 6)))
         if command == "flask:use":
             packet, slot = flask_packet(request)
             return {**self.rpc("interaction", bytes=packet), "slot": slot}

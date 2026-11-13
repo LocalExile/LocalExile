@@ -231,32 +231,55 @@ The client converts its cursor into a world point every frame and publishes it a
 {"command":"act","kind":"interact","x":388,"y":231,"object":8192}
 ```
 
-All three name the **cell** the thing stands on; `target`/`object` is the server's id, echoed back for the caller's
-record only, because the client does not name its objects (its entity ids are not the server's). The bridge aims the
-cursor at that cell (the same free readback as `walkTo`, so no camera maths and no calibration constant), presses, and
-retries a few pixels higher each time — labels sit above the body — until the client asks for an action. `slot` picks
-what presses: `0` is the left button (move and the default attack, which is the game's own layout), `1`-`5` are the
-bar's Q/W/E/R/T; `frames` (default 3) is how many frames the press is held across, because the client reads the button
-per frame.
+All three name the **cell** the thing stands on; `target`/`object` is the server's id. The bridge aims the press the
+way a person does, and every point it tries comes from the client's own readback: first the pixel the client draws the
+object at (`game:objects`, the client's own projection, whose ids for monsters are the server's), then the pixel of its
+floating label (a ground item and an NPC answer only on their label; the label has no id, so it is matched to the
+object by its cell), and only then the cell under the cursor, pressed and lifted a few pixels at a time — labels sit
+above the body. A press counts as the action when the order it produced names the object that was asked for. `slot`
+picks what presses: `0` is the left button (move and the default attack, which is the game's own layout), `1`-`5` are
+the bar's Q/W/E/R/T; `frames` (default 3) is how many frames the press is held across, because the client reads the
+button per frame.
 
 The answer says what the client's own pick named and which order it produced, so the caller can tell a real action from
 a walk:
 
 ```json
 {"ok":true,"kind":"loot","cell":[351,1327],"resolved":[350,1327],"target":1048576,"pressed":[345,284],
- "attempts":1,"how":"left","sent":true,"order":{"cell":[0,0],"object":1048576,"walk":false,"from":"0x7ff6d13a8a8b"}}
+ "attempts":1,"how":"label","tried":["drawn","label"],"sent":true,
+ "order":{"cell":[0,0],"object":1048576,"walk":false,"from":"0x7ff6d13a8a8b"}}
 ```
 
 `order.object` is the id the client put in the packet, `order.cell` is the cell it named (0,0 for an object), `order.walk`
 says whether the press came from the walk sender, and `order.from` is the caller's return address (the walk path is
-`0x14012461e`; the others are the skill paths). `loot` and `interact` fail with a sentence instead of a silent retry
-when the order came back aimed at the ground (`the client walked instead of acting on an object`), and every kind says
-`object <id> is not in the client's streamed set` when the label pass has not seen it yet — get closer, or look again.
+`0x14012461e`; the others are the skill paths). `tried` is every aiming mode that was pressed before one worked, so a
+failure reads without guessing.
+
+Every kind fails with a sentence instead of a silent retry. The three that matter to an operator are: the order came
+back aimed at the ground (`the click landed on the ground instead of on an object`), the order named a *different*
+object (`the click named object N instead of M: something else is drawn over it`), and the click reached only part of
+the way (`the closest the cursor reaches is …, N cells short of …; a click reaches about 16 cells, so walk closer
+first`). The client's drawn pixel and label are only available while its window is the focused one, so a caller that
+wants them has to keep the game in front.
 
 Live, on the 3.29.3c release build: a left click on a ground item sent `<= 0x0024` with the item's id and the ground
 lost it; a left click on the town's area transition sent its id and the character changed area; a left click on a
 monster under a wand sent `0x0102` (the default attack) on the monster's id and the server's projectile recorded
 `damage=7 life=16/23`. None of those writes a packet itself.
+
+### Seeing the screen without taking the focus
+
+```json
+{"command":"game:screen","out":"logs/client-screen.png","timeout":8}
+```
+
+Saves the client's own frame to a PNG and answers `{path, bytes}` (`400 ms` or so). It asks DWM for the window's
+composited surfaces through Windows Graphics Capture (the `windows-capture` package), which is the only way that
+works on this client: `PrintWindow` returns the title bar and a **black** client area, and an ordinary screen grab
+returns whatever window is on top — measured on the 3.29.3c release build, with the game neither focused nor the
+foreground window, 804x647, one frame in 0.3 s. So the client can be looked at while a person keeps using the machine,
+and the death panel, a tooltip or a vendor window can be read from a picture instead of guessed at. A minimised window
+draws nothing and the call says so.
 
 ## Targeted development interactions
 
