@@ -59,7 +59,7 @@ static class GoddessOfJustice
     // What she is doing: whether the fight has begun (she casts nothing before Izaro fights), and the end of her cast or
     // beam; nothing else starts before it.
     sealed class Casting { public bool Fighting; public double Until; }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, Casting> Casts = new();
+    static readonly RuleTable<SpawnedMonster, Casting> Casts = new();
 
     /// <summary>Her place kept on Izaro's and her volleys while <paramref name="fighting"/> holds.</summary>
     internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess,
