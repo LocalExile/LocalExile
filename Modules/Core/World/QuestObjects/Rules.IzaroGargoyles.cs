@@ -156,11 +156,17 @@ static partial class QuestobjectsRules
                     beam = conn.TakeObjectId();
                     if (IzaroGargoyles.AwakenBuff is not null) awaken = conn.NextBuff++;
                 }
-                List<byte> start = [.. InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
+                // The Goddess casts the beam from her hands (her AwakenGargoyle, live); without her the server's beam runs from the
+                // gargoyle to Izaro.
+                uint goddessId = arena.Goddess;
+                bool cast = arena.GoddessMonster is { } goddess
+                    && await GoddessOfJustice.Awaken(remote, stream, ciphers, conn, goddessId, goddess, g.Id, from, IzaroGargoyles.BeamSeconds);
+                List<byte> start = cast ? [] : [.. InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
                     new BeamEffectObject(from.X, from.Y, g.Id, to.X * BeamEffectObject.WorldPerCell, to.Y * BeamEffectObject.WorldPerCell,
-                        BeamEnd(arena), IzaroGargoyles.BeamRow, IzaroGargoyles.MouthBone).Blob()), .. InstanceProtocol.EnterWakeZone(beam)];
-                if (IzaroGargoyles.AwakenBuff is ushort row) start.AddRange(InstanceEntities.AddBuff(g.Id, awaken, row, BeamEnd(arena)));
-                await Send(remote, stream, ciphers, [.. start], $"0x02bb beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to {(arena.Goddess != 0 ? "the Goddess of Justice" : "Izaro")}");
+                        arena.Izaro, IzaroGargoyles.BeamRow, IzaroGargoyles.MouthBone).Blob()), .. InstanceProtocol.EnterWakeZone(beam)];
+                if (IzaroGargoyles.AwakenBuff is ushort row) start.AddRange(InstanceEntities.AddBuff(g.Id, awaken, row, cast ? goddessId : arena.Izaro));
+                await Send(remote, stream, ciphers, [.. start], cast ? $"0x01c1 gargoyle 0x{g.Id:x} ({g.Effect.Id}) awakening under the Goddess's beam"
+                    : $"0x02bb beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to Izaro");
                 // The beam runs its time, or until the gargoyle dies or Izaro leaves (live: it goes with the gargoyle).
                 for (double waited = 0; waited < IzaroGargoyles.BeamSeconds; waited += 0.2)
                 {
@@ -168,7 +174,8 @@ static partial class QuestobjectsRules
                     lock (conn.Monsters) if (!here() || arena.Over || GargoyleDead(conn, g)) break;
                 }
                 if (!here()) return;
-                List<byte> end = [.. InstanceProtocol.RemoveObject(beam)];
+                if (cast && arena.GoddessMonster is { } caster) await GoddessOfJustice.EndAwaken(remote, stream, ciphers, conn, goddessId, caster);
+                List<byte> end = cast ? [] : [.. InstanceProtocol.RemoveObject(beam)];
                 if (awaken != 0) end.AddRange(InstanceEntities.RemoveBuff(g.Id, awaken));
                 bool over, dead;
                 lock (conn.Monsters) (over, dead) = (arena.Over, GargoyleDead(conn, g));

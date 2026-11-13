@@ -13,19 +13,22 @@ using static Program;
 /// </summary>
 static class GoddessOfJustice
 {
-    // Her actor's skills: the turn and the Spirit Mortar (the official monsters' ids start at 0x4000, KingInMists.Kit).
-    const ushort FaceSkillId = 0x4000, MortarSkillId = 0x4001;
+    // Her actor's skills: the Spirit Mortar and the awakening beam (the official monsters' ids start at 0x4000, KingInMists.Kit).
+    const ushort MortarSkillId = 0x4000, AwakenSkillId = 0x4001;
 
     // How often her loop looks.
     const double TickSeconds = 0.1;
 
     public static bool IsGoddess(MonsterCatalog.Variety? variety) => variety?.Id == IzaroGoddess.Variety;
 
-    /// <summary>The actor's skill list: her default skill, the turn and the Spirit Mortar, with the 0x1ab ids they name.
-    /// The mortar's action (ActionTypes <c>LbBossSpiritMortar</c>, a projectile action: 0x1419a3c00 → 0x141a0bd30 on
-    /// 0x1419f13b0) is the client's own: it plays her volley and fires its mortars, arc, trail and impact, but only with a
-    /// count on the record (as the Sand Spitter's, 11-skills.md), and its <c>monster_projectile_variation</c> must be 0
-    /// or 1 (0x141a0bb50: "Mortar Variation not recognized").</summary>
+    /// <summary>The actor's skill list: her default skill, the Spirit Mortar and the awakening, with the 0x1ab ids they
+    /// name. The mortar's action (ActionTypes <c>LbBossSpiritMortar</c>, a projectile action: 0x1419a3c00 → 0x141a0bd30 on
+    /// 0x1419f13b0) is the client's own: it plays her volley and fires the mortars, arc, trail and impact, only with a
+    /// count on the record (as the Sand Spitter's, 11-skills.md), its <c>monster_projectile_variation</c> 0 or 1
+    /// (0x141a0bb50: "Mortar Variation not recognized"), and with <c>distribute_projectiles_over_contact_points</c> the
+    /// count is shared among the volly clip's contacts (release-and-repeat.md §6): without it each of the six fired all
+    /// five (live). The awakening's (<c>AwakenGargoyle</c>, 0x141991090 → 0x141bf97f0) aims at its target object for its
+    /// <c>skill_effect_duration</c> (0x141bf9a20).</summary>
     internal static IReadOnlyList<GrantedSkill>? SkillsFor(ClientState conn, MonsterCatalog.Variety variety, byte level, MonsterAttack attack, GrantedSkill? skill)
     {
         if (!IsGoddess(variety)) return null;
@@ -42,53 +45,48 @@ static class GoddessOfJustice
         }
         int count = IzaroGoddess.MortarCount;
         List<(uint, int)> mortarStats = [(StatKeys.TotalProjectilesToFire, count), (StatKeys.VirtualTotalProjectiles, count), (StatKeys.VirtualTotalArrows, count)];
-        if (Stats.Key("monster_projectile_variation") is uint variationKey) mortarStats.Add((variationKey, 0));
+        foreach (var (name, value) in new[] { ("monster_projectile_variation", 0), ("distribute_projectiles_over_contact_points", 1) })
+            if (Stats.Key(name) is uint key) mortarStats.Add((key, value));
+        List<(uint, int)> awakenStats = Stats.Key("skill_effect_duration") is uint duration ? [(duration, (int)(IzaroGargoyles.BeamSeconds * 1000))] : [];
         var list = new List<GrantedSkill>();
         if (skill is not null) list.Add(skill);
-        if (Spell(FaceSkillId, IzaroGoddess.FaceEffect, []) is { } face) list.Add(face);
         if (Spell(MortarSkillId, IzaroGoddess.MortarEffect, mortarStats) is { } mortar) list.Add(mortar);
+        if (Spell(AwakenSkillId, IzaroGoddess.AwakenEffect, awakenStats) is { } awaken) list.Add(awaken);
         Console.WriteLine($"[gateway] the Goddess of Justice's skills: {string.Join(", ", list.Select(s => $"0x{s.Id:x4}"))}");
         return list.Count == 0 ? null : list;
     }
 
-    // What she is doing: the end of her cast (no turn cuts it).
+    // What she is doing: the end of her cast or beam; nothing else starts before it.
     sealed class Casting { public double Until; }
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, Casting> Casts = new();
 
-    /// <summary>Her place kept on Izaro's, her turns to the player and her volleys while <paramref name="fighting"/> holds.</summary>
+    /// <summary>Her place kept on Izaro's and her volleys while <paramref name="fighting"/> holds.</summary>
     internal static async Task Run(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess,
         SpawnedMonster izaro, Func<bool> fighting)
     {
         var cast = Casts.GetValue(goddess, _ => new());
-        double nextFace = 0, nextVolley = conn.Clock.Elapsed.TotalSeconds + IzaroGoddess.MortarCooldown, facing = double.NaN;
+        double nextVolley = conn.Clock.Elapsed.TotalSeconds + IzaroGoddess.MortarCooldown;
         try
         {
             while (fighting())
             {
                 await Task.Delay(TimeSpan.FromSeconds(TickSeconds));
                 if (!fighting()) return;
-                bool face = false, volley = false;
-                double angle;
+                bool volley;
                 lock (conn.Monsters)
                 {
                     if (goddess.Dead || izaro.Dead) return;
                     double now = conn.Clock.Elapsed.TotalSeconds;
                     var at = izaro.Walk.Position(now);
                     goddess.Walk.Teleport(at.X, at.Y, now);
-                    var player = conn.Walk.Position(now);
-                    angle = Math.Atan2(player.Y - at.Y, player.X - at.X);
                     if (now < cast.Until || conn.Paused || conn.PlayerLife == 0 || InGracePeriod(conn)) continue;
-                    double turn = double.IsNaN(facing) ? double.PositiveInfinity : Math.Abs(Math.IEEERemainder(angle - facing, 2 * Math.PI));
-                    face = now >= nextFace && turn * 180 / Math.PI >= IzaroGoddess.FaceDegrees;
-                    volley = now >= nextVolley && Dist(at, player) <= IzaroGoddess.MortarReach;
+                    volley = now >= nextVolley && Dist(at, conn.Walk.Position(now)) <= IzaroGoddess.MortarReach;
                     if (volley)
                     {
                         nextVolley = now + IzaroGoddess.MortarCooldown;
                         cast.Until = now + IzaroGoddess.VolleySeconds;
                     }
-                    if (face || volley) (nextFace, facing) = (now + IzaroGoddess.FaceSeconds, angle);
                 }
-                if (face && !volley) await Face(remote, stream, ciphers, conn, id, goddess);
                 if (volley) await Volley(remote, stream, ciphers, conn, id, goddess, fighting);
             }
         }
@@ -96,18 +94,43 @@ static class GoddessOfJustice
         { if (!conn.Closed) Console.WriteLine($"[gateway] {remote} the Goddess of Justice stopped: {ServerLog.Describe(ex)}"); }
     }
 
-    // GoddessOfJusticeFaceLastTarget at the player: the client turns her there at her own pace.
-    static async Task Face(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess)
+    // Waits until she is free (a volley or a beam plays out), then holds her for `seconds`. False when she is gone.
+    static async Task<bool> Hold(ClientState conn, SpawnedMonster goddess, double seconds)
     {
+        var cast = Casts.GetValue(goddess, _ => new());
+        while (true)
+        {
+            lock (conn.Monsters)
+            {
+                if (goddess.Dead) return false;
+                double now = conn.Clock.Elapsed.TotalSeconds;
+                if (now >= cast.Until) { cast.Until = now + seconds; return true; }
+            }
+            await Task.Delay(100);
+        }
+    }
+
+    /// <summary>Her beam to a gargoyle (AwakenGargoyle at it), for <paramref name="seconds"/>; nothing else meanwhile. False
+    /// when she is gone.</summary>
+    internal static async Task<bool> Awaken(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
+        SpawnedMonster goddess, uint gargoyle, (int X, int Y) at, double seconds)
+    {
+        if (!await Hold(conn, goddess, seconds)) return false;
         int action;
         lock (conn.Monsters) action = ++goddess.ActionGeneration;
-        await SendMonsterAction(remote, stream, ciphers, conn, id, goddess, action, () =>
+        return await SendMonsterAction(remote, stream, ciphers, conn, id, goddess, action, () =>
         {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            var (from, player) = (goddess.Walk.Position(now), conn.Walk.Position(now));
+            var from = goddess.Walk.Position(conn.Clock.Elapsed.TotalSeconds);
             return [.. InstanceProtocol.ActionEnded(id),
-                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, player.X, player.Y, FaceSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: PlayerId)];
-        }, $"0x01ab the Goddess of Justice 0x{id:x} turns to the player");
+                .. InstanceProtocol.ActionStarted(id, from.X, from.Y, at.X, at.Y, AwakenSkillId, conn.NextActionSequence(), conn.MonsterOrderFlags, targetObjectId: gargoyle)];
+        }, $"0x01ab the Goddess of Justice 0x{id:x} beams at gargoyle 0x{gargoyle:x}");
+    }
+
+    /// <summary>Her beam stops (its time is up, the gargoyle died, or the trial ended).</summary>
+    internal static async Task EndAwaken(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id, SpawnedMonster goddess)
+    {
+        lock (conn.Monsters) Casts.GetValue(goddess, _ => new()).Until = conn.Clock.Elapsed.TotalSeconds;
+        await Send(remote, stream, ciphers, InstanceProtocol.ActionEnded(id), null);
     }
 
     // Her volley: the Spirit Mortar's action at the player's cell, which the client plays and fires (SkillsFor). The server
@@ -155,9 +178,9 @@ static class GoddessOfJustice
     internal static async Task<double[]> ThrowGuardians(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, uint id,
         SpawnedMonster goddess, IReadOnlyList<(int X, int Y)> spots)
     {
-        var cast = Casts.GetValue(goddess, _ => new());
+        // Not during a volley or a beam.
+        if (!await Hold(conn, goddess, 0.5)) return new double[spots.Count];
         double now = conn.Clock.Elapsed.TotalSeconds;
-        lock (conn.Monsters) cast.Until = Math.Max(cast.Until, now + 0.5);
         await Send(remote, stream, ciphers, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 0.5f, IzaroGoddess.SummonAnimation)],
             $"0x01d1 the Goddess of Justice 0x{id:x} calls her Guardians");
         var session = ProjectilesFor(remote, stream, ciphers, conn);

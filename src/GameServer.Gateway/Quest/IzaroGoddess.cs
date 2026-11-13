@@ -1,12 +1,12 @@
 /// <summary>
 /// The Goddess of Justice (<c>Metadata/Monsters/Labyrinth/GoddessOfJustice</c>): a monster that cannot be damaged or
 /// targeted and does not move, riding on Izaro's <c>jnt_back_spirit</c> bone in every trial (the original, live: always
-/// with him, turning to the player a little late). She lobs her Spirit Mortars at the player (<c>LabyrinthSpiritMortar</c>:
+/// with him, turning as he turns). She lobs her Spirit Mortars at the player (<c>LabyrinthSpiritMortar</c>:
 /// 3.5 s cooldown: five mortars at once to where the player stood, the client's own action), and from
 /// when Izaro is hurt to 90 % of his life (the wiki) her Guardians' mortars (<c>LbBossMortarSummon</c>) open circles at
 /// random places of the arena, six every 20 s (<c>skill_repeat_count</c>), two Guardians in each
 /// (<c>IzaroSummonSkeletonGhostflame</c>: <c>number_of_monsters_to_summon</c> 2, <c>projectile_minimum_range</c> 25;
-/// IzaroSkeleton.ot's <c>time_until_death</c> 30). The gargoyles' beams end on her. When Izaro dies she turns slowly and
+/// IzaroSkeleton.ot's <c>time_until_death</c> 30). She casts the gargoyles' awakening beams from her hands, nothing else meanwhile (live). When Izaro dies she turns slowly and
 /// flies up (her <c>death</c> clip, live); when he leaves she goes down with him. Her Teleport (<c>IzaroWarp</c>) is the
 /// Cruel and Merciless final trial's (the wiki).
 /// </summary>
@@ -19,8 +19,14 @@ public static class IzaroGoddess
         SpiritMortar = "Metadata/Projectiles/LbBossSpiritMortar",
         GuardianMortar = "Metadata/Projectiles/LbBossMortarSummon";
 
-    /// <summary>Her GrantedEffects rows: the Spirit Mortar and the turn to her target.</summary>
-    public const int MortarEffect = 5111, FaceEffect = 5902;
+    /// <summary>How she rides on his bone: kind 0 with the mask 3 (as the art on Izaro, IzaroSkills), so she turns with
+    /// him. The client takes an attached object's facing from the bone alone (0x142909a50), never its own, so her
+    /// GoddessOfJusticeFaceLastTarget turned nothing (live).</summary>
+    public const byte AttachKind = 0, AttachFlags = 3;
+
+    /// <summary>Her GrantedEffects rows: the Spirit Mortar and the awakening of a gargoyle (its beam from her hands:
+    /// AwakenGargoyle, the client's action of that name, base_skill_effect_duration 10 s, 14 s cooldown).</summary>
+    public const int MortarEffect = 5111, AwakenEffect = 5888;
 
     public const int Circles = 6, GuardiansInACircle = 2, HurtPercent = 90, MinimumRange = 25, ArenaReach = 70;
     public const double EverySeconds = 20, GuardianSeconds = 30, ImpactSeconds = 6.625;
@@ -45,6 +51,4 @@ public static class IzaroGoddess
     public const int MortarCount = 5;
     public const int MortarSpeed = 750;
 
-    /// <summary>How often she turns to the player at most, and from how far off (ours).</summary>
-    public const double FaceSeconds = 0.5, FaceDegrees = 15;
 }

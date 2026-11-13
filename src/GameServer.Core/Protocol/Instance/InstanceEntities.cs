@@ -646,8 +646,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The parent's bone it rides on.</summary>
     public string Bone { get; init; } = "<root>";
 
-    /// <summary>The attachment kind (the transform mask, 04-player-entity.md §4.5): 4 keeps its own facing.</summary>
+    /// <summary>The attachment kind (the transform mask, 04-player-entity.md §4.5): 4 drops the parent's turn. The client
+    /// takes the attached object's facing from the bone alone (0x142909a50), never its own.</summary>
     public byte AttachKind { get; init; } = EffectObject.AttachWithoutRotation;
+
+    /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
+    public byte AttachFlags { get; init; }
 
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
@@ -701,7 +705,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     if (AnimatedObject is not null) w.WStr32(AnimatedObject);
                     if (Parent != 0)
                         w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
-                            .U8(AttachKind).U8(0).F32(0).F32(0).F32(0);
+                            .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.

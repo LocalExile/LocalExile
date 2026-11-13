@@ -104,7 +104,7 @@ public static partial class Game
         IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
         Func<bool>? ownedAdmission = null, MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
-        MonsterMovement? movement = null, (uint Parent, string Bone)? attachTo = null)
+        MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null)
     {
         movement ??= MonsterMovement.Default;
         uint id;
@@ -254,6 +254,7 @@ public static partial class Game
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
+            AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2bb type is its hash.
         if (QuestKillCommitOutput is { } output)

@@ -16,7 +16,7 @@ static partial class QuestobjectsRules
             return;
         }
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, at.X, at.Y,
-            placement: MonsterPlacement.Established, extraStats: [(StatKeys.HideMiniLifeBar, 1)], attachTo: (izaro, IzaroGoddess.Bone));
+            placement: MonsterPlacement.Established, extraStats: [(StatKeys.HideMiniLifeBar, 1)], attachTo: (izaro, IzaroGoddess.Bone, IzaroGoddess.AttachKind, IzaroGoddess.AttachFlags));
         lock (conn.Monsters)
         {
             if (conn.Monsters.GetValueOrDefault(id) is not { } goddess) return;
@@ -24,9 +24,6 @@ static partial class QuestobjectsRules
             (arena.Goddess, arena.GoddessMonster) = (id, goddess);
         }
     }
-
-    // Where the gargoyles' beams end: on her (the original, live), else on him.
-    static uint BeamEnd(IzaroArena arena) => arena.Goddess != 0 ? arena.Goddess : arena.Izaro;
 
     // Izaro has died: she turns slowly and flies up (her death clip, live), and is gone after it.
     static async Task IzaroGoddessFliesUp(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, IzaroArena arena)
