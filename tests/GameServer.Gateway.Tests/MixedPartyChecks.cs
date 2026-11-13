@@ -35,6 +35,11 @@ static class MixedPartyChecks
             // A bot-first group must remain the same party when a real friend accepts.
             Assert.True(PartyRoster.TryAddCompanion(owner, Bot(0), out uint party));
             await PartyRoster.Publish(party);
+            // The wire encrypts what it is handed in place (Program.Write): the roster sent again hands over the
+            // companion's known-player bytes anew, not the array the first send left encrypted.
+            foreach (var sent in packets[owner]) Array.Fill(sent, (byte)0xee);
+            await PartyRoster.Publish(party);
+            Assert.Contains(packets[owner], p => p.AsSpan().SequenceEqual(Bot(0).KnownPlayer));
             Assert.True(await PartyRoster.InviteHuman(owner, friend.Character!));
             Assert.Equal(party, View(packets[friend]).Id);
             // A guessed acceptance from a different account must not consume the friend's invitation.
