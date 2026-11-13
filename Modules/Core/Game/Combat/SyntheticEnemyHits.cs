@@ -23,9 +23,12 @@ public static partial class Game
             var stats = CharacterPlayerStats(conn);
             GainLifeBeforeEnemyHitLocked(conn, stats);
             int resistance = Resistance(conn, type), maximum = MaxResistance(conn, type);
-            // Avoidance rolls before block, as for a monster hit; an avoided hit still lands.
-            bool avoided = PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
-                conn.IncomingHitRandom, ElusiveAvoidPct(conn));
+            // Avoidance rolls before block, as for a monster hit; an avoided hit still lands. Elusive's is one
+            // "Avoid All Damage from Hits" roll for the whole hit.
+            int elusiveAvoid = ElusiveAvoidPct(conn);
+            bool avoided = (elusiveAvoid > 0 && PlayerDamageTaken.AvoidsAll(elusiveAvoid, conn.IncomingHitRandom))
+                || PlayerDamageTaken.Avoids(type, name => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0,
+                    conn.IncomingHitRandom);
             int blockChance = spell ? conn.Pools.SpellBlockChance : conn.Pools.BlockChance;
             bool luckyBlock = spell ? conn.Pools.SpellBlockLucky : conn.Pools.AttackBlockLucky;
             bool unluckyBlock = spell ? conn.Pools.SpellBlockUnlucky : conn.Pools.AttackBlockUnlucky;

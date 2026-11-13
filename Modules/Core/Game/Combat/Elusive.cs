@@ -40,8 +40,10 @@ public static partial class Game
         var stats = CharacterPlayerStats(conn);
         int chance = stats.GetValueOrDefault(key);
         if (chance <= 0 || Random.Shared.Next(100) >= Math.Min(100, chance)) return;
-        double effect = Math.Max(0.01, 1 + (Stats.Key("elusive_effect_+%") is uint effectKey
-            ? stats.GetValueOrDefault(effectKey) : 0) / 100.0);
+        // PoB's Elusive effect: increased Elusive Effect plus increased Buff Effect on Self (125% with both at 25%).
+        int increased = Stats.Key("elusive_effect_+%") is uint effectKey ? stats.GetValueOrDefault(effectKey) : 0;
+        if (Stats.Key("buff_effect_on_self_+%") is uint buffKey) increased += stats.GetValueOrDefault(buffKey);
+        double effect = Math.Max(0.01, 1 + increased / 100.0);
         lock (conn.Monsters)
         {
             conn.ElusiveStart = now;
