@@ -82,6 +82,9 @@ Nothing yet.
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
+   Cruelty's per-skill buff is modelled: a hit of a supported skill grants up to 40% more Damage over Time (from the
+   hit's damage relative to the monster's maximum life), keeps the strongest running value and refreshes its 4 s
+   duration; that value is injected as cruelty_damage_over_time_+%_final into the skill's own stats while its buff runs.
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,

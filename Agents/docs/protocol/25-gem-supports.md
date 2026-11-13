@@ -107,6 +107,13 @@ raises the supported gem's level like the generic `supported_active_skill_gem_le
 repeat; Awakened Generosity's `non_curse_aura_effect_+%` scales the aura it supports, and its `aura_cannot_affect_self`
 keeps that aura out of the player's stats (the buff icon still shows, and an enemy-debuff aura such as Pride still
 applies).
+Cruelty Support grants its buff on a hit of a supported skill: `CrueltyPctFor` computes `round(100 * (1 + cruelty_effect_+%/100) * (D/L)^0.2)`
+from the hit's damage `D` (capped at the life the target could lose) and the monster's maximum life `L`, capped at 40%.
+The buff is per supported skill and keeps the strongest running value while refreshing its 4 s duration (plus
+`cruelty_duration_+%`); that value is injected as `cruelty_damage_over_time_+%_final` into the skill's own stats while
+its buff runs, so its Damage over Time debuffs take it. Presentation is a single buff (BuffDefinitions 1815) showing
+the strongest running value, with `u82 = 0` and one value (the percent), re-sent on a value change or a deadline move of
+at least 0.25 s (the Arcane Surge pattern).
 
 Multistrike's repeats are hits of the same use: `MeleeAttackRepeats` splits the skill's attack time between them, each
 repeat after the first takes its `multistrike_damage_+%_final_on_{first,second,third}_repeat`, and the support's attack
@@ -211,8 +218,8 @@ updates replace the complete spent-use queue. Duplicate same-effect gems and the
 Barrage needs its own release pattern, not a stat.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
 their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
-aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds
-more damage over time on top of its hit damage.
+aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's per-skill
+buff and its more Damage over Time injection are modelled (above).
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.
