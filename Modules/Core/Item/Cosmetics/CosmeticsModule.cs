@@ -100,7 +100,10 @@ public static class CosmeticsFeature
         Console.WriteLine($"[gateway] {remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}), option {pick.Option}");
         string character = CharacterName(conn);
         var morph = WornMorph(conn);
-        CharacterSaves.SetCosmetic(character, pick.Slot, record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
+        // The Portal slot's two choices that are no cosmetic (Game.PortalVariation): record 0 with option 1 or 2.
+        bool randomPortals = record is null && pick.Slot == InstanceMicrotransactions.PortalSlot && pick.Option is 1 or 2;
+        CharacterSaves.SetCosmetic(character, pick.Slot, randomPortals ? new CharacterSaves.SavedCosmetic(0, pick.Option)
+            : record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, pick.Option, record.MtxTypeHash));
         conn.WornCosmetics = null;
         if (pick.Slot == InstanceMicrotransactions.PortalSlot)
         {

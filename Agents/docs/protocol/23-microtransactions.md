@@ -248,7 +248,10 @@ Verified live 2026-10-23: skins, attachments, character effects, footprints, por
 - Morphs without files: the Marionette's Revenge skins (31 to 34; no cosmetic gives their stat), the Ashbringer
   Wyvern (35), the polymorph wands and the pet morphs, whose numbers come from stats the server does not set.
 - The Portal slot's two extra choices (`MicrotransactionSlotAdditionalDefaultOptions`: one random effect for every
-  portal, a random effect per portal) arrive as 0x1f9 with record 0 and option 1 or 2 and are taken as an emptied slot.
+  portal, a random effect per portal) arrive as 0x1f9 with record 0 and option 1 or 2. The server keeps the choice,
+  lists the slot in 0x1f3 with record 0, hash 0 and the option (the client takes it; whether the panel then shows the
+  choice was not seen) and picks each portal's variation itself (`Game.PortalVariation`; seen live 2026-11-12: two
+  Portal Scroll portals with two effects). Sent by hand so far, not clicked in the panel.
 - Issue [#306](https://github.com/Wrathen/LocalExile/issues/306): after Spark is replaced by Kinetic Blast, the icon
   can show KB while opening Spark's picker.
   The retained log reports Spark `0x900d0738`, record 122, a clear (record 0), then KB `0x174ecd0c` on key 50.

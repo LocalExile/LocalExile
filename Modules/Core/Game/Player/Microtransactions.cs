@@ -38,12 +38,14 @@ public sealed class MtxCatalog
     /// record no longer exists (another game version's data) is left out, so the client never gets a hash it cannot
     /// resolve.
     /// </summary>
+    /// The Portal slot's choice of random effects (record 0, option 1 or 2) is an entry with no cosmetic and its option.
     public List<InstanceMicrotransactions.Equipped> Equipped(IReadOnlyDictionary<byte, CharacterSaves.SavedCosmetic> worn) =>
         [.. worn.Where(w => w.Key < InstanceMicrotransactions.SlotCount)
             .Select(w => (w.Key, w.Value, Record: Resolve(w.Value)))
-            .Where(w => w.Record is not null)
+            .Where(w => w.Record is not null || (w.Key == InstanceMicrotransactions.PortalSlot && w.Value is { Record: 0, Option: 1 or 2 }))
             .OrderBy(w => w.Key)
-            .Select(w => new InstanceMicrotransactions.Equipped(w.Key, w.Record!.Id, w.Record.MtxTypeHash, w.Record.Qword, w.Value.Option))];
+            .Select(w => w.Record is null ? new InstanceMicrotransactions.Equipped(w.Key, 0, 0, 0, w.Value.Option)
+                : new InstanceMicrotransactions.Equipped(w.Key, w.Record.Id, w.Record.MtxTypeHash, w.Record.Qword, w.Value.Option))];
 
     static List<InstanceMicrotransactions.Record> Load()
     {
