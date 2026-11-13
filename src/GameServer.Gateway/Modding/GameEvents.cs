@@ -365,6 +365,9 @@ public static class GameEvents
     public static readonly GameEvent<Func<ClientState, byte, InventoryItem, ItemCatalog.BaseType, Task<bool>>> ItemUse = new();
     /// <summary>A warcry with open_nearby_chests_on_warcry went off: a module opens its chests within the radius (cells).</summary>
     public static readonly GameEvent<Func<ClientState, (int X, int Y), int, Task>> ChestsOpened = new();
+    /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
+    /// the module delivered it to the party.</summary>
+    public static readonly GameEvent<Func<ClientState, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
 
     public static async Task<bool> AnyNpcTalk(ClientState conn, uint id, SpawnedNpc npc)
     {
@@ -456,6 +459,12 @@ public static class GameEvents
     public static async Task<bool> AnyItemUse(ClientState conn, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         foreach (var run in ItemUse.For(conn)) if (await run(conn, row, item, type)) return true;
+        return false;
+    }
+
+    public static async Task<bool> RunPartyChat(ClientState conn, string text, IReadOnlyList<ChatLineItem>? items)
+    {
+        foreach (var run in PartyChat.For(conn)) if (await run(conn, text, items)) return true;
         return false;
     }
 }

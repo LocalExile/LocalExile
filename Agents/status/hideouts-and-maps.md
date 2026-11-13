@@ -48,7 +48,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Portal Scroll and the Portal skill (its 2.5 s cast): outside towns and hideouts a portal opens beside the player,
   replacing the previous one; from a map it leads to the hideout, anywhere else to the last town.
   That town or hideout gets a portal back, which brings the player to the portal's cell of the same instance;
-  there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
+  the town side checks that Auth still has the destination instance; there the portal stands again (`OpenTownPortal`, `SpawnTownPortals`, `OpenPortals`;
   while the server runs, being tested 2026-10-23).
   Code: Gateway (`UsePortalScroll`, `UseMapReturnPortal`).
   Docs: [21](../docs/protocol/21-hideouts.md) §5.
