@@ -185,10 +185,17 @@ public static class CosmeticsFeature
             }
         }, still: still);
 
-    static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now)
+    internal static byte[] PetMove(ClientState conn, uint id, SpawnedPet pet, (int X, int Y) to, double now, bool following = false)
     {
         pet.Walk.SetSpeed(Math.Max(conn.Walk.Speed, 1), now);
         var from = pet.Walk.Order(to.X, to.Y, now);
+        // Local gates can put the owner in a separate walkable component. A finite loot walk must stop
+        // where its path ends, but a following pet rejoins its owner when that path falls short.
+        if (following && Dist(pet.Walk.Destination, to) > PetFollowRange)
+        {
+            pet.Walk.Teleport(to.X, to.Y, now);
+            return InstanceProtocol.Teleport(id, to.X, to.Y);
+        }
         return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, 0x2909, 0xffff, 0x0408);
     }
 
@@ -211,7 +218,7 @@ public static class CosmeticsFeature
                     var to = PetSpot(conn, player, pet.Side);
                     if (pet.Target is { } last && Dist(last, to) < 3) continue;   // already on its way there
                     pet.Target = to;
-                    orders.Add((id, to, PetMove(conn, id, pet, to, now)));
+                    orders.Add((id, to, PetMove(conn, id, pet, to, now, following: true)));
                 }
             var (remote, stream, ciphers) = conn.Wire;
             foreach (var (id, to, move) in orders)
