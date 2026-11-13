@@ -1126,7 +1126,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
     {
         /// <summary>The equipped item's local typed ranges. Class unarmed records retain their physical fallback.</summary>
         public DamagePacket? LocalDamage { get; init; }
-        /// <summary>Raw local modifiers captured with this weapon, including penetration and impale chance.</summary>
+        /// <summary>Raw item-local and weapon-scoped modifiers captured with this weapon, including penetration and impale chance.</summary>
         public IReadOnlyDictionary<string, int>? LocalSources { get; init; }
         public static readonly Unarmed Witch = new(833, 2, 5, 8);
 

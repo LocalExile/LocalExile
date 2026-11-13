@@ -1,8 +1,23 @@
+using System.Collections.Frozen;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 
 public static class SupportedAttackDamage
 {
+    const string ColdPerDexterityMin = "attacks_with_this_weapon_minimum_added_cold_damage_per_10_dexterity",
+        ColdPerDexterityMax = "attacks_with_this_weapon_maximum_added_cold_damage_per_10_dexterity";
+
+    // This pair is IsWeaponLocal, not IsLocal: it belongs to attacks by its source weapon, not the item's base range.
+    public static IReadOnlyDictionary<string, int> WeaponSources(Item item, ModCatalog mods)
+    {
+        var sources = ItemModStats.Local(item, mods);
+        var other = ItemModStats.Sum([item], mods);
+        foreach (string name in new[] { ColdPerDexterityMin, ColdPerDexterityMax })
+            if (other.TryGetValue(name, out int value)) sources[name] = value;
+        return sources.ToFrozenDictionary();
+    }
+
     public static DamagePacket Hit(SkillCatalog.Unarmed weapon, Func<string, int> get, IReadOnlySet<int> types)
     {
         return PlayerHitDamage.Resolve(Raw(weapon, get), get, new DamageConversion(), spell: false,
@@ -13,13 +28,18 @@ public static class SupportedAttackDamage
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a
     /// test or main's ItemWeapons constructs separately) with the global added ranges, before any increase. A bow's
     /// attacks also take the items' "Adds # to # ... Damage with Bows" stats (two spellings in the tables).
-    /// Weapon-local additions belong to the base coefficient; all other additions take added effectiveness.</summary>
+    /// Item-local flat additions belong to the base coefficient; weapon-scoped attribute grants take added effectiveness.</summary>
     public static DamagePacket Raw(SkillCatalog.Unarmed weapon, Func<string, int> get,
         int baseMultiplier = 10_000, int addedEffectiveness = 10_000)
     {
         var local = weapon.LocalDamage ?? DamagePacket.Of(DamageType.Physical,
             new(weapon.MinDamage, weapon.MaxDamage)).Add(weapon.LocalAdded);
         var added = DamageStats.RawAdded(DamagePacket.Empty, get, spell: false);
+        long dexterityGroups = Math.Max(0, get("dexterity")) / 10;
+        if (weapon.LocalSources is { } source && dexterityGroups > 0)
+            added = added.Add(DamageType.Cold, new(
+                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
+                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
         if (weapon.Bow)
             foreach (var type in DamageTypes.ConversionOrder)
             {

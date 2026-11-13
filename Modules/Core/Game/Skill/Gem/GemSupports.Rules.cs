@@ -436,7 +436,8 @@ public static partial class Game
             if (bladeWeapon.Melee && bladeWeapon.LocalDamage is not null)
             {
                 double effectiveness = AddedEffectiveness(conn, gem.Effect, gem.Level);
-                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon, Get).Components)
+                // The weapon's attack-only attribute grant is not added damage for this spell.
+                foreach (var (type, range) in SupportedAttackDamage.Raw(bladeWeapon with { LocalSources = null }, Get).Components)
                     raw = raw.Add(type, range.Scale(bladeGain / 100.0 * effectiveness));
             }
         }

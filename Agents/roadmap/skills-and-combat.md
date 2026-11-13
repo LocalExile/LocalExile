@@ -110,7 +110,7 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Start:**
   - Special ES mechanics, skill Exposure, the remaining conditional penetration, damaging and alternative ailments on
     monsters beyond ignites and bleeds, and further added-damage/support effects.
-  - Weapon-local "with this Weapon per 10 <attribute>" and spell per-Intelligence added damage.
+  - Remaining weapon-scoped fire per Strength, lightning per Dexterity/Intelligence and spell per-Intelligence added damage.
   - Monster skills beyond the first granted effect (ranged, spells).
   - Player stun: ES avoidance, substituted thresholds, conditional defences and monster-specific modifiers.
   - Criticals: other conditional more chance, guaranteed-critical effects, off-hand chance/multiplier publication and
