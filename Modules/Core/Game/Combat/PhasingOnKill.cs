@@ -12,5 +12,6 @@ public static partial class Game
         if (chance <= 0 || Random.Shared.Next(100) >= Math.Min(100, chance)) return;
         lock (conn.Monsters)
             conn.PhasingUntil = Math.Max(conn.PhasingUntil, now + 4);
+        Console.WriteLine($"[gateway] phasing on kill: {chance}% -> 4 seconds");
     }
 }
