@@ -419,8 +419,9 @@ public static partial class Game
         var plan = SkillHitPlan.ForSkill(SkillsFor(conn), gem.Effect, gem.Level, gem.Quality);
         if (!plan.CanHit) return null;
         var attackWeapon = attack ? weapon ?? WeaponFor(conn) : null;
+        var coefficients = SkillsFor(conn).DamageCoefficients(gem.Effect, gem.Level);
         var raw = attackWeapon is not null
-            ? SpellDamage.WithEffectiveness(SupportedAttackDamage.Raw(attackWeapon, Get), SkillsFor(conn).DamageEffectiveness(gem.Effect, gem.Level))
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, coefficients.Base, coefficients.Added)
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(conn, gem.Effect, gem.Level));
         if (!attack && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,

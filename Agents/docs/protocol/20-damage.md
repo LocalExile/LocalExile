@@ -183,8 +183,8 @@ where separately rounded 50.5/49.5 becomes 51/50; official endpoint/normalizatio
 Reference: pinned PoB `16de4b82`, `CalcOffence.lua` 35-140 and 1938-1982, via the PoE Reference Library.
 
 `PlayerHitDamage.Resolve` now uses that history for ordinary and supported player hits. Callers supply raw item/class
-or extracted spell base plus raw added damage, with attack effectiveness on the complete attack base and spell
-effectiveness only on added damage. Each path receives one combined increased/reduced bucket: generic/context
+or extracted spell base plus raw added damage, with separate attack base/added coefficients ([11](11-skills.md) §9)
+and spell effectiveness only on added damage. Each path receives one combined increased/reduced bucket: generic/context
 inputs once, each visited typed increase once, and Elemental once if any elemental type was visited. Clamp only the
 completed bucket, so a negative source-type subtotal can recover through a positive destination increase.
 Each applicable support/aura more source also follows the visited-type set once. The existing three no-damage flags

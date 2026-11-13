@@ -1,5 +1,6 @@
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
@@ -169,6 +170,103 @@ public class ArrowRainAndMirageTests
             Assert.Equal(0, Run(true, prohibition: prohibited).Damage);
             Assert.Equal(0, Run(true, mirage: true, prohibition: prohibited).Damage);
         }
+    }
+
+    [Theory]
+    [InlineData("Frenzy", 11610, 11600, 17410)]
+    [InlineData("Tornado Shot", 10110, 10100, 15160)]
+    [InlineData("Rain of Arrows", 4860, 4900, 7310)]
+    [InlineData("Blast Rain", 3030, 3000, 4530)]
+    [InlineData("Toxic Rain", 5120, 5100, 7670)]
+    [InlineData("Split Arrow", 12120, 12120, 18180)]
+    public void Attack_coefficients_separate_weapon_base_from_added_damage(string skill, int basis, int added, double expected)
+    {
+        using var b = new Battle(skill);
+        var items = Game.ItemsOf(b.Conn);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with
+        {
+            Sockets = [item.Sockets[0] with { Gem = item.Sockets[0].Gem! with
+            { GemExperience = Program.Items.Gem(Program.Items.ByHash(item.Sockets[0].Gem!.TypeHash)!)!.ExperienceFor(2) } }]
+        });
+        var gem = Game.GemSkillEffects(b.Conn).Single();
+        Assert.Equal(2, gem.Level);
+        foreach (string bound in new[] { "minimum", "maximum" })
+            b.Conn.PlayerStats[Program.Stats.Key($"attack_{bound}_added_physical_damage")!.Value] = 5000;
+        var weapon = new SkillCatalog.Unarmed(1000, 10000, 10000, 80) { Bow = true };
+        // Independently calculated from the level-2 table offsets: e.g. Frenzy 1610 / 1600 gives
+        // 10000 * 1.161 + 5000 * 1.16 = 17410, rather than scaling the whole 15000 by 1.16.
+        var inputs = Game.SupportedHitInputsFor(b.Conn, gem.Id, weapon: weapon)!;
+        Assert.Equal(expected, inputs.Raw[DamageType.Physical].Min, 6);
+        Assert.Equal(expected, inputs.Raw[DamageType.Physical].Max, 6);
+        Assert.Equal((basis, added), Game.SkillsFor(b.Conn).DamageCoefficients(gem.Effect, gem.Level));
+        Assert.Equal((10000, 10000), Game.SkillsFor(b.Conn).DamageCoefficients(-1, 2));
+        int tornado = Game.SkillsFor(b.Conn).EffectRow("TornadoShot");
+        Assert.Equal((10000, 10000), Game.SkillsFor(b.Conn).DamageCoefficients(tornado, 1));
+
+        var additions = new Dictionary<string, int>
+        {
+            ["attack_minimum_added_physical_damage"] = 5000, ["attack_maximum_added_physical_damage"] = 5000,
+            ["global_minimum_added_cold_damage"] = 300, ["global_maximum_added_cold_damage"] = 300,
+            ["attack_minimum_added_fire_damage_with_bow"] = 400, ["attack_maximum_added_fire_damage_with_bow"] = 400,
+            ["attack_minimum_added_fire_damage_with_bows"] = 300, ["attack_maximum_added_fire_damage_with_bows"] = 300,
+            ["maximum_mana"] = 1000, [DamageStats.MaxManaAddedLightning] = 6,
+            ["maximum_life"] = 1000, ["added_fire_damage_to_attacks_equal_to_%_maximum_life"] = 21,
+        };
+        int Get(string name) => additions.GetValueOrDefault(name);
+        var local = DamagePacket.Of(DamageType.Physical, 10000, 10000).Add(DamageType.Cold, new(1000, 1000));
+        foreach (var localWeapon in new[]
+        {
+            weapon with { LocalDamage = local, LocalAdded = DamagePacket.Of(DamageType.Cold, 9999, 9999) },
+            weapon with { LocalAdded = DamagePacket.Of(DamageType.Cold, 1000, 1000) },
+        })
+        {
+            var packet = SupportedAttackDamage.Raw(localWeapon, Get, basis, added);
+            Assert.Equal(expected, packet[DamageType.Physical].Min, 6);
+            Assert.Equal((1000L * basis + 300L * added) / 10000d, packet[DamageType.Cold].Min, 6);
+            Assert.Equal(910L * added / 10000d, packet[DamageType.Fire].Min, 6);
+            Assert.Equal(60L * added / 10000d, packet[DamageType.Lightning].Min, 6);
+            var ordinary = SupportedAttackDamage.Raw(localWeapon, Get);
+            Assert.Equal(15000, ordinary[DamageType.Physical].Min);
+            Assert.Equal(1300, ordinary[DamageType.Cold].Min);
+            Assert.Equal(5000L * added / 10000d,
+                SupportedAttackDamage.Raw(localWeapon, Get, 0, added)[DamageType.Physical].Min, 6);
+        }
+        // Attack coefficients never scale a spell's own base, and attack/pool/bow additions stay out of spells.
+        var spell = SpellDamage.Packet(DamagePacket.Of(DamageType.Cold, 100, 100), Get, addedEffectiveness: 3);
+        Assert.Equal(1000, spell[DamageType.Cold].Min);
+        Assert.Equal(0, spell[DamageType.Physical].Min);
+        Assert.Equal(0, spell[DamageType.Fire].Min);
+        Assert.Equal(0, spell[DamageType.Lightning].Min);
+
+        if (skill != "Rain of Arrows") return;
+        // An equipped local affix builds a fixed 10000 physical weapon through ItemWeapons, not a substituted hit.
+        var plain = Game.WeaponFor(b.Conn);
+        var affix = Program.Items.Mods.ById("LocalAddedPhysicalDamage1")!;
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with
+        { Mods = [new ItemMod(ModSection.Explicit, affix.Hash, [10000 - plain.MinDamage, 10000 - plain.MaxDamage])] });
+        Assert.Equal(10000, Game.WeaponFor(b.Conn).LocalDamage![DamageType.Physical].Min);
+        Assert.Equal(10000, Game.WeaponFor(b.Conn).LocalDamage![DamageType.Physical].Max);
+        b.Conn.PlayerStats[Program.Stats.Key("global_cannot_crit")!.Value] = 1;
+        b.Conn.PlayerStats[Program.Stats.Key("area_damage_+%")!.Value] = 100;
+        b.Conn.PlayerStats[Program.Stats.Key("number_of_additional_projectiles")!.Value] = -1000;
+        var use = Game.CaptureGemProjectile(b.Conn, b.Session, gem.Id, gem, (120, 100), new(0));
+        var shot = Assert.IsType<ProjectileOffense>(use.Payload);
+        Assert.Equal(7310, shot.Hit.MinTotal, 6);
+        Assert.Equal(7310, shot.Hit.MaxTotal, 6);
+        Assert.Equal(14620, shot.AreaHit!.MinTotal, 6);
+        var panel = Game.PlayerSkills(b.Conn).Single(s => s.Id == gem.Id).Stats!.ToDictionary(s => s.Key, s => s.Value);
+        Assert.Equal(14620, panel[Program.Stats.Key("main_hand_minimum_physical_damage")!.Value]);
+        Assert.Equal(14620, panel[Program.Stats.Key("main_hand_maximum_physical_damage")!.Value]);
+        Assert.Equal(1462000, panel[Program.Stats.Key("display_hundred_times_damage_per_skill_use")!.Value]);
+        Game.ReleaseArrowRain(b.Session, gem.Id, gem, (120, 100), new(0), 0);
+        foreach (string bound in new[] { "minimum", "maximum" })
+            b.Conn.PlayerStats[Program.Stats.Key($"attack_{bound}_added_physical_damage")!.Value] = 0;
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { Mods = [] });
+        Assert.True(Game.SupportedHitFor(b.Conn, gem.Id, suppress: true).MaxTotal < 14620);
+        b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
+        Assert.Equal(100000u - 14620, b.Enemy.Life);
+        Assert.Equal(b.Ally.MaxLife, b.Ally.Life);
     }
 
     [Theory]

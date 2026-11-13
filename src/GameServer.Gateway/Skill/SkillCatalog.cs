@@ -272,6 +272,15 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         return row >= 0 && row < t.Effectiveness.Count ? Math.Max(0, t.Effectiveness[row]) : 0;
     }
 
+    /// <summary>The two independent GESSPL coefficients in permyriad. Missing metadata is identity;
+    /// an explicit -10000 offset resolves to zero, not the missing-data fallback.</summary>
+    public (int Base, int Added) DamageCoefficients(int effectRow, int level)
+    {
+        if (_tables.Value is not { } t || effectRow < 0 || effectRow >= t.StatSets.Count) return (10000, 10000);
+        int row = PickLevel(t.StatSetsPerLevel, t.StatSets[effectRow], level);
+        return row >= 0 && row < t.DamageCoefficients.Count ? t.DamageCoefficients[row] : (10000, 10000);
+    }
+
     /// <summary>The inherent weapon attack-rate multiplier at the selected GEPL level, in percent.
     /// It multiplies weapon rate separately from player increased speed; absent data keeps ordinary weapon timing.</summary>
     public int AttackSpeedMultiplier(int effectRow, int level) =>
@@ -1316,7 +1325,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
         List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)> Reservations, List<(int Ms, int Uses, int Bypass, int Group)> Cooldowns,
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<int?> SpellCritChances, List<int> AttackSpeedMultipliers,
-        List<int> ManaPerMinute, List<int> ManaPercentPerMinute)
+        List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients)
     {
         public FrozenDictionary<int, string> EffectIds { get; } = EffectRows
             .GroupBy(p => p.Value.Row).ToFrozenDictionary(g => g.Key, g => g.First().Key);
@@ -1409,6 +1418,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             var setLevels = new List<(int, int)>();
             var effectiveness = new List<int>();
+            var damageCoefficients = new List<(int Base, int Added)>();
             var spellCritChances = new List<int?>();
             var levelStats = new List<(int, int)[]>();
             var levelReqs = new List<(int, int, int)>();
@@ -1418,6 +1428,7 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
                 // PoB Export/Scripts/skills.lua: raw / 10000 + 1. Zero is 100%, negatives are real reductions.
                 effectiveness.Add(r.IntOrNull("DamageEffectiveness") is int offset
                     ? (int)Math.Clamp(10_000L + offset, 0, int.MaxValue) : 0);
+                damageCoefficients.Add((Coefficient(r.IntOrNull("BaseMultiplier")), Coefficient(r.IntOrNull("DamageEffectiveness"))));
                 int crit = Int(r, "SpellCritChance");
                 spellCritChances.Add(crit >= 0 ? crit : null);
                 levelStats.Add([.. Pairs(Ints(r, "FloatStats"), Ints(r, "BaseResolvedValues")),
@@ -1426,7 +1437,10 @@ public sealed class SkillCatalog(string folder = "data", bool hardMode = false)
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, spellCritChances, attackSpeedMultipliers, manaPerMinute,
-                manaPercentPerMinute);
+                manaPercentPerMinute, damageCoefficients);
+
+            static int Coefficient(int? offset) => offset is int value
+                ? (int)Math.Clamp(10_000L + value, 0, int.MaxValue) : 10_000;
         }
     }
 }
