@@ -18,6 +18,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   disabling the mod moves them back. When that server fails a player is told in chat and stays local, trying again at an area change a minute later.
   `src/GameServer.Chat` is the server to host; it stores nothing.
   An item linked with Ctrl+Alt+click from an inventory or the stash shows as a link in the line (C→S 0x12, S→C 0x17).
+  Chat-server frame cleanup preserves original item marks in automated checks; native presentation remains unverified.
   The global and trade channel joins (C→S 0x134, after entering an area and for `/global N` and `/trade N`) are
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
