@@ -24,6 +24,14 @@ public sealed class EnergyShield
         return amount - (int)absorbed;
     }
     public void Empty() { Current = 0; fraction = 0; Recharging = false; }
+    /// <summary>A cost paid from Energy Shield (a skill's cost): unlike damage, it does not restart the recharge delay.
+    /// False, and nothing spent, when there is not that much.</summary>
+    public bool Spend(uint amount)
+    {
+        if (amount > Current) return false;
+        Current -= amount;
+        return true;
+    }
     /// <summary>Instant recovery (Kiloava's Leadership on block), up to the maximum.</summary>
     public void Recover(uint amount)
     {

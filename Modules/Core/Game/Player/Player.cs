@@ -316,12 +316,16 @@ public static partial class Game
         stats.Key("mana_cost") is uint k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called under Monsters.
+    // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
+    // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
     static bool SkillCostLocked(ClientState conn, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out Dictionary<uint, int> player)
+        out uint es, out uint fromEs, out Dictionary<uint, int> player)
     {
         int Own(string name) => Stats.Key(name) is uint key ? own.GetValueOrDefault(key) : 0;
         cost = 0;
         life = 0;
+        es = 0;
+        fromEs = 0;
         player = [];
         if (CombatLifetime is not null && !CurrentGameRules || conn.Closed || conn.LeavingArea || conn.RageRetired || conn.PlayerLife == 0)
             return false;
@@ -354,7 +358,11 @@ public static partial class Game
         }
         else life = PetrifiedBlood.LifeCost(conn, (int)Math.Min(cost, int.MaxValue));
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + life);
-        return conn.PlayerMana >= cost && !(life > 0 && conn.PlayerLife <= (uint)life);
+        es = (uint)Math.Max(0, player.GetValueOrDefault(Stats.Key("es_cost") ?? 0));
+        if (es > conn.EnergyShield.Current) return false;
+        if (Stats.Key("keystone_eldritch_battery") is uint battery && player.GetValueOrDefault(battery) != 0)
+            fromEs = Math.Min(cost, conn.EnergyShield.Current - es);
+        return conn.PlayerMana >= cost - fromEs && !(life > 0 && conn.PlayerLife <= (uint)life);
     }
 
     // Whether the player can pay a use of the skill now: checked before a use's admission spends a cooldown use or a
@@ -362,12 +370,14 @@ public static partial class Game
     public static bool CanPaySkillCost(ClientState conn, ushort skillId)
     {
         var own = SupportedSkill(conn, skillId).Stats;
-        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _);
+        lock (conn.Monsters) return SkillCostLocked(conn, skillId, own, out _, out _, out _, out _, out _);
     }
 
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
     // Blood's base life cost while it runs and the player is not on Low Life. Lifetap Support replaces the whole
-    // mana cost with Life. False when the player lacks the pool it actually uses.
+    // mana cost with Life. An Energy Shield cost (es_cost) is paid from Energy Shield, and Eldritch Battery pays the
+    // Mana cost from what Energy Shield is left before Mana. False when the player lacks the pool it actually uses.
+    // cost is what Mana paid; the Mana spent (ManaSpentLocked) is the whole Mana cost, the part Energy Shield paid included.
     public static bool PayMana(ClientState conn, ushort skillId, out uint cost, out uint lifeCost)
     {
         var supported = SupportedSkill(conn, skillId);
@@ -375,7 +385,13 @@ public static partial class Game
         lifeCost = 0;
         lock (conn.Monsters)
         {
-            if (!SkillCostLocked(conn, skillId, own, out cost, out int life, out var player)) return false;
+            if (!SkillCostLocked(conn, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var player))
+            {
+                cost = 0;
+                return false;
+            }
+            if (es + fromEs > 0) conn.EnergyShield.Spend(es + fromEs);
+            cost = manaCost - fromEs;
             conn.PlayerMana -= cost;
             if (life > 0)
             {
@@ -383,8 +399,8 @@ public static partial class Game
                 lifeCost = (uint)life;
                 Lifetap.Spend(conn, own, life, conn.Clock.Elapsed.TotalSeconds);
             }
-            ManaSpentLocked(conn, cost, player);
-            SupportManaSpentLocked(conn, skillId, own, cost, conn.Clock.Elapsed.TotalSeconds);
+            ManaSpentLocked(conn, manaCost, player);
+            SupportManaSpentLocked(conn, skillId, own, manaCost, conn.Clock.Elapsed.TotalSeconds);
             ConsumeCombatRush(conn, skillId, supported, conn.Clock.Elapsed.TotalSeconds);
             return true;
         }
