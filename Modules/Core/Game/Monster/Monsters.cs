@@ -769,7 +769,8 @@ public static partial class Game
                 // and any attack on a predictive client, where a walking player has already gone farther: no swing right
                 // at the edge of the reach. A lockstep client's walking melee monster swings only by its chase's goal test
                 // (above): standing in reach, it gets the chase, which starts the swing in the order's own frame.
-                bool blockedShot = m.Hostile && m.Attack is { Projectile.Lobbed: false } shot && d <= shot.Range
+                // A summon is no shot: a summoner whose attack row also flies a projectile still summons, as before.
+                bool blockedShot = m.Hostile && m.Attack is { Projectile.Lobbed: false, Summon: null } shot && d <= shot.Range
                     && conn.Layout.Sight is { } sight && GameServer.Core.World.ClientPathfinder.LineBelow((mx, my), (px, py), sight, 1);
                 if (!blockedShot && m.Hostile && m.Attack is { } a && (a.InPlace || a.Summon is not null || still || !conn.LockstepClient)
                     && d <= (a.InPlace || conn.LockstepClient || !conn.Walk.Moving(now) ? a.Range : a.Range - MovingReachMargin)
