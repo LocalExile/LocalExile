@@ -20,8 +20,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   the nine skill/minion/flask plain-stat rows, the knockback row, the eleven Honoured rows, the Herald, guard and
   Fortify rows, the corpse-consumption and Hinder rows, seven of the ten Loyalty summons (Akoya, Ikiaho and Rakiata are
   partial: their Leadership buff stats have no reader), nine Makanga gates,
-  three Journey tattoos and Journey Makanui are client-verified (Hinekora/Kitava Makanga are inert; Ancestral
-  Bloodlines is partial): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The
+  three Journey tattoos, Journey Makanui and Ancestral Bloodlines are client-verified (Hinekora/Kitava Makanga are
+  inert): C->S `0x77`, `0x33`'s fifth list, item consumption, relog and Orb of Scouring removal. The
   five `PassiveSkillOverrides.Limit` groups are enforced server-side; Makanui saves its random keystone. The seven
   event-only Forbidden ascendancy tattoos are applied by the server (random class notable saved in
   `TattooKeystones`, ascendancy-policy stats, `0x33` HASH16) and are partial: the client's separate use flow is
