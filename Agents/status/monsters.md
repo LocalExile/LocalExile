@@ -121,7 +121,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   swing. All are scripted (the ordinary AI skips them), own their whole effect list on the actor under ids 0x4000-0x4005
   (Shaper), 0x4010-0x4015 (Elder) and 0x4020-0x402c (Sirus) — never a gem id — and play it from one controller per
   monster: the Shaper's melee (481), Celestial Beam (6093, a three-second degen whose fire/cold/lightning come from its
-  per-minute stats), accelerating projectiles (6106), flicker slam (6091), retreat (6089) and the bullet-hell ring (6111,
+  per-minute stats; the client draws the beam itself from the row, so the server's own `celestialbeam` rig takes over at
+  the clip's end and holds the beam on the ground for five seconds), accelerating projectiles (6106, three of
+  Projectiles.dat's `ShaperProjectile` — the skill names no `monster_projectile_variation`, so the shot is named in code
+  and flown at 300 units/s because the server accelerates nothing), flicker slam (6091), retreat (6089) and the
+  bullet-hell ring (6111,
   twelve in a circle) behind `immune_shield.ao` at 75/50/25%; the Elder's melee (406), siphon (9058, a physical degen
   that heals him a quarter of what it takes), slamming tentacles (9062, five portals around the player), expanding nova
   (9066), doom projectile (9351) and three-shot spellcast (9330) behind `eldershield` at the same thresholds; Sirus'
@@ -134,7 +138,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   a fresh arena holds only `AtlasExile5Throne` — Sirus seated, no granted effects of its own — and killing him is what
   forms the walking Sirus and his four storms. Both are Sirus and both fight; the seated one casts without leaving the
   throne. Damage comes from
-  each effect's own stat set at the area's level, pacing from its clip's cast time; a timed hit lands on every player
+  each effect's own stat set at the area's level, pacing from its clip: the clip the variety's ACT pool holds for the
+  skill's animation key when it has one (`monster_contact_clips` — the Shaper's beam casts for its `beam_start`'s 2.5 s,
+  not the 1 s its row reports, which cut the beam a second in), else the row's cast time; a timed hit lands on every player
   standing in it, not only on the connection that owns the fight, and an intermission returns the boss to the arena's
   own `ArenaMiddle` marker (the layout's spawn is the map entrance, which put the Shaper at the door). Sirus' rows carry it as a fraction of
   the variety's damage (0.8-2.4, read as a multiplier, not as the flat hit the rounded row would suggest); every `.ao`

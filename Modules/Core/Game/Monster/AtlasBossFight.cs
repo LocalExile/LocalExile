@@ -32,8 +32,9 @@ abstract class AtlasBossFight
     {
         this.id = id;
         this.boss = boss;
-        players.Add(conn);
-        bound.Add(conn);
+        // The player is registered by the Bind that follows (AtlasBosses.Tick), which is also what gives it the boss
+        // bar. Registering it here as well made that first Bind return early (`bound` already held it), so whoever
+        // opened the arena never saw the bar.
     }
 
     protected LifePhaseGate Phases => boss.LifePhases!;
@@ -207,7 +208,21 @@ abstract class AtlasBossFight
     protected async Task Expire(double now)
     {
         foreach (var effect in effects.Where(e => e.Ends <= now).ToArray()) await RemoveEffect(effect.Id);
+        foreach (var due in pending.Where(p => p.At <= now).ToArray())
+        {
+            pending.Remove(due);
+            await Effect(due.Conn, due.Pos, due.Ao, due.Life, due.Scale);
+        }
     }
+
+    // Art that belongs to a later moment than the action that starts it: the celestial beam's rig stands on the ground
+    // from the end of the cast, not from its start, or the arena shows a beam nothing appears to have cast. Spawned by
+    // Expire on a later step, so no step waits for it.
+    readonly List<(double At, ClientState Conn, (int X, int Y) Pos, string Ao, double Life, float Scale)> pending = [];
+
+    /// <summary>Shows art at <paramref name="at"/> (clock seconds) instead of now.</summary>
+    protected void EffectAt(double at, ClientState conn, (int X, int Y) pos, string ao, double life, float scale = 1) =>
+        pending.Add((at, conn, pos, ao, life, scale));
 
     /// <summary>A single hit from one of the boss's skills, on the player the skill lands on (a degen tick or a slam the
     /// action did not carry: the contact of a swing goes through MonsterSwing).</summary>

@@ -94,20 +94,36 @@ sealed class ShaperFight(uint id, SpawnedMonster boss, ClientState conn) : Atlas
         }
     }
 
-    /// <summary>The Celestial Beam: the Shaper casts, and the ground where the player stood burns for three seconds on a
-    /// 0.5 s tick, its damage the skill's own fire/cold/lightning degen over that half second.</summary>
+    /// <summary>The Celestial Beam: the Shaper casts for <see cref="BeamCastSeconds"/>, the server stands its own beam on
+    /// the ground for <see cref="BeamSeconds"/> from the moment the cast lands, and the ground then burns for three
+    /// seconds on a 0.5 s tick, its damage the skill's own fire/cold/lightning degen over that half second.</summary>
     async Task Beam(ClientState conn, (int X, int Y) at, double now)
     {
         var dot = AtlasBosses.DamageOverTime(conn, AtlasBosses.CelestialBeamEffect, boss.Level);
         beamAt = conn.Layout.Near((at.X, at.Y));
-        beamUntil = now + 3;
-        beamNextTick = now + 0.6;
+        beamUntil = now + BeamCastSeconds + BeamSeconds + BeamBurnSeconds;
+        beamNextTick = now + BeamCastSeconds;
         beamTick = dot.MaxTotal <= 0 ? null : new MonsterAttack(
             AtlasBosses.Skill(Variety, AtlasBosses.CelestialBeamEffect), 0.5, 0, dot.Scale(0.5))
         { Spell = true, Scripted = true };
-        Swing(conn, AtlasBosses.CelestialBeamEffect);
-        await Effect(conn, beamAt, AtlasBosses.CelestialBeamArt, 3.6, 1.6f);
+        SwingWith(conn, Attack(conn, AtlasBosses.CelestialBeamEffect) with { Seconds = BeamCastSeconds },
+            AtlasBosses.CelestialBeamEffect);
+        // The cast is the skill's own 1 s, the charge the original's; what the client draws of the beam itself is over in
+        // that instant (its clip's contact is the clip's last frame), so the server's rig stands in for it once the cast
+        // lands. Left to the client alone the beam is there and gone; shown from the start it is a second beam beside
+        // the client's (live 2026-11-13).
+        EffectAt(now + BeamCastSeconds, conn, beamAt, AtlasBosses.CelestialBeamArt, BeamSeconds);
     }
+
+    /// <summary>How long the Shaper casts before the beam lands (the skill's own cast time; the clip's 2.5 s is the
+    /// charge and the beam together, which made the cast read twice as long as the original's).</summary>
+    const double BeamCastSeconds = 1.0;
+
+    /// <summary>How long the server's beam rig stands where the cast lands.</summary>
+    const double BeamSeconds = 3;
+
+    /// <summary>How long the beam's ground keeps burning after the beam itself ends.</summary>
+    const double BeamBurnSeconds = 3;
 
     /// <summary>The flicker slam: the Shaper vanishes, reappears beside the player and slams the ground (a 9 unit area,
     /// its physical damage 1.4x the melee's).</summary>
