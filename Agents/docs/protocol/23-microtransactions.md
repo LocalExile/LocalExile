@@ -236,9 +236,11 @@ Verified live 2026-10-23: skins, attachments, character effects, footprints, por
 
 - Pets, the portrait and skill effects are built as above and await live verification (skill picks: 0x1fa seen live,
   its handling not yet).
-- Derived stats (§3). The choices of art are sent but not seen on screen, and an ailment's or a buff's art very
-  likely also needs its buff to name the BuffVisuals row, as the charges' do: ignite, shock, chill, freeze, poison and
-  bleed on a monster, Onslaught, Arcane Surge and Fortification on the player. Not sent: `show_phasing_visual` /
+- Derived stats (§3). An ailment's or a buff's art also needs its buff to name the BuffVisuals row, as the charges'
+  do: the ignite, poison and bleed the player causes (`AilmentArtVisual`, the art of the skill that last worked out its
+  ailments) and the player's Onslaught and Fortification (`BuffArtVisual`) do. Seen live 2026-11-12: a Mystic Burning
+  Arrow Effect's ignite burning teal on a monster; the others are sent the same way and were not looked at. The server
+  has no shock, chill, freeze or Arcane Surge buff of its own to restyle yet. Not sent: `show_phasing_visual` /
   `virtual_phasing_art_variation` (`mtx_sunprism_phasing_ring`), the summoning rings' and Dark Assembly's surges (they
   need to know the skill creates minions), and everything that needs state the server does not count yet: the
   `track_*` flags (kills, hits taken, blocks, skills used, Vaal souls), the kill-streak, hit-streak and kill-counter

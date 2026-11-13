@@ -245,6 +245,12 @@ public static partial class Game
     const byte EmergeAnimation = 43;
     const float MorphEmergeSeconds = 1f;
 
+    // The BuffVisuals row one of the player's own buffs shows when a worn cosmetic restyles it: BuffVisualsArtVariations'
+    // row ("onslaught_buff", "fortify_buff", "arcane_surge") at the derived stat's value (the rings), null for its own.
+    public static ushort? BuffArtVisual(ClientState conn, string buff, string stat) =>
+        Stats.Key(stat) is uint key && CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value is int variation and not 0
+            ? Art.BuffVisual(buff, variation) : null;
+
     // The morph to the client again after a pick changed it: the stat goes with the player's stats (CosmeticStats); the
     // model is the Animated component's (0x2bc) and the animation set the Actor's (0x1b6), back to the class's own when
     // the morph ended.
