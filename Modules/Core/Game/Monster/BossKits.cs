@@ -109,9 +109,7 @@ public static class BossKits
         {
             var entry = kit[i];
             int effectLevel = catalog.MaxLevelAt(entry.Effect, level);
-            var stats = entry.Attack.Projectile is null
-                ? WithBehaviourVariation(conn, entry.Effect, entry.Attack.SkillStats())
-                : MonsterProjectileSkillStats(conn, entry.Effect, effectLevel, entry.Attack);
+            var stats = MonsterActionSkillStats(conn, entry.Effect, effectLevel, entry.Attack);
             if (catalog.FindByRow((ushort)(0x4000 + i), entry.Effect, effectLevel, stats) is { } granted) skills.Add(granted);
         }
         return skills;

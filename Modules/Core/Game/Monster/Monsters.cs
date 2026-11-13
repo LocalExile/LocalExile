@@ -29,6 +29,26 @@ public static partial class Game
             ? [.. stats, (StatKeys.SkillBehaviourVariation, variation)]
             : stats;
 
+    // Native projectile actions read final counts from the actor record. The raw base/additional stats alone do
+    // not emit a shot. Keep simulated mortars on their own publication path.
+    public static IReadOnlyList<(uint, int)> MonsterActionSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
+    {
+        if (attack.Projectile is not null) return MonsterProjectileSkillStats(conn, effect, level, attack);
+        var catalog = SkillsFor(conn);
+        var own = WithBehaviourVariation(conn, effect, attack.SkillStats());
+        if (!attack.Ranged) return own;
+        var raw = catalog.EffectStats(effect, level);
+        int Get(string name) => Stats.Key(name) is uint key ? raw.FirstOrDefault(s => s.Item1 == key).Item2 : 0;
+        int count = Get("number_of_projectiles_override") is > 0 and var fixedCount ? fixedCount
+            : Math.Max(1, Get("base_number_of_projectiles")) + Get("number_of_additional_projectiles");
+        count = Math.Max(1, count);
+        own = [.. own, (StatKeys.TotalProjectilesToFire, count), (StatKeys.VirtualTotalProjectiles, count),
+            (StatKeys.TotalArrowsToFire, count), (StatKeys.VirtualTotalArrows, count)];
+        var taken = own.Select(s => s.Item1).ToHashSet();
+        foreach (string name in MonsterSkillStatsNotSent) if (Stats.Key(name) is uint key) taken.Add(key);
+        return [.. raw.Where(s => !taken.Contains(s.Item1)), .. own];
+    }
+
     public static IReadOnlyList<(uint, int)> MonsterProjectileSkillStats(ClientState conn, int effect, int level, MonsterAttack attack)
     {
         var own = attack.InPlaceSkillStats();
@@ -217,7 +237,7 @@ public static partial class Game
         };
         var skill = effect >= 0
             ? catalog.FindByRow(attack.SkillId, effect, level,
-                attack.Projectile is null ? WithBehaviourVariation(conn, effect, attack.SkillStats()) : MonsterProjectileSkillStats(conn, effect, level, attack)) : null;
+                MonsterActionSkillStats(conn, effect, level, attack)) : null;
         // A boss with stages also has the skill that changes them (Hillock's sword extract, BossFights). A scripted
         // encounter drives its own phases: the built-in stage would heal it and fight the controller for its actions.
         var stage = scripted || atlas ? null : BossFights.For(variety.Id);
