@@ -45,6 +45,9 @@ public sealed class EnergyShield
         Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
         if (Current == Maximum) Recharging = false;
     }
+    /// <summary>Whether recharge would run now, full or not: no damage within the delay and a positive rate.</summary>
+    public bool RechargeReady(double now, Func<string, int> get) =>
+        Maximum > 0 && now >= interruptedAt + Delay(get) && RechargePerMinute(Maximum, get) > 0;
     public static uint Max(int flat, int increased) =>
         (uint)Math.Clamp(((long)Math.Max(0, flat) * Math.Max(0L, 100L + increased) + 50) / 100, 0, int.MaxValue);
     public static double Delay(Func<string, int> get) => 2 / Math.Max(0.01, 1 + get("energy_shield_delay_-%") / 100.0);

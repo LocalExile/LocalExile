@@ -236,6 +236,11 @@ public static partial class Game
                     conn.PlayerMana, (uint)ReservedMana(conn), pool: ManaPool)]);
             }
         }, log);
+        // A client that pays its costs from Energy Shield (Eldritch Battery) spent some of it on a use this mana update
+        // may answer (a cost given back): the pool goes out again even when the server's has not changed.
+        lock (conn.Monsters)
+            if (Stats.Key("keystone_eldritch_battery") is uint battery && CharacterPlayerStats(conn).GetValueOrDefault(battery) != 0)
+                conn.SentEnergyShield = null;
         await SendPlayerEnergyShield(remote, stream, ciphers, conn);
     }
 
@@ -292,7 +297,12 @@ public static partial class Game
                 int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
                 if (conn.PlayerLife == 0) conn.EnergyShield.Empty();
                 uint current = conn.EnergyShield.Current;
-                bool active = conn.EnergyShield.Recharging;
+                // A client paying its costs from Energy Shield (Eldritch Battery) spends it on its own, below the value
+                // last sent; it refills that only with a recharge rate to predict. The server's recharge runs whenever no
+                // damage came within the delay, full or not, so the rate goes out then too (live 2026-11-13: the globe
+                // stayed below full after a cast, the server's last update being full with no rate).
+                bool active = conn.EnergyShield.Recharging || Get("keystone_eldritch_battery") != 0
+                    && conn.EnergyShield.RechargeReady(conn.Clock.Elapsed.TotalSeconds, Get);
                 int rate = conn.PlayerLife == 0 || conn.TrapDegenPerSecond > 0 ? 0 : (int)Math.Round(
                     EnergyShield.PredictionPerMinute(conn.Pools.EnergyShield, Get, active));
                 if (conn.SentEnergyShield == current && conn.SentRechargeActive == active && conn.SentEsRecoveryRate == rate)
@@ -392,7 +402,14 @@ public static partial class Game
                 cost = 0;
                 return false;
             }
-            if (es + fromEs > 0) conn.EnergyShield.Spend(es + fromEs);
+            if (es + fromEs > 0)
+            {
+                conn.EnergyShield.Spend(es + fromEs);
+                // The client paid it from its own Energy Shield too, and the cost's 0x1b1 goes out only for a Mana or Life
+                // cost: the next update sends the pool even when recharge has already brought it back to the last value
+                // sent (live 2026-11-13: the globe stayed at 5249/5324 after a cast while the server was full).
+                conn.SentEnergyShield = null;
+            }
             cost = manaCost - fromEs;
             conn.PlayerMana -= cost;
             if (life > 0)
