@@ -13,6 +13,20 @@ const HOOK_VA = ptr('0x1410e00bd');
 // Nothing is hooked unless they match, so another client build is left untouched.
 const EXPECTED = '488b0848894dc8488d5008488d4dd048';
 
+// Where the four data addresses below sit in the 3.29.3c release (build 327984) and the builds whose code and move data
+// match it (Agents/docs/re/tooling.md section 11). Declared up here, not beside the hook that reads them: the block
+// below installs every hook as the file loads, so a constant declared further down is still uninitialised then and the
+// hook throws instead of installing.
+const MOVED = {
+  '3.29.3.5': {
+    '0x142faa4d8':'0x142faa4d0','0x1436ae110':'0x1436ae0e0','0x1436ae46c':'0x1436ae43c','0x1436af6cc':'0x1436af69c'},
+  '3.29.3d': {
+    '0x142faa4d8':'0x142faa4d8','0x1436ae110':'0x1436ae060','0x1436ae46c':'0x1436ae3bc','0x1436af6cc':'0x1436af61c'}};
+// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
+function movedData(exe) {
+  return MOVED[({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[exe.base.add(exe.base.add(0x3c).readU32() + 8).readU32()]] || {};
+}
+
 // The client executable: the .exe module (Process.mainModule can report a driver DLL when attaching late).
 const exe = globalThis.protonRecorder
   ? { name: 'Game.patched.exe', base: ptr(protonRecorder.base), size: protonRecorder.size }
@@ -137,15 +151,6 @@ function hookRooms(exe) {
 //   record: i32 x, i32 y (tile-local cell), f32 z (+0x10), f32 angle (+0x14); +0x30 type, +0x38 .ao (handle+8 → path)
 // The client spawns only its own doodads from them; server types (AreaTransition …) are skipped there, so their
 // placement is computed here the way 0x142035a10 does it, with the constants read from the client.
-// The four data addresses below are the 3.29.3c release's (build 327984). Its 3.29.3.5 hotfix and 3.29.3d have the same
-// code and move data (Agents/docs/re/tooling.md section 11): MOVED lists where each of them sits there.
-const MOVED = {
-  '3.29.3.5': {
-    '0x142faa4d8':'0x142faa4d0','0x1436ae110':'0x1436ae0e0','0x1436ae46c':'0x1436ae43c','0x1436af6cc':'0x1436af69c'},
-  '3.29.3d': {
-    '0x142faa4d8':'0x142faa4d8','0x1436ae110':'0x1436ae060','0x1436ae46c':'0x1436ae3bc','0x1436af6cc':'0x1436af61c'}};
-// The build by its link time (the PE header's TimeDateStamp): the release and its hotfix both call themselves 3.29.3c.
-const movedData = exe => MOVED[({0x6af1219e: '3.29.3.5', 0x6af26d5e: '3.29.3d'})[exe.base.add(exe.base.add(0x3c).readU32() + 8).readU32()]] || {};
 function hookTileObjects(exe) {
   const moved = movedData(exe);
   const at = va => exe.base.add(ptr(moved[va] || va).sub(IMAGE_BASE));
