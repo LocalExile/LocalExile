@@ -197,6 +197,8 @@ public sealed partial class UniqueCatalog(ItemCatalog items, string folder = "da
             return seeded is null ? null : item with { Mods = seeded.Mods };
         }
         var mods = item.Mods.ToList();
+        // A unique has its own lists: not the enchantments a new item of its base rolls (a cluster jewel's theme and count).
+        mods.RemoveAll(m => m.Section == ModSection.Enchant);
         if (definition.Name.Equals("That Which Was Taken", StringComparison.Ordinal))
         {
             // Four random charm modifiers, ignoring attribute alignment (poewiki, "That Which Was Taken"). Charm mods

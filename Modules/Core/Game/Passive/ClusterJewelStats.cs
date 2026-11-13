@@ -4,8 +4,11 @@ using GameServer.Core.Protocol.Instance;
 /// <summary>
 /// What a socketed cluster jewel's passives give the character.
 ///
-/// A cluster jewel's small passives all grant its theme ("Added Small Passive Skills grant: ..."), its notables grant the
-/// stats of their <c>affliction_notable_*</c> rows, and its jewel sockets grant nothing.
+/// A cluster jewel's small passives all grant its theme ("Added Small Passive Skills grant: ..."): the stats of the
+/// passive its enchantment names (<see cref="ClusterJewels.ThemeOf"/>), and on top what its "also grant" affixes add.
+/// Its notables grant the stats of their <c>affliction_notable_*</c> rows, and its jewel sockets grant nothing. A jewel
+/// made before the server wrote themes names none: its small passives are the client's empty "Nothingness" and grant
+/// only the "also grant" mods, wherever on the item those are.
 ///
 /// A jewel in a tree socket is mapped by <see cref="ClusterJewelLayout"/>: its small passives grant the theme as they are
 /// allocated, its sockets give nothing, and each notable position applies its own notable's row. A 4-passive medium in an
@@ -15,9 +18,9 @@ using GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class ClusterJewelStats
 {
-    /// <summary>The theme statistic's target: the character stat each <c>local_affliction_jewel_small_nodes_grant_*</c>
-    /// feeds. Stats the server does not read (or has no model for, such as the per-skill-type speed grants) are absent,
-    /// so a theme that only has those grants nothing.</summary>
+    /// <summary>The target of an "also grant" mod: the character stat each
+    /// <c>local_affliction_jewel_small_nodes_grant_*</c> feeds. Stats the server does not read (or has no model for, such
+    /// as the per-skill-type speed grants) are absent, so a mod that only has those grants nothing.</summary>
     static readonly Dictionary<string, string> ThemeStats = new(StringComparer.Ordinal)
     {
         ["local_affliction_jewel_small_nodes_grant_maximum_life"] = "base_maximum_life",
@@ -132,12 +135,17 @@ public static class ClusterJewelStats
         }
     }
 
-    /// <summary>The theme for `smalls` small passives of this jewel, scaled by its small-passive effect.</summary>
+    /// <summary>What `smalls` small passives of this jewel grant: its theme's own stats and its "also grant" mods, both
+    /// scaled by its small-passive effect.</summary>
     static IEnumerable<(uint Key, int Value)> Theme(Item jewel, int smalls, ModCatalog mods, StatCatalog stats)
     {
         if (smalls <= 0) yield break;
         var entries = Entries(jewel);
         int effect = 100 + entries.Where(e => e.Stat == "local_affliction_jewel_small_nodes_have_effect_+%").Sum(e => e.Value);
+        if (Program.Items.ByHash(jewel.TypeHash) is { } type && ClusterJewels.ThemeOf(type, jewel) is { } theme
+            && Program.Passives.FindById(theme.Passive) is { } passive)
+            foreach (var (key, value) in passive.Stats)
+                yield return (key, (int)Math.Floor(value * smalls * effect / 100.0));
         foreach (var (stat, value) in entries)
         {
             if (!ThemeStats.TryGetValue(stat, out string? target)) continue;
