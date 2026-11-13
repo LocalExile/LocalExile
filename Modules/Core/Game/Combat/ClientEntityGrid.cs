@@ -1,5 +1,3 @@
-using System.Runtime.CompilerServices;
-
 /// <summary>
 /// The order the client's entity grid lists objects in (3.29.3c, 11-skills.md §9a): 23-cell tiles, and in each tile a
 /// list an object joins at the end of when it enters the tile (0x141d7fb50 inserts after its category's last entry;
@@ -20,7 +18,7 @@ public static class ClientEntityGrid
         public readonly Dictionary<uint, (int Tx, int Ty, long Order)> Entries = [];
     }
 
-    static readonly ConditionalWeakTable<ClientState, Grid> Grids = new();
+    static readonly RuleTable<ClientState, Grid> Grids = new();
 
     // An area change (ClientState.ProjectileEpoch) starts a new grid.
     static Grid For(ClientState conn)
