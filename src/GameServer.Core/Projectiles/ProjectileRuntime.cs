@@ -28,6 +28,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             throw new ArgumentException("Payload count must match initial projectile count.", nameof(use));
         if (use.ProjectileTargets is { } targets && targets.Count != use.Profile.Count)
             throw new ArgumentException("Target count must match initial projectile count.", nameof(use));
+        if (use.ProjectileSpeeds is { } speeds)
+        {
+            if (speeds.Count != use.Profile.Count)
+                throw new ArgumentException("Speed count must match initial projectile count.", nameof(use));
+            foreach (double s in speeds)
+                if (!double.IsFinite(s) || s <= 0)
+                    throw new ArgumentOutOfRangeException(nameof(use), "Per-projectile speed must be finite and positive.");
+        }
         long useId = ++sequence, emission = ++sequence;
         // One sample per released use, independent of spread, damage and child RNG streams.
         int returnRoll = new Random(unchecked(use.Seed * 397 ^ (int)useId ^ 0x3172c85d)).Next(100);
@@ -59,6 +67,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 projectileUse = projectileUse with { Aim = target, ProjectileTargets = null,
                     Profile = projectileUse.Profile with { Range = Math.Max(.001, (target - use.Origin).Length) } };
             }
+            if (use.ProjectileSpeeds is { } projectileSpeeds)
+                projectileUse = projectileUse with { ProjectileSpeeds = null,
+                    Profile = projectileUse.Profile with { Speed = projectileSpeeds[i] } };
             int index = i;
             void Emit()
             {
@@ -484,7 +495,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             p.GroundChains--;
             p.GroundBounces++;
-            p.Remaining = Math.Max(.001, p.Profile.GroundBounceDistance);
+            p.Remaining = Math.Max(.001, p.Profile.GroundBounceKeepsRange ? p.Profile.Range : p.Profile.GroundBounceDistance);
             Publish(ProjectileEventKind.Redirect, p);
             return;
         }

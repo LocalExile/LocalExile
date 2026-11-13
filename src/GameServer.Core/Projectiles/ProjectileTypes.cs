@@ -193,6 +193,9 @@ public sealed record ProjectileProfile(string Id)
     public double ArcHeight { get; init; } = 40;
     public int GroundChains { get; init; }
     public double GroundBounceDistance { get; init; } = 20;
+    /// <summary>Reuse each projectile's resolved <see cref="Range"/> for ground-chain bounces instead of
+    /// <see cref="GroundBounceDistance"/>.</summary>
+    public bool GroundBounceKeepsRange { get; init; }
     public ProjectileCountConsumer CountConsumer { get; init; }
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }
@@ -226,6 +229,9 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
     /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
+    /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
+    /// <see cref="ProjectileProfile.Speed"/>.</summary>
+    public IReadOnlyList<double>? ProjectileSpeeds { get; init; }
     public int Seed { get; init; } = 1;
     /// <summary>The client action sequence that released this use, for the native terminal RNG.</summary>
     public ushort Sequence { get; init; }

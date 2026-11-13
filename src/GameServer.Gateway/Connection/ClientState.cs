@@ -905,6 +905,10 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public FlaskGrounds.State FlaskGrounds { get; } = new();
     /// <summary>Each Strike skill's last use, for Ancestral Echo (StrikeTargets.Memory). Guarded by the Monsters lock.</summary>
     public StrikeTargets.Memory StrikeLocations { get; } = new();
+    /// <summary>Per-skill attack count (0..4) and active BuffDefinitions 2353 instance for Molten Strike of the Zenith.
+    /// Guarded by the Monsters lock.</summary>
+    public readonly Dictionary<ushort, int> MoltenStrikeAttackCounts = [];
+    public readonly Dictionary<ushort, ushort> MoltenStrikeFifthBuffs = [];
     /// <summary>The Spirit chieftain skills' shared cooldown and Leadership buff (SpiritChieftains). Guarded by the Monsters
     /// lock.</summary>
     public SpiritChieftains SpiritChieftains { get; } = new();
@@ -956,6 +960,7 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
                 if (playerLife > 0 && value == 0)
                 {
                     VaalSouls.ClearBalance(); VaalPreventionUntil = 0; VaalUseState = null;
+                    MoltenStrikeAttackCounts.Clear(); MoltenStrikeFifthBuffs.Clear();
                     Rage.Clear(); Rampage.Clear(); RetireOwnedCombat(); RetireResourceEffects();
                 }
                 playerLife = value;

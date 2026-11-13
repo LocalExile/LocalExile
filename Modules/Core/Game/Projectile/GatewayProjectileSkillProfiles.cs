@@ -10,7 +10,8 @@ public static class GatewayProjectileSkillProfiles
     public const double RollingMagmaBounceCells = 16;
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
-            "KineticBolt", "KineticBoltAltX", "KineticBoltAltY" });
+            "KineticBolt", "KineticBoltAltX", "KineticBoltAltY",
+            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike" });
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
@@ -26,6 +27,8 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    public static bool IsMoltenStrike(string? effect) =>
+        effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
 
     public static ProjectileProfile Resolve(string effect, string metadata, Func<string, int> get, double speed, bool attack,
         bool arrows = false)
@@ -77,6 +80,18 @@ public static class GatewayProjectileSkillProfiles
             {
                 ContactTargets = new("lightning-arrow-targets", extra, 18)
             };
+        // Molten Strike's balls are lobbed onto sampled landing cells and deal area damage there without direct contacts,
+        // piercing, forking, splitting or monster chaining (3.29.3c RE: 0x141b6ade0 / 0x141b6baa0, base radius 9).
+        // Vaal Molten Strike / Wildfire enable ground-chaining along the sampled trajectory (0x141b6b710 / 0x141b6b790).
+        else if (IsMoltenStrike(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true,
+                CannotChain = get("molten_strike_projectiles_chain_when_impacting_ground") == 0,
+                EndArea = new("molten-strike", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
+            };
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
@@ -103,6 +118,21 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get("support_parallel_projectile_number_of_points_per_side") == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (IsMoltenStrike(effect))
+        {
+            bool groundChains = get("molten_strike_projectiles_chain_when_impacting_ground") != 0;
+            int groundChainCount = groundChains ? Math.Max(0, p.Chain + get("molten_strike_chain_count_+")) : 0;
+            p = p with
+            {
+                CannotChain = !groundChains,
+                Chain = 0,
+                GroundChains = groundChainCount,
+                GroundBounceKeepsRange = groundChainCount > 0
+            };
+            int countFinal = get("threshold_jewel_molten_strike_damage_projectile_count_+%_final");
+            if (countFinal != 0)
+                p = p with { Count = Math.Max(1, (int)Math.Floor(p.Count * Math.Max(0, 1 + countFinal / 100.0))) };
+        }
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
@@ -261,6 +291,13 @@ public static class GatewayProjectileSkillProfiles
         if (IsLightningArrow(effect) && p.ContactTargets is { } targets)
             return p with { ContactTargets = targets with
                 { Radius = SkillArea.Radius(Value("active_skill_base_area_of_effect_radius", 18), get, spell) } };
+        if (IsMoltenStrike(effect) && p.EndArea is { } moltenArea)
+        {
+            int AreaStat(string name) => name == SkillArea.BaseIncreased
+                ? get(name) + get("molten_strike_radius_+%") : get(name);
+            int baseRadius = Value("active_skill_base_area_of_effect_radius", 9);
+            return p with { EndArea = moltenArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) } };
+        }
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with
                 { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };
