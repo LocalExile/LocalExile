@@ -40,6 +40,9 @@ static class Act4Items
 static class Act4Objects
 {
     public const string Seal = "Metadata/QuestObjects/Act4/MineEntranceSeal", SealBlocker = "Metadata/QuestObjects/Act4/MineEntranceSealBlocker";
+    public const string SideDoor = "Metadata/Terrain/Mountain/Belly/Objects/BellyArseDoor";
+    public const string ArenaDoor = "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaDoor";
+    public const string RoomFolder = "Metadata/Terrain/Mountain/Belly/Rooms/Unique/";
     public const string DeshretSpirit = "Metadata/QuestObjects/Act4/DeshretSpirit", DeshretHand = "Metadata/QuestObjects/Act4/DeshretHand";
     public const string RaptureDevice = "Metadata/QuestObjects/Act4/RaptureDevice";
     public const string ResonatorLever = "Metadata/Terrain/Act4/Area7/Objects/PortalDeviceLever",
@@ -140,6 +143,13 @@ sealed class Act4 : Act
             // NPCTalk 624-626 hand them in), then 627 opens the Black Core (CoreTransition, in the area).
             new Quest("a4q5")
             {
+                new PlacedDoorRule(Belly1, Act4Objects.SideDoor),
+                new PlacedDoorRule(Belly2, Act4Objects.SideDoor),
+                new PlacedDoorRule(Harvest, Act4Objects.SideDoor),
+                new PlacedDoorRule(Belly2, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "boss_piety_1.arm", Act4Monsters.PietyBeast),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_1.arm", Act4Monsters.Doedre),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_2.arm", Act4Monsters.Maligaro),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_3.arm", Act4Monsters.Shavronne),
                 On.Exit(Belly2, Harvest, "a4q5-QuestReceived"),
                 On.Npc(Harvest, Act4Npcs.PietyHarvest, null),
                 On.Drops(Harvest, Act4Monsters.Doedre, Act4Items.Lungs),
