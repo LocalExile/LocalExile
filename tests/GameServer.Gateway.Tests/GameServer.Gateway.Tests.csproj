@@ -27,6 +27,7 @@
     <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
     <!-- The campaign oracle plays the act tables the QuestObjects module registers (QuestEngineTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />
     <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
     <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->

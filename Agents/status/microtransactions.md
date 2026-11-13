@@ -23,7 +23,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   in the world: equipment skins and weapon effects (including the bow in its left-hand model slot), attachments and character effects on the model (Inventories component
   references), footprints and apparitions through the stats, portals (the map device's), cursors and flask skins.
   Verified live 2026-10-23.
-  Built, awaiting live verification: pets (spawned beside the player, following it, not blocking;
+  Built, awaiting live verification: pets (spawned beside the player, following it across disconnected arena rooms, not blocking;
   not yet their idle-relaxed animations, e.g. the Goblin Troupe's song), the portrait (character panel and selection
   screen), skill effects (the Cosmetics tab's skill slots, picked with C→S 0x1fa, the effect's stats on that skill,
   Righteous Fire's ring and buff visuals, restyled at once while it burns, and the projectile and explosion of
