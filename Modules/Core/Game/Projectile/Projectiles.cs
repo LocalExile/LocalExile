@@ -252,20 +252,32 @@ public static partial class Game
         /// flight never contacts the monster itself.</summary>
         public ProjectileActorKey ActorKey(uint id, SpawnedMonster monster) => Key(id, monster);
 
+        // The runtime asks for the actors at every step of the simulation, thousands of times a second in a crowd, and
+        // a new record and position function for each monster each time was a third of what a step cost. A monster keeps
+        // its record for as long as what the record says stands: its id, its walk (the function reads that walk), its
+        // side and its size. The list itself is new every time: the runtime holds one while a hit changes the next.
+        readonly Dictionary<SpawnedMonster, (uint Id, object Walk, bool Hostile, int Size, ProjectileActor Actor)> actorOf =
+            new(ReferenceEqualityComparer.Instance);
+        ProjectileActor? playerActor;
+
         public IReadOnlyList<ProjectileActor> Actors(long from, long until)
         {
-            var result = new List<ProjectileActor>();
+            var result = new List<ProjectileActor>(Conn.Monsters.Count + 1);
             foreach (var (id, monster) in Conn.Monsters)
             {
                 if (monster.Dead || monster.Life == 0) continue;
                 var walk = monster.Walk;
-                result.Add(new(Key(id, monster), monster.Hostile ? 2 : 1,
-                    t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = LivingCollision.Size(monster) });
+                int size = LivingCollision.Size(monster);
+                if (!actorOf.TryGetValue(monster, out var kept) || kept.Id != id || !ReferenceEquals(kept.Walk, walk)
+                    || kept.Hostile != monster.Hostile || kept.Size != size)
+                    actorOf[monster] = kept = (id, walk, monster.Hostile, size, new(Key(id, monster), monster.Hostile ? 2 : 1,
+                        t => Vector(walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0) { Size = size });
+                result.Add(kept.Actor);
             }
             foreach (var totem in Conn.Totems.Living(Conn.Clock.Elapsed.TotalSeconds))
                 result.Add(new(new(totem.Id, epoch), 1, _ => Vector(totem.At), 0));
             if (Conn.PlayerLife > 0)
-                result.Add(new(new(PlayerId, epoch), 1,
+                result.Add(playerActor ??= new(new(PlayerId, epoch), 1,
                     t => Vector(Conn.Walk.Position(t / (double)ProjectileRuntime.QuantaPerSecond)), 0)
                     { Size = LivingCollision.PlayerSize });
             return result;
@@ -274,11 +286,23 @@ public static partial class Game
         public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to) =>
             ProjectileGeometry.TraceGrid(from, to, Wall);
 
+        // The area's cells and heights, looked up once for the session (a connection plays one area): by the area's name
+        // it was a string and two dictionary lookups for every cell every flight crossed at every step. Kept only once
+        // found, and the heights asked for again after a capture was forgotten (TerrainHeights.Forget).
+        ProjectileGrid.Area? blocking;
+        TerrainHeights.Area? heights;
+        int heightsAsOf = -1;
+
         bool Wall(int x, int y) => x < 0 || y < 0 || Conn.Layout.GridW > 0 && x >= Conn.Layout.GridW
             || Conn.Layout.GridH > 0 && y >= Conn.Layout.GridH
-            || ProjectileGrid.Blocks(Conn.Layout.Id, Conn.Seed, x, y) == true || Conn.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Conn.Layout.Id, Conn.Seed))?.Blocks(x, y) == true || Conn.ProjectileWalls.Contains((x, y));
 
-        int? Height(int x, int y) => TerrainHeights.At(Conn.Layout.Id, Conn.Seed, x, y);
+        int? Height(int x, int y)
+        {
+            int asOf = TerrainHeights.Forgotten;
+            if (heights is null || heightsAsOf != asOf) (heights, heightsAsOf) = (TerrainHeights.AreaOf(Conn.Layout.Id, Conn.Seed), asOf);
+            return heights?.At(x, y);
+        }
 
         // A player's primary projectile flies at the ground its aim gives it (ProjectileAimHeight); returns,
         // continuation children and monster shots keep the plain projectile grid.
