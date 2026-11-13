@@ -201,7 +201,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   The secret rooms' objects (hidden doors, the Gauntlet's end) are not created yet. Izaro's three arenas
   (`1_Labyrinth_boss_1`, `1_Labyrinth_boss_2`, `2_Labyrinth_boss_2_end`) are listed by hand in the world update's
   area list: the level snapshot drops them, and without a row the room is never built (live, three seeds each: the
-  room generates and places its three Izaros).
+  room generates and places its three Izaros). Their furniture is in the room data: `scripts/re/atlas room-points`
+  keeps a room that carries one of `Metadata/Terrain/Labyrinth/Objects/` (`RoomFile.IsLabyrinthObject`, a prefix
+  `IsQuestObject` does not name), so the file has 249 more rooms — the 30 boss rooms among them — with the arena
+  doors, boss markers and teleport markers an area places; `object-types` names those types and, by name from the
+  arena's tiles, `Elevator_Izaro` and `BossObjectiveMarker` (both entries go to version 10, with the client tables'
+  rows in `sql/updates/client/`). Checked by the build and the suites over the regenerated data; not yet with the
+  client.
   Code: `LabyrinthLayout.cs`, `LabyrinthPass.cs`, `LabyrinthDay.cs`, `ServerLevels.cs`.
   Docs: [03](../docs/protocol/03-area-and-world.md), [re/011](../docs/re/011-level-generation.md) ("Labyrinth pass").
 - **A Labyrinth run (Normal).** The Sarn Encampment's (Acts 3, 8) plaque shows the trials until the six Normal ones are
