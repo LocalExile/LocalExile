@@ -141,7 +141,9 @@ sealed class Act4 : Act
             // NPCTalk 624-626 hand them in), then 627 opens the Black Core (CoreTransition, in the area).
             new Quest("a4q5")
             {
-                On.Object(Belly2, Act4Objects.HarvestBlocker, "a4q5-QuestReceived"),
+                // A door that goes when opened, as the Apex door (Act2): a body of this size shown open still stopped the
+                // player there, and this one stands on the only way to The Harvest. Not yet checked with the client.
+                On.Door(Belly2, Act4Objects.HarvestBlocker, "a4q5-QuestReceived"),
                 On.Blocker(Belly2, Act4Objects.HarvestBlocker, 5, "a4q5-QuestReceived"),
                 On.Exit(Belly2, Harvest, "a4q5-QuestReceived"),
                 On.Npc(Harvest, Act4Npcs.PietyHarvest, null),
