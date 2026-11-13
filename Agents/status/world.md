@@ -225,13 +225,16 @@ Part of [Status](../Status.md); what to build next in this area is in
   trials (alcove and ledge) and his two end lines; no life bar while he rises, dimmed at his trial's floor; the account's
   stash in the room before each arena and the Ascendancy Chamber. Checked live 2026-11-08 on 3.29.3c.
   A third mechanic, Portals, brings guardians until destroyed and returns the same way; the Bronze Inscription before
-  his arena reads, and the Goddess's Guardians come in circles (without her yet). Checked live 2026-11-09.
+  his arena reads, and the Goddess's Guardians come in circles. Checked live 2026-11-09.
   He holds the day's official weapon and uses its skills (Ground Slam, Spikes, Leap Slam, Sunder, Divine Slash, Shield
   Bash) with their art and damage, and walks through his minions; cooldowns and hit shapes are ours. Checked live
   2026-11-09. Not settled: his model can be set back after an order. Code: `IzaroSkills.cs`.
   Normal's last two mechanics: the Chrono Statues' idols rise with him, fill and cast their circles, and go down when he
   leaves; the Lieutenants rise one at a time with their weapons and skills. Checked live 2026-11-11.
-  Not yet: the Goddess of Justice, his chests, the room's craft recipe, the enchanting bench,
+  The Goddess of Justice rides up on his back and turns with him, lobs her Spirit Mortars (five a volley), throws the
+  mortars her Guardians' circles open under, casts the gargoyles' awakening beam from her hands, goes down with him and
+  flies up when he dies. Checked live 2026-11-12. Code: `GoddessOfJustice.cs`, `Rules.IzaroGoddess.cs`.
+  Not yet: his chests, the room's craft recipe, the enchanting bench,
   Cruel and harder tiers, the secret rooms' objects; a room's exits keep the plain AreaTransition type (not type 5).
   Code: `LabyrinthDay.cs`, `IzaroFights.cs`, `AreaTransitionCatalog.cs`, QuestObjects `Rules.LabyrinthTrials.cs`,
   `Rules.Izaro.cs` (`Rules.IzaroArena.cs`, `Rules.IzaroStatues.cs`, `Rules.IzaroGargoyles.cs`, `Rules.IzaroPortals.cs`,
