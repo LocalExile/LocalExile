@@ -472,6 +472,9 @@ public static partial class Game
         TotemState.Totem totem, TotemState.Devour devour, double now, WorldRecordBuilder bytes)
     {
         if (now < devour.NextUse) return;
+        // A player who is already full has nothing to gain, and the corpse stays: eating every second at full life both
+        // emptied the floor and spent the totem's only effect for nothing.
+        if (conn.PlayerLife >= conn.PlayerMaxLife && (devour.Mana == 0 || conn.PlayerMana >= UnreservedMana(conn))) return;
         uint corpseId = 0; SpawnedMonster? corpse = null; (int X, int Y) at = totem.At; double nearest = double.MaxValue;
         foreach (var (id, m) in conn.Monsters)
         {
