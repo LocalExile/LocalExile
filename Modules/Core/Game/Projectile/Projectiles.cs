@@ -8,10 +8,28 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static readonly Lazy<Dictionary<string, StateMachineData>> ProjectileStateMachines = new(() =>
+    {
+        var states = ObjectTypes.SharedStates();
+        var machines = new Dictionary<string, StateMachineData>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (path, row) in ObjectTypes.All())
+        {
+            if (!path.StartsWith("Metadata/Projectiles/", StringComparison.OrdinalIgnoreCase)) continue;
+            if (ObjectTypes.Components(row) is [.., "Projectile", "StateMachine"]
+                && ObjectTypes.StateMachine(row, states) is { } machine)
+                machines[path] = machine;
+        }
+        return machines;
+    });
+
     // Everything a flight object's or an area effect's create sends. A projectile's blob wakes it during the create, so it
     // gets no 0x1a9; an effect is created asleep and gets its 0x1a9 in the same send (07 section 3).
-    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj) =>
-        InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: 0xffffffff);
+    public static byte[] CreateProjectileObject(uint id, ProjectileObject obj)
+    {
+        if (obj.StateMachine is null && ProjectileStateMachines.Value.TryGetValue(obj.TypePath, out var machine))
+            obj = obj with { StateMachine = machine };
+        return InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
+    }
 
     public static byte[] CreateEffectObject(uint id, EffectObject effect) =>
         InstanceEntities.CreateInWakeZone(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
@@ -471,16 +489,13 @@ public static partial class Game
                         (float)Math.Atan2(p.Direction.X, -p.Direction.Y),
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
                         Height: (visual.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance)) : visual.Height).ObjectHeight)
-                        { AnimatedObject = flightVisual,
-                            // DelveMonkeyMortar.ot appends an empty StateMachine; omitting its two counts
-                            // makes the client consume the task byte as a count and throw Buffer Underflow.
-                            StateMachine = p.Profile.Id == "Metadata/Projectiles/DelveMonkeyMortar" ? new([], 0) : null };
+                        { AnimatedObject = flightVisual };
                     visual.Created = true;
                     if (p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                         Console.WriteLine($"[gateway] {remote} projectile visual use={p.UseId} entity={p.Id} object={id}"
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
-                    return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(obj.TypePath), obj.Blob(), headerU32: uint.MaxValue);
+                    return CreateProjectileObject(id, obj);
                 });
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
