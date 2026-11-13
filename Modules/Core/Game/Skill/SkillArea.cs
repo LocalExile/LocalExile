@@ -6,8 +6,8 @@
 /// modifier, as Path of Building's calcRadius does: floor(base × floor(100 × √(increased × more)) / 100). Increased:
 /// base_skill_area_of_effect_+% (passives, gem quality), skill_area_of_effect_+% and, for spells, spell_area_of_effect_+%.
 /// More: each of the "_final" area stats; active_skill_area_of_effect_radius_+%_final scales the radius itself. The
-/// skill's stats include the player's. Discharge's more area per removable charge counts; other conditional area stats (per
-/// attribute, "recently") are not modelled.
+/// skill's stats include the player's. Discharge's more area per removable charge counts; qualified item attribute
+/// coefficients and supported conditional increases are resolved before this view is built.
 /// </summary>
 public static class SkillArea
 {
@@ -26,6 +26,7 @@ public static class SkillArea
     [
         "active_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final",
         "support_concentrated_effect_skill_area_of_effect_+%_final", "skill_area_of_effect_+%_final_from_skill_specific_stat",
+        "blood_sand_stance_melee_skills_area_of_effect_+%_final",
     ];
 
     const string MorePerRemovableCharge = "area_of_effect_+%_final_per_removable_power_frenzy_or_endurance_charge";

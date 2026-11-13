@@ -86,13 +86,14 @@ public sealed class MonsterModEffects(IReadOnlyDictionary<string, int> stats)
         double factor = (1 + (this["damage_+%"] + this["physical_damage_+%"]) / 100.0)
             * (1 + this["monster_rarity_damage_+%_final"] / 100.0)
             * (1 - this["monster_rarity_attack_cast_speed_+%_and_damage_-%_final"] / 100.0);
-        var gains = new DamageConversion()
+        var conversion = new DamageConversion()
+            .Add(DamageType.Physical, DamageType.Chaos, this["base_physical_damage_%_to_convert_to_chaos"])
             .AddGain(DamageType.Physical, DamageType.Fire, this["physical_damage_%_to_add_as_fire"])
             .AddGain(DamageType.Physical, DamageType.Cold, this["physical_damage_%_to_add_as_cold"])
             .AddGain(DamageType.Physical, DamageType.Lightning, this["physical_damage_%_to_add_as_lightning"]);
         var physicalRange = physical[DamageType.Physical];
         var hit = DamagePacket.Of(DamageType.Physical, Math.Max(1, Math.Round(physicalRange.Min * factor)),
-            Math.Max(1, Math.Round(physicalRange.Max * factor))).Convert(gains).Round();
+            Math.Max(1, Math.Round(physicalRange.Max * factor))).Convert(conversion).Round();
         int chaos = this["non_chaos_damage_to_add_as_chaos_damage_%"];
         if (chaos <= 0) return hit;
         double minChaos = 0, maxChaos = 0;
@@ -212,6 +213,7 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
     {
         "maximum_life_+%", "damage_+%", "physical_damage_+%",
         "physical_damage_%_to_add_as_fire", "physical_damage_%_to_add_as_cold", "physical_damage_%_to_add_as_lightning",
+        "base_physical_damage_%_to_convert_to_chaos",
         "non_chaos_damage_to_add_as_chaos_damage_%", "attack_speed_+%", "base_cast_speed_+%", "base_movement_velocity_+%",
         "base_fire_damage_resistance_%", "base_cold_damage_resistance_%", "base_lightning_damage_resistance_%",
         "base_chaos_damage_resistance_%", "base_resist_all_elements_%", "base_additional_physical_damage_reduction_%",
@@ -219,6 +221,10 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         "life_regeneration_rate_per_minute_%", "rare_monster_mod_spell_damage_taken_+%_final", "base_damage_taken_+%",
         "monster_base_block_%", "base_cannot_be_stunned", "hit_damage_+%_per_10%_missing_enemy_life",
         "self_take_no_extra_damage_from_critical_strikes", "avoid_impale_%", "cannot_have_life_leeched_from",
+        "global_bleed_on_hit", "bleeding_damage_+%", "base_bleed_duration_+%", "monster_bleeding_damage_+%_final",
+        "global_poison_on_hit", "base_poison_damage_+%", "base_poison_duration_+%", "monster_poison_damage_+%_final",
+        "bleed_on_hit_with_attacks_%", "base_attacks_poison", "chance_to_poison_on_hit_with_attacks_%",
+        "base_chance_to_poison_on_hit_%", "all_damage_can_poison",
         "cannot_have_energy_shield_leeched_from", "base_self_ignite_duration_-%",
         "chill_effectiveness_on_self_+%", "base_self_freeze_duration_-%",
         "shocked_effect_on_self_+%", "action_speed_cannot_be_reduced_below_base", "movement_speed_cannot_be_reduced_below_base",
@@ -385,6 +391,10 @@ public sealed class MonsterModCatalog(ModCatalog mods, string folder = "data")
         if (RarityTableLifePct(rarity, level) is int table and > 0) Add(RarityTableLifeStat, table);
         return new MonsterModSet(list, nameWords, new MonsterModEffects(stats));
     }
+
+    /// <summary>The fixed Mods.dat rows referenced by a MonsterVarieties row, rolled once when the monster spawns.</summary>
+    public IReadOnlyList<ItemMod> Species(IReadOnlyList<int> rows, Random rng) =>
+        [.. rows.Select(row => mods.Row(row)).OfType<ModCatalog.Mod>().Select(m => m.Roll(ModSection.Explicit, rng))];
 
     (int MaxPrefix, int MaxSuffix) MaxAffixes(MonsterRarity rarity)
     {

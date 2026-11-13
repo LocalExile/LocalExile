@@ -55,6 +55,29 @@ public sealed class HitAndKillRecoveryTests
             var immune = Monster(new([], [], new(new Dictionary<string, int> { ["immune_to_culling_strike"] = 1 })));
             Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, immune, 900, cull).Life);
             Assert.Equal(100u, Game.TakeOwnerHitLocked(conn, Monster(), 900, default).Life);
+
+            // The default melee producer calls this shared hit commit directly; generic area/projectile consumers
+            // additionally call ApplyMonsterHitLocked. Both must record only the direct hit's excess Life damage.
+            var genericOverkill = Monster();
+            Assert.NotNull(Game.ApplyMonsterHitLocked(conn, genericOverkill, 1500));
+            Assert.Equal(500, genericOverkill.Overkill);
+            var meleeOverkill = Monster();
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, meleeOverkill, 1500, default).Life);
+            Console.WriteLine($"#504 shared hit overkill generic={genericOverkill.Overkill} defaultMelee={meleeOverkill.Overkill} expected=500");
+            Assert.Equal(500, meleeOverkill.Overkill);
+            var exactKill = Monster();
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, exactKill, 1000, default).Life);
+            Assert.Equal(0, exactKill.Overkill);
+            var culled = Monster();
+            Assert.Equal(0u, Game.TakeOwnerHitLocked(conn, culled, 900, cull).Life);
+            Assert.Equal(0, culled.Overkill);
+            var pacifist = Monster();
+            Assert.Equal(1u, Game.TakeOwnerHitLocked(conn, pacifist, 5000, new(0, 0, CannotKill: true)).Life);
+            Assert.Equal(0, pacifist.Overkill);
+            var protectedTarget = Monster();
+            protectedTarget.KingGrace = true;
+            Assert.Equal(1000u, Game.TakeOwnerHitLocked(conn, protectedTarget, 5000, default).Life);
+            Assert.Equal(0, protectedTarget.Overkill);
         }
 
         // Gain per enemy hit comes from attacks and their weapon.

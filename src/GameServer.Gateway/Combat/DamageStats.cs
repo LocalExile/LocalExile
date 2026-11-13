@@ -69,7 +69,7 @@ public static class DamageStats
     /// attribute and the size of one group. The groups are read from the client's stat descriptions, not from the stat
     /// ids: the Replica Alberon's Warpath pair is named <c>_per_50_strength</c>, but its description (and PoB's and
     /// RePoE's text, "Adds 1 to 80 Chaos Damage to Attacks per 80 Strength") applies it per 80. Weapon-local "with this
-    /// Weapon" and spell per-attribute stats are not these.</summary>
+    /// Weapon" coefficients have a separate consumer.</summary>
     public static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
         AttackAddedPerAttribute =
     [
@@ -85,14 +85,29 @@ public static class DamageStats
             "maximum_added_lightning_damage_to_attacks_per_10_intelligence", "intelligence", 10),
         (DamageType.Chaos, "minimum_added_chaos_damage_to_attacks_per_50_strength",
             "maximum_added_chaos_damage_to_attacks_per_50_strength", "strength", 80),
+        (DamageType.Fire, "attack_minimum_added_fire_damage_per_10_strength",
+            "attack_maximum_added_fire_damage_per_10_strength", "strength", 10),
+        (DamageType.Lightning, "attack_minimum_added_lightning_damage_per_10_int",
+            "attack_maximum_added_lightning_damage_per_10_int", "intelligence", 10),
+        (DamageType.Physical, "attack_minimum_added_physical_damage_per_level",
+            "attack_maximum_added_physical_damage_per_level", "level", 1),
     ];
 
-    // Raw attack added damage of one type from the final attributes, per complete group (PoB ModStore PerStat:
+    public static readonly (DamageType Type, string Minimum, string Maximum, string Attribute, int Per)[]
+        SpellAddedPerAttribute =
+    [
+        (DamageType.Lightning, "spell_minimum_added_lightning_damage_per_10_intelligence",
+            "spell_maximum_added_lightning_damage_per_10_intelligence", "intelligence", 10),
+    ];
+
+    public static DamageRange AttributeAdded(Func<string, int> get, DamageType type) => AttributeAdded(get, type, spell: false);
+
+    // Raw added damage of one type from the final attributes or actor level, per complete group (PoB ModStore PerStat:
     // floor(attribute / N)); a negative attribute grants nothing. Joins the added range before increases, as above.
-    public static DamageRange AttributeAdded(Func<string, int> get, DamageType type)
+    public static DamageRange AttributeAdded(Func<string, int> get, DamageType type, bool spell)
     {
         double min = 0, max = 0;
-        foreach (var (rowType, minimum, maximum, attribute, per) in AttackAddedPerAttribute)
+        foreach (var (rowType, minimum, maximum, attribute, per) in spell ? SpellAddedPerAttribute : AttackAddedPerAttribute)
         {
             if (rowType != type) continue;
             int low = get(minimum), high = get(maximum);
@@ -147,7 +162,7 @@ public static class DamageStats
             // attack-/spell-specific stats are extra on top, not a replacement.
             var range = new DamageRange(get($"{prefix}_minimum_added_{slug}_damage"), get($"{prefix}_maximum_added_{slug}_damage"))
                 .Add(new DamageRange(get($"global_minimum_added_{slug}_damage"), get($"global_maximum_added_{slug}_damage")));
-            if (!spell) range = range.Add(AttributeAdded(get, type));
+            range = range.Add(AttributeAdded(get, type, spell));
             if (!spell && type == DamageType.Lightning)
             {
                 // PoB ModParser 16de4b82 lines 5636–5639 grants both attack LightningMin and LightningMax.

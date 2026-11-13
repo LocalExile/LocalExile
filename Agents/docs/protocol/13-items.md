@@ -278,6 +278,10 @@ passives' stats (`CharacterStatSources`), so it reaches the pools (`PassiveBonus
 attributes, resistances, block, suppression, speeds, crit, accuracy …) and the stats the client shows (0x1b3), the same
 way a passive's would. They are sent again when equipment changes (`SendEquipment`).
 
+Two historical stat names are misleading: Malachai's Vision's collection-gated ES and Mana `recharge_rate_per_minute`
+rows describe flat regeneration, not recharge speed. Replica Mistwall's `spell_block_is_maximum` row retains the
+unscalable value 75, but means the current maximum spell-block chance, including changes to that maximum.
+
 Heist magnitude enchantments travel in the enchant list alongside the original explicit rolls.
 The native item tooltip scales eligible explicit values from those rolls.
 [#565](https://github.com/LocalExile/LocalExile/issues/565)

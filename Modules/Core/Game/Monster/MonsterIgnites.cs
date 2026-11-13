@@ -107,20 +107,28 @@ public static partial class Game
     /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
     /// chance from <paramref name="player"/> and the skill's stats.</summary>
     public static MonsterIgnites.Settings SupportedIgnite(ClientState conn, ushort skillId, bool spell,
-        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null)
+        IReadOnlyDictionary<uint, int> player, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
+        SupportedHitInputs? capturedInputs = null)
     {
-        var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+        Func<string, int> get;
+        if (capturedInputs is null)
+        {
+            var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
+            get = name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0;
+        }
+        else
+            get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
         NoteIgniteArt(conn, skillId);
-        var settings = MonsterIgnites.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0);
+        var rows = capturedInputs is null
+            ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
+            : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
+        var settings = MonsterIgnites.Settings.From(rows, hand, get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
-        int per = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final") is uint perKey
-            ? merged.GetValueOrDefault(perKey) : 0;
+        int per = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final");
         if (per > 0)
         {
-            int cap = Stats.Key("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum") is uint capKey
-                ? merged.GetValueOrDefault(capKey) : 0;
+            int cap = get("support_recent_ignites_ignite_damage_per_recent_ignite_+%_final_maximum");
             int recent = RecentlyIgnitedCount(conn, ProjectileWorldTime(conn));
             long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
             double more = Math.Max(0, 1 + added / 100.0);
@@ -167,11 +175,14 @@ public static partial class Game
 
     /// <summary>The default melee attack's ignite, as the ordinary bow or wand shot's (<c>ProjectileRanged</c>): the panel's
     /// main-hand rows from the weapon's raw packet and the character's conversion.</summary>
-    public static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player)
+    public static MonsterIgnites.Settings DefaultAttackIgnite(ClientState conn, IReadOnlyDictionary<uint, int> player,
+        SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0, DamageConversion? conversion = null)
     {
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
+        var sourceWeapon = weapon ?? WeaponFor(conn);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(WeaponFor(conn), Get), DamageStats.Conversion(player, Stats, attack: true), Get),
+            SupportedAttackDamage.Raw(sourceWeapon, Get), conversion ?? DamageStats.Conversion(player, Stats, attack: true),
+            Get, additionalIncreased),
             "main_hand", Get), player, null, spell: false, "main_hand");
     }
 
@@ -179,7 +190,12 @@ public static partial class Game
     // (MonsterIgnites.TryApply, its duration less by the target's base_self_ignite_duration_-%), and the packets of the
     // monster's ignited buff, or null when it did not ignite.
     public static List<byte[]>? IgniteOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now)
+        MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true) =>
+        IgniteOnHitLocked(conn, id, target, settings, critical, now, default(AttackAilmentGains), playerIgnite);
+
+    public static List<byte[]>? IgniteOnHitLocked(ClientState conn, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
+        bool playerIgnite = true)
     {
         if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
@@ -194,7 +210,12 @@ public static partial class Game
             target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
             target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
         }
-        conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+        if (playerIgnite && target.Hostile)
+        {
+            conn.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+            HerEmbraceOnIgniteLocked(conn, now);
+            GainFromAttackAilmentLocked(conn, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
+        }
         return ShowDotBuffLocked(conn, id, target.Ignites, IgnitedBuffRow, now);
     }
 
@@ -203,8 +224,13 @@ public static partial class Game
         + (target.Ignites.SpreadRadius > 0 ? $", spreads {target.Ignites.SpreadRadius} cells" : "");
 
     public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
-        MonsterIgnites.Settings settings, bool critical, double now) =>
-        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now),
+        MonsterIgnites.Settings settings, bool critical, double now, bool playerIgnite = true) =>
+        IgniteOnHitLocked(session, id, target, settings, critical, now, default(AttackAilmentGains), playerIgnite);
+
+    public static void IgniteOnHitLocked(ProjectileSession session, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
+        bool playerIgnite = true) =>
+        QueueDotBuff(session, IgniteOnHitLocked(session.Conn, id, target, settings, critical, now, attackGains, playerIgnite),
             IgnitedLog(id, target, critical, now));
 
     // Queues a projectile hit's ignited or bleeding buff packets on its session, the log on the last.
@@ -245,6 +271,7 @@ public static partial class Game
             double now = ProjectileWorldTime(conn);
             foreach (var (id, m) in conn.Monsters)
             {
+                if (OwnedGolemActor(conn, id, m)) continue;
                 var set = of(m);
                 if (set.Idle) continue;
                 int damage = 0;

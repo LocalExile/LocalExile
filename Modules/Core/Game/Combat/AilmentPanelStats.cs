@@ -71,8 +71,10 @@ public static class AilmentPanelStats
     ];
 
     public static List<(string Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
-        Func<string, int> get)
+        Func<string, int> get, long additionalIncreased = 0)
     {
+        get = WeaponAttributeDamage.Read(context.Attack && !context.Spell && WeaponAttributeDamage.Armed(
+            get(context.Hand == "off_hand" ? "off_hand_weapon_type" : "main_hand_weapon_type")), get);
         var rows = new List<(string, int)>();
         var paths = conversion.Trace(raw).ToList();
         double charges = ChargeEffects.DamageMore(get, context.Spell, ailment: true);
@@ -80,7 +82,7 @@ public static class AilmentPanelStats
         {
             foreach (bool critical in new[] { false, true })
             {
-                var (min, max) = Range(paths, ailment, sources, ailmentType, context, get, critical);
+                var (min, max) = Range(paths, ailment, sources, ailmentType, context, get, critical, additionalIncreased);
                 string kind = critical ? "critical" : "non_critical";
                 string name = $"{ailment}_damage_to_{(chaosOnly ? "always_" : "")}deal_per_minute_from_{kind}_{context.Hand}_damage";
                 rows.Add(($"minimum_{name}", PerMinute(min * percent / 100.0 * charges)));
@@ -88,11 +90,10 @@ public static class AilmentPanelStats
             }
         }
         if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
-        // Shaper of Flames' "All Damage can Ignite" (all_damage_can_ignite): every type's portion adds to the ignite's
-        // base, with the increases of the types it visited, as poison's physical portion does.
-        Add("ignite", DamageType.Fire, get("all_damage_can_ignite") != 0 ? DamageTypes.ConversionOrder : [DamageType.Fire],
-            IgnitePercent);
-        Add("poison", DamageType.Chaos, [DamageType.Physical, DamageType.Chaos], PoisonPercent);
+        Add("ignite", DamageType.Fire, get("all_damage_can_ignite") != 0
+            ? DamageTypes.ConversionOrder : [DamageType.Fire], IgnitePercent);
+        Add("poison", DamageType.Chaos, get("all_damage_can_poison") != 0
+            ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
         if (get("chaos_damage_chance_to_poison_%") != 0)
             Add("poison", DamageType.Chaos, [DamageType.Chaos], PoisonPercent, chaosOnly: true);
         return rows;
@@ -102,7 +103,7 @@ public static class AilmentPanelStats
         double.IsNaN(perSecond) || perSecond <= 0 ? 0 : (int)Math.Min(int.MaxValue, Math.Round(perSecond * 60));
 
     static (double Min, double Max) Range(List<DamageConversionPath> paths, string ailment, DamageType[] sources,
-        DamageType ailmentType, Context context, Func<string, int> get, bool critical)
+        DamageType ailmentType, Context context, Func<string, int> get, bool critical, long additionalIncreased)
     {
         // The ailment deals its own type: a prohibition of that type stops it whatever its base (PoB CalcOffence gates
         // bleed on canDeal.Physical, poison on canDeal.Chaos and ignite on canDeal.Fire).
@@ -110,6 +111,7 @@ public static class AilmentPanelStats
             return (0, 0);
         double common = (double)get("damage_+%") + get("damage_over_time_+%") + get("base_ailment_damage_+%")
             + get(Slug(ailmentType) + "_damage_+%") + get(Slug(ailmentType) + "_damage_over_time_+%")
+            + additionalIncreased
             + ailmentType switch
             {
                 DamageType.Physical => get("bleeding_damage_+%"),

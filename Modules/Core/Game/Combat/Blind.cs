@@ -1,6 +1,29 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
+
+/// <summary>Blind inputs captured before an accepted hit chooses its attack/spell and critical result.</summary>
+public readonly record struct BlindHitInput(long GlobalChance, long AttackChance, long CriticalChance, int Effect, double Seconds)
+{
+    static int Saturate(long value) => (int)Math.Clamp(value, (long)int.MinValue, int.MaxValue);
+    public static BlindHitInput Capture(IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own = null)
+    {
+        long Get(string name) => Program.Stats.Key(name) is uint key ? (long)player.GetValueOrDefault(key)
+            + (own?.GetValueOrDefault(key) ?? 0) : 0;
+        return Capture(Get);
+    }
+    public static BlindHitInput Capture(Func<string, int> get) => new(
+        get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
+        get("%_chance_to_blind_on_critical_strike"), get("blind_effect_+%"), Game.BlindSeconds(get));
+    public static BlindHitInput Capture(Func<string, long> get) => new(
+        get("global_chance_to_blind_on_hit_%"), get("attacks_chance_to_blind_on_hit_%"),
+        get("%_chance_to_blind_on_critical_strike"), Saturate(get("blind_effect_+%")),
+        Game.BlindSeconds(name => Saturate(get(name))));
+    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
+        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
+}
 
 public static partial class Game
 {
@@ -52,13 +75,14 @@ public static partial class Game
         var value = state.Read(at, immune);
         if (immune) return (0, 0);
         if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
-        return (conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id)) && smokeLess > value.Less ? (smokeLess, 0) : value;
+        return (conn.FlaskGrounds.Blinded(id) || conn.BlindAura.Blinded(id) || PhysicalAegisBlinds(conn, id))
+            && smokeLess > value.Less ? (smokeLess, 0) : value;
     }
     public static int MonsterBlindRating(ClientState conn, uint id, SpawnedMonster target, int rating, double at,
         IReadOnlyDictionary<uint, int>? player = null)
     {
         // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
-        int smoke = !conn.FlaskGrounds.Blinded(id) && !conn.BlindAura.Blinded(id) ? 0
+        int smoke = !conn.FlaskGrounds.Blinded(id) && !conn.BlindAura.Blinded(id) && !PhysicalAegisBlinds(conn, id) ? 0
             : BlindEffectLess(player ?? CharacterStatSources(conn).Stats);
         return TimedBlind.Apply(rating, MonsterBlindValue(conn, id, target, at, smoke).Less);
     }
@@ -72,12 +96,20 @@ public static partial class Game
     }
     public static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
+        => InflictMonsterBlind(conn, id, target, at, input.Chance, input.Effect, input.Seconds, random);
+    public static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at,
+        BlindHitInput input, bool spell, bool critical, Random? random = null)
+        => InflictMonsterBlind(conn, id, target, at, input.Chance(spell, critical), input.Effect, input.Seconds, random);
+    static bool InflictMonsterBlind(ClientState conn, uint id, SpawnedMonster target, double at, int chance,
+        int effect, double seconds, Random? random)
     {
-        if (target.Dead || target.Life == 0 || input.Chance <= 0 || !CurrentGameRules || conn.LeavingArea || conn.Paused
-            || input.Chance < 100 && (random ?? Random.Shared).Next(100) >= input.Chance) return false;
+        if (!target.Hostile || target.Dead || target.Life == 0
+            || !conn.Monsters.TryGetValue(id, out var registered) || !ReferenceEquals(registered, target)) return false;
+        if (chance <= 0 || !CurrentGameRules || conn.LeavingArea || conn.Paused
+            || !RandomRolls.Chance(chance, 100, random ?? Random.Shared)) return false;
         var state = ResourceEffectsOf(conn);
         return ResourceEffectsCurrent(conn, state) && state.TargetBlind(id, target)
-            .Inflict(at, input.Seconds, input.Effect, target.Mods.Effects["cannot_be_blinded"] != 0);
+            .Inflict(at, seconds, effect, target.Mods.Effects["cannot_be_blinded"] != 0);
     }
     public static byte[]? BlindPresentation(ClientState conn, IReadOnlyDictionary<uint, int>? snapshot = null)
     {
@@ -103,6 +135,7 @@ public static partial class Game
             bool work = state.PlayerBlind.Read(now).Less > 0 || state.PlayerBlind.Sent.Less > 0 || state.Targets.Count > 0
                 || conn.RetiredResourceBuffs.Count > 0 || conn.FlaskGrounds.BlindedMonsters().Any()
                 || conn.Monsters.Keys.Any(conn.BlindAura.Blinded)
+                || conn.Monsters.Keys.Any(conn.PhysicalAegis.Blind.Blinded)
                 || conn.Monsters.Values.Any(m => m.RampageBlindUntil > now);
             if (!work) return null;
             var player = snapshot ?? CharacterPlayerStats(conn); // One fresh snapshot for the whole publication pass, at the gate.
@@ -138,7 +171,8 @@ public static partial class Game
             Present(PlayerId, state.PlayerBlind, PlayerBlindValue(conn, player), conn.PlayerLife == 0 || BlindImmune(conn, player), true);
             foreach (var (id, target) in conn.Monsters)
             {
-                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !conn.FlaskGrounds.Blinded(id) && !conn.BlindAura.Blinded(id)) continue;
+                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !conn.FlaskGrounds.Blinded(id)
+                    && !conn.BlindAura.Blinded(id) && !conn.PhysicalAegis.Blind.Blinded(id)) continue;
                 var value = MonsterBlindValue(conn, id, target, now, smoke);
                 Present(id, state.TargetBlind(id, target), value,
                     target.Dead || target.Life == 0 || target.Mods.Effects["cannot_be_blinded"] != 0, false);
@@ -152,12 +186,15 @@ public static partial class Game
     public const string VsBlindedCriticalStat = "critical_strike_chance_+%_vs_blinded_enemies";
     public const string FromBlindedDamageTakenStat = "damage_taken_+%_from_blinded_enemies";
 
-    public static bool Blinded(ClientState conn, uint monster) => conn.Monsters.TryGetValue(monster, out var target)
+    public static bool Blinded(ClientState conn, uint monster) => Blinded(conn, monster, ResourceEffectsTime(conn));
+
+    public static bool Blinded(ClientState conn, uint monster, double at) =>
+        conn.Monsters.TryGetValue(monster, out var target)
         && !target.Dead && target.Life > 0 && target.Mods.Effects["cannot_be_blinded"] == 0
-        && (conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster)
-            || target.RampageBlindUntil > ResourceEffectsTime(conn)
+        && (conn.FlaskGrounds.Blinded(monster) || conn.BlindAura.Blinded(monster) || PhysicalAegisBlinds(conn, monster)
+            || target.RampageBlindUntil > at
             || conn.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
-                && ReferenceEquals(value.Target, target) && value.Blind.Read(ResourceEffectsTime(conn)).Less > 0);
+                && ReferenceEquals(value.Target, target) && value.Blind.Read(at).Less > 0);
 
     public static int UnderBlind(ClientState conn, uint monster, int value) =>
         conn.Monsters.TryGetValue(monster, out var target) ? MonsterBlindRating(conn, monster, target, value, ResourceEffectsTime(conn)) : value;

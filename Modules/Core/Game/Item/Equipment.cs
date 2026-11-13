@@ -91,7 +91,16 @@ public static partial class Game
 
     // A hand's weapon attack (WeaponOf); null when the hand holds no weapon (empty, a shield, a quiver).
     public static SkillCatalog.Unarmed? WeaponIn(ClientState conn, (Item Item, ItemCatalog.BaseType? Type)? hand) =>
-        WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand);
+        WeaponIn(SkillsFor(conn), ItemsFor(conn), conn.ClassRow, hand) is { } weapon && hand is { } active
+            ? weapon with { LocalSources = QualifiedHandLocalStats(conn, active.Item).ToFrozenDictionary() } : null;
+
+    static Dictionary<string, int> QualifiedHandLocalStats(ClientState conn, Item item)
+    {
+        var local = ItemModStats.Local(item, ItemsFor(conn).Mods);
+        if (!local.Keys.Any(name => StatConditions.PlainOf(name) is not null)) return local;
+        var flags = conn.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(conn, ResourceEffectsTime(conn));
+        return ItemModStats.Local(item, ItemsFor(conn).Mods, new(Flags: flags), Stats.Has);
+    }
 
     public static SkillCatalog.Unarmed? WeaponIn(SkillCatalog skills, ItemCatalog catalog, int classRow,
         (Item Item, ItemCatalog.BaseType? Type)? hand)
@@ -104,6 +113,7 @@ public static partial class Game
         return new SkillCatalog.Unarmed(local.AttackMs, (int)physical.Min, (int)physical.Max, Math.Max(range, unarmed.Range))
         {
             LocalDamage = local.Damage, LocalSources = ItemModStats.Local(item, catalog.Mods).ToFrozenDictionary(),
+            ItemClass = type.Class,
             WieldingWand = type.Class == "Wand", Bow = type.Class == "Bow", Melee = type.Class is not ("Wand" or "Bow"),
         };
     }
@@ -116,7 +126,7 @@ public static partial class Game
     public static (Dictionary<string, int> Main, Dictionary<string, int> Off) HandLocalStats(ClientState conn)
     {
         Dictionary<string, int> Local((Item Item, ItemCatalog.BaseType? Type)? hand) => hand is { } active
-            ? ItemModStats.Local(active.Item, ItemsFor(conn).Mods) : [];
+            ? QualifiedHandLocalStats(conn, active.Item) : [];
         // Weapon swaps exchange the equipment rows; rows 14/15 remain inactive even when an active hand is empty.
         return (Local(ActiveMainHand(conn)), Local(ActiveOffHand(conn)));
     }
@@ -291,9 +301,14 @@ public static partial class Game
     public static async Task SendEquipment(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, PlayerInventories items)
     {
         RefreshVaalSouls(conn);
-        // Under the Monsters lock, as every pools writer (a utility flask that ends recomputes under it too). First, so the
-        // model below knows which of the new items are inactive.
-        lock (conn.Monsters) { RecomputePoolsAndSpeed(conn); conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn)); }
+        // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
+        // worn item's requirements. Keep the same mutation lock as owned spawn commits.
+        using (ProjectileMutation(conn, advance: false, phase: "equipment output"))
+        {
+            RecomputePoolsAndSpeed(conn);
+            ReconcileBeastCompanionsLocked(conn);
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+        }
         await SendModel(remote, stream, ciphers, conn, Looks(conn, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
         await SendWornCosmetics(remote, stream, ciphers, conn, "equipment changed");
@@ -301,6 +316,10 @@ public static partial class Game
         await SendPlayerStatSnapshot(remote, stream, ciphers, conn,
             () => PlayerStatsUpdateAtGate(conn, PlayerStatsWithCleared(conn)),
             "0x01b3 player stats (equipment)");
+        await Send(remote, stream, ciphers, [], "0x01b1 player life (equipment)", atGate: () =>
+        {
+            lock (conn.Monsters) return PlayerLifeUpdate(conn);
+        });
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (equipment)");
     }
 

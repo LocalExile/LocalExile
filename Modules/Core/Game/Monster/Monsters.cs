@@ -101,9 +101,11 @@ public static partial class Game
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
         IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
-        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null, uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
         MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null,
-        Func<bool>? ownedAdmission = null, MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null)
     {
         movement ??= MonsterMovement.Default;
@@ -248,11 +250,18 @@ public static partial class Game
         // the life bars kept the base maximum and a unique showed full until its life fell below it (live 2026-10-21).
         foreach (var stat in MonsterModClientStats(mods.Effects, life, baseLife).Concat(extraStats ?? [])) (stats ??= []).Add(stat);
         if (DoedreSewers.IsBoss(variety) || Sirus.IsActor(variety)) (stats ??= []).Add((StatKeys.HideMiniLifeBar, 1));
+        uint maximumEnergyShieldValue = owned is null ? 0 : NativeEnergyShield(ownedMaximumEnergyShield);
+        uint energyShieldValue = maximumEnergyShieldValue == 0 ? 0
+            : Math.Min(maximumEnergyShieldValue, NativeEnergyShield(ownedEnergyShield));
+        if (maximumEnergyShieldValue > 0 && Stats.Key("maximum_energy_shield") is uint maximumEnergyShield)
+            (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
         var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? BrineKing.StartStates(variety) ?? MavenNucleus.StartStates(variety) ?? variety.StateMachine;
-        var monster = new MonsterObject(x, y, life, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
+        uint wireLife = owned is null ? life : Math.Min(damagedLife ?? life, life);
+        var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, MonsterEmerge.CreateState(variety, emerge, waits), team,
             skills, stats)
         {
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks,
+            EnergyShield = energyShieldValue,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
@@ -289,7 +298,8 @@ public static partial class Game
                     AddMonsterLocked(); admitted = true;
                     return create;
                 }
-            }, createLog, wake: true, transport: (remote, stream, ciphers));
+            }, createLog, wake: true, transport: (remote, stream, ciphers),
+                afterBirth: ownedInitialDeath ? [InstanceProtocol.LifeUpdate(id, 0)] : null);
             if (!admitted) return 0;
         }
         else
@@ -352,7 +362,7 @@ public static partial class Game
         }
         if (waits) WatchBuried(remote, stream, ciphers, conn);
         // A kept monster that was hit: its life as a hit sets it (0x1b1).
-        if (damagedLife < life)
+        if (owned is null && damagedLife < life)
             await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceProtocol.LifeUpdate(id, damagedLife.Value), !log ? null : $"0x01b1 monster 0x{id:x} life {damagedLife}/{life}");
         if (!friendly && KingInMists.IsBoss(variety)) KingInMists.Begin(remote, stream, ciphers, conn, id);
         return id;
@@ -718,7 +728,8 @@ public static partial class Game
                         }
                         m.BusyUntil = begins + ma.Seconds;
                         m.LastTarget = null;
-                        var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At, begins + ma.Seconds / 2);
+                        var attack = new PlayerMinions.Attack(id, m, (mx, my), target.Id, target.Monster, target.At,
+                            begins + ma.Seconds * (ma.Release?.Fraction ?? .5));
                         conn.Minions.Attacks[id] = attack;
                         plan.MinionSwings.Add(attack);
                     }
@@ -1085,7 +1096,7 @@ public static partial class Game
     {
         lock (conn.Monsters)
             return MonsterPresent(conn, id, m) && conn.PlayerLife > 0
-                && (m.Hostile || KingInMists.IsFetish(m.Variety)) && !m.StageRunning
+                && (m.Hostile || KingInMists.IsFetish(m.Variety) || conn.Minions.Owns(id, m)) && !m.StageRunning
                 && m.ActionGeneration == action && conn.Clock.Elapsed.TotalSeconds >= m.FlinchUntil;
     }
 
@@ -1460,16 +1471,17 @@ public static partial class Game
     }
 
     // "Gain X% of Missing Unreserved Life before being Hit by an Enemy" (PoB CalcDefence: only while alive, capped at the
-    // recoverable Life). Life reservation is not modelled, so unreserved Life is maximum Life. A blocked hit still counts:
+    // recoverable unreserved Life). A blocked hit still counts:
     // blocking does not prevent the defender's when-hit effects (wiki Blocking). Call under the Monsters lock.
     public static void GainLifeBeforeEnemyHitLocked(ClientState conn, IReadOnlyDictionary<uint, int> stats)
     {
-        if (conn.PlayerLife == 0 || conn.PlayerLife >= conn.PlayerMaxLife
+        uint lifeCap = LifeCap(conn);
+        if (conn.PlayerLife == 0 || conn.PlayerLife >= lifeCap
             || Stats.Key("missing_unreserved_life_%_gained_as_life_before_hit") is not uint key
             || stats.GetValueOrDefault(key) is not (> 0 and var pct)) return;
         var leech = LeechOf(conn);
         conn.PlayerLife = PetrifiedBlood.RecoverLife(conn, conn.PlayerLife,
-            (conn.PlayerMaxLife - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
+            (lifeCap - conn.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
     // A swing order written in its send gate at `now` (under conn.Monsters): when it starts (LockstepOrderStart), its
@@ -1754,10 +1766,10 @@ public static partial class Game
         rolled = MonsterModHit(m, rolled, conn.PlayerLife, conn.PlayerMaxLife, conn.IncomingHitRandom, out bool monsterCritical,
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             () => SelfCriticalReduction(conn) - EnemyAuraStatLocked(conn, m, here, now, "base_critical_strike_multiplier_+"),
-            cannotCrit: VaalOversoul.CannotCrit(m, a));   // its crit, Executioner's
+            now: now, cannotCrit: VaalOversoul.CannotCrit(m, a));   // its crit, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
-        var baseHit = a.Damage;
+        var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(conn, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
@@ -1773,7 +1785,8 @@ public static partial class Game
         if (suppressed && m.Rarity == MonsterRarity.Unique && conn.PlayerLife > 0)
             LoyaltySuppressedHitLocked(conn, stats);
         var shifted = PlayerDamageTaken.Shift(rolled, StatOf);
-        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided);
+        var taken = PlayerDamageTaken.Avoid(shifted, StatOf, conn.IncomingHitRandom, out var avoided,
+            projectile: a.Projectile is not null);
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         var mitigated = gambler.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(conn, type), MaxResistance(conn, type)), conn.IncomingHitRandom);
@@ -1804,7 +1817,7 @@ public static partial class Game
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * conn.ElementalAilments.DamageTakenFactor(now,
-                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf))
+                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && !a.Spell, StatOf, spell: a.Spell))
                 * reservationFactor * ReservationTypedHitTakenFactor(conn, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -1852,24 +1865,28 @@ public static partial class Game
             : afterDamage;
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
         conn.EnergyShield.Recover(onBlock.EnergyShield);
-        if (lifeBefore > conn.PlayerLife && (lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)
+        // Recovery on this block cannot erase a Savage Hit's pre-recovery Life loss.
+        if (lifeDamage > 0 && (long)lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.SavageHit);
         TrimLeechLocked(conn);
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTaken(conn, (int)r.Min), FortificationDamageTaken(conn, (int)r.Max))),
             monsterCritical, blocked, now, stats, source: id);
+        ApplyMonsterDamagingAilmentsLocked(conn, id, m, baseHit, blocked, now);
         VaalOversoul.LaserShock(conn, m, a, ailmentTaken, blocked, now, stats);
         Sirus.OnHit(conn, m, a, baseHit, ailmentTaken, monsterCritical, blocked, now, stats);
         conn.RecentEnemyHits.Record(now);
         conn.RecentEvents.Record(StatConditions.BeenHit, now);
+        RecentHitLifeLossOnHitLocked(conn, now);
+        UnhingedHitRecoveryLocked(conn, now, stats);
         if (blocked)
         {
             conn.RecentEvents.Record(StatConditions.Blocked, now);
-            conn.RecentEvents.Record(StatConditions.BlockedAttack, now);
+            conn.RecentEvents.Record(a.Spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
         }
         if (lifeDamage > 0 && (long)lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
             conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
-        ChargesWhenHit(conn, blocked);
+        ChargesWhenHit(conn, blocked, a.Spell);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
         // Blocking), may freeze its monster for 1 s. Its own random keeps the incoming hit's draws in order.
         if (GameServer.Core.World.RandomRolls.Chance(StatOf("chance_to_freeze_enemies_for_1_second_when_hit_%"), 100, Random.Shared))
@@ -1924,7 +1941,7 @@ public static partial class Game
         if (hit.Life == 0)
             await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, hit.Life, conn.PlayerReservedLife),
+        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player hit by monster 0x{id:x} for {hit.Damage}{(hit.Critical ? " (critical)" : "")}" +
             $"{(hit.RawDamage != hit.Damage ? $" ({hit.RawDamage} physical before {DamageModel.ArmourReduction(hit.Armour.EffectiveArmour, hit.RawDamage)}% armour, effective rating {hit.Armour.EffectiveArmour})" : "")}" +
             $"{(hit.Blocked ? " (blocked)" : "")}, life {hit.Life}/{conn.PlayerMaxLife}{(hit.Life == 0 ? " (dies)" : "")}");

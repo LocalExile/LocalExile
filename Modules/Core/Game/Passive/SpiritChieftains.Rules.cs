@@ -199,7 +199,7 @@ public static partial class Game
             RemoveMinionBodiesLocked(conn, now);
             // The buff ends with the player's death (SpiritChieftains.End), so its minion does too.
             double until = alive ? conn.SpiritChieftains.Active(now)?.Until ?? now : now;
-            foreach (var minion in conn.Minions.All.Where(m => m.Fights).ToArray())
+            foreach (var minion in conn.Minions.All.Where(m => m.Fights && m.SpiritChieftain).ToArray())
             {
                 var m = minion.Monster;
                 bool current = conn.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
@@ -236,7 +236,8 @@ public static partial class Game
             {
                 if (ReferenceEquals(conn.SpiritChieftains.Pending, summon)) conn.SpiritChieftains.Pending = null;
                 m.Aggro = true;
-                conn.Minions.Add(new(id, m, summon.Skill, variety.Name) { Until = summon.Until, Fights = true });
+                conn.Minions.Add(new(id, m, summon.Skill, variety.Name)
+                    { Until = summon.Until, Fights = true, SpiritChieftain = true });
             }, ownedCurrent: () => conn.PlayerLife > 0 && ReferenceEquals(conn.SpiritChieftains.Pending, summon)
                 && AreaTime(conn) < summon.Until);
         if (!CurrentGameWork) return;

@@ -197,9 +197,10 @@ public static partial class Game
             if (MonsterBlocks(target, Random.Shared, !attack)) return false;
             bool critical = Random.Shared.Next(10000) < (attack ? 500 : own?.SpellCriticalChance ?? 0);
             (damage, _) = MonsterDamage(target, packet.Roll(Random.Shared), critical, attack, default);
-            if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150));
+            if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(target, 150, CharacterPlayerStats(conn)));
             hit = ApplyMonsterHitLocked(conn, target, damage, rampageSource: true); // Proven by this contact's effect guard.
             if (hit is null) return false;
+            conn.RecentEvents.RecordCriticalOutcome(ProjectileWorldTime(conn), critical);
             if (hit.Value.StageStarts) CommitBossStage(remote, stream, ciphers, conn, id, target, ProjectileWorldTime(conn));
             stun = RampageStatusLocked(conn, id, target, own, ProjectileWorldTime(conn));
         }

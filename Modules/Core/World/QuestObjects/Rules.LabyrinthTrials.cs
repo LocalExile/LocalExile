@@ -1,4 +1,4 @@
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -1323,7 +1323,7 @@ static partial class QuestobjectsRules
         if (life == 0)
             await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.StatsUpdate(PlayerId, [(StatKeys.HideMiniLifeBar, 1)]),
                 "0x01b3 player hide_mini_life_bar = 1");
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player hit by {trap} for {damage}, life {life}/{conn.PlayerMaxLife}{(life == 0 ? " (dies)" : "")}");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana after {trap}");
         if (life == 0) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
@@ -1339,86 +1339,16 @@ static partial class QuestobjectsRules
         return Get("cannot_gain_bleeding") != 0 || Get("virtual_immune_to_bleeding") != 0;
     }
 
-    // virtual_unaffected_by_bleeding, as the stats hold it now (Leech.WithLeechingDefences).
-    static bool UnaffectedByBleeding(ClientState conn) =>
-        Stats.Key("virtual_unaffected_by_bleeding") is uint key && CharacterPlayerStats(conn).GetValueOrDefault(key) != 0;
-
-    // The bleed a spike hit leaves on a connection: its damage a second while standing, and until when (Clock seconds).
-    sealed class Bleed { public double PerSecond, Until; public ushort Buff; }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Bleed> Bleeds = new();
-
-    // A spike hit bleeds (LabyrinthTrials.SpikeBleedPerSecond of its damage a second, three times that while the player
-    // moves, for SpikeBleedSeconds); only the strongest bleed runs, so a weaker one while another lasts is dropped. Its
-    // damage goes to energy shield first, then life, in SpikeBleedTickSeconds ticks, off the traps' loop.
-    static async Task SpikeBleed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit,
+    // A trial hit contributes to the shared incoming ailment owner. The recovery writer advances it;
+    // the owner therefore survives failed transfers without a detached pre-transfer ticker reviving.
+    static Task SpikeBleed(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit,
         double share = LabyrinthTrials.SpikeBleedPerSecond, double seconds = LabyrinthTrials.SpikeBleedSeconds)
     {
-        if (CannotBleed(conn)) return;
-        var bleed = Bleeds.GetValue(conn, _ => new());
-        double perSecond = hit * share, until;
-        ushort buff;
-        lock (conn.Monsters)
-        {
-            double now = conn.Clock.Elapsed.TotalSeconds;
-            if (now < bleed.Until && bleed.PerSecond > perSecond) return;
-            bool running = now < bleed.Until;
-            (bleed.PerSecond, bleed.Until) = (perSecond, until = now + seconds);
-            buff = bleed.Buff = conn.NextBuff++;
-            if (running) return;   // the running ticks take the new bleed on
-        }
-        if (LabyrinthTrials.BleedingBuffRow is ushort row)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, row,
-                u68: BitConverter.SingleToUInt32Bits((float)seconds)), null);
-        _ = Task.Run(async () =>
-        {
-            ushort shown = buff;
-            bool died = false;
-            while (!conn.Closed)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(SpikeBleedTickSeconds));
-                uint life;
-                int dealt;
-                bool over;
-                lock (conn.Monsters)
-                {
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    // Dead of something else: the bleed ends, and its buff (removed below) with it.
-                    if (conn.PlayerLife == 0 || HardcoreProgressBlocked(conn)) { bleed.Until = double.NegativeInfinity; break; }
-                    double factor = conn.Walk.Moving(now) ? LabyrinthTrials.SpikeBleedMovingFactor : 1;
-                    dealt = (int)Math.Round(bleed.PerSecond * factor * SpikeBleedTickSeconds);
-                    // Unaffected by Bleeding (Endless Hunger while leeching): the bleed stays on and deals nothing.
-                    if (UnaffectedByBleeding(conn)) dealt = 0;
-                    long lifeDamage = conn.EnergyShield.Damage(dealt, false, now);
-                    conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
-                    if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
-                    RecordHardcoreDeath(conn);
-                    life = conn.PlayerLife;
-                    died = life == 0;
-                    over = died || now + SpikeBleedTickSeconds / 2 >= bleed.Until;
-                    if (over) bleed.Until = double.NegativeInfinity;   // a later hit starts a bleed of its own
-                    if (bleed.Buff != shown && LabyrinthTrials.BleedingBuffRow is not null)
-                    {
-                        // A stronger bleed took over: its buff instance replaces the shown one.
-                        (ushort old, shown) = (shown, bleed.Buff);
-                        _ = global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old), null);
-                        _ = global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, shown, LabyrinthTrials.BleedingBuffRow.Value,
-                            u68: BitConverter.SingleToUInt32Bits((float)(bleed.Until - now))), null);
-                    }
-                }
-                await SendPlayerEnergyShield(remote, stream, ciphers, conn);
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
-                    life == 0 ? $"0x01b1 player bleeds {dealt} from a trial spike trap and dies" : null);
-                if (over) break;
-            }
-            if (!conn.Closed && LabyrinthTrials.BleedingBuffRow is not null)
-                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, shown), null);
-            if (!conn.Closed && died)
-                await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
-        });
+        if (!CannotBleed(conn))
+            lock (conn.Monsters)
+                conn.IncomingAilments.ApplyBleed(conn.Clock.Elapsed.TotalSeconds, hit * share, seconds);
+        return Task.CompletedTask;
     }
-
-    // How often a spike trap's bleed deals its damage (our own number).
-    const double SpikeBleedTickSeconds = 0.2;
 
     // A trial's dart traps (LabyrinthTrials.ArrowTrap, the Imperial Gardens' 14 turrets): created at rest, then all fire
     // together every LabyrinthTrials.ArrowVolleySeconds for as long as the player is in the area.
@@ -1582,80 +1512,17 @@ static partial class QuestobjectsRules
         return ProjectileHitResult.Hit;
     }
 
-    // The poisons on a connection: each stack's damage a second, until when (Clock seconds) and its buff instance, and
-    // whether their ticks run.
-    sealed class Poisons
+    // A dart contributes one independently expiring stack to the shared incoming ailment owner.
+    static Task ArrowPoison(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
     {
-        public readonly List<(double PerSecond, double Until, ushort Buff)> Stacks = [];
-        public bool Ticking;
-        public double Carried;   // the part of a point dealt but not yet taken
-    }
-    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ClientState, Poisons> PoisonStacks = new();
-
-    // A dart's poison (LabyrinthTrials.ArrowPoisonPerSecond of its base, ArrowPoisonBase, a second for ArrowPoisonSeconds),
-    // a stack of its own with its own Poisoned buff, which the client counts. The stacks' chaos damage goes past energy
-    // shield, less the player's chaos resistance, in SpikeBleedTickSeconds ticks, off the traps' loop.
-    static async Task ArrowPoison(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, int hit)
-    {
-        if (hit <= 0) return;
-        var poisons = PoisonStacks.GetValue(conn, _ => new());
-        ushort buff;
-        bool start;
-        lock (conn.Monsters)
-        {
-            buff = conn.NextBuff++;
-            poisons.Stacks.Add((hit * LabyrinthTrials.ArrowPoisonPerSecond, conn.Clock.Elapsed.TotalSeconds + LabyrinthTrials.ArrowPoisonSeconds, buff));
-            (start, poisons.Ticking) = (!poisons.Ticking, true);
-        }
-        if (LabyrinthTrials.PoisonBuffRow is ushort row)
-            await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.AddBuff(PlayerId, buff, row,
-                u68: BitConverter.SingleToUInt32Bits((float)LabyrinthTrials.ArrowPoisonSeconds)), null);
-        if (!start) return;   // the running ticks take the new stack on
-        _ = Task.Run(async () =>
-        {
-            while (!conn.Closed)
-            {
-                await Task.Delay(TimeSpan.FromSeconds(SpikeBleedTickSeconds));
-                uint life = 0;
-                int dealt = 0;
-                bool over, died = false;
-                List<ushort> ended;
-                lock (conn.Monsters)
-                {
-                    double now = conn.Clock.Elapsed.TotalSeconds;
-                    // Dead, of this or of something else: every stack ends, and its buff with it (the client keeps a
-                    // buff until it is removed, through the resurrection too: live 2026-10-31).
-                    bool dead = conn.PlayerLife == 0 || HardcoreProgressBlocked(conn);
-                    if (!dead)
-                    {
-                        // Each stack deals for the part of this tick it lasted.
-                        double raw = poisons.Stacks.Sum(s => s.PerSecond * Math.Clamp(s.Until - (now - SpikeBleedTickSeconds), 0, SpikeBleedTickSeconds));
-                        var chaos = GameServer.Core.World.DamageType.Chaos;
-                        poisons.Carried += GameServer.Core.World.DamageModel.Mitigate(raw, Resistance(conn, chaos), MaxResistance(conn, chaos));
-                        dealt = (int)poisons.Carried;
-                        poisons.Carried -= dealt;
-                        long lifeDamage = conn.EnergyShield.Damage(dealt, true, now);
-                        conn.PlayerLife = (uint)Math.Max(0, conn.PlayerLife - lifeDamage);
-                        if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }
-                        RecordHardcoreDeath(conn);
-                        life = conn.PlayerLife;
-                        dead = died = life == 0;
-                    }
-                    ended = [.. poisons.Stacks.Where(s => dead || s.Until <= now).Select(s => s.Buff)];
-                    poisons.Stacks.RemoveAll(s => dead || s.Until <= now);
-                    // Over here, under the lock: a stack added after this starts ticks of its own.
-                    over = poisons.Stacks.Count == 0;
-                    if (over) (poisons.Ticking, poisons.Carried) = (false, 0);
-                }
-                if (dealt > 0)
-                    await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
-                        died ? $"0x01b1 player takes {dealt} poison damage from a trial dart trap and dies" : null);
-                if (LabyrinthTrials.PoisonBuffRow is not null)
-                    foreach (ushort old in ended) await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.RemoveBuff(PlayerId, old), null);
-                if (died) await PlayerDied(remote, stream, ciphers, conn, $"0x0055 death screen ({conn.League ?? "?"} league)");
-                if (over) return;
-            }
-        });
+        if (hit <= 0) return Task.CompletedTask;
+        var stats = CharacterPlayerStats(conn);
+        int Get(string name) => Stats.Key(name) is uint key ? stats.GetValueOrDefault(key) : 0;
+        if (Get("cannot_be_poisoned") == 0 && Get("immune_to_poison") == 0)
+            lock (conn.Monsters)
+                conn.IncomingAilments.ApplyPoison(conn.Clock.Elapsed.TotalSeconds,
+                    hit * LabyrinthTrials.ArrowPoisonPerSecond, LabyrinthTrials.ArrowPoisonSeconds);
+        return Task.CompletedTask;
     }
 
     // The darts' slow on a connection: whether the pools carry it, until when (Clock seconds) and its buff instance.

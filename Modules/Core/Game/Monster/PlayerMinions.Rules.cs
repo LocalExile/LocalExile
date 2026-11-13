@@ -28,8 +28,9 @@ public static partial class Game
         SaveSummons(left);
         lock (left.Monsters)
         {
-            left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),
-                left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
+            if (left.MonstersPlaced)
+                left.Instance.Monsters = SavedMonster.Save(InstanceMonsters(left),
+                    left.Clock.Elapsed.TotalSeconds, MonsterEmerge.Unrisen(left));
             RemoveLeavingMinionsLocked(left);
         }
     }

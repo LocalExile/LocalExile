@@ -2,10 +2,19 @@ using GameServer.Core.World;
 
 public sealed class PlacedSkills
 {
+    public sealed record DamageProfile(DamagePacket Hit, MonsterIgnites.Settings Ignite,
+        MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+    public sealed record DamageSnapshot(DamageProfile Normal, DamageProfile Blinded,
+        IReadOnlyDictionary<uint, int> Caster, bool Spell)
+    {
+        public SpiderDamageSource? Spider { get; init; }
+    }
+
     public sealed record Placed(uint Id, ushort Skill, int Effect, (int X, int Y) At, bool Mine,
         double Armed, double Until, DamagePacket Damage, IReadOnlyDictionary<uint, int> Own,
         int Flat, int Percent, bool ReservesLife, int Efficiency)
     {
+        public DamageSnapshot? Offense { get; init; }
         public double DetonateAt = double.PositiveInfinity;
         public bool SkitterTriggered;
         public int Chain;

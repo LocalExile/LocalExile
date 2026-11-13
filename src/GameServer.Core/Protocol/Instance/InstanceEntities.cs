@@ -642,6 +642,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
+    /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
+    public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
@@ -709,7 +711,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     break;
                 case "Buffs": w.U16(0); break;
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
-                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
+                case "Life": Pool(w, Life); Pool(w, 0); Pool(w, EnergyShield); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
                     w.U8((byte)((AnimatedObject is null ? 0 : 1) | (Parent != 0 ? 4 : 0)));
                     if (AnimatedObject is not null) w.WStr32(AnimatedObject);
@@ -1139,8 +1141,9 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     uint Life, uint Mana, uint EnergyShield = 0, uint Experience = 0, bool Shown = true, string? AnimatedObject = null,
     IReadOnlyList<GrantedSkill>? Skills = null, IReadOnlyList<(uint Key, int Value)>? Stats = null,
     IReadOnlyList<VisibleItem>? Equipped = null, IReadOnlyCollection<int>? QuestFlags = null,
-    uint ManaReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0, IReadOnlyCollection<int>? LeagueQuestFlags = null,
-    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0, uint LifeReserved = 0)
+    uint ManaReserved = 0, uint LifeReserved = 0, ushort Hideout = 0, ushort Hideout2 = 0,
+    IReadOnlyCollection<int>? LeagueQuestFlags = null,
+    ushort Portrait = 0, IReadOnlyList<VaalSoulBudget>? Souls = null, ushort PortraitFrame = 0)
 {
     // The connection keeps its player's record: its lists are the record's own (Owned).
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);

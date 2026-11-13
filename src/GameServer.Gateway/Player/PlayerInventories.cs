@@ -29,6 +29,7 @@ public sealed class PlayerInventories
     private readonly Dictionary<byte, uint> _revisions = [];
     private uint _nextItemId = 1;
     private readonly Lock _lock = new();
+    private readonly GemSourceLifetimes.SourceStore _gemSourceLifetimes = new();
     private string? _owner;   // the character whose save this is; null while the start kit is being built
     private ModCatalog? _mods;  // to save mods by their Mods.dat Id
     private Item? _startWeapon;
@@ -81,6 +82,7 @@ public sealed class PlayerInventories
             Saves.Db.OnRollback(() =>
             {
                 _stale = true;
+                _gemSourceLifetimes.RetireOwner();
                 ByCharacter.TryRemove(new KeyValuePair<string, PlayerInventories>(owner, this));
             });
             // Copied under the items' lock, inside the transaction: an older copy never lands after a newer one. The rest
@@ -330,6 +332,7 @@ public sealed class PlayerInventories
             var old = sockets[socket].Gem;
             sockets[socket] = sockets[socket] with { Gem = held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
+            _gemSourceLifetimes.RetireSocket(item.Id, socket);
             cursor.RemoveAt(0);
             InventoryItem? now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
             if (now is not null) cursor.Add(now);
@@ -362,6 +365,7 @@ public sealed class PlayerInventories
             var sockets = item.Item.Sockets.ToList();
             sockets[socket] = sockets[socket] with { Gem = null };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
+            _gemSourceLifetimes.RetireSocket(item.Id, socket);
             var held = new InventoryItem(newId(), 0, 0, gem);
             cursor.Add(held);
             return (items[at], held);
@@ -839,18 +843,47 @@ public sealed class PlayerInventories
         if (ByCharacter.TryRemove(character, out var gone))
         {
             gone._stale = true;
+            gone._gemSourceLifetimes.RetireOwner();
             Console.WriteLine($"[gateway] {character}: no save any more (deleted?), items start over");
         }
     }
 
     /// <summary>Forgets the character's loaded items: the next use loads them from the database (tests: a restart).</summary>
-    public static void Forget(string character) => ByCharacter.TryRemove(character, out _);
+    public static void Forget(string character)
+    {
+        if (ByCharacter.TryRemove(character, out var old)) old._gemSourceLifetimes.RetireOwner();
+    }
 
     // A confirmed build replacement retires old references, including the periodic unsaved-items writer.
     public static void Invalidate(string character)
     {
-        if (ByCharacter.TryRemove(character, out var old)) old._stale = true;
+        if (ByCharacter.TryRemove(character, out var old))
+        {
+            old._stale = true;
+            old._gemSourceLifetimes.RetireOwner();
+        }
     }
+
+    /// <summary>The physical shared marker for a source in this loaded inventory, or null after this owner was retired.
+    /// Taking the inventory lock makes capture linearizable with the accepted socket writes below.</summary>
+    public GemSourceLifetimes.SourceMarker? CaptureGemSourceLifetime(GemSkillIds.Gem key)
+    {
+        lock (_lock) return _gemSourceLifetimes.Capture(key);
+    }
+
+    /// <summary>The loaded inventory currently registered for a character, without constructing or loading another one.</summary>
+    public static PlayerInventories? Current(string character) =>
+        ByCharacter.TryGetValue(character, out var inventory) ? inventory : null;
+
+    /// <summary>Claims the current saved activation of one source. Takes only the neutral store lock.</summary>
+    public bool ClaimGemActivation(string saveNamespace, ushort skill,
+        GemSourceLifetimes.SourceMarker marker, Guid owner) =>
+        _gemSourceLifetimes.ClaimActivation(saveNamespace, skill, marker, owner);
+
+    /// <summary>Looks up one source's activation writer using only the neutral store lock.</summary>
+    public GemSourceLifetimes.SourceStore.ActivationOwner? GemActivationWriter(
+        string saveNamespace, ushort skill) =>
+        _gemSourceLifetimes.ActivationWriter(saveNamespace, skill);
 
     /// <summary>The character's items: as saved, or the class's start kit (saved at once) when it has no save. A saved item
     /// the game data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>

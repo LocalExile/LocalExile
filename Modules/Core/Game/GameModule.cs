@@ -111,7 +111,8 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         foreach (var close in GameEvents.TransientClosing.For(conn)) close(conn);
         conn.PaidChannel = null;
-        conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = 0;
+        conn.NonChaosDotBypassCarry = conn.NonChaosDotTakenCarry = conn.ChaosDotBypassCarry = 0;
+        conn.IncomingAilments.Clear();
         conn.RetirePlayerUpdates();
         Rules.FortificationOf(conn).Clear();
         Rules.LeechOf(conn).Clear(conn.Clock.Elapsed.TotalSeconds);
@@ -139,7 +140,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ForgetVitalsAdmission(conn);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
-        if (conn.MonstersPlaced) Rules.KeepInstanceMonsters(conn);
+        Rules.KeepInstanceMonsters(conn);
     }
 
     public IDisposable ProjectileMutation(ClientState conn) => Rules.ProjectileMutation(conn, advance: false);

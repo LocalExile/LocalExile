@@ -60,15 +60,24 @@ public static partial class Game
     public static bool ReservationBudgetFits(ClientState conn, int percent, bool reservesLife, int efficiency)
     {
         int mana = reservesLife ? 0 : PetrifiedBlood.Required(conn.Pools.Mana, conn.Pools.ManaReservationEfficiencyPct, percent, efficiency);
-        int life = reservesLife ? PetrifiedBlood.Required(conn.Pools.Life, conn.Pools.LifeReservationEfficiencyPct, percent, efficiency) : 0;
+        int proposedLife = reservesLife
+            ? PetrifiedBlood.Required(conn.Pools.Life, conn.Pools.LifeReservationEfficiencyPct, percent, efficiency)
+            : 0;
+        var lifeReservation = LifeReservation.Of(conn.Pools, conn.QualifiedItemLifeReservationPercent,
+            conn.Auras.Values, proposedLife);
         return (long)AuraCatalog.RequiredMana(conn.Pools, conn.Auras.Values) + mana + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, false) <= conn.Pools.Mana
-            && (long)AuraCatalog.RequiredLife(conn.Pools, conn.Auras.Values) + life + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true) < conn.Pools.Life;
+            && (long)lifeReservation.Required + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true) < conn.Pools.Life;
     }
+
+    public static int AdditionalLifeReservation(ClientState conn) => (int)Math.Clamp(
+        (long)PetrifiedBlood.RequiredLife(conn.Pools, conn.PetrifiedBlood)
+        + PlacedSkills.Reserved(conn.Pools, conn.Placed.All.Values, true),
+        0, int.MaxValue);
 
     public static void ClampReservedResources(ClientState conn)
     {
         conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-        conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+        conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
         TrimLeechLocked(conn);
     }
 }

@@ -91,8 +91,8 @@ public static class GatewayProjectileModifiers
     }
 
     // Native arrow alias 29cb: the generic additions above plus number_of_additional_arrows and the
-    // main-hand-accuracy condition. The Dash-recently term is not modelled yet because the server has no
-    // have_cast_dash_recently state; a profile must pass arrows = true only for a bow attack.
+    // main-hand-accuracy condition. Dash-recently folds onto that plain arrow stat at its accepted-use owner.
+    // A profile passes arrows = true only for a bow attack.
     static int AdditionalArrows(Func<string, int> get)
     {
         int count = get("number_of_additional_arrows");

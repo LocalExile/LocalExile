@@ -60,24 +60,36 @@ public static partial class Game
         var player = CharacterPlayerStats(conn);
         var fighter = new GolemState.Golem(0, null!, definition, aura.SkillId)
         { GemLevel = supported.Level, Quality = supported.Quality, Own = ReservationMinionStats(conn, aura, kind), Player = new(player), Limit = limit };
-        var mods = GolemModifiers(fighter, player);
-        uint maximum = GolemMaximumLife(variety, level, fighter, player);
-        fighter.Abilities = kind.StartsWith("Skitter", StringComparison.Ordinal) ? [] : GolemAbilities(conn, variety, level, fighter, player);
-        fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
+        var mods = GolemModifiers(conn, fighter, player);
+        var pools = GolemPools.Calculate(Monsters, variety, level, fighter, player, mods.Effects);
+        uint transportMaximum = pools.Fatal ? 1 : pools.MaximumLife;
+        uint maximumEnergyShield = NativeEnergyShield(pools.MaximumEnergyShield);
+        uint energyShield = maximumEnergyShield;
+        if (!pools.Fatal)
+        {
+            fighter.Abilities = kind.StartsWith("Skitter", StringComparison.Ordinal)
+                ? [] : GolemAbilities(conn, variety, level, fighter, player);
+            fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
+        }
         var at = NextToPlayer(conn);
         await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, at.X, at.Y,
-            friendly: true, mods: mods, unrisen: false, extraStats: MinionStats, ownedSkills: fighter.Skills, ownedMaximumLife: maximum,
+            friendly: true, mods: mods, unrisen: false, extraStats: MinionStats, ownedSkills: fighter.Skills,
+            ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
+            ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
+            ownedInitialDeath: pools.Fatal,
             ownedCurrent: () => ReservationAura(conn, aura.EffectId)?.SkillId == aura.SkillId,
             owned: (id, monster) =>
             {
                 fighter.Id = id; fighter.Monster = monster;
                 fighter.SummonedAt = fighter.LastStep = AreaTime(conn);
-                fighter.Shield = fighter.MaximumShield = GolemShield(fighter, player);
+                fighter.ShieldPool.SetMaximum(maximumEnergyShield, refill: true);
+                monster.Mods = mods;
                 conn.Reservations.Fighters.Add(id, fighter);
                 conn.Reservations.Until[id] = kind == "Purity"
                     ? AreaTime(conn) + ReservationDuration(conn, aura, "base_skill_effect_duration", 12000) : double.PositiveInfinity;
                 conn.Minions.Add(new(id, monster, aura.EffectId, kind) { Until = conn.Reservations.Until[id] });
                 monster.NoRewards = true; monster.Aggro = true;
+                if (pools.Fatal) GolemDieLocked(conn, fighter, AreaTime(conn), emitLife: false);
             });
     }
 
@@ -124,12 +136,14 @@ public static partial class Game
                     fighter.Own = ReservationMinionStats(conn, aura, fighter.Definition.Kind);
                     RefreshGolemLocked(conn, fighter, player!);
                 }
+                if (fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
                 var pending = fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= fighter.NextOrb
                     ? conn.Placed.All.Values.Where(p => !p.SkitterTriggered && now >= p.Armed
                         && Dist(p.At, conn.Walk.Position(now)) <= 100).MinBy(p => Dist(p.At, fighter.Monster.Walk.Position(now))) : null;
                 if (pending is not null) GolemMoveLocked(conn, fighter, pending.At, now);
                 else GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
-                if (!fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
+                if (fighter.Monster.Dead || fighter.Monster.Life == 0
+                    || !fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
                 bool cold = fighter.Definition.Kind == "SkitterCold";
                 foreach (var monster in conn.Monsters.Values)
                     if (monster is { Hostile: true, Dead: false, Life: > 0 }

@@ -120,6 +120,11 @@ public static partial class Game
                 Mark("grace");
                 bool cast = SkillsFor(conn).IsGemSkill(use.SkillId);
                 var gem = cast ? GemSkillEffects(conn).FirstOrDefault(g => g.Id == use.SkillId) : default;
+                if (cast && gem.Name is null)
+                {
+                    Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4}: unknown dynamic skill id (action not started)");
+                    continue;
+                }
                 Mark("gem");
                 if (cast && gem.Name is not null && !ProjectilePathAvailable(remote, conn, use.SkillId, gem.Effect)) continue;
                 Mark("path");
@@ -188,6 +193,18 @@ public static partial class Game
                         continue;
                     }
                 }
+                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
+                {
+                    bool valid;
+                    lock (conn.Monsters) valid = TryDashLanding(conn, gem.Effect, (use.X, use.Y), out _, out _,
+                        skill: use.SkillId, flags: use.Flags);
+                    if (!valid)
+                    {
+                        Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: invalid Dash location " +
+                            $"({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                        continue;
+                    }
+                }
                 Mark("attackmove");
                 // An attack gem swings with the weapon's attack time, while the client keeps aiming it for as long as the
                 // button is held. A use before the next attack is not a new action: it must not cancel the swing in progress
@@ -195,6 +212,28 @@ public static partial class Game
                 if (attack && !AttackReady(conn, use.SkillId, gem.Effect, gem.Level, out double attackSeconds))
                 {
                     Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: ignored, the previous attack is still running (attack time {attackSeconds:0.00} s) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                    continue;
+                }
+                if (cast && gem.Name is not null && IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)))
+                {
+                    if (!TryCommitDashUse(conn, use.SkillId, gem.Effect, (use.X, use.Y), out var dashUse, at, flags: use.Flags))
+                    {
+                        Console.WriteLine($"[gateway] {remote} skill 0x{use.SkillId:x4} {gem.Name}: Dash refused before action admission " +
+                            $"at ({use.X}, {use.Y}) (t={conn.Clock.Elapsed.TotalSeconds:0.000})");
+                        continue;
+                    }
+                    if (!await CastGemSkill(remote, stream, ciphers, conn, use.SkillId, dashUse!.From, (use.X, use.Y),
+                            sequence: use.Slot, dashReceipt: dashUse)) continue;
+                    bool dashAcknowledged = false;
+                    await Send(remote, stream, ciphers,
+                        [.. InstanceProtocol.ActionStarted(PlayerId, dashUse.From.X, dashUse.From.Y, use.X, use.Y,
+                            use.SkillId, use.Slot, use.Flags), .. InstanceProtocol.ActionEnded(PlayerId)],
+                        $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name}: accepted Dash from ({dashUse.From.X}, {dashUse.From.Y}) " +
+                        $"to ({dashUse.To.X}, {dashUse.To.Y}) (t={dashUse.AcceptedAt:0.000})",
+                        still: () => dashAcknowledged = dashUse.ConfirmNativeUse(conn));
+                    if (!dashAcknowledged) continue;
+                    await SendNativeCooldownRefresh(remote, stream, ciphers, conn);
+                    ResyncAfter(remote, stream, ciphers, conn, MovementSeconds(conn, gem.Effect, gem.Level), gem.Name);
                     continue;
                 }
                 Mark("ready");
@@ -219,7 +258,7 @@ public static partial class Game
                     // there at its own speed instead (ShieldCharge.cs).
                     if (chargeBonus != 0) chargeToken = BeginShieldCharge(conn, use.SkillId, chargeBonus, use.X, use.Y, at);
                     else if (flicker && flickerTo is { } to) conn.Walk.Teleport(to.Landing.X, to.Landing.Y, at);
-                    else if (gem.Name is not null && LandsAtAim(conn, gem.Effect))
+                    else if (gem.Name is not null && !IsDashEffect(SkillsFor(conn).EffectId(gem.Effect)) && LandsAtAim(conn, gem.Effect))
                     {
                         var landing = MovementLanding(conn, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         conn.Walk.Teleport(landing.X, landing.Y, at);
@@ -584,22 +623,41 @@ public static partial class Game
                 // also ends the client's wait), then what the hands hold, with the new set's stats and skills (13-items.md).
                 var swapItems = ItemsOf(conn);
                 byte wanted = (byte)(bytes[2] == 1 ? 1 : 0);
-                if (wanted != swapItems.WeaponSet)
+                byte finalWeaponSet;
+                List<(byte[] Packet, string Label)> swapOutputs = [];
+                // The current-set decision, mutation, qualification and final-set capture share one boundary. Outputs
+                // and SendEquipment may suspend after it; the 0xde set below is the one committed by this message.
+                using (ProjectileMutation(conn, advance: false, phase: "weapon swap"))
                 {
-                    var before = new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2 }
-                        .ToDictionary(r => r, swapItems.Items);
-                    swapItems.SwapWeaponSets();
-                    swapItems.WeaponSet = wanted;
-                    foreach (var (row, old) in before)
+                    finalWeaponSet = swapItems.WeaponSet;
+                    if (wanted != swapItems.WeaponSet)
                     {
-                        uint inv = PlayerInventories.InventoryId(row);
-                        var now = swapItems.Items(row);
-                        if (old.Count + now.Count == 0) continue;
-                        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(inv, swapItems.NextRevision(row), [.. old.Select(i => i.Id)], now),
-                            $"0x00bf inventory {inv}: weapon swap, {old.Count} out, {now.Count} in");
+                        var sourcesBefore = PlayerSkillSourcesLocked(conn);
+                        var before = new[] { PlayerInventories.Weapon1, PlayerInventories.Offhand1, PlayerInventories.Weapon2, PlayerInventories.Offhand2 }
+                            .ToDictionary(r => r, r => swapItems.Items(r).ToArray());
+                        swapItems.SwapWeaponSets();
+                        swapItems.WeaponSet = wanted;
+                        finalWeaponSet = wanted;
+                        using (new PlayerStatScope(conn, fresh: true))
+                        {
+                            RecomputePoolsAndSpeed(conn);
+                            ReconcileBeastCompanionsLocked(conn);
+                            ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                        }
+                        foreach (var (row, old) in before)
+                        {
+                            uint inv = PlayerInventories.InventoryId(row);
+                            var now = swapItems.Items(row).ToArray();
+                            if (old.Length + now.Length == 0) continue;
+                            swapOutputs.Add((InstanceItems.InventoryChange(inv, swapItems.NextRevision(row),
+                                [.. old.Select(i => i.Id)], now),
+                                $"0x00bf inventory {inv}: weapon swap, {old.Length} out, {now.Length} in"));
+                        }
                     }
                 }
-                await Send(remote, stream, ciphers, InstanceProtocol.WeaponSet(swapItems.WeaponSet == 1), $"0x00de weapon set {swapItems.WeaponSet + 1}");
+                foreach (var (packet, label) in swapOutputs) await Send(remote, stream, ciphers, packet, label);
+                await Send(remote, stream, ciphers, InstanceProtocol.WeaponSet(finalWeaponSet == 1),
+                    $"0x00de weapon set {finalWeaponSet + 1}");
                 await SendEquipment(remote, stream, ciphers, conn, swapItems);
             }
             else if (id == InstanceStash.RenameTabId)

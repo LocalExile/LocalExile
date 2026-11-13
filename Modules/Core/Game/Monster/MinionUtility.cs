@@ -126,6 +126,15 @@ static partial class Game
         return true;
     }
 
+    static Dictionary<string, int> MinionOfferingStats(ClientState conn, double now)
+    {
+        var stats = new Dictionary<string, int>();
+        lock (conn.Monsters)
+            foreach (var offering in conn.Summons.Offerings.Where(o => o.Until > now))
+                foreach (var (key, value) in offering.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
+        return stats;
+    }
+
     internal static void MinionUtilityTick(ClientState conn, double now)
     {
         if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
@@ -148,8 +157,7 @@ static partial class Game
                     conn.Minions.OutputQueue.Add(new(InstanceEntities.AddBuff(fighter.Id, instance, offering.Buff, PlayerId, offering.Source,
                         u68: BitConverter.SingleToUInt32Bits((float)(offering.Until - now))), "Offering buff"));
                 }
-            var stats = new Dictionary<string, int>();
-            foreach (var offering in active) foreach (var (key, value) in offering.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
+            var stats = MinionOfferingStats(conn, now);
             if (fighter.Utility.Count == stats.Count && stats.All(p => fighter.Utility.GetValueOrDefault(p.Key) == p.Value)) continue;
             fighter.Utility = stats; fighter.InputHash = 0;
             RefreshGolemLocked(conn, fighter, player);

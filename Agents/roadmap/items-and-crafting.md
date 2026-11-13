@@ -33,6 +33,8 @@ features.
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
   has every unique's base, mods and rolls, the mechanics behind those mods are the open part), chancing, and
   Mageblood's follow-ups (buff icons, the "effects cannot be removed" backstop, the Foulborn rightmost variant).
+  Yriel's Fostering's source-owned Ursa is implemented and automatically covered through the real minion and physical
+  damage paths; its Rhoa and Snake variants and native/full-family acceptance remain pending.
   Enkindling/Instilling transactions, charge lock and rare-hit automation have native acceptance; verify the other
   automatic triggers natively and connect incoming Bleed/Poison sources when those mechanics exist.
   Generated uniques, what is left after the poedb comparison of 2026-10-31 (13 §2e): Abyss socket layouts still lack

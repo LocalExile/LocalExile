@@ -13,7 +13,7 @@ namespace GameServer.Core.World;
 /// such as the unconditional pen stats) and the pass subtracts the sum after the cap, as PoB's <c>resist − pen</c>
 /// without another floor. <c>cannot_penetrate_or_ignore_elemental_resistances</c> (row 12051, key 12052) suppresses
 /// both the ignore and every elemental penetration (PoB's <c>CannotElePenIgnore</c>). Physical and chaos are not
-/// elemental — chaos keeps its own attack-only penetration path — and a damage-over-time tick is not a strike: it
+/// elemental; chaos can have its own explicit ignore or penetration, independently of that prohibition. A DoT is not a strike: it
 /// can neither critically strike nor penetrate. A target's own "resistance cannot be penetrated" is a penetration
 /// guard only; nothing here treats it as ignore protection.
 ///
@@ -25,17 +25,20 @@ namespace GameServer.Core.World;
 public static class HitResistances
 {
     /// <summary>The hit's resistance stats as a stats dictionary holds them: 1 for the flags, a percentage for the
-    /// penetration.</summary>
+    /// penetration. <see cref="Mods.UnconditionalIgnoreElemental"/> is an explicit hit fact for sources that ignore
+    /// elemental resistance without requiring a critical strike; it is kept separate from the critical flags.</summary>
     public readonly record struct Mods(int CriticalIgnoreElemental, int AttackCriticalIgnoreElemental,
-        int NonCriticalPenetration, int CannotPenetrateOrIgnore)
+        int NonCriticalPenetration, int CannotPenetrateOrIgnore, bool UnconditionalIgnoreElemental = false,
+        bool IgnoreFire = false, bool IgnoreChaos = false)
     {
-        /// <summary>The four stats by name, through the caller's name → key lookup (the client's stat key is the
+        /// <summary>The four source stats by name, through the caller's name → key lookup (the client's stat key is the
         /// Stats.dat row + 1). A stat the source does not carry reads 0.</summary>
         public static Mods From(IReadOnlyDictionary<uint, int> stats, Func<string, uint?> key) => new(
             Get(stats, key("critical_strikes_ignore_elemental_resistances")),
             Get(stats, key("attack_critical_strikes_ignore_elemental_resistances")),
             Get(stats, key("non_critical_strikes_penetrate_elemental_resistances_%")),
-            Get(stats, key("cannot_penetrate_or_ignore_elemental_resistances")));
+            Get(stats, key("cannot_penetrate_or_ignore_elemental_resistances")),
+            UnconditionalIgnoreElemental: false);
 
         private static int Get(IReadOnlyDictionary<uint, int> stats, uint? key) => key is uint k ? stats.GetValueOrDefault(k) : 0;
     }
@@ -45,11 +48,13 @@ public static class HitResistances
     /// default covers that case for the callers that only build strikes).</summary>
     public readonly record struct Strike(bool Critical, bool Attack, bool OverTime = false);
 
-    /// <summary>Whether the hit's ignore flags apply: a critical strike with the generic stat, or an attack with
-    /// the attack-only one. A damage-over-time tick can never meet the critical condition.</summary>
-    private static bool Ignored(in Strike strike, in Mods mods) =>
-        strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
-            (strike.Attack && mods.AttackCriticalIgnoreElemental != 0));
+    /// <summary>Whether the hit's ignore flags apply: an explicit unconditional elemental hit, a critical strike
+    /// with the generic stat, or an attack with the attack-only one. A damage-over-time tick can meet none.</summary>
+    private static bool Ignored(DamageType type, in Strike strike, in Mods mods) => !strike.OverTime &&
+        (type == DamageType.Chaos && mods.IgnoreChaos || DamageTypes.IsElemental(type) &&
+            (type == DamageType.Fire && mods.IgnoreFire || mods.UnconditionalIgnoreElemental
+                || strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
+                    (strike.Attack && mods.AttackCriticalIgnoreElemental != 0))));
 
     /// <summary>
     /// The resistance one type of the hit mitigates with, resolved for the pass that applies cap-then-pen
@@ -59,8 +64,7 @@ public static class HitResistances
     /// The suppressor zeroes the penetration (the target's and the conditional one) and keeps the plain capped
     /// value. Otherwise the non-critical hit's conditional penetration stacks with the target's own general one;
     /// a critical hit without the ignore takes no conditional penetration, because the stat's condition is a
-    /// negated CriticalStrike. A non-elemental part or a damage-over-time tick passes the target through untouched,
-    /// keeping its own penetration path.
+    /// negated CriticalStrike. Physical, unignored chaos and damage-over-time parts pass the target through untouched.
     /// </summary>
     public static double FinalValue(DamageType type, DamageModel.ResistanceValue target,
         in Strike strike, in Mods mods, bool invertElemental = false)
@@ -68,16 +72,18 @@ public static class HitResistances
         var effective = Effective(type, target, strike, mods);
         double resistance = DamageModel.Capped(effective.Value, effective.Maximum);
         if (invertElemental && !strike.OverTime && DamageTypes.IsElemental(type)
-            && !(mods.CannotPenetrateOrIgnore == 0 && Ignored(strike, mods))) resistance = -resistance;
+            && !(mods.CannotPenetrateOrIgnore == 0 && Ignored(type, strike, mods))) resistance = -resistance;
         return resistance - effective.Penetration;
     }
 
     public static DamageModel.ResistanceValue Effective(DamageType type, DamageModel.ResistanceValue target,
         in Strike strike, in Mods mods)
     {
-        if (!DamageTypes.IsElemental(type) || strike.OverTime) return target;
-        if (mods.CannotPenetrateOrIgnore != 0) return target with { Penetration = 0 };
-        if (Ignored(strike, mods)) return new(0);
+        if (strike.OverTime) return target;
+        bool elemental = DamageTypes.IsElemental(type);
+        if (elemental && mods.CannotPenetrateOrIgnore != 0) return target with { Penetration = 0 };
+        if (Ignored(type, strike, mods)) return new(0);
+        if (!elemental) return target;
         return target with { Penetration = target.Penetration + (strike.Critical ? 0 : mods.NonCriticalPenetration) };
     }
 
@@ -86,15 +92,16 @@ public static class HitResistances
     /// plainly (a rule that would not have changed the resistance names nothing).</summary>
     public static string? Describe(DamageType type, DamageModel.ResistanceValue target, in Strike strike, in Mods mods)
     {
-        if (!DamageTypes.IsElemental(type) || strike.OverTime) return null;
+        if (strike.OverTime) return null;
         string name = DamageTypes.Name(type).ToLowerInvariant();
         int capped = DamageModel.Capped(target.Value, target.Maximum);
-        if (mods.CannotPenetrateOrIgnore != 0)
+        if (DamageTypes.IsElemental(type) && mods.CannotPenetrateOrIgnore != 0)
         {
-            bool ignored = Ignored(strike, mods), held = !strike.Critical && mods.NonCriticalPenetration != 0;
+            bool ignored = Ignored(type, strike, mods), held = !strike.Critical && mods.NonCriticalPenetration != 0;
             return ignored || held ? $"{name} {capped} (cannot penetrate or ignore)" : null;
         }
-        if (Ignored(strike, mods)) return $"{name} {capped} ignored";
+        if (Ignored(type, strike, mods)) return $"{name} {capped} ignored";
+        if (!DamageTypes.IsElemental(type)) return null;
         int pen = target.Penetration + (strike.Critical ? 0 : mods.NonCriticalPenetration);
         return pen != 0 ? $"{name} {capped}→{capped - pen} (pen {pen})" : null;
     }

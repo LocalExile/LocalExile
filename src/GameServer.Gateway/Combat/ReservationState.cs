@@ -5,6 +5,23 @@ public sealed class ReservationState
     public sealed record Echo(double At, int X, int Y, uint Life, uint Mana, double Shield);
     public sealed record Proc(ushort Skill, (int X, int Y) At, uint Target = 0);
     public sealed record Ice((int X, int Y) At, double Until, uint? Object = null, int Radius = 4, int? Epoch = null);
+    public enum CatPhase { None, Stealth, Agility }
+    public readonly record struct CatAspectOwner(ushort Skill, ushort RootBuff);
+    public enum AvianPhase { None, Might, Flight }
+    public CatAspectOwner? AvianOwner;
+    public AvianPhase Avian;
+    public double AvianStartedAt, AvianDeadline;
+    public ushort AvianBuff, PresentedAvianBuff;
+    public ushort PresentedAvianRow;
+    public CatAspectOwner? CrabOwner;
+    public double NextCrabBarrier, CrabLastLoss = double.NegativeInfinity;
+    public int CrabBarriers, CrabMaximum;
+    public ushort CrabBuff, PresentedCrabBuff;
+    public long AspectRevision;
+    public CatAspectOwner? SpiderOwner;
+    public double NextSpiderWeb;
+    public bool CrabPoolsDirty;
+    public ushort SelfVulnerabilityBuff;
     public readonly Queue<Echo> Echoes = new();
     public readonly Queue<Proc> Procs = new();
     public readonly List<Ice> Trail = [];
@@ -15,6 +32,21 @@ public sealed class ReservationState
     public ushort VirulenceBuff, StationaryBuff;
     public int ShownVirulence;
     public bool Secondary;
+    public CatAspectOwner? CatOwner;
+    public CatPhase Cat = CatPhase.None;
+    public double CatPhaseStartedAt, CatPhaseDeadline;
+    public double CatLastStealthStartedAt = double.NegativeInfinity;
+    public double CatObservedStealthEntryAt = double.NegativeInfinity;
+    public double CatLastAgilityStartedAt = double.NegativeInfinity;
+    public double CatObservedAgilityEntryAt = double.NegativeInfinity;
+    public double CatStealthGrantQualifiedSince = double.PositiveInfinity;
+    public double CatAgilityGrantQualifiedSince = double.PositiveInfinity;
+    public bool CatStealthGrantQualified, CatAgilityGrantQualified, CatOnslaughtQualified, CatPhasing;
+    public ushort CatPhaseBuff, PresentedCatPhaseBuff, CatOnslaughtBuff, PresentedCatOnslaughtBuff;
+    public ushort PresentedCatOnslaughtPhaseBuff;
+    public ushort PresentedCatPhaseRow;
+    public int PresentedCatValue1, PresentedCatValue2, PresentedCatValue3;
+    public long CatRevision, PresentedCatRevision;
 }
 
 public sealed partial class ClientState

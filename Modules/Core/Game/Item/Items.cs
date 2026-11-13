@@ -17,37 +17,91 @@ public static partial class Game
             Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused (unknown inventory)");
             return;
         }
-        if (row == PlayerInventories.PassiveJewels
-            && items.Items(row).FirstOrDefault(i => i.Id == pick.ItemId) is { } leaving
-            && (ClusterRemovalRefusal(conn, leaving) ?? AllocationBypassRemovalRefusal(conn, leaving)) is { } why)
+        InventoryItem? picked = null;
+        InventoryItem? promoted = null;
+        List<(byte[] Packet, string Label)> equipmentOutputs = [];
+        bool visible = PlayerInventories.ShowsOnModel(row);
+        bool promotesOffhand = row is PlayerInventories.Weapon1 or PlayerInventories.Weapon2;
+        string? passiveRefusal = null;
+        if (visible || promotesOffhand)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused ({why})");
+            // The pickup, offhand promotion and (for a visible row) source reconciliation are complete before either
+            // inventory output can suspend. Allocate revisions only after that mutation, in their actual wire order.
+            using (ProjectileMutation(conn, advance: false, phase: "equipment pickup"))
+            {
+                var sourcesBefore = visible ? PlayerSkillSourcesLocked(conn) : [];
+                picked = items.PickUp(row, pick.ItemId);
+                if (picked is not null && promotesOffhand) promoted = items.PromoteOffhand(row, ShapeOf);
+                if (picked is not null && visible)
+                {
+                    using (new PlayerStatScope(conn, fresh: true))
+                    {
+                        RecomputePoolsAndSpeed(conn);
+                        ReconcileBeastCompanionsLocked(conn);
+                        ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                    }
+                }
+                if (picked is { } taken)
+                {
+                    equipmentOutputs.Add((InstanceItems.InventoryChange(pick.InventoryId, items.NextRevision(row),
+                        [taken.Id], []),
+                        $"0x00bf inventory {pick.InventoryId}: remove item {taken.Id} (picked up {pick})"));
+                    equipmentOutputs.Add((InstanceItems.InventoryChange(
+                        PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                        items.NextRevision(PlayerInventories.Cursor), [], [taken]),
+                        $"0x00bf cursor: add item {taken.Id}"));
+                    if (promoted is { } up)
+                    {
+                        byte off = (byte)(row + 1);
+                        equipmentOutputs.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(off),
+                            items.NextRevision(off), [up.Id], []),
+                            $"0x00bf inventory {PlayerInventories.InventoryId(off)}: remove item {up.Id} (to the main hand)"));
+                        equipmentOutputs.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
+                            items.NextRevision(row), [], [up]),
+                            $"0x00bf inventory {PlayerInventories.InventoryId(row)}: add item {up.Id} (from the off hand)"));
+                    }
+                }
+            }
+        }
+        else if (row == PlayerInventories.PassiveJewels)
+        {
+            using (ProjectileMutation(conn, advance: false, phase: "passive jewel pickup"))
+            {
+                var leaving = items.Items(row).FirstOrDefault(i => i.Id == pick.ItemId);
+                if (items.Items(PlayerInventories.Cursor).Count > 0) passiveRefusal = "something is held";
+                else if (leaving is null) passiveRefusal = "no such item";
+                else passiveRefusal = ClusterRemovalRefusal(conn, leaving) ?? AllocationBypassRemovalRefusal(conn, leaving);
+                if (passiveRefusal is null)
+                {
+                    var sourcesBefore = CaptureGemSourceRowsLocked(conn);
+                    picked = items.PickUp(row, pick.ItemId);
+                    if (picked is not null)
+                    {
+                        if (ClusterSize(picked.Item) is not null) SpendClusterRemoval(conn);
+                        CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                    }
+                }
+            }
+        }
+        else
+        {
+            picked = items.PickUp(row, pick.ItemId);
+        }
+        if (picked is not { } held)
+        {
+            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused" +
+                (passiveRefusal is null ? "" : $" ({passiveRefusal})"));
             return;
         }
-        if (items.PickUp(row, pick.ItemId) is not { } held)
+        if (equipmentOutputs.Count == 0)
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x0028 pick up {pick}: refused");
-            return;
+            // The non-visible branch keeps its historic immediate write/read outputs.
+            equipmentOutputs.Add((InstanceItems.InventoryChange(pick.InventoryId, items.NextRevision(row), [held.Id], []),
+                $"0x00bf inventory {pick.InventoryId}: remove item {held.Id} (picked up {pick})"));
+            equipmentOutputs.Add((InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id}"));
         }
-        if (row == PlayerInventories.PassiveJewels && ClusterSize(held.Item) is not null)
-        {
-            // Only the refund point is spent: the client keeps its cluster nodes until a tree message removes them, and
-            // such a message crashes it, so the nodes stay until the id mapping is known.
-            SpendClusterRemoval(conn);
-        }
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(pick.InventoryId, items.NextRevision(row), [held.Id], []),
-            $"0x00bf inventory {pick.InventoryId}: remove item {held.Id} (picked up {pick})");
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
-            items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: add item {held.Id}");
-        // Dual wielding: taking the main hand off moves the off hand's one-handed weapon into the main hand.
-        if (items.PromoteOffhand(row, ShapeOf) is { } promoted)
-        {
-            byte off = (byte)(row + 1);
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(off), items.NextRevision(off), [promoted.Id], []),
-                $"0x00bf inventory {PlayerInventories.InventoryId(off)}: remove item {promoted.Id} (to the main hand)");
-            await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [promoted]),
-                $"0x00bf inventory {PlayerInventories.InventoryId(row)}: add item {promoted.Id} (from the off hand)");
-        }
+        foreach (var (packet, label) in equipmentOutputs) await Send(remote, stream, ciphers, packet, label);
         if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
         if (row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
@@ -58,26 +112,59 @@ public static partial class Game
     public static async Task SocketGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
-        if (items.Items(PlayerInventories.Cursor) is [var held, ..] && GemRequirementsUnmet(conn, held.Item) is { } missing)
+        (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? done = null;
+        Item? displacedBefore = null;
+        IReadOnlyList<PlayerSkillSource> displacedSources = [];
+        string why = "unknown inventory";
+        string? missing = null;
+        byte row = default;
+        using (ProjectileMutation(conn, advance: false, phase: "gem socket"))
+        {
+            if (PlayerInventories.Row(s.InventoryId) is byte currentRow)
+            {
+                row = currentRow;
+                if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is { } host
+                    && s.Socket < host.Item.Sockets.Count)
+                {
+                    displacedBefore = host.Item.Sockets[(int)s.Socket].Gem;
+                    if (displacedBefore is not null)
+                        displacedSources = GemSourceRowsLocked(conn, host.Id, (int)s.Socket, displacedBefore);
+                }
+                if (items.Items(PlayerInventories.Cursor) is [var held, ..] && GemRequirementsUnmet(conn, held.Item) is { } unmet)
+                    missing = unmet;
+                else
+                {
+                    done = items.Socket(row, s.ItemId, (int)s.Socket, ShapeOf, items.NewItemId, out why);
+                    if (done is not null && PlayerInventories.ShowsOnModel(row))
+                    {
+                        if (done.Value.HeldNow is { } displaced)
+                        {
+                            RetireDirectMinionSourcesLocked(conn, displacedSources);
+                            ForgetGemActivation(conn, displaced.Item);
+                        }
+                        RecomputePoolsAndSpeed(conn);
+                        ReconcileBeastCompanionsLocked(conn);
+                    }
+                }
+            }
+        }
+        if (missing is not null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({missing})");
             return;
         }
-        string why = "unknown inventory";
-        var done = PlayerInventories.Row(s.InventoryId) is byte row ? items.Socket(row, s.ItemId, (int)s.Socket, ShapeOf, items.NewItemId, out why) : null;
-        if (done is not var (item, before, now) || PlayerInventories.Row(s.InventoryId) is not byte r)
+        if (done is not { } result)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x0030 socket {s}: refused ({why})");
             return;
         }
-        if (now is not null && PlayerInventories.ShowsOnModel(r))
-            ForgetGemActivation(conn, now.Item);
+        var (item, before, now) = result;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [before.Id], now is null ? [] : [now]),
             $"0x00bf cursor: remove gem {before.Id}" + (now is null ? "" : $", hold gem {now.Id} from the socket"));
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} with a gem in socket {s.Socket}");
-        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // The gem one level up, or null with the reason it cannot level: the "+" (0x31) answers with the reason and Level Up All
@@ -119,8 +206,14 @@ public static partial class Game
     public static IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> LevelUpReadyGems(ClientState conn)
     {
         var items = ItemsOf(conn);
-        lock (conn.Monsters) return items.ChangeSocketedGems((itemId, gem) =>
-            GemLevelUpReady(conn, gem) ? NextGemLevel(conn, gem, out _) : null);
+        lock (conn.Monsters)
+        {
+            var sourcesBefore = CaptureGemSourceRowsLocked(conn);
+            var changed = items.ChangeSocketedGems((itemId, gem) =>
+                GemLevelUpReady(conn, gem) ? NextGemLevel(conn, gem, out _) : null);
+            if (changed.Count != 0) ReconcileLeveledGemSourcesLocked(conn, sourcesBefore);
+            return changed;
+        }
     }
 
     // C→S 0x31: the "+" on a socketed gem. The client derives the level from the gem's experience on read (0x1424763d0), so
@@ -129,26 +222,45 @@ public static partial class Game
     {
         var items = ItemsOf(conn);
         if (PlayerInventories.Row(s.InventoryId) is not byte row) return;
-        if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is not { Item: { } worn } ||
-            s.Socket >= worn.Sockets.Count || worn.Sockets[(int)s.Socket].Gem is not { } gem) return;
-        if (NextGemLevel(conn, gem, out string? why) is not { } next)
+        InventoryItem? after = null;
+        Item? next = null;
+        string? why = null;
+        int level = 0;
+        lock (conn.Monsters)
+        {
+            if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is not { Item: { } worn } ||
+                s.Socket >= worn.Sockets.Count || worn.Sockets[(int)s.Socket].Gem is not { } gem) return;
+            if (NextGemLevel(conn, gem, out why) is { } upgraded)
+            {
+                var sourcesBefore = CaptureGemSourceRowsLocked(conn);
+                level = ItemsFor(conn).GemLevel(gem);
+                next = PlayerInventories.PreserveGemIdentity(gem, upgraded);
+                after = items.Change(row, s.ItemId, it =>
+                {
+                    var sockets = it.Sockets.ToList();
+                    sockets[(int)s.Socket] = sockets[(int)s.Socket] with { Gem = next };
+                    return it with { Sockets = sockets };
+                });
+                if (after is not null) ReconcileLeveledGemSourcesLocked(conn, sourcesBefore);
+            }
+        }
+        if (after is null || next is null)
         {
             if (why is not null) await conn.Commands!.Reply(why);
             return;
         }
-        int level = ItemsFor(conn).GemLevel(gem);
-        next = PlayerInventories.PreserveGemIdentity(gem, next);
-        var after = items.Change(row, s.ItemId, it =>
-        {
-            var sockets = it.Sockets.ToList();
-            sockets[(int)s.Socket] = sockets[(int)s.Socket] with { Gem = next };
-            return it with { Sockets = sockets };
-        });
-        if (after is null) return;
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [after.Id], [after]),
             $"0x00bf inventory {s.InventoryId}: item {after.Id} socket {s.Socket} gem to level {level + 1}");
         await SendSkills(remote, stream, ciphers, conn);
         Console.WriteLine($"[gateway] {remote} {CharacterName(conn)}'s {ItemsFor(conn).GemName(next)} levels to {level + 1}");
+    }
+
+    static void ReconcileLeveledGemSourcesLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
+    {
+        using var scope = new PlayerStatScope(conn, fresh: true);
+        RecomputePoolsAndSpeed(conn);
+        ReconcileBeastCompanionsLocked(conn);
+        ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
     }
 
     // C→S 0x32 (2 bytes, id only): the gem level-up panel's "Click to level up ALL". Only this message levels the batch
@@ -205,19 +317,44 @@ public static partial class Game
     public static async Task UnsocketGem(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, InstanceItems.SocketGem s)
     {
         var items = ItemsOf(conn);
+        (InventoryItem Item, InventoryItem Held)? done = null;
+        Item? removedBefore = null;
+        IReadOnlyList<PlayerSkillSource> removedSources = [];
         string why = "unknown inventory";
-        var done = PlayerInventories.Row(s.InventoryId) is byte row ? items.Unsocket(row, s.ItemId, (int)s.Socket, items.NewItemId, out why) : null;
-        if (done is not var (item, held) || PlayerInventories.Row(s.InventoryId) is not byte r)
+        byte row = default;
+        using (ProjectileMutation(conn, advance: false, phase: "gem unsocket"))
+        {
+            if (PlayerInventories.Row(s.InventoryId) is byte currentRow)
+            {
+                row = currentRow;
+                if (items.Items(row).FirstOrDefault(i => i.Id == s.ItemId) is { } host
+                    && s.Socket < host.Item.Sockets.Count)
+                {
+                    removedBefore = host.Item.Sockets[(int)s.Socket].Gem;
+                    if (removedBefore is not null)
+                        removedSources = GemSourceRowsLocked(conn, host.Id, (int)s.Socket, removedBefore);
+                }
+                done = items.Unsocket(row, s.ItemId, (int)s.Socket, items.NewItemId, out why);
+                if (done is not null && PlayerInventories.ShowsOnModel(row))
+                {
+                    RetireDirectMinionSourcesLocked(conn, removedSources);
+                    ForgetGemActivation(conn, done.Value.Held.Item);
+                    RecomputePoolsAndSpeed(conn);
+                    ReconcileBeastCompanionsLocked(conn);
+                }
+            }
+        }
+        if (done is not { } result)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x002f unsocket {s}: refused ({why})");
             return;
         }
-        if (PlayerInventories.ShowsOnModel(r)) ForgetGemActivation(conn, held.Item);
-        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(r), [item.Id], [item]),
+        var (item, held) = result;
+        await Send(remote, stream, ciphers, InstanceItems.InventoryChange(s.InventoryId, items.NextRevision(row), [item.Id], [item]),
             $"0x00bf inventory {s.InventoryId}: item {item.Id} without the gem in socket {s.Socket}");
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold gem {held.Id}");
-        if (ItemModStats.EquipmentRows.Contains(r)) await SendEquipment(remote, stream, ciphers, conn, items);
+        if (PlayerInventories.ShowsOnModel(row)) await SendEquipment(remote, stream, ciphers, conn, items);
     }
 
     // Removing a physical source is an explicit deactivation, unlike town travel or a temporary actor restriction.
@@ -537,7 +674,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             RecomputePoolsAndSpeed(conn);
-            conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
         }
         await SendCharacterStats(remote, stream, ciphers, conn, "passive jewels");
@@ -549,7 +686,7 @@ public static partial class Game
             $"melee {conn.Pools.MeleePhysicalDamagePct}, " +
             $"{conn.ClusterPassives.Count}/{ClusterNodeBudget(conn)} cluster node(s)" +
             (timeless is null ? "" : $", timeless {timeless.Name} {timeless.DisplayedSeed} {timeless.ConquerorName}"));
-        await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife),
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
             $"0x01b1 player life {conn.PlayerLife} (passive jewels)");
         await SendPlayerMana(remote, stream, ciphers, conn, $"0x01b1 player mana {conn.PlayerMana} (passive jewels)");
     }
@@ -681,8 +818,9 @@ public static partial class Game
             r = FlaskRecovery.For(use, flask.Item, local,
                 name => Get(name) + (name == "flask_life_to_recover_+%" ? Lifetap.FlaskRecovery(conn) : 0), conn.PlayerLife, conn.PlayerMaxLife, playerLevel);
             copyLife = ManaFlaskCopiesLife(r, character);
-            canRecover = Flasks.CanRecover(use, conn.PlayerLife, conn.PlayerUnreservedLife, conn.PlayerMana, (uint)UnreservedMana(conn))
-                || copyLife && conn.PlayerLife < conn.PlayerUnreservedLife;
+            canRecover = Flasks.CanRecover(use, conn.PlayerLife, LifeCap(conn), conn.PlayerMana, (uint)UnreservedMana(conn))
+                || copyLife && conn.PlayerLife < LifeCap(conn)
+                || ConditionalFlaskAilmentProtectionTriggered(conn, local, AreaTime(conn));
         }
         bool CurrentRecovery()
         {
@@ -701,7 +839,7 @@ public static partial class Game
             {
                 uint life;
                 lock (conn.Monsters) life = conn.PlayerLife;
-                await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life, conn.PlayerReservedLife),
+                await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn),
                     $"0x01b1 player life {life} (full pool, flask refused)");
             }
             if (use.ManaPerUse > 0)
@@ -710,7 +848,7 @@ public static partial class Game
         }
         if (!CurrentRecovery()) return;
         await SpendFlask(remote, stream, ciphers, conn, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife));
+            spent => AcceptRecoveryFlaskLocked(remote, conn, slot, spent, type, use, r, copyLife, local));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -1345,16 +1483,31 @@ public static partial class Game
         string why = "unknown inventory";
         PlayerInventories.Placement? done = null;
         if (PlayerInventories.Row(a.InventoryId) is not byte row) why = "unknown inventory";
+        else if (row == PlayerInventories.PassiveJewels)
+        {
+            using (ProjectileMutation(conn, advance: false, phase: "passive jewel held placement"))
+            {
+                held = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+                var targetItem = items.Items(row).FirstOrDefault(i => i.Id == a.ItemId);
+                if (targetItem is null) why = "no such item";
+                else if (LevelTooLow(conn, row, held) is { } low) why = low;
+                else if (PassiveJewelRefusal(conn, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
+                else if (ClusterRemovalRefusal(conn, targetItem) is { } clusterRefusal) why = clusterRefusal;
+                else if (AllocationBypassRemovalRefusal(conn, targetItem) is { } bypassRefusal) why = bypassRefusal;
+                else
+                {
+                    var sourcesBefore = CaptureGemSourceRowsLocked(conn);
+                    done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a));
+                    if (done is not null)
+                    {
+                        if (done.Displaced is { } displaced && ClusterSize(displaced.Item) is not null)
+                            SpendClusterRemoval(conn);
+                        CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                    }
+                }
+            }
+        }
         else if (LevelTooLow(conn, row, held) is { } low) why = low;
-        else if (row == PlayerInventories.PassiveJewels
-            && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } targetItem
-            && PassiveJewelRefusal(conn, targetItem.X, targetItem.Y, held) is { } refusal) why = refusal;
-        else if (row == PlayerInventories.PassiveJewels
-            && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } leavingCluster
-            && ClusterRemovalRefusal(conn, leavingCluster) is { } clusterRefusal) why = clusterRefusal;
-        else if (row == PlayerInventories.PassiveJewels
-            && items.Items(row).FirstOrDefault(i => i.Id == a.ItemId) is { } leavingBypass
-            && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
             expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(conn, lr, held) is { } tooLow) why = tooLow;
@@ -1367,13 +1520,6 @@ public static partial class Game
         if (done.Merged || done.Rest is not null) { await SendMerged(remote, stream, ciphers, items, done); return; }
         // Not a stack with room: swapped, as 0x2a on that cell.
         var d = done.Displaced;
-        bool clusterLeft = done.Row == PlayerInventories.PassiveJewels && d is { } displaced
-            && ClusterSize(displaced.Item) is not null;
-        if (clusterLeft)
-        {
-            // The refund point only: a tree message that drops the cluster's nodes crashes the client (see below).
-            SpendClusterRemoval(conn);
-        }
         uint target = PlayerInventories.InventoryId(done.Row);
         await Send(remote, stream, ciphers, InstanceItems.InventoryChange(target, items.NextRevision(done.Row), d is null ? [] : [d.Id], [done.Placed]),
             $"0x00bf inventory {target}: add item {done.Placed.Id} at ({done.Placed.X}, {done.Placed.Y})" + (d is null ? "" : $", remove item {d.Id}"));
@@ -1411,17 +1557,65 @@ public static partial class Game
         if (place.A != 0) Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: one of the held stack (Shift)");
         PlayerInventories.Placement? done = null;
         string why = "unknown inventory";
-        Item? placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+        Item? placement;
         if (PlayerInventories.Row(place.InventoryId) is not byte row) why = "unknown inventory";
-        else if (LevelTooLow(conn, row, placement) is { } low) why = low;
-        else if (row == PlayerInventories.PassiveJewels
-            && items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y) is { } leavingBypass
-            && AllocationBypassRemovalRefusal(conn, leavingBypass) is { } bypassRefusal) why = bypassRefusal;
-        else if (row == PlayerInventories.PassiveJewels
-            && PassiveJewelRefusal(conn, (int)place.X, (int)place.Y, placement) is { } refusal) why = refusal;
+        else if (PlayerInventories.ShowsOnModel(row))
+        {
+            // Cursor validation, the visible write, replacement, qualification and source retirement all happen in the
+            // same mutation. The first inventory output cannot overtake a replacement create or old actor removal.
+            using (ProjectileMutation(conn, advance: false, phase: "equipment placement"))
+            {
+                using (new PlayerStatScope(conn, fresh: true))
+                {
+                    placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+                    if (LevelTooLow(conn, row, placement) is { } low) why = low;
+                    else
+                    {
+                        var sourcesBefore = PlayerSkillSourcesLocked(conn);
+                        done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+                        if (done is not null)
+                        {
+                            RecomputePoolsAndSpeed(conn);
+                            ReconcileBeastCompanionsLocked(conn);
+                            ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+                        }
+                    }
+                }
+            }
+        }
+        else if (row == PlayerInventories.PassiveJewels)
+        {
+            using (ProjectileMutation(conn, advance: false, phase: "passive jewel placement"))
+            {
+                placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+                var leaving = items.Items(row).FirstOrDefault(i => i.X == place.X && i.Y == place.Y);
+                if (LevelTooLow(conn, row, placement) is { } low) why = low;
+                else if (leaving is not null && ClusterRemovalRefusal(conn, leaving) is { } clusterRefusal)
+                    why = clusterRefusal;
+                else if (leaving is not null && AllocationBypassRemovalRefusal(conn, leaving) is { } bypassRefusal)
+                    why = bypassRefusal;
+                else if (PassiveJewelRefusal(conn, (int)place.X, (int)place.Y, placement) is { } refusal) why = refusal;
+                else
+                {
+                    var sourcesBefore = CaptureGemSourceRowsLocked(conn);
+                    done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0);
+                    if (done is not null)
+                    {
+                        if (done.Displaced is { } displaced && ClusterSize(displaced.Item) is not null)
+                            SpendClusterRemoval(conn);
+                        CompletePassiveJewelMutationLocked(conn, sourcesBefore);
+                    }
+                }
+            }
+        }
         else
+        {
+            placement = items.Items(PlayerInventories.Cursor).FirstOrDefault()?.Item;
+            if (LevelTooLow(conn, row, placement) is { } low) why = low;
+            else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
                 expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(conn));
+        }
         if (done is null)
         {
             Console.WriteLine($"[gateway] {remote} <= 0x002a place {place}: refused ({why})");
@@ -1439,5 +1633,20 @@ public static partial class Game
         if (PlayerInventories.ShowsOnModel(done.Row)) await SendEquipment(remote, stream, ciphers, conn, items);
         if (done.Row == PlayerInventories.Flask) await RefreshMagebloodFlasks(remote, stream, ciphers, conn);
         if (done.Row == PlayerInventories.PassiveJewels) await SendPassiveJewelStats(remote, stream, ciphers, conn);
+    }
+
+    static void CompletePassiveJewelMutationLocked(ClientState conn, IReadOnlyList<PlayerSkillSource> sourcesBefore)
+    {
+        using (new PlayerStatScope(conn, fresh: true))
+        {
+            RecomputePoolsAndSpeed(conn);
+            ReconcileBeastCompanionsLocked(conn);
+        }
+        ReconcileEquipmentSourceLifetimesLocked(conn, sourcesBefore);
+        using (new PlayerStatScope(conn, fresh: true))
+        {
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
+            conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
+        }
     }
 }

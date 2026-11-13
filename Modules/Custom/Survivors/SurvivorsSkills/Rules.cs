@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Net.Sockets;
 using GameServer.Core.Projectiles;
@@ -823,7 +823,7 @@ static partial class SurvivorsSkills
             life = conn.PlayerLife > (uint)damage ? conn.PlayerLife - (uint)damage : 0;
             conn.PlayerLife = life;
         }
-        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.LifeUpdate(PlayerId, life), "survivors death zone drain",
+        await global::Game.SendWorldRecord(remote, stream, ciphers, conn, PlayerId, PlayerLifeUpdate(conn), "survivors death zone drain",
             still: () => StateOf(conn).Survivors is not null);
     }
 

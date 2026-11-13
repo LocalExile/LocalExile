@@ -34,6 +34,57 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- The mod SDK validates native character-build previews and commits confirmed imports after session drain; the optional POB mod and converter are external.
+
+- **On-kill explosions and attribute damage reduction (implemented 2026-11-04; native behavior checked with the
+  official client 2026-11-05, server live check pending):** "Enemies you Kill Explode, dealing X% of their Life as
+  Physical Damage" (the Crusader body-armour prefix and the synthesis implicit) deals X% of the killed monster's
+  maximum life as physical damage to every hostile monster within 25 cells, mitigated by each target's resistances,
+  and a kill by the explosion can trigger another one. The radius is a fixed 25 cells: measured with the official
+  3.29.3b client, one explosion killed at 22.85 and 24.35 cells, and increased area of effect does not extend it.
+  The explosion consumes the corpse (0x2bd at once) and plays the native `HolyExplosion` art (MiscAnimated 2877,
+  `Metadata/Effects/Spells/holy_explode/holy_explode.ao`) for two seconds; its corpse was removed 0-6 ms after the
+  death. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
+
+- **On-kill explosions and attribute damage reduction (implemented 2026-11-04, automated verification; live client
+  pending):** "Enemies you Kill Explode, dealing X% of their Life as Physical Damage" (the Crusader body-armour prefix
+  and the synthesis implicit) deals X% of the killed monster's maximum life as physical damage to every hostile monster
+  within 20 cells, mitigated by each target's resistances; increased area of effect scales the radius, and a kill by the
+  explosion can trigger another one. The Eater of Worlds body-armour implicits "1% less Damage Taken per X
+  Strength/Dexterity/Intelligence" reduce hits, ignite and the other damage over time taken as a final multiplier.
+  Not modelled: the chance-based and conditional (ignited, shocked, bleeding) explode variants and secondary damage's
+  scaling by global physical/area damage.
+  Code: `KillExplosions.cs`, `IncomingResourceDefences.cs`, `IncomingDamage.cs`, `PlayerAilments.cs`, `Player.cs`.
+
+- **Item modifier effect (implemented 2026-11-03, automated verification; live client pending):** the item-local
+  increased-effect stats scale the item's own explicit modifiers — every explicit one
+  (`local_explicit_mod_effect_+%`: Simplex Amulet 100%, Focused Amulet 100%, Subsume the Source 120–240%) or one side
+  only (`local_prefix_mod_effect_+%` / `local_suffix_mod_effect_+%`: the Cogwork, Geodesic, Composite, Manifold,
+  Ratcheting and Helical Rings, 25% or 50%). Implicits, enchants and the effect stats themselves stay raw, and values
+  round down like The Adorned's jewel effect. The same implicits' `local_maximum_prefixes_allowed_+` and
+  `local_maximum_suffixes_allowed_+` move the rare affix caps for currency and bench crafting
+  (Composite 6/0, Manifold 4/1, Simplex 1/2, Helical 1/4 …).
+  Not modelled: the weapon-tree damage-category effect stats (Mods.dat has no damage-type tags), unveiled/tincture
+  effect, and the per-socketed-abyss-jewel variant.
+  Code: `ItemModStats.cs`, `ItemRolls.cs`, `BenchCrafting.cs`, `ItemWeaponStats.cs`.
+
+- Utility-flask orbs: Enkindling and Instilling use native weighted enchant pools, replacing previous enchantments.
+  Enkindling coefficients and the active-effect charge-gain lock are wired; Instilling uses paid flask-use events.
+  Automated checks pass. Native checks confirmed both currency transactions, enchant replacement, maximum-charge
+  clamping, the active-effect charge lock and automatic use after hitting a rare monster.
+  Incoming Bleed/Poison sources remain absent, although their enchantment conditions are represented.
+  See [13-items](../docs/protocol/13-items.md), utility flask orb enchantments.
+
+
+- Sacred Orb rerolls: ordinary and Shift-repeat currency routes replace only the shared defence base roll (0..31).
+  Requires Armour/Mods components and a known variable native range.
+  Corrupted, mirrored and fixed-range targets are refused.
+  The same roll can recur and still costs one orb; affixes, quality, sockets, gems and other properties stay intact.
+  Automated coverage checks eligibility, persistence, save rollback and worn-item pool refresh.
+  Fourteen native captures recorded at `63c1039` verify ordinary/repeat use, refusals, inventory/stash combinations,
+  unchanged outcomes and restart persistence; fresh checks of the merged branch remain open.
+  Ward ranges count for eligibility, but Ward character calculations and recovery remain unimplemented.
+  Code: `CurrencyEffects.Sacred`, Gateway (`Program.Items.cs`).
 - Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; stored items remain removable after disabling the mod.
 
@@ -41,8 +92,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [modding](../docs/dev/modding.md).
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
-- Conditional item gates feed live pools and stat publication; untracked, counted-recent and compound operators are
-  partial. Docs: [13](../docs/protocol/13-items.md).
+- Conditional item gates include flat Mana costs, equipment counts, maximum block and Travel recovery per Frenzy Charge.
+  Qualified attribute coefficients reach accuracy, armour, block, bleeding and Physical weapon damage; others remain partial.
+  Living totem/minion coefficients feed armour, block, attack/cast speed and regeneration.
+  Named Core facts gate Glitterdisc's always-Ignite and the Hunger chest's Life bonus from qualified equipment tags.
+  Oro and Replica Oro grant their charge only after the player's attack successfully ignites or freezes, respectively.
+  Hezmana's recent Savage Hit bonus reaches final attack speed through the existing four-second incoming-hit history.
+  Typed block histories feed Daresso's reciprocal gates; flat block recovery preserves the hit's Savage classification.
+  Infernal Mantle's low-Mana condition reaches incoming Spell hits through the canonical Spell damage-taken input.
+  Rathpith and Scales of Justice scale Spell offence and added Fire from completed full maximum Life and Mana.
+  Wyrmsign's standard Endurance efficiency reduces ordinary Mana costs independently of converted or additional Life costs.
+  Docs: [13](../docs/protocol/13-items.md).
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling and Instilling enchantments; incoming Bleed and Poison sources are absent.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".

@@ -14,6 +14,7 @@ public static partial class Game
         bool chaos = false) =>
         m.Effects.DamageTaken(spell, m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
             + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
+            + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + (m.Life * 2L <= m.MaxLife ? m.Curses["damage_taken_+%_on_low_life"] : 0));
 
@@ -130,6 +131,24 @@ public static partial class Game
         m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
             : m.Ailments.ActionFactor(now) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
 
+    /// <summary>Maim's relative walk factor and the movement_velocity_+% the client should hold. Maim adds -30 into the
+    /// monster's existing increased/reduced movement bucket; it never overwrites the speed roll or another modifier.</summary>
+    public static (double Factor, int Pct) MaimedMovementFactor(SpawnedMonster m, double now)
+    {
+        int basePct = m.Effects.MovementPct;
+        int maimPct = now < m.MaimedUntil ? -30 : 0;
+        int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
+        int totalPct = basePct + maimPct - hinderPct;
+        if ((maimPct != 0 || hinderPct != 0) && m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0)
+            totalPct = Math.Max(0, totalPct);
+        double Movement(double pct) => m.Variety is { } variety
+            ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
+            : Math.Max(.01, 1 + pct / 100.0);
+        double before = Movement(basePct);
+        double after = Movement(totalPct);
+        return (after / before, totalPct);
+    }
+
     /// <summary>
     /// A player hit that landed inflicts its ailments (MonsterElementalAilments.Inflict) from the damage the monster took
     /// per type: the mitigated packet × its damage taken × the critical multiplier on a critical strike. The threshold is
@@ -143,10 +162,17 @@ public static partial class Game
     /// whose hits land together (<see cref="ReflectAilmentsLocked"/>). <paramref name="poison"/>: the hit's poison rows
     /// (<see cref="PoisonOnHitLocked"/>); a hit without them does not poison.
     /// </summary>
-    public static void AilmentsOnHitLocked(ClientState conn, SpawnedMonster m, DamagePacket mitigated, bool spell,
+    public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, List<MonsterElementalAilments.Effect>? reflected = null,
-        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0)
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default) =>
+        AilmentsOnHitLocked(conn, targetId, m, mitigated, spell, critical, criticalMultiplier, player, skill,
+            now, random, default(AttackAilmentGains), reflected, poison, sourceSkill, blind);
+
+    public static void AilmentsOnHitLocked(ClientState conn, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+        bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill,
+        double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
+        MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default)
     {
         CursesOnHitLocked(conn, m, sourceSkill, spell, now);
         KnockbackOnHitLocked(conn, m, player, skill, now, random);
@@ -157,7 +183,7 @@ public static partial class Game
         // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
         if (critical) LoyaltyCritVsMarkedUniqueLocked(conn, m, player);
         if (!spell && conn.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
-            HolyRelicsOnHitLocked(conn, conn.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, m)).Key, m, now);
+            HolyRelicsOnHitLocked(conn, targetId, m, now);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         int Skill(string name) => skill is not null && Stats.Key(name) is uint key ? skill.GetValueOrDefault(key) : 0;
@@ -169,7 +195,12 @@ public static partial class Game
         var added = m.Ailments.Inflict(taken, critical, m.MaxLife, now, name => Player(name) + PanelStats.Of(name, Skill),
             name => m.Effects[name], random, AilmentArea(Player, Skill, spell));
         foreach (var effect in added)
-            if (effect.Kind == Kind.Freeze) conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
+            if (effect.Kind == Kind.Freeze)
+            {
+                conn.RecentEvents.Record(StatConditions.FrozeEnemy, now);
+                if (m.Hostile) GainFromAttackAilmentLocked(conn, attackGains.FreezeEndurance,
+                    ChargeType.Endurance, EnduranceOnAttackFreeze);
+            }
             else if (effect.Kind == Kind.Shock) conn.RecentEvents.Record(StatConditions.ShockedEnemy, now);
         if (m.Dead || m.Life == 0)
         {
@@ -183,10 +214,22 @@ public static partial class Game
             else ShockOnKillLocked(conn, m, player, now);
             return;
         }
-        HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now);
+        HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
+        InflictMonsterBlind(conn, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, Random.Shared);
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, Random.Shared);
-        PoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random);
+        int poisonStacksBefore = m.Poisons.Stacks(now);
+        if (TryPoisonOnHitLocked(conn, m, mitigated, spell, critical, player, skill, poison, now, random,
+                out double poisonDps, out double poisonSeconds)
+            && Player("poison_reflected_to_self") != 0 && Player("cannot_be_poisoned") == 0
+            && Player("immune_to_poison") == 0
+            // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
+            && conn.IncomingAilments.PoisonStacks(now) < 100)
+        {
+            int accepted = m.Poisons.Stacks(now) - poisonStacksBefore;
+            for (int i = 0; i < accepted && conn.IncomingAilments.PoisonStacks(now) < 100; i++)
+                conn.IncomingAilments.ApplyPoison(now, poisonDps, poisonSeconds, reflected: true, victim: Player);
+        }
         // Fleeing (MonsterFlee): its own draws (Random.Shared), so a projectile's reaction draws stay in order.
         if (!m.Fleeing && MonsterFlee.Rolls(MonsterFlee.Chance(spell, Player, Skill),
                 m.Effects["monster_chance_to_not_flee_%"], Random.Shared))
@@ -241,24 +284,39 @@ public static partial class Game
             }
             var a = m.Ailments;
             double vines = ToxicWalkFactor(m);
-            // Maim and Hinder raise no ailment magnitude, so an idle monster with only them would never get its walk
-            // factor recomputed; they are checked before the idle skip (the knockback above stays first: an idle
-            // monster still moves).
-            if (a.Idle && now >= m.ReceivedActionUntil && vines == 1 && !TimedWalkDebuff(now, m)) continue;
-            foreach (var (kind, removed, added, magnitude) in a.Present(now))
+            bool elementalIdle = a.Idle && now >= m.ReceivedActionUntil;
+            if (elementalIdle && !TimedWalkDebuff(now, m) && SpiderHinder(m, now) == 0 && vines == 1
+                && a.WalkFactor == 1 && !m.MaimedMovementShown) continue;
+            if (!elementalIdle)
             {
-                if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
-                if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                foreach (var (kind, removed, added, magnitude) in a.Present(now))
+                {
+                    if (removed is ushort r) packets.Add((InstanceEntities.RemoveBuff(id, r), $"0x01c2 monster 0x{id:x} {kind} ends"));
+                    if (added is ushort b) packets.Add((AilmentBuff(id, b, kind, magnitude, a.Remaining(kind, now)), $"0x01c1 monster 0x{id:x} ({m.Label}) {kind} {magnitude}%"));
+                }
             }
             double action = m.Effects["action_speed_cannot_be_reduced_below_base"] > 0 || m.ReceivedActionFloor ? 1
                 : (1 - a.Magnitude(Kind.Chill, now) / 100) * (now < m.ReceivedActionUntil ? m.ReceivedActionFactor : 1);
-            double walk = m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action;
-            // Maim (30% reduced movement speed) and Hinder (30%) add; they are both "reduced movement speed".
-            walk = TimedDebuffWalkFactor(m, now, walk);
+            // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed.
+            var movement = MaimedMovementFactor(m, now);
+            double walk = (m.Effects["movement_speed_cannot_be_reduced_below_base"] > 0 ? Math.Max(1, action) : action)
+                * movement.Factor;
             if (m.Effects["movement_speed_cannot_be_reduced_below_base"] <= 0) walk *= vines;
             if (walk != a.WalkFactor)
             {
-                if (m.Walk.Speed > 0) m.Walk.SetSpeed(m.Walk.Speed / a.WalkFactor * walk, now);
+                // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
+                // it without dividing by a zero factor.
+                if (walk <= 0)
+                {
+                    if (a.WalkFactor > 0) m.WalkSpeedAtZeroFactor = m.Walk.Speed / a.WalkFactor;
+                }
+                else
+                {
+                    double baseline = a.WalkFactor > 0
+                        ? m.Walk.Speed / a.WalkFactor
+                        : m.WalkSpeedAtZeroFactor;
+                    if (baseline > 0) m.Walk.SetSpeed(baseline * walk, now);
+                }
                 a.WalkFactor = walk;
             }
             int speed = (int)Math.Round(100 * (action - 1));
@@ -266,6 +324,22 @@ public static partial class Game
             {
                 a.SentActionSpeed = speed;
                 packets.Add((InstanceEntities.StatsUpdate(id, [(key, speed)]), $"0x01b3 monster 0x{id:x} virtual_action_speed_+% = {speed}"));
+            }
+            bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0;
+            bool maimShown = m.MaimedMovementShown;
+            bool movementChanged = maimed
+                ? !maimShown || movement.Pct != m.MaimedMovementShownPct
+                : maimShown && movement.Pct != m.MaimedMovementShownPct;
+            m.MaimedMovementShown = maimed;
+            if (movementChanged)
+            {
+                m.MaimedMovementShownPct = movement.Pct;
+                packets.Add((InstanceEntities.StatsUpdate(id, [(StatKeys.MovementVelocityPct, movement.Pct)]),
+                    $"0x01b3 monster 0x{id:x} movement_velocity_+% = {movement.Pct}" + (m.MaimedMovementShown ? " (maimed)" : " (maim ends)")));
+            }
+            else if (!m.MaimedMovementShown)
+            {
+                m.MaimedMovementShownPct = 0;
             }
         }
         return packets;

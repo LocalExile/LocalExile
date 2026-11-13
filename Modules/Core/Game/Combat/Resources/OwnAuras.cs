@@ -55,7 +55,7 @@ public static partial class Game
         lock (conn.Monsters)
         {
             sources ??= CharacterStatSources(conn).Stats;
-            UtilityFlasks.AddRawStats(sources,
+            AddItemUtilityFlaskRawStats(sources,
                 conn.UtilityFlaskEffects.Stats().Concat(conn.FlaskGrounds.PlayerStats()), Stats);
             return OwnAuraRestriction.Value(sources, conn.PlayerStats);
         }
@@ -104,6 +104,7 @@ public static partial class Game
             || spells && CastingSpell(conn, a.Effect)).ToArray();
         if (gone.Length == 0) return false;
         foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
+        if (gone.Any(a => StanceCatalog.IsStance(a.EffectId))) ReconcileStanceSelectionLocked(conn, persist: false);
         conn.AuraStatsDirty = true;
         return true;
     }
@@ -111,12 +112,106 @@ public static partial class Game
     public static void EnsureOwnAuraPools(ClientState conn)
     {
         lock (conn.Monsters)
-            if (SuspendRestrictedOwnAuras(conn))
+        {
+            bool changed = CatAspectReconcileLocked(conn, AreaTime(conn));
+            changed |= IntimidatingCryPoolsChangedLocked(conn);
+            changed |= AvianReconcileLocked(conn, AreaTime(conn));
+            changed |= CrabReconcileLocked(conn, AreaTime(conn));
+            SpiderReconcileOwnerLocked(conn, AreaTime(conn));
+            changed |= conn.Reservations.CrabPoolsDirty;
+            changed |= MadnessReconcileLocked(conn, AreaTime(conn));
+            changed |= SuspendRestrictedOwnAuras(conn);
+            changed |= RepriceOwnAuras(conn, out bool poolsRebuilt);
+            if (changed)
             {
-                conn.Pools = PoolsFor(conn, conn.Pools.Level);
+                if (!poolsRebuilt) conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
             }
+            var life = LifeReservationOf(conn);
+            conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, life);
+        }
+    }
+
+    // Reservation exemptions and support cost multipliers can change while an aura stays on, including before any
+    // equipment/stat notification. Reprice the active owner from current sources here; unchanged auras are left alone.
+    static bool RepriceOwnAuras(ClientState conn, out bool poolsRebuilt)
+    {
+        poolsRebuilt = false;
+        bool changed = false;
+        bool stanceTouched = false;
+        var changedAuras = new List<AuraCatalog.Aura>();
+        foreach (var aura in conn.Auras.Values.ToArray())
+        {
+            var reservation = SupportedReservationCost(conn, aura.SkillId);
+            if (reservation is null)
+            {
+                // A support/source that no longer supplies the reservation cannot remain active.
+                conn.Auras.Remove(aura.SkillId);
+                EndReservationRuntimeLocked(conn, aura);
+                CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+                stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
+                changed = true;
+                continue;
+            }
+            var gem = SupportedSkill(conn, aura.SkillId);
+            var support = AuraSupport(conn, aura.SkillId);
+            var context = ReservationContext(conn, aura.SkillId);
+            string? stance = StanceCatalog.IsStance(aura.EffectId)
+                ? StanceCatalog.SelectionOf(aura, conn.Stance) : null;
+            var repriced = aura with
+            {
+                ManaFlat = reservation.Value.ManaFlat, ManaPercent = reservation.Value.ManaPercent,
+                LifeFlat = reservation.Value.LifeFlat, LifePercent = reservation.Value.LifePercent,
+                Level = gem.Level, Quality = gem.Quality,
+                EffectId = stance is null ? aura.EffectId : StanceCatalog.RuntimeEffectId(aura.EffectId, stance),
+                BuffRow = AuraCatalog.BuffRow(stance is null ? aura.EffectId
+                    : StanceCatalog.RuntimeEffectId(aura.EffectId, stance), stance),
+                SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
+                ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
+            };
+            if (repriced == aura) continue;
+            conn.Auras[aura.SkillId] = repriced;
+            changedAuras.Add(repriced);
+            changed = true;
+        }
+        // An exemption can come from an item that also changes the current maximum Mana. Rebuild before deciding
+        // affordability so the checked pool and the source snapshot that supplied the new reservation agree.
+        if (changedAuras.Count > 0)
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            poolsRebuilt = true;
+        }
+        while (!ReservationBudgetFits(conn) && conn.Auras.Count > 0)
+        {
+            // Existing unchanged auras keep their admission. Of the reservations whose price just rose, the latest
+            // source loses admission first; its intent is cleared so the next reconcile cannot resurrect it. If the
+            // percentage did not change, a pool/efficiency input made the whole active set unaffordable, so trim the
+            // active set from its latest source in the same deterministic order.
+            var overCapacity = changedAuras.Count > 0
+                ? changedAuras.Where(a => conn.Auras.ContainsKey(a.SkillId)).OrderByDescending(a => a.SkillId)
+                : conn.Auras.Values.OrderByDescending(a => a.SkillId);
+            if (!overCapacity.Any())
+                overCapacity = conn.Auras.Values.OrderByDescending(a => a.SkillId);
+            if (overCapacity.FirstOrDefault() is not { } aura) break;
+            if (!conn.Auras.Remove(aura.SkillId)) break;
+            EndReservationRuntimeLocked(conn, aura);
+            CharacterSaves.SetAuraActive(CharacterName(conn), aura.EffectId, false);
+            stanceTouched |= StanceCatalog.IsStance(aura.EffectId);
+            changed = true;
+            // A trimmed aura may have supplied pool stats. Rebuild before the next capacity decision and make sure
+            // EnsureOwnAuraPools does not publish the pre-removal pool.
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            poolsRebuilt = true;
+        }
+        if (!poolsRebuilt && changed)
+        {
+            conn.Pools = PoolsFor(conn, conn.Pools.Level);
+            poolsRebuilt = true;
+        }
+        if (stanceTouched) ReconcileStanceSelectionLocked(conn, persist: true);
+        if (changed) conn.AuraStatsDirty = true;
+        return changed;
     }
 
     public static void ReconcileOwnAuras(ClientState conn, bool validateSkills = false)
@@ -136,33 +231,25 @@ public static partial class Game
             var gone = conn.Auras.Values.Where(a => InTown(conn)
                 || !available.TryGetValue(a.SkillId, out int effect) || effect != a.Effect
                 || GemSkillInstanceDisabled(conn, a.Effect, a.SkillId) is not null).ToArray();
+            // Worn grants are equipment sources, not resumable gem intent. A removed/inactive host must not restore its
+            // aura from stale family intent when another item or area publication follows. A still-valid gem or worn
+            // host of the same family keeps the intent and takes ownership at the restore step below.
+            var availableFamilies = available.Values
+                .Select(effect => AuraCatalog.Family(SkillsFor(conn).EffectId(effect) ?? ""))
+                .Where(family => family.Length > 0).ToHashSet(StringComparer.Ordinal);
+            if (!InTown(conn))
+                foreach (var aura in gone.Where(a => a.WornGrant is not null
+                             && !availableFamilies.Contains(AuraCatalog.Family(a.EffectId)))
+                         .GroupBy(a => AuraCatalog.Family(a.EffectId)))
+                    CharacterSaves.SetAuraActive(CharacterName(conn), aura.First().EffectId, false);
             foreach (var aura in gone) { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); }
-            foreach (var aura in conn.Auras.Values.ToArray())
-            {
-                var reservation = SupportedReservation(conn, aura.SkillId);
-                if (reservation is null)
-                {
-                    conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura);
-                    conn.AuraStatsDirty = true; continue;
-                }
-                var gem = SupportedSkill(conn, aura.SkillId);
-                var support = AuraSupport(conn, aura.SkillId);
-                var context = ReservationContext(conn, aura.SkillId);
-                var repriced = aura with { ManaFlat = reservation.Value.Flat, ManaPercent = reservation.Value.Percent,
-                    Level = gem.Level, Quality = gem.Quality, SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf,
-                    ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency };
-                conn.Auras[aura.SkillId] = repriced;
-                if (!ReservationBudgetFits(conn))
-                { conn.Auras.Remove(aura.SkillId); EndReservationRuntimeLocked(conn, aura); conn.AuraStatsDirty = true; }
-                else if (repriced != aura) conn.AuraStatsDirty = true;
-            }
             if (gone.Length > 0 || conn.AuraStatsDirty)
             {
                 conn.AuraStatsDirty = true;
                 conn.Pools = PoolsFor(conn, conn.Pools.Level);
                 conn.ApplyMovementSpeed();
                 conn.PlayerMana = Math.Min(conn.PlayerMana, (uint)UnreservedMana(conn));
-                conn.PlayerLife = Math.Min(conn.PlayerLife, conn.PlayerUnreservedLife);
+                conn.PlayerLife = LifeReservation.Clamp(conn.PlayerLife, LifeReservationOf(conn));
             }
         }
         if (!conn.Closed && !conn.LeavingArea && !conn.RageRetired && conn.PlayerLife > 0 && !InTown(conn))
@@ -210,6 +297,15 @@ public static partial class Game
                     packets.AddRange(AuraBuffs(aura));
                     conn.PresentedAuras[aura.SkillId] = aura;
                 }
+        PresentCatPhaseLocked(conn, packets);
+        PresentCatOnslaughtLocked(conn, packets);
+        PresentAvianPhaseLocked(conn, packets);
+        PresentCrabLocked(conn, packets);
+        PresentSelfVulnerabilityLocked(conn, packets);
+        PresentMadnessLocked(conn, packets);
+        // Reconciliation changes Cat phase and earned charges after the caller's validation/pricing scope was built.
+        // Publish every following 1b3/Actor payload from a fresh post-change snapshot, then restore that outer scope.
+        using var publicationStats = new PlayerStatScope(conn, fresh: true);
         if (conn.AuraStatsDirty)
         {
             conn.AuraStatsDirty = false;
@@ -218,6 +314,7 @@ public static partial class Game
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerLife, conn.PlayerReservedLife));
             packets.Add(InstanceProtocol.LifeUpdate(PlayerId, conn.PlayerMana,
                 (uint)ReservedMana(conn), pool: ManaPool));
+            packets.Add(PlayerLifeUpdate(conn));
         }
         var petrified = conn.PetrifiedBlood;
         if (petrified.PresentedBuff != 0 && (!petrified.Active || petrified.Buff != petrified.PresentedBuff))
@@ -235,6 +332,86 @@ public static partial class Game
         if (Lifetap.PresentationRecords(conn) is { } lifetap) packets.AddRange(lifetap);
         packets.AddRange(snapshot());
         return [.. packets.Where(p => p.Length > 0)];
+    }
+
+    // Cat's two phase rows are owned by the exact accepted root aura. Build their diff at this send gate, so an add
+    // queued for an old owner can never reach the wire after that owner was removed or replaced.
+    static void PresentCatPhaseLocked(ClientState conn, List<byte[]> packets)
+    {
+        var state = conn.Reservations;
+        bool active = CatAspectRootActiveLocked(conn);
+        IReadOnlyList<uint> phaseValues = [];
+        if (active)
+        {
+            var rawStats = CharacterStatSources(conn).Stats;
+            Func<string, int> raw = name => Stats.Key(name) is uint key
+                ? conn.PlayerStats.TryGetValue(key, out int replacement) ? replacement
+                    : rawStats.GetValueOrDefault(key)
+                : 0;
+            phaseValues = CatAspectPhaseValues(state.Cat,
+                CatAspectPhaseStatsLocked(conn, conn.Pools.AuraEffectPct, raw));
+        }
+        int value1 = phaseValues.Count > 0 ? unchecked((int)phaseValues[0]) : 0;
+        int value2 = phaseValues.Count > 1 ? unchecked((int)phaseValues[1]) : 0;
+        int value3 = phaseValues.Count > 2 ? unchecked((int)phaseValues[2]) : 0;
+        ushort row = active ? CatAspectPhaseRow(state.Cat) : (ushort)0;
+        bool sameValues = state.PresentedCatPhaseRow == row
+            && state.PresentedCatValue1 == value1 && state.PresentedCatValue2 == value2
+            && state.PresentedCatValue3 == value3;
+        if (active && state.PresentedCatPhaseBuff != 0
+            && state.CatPhaseBuff == state.PresentedCatPhaseBuff && !sameValues)
+            state.CatPhaseBuff = conn.NextBuff++;
+        ushort wanted = active ? state.CatPhaseBuff : (ushort)0;
+        if (state.PresentedCatPhaseBuff != 0 && (state.PresentedCatPhaseBuff != wanted || !sameValues))
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCatPhaseBuff));
+            state.PresentedCatPhaseBuff = 0;
+        }
+        if (active && wanted != 0 && (state.PresentedCatPhaseBuff != wanted || !sameValues))
+        {
+            float remaining = (float)Math.Max(0, state.CatPhaseDeadline - AreaTime(conn));
+            // Cat phase rows are not recovery rows, so 0x1c1 carries no GrantedStats values here.
+            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, CatAspectPhaseRow(state.Cat), PlayerId,
+                state.CatOwner!.Value.Skill, u68: BitConverter.SingleToUInt32Bits(remaining)));
+            state.PresentedCatPhaseBuff = wanted;
+            if (!sameValues) conn.AuraStatsDirty = true;
+        }
+        state.PresentedCatPhaseRow = row;
+        state.PresentedCatValue1 = value1;
+        state.PresentedCatValue2 = value2;
+        state.PresentedCatValue3 = value3;
+        state.PresentedCatRevision = state.CatRevision;
+    }
+
+    // Cat owns this presentation independently of the kill/flask Onslaught state. Its stats have already composed
+    // through UtilityStats; this only keeps one BuffDefinitions row 215 instance on the wire for the current Agility.
+    static void PresentCatOnslaughtLocked(ClientState conn, List<byte[]> packets)
+    {
+        var state = conn.Reservations;
+        var onslaught = ItemsFor(conn).Onslaught;
+        bool active = onslaught is not null && CatOnslaughtActiveLocked(conn);
+        if (active && state.CatOnslaughtBuff == 0) state.CatOnslaughtBuff = conn.NextBuff++;
+        if (active && state.PresentedCatOnslaughtBuff != 0
+            && state.CatOnslaughtBuff == state.PresentedCatOnslaughtBuff
+            && state.PresentedCatOnslaughtPhaseBuff != state.PresentedCatPhaseBuff)
+            state.CatOnslaughtBuff = conn.NextBuff++;
+        ushort wanted = active ? state.CatOnslaughtBuff : (ushort)0;
+        if (state.PresentedCatOnslaughtBuff != 0
+            && state.PresentedCatOnslaughtBuff != wanted)
+        {
+            packets.Add(InstanceEntities.RemoveBuff(PlayerId, state.PresentedCatOnslaughtBuff));
+            state.PresentedCatOnslaughtBuff = 0;
+            state.PresentedCatOnslaughtPhaseBuff = 0;
+        }
+        if (active && wanted != 0 && state.PresentedCatOnslaughtBuff != wanted)
+        {
+            float remaining = (float)Math.Max(0, state.CatPhaseDeadline - AreaTime(conn));
+            // Onslaught row 215 is not a recovery row, so 0x1c1 carries no GrantedStats payload.
+            packets.Add(InstanceEntities.AddBuff(PlayerId, wanted, onslaught!.BuffRow, PlayerId,
+                u68: BitConverter.SingleToUInt32Bits(remaining)));
+            state.PresentedCatOnslaughtBuff = wanted;
+            state.PresentedCatOnslaughtPhaseBuff = state.PresentedCatPhaseBuff;
+        }
     }
 
     public static Task SendOwnAuraChanges(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,

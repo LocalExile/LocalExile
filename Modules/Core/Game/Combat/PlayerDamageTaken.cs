@@ -41,7 +41,8 @@ public static class PlayerDamageTaken
     ];
 
     const string Increased = "base_damage_taken_+%", ElementalIncreased = "elemental_damage_taken_+%",
-        MeleeIncreased = "melee_damage_taken_+%", FlatPhysicalFromAttacks = "physical_attack_damage_taken_+",
+        MeleeIncreased = "melee_damage_taken_+%", SpellIncreased = "base_spell_damage_taken_+%",
+        FlatPhysicalFromAttacks = "physical_attack_damage_taken_+",
         Blocked = "base_block_%_damage_taken", ElementalBlocked = "block_%_damage_taken_from_elemental";
 
     // Mind Over Matter's and Glancing Blows' flags have no value: their 40% and 65% are the keystones' own text (3.29 tree,
@@ -74,8 +75,8 @@ public static class PlayerDamageTaken
         .Concat(DamageTypes.ConversionOrder.Select(TypedManaBeforeLife).OfType<string>())
         .Concat(DamageTypes.ConversionOrder.Select(TypedAvoid))
         .Concat(DamageTypes.ConversionOrder.Select(TypedFlat))
-        .Concat([Increased, ElementalIncreased, MeleeIncreased, FlatPhysicalFromAttacks, Blocked, ElementalBlocked,
-            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach]);
+        .Concat([Increased, ElementalIncreased, MeleeIncreased, SpellIncreased, FlatPhysicalFromAttacks, Blocked, ElementalBlocked,
+            ManaShield, ManaBeforeLife, GlancingBlows, AvoidEach, ItemChargeDefences.ElementalHitTaken]);
 
     /// <summary>"X% chance to Avoid Fire Damage from Hits" and the other types', plus "... Damage of each Type": this
     /// type's chance that a hit deals none of it, at most 75% (wiki Avoidance).</summary>
@@ -89,8 +90,15 @@ public static class PlayerDamageTaken
     /// <summary>The hit without the types it avoids, each rolled once in the packet's order (physical, lightning, cold,
     /// fire, chaos), after the shift (the types taken). Avoiding damage does not stop the hit: when-hit effects still
     /// happen (wiki Avoidance). The same packet when nothing is avoided.</summary>
-    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided)
+    public static DamagePacket Avoid(DamagePacket hit, Func<string, int> get, Random random, out DamageType[] avoided,
+        bool projectile = false)
     {
+        if (projectile && RandomRolls.Chance((int)Math.Clamp((long)get("base_avoid_projectiles_%_chance")
+            + get("avoid_projectiles_%_chance"), 0, AvoidCap), 100, random))
+        {
+            avoided = [.. hit.Components.Select(c => c.Type)];
+            return DamagePacket.Empty;
+        }
         var kept = DamagePacket.Empty;
         var dropped = new List<DamageType>();
         foreach (var (type, range) in hit.Components)
@@ -118,10 +126,15 @@ public static class PlayerDamageTaken
     /// and, for a melee hit, "X% increased Damage taken from Melee Attacks": one increased value for this type, which adds
     /// to the shock's (PlayerElementalAilments.DamageTakenFactor), as PoB adds them to its takenInc. "X% reduced Damage
     /// taken while Leeching" (Brutal Fervour) joins it while is_leeching, as the client's damage taken sum does
-    /// (0x1427d25c0).</summary>
+    /// (0x1427d25c0). Spell-only increases need an explicit Spell hit context; secondary hits and damage over time omit it.</summary>
     public static int IncreasedPct(DamageType type, bool melee, Func<string, int> get) =>
-        get(Increased) + get(TypedIncreased(type)) + (DamageTypes.IsElemental(type) ? get(ElementalIncreased) : 0)
-        + (melee ? get(MeleeIncreased) : 0) + (get(Leeching) != 0 ? get(WhileLeeching) : 0);
+        IncreasedPct(type, melee, get, spell: false);
+
+    public static int IncreasedPct(DamageType type, bool melee, Func<string, int> get, bool spell) =>
+        ActorScale.Saturate((long)get(Increased) + get(TypedIncreased(type))
+            + (DamageTypes.IsElemental(type) ? (long)get(ElementalIncreased) + get(ItemChargeDefences.ElementalHitTaken) : 0)
+            + (melee ? get(MeleeIncreased) : 0) + (spell ? get(SpellIncreased) : 0)
+            + (get(Leeching) != 0 ? get(WhileLeeching) : 0));
 
     const string Leeching = "is_leeching", WhileLeeching = "damage_taken_+%_while_leeching";
 

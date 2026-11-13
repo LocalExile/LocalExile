@@ -37,7 +37,8 @@ public static partial class Game
 
     // One step of the player's debuffs on monsters, worked out at the send gate so a removed monster gets none: a taunt
     // shows the taunted buff (408) for its time left and goes when it ends, the monster dies or the player dies (wiki: a
-    // taunt ends when its source dies), and his hits' Intimidate, Unnerve and Blind (HitDebuffs) the same way; each enemy aura of his passives (Light of Divinity's Augury of Penitence, 2551)
+    // taunt ends when its source dies), and his hits' Intimidate and Unnerve (HitDebuffs) the same way; each enemy aura
+    // of his passives (Light of Divinity's Augury of Penitence, 2551)
     // and Born under Fire's) is on every hostile living monster within its radius of the player while he lives, and the
     // blind aura (SaboteurBlind) blinds them, shown with the blinded buff (PassiveBuffAuras.BlindState, Game.Blinded).
     // Pride adds its own enemy aura (BuffDefinitions 1331) with the ramp each monster keeps while it stays inside.
@@ -161,7 +162,6 @@ public static partial class Game
                     Timed(id, living, ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
                     Timed(id, living, ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
                     Timed(id, living, ref m.HinderedUntil, ref m.HinderShownUntil, ref m.HinderBuff, HinderedBuffRow, null);
-                    Timed(id, living, ref m.BlindedUntil, ref m.BlindShownUntil, ref m.BlindBuff, FlaskGrounds.BlindedBuffRow, null);
                     for (int i = 0; i < ExposureTypes.Length; i++)
                         if (!Timed(id, living, ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i],
                                 ExposureBuffRows[i], null))
@@ -209,12 +209,31 @@ public static partial class Game
                 int blindReach = blindRadius ?? 0;
                 int? radius = conn.PlayerLife > 0 && blindReach > 0 ? blindReach : null;
                 HashSet<uint> inside = radius is int r
-                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Mods.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
+                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 } && kv.Value.Effects["cannot_be_blinded"] == 0 && Dist(kv.Value.Walk.Position(now), here) <= r)
                         .Select(kv => kv.Key).ToHashSet()
                     : [];
                 foreach (var (id, buff, blinded) in conn.BlindAura.Reconcile(inside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
                 {
                     bytes.AddRange(blinded ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId) : InstanceEntities.RemoveBuff(id, buff));
+                    if (blinded) added++; else removed++;
+                }
+                // Physical Aegis blinds nearby enemies only while any capacity remains. It has its own instances, so
+                // depleting the Aegis removes only this source and leaves a timed hit Blind untouched.
+                var aegis = PhysicalAegisStatus(conn, now);
+                int aegisRadius = alive && aegis.Active && PhysicalAegisHasBlind(conn, aegis)
+                    ? PhysicalAegisRadius(conn, aegis) : 0;
+                HashSet<uint> aegisInside = aegisRadius > 0
+                    ? conn.Monsters.Where(kv => kv.Value is { Hostile: true, Dead: false, Life: > 0 }
+                            && kv.Value.Effects["cannot_be_blinded"] == 0
+                            && Dist(kv.Value.Walk.Position(now), here) <= aegisRadius)
+                        .Select(kv => kv.Key).ToHashSet()
+                    : [];
+                foreach (var (id, buff, blinded) in aegis.Blind.Reconcile(
+                    aegisInside, conn.Monsters.ContainsKey, () => conn.NextBuff++))
+                {
+                    bytes.AddRange(blinded
+                        ? InstanceEntities.AddBuff(id, buff, FlaskGrounds.BlindedBuffRow, PlayerId)
+                        : InstanceEntities.RemoveBuff(id, buff));
                     if (blinded) added++; else removed++;
                 }
                 if (bytes.Count == 0) return null;

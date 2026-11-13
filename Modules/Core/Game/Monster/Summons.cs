@@ -9,26 +9,30 @@ public static partial class Game
     const string SummonSaveKey = "Game.SummonedMinions";
     const string GuardianSaveKey = "Game.AnimatedGuardianEquipment";
 
-    internal static void SaveSummons(ClientState conn)
+    public static void SaveSummons(ClientState conn)
     {
-        if (!conn.Summons.Restored) return;
-        string text;
         lock (conn.Monsters)
-            text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
+        {
+            if (!conn.Summons.Restored) return;
+            double now = AreaTime(conn);
+            string text = JsonSerializer.Serialize(conn.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
                     && conn.Summons.Definitions[g.Id].Persistent)
-                .Select(g => SavedSummon(conn, g)).ToArray());
-        CharacterSaves.ChangeModuleData(CharacterName(conn), SummonSaveKey, _ => text);
-        CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => JsonSerializer.Serialize(conn.Summons.GuardianEquipment));
+                .Select(g => SavedSummon(conn, g, now)).ToArray());
+            string guardian = JsonSerializer.Serialize(conn.Summons.GuardianEquipment);
+            CharacterSaves.ChangeModuleData(CharacterName(conn), SummonSaveKey, _ => text);
+            CharacterSaves.ChangeModuleData(CharacterName(conn), GuardianSaveKey, _ => guardian);
+        }
     }
 
-    static SummonedMinions.Saved SavedSummon(ClientState conn, GolemState.Golem fighter)
+    static SummonedMinions.Saved SavedSummon(ClientState conn, GolemState.Golem fighter, double now)
     {
         var gem = SupportedSkill(conn, fighter.Source);
         var place = ItemsOf(conn).SocketedGemPlaces().FirstOrDefault(p => ReferenceEquals(p.Gem, gem.SourceGem));
         return new(fighter.Definition.Id, fighter.Source, fighter.Monster.Variety!.Id,
-            fighter.Monster.Life / (double)Math.Max(1, fighter.Monster.MaxLife),
+            SavedLifeFraction(fighter.Monster),
             fighter.Equipment.Count > 0 ? fighter.Equipment : null,
-            place.ItemId == 0 ? null : place.ItemId, place.ItemId == 0 ? null : place.Socket);
+            CaptureResources(fighter, now),
+            Host: place.ItemId == 0 ? null : place.ItemId, Socket: place.ItemId == 0 ? null : place.Socket);
     }
 
     internal static ushort RestoredSummonSource(ClientState conn, SummonedMinions.Saved saved) =>
@@ -112,13 +116,34 @@ public static partial class Game
     public static async Task<uint> SummonFighter(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target = 0,
         string? restoredVariety = null, double life = 1, Func<bool>? current = null,
-        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null, uint? replacing = null,
-        bool triggered = false)
+        Dictionary<byte, Item>? restoredEquipment = null, double? remaining = null,
+        GolemState.MinionResourceSnapshot? resources = null, bool legacyArrival = false,
+        GolemState.Golem? replacingOld = null, bool triggered = false)
     {
-        var gem = SupportedSkill(conn, source);
-        if (!gem.RequirementsMet || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
+        SupportedGem gem;
+        Dictionary<uint, int> player;
+        FreshSummonAdmission? fresh;
+        SummonReplacementAdmission? replacement;
+        GemSourceLifetimes.SourceLifetime? gemSource;
+        using (ProjectileMutation(conn, advance: false, phase: "summon replacement preparation"))
+        using (new PlayerStatScope(conn, fresh: true))
+        {
+            gem = SupportedSkill(conn, source);
+            player = CharacterPlayerStats(conn);
+            gemSource = gem.RequirementsMet
+                ? CaptureGemSourceLifetimeLocked(conn, source, gem.Effect) : null;
+            fresh = replacingOld is null
+                ? PrepareFreshSummonLocked(conn, source, gem, player, gemSource) : null;
+            replacement = replacingOld is null ? null
+                : PrepareReplacementLocked(conn, SummonReplacementFamily.Summon, replacingOld, source,
+                    gem.Effect, gem, player, AreaTime(conn));
+            if (replacingOld is not null && replacement is null) return 0;
+        }
+        if (!gem.RequirementsMet || gemSource is null || replacingOld is null && fresh is null
+            || SkillsFor(conn).EffectId(gem.Effect) != definition.Id) return 0;
         int limit = SummonLimit(conn, definition, gem);
         if (limit < 1) return 0;
+        if (resources is { Life: 0 } || legacyArrival && (!double.IsFinite(life) || life <= 0)) return 0;
         SpawnedMonster? corpse = null;
         AnimatedSource? animated = null;
         string path = restoredVariety ?? definition.Variety;
@@ -145,7 +170,6 @@ public static partial class Game
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
         byte level = (byte)Math.Clamp(actorLevel, 1, 100);
         var native = new GolemCatalog.Definition(gem.Effect, definition.Id, definition.Family, path, 0, [], false, false, false);
-        var player = CharacterPlayerStats(conn);
         var fighter = new GolemState.Golem(0, null!, native, source)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = gem.Stats, Player = new(player), Limit = limit };
         if (animated is not null)
@@ -155,39 +179,86 @@ public static partial class Game
             fighter.Gear = ItemModStats.Sum(items, ItemsFor(conn).Mods);
             if (fighter.Equipment.GetValueOrDefault((byte)2) is { } item) fighter.Weapon = WeaponIn(conn, (item, ItemsFor(conn).ByHash(item.TypeHash)));
         }
-        var mods = GolemModifiers(fighter, player);
-        uint maximum = GolemMaximumLife(variety, level, fighter, player);
-        fighter.Abilities = GolemAbilities(conn, variety, level, fighter, player);
-        fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
+        fighter.Utility = MinionOfferingStats(conn, AreaTime(conn));
+        var mods = GolemModifiers(conn, fighter, player);
+        var pools = GolemPools.Calculate(Monsters, variety, level, fighter, player, mods.Effects);
+        uint transportMaximum = pools.Fatal ? 1 : pools.MaximumLife;
+        uint maximumEnergyShield = NativeEnergyShield(pools.MaximumEnergyShield);
+        uint wireLife = pools.Fatal ? 1 : replacement is { } liveReplacement
+            ? Math.Min(liveReplacement.Resources.Life, pools.MaximumLife)
+            : resources is { } saved
+            ? Math.Min(saved.Life, pools.MaximumLife)
+            : (uint)Math.Clamp(pools.MaximumLife *
+                (double.IsFinite(life) ? Math.Clamp(life, 0, 1) : 0), 0, pools.MaximumLife);
+        uint energyShield = replacement is { } liveShield
+            ? Math.Min(liveShield.Resources.EnergyShield, maximumEnergyShield)
+            : resources is { } savedShield
+            ? Math.Min(savedShield.EnergyShield.Current, maximumEnergyShield)
+            : legacyArrival ? 0 : maximumEnergyShield;
+        if (!pools.Fatal)
+        {
+            fighter.Abilities = GolemAbilities(conn, variety, level, fighter, player);
+            fighter.Skills = GolemNativeSkills(conn, level, fighter.Abilities);
+        }
         if (!conn.Layout.WalkableFor(aim.X, aim.Y, 0)) aim = NextToPlayer(conn);
         var consumed = corpse;
         uint id = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Normal, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: MinionStats,
-            ownedSkills: fighter.Skills, ownedMaximumLife: maximum, damagedLife: (uint)Math.Clamp(life * maximum, 1, maximum),
+            ownedSkills: fighter.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
+            ownedEnergyShield: energyShield,
+            damagedLife: wireLife,
+            ownedInitialDeath: pools.Fatal,
             ownedLooks: SummonLooks(fighter),
-            ownedAdmission: () => animated?.Ground is not { } item || conn.Instance.Ground.Take(animated.Id, item) is not null,
+            ownedAdmission: () => (replacement is null || SummonReplacementCurrentLocked(conn, replacement))
+                && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(conn, guardian))
+                && (animated?.Ground is not { } item || conn.Instance.Ground.Take(animated.Id, item) is not null),
             ownedCurrent: () => conn.PlayerLife > 0 && (current?.Invoke() ?? true) && (consumed is null || !consumed.CorpseConsumed)
-                && (replacing is null || conn.Summons.Fighters.ContainsKey(replacing.Value))
-                && GemSkillInstanceDisabled(conn, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null,
+                && (replacement is { } admission
+                    ? SummonReplacementCurrentLocked(conn, admission)
+                    : fresh is { } captured && FreshSummonCurrentLocked(conn, captured)
+                        && GemSkillInstanceDisabled(conn, gem.Effect, source, triggered: triggered || restoredVariety is not null) is null),
             owned: (id, monster) =>
             {
                 if (consumed is not null) consumed.CorpseConsumed = true;
                 if (animated?.Ground is not null) conn.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));
                 if (definition.Family == "AnimatedGuardian") conn.Summons.GuardianEquipment = new(fighter.Equipment);
-                if (replacing is uint oldId && conn.Summons.Fighters.TryGetValue(oldId, out var old))
-                    RemoveSummonLocked(conn, old, AreaTime(conn));
-                while (conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == definition.Family && !g.Monster.Dead) >= limit)
+                while (replacement is null
+                    && conn.Summons.Fighters.Values.Count(g => g.Definition.Kind == definition.Family && !g.Monster.Dead) >= limit)
                     RemoveSummonLocked(conn, conn.Summons.Fighters.Values.Where(g => g.Definition.Kind == definition.Family && !g.Monster.Dead)
                         .MinBy(g => g.SummonedAt)!, AreaTime(conn));
-                fighter.Id = id; fighter.Monster = monster; fighter.SummonedAt = fighter.LastStep = AreaTime(conn);
-                fighter.Shield = fighter.MaximumShield = GolemShield(fighter, player);
+                double committed = AreaTime(conn);
+                SummonReplacementResources? committedResources = replacement is null
+                    ? null : CaptureReplacementResources(replacement.Old, committed);
+                fighter.Id = id; fighter.Monster = monster;
+                if (replacement is not null)
+                    TransferIncomingReplacementStateLocked(replacement.Old, fighter, committed);
+                if (replacement is not null) RetireReplacementLocked(conn, replacement, committed);
+                fighter.SummonedAt = replacement?.SummonedAt ?? committed;
+                fighter.LastStep = replacement?.LastStep ?? committed;
+                fighter.ShieldPool.SetMaximum(maximumEnergyShield,
+                    refill: committedResources is null && resources is null && !legacyArrival);
+                if (committedResources is { } liveResources)
+                {
+                    fighter.Regeneration = SavedLifeRegeneration(liveResources.LifeRegeneration);
+                    fighter.ShieldPool.Restore(liveResources.EnergyShieldCapture, committed);
+                }
+                else if (resources is { } savedResources)
+                {
+                    fighter.Regeneration = SavedLifeRegeneration(savedResources.LifeRegeneration);
+                    fighter.ShieldPool.Restore(savedResources.EnergyShield, committed);
+                }
+                else if (legacyArrival) fighter.ShieldPool.Interrupt(committed);
+                monster.Mods = mods;
                 conn.Summons.Fighters.Add(id, fighter); conn.Summons.Definitions[id] = definition;
-                conn.Summons.Until[id] = AreaTime(conn) + (remaining ?? SummonDuration(conn, definition, gem));
+                conn.Summons.Until[id] = replacement?.Until
+                    ?? committed + (remaining ?? SummonDuration(conn, definition, gem));
                 conn.Minions.Add(new(id, monster, definition.Id, definition.Family) { Until = conn.Summons.Until[id] });
                 monster.NoRewards = true; monster.Aggro = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
                     GolemReserveLocked(conn, fighter, fall, 0, null, aim, AreaTime(conn));
                 conn.Minions.StatRevision++;
+                if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(conn, fighter, committed);
+                if (pools.Fatal) GolemDieLocked(conn, fighter, AreaTime(conn), emitLife: false);
             });
         return id;
     }
@@ -221,12 +292,14 @@ public static partial class Game
                     {
                         ushort source = RestoredSummonSource(conn, old);
                         if (source != 0) await SummonFighter(remote, stream, ciphers, conn, source, definition,
-                            NextToPlayer(conn), restoredVariety: old.Variety, life: old.Life, restoredEquipment: old.Equipment);
+                            NextToPlayer(conn), restoredVariety: old.Variety, life: old.Life, restoredEquipment: old.Equipment,
+                            resources: old.Resources, legacyArrival: old.Resources is null);
                     }
             }
         }
         bool changed = false;
-        var rescaled = new List<(GolemState.Golem Old, SummonCatalog.Definition Definition)>();
+        var rescaled = new List<(GolemState.Golem Old, SummonCatalog.Definition Definition,
+            Dictionary<byte, Item>? Equipment, string Variety, (int X, int Y) Aim)>();
         using (ProjectileMutation(conn))
         {
             if (!CurrentGameWork || conn.Closed || conn.LeavingArea || conn.Paused) return;
@@ -250,18 +323,21 @@ public static partial class Game
                 { RemoveSummonLocked(conn, fighter, now); changed = true; continue; }
                 int actorLevel = GolemStat(gem.Stats, fighter.Definition.Kind == "Spectre" ? "raised_spectre_level" : "base_display_minion_actor_level");
                 if (actorLevel > 0 && actorLevel != fighter.Monster.Level)
-                { rescaled.Add((fighter, state.Definitions[fighter.Id])); continue; }
+                {
+                    rescaled.Add((fighter, state.Definitions[fighter.Id],
+                        fighter.Equipment.Count > 0 ? fighter.Equipment : null, fighter.Monster.Variety!.Id,
+                        fighter.Monster.Walk.Position(now)));
+                    continue;
+                }
                 fighter.Own = gem.Stats; fighter.GemLevel = gem.Level; fighter.Quality = gem.Quality;
                 RefreshGolemLocked(conn, fighter, player);
                 GolemStepLocked(remote, stream, ciphers, conn, fighter, now);
             }
         }
-        foreach (var (old, definition) in rescaled)
-            if (await SummonFighter(remote, stream, ciphers, conn, old.Source, definition, old.Monster.Walk.Position(now),
-                restoredVariety: old.Monster.Variety!.Id, life: old.Monster.Life / (double)old.Monster.MaxLife,
-                restoredEquipment: old.Equipment.Count > 0 ? old.Equipment : null, remaining: Math.Max(0, state.Until[old.Id] - now), replacing: old.Id) != 0)
-                lock (conn.Monsters)
-                { if (state.Fighters.ContainsKey(old.Id)) RemoveSummonLocked(conn, old, now); changed = true; }
+        foreach (var (old, definition, equipment, variety, aim) in rescaled)
+            if (await SummonFighter(remote, stream, ciphers, conn, old.Source, definition, aim,
+                restoredVariety: variety, restoredEquipment: equipment, replacingOld: old) != 0)
+                changed = true;
         if (changed) SaveSummons(conn);
     }
 

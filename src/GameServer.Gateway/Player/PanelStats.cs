@@ -39,6 +39,9 @@ public static class PanelStats
     const string ElementalPenetration = "reduce_enemy_elemental_resistance_%", PenetrateElemental = "base_penetrate_elemental_resistances_%";
     const string WeaponElementalPenetration = "reduce_enemy_elemental_resistance_with_weapons_%";
     const string IgniteChance = "base_chance_to_ignite_%", FreezeShockIgniteChance = "chance_to_freeze_shock_ignite_%";
+    const string ProjectileBleed = "projectile_attacks_chance_to_bleed_on_hit_%_if_you_have_beast_minion";
+    const string ProjectilePoison = "projectile_attacks_chance_to_poison_on_hit_%_if_you_have_beast_minion";
+    const string ProjectileMaim = "projectile_attacks_chance_to_maim_on_hit_%_if_you_have_beast_minion";
 
     static readonly Src[] GlobalFlaskDurationSources =
         ["flask_duration_+%", new("flask_duration_+%_per_level", PerPlayerLevel: true)];
@@ -96,6 +99,7 @@ public static class PanelStats
         .. Hands(h => new($"virtual_total_{h}_chance_to_ignite_on_hit_%", [IgniteChance, FreezeShockIgniteChance])),
         .. Hands(h => new($"virtual_total_{h}_chance_to_poison_on_hit_%",
             ["base_chance_to_poison_on_hit_%", "chance_to_poison_on_hit_with_attacks_%"], Local: ["local_poison_on_hit_%"])),
+        .. Hands(h => new($"{h}_maim_on_hit_%", ["maim_on_hit_%"])),
         .. Hands(h => new($"virtual_total_{h}_impale_on_hit_%_chance", ["attacks_impale_on_hit_%_chance", "impale_on_hit_%_chance"],
             Local: ["local_attacks_impale_on_hit_%_chance"])),
         .. Hands(h => new($"{h}_attack_damage_penetrates_fire_resist_%", ["base_reduce_enemy_fire_resistance_%", ElementalPenetration,
@@ -183,10 +187,8 @@ public static class PanelStats
         new("virtual_power_charge_duration_+%", ["power_charge_duration_+%", ChargeDuration, BaseChargeDuration]),
         new("attack_speed_+%_per_frenzy_charge", ["base_attack_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%_per_frenzy_charge"]),
         new("cast_speed_+%_per_frenzy_charge", ["base_cast_speed_+%_per_frenzy_charge", "attack_and_cast_speed_+%_per_frenzy_charge"]),
-        // Spirit and Siphoning Charges: the direct maximum sources. Their per-equipped-item sources (abyss jewels,
-        // Elder/Shaper items) count items the server does not model, so they contribute nothing yet; the siphoning
-        // damage-taken row shows its per-charge coefficient as the panel's "Physical Damage per Second per Siphoning
-        // Charge". The counts themselves (current_*) belong to charge mechanics that do not exist yet.
+        // Spirit maximum sources and Siphoning's per-charge display coefficient. The Siphoning owner publishes its
+        // count and equipment-qualified maximum separately; this display coefficient is not a degeneration rate.
         new("virtual_maximum_spirit_charges", ["maximum_spirit_charges"]),
         new("virtual_physical_damage_taken_per_minute_per_siphoning_charge",
             ["physical_damage_taken_per_minute_per_siphoning_charge_if_have_used_a_skill_recently"]),
@@ -239,7 +241,8 @@ public static class PanelStats
     /// by Stats.dat Id, 0 when absent) and each hand's local weapon stats, and whether each hand holds a weapon.</summary>
     public static List<(string Stat, int Value)> Compute(Func<string, int> get,
         Func<string, int>? mainHand = null, Func<string, int>? offHand = null, int playerLevel = 1,
-        bool mainArmed = false, bool offArmed = false)
+        bool mainArmed = false, bool offArmed = false, bool mainProjectileAttack = false,
+        bool offProjectileAttack = false)
     {
         playerLevel = Math.Clamp(playerLevel, 1, Progression.MaxLevel);
         var result = new List<(string, int)>();
@@ -248,7 +251,9 @@ public static class PanelStats
             var local = sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null };
             bool blocked = Penetration.IsElementalDisplay(sum.Display) && get(Penetration.ElementalProhibition) != 0;
             bool armed = sum.Hand switch { Hand.Main => mainArmed, Hand.Off => offArmed, _ => false };
-            int value = blocked ? 0 : Project(sum, RawSum(sum, get, local, playerLevel) + (armed ? Total(sum.Armed, get, playerLevel) : 0));
+            long raw = RawSum(sum, get, local, playerLevel) + (armed ? Total(sum.Armed, get, playerLevel) : 0)
+                + QualifiedProjectileChance(sum, get, mainProjectileAttack, offProjectileAttack);
+            int value = blocked ? 0 : Project(sum, BleedFlags(sum, raw, name => get(name), local));
             if (value != 0 || blocked) result.Add((sum.Display, value));
         }
         return result;
@@ -264,8 +269,38 @@ public static class PanelStats
         get(sum.Display) + Total(sum.Sources, get, level) + Total(sum.Local, local, level);
 
     static int Project(Sum sum, long value) => sum.Flag ? value > 0 ? 1 : 0
-        : ImpaleStats.IsDisplay(sum.Display) ? (int)Math.Clamp(value, 0, 100)
+        : ImpaleStats.IsDisplay(sum.Display) || IsAilmentChanceDisplay(sum.Display) ? (int)Math.Clamp(value, 0, 100)
         : (int)Math.Clamp(value, int.MinValue, int.MaxValue);
+
+    static bool IsAilmentChanceDisplay(string display) => display is
+        "virtual_total_main_hand_chance_to_bleed_on_hit_%" or "virtual_total_off_hand_chance_to_bleed_on_hit_%" or
+        "virtual_total_main_hand_chance_to_poison_on_hit_%" or "virtual_total_off_hand_chance_to_poison_on_hit_%" or
+        "main_hand_maim_on_hit_%" or "off_hand_maim_on_hit_%";
+
+    static long BleedFlags(Sum sum, long chance, Func<string, long> get, Func<string, int>? local)
+    {
+        if (sum.Display is not ("virtual_total_main_hand_chance_to_bleed_on_hit_%"
+            or "virtual_total_off_hand_chance_to_bleed_on_hit_%")) return chance;
+        if (get("cannot_cause_bleeding") != 0 || get("never_damaging_ailments") != 0) return 0;
+        return get("global_bleed_on_hit") != 0 || (local?.Invoke("local_bleed_on_hit") ?? 0) != 0 ? 100 : chance;
+    }
+
+    static string? QualifiedProjectileSource(Sum sum) => sum.Display switch
+    {
+        "virtual_total_main_hand_chance_to_bleed_on_hit_%" or "virtual_total_off_hand_chance_to_bleed_on_hit_%" =>
+            ProjectileBleed,
+        "virtual_total_main_hand_chance_to_poison_on_hit_%" or "virtual_total_off_hand_chance_to_poison_on_hit_%" =>
+            ProjectilePoison,
+        "main_hand_maim_on_hit_%" or "off_hand_maim_on_hit_%" => ProjectileMaim,
+        _ => null,
+    };
+
+    static long QualifiedProjectileChance(Sum sum, Func<string, int> get,
+        bool mainProjectileAttack, bool offProjectileAttack)
+    {
+        if (sum.Hand == Hand.Main ? !mainProjectileAttack : sum.Hand == Hand.Off && !offProjectileAttack) return 0;
+        return QualifiedProjectileSource(sum) is { } source ? get(source) : 0;
+    }
 
     static readonly Sum[] SelectedSums = [.. Sums.Where(s => s.Display is "skill_area_of_effect_+%"
         or "display_skill_increased_item_rarity_+%" or "display_skill_increased_item_quantity_+%" or "virtual_minion_damage_+%" or "brands_per_target_limit"
@@ -280,6 +315,7 @@ public static class PanelStats
         or "virtual_total_spell_impale_on_hit_%_chance"
         || s.Display.Contains("_chance_to_poison_on_hit_%", StringComparison.Ordinal)
         || s.Display.Contains("_chance_to_bleed_on_hit_%", StringComparison.Ordinal)
+        || s.Display.Contains("_maim_on_hit_%", StringComparison.Ordinal)
         || s.Display.Contains("_chance_to_ignite_on_hit_%", StringComparison.Ordinal)
         || s.Display.Contains("_attack_damage_penetrates_", StringComparison.Ordinal)
         || s.Display.Contains("_leech_from_", StringComparison.Ordinal)
@@ -290,7 +326,8 @@ public static class PanelStats
     /// Published character aliases must not be passed back as raw seeds.</summary>
     public static List<(string Stat, int Value)> Selected(Func<string, int> character, Func<string, int> own,
         int playerLevel = 1, Func<string, int>? mainHand = null, Func<string, int>? offHand = null,
-        bool mainArmed = false, bool offArmed = false)
+        bool mainArmed = false, bool offArmed = false, bool mainProjectileAttack = false,
+        bool offProjectileAttack = false)
     {
         int level = Math.Clamp(playerLevel, 1, Progression.MaxLevel);
         bool blockElemental = character(Penetration.ElementalProhibition) != 0 || own(Penetration.ElementalProhibition) != 0;
@@ -299,9 +336,14 @@ public static class PanelStats
             + sum.Sources.Sum(s => Combined(s.Name) * s.Mul * (s.PerPlayerLevel ? level : 1) / s.Div)
             + Total(sum.Local, sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null }, level)
             + (sum.Hand switch { Hand.Main => mainArmed, Hand.Off => offArmed, _ => false }
-                ? sum.Armed?.Sum(s => Combined(s.Name) * s.Mul / s.Div) ?? 0 : 0);
+                ? sum.Armed?.Sum(s => Combined(s.Name) * s.Mul / s.Div) ?? 0 : 0)
+            + (QualifiedProjectileSource(sum) is { } source
+                && (sum.Hand == Hand.Main ? mainProjectileAttack : sum.Hand == Hand.Off && offProjectileAttack)
+                    ? Combined(source) : 0);
         return [.. SelectedSums.Select(sum => (sum.Display,
-            blockElemental && Penetration.IsElementalDisplay(sum.Display) ? 0 : Project(sum, SelectedSum(sum))))];
+            blockElemental && Penetration.IsElementalDisplay(sum.Display) ? 0
+                : Project(sum, BleedFlags(sum, SelectedSum(sum), Combined,
+                    sum.Hand switch { Hand.Main => mainHand, Hand.Off => offHand, _ => null }))))];
     }
 
     /// <summary>The global duration coefficient shared by the panel and actual flask uses. The display's virtual
@@ -364,11 +406,13 @@ public static class PanelStats
         var result = new List<(string, int)>();
         int projectileBlock = get("additional_block_chance_against_projectiles_%");
         if (projectileBlock != 0)
-            result.Add(("projectile_attack_block_%", Math.Clamp(pools.BlockChanceUncapped + projectileBlock, 0, pools.BlockChanceMax)));
+            result.Add(("projectile_attack_block_%", pools.AttackBlockAtMaximum ? pools.BlockChanceMax
+                : Math.Clamp(pools.BlockChanceUncapped + projectileBlock, 0, pools.BlockChanceMax)));
         int spellProjectileBlock = get("base_spell_projectile_block_%");
         if (spellProjectileBlock != 0)
         {
-            result.Add(("spell_projectile_block_%", Math.Clamp(pools.SpellBlockChance + spellProjectileBlock, 0, pools.SpellBlockChanceMax)));
+            result.Add(("spell_projectile_block_%", pools.SpellBlockAtMaximum ? pools.SpellBlockChanceMax
+                : Math.Clamp(pools.SpellBlockChance + spellProjectileBlock, 0, pools.SpellBlockChanceMax)));
             result.Add(("spell_block_differs_against_projectiles", 1));
         }
         int chaosDot = get("additional_chaos_resistance_against_damage_over_time_%");

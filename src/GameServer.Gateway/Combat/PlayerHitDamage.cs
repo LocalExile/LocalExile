@@ -7,10 +7,12 @@ using GameServer.Core.World;
 /// </summary>
 public static class PlayerHitDamage
 {
+    public const string VsBlindedDamageStat = "hit_and_ailment_damage_+%_vs_blinded_enemies";
+
     public static DamagePacket Resolve(DamagePacket raw, Func<string, int> get, DamageConversion conversion,
         bool spell, bool melee = false, bool area = false, bool projectile = false,
         IEnumerable<(string Name, int Value)>? supportModifiers = null, IReadOnlySet<int>? skillTypes = null,
-        bool secondary = false, bool wieldingWand = false, bool retaliation = false, bool wieldingBow = false)
+        bool secondary = false, bool wieldingWand = false, bool retaliation = false, long additionalIncreased = 0, bool wieldingBow = false)
     {
         // Secondary damage (Bear Trap, Herald of Ice's shatter) is neither an attack nor a spell: only the generic,
         // area and projectile buckets apply, and no attack/spell support classification.
@@ -28,7 +30,8 @@ public static class PlayerHitDamage
         double common = (double)get("damage_+%") + (secondary ? 0 : get(spell ? "spell_damage_+%" : "attack_damage_+%"))
             + (melee ? get("melee_damage_+%") : 0) + (area ? get("area_damage_+%") : 0)
             + (projectile ? get("projectile_damage_+%") : 0)
-            + (spell || secondary ? 0 : DamageStats.SpellAttackIncrease(get, wieldingWand, retaliation));
+            + (spell || secondary ? 0 : DamageStats.SpellAttackIncrease(get, wieldingWand, retaliation))
+            + additionalIncreased;
         // Iron Will: Strength's damage bonus applies to spell damage.
         double strength = DamageStats.StrengthDamageBonus(get);
         if (spell && get("strong_casting") != 0) common += strength;
@@ -93,6 +96,7 @@ public static class PlayerHitDamage
 
     static double SpellMore(Func<string, int> get, DamageTypeHistory history) =>
         Math.Max(0, 1 + get("spell_damage_aura_spell_damage_+%_final") / 100.0)
+        * Math.Max(0, 1 + get("righteous_fire_spell_damage_+%_final") / 100.0)
         // Arcane Surge's own more Spell Damage (Arcane Blessing), a stat of the buff on the player.
         * Math.Max(0, 1 + get("spell_damage_+%_final_from_arcane_surge") / 100.0)
         * ((history & DamageTypeHistory.Lightning) != 0

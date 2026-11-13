@@ -16,7 +16,10 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own)
     {
         int ms = skills.CooldownMs(effect, level);
-        bool castable = skills.IsSpell(effect) || skills.IsAttack(effect) || skills.IsWarcry(effect);
+        // The hidden "Trigger level X Summon Spirit of ..." skills (the Ancestral Spirit options and the Loyalty
+        // tattoos) are neither spells, attacks nor warcries, but their shared cooldown is still a plain stored use.
+        bool castable = skills.EffectId(effect) == "Unhinge" || skills.IsSpell(effect) || skills.IsAttack(effect) || skills.IsWarcry(effect)
+            || skills.EffectId(effect)?.StartsWith("TriggerSummonedAncestor", StringComparison.Ordinal) == true;
         if (ms <= 0 || skills.CooldownUses(effect, level) <= 0 || skills.CooldownPausesWhileActive(effect) || !castable)
             return null;
         int Get(IReadOnlyDictionary<uint, int> values, string name) => catalog.Key(name) is uint key ? values.GetValueOrDefault(key) : 0;

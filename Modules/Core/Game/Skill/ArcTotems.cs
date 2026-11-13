@@ -14,6 +14,7 @@ public static partial class Game
 
         var skill = SupportedSkill(conn, totem.SkillId);
         var caster = TotemCasterStats(CharacterPlayerStats(conn));
+        var blind = BlindHitInput.Capture(caster, skill.Stats);
         var stats = MergeSkillStats(caster, skill.Stats);
         int Get(string name) => GolemStat(stats, name);
         var inputs = SupportedHitInputsFor(conn, totem.SkillId, area: false, totem: true);
@@ -44,7 +45,8 @@ public static partial class Game
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: (ushort)(crit ? 0x4221 : 0x4201),
                 kind: 3, code: HitCode(hit)));
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(conn, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared);
+                AilmentsOnHitLocked(conn, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, Random.Shared,
+                    blind: blind);
             CommitAcceptedHitLocked(conn, id, m, accepted, damage, now, "Arc totem", playerKill: false);
         }
 

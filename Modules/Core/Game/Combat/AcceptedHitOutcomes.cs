@@ -8,6 +8,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> player)
     {
         if (conn.PlayerLife == 0) return;
+        foreach (var e in accepted) TryGainElusiveLocked(conn, e.Critical && !e.KillEvent, e.KillEvent, e.At);
         var session = ChargesOf(conn);
         int Get(string name) => Stats.Key(name) is uint key ? player.GetValueOrDefault(key) : 0;
         session.Observe(Get);

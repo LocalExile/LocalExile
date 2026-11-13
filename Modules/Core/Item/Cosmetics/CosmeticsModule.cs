@@ -67,14 +67,32 @@ public static class CosmeticsFeature
     // server-made art the next time it is cast).
     internal static async Task PickSkillCosmetic(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, (uint Key, uint RecordId) pick)
     {
-        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
-        if (!conn.SkillSlots.TryGetValue(pick.Key, out var slot)
-            || !SkillCosmeticPlaces(conn).Contains((slot.Inventory, slot.Socket, slot.GemHash, slot.SlotType))
-            || (pick.RecordId != 0 && (record is null || ItemsFor(conn).ByHash(slot.GemHash) is not { } gem
-                || !MtxEffects.FitsSkill(record.MtxTypeHash, gem, slot.SlotType))))
+        InstanceMicrotransactions.SkillSlot slot;
+        InstanceMicrotransactions.Record? record;
+        RighteousFireState? expectedRelight;
+        using (ProjectileMutation(conn, advance: false, phase: "skill cosmetic pick"))
         {
-            Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
-            return;
+            if (!CurrentGameWork || conn.Closed || conn.LeavingArea)
+                return;
+            record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+            if (!conn.SkillSlots.TryGetValue(pick.Key, out var current))
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
+                return;
+            }
+            slot = current!;
+            if (!SkillCosmeticPlaces(conn).Contains((slot.Inventory, slot.Socket, slot.GemHash, slot.SlotType))
+                || (pick.RecordId != 0 && (record is null || ItemsFor(conn).ByHash(slot.GemHash) is not { } gem
+                    || !MtxEffects.FitsSkill(record.MtxTypeHash, gem, slot.SlotType))))
+            {
+                Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
+                return;
+            }
+            Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
+                $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
+            CharacterSaves.SetSkillCosmetic(CharacterName(conn), slot.GemHash, slot.SlotType,
+                record is null ? null : new CharacterSaves.SavedCosmetic(record.Id, 0));
+            expectedRelight = conn.RighteousFire;
         }
         Console.WriteLine($"[gateway] {remote} <= 0x01fa skill cosmetic pick: key {pick.Key} (gem 0x{slot.GemHash:x8}, slot type {slot.SlotType}), " +
             $"record {pick.RecordId} (hash 0x{record?.MtxTypeHash ?? 0:x8}, stats {string.Join(", ", (record is null ? null : MtxEffects.Of(record.MtxTypeHash))?.Stats.Select(st => $"{Stats.Name(st.Stat)} {st.Value}") ?? [])})");
@@ -82,8 +100,8 @@ public static class CosmeticsFeature
         await SendWornCosmetics(remote, stream, ciphers, conn, "after the skill pick");
         await SendSkills(remote, stream, ciphers, conn);
         // A Righteous Fire already burning from this gem takes the new art at once: casting again while it burns does
-        // nothing, so it is lit again with the new ring and buff visuals.
-        await RelightRighteousFire(remote, stream, ciphers, conn, "restyled by the skill pick", slot.GemHash);
+        // nothing, so it is lit again with the new ring and buff visuals only while the exact pick-time owner still exists.
+        await RelightRighteousFire(remote, stream, ciphers, conn, "restyled by the skill pick", expectedRelight, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole

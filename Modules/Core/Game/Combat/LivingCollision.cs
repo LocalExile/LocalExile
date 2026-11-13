@@ -150,7 +150,7 @@ public static partial class Game
             { Destination = conn.Walk.Destination, Auras = conn.PlayerLife == 0 || InTown(conn) ? []
                 : conn.Auras.Values.Where(a => AuraCatalog.Shared(a.EffectId)).Select(a => new SharedAura(a,
                     AuraRadius.Of(a, conn.Pools.AuraAreaPct, SkillsFor(conn), Stats),
-                    conn.Pools.AuraEffectPct + a.SupportEffectPct)).ToArray() });
+                    conn.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(conn)).ToArray() });
     }
 
     // Stats.dat use_town_stance (row 21140; a stat key is its row + 1).

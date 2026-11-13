@@ -12,7 +12,7 @@ static partial class Game
     internal static Task ScheduleLightningStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
-        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt)
+        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -28,7 +28,7 @@ static partial class Game
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration / (repeats + 1)), Valid, () =>
                 ReleaseLightningStrike(remote, stream, ciphers, conn, session, skillId, gem, from, aim, targetId,
-                    criticalRoll, sequence, index));
+                    criticalRoll, sequence, index, cryExerted));
         }
         return Task.CompletedTask;
     }
@@ -36,7 +36,8 @@ static partial class Game
     internal static ProjectileUse ReleaseLightningStrike(string remote, NetworkStream stream, ConnectionCiphers ciphers,
         ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0)
+        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0,
+        bool cryExerted = false)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         uint primary = LightningStrikeTarget(conn, from, aim, targetId, now);
@@ -52,12 +53,12 @@ static partial class Game
             var melee = AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from, at,
                 immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: primary,
                 radiusOverride: WeaponFor(conn).Range + monster.StopRange, damageMore: more,
-                singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session);
+                singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session, cryExerted: cryExerted);
             if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Lightning Strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
         var use = ClientDrawnVolley(conn, session, skillId, gem,
-            CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence), sequence, 0);
+            CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted), sequence, 0);
         var shot = (ProjectileOffense)use.Payload!;
         return use with
         {

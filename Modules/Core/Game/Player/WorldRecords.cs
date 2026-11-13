@@ -1,4 +1,4 @@
-using System.Buffers.Binary;
+﻿using System.Buffers.Binary;
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.Protocol.Instance;
@@ -83,7 +83,8 @@ public static partial class Game
     // A declared single create; its common header is not inferred from an opaque concatenated send.
     public static async Task<bool> SendWorldCreate(ClientState conn, uint id, Func<byte[]?> create,
         string? log = null, Func<bool>? still = null, bool wake = false,
-        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null)
+        (string Remote, NetworkStream Stream, ConnectionCiphers Ciphers)? transport = null,
+        IReadOnlyList<byte[]>? afterBirth = null)
     {
         var wire = transport ?? conn.Wire;
         if (!conn.LockstepClient)
@@ -93,7 +94,8 @@ public static partial class Game
             {
                 if (create() is not { } bytes) return null;
                 sent = true;
-                return wake ? [.. bytes, .. InstanceProtocol.EnterWakeZone(id)] : bytes;
+                return [.. bytes, .. wake ? InstanceProtocol.EnterWakeZone(id) : [],
+                    .. (afterBirth ?? []).SelectMany(p => p)];
             });
             return sent;
         }
@@ -111,8 +113,11 @@ public static partial class Game
             BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(10), 0);
             birth ??= admission.NewObject(id);
             OutputRecord born = OutputRecord.Create(birth, bytes, log);
-            return wake ? new(born, OutputRecord.AfterBirth(birth, WorldOrder.First, InstanceProtocol.EnterWakeZone(id)))
-                : new(born);
+            var records = new List<OutputRecord> { born };
+            if (wake) records.Add(OutputRecord.AfterBirth(birth, WorldOrder.First, InstanceProtocol.EnterWakeZone(id)));
+            foreach (var packet in afterBirth ?? [])
+                records.Add(OutputRecord.AfterBirth(birth, RecordOrder(packet, id), packet));
+            return new([.. records]);
         }, still, transport: transport, creates: reservations);
         // A producer may only start an action after the create's delimiter. No gameplay lock is held here.
         return admitted && (QuestKillCommitOutput is not null || await conn.WorldOutput.AwaitBirths([birth!]));

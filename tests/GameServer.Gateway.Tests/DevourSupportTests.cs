@@ -20,6 +20,8 @@ public sealed class DevourSupportTests
             Pools = new(100, 1000, 1000, int.MaxValue, 0),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
         };
+        conn.Clock.Stop();
+        double now = conn.Clock.Elapsed.TotalSeconds;
         try
         {
             var skill = new Dictionary<uint, int>();
@@ -44,11 +46,16 @@ public sealed class DevourSupportTests
             Assert.Equal(520u, conn.PlayerLife);
             Assert.Equal(110u, conn.PlayerMana);
             Assert.True(corpse.DevourCorpse);
-            Assert.True(Game.ConsumeDevouredCorpseLocked(conn, 1, corpse, 0));
+            Game.ChargesOnKill(conn, corpse);
+            Assert.Equal(1L, conn.RecentEvents.Amounts(now)[StatConditions.KilledEnemy]);
+            Assert.True(Game.ConsumeDevouredCorpseLocked(conn, 1, corpse, now));
             Assert.True(corpse.CorpseConsumed);
             Assert.False(corpse.DevourCorpse);
             Assert.False(conn.Monsters.ContainsKey(1));
-            Assert.False(Game.ConsumeDevouredCorpseLocked(conn, 1, corpse, 0));
+            Assert.True(conn.RecentEvents.Happened(StatConditions.ConsumedCorpse, now));
+            Assert.Equal(1L, conn.RecentEvents.Amounts(now)[StatConditions.KilledEnemy]);
+            Assert.False(Game.ConsumeDevouredCorpseLocked(conn, 1, corpse, now));
+            Assert.False(conn.RecentEvents.Happened(StatConditions.ConsumedCorpse, now + 4));
 
             // A shattered corpse is already gone: the support's recovery still applies, but there is no object to remove.
             var shattered = new SpawnedMonster("shattered", new(0, 0, 0), 0, 0, 100)

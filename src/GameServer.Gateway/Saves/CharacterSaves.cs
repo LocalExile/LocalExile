@@ -192,12 +192,35 @@ public static class CharacterSaves
     public static void SetStance(string character, string stance) => Update(character, save => save with { Stance = stance });
 
     /// <summary>Persist aura intent by stable GrantedEffects Id, replacing any alias of the same aura family.</summary>
-    public static void SetAuraActive(string character, string effect, bool active) => Update(character, save =>
+    public static void SetAuraActive(string character, string effect, bool active)
     {
-        string family = AuraCatalog.Family(effect);
-        var auras = (save.ActiveAuras ?? []).Where(id => AuraCatalog.Family(id) != family).ToList();
-        if (active) auras.Add(effect);
-        return save with { ActiveAuras = auras };
+        if (StanceCatalog.IsSource(effect))
+        {
+            Update(character, save =>
+            {
+                string family = StanceCatalog.SourceFamily(effect);
+                var auras = (save.ActiveAuras ?? []).Where(id => StanceCatalog.SourceFamily(id) != family).ToList();
+                string selected = family == StanceCatalog.BloodAndSand
+                    ? StanceCatalog.PersistedSelection(effect, save.Stance)
+                    : StanceCatalog.Selection(save.Stance ?? StanceCatalog.BloodSelection);
+                if (active) auras.Add(StanceCatalog.RuntimeEffectId(effect, selected));
+                return save with { ActiveAuras = auras };
+            });
+            return;
+        }
+        Update(character, save =>
+        {
+            string family = AuraCatalog.Family(effect);
+            var auras = (save.ActiveAuras ?? []).Where(id => AuraCatalog.Family(id) != family).ToList();
+            if (active) auras.Add(effect);
+            return save with { ActiveAuras = auras };
+        });
+    }
+
+    /// <summary>The selected stance is one canonical choice; Blood is implicit when no state is saved.</summary>
+    public static void SetActiveStance(string character, string? selected) => Update(character, save => save with
+    {
+        Stance = selected,
     });
 
     /// <summary>Whether Petrified Blood should be running after entering an area (its own intent; it is not an

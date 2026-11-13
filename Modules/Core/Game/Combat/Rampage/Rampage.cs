@@ -34,7 +34,11 @@ public static partial class Game
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? player = null)
     {
         var result = TakeDamageLocked(m, damage);
-        if (m.Life > 0 && result.Life == 0) RampageOnKillLocked(conn, m, rampageSource, player);
+        if (m.Life > 0 && result.Life == 0)
+        {
+            CaptureMadnessExplosionLocked(conn, m);
+            RampageOnKillLocked(conn, m, rampageSource, player);
+        }
         return result;
     }
 

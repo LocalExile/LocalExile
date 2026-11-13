@@ -7,7 +7,7 @@ public sealed class StormCallMarkers
 {
     /// <param name="Use">The cast's critical roll, carried to the strike.</param>
     public sealed record Marker(uint Object, ushort Skill, (int X, int Y) At, double StrikeAt, int Repeat, int Epoch,
-        int AddedChaos, object? Use);
+        long AddedChaos, object? Use);
 
     readonly List<Marker> pending = [];
 

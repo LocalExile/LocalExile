@@ -108,8 +108,8 @@ public static partial class Game
                         if (!Active || !valid()) return;
                         try
                         {
-                            var use = release() with { Seed = ++seed };
-                            long useId = Runtime.Release(use);
+                            var use = release();
+                            long useId = Release(use);
                             if (ServerTrace.Projectiles && !Quiet(use.Payload))
                                 Console.WriteLine($"[gateway] {remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
                                     + $"skill={PayloadLabel(use.Payload)} metadata={use.Profile.Id} count={use.Profile.Count} "
@@ -121,6 +121,7 @@ public static partial class Game
         }
 
         public double NowTicks => Runtime.Now;
+        public long Release(ProjectileUse use) => Runtime.Release(use with { Seed = ++seed });
 
         public void Invalidate()
         {
@@ -295,6 +296,8 @@ public static partial class Game
             if (!Active) return ProjectileHitResult.Miss;
             // A monster's shot: the player is the target and the monster's damage pipeline commits the hit.
             if (contact.Projectile.Use.Payload is HostileProjectileOffense hostile) return HostileHit(this, contact, hostile);
+            // A player minion's shot: a hostile monster is the target and the existing minion outcome pipeline owns it.
+            if (contact.Projectile.Use.Payload is MinionProjectileOffense minion) return MinionProjectileHit(this, contact, minion);
             // A server object's shot (a trial's dart trap): its own rule commits the hit.
             if (contact.Projectile.Use.Payload is ObjectProjectileOffense thrown) return thrown.Hit(this, contact);
             if (contact.Projectile.Use.Payload is not ProjectileOffense shot || shot.Valid?.Invoke() == false)
@@ -313,9 +316,12 @@ public static partial class Game
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 bool crit = random.Next(10000) < shot.CriticalChance;
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
-                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target, shot.CriticalMultiplier));
+                if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
+                    shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
                 var ownedHit = ApplyMonsterHitLocked(Conn, target, ownedDamage, rampageSource: true);
                 if (ownedHit is null) return ProjectileHitResult.Miss;
+                Conn.RecentEvents.RecordCriticalOutcome(
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond, crit);
                 if (ownedHit.Value.StageStarts) CommitProjectileBossStage(this, contact.Target.Id, target, contact.At);
                 var stun = RampageStatusLocked(Conn, contact.Target.Id, target, shot.RampageSkill,
                     contact.At / (double)ProjectileRuntime.QuantaPerSecond);
@@ -334,7 +340,11 @@ public static partial class Game
                     Enqueue(() => SendRampageStun(remote, stream, ciphers, Conn, stun));
                 return ProjectileHitResult.Hit;
             }
+            // The damage profile is selected once from the target state before outgoing hooks or hit side effects.
+            // AilmentsOnHit can Blind on this hit; that must not retroactively boost the hit or the ailments it applies.
             double at = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
+            shot = shot.Against(Blinded(Conn, contact.Target.Id), target.SpiderWebs.Count(at),
+                target.Ignites.Burning, target.Bleeds.Burning, EnemyOnLowLife(target));
             int hitChance = 100;
             if (!shot.Spell)
             {
@@ -353,9 +363,9 @@ public static partial class Game
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Conn, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Conn, player, target, (gambler with { DamageMorePct = 0 })
+                GameEvents.WithOutgoingDamage(Conn, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
                     .ForSkill(name => Stats.Key(name) is uint k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0)
+                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .RollOutgoingHit(packet, random)), at);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Conn, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
@@ -363,7 +373,7 @@ public static partial class Game
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Conn, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, player: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Conn.AttackAccuracyRandom));
-            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier);
+            int multiplier = CriticalMultiplierOn(target, shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage);
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, shot.ResistanceMods,
                 shot.Penetration, gambler.InvertsResistance(random));
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -374,12 +384,13 @@ public static partial class Game
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, shot.CriticalMultiplier) / 100d : 1);
                 var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
-                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
+                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
             }
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            Conn.RecentEvents.RecordCriticalOutcome(at, critical);
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
             else ArcaneSurgeOnSpellHitLocked(Conn, player, target);
@@ -395,16 +406,24 @@ public static partial class Game
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
                 MirageOnArrowHit(shot);
             if (!immune)
-                AilmentsOnHitLocked(Conn, target, mitigated, shot.Spell, critical, multiplier, player, shot.SkillStats,
-                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison, sourceSkill: shot.SourceSkill);
+                AilmentsOnHitLocked(Conn, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
+                    shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
+                    sourceSkill: shot.SourceSkill, blind: shot.Blind,
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
-            if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled)) IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at);
-            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0) BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at);
+            if (!immune && hit.Value.Life > 0 && !shot.Spell && shot.MaimChance > 0)
+                TryMaimOnHitLocked(target, shot.MaimChance, 0, at, contact.Projectile.ReactionRandomSource);
+            if (!immune && hit.Value.Life > 0 && shot.Ignite.CanIgnite(rolled))
+                IgniteOnHitLocked(this, contact.Target.Id, target, shot.Ignite, critical, at,
+                    playerIgnite: shot.ActualCaster is null,
+                    attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell));
+            if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
+                BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
+                    BleedReflected(CharacterPlayerStats(Conn)));
             if (shot.ActualCaster is null) RageOnHitLocked(Conn, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
                 contact.Projectile.ReactionRandomSource, player);
             if (shot.ActualCaster is null) ChargesOnHit(Conn, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false);
-            InflictMonsterBlind(Conn, contact.Target.Id, target, at, shot.Blind, contact.Projectile.ReactionRandomSource);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
                 OwnerStun(Conn, target, damage, mitigated, melee: false, shot.Spell, critical, player, shot.SkillStats));
             if (critical) Enqueue(() => MaybeCreateProfaneGround(remote, stream, ciphers, Conn, target.Walk.Position(at)));
@@ -675,6 +694,7 @@ public static partial class Game
         {
             ProjectileOffense offense => offense.Label,
             HostileProjectileOffense hostile => hostile.Label,
+            MinionProjectileOffense minion => minion.Label,
             ObjectProjectileOffense thrown => thrown.Label,
             _ => null,
         };
@@ -717,6 +737,7 @@ public static partial class Game
             {
                 if (advance && !conn.Paused && conn.ProjectileRuntime is { Active: true } session)
                     session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(conn.Clock.Elapsed.TotalSeconds)));
+                if (ChargeSessions.TryGetValue(conn, out var charges)) charges.SettleDegeneration(ResourceEffectsTime(conn));
             }
             catch { Dispose(); throw; }
         }

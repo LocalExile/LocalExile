@@ -103,11 +103,11 @@ public static partial class Game
                 new EffectObject(at.X, at.Y, ao) { Flags0 = EffectObject.FixedRotation, Scale = scale }.Blob()),
                 $"0x02bb create effect 0x{effect:x} {ao} at ({at.X}, {at.Y}) scale {scale:0.##}");
             await Send(remote, stream, ciphers, InstanceProtocol.EnterWakeZone(effect), null);
-            int addedChaos = DarkBargainAddedChaos(conn, skillId, paid);
+            int addedChaos = paid;
             Console.WriteLine($"[gateway] {remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
             await AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, sacrifice: sacrifice, scaledBlastChaos: addedChaos, damageMore: more * reoccurrenceMore);
+                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore);
         }
         if (art.Count > 0)
             _ = Task.Run(async () =>
@@ -143,11 +143,4 @@ public static partial class Game
         return blasts;
     }
 
-    // The sacrificed life is base chaos damage: it takes the skill's increases and more multipliers like its own base.
-    static int DarkBargainAddedChaos(ClientState conn, ushort skillId, int sacrificed)
-    {
-        if (sacrificed <= 0 || SupportedHitInputsFor(conn, skillId) is not { } inputs) return 0;
-        var scaled = SupportedHitFrom(inputs with { Raw = DamagePacket.Of(DamageType.Chaos, sacrificed, sacrificed) }, suppress: true);
-        return (int)Math.Round(scaled[DamageType.Chaos].Min);
-    }
 }

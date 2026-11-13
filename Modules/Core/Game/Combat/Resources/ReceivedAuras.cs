@@ -1,4 +1,4 @@
-using GameServer.Core.Protocol.Instance;
+﻿using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
@@ -15,10 +15,16 @@ public static partial class Game
                 .Select(a => (Key: (p.Id, a.Aura.SkillId), Aura: a.Aura with { SourceBuff = null,
                     AffectsSelf = true, ExternalEffectPct = a.Effect }))).ToDictionary(p => p.Key, p => p.Aura);
         var packets = new List<byte[]>();
+        var previousAvian = conn.ReceivedAuras.Values.Select(a => a.EffectId).ToHashSet();
         bool changed = false;
         foreach (var (key, old) in conn.ReceivedAuras.ToArray())
         {
-            if (desired.TryGetValue(key, out var next) && next with { Buff = old.Buff } == old) continue;
+            // Peer snapshots can recreate the stat array without changing the received effect.
+            if (desired.TryGetValue(key, out var next)
+                && next with { Buff = old.Buff, SkillStats = old.SkillStats } == old
+                && (ReferenceEquals(next.SkillStats, old.SkillStats)
+                    || next.SkillStats is { } stats && old.SkillStats is { } oldStats && stats.SequenceEqual(oldStats)))
+                continue;
             packets.Add(InstanceEntities.RemoveBuff(PlayerId, old.Buff));
             conn.ReceivedAuras.Remove(key); changed = true;
         }
@@ -32,6 +38,9 @@ public static partial class Game
         }
         if (changed)
         {
+            foreach (string gained in conn.ReceivedAuras.Values.Select(a => a.EffectId).Distinct()
+                         .Where(id => id is "AvianMightShared" or "AvianFlightShared" && !previousAvian.Contains(id)))
+                QueueTwisterGainLocked(conn);
             conn.AuraStatsDirty = true;
             conn.Pools = BuildPoolsFor(conn, conn.Pools.Level);
             conn.ApplyMovementSpeed();
@@ -40,7 +49,7 @@ public static partial class Game
         return [.. packets];
     }
 
-    static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
+    public static Dictionary<string, int> MinionAuraStats(ClientState conn, GolemState.Golem minion)
     {
         var here = minion.Monster?.Walk.Position(AreaTime(conn)) ?? conn.Walk.Position(AreaTime(conn));
         var owner = conn.Walk.Position(AreaTime(conn));
@@ -48,11 +57,15 @@ public static partial class Game
         var own = conn.PlayerLife == 0 || InTown(conn) ? [] : conn.Auras.Values
             .Where(a => AuraCatalog.Shared(a.EffectId) && Dist(here, owner) <= AuraRadius.Of(a, conn.Pools.AuraAreaPct, skills, Stats))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = conn.Pools.AuraEffectPct + a.SupportEffectPct });
-        var auras = own.Concat(conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Current && p.Life > 0)
+        var directAvian = SharedAvianAuras(conn).Where(a => Dist(here, owner) <= a.Radius).Select(a => a.Aura);
+        var auras = own.Concat(directAvian).Concat(conn.Instance.PlayersExcept(conn.PeerId).Where(p => p.Current && p.Life > 0)
                 .SelectMany(p => p.Auras.Where(a => Dist(here, (p.X, p.Y)) <= a.Radius)
                     .Select(a => a.Aura with { AffectsSelf = true, ExternalEffectPct = a.Effect })))
             .ToArray();
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => Stats.Name(p.Key)!, p => p.Value);
+        if (MinionIntimidatingCryMovement(conn, minion.Monster) is > 0 and var cryMovement)
+            values["base_movement_velocity_+%"] = ActorScale.Saturate((long)values.GetValueOrDefault("base_movement_velocity_+%")
+                + cryMovement);
         foreach (string ailment in new[] { "ignite", "freeze", "chill", "shock", "scorch", "brittle", "sap" })
             if (values.GetValueOrDefault($"base_immune_to_{ailment}") != 0) values[$"immune_to_{ailment}"] = 1;
         var bonus = AuraCatalog.Bonus(auras, 0, skills, Stats);

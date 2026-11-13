@@ -30,6 +30,8 @@ public sealed class PlayerMinions
         public ushort OwnerBuff;
         /// <summary>It attacks the player's enemies near it (Game.MinionAttacks).</summary>
         public bool Fights { get; init; }
+        /// <summary>It belongs to SpiritChieftains, whose cleanup must not retire unrelated fighting minions.</summary>
+        public bool SpiritChieftain { get; init; }
     }
 
     /// <summary>An aura a minion casts on its owner: the skill, its BuffDefinitions row, its radius (cells) and its stats.
@@ -49,11 +51,13 @@ public sealed class PlayerMinions
     }
     public readonly Dictionary<uint, Attack> Attacks = [];
     // Accepted gameplay finishes under Monsters; only neutral output/projection data crosses Game replacement.
-    public enum OutputKind { Packet, Life, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming, GroundItem }
+    public enum OutputKind { Packet, Life, EnergyShield, Experience, Flinch, Remove, Vaal, QuestFlags, QuestKill, QuestTransition, QuestRoomRemove, PlayerKill, Charges, Passives, GemInventory, MonsterType, GolemAction, GolemIncoming, RighteousFireRing, GroundItem }
+    /// <summary>An exact retained RF owner and ring id for create/wake output; never the generic monster-target path.</summary>
+    public sealed record RighteousFireRingReceipt(RighteousFireState State, uint Ring);
     public sealed record Output(byte[] Packet, string? Log, uint? TargetId = null, SpawnedMonster? Target = null,
         OutputKind Kind = OutputKind.Packet, double Until = 0, int Action = 0,
         AreaTransitionObject? Transition = null, MonsterInfo? Kill = null, IReadOnlyList<AcceptedCharges>? Charges = null, byte? InventoryRow = null, IReadOnlyList<uint>? ItemIds = null, (int X, int Y)? At = null, (ushort Row, byte Level)? MonsterType = null,
-        uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false);
+        RighteousFireRingReceipt? RighteousFireRing = null, uint? WorldId = null, bool CreatesObject = false, bool RemovesObject = false);
     public sealed record AcceptedCharges(bool KillEvent, bool Critical, MonsterRarity Rarity, string? Effect,
         IReadOnlyDictionary<uint, int>? Skill, bool Primary, double At, bool Killed = false, bool Frozen = false);
     public sealed record FlaskReward(MonsterRarity Rarity, IReadOnlyDictionary<uint, double>? CritGains = null);
@@ -65,6 +69,8 @@ public sealed class PlayerMinions
 
     public IReadOnlyCollection<Minion> All => minions.Values;
     public bool Owns(uint id) => minions.ContainsKey(id);
+    public bool Owns(uint id, SpawnedMonster monster) =>
+        minions.TryGetValue(id, out var owned) && ReferenceEquals(owned.Monster, monster);
     public bool Fights(uint id) => minions.TryGetValue(id, out var m) && m.Fights;
     public void Add(Minion minion) => minions[minion.Id] = minion;
     public void Remove(uint id) { minions.Remove(id); Attacks.Remove(id); }

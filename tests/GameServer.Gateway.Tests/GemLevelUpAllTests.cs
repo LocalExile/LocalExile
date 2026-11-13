@@ -15,6 +15,7 @@ public sealed class GemLevelUpAllTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         var conn = new ClientState(new(1, "level-all", 1000, 1000, 100, 100, null, []), 1, 1)
         {
+            Experience = CharacterStats.ExperienceFor(100),
             Character = "LevelAll" + Guid.NewGuid().ToString("N"), PlayerLife = 1000, PlayerMana = 1000, Instance = new(),
             Pools = new(100, 1000, 1000, int.MaxValue, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000),
             LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"])),
@@ -22,6 +23,11 @@ public sealed class GemLevelUpAllTests
         conn.Clock.Stop();
         try
         {
+            foreach (var name in new[] { "strength", "dexterity", "intelligence" })
+            {
+                conn.PlayerStats[Program.Stats.Key(name)!.Value] = 1000;
+                conn.PlayerStats[Program.Stats.Key($"virtual_{name}_for_requirements")!.Value] = 1000;
+            }
             var items = Game.ItemsOf(conn);
             var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!);
             var type = Program.Items.Gem(Program.Items.ByHash(fireball.TypeHash)!)!;

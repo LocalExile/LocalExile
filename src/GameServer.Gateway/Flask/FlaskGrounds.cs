@@ -356,5 +356,11 @@ public static class FlaskGrounds
         {
             lock (_lock) return _consecrated is null ? [] : Consecrated(effectPct);
         }
+
+        /// <summary>Whether the player currently carries the ground_consecration effect maintained by the ticker.</summary>
+        public bool Consecrated
+        {
+            get { lock (_lock) return _consecrated is not null; }
+        }
     }
 }

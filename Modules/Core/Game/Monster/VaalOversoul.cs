@@ -465,7 +465,8 @@ public static partial class Game
             var res = MonsterHitResistance(m, DamageType.Cold, default);
             double damage = rawDps * .25 * Math.Max(0, 1 - Math.Min(res.Value, res.Maximum) / 100d) + carry.GetValueOrDefault(g.Id);
             int amount = (int)Math.Floor(damage); carry[g.Id] = damage - amount;
-            double absorbed = Math.Min(g.Shield, amount); g.Shield -= absorbed; amount -= (int)absorbed;
+            amount = (int)Math.Min(int.MaxValue, g.ShieldPool.Damage(amount, false, now));
+            PublishEnergyShieldLocked(conn, g);
             m.Life = (uint)Math.Max(0, (long)m.Life - amount);
             m.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, .5, now, _ => 0, n => m.Effects[n], stated: 30);
             conn.Minions.OutputQueue.Add(new([], "Vaal chilled ground damages minion", g.Id, m, PlayerMinions.OutputKind.Life));

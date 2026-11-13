@@ -33,7 +33,7 @@ public sealed class TattooCorpseHinderTests
         var spell = new SpawnedMonster("hinder", new(105, 100, 0), 0, 0, 100);
         Game.HitDebuffsOnHitLocked(spell, get, spell: true, critical: false, now: 1);
         Assert.Equal(5, spell.HinderedUntil, 6);
-        Assert.Equal(0.7, Game.TimedDebuffWalkFactor(spell, 1, 1), 6);
+        Assert.Equal(0.7, Game.MaimedMovementFactor(spell, 1).Factor, 6);
         var attack = new SpawnedMonster("attack", new(105, 100, 0), 0, 0, 100);
         Game.HitDebuffsOnHitLocked(attack, get, spell: false, critical: false, now: 1);
         Assert.Equal(double.NegativeInfinity, attack.HinderedUntil);
@@ -42,7 +42,10 @@ public sealed class TattooCorpseHinderTests
         {
             MaimedUntil = 10, HinderedUntil = 10,
         };
-        Assert.Equal(0.4, Game.TimedDebuffWalkFactor(both, 1, 1), 6);
+        Assert.Equal(0.4, Game.MaimedMovementFactor(both, 1).Factor, 6);
+        both.SpiderWebs.Apply(1, 1, 4, 3, 5, 0, 0);
+        Assert.Equal(0.4, Game.MaimedMovementFactor(both, 1).Factor, 6); // Hinder sources use the strongest value once.
+        Assert.Equal(1, Game.MaimedMovementFactor(both, 11).Factor, 6);
         Assert.True(Game.TimedWalkDebuff(1, both));
         Assert.False(Game.TimedWalkDebuff(11, both));
 

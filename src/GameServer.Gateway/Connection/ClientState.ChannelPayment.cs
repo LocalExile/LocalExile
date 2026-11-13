@@ -8,4 +8,5 @@ public sealed partial class ClientState
     public ChannelPaymentReceipt? PaidChannel;
     public double NonChaosDotBypassCarry;
     public double NonChaosDotTakenCarry;
+    public double ChaosDotBypassCarry;
 }
