@@ -842,6 +842,29 @@ public class LockstepMonsterTests : IDisposable
     }
 
     [Fact]
+    public void A_queued_boss_bar_cannot_reshow_a_corpse_a_hidden_phase_or_a_replaced_actor()
+    {
+        var conn = Connection(lockstep: true);
+        var boss = new SpawnedMonster("Boss", new PlayerWalk(102, 100, 8), 60, 2, 10)
+            { Variety = new(1, "boss", "Boss", "Monster", null, ["Positioned", "StateMachine"]) };
+        boss.States = new([0, 0], 0, ["boss_life_bar", "aggro"]);
+        boss.BossBarShown = true;
+        const uint id = 0x3000;
+        conn.Monsters[id] = boss;
+        Assert.NotNull(Game.BossLifeBarRecord(conn, id, boss));
+        boss.States = boss.States.Set("boss_life_bar", 0);
+        boss.Life = 0;
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+        Assert.Equal(0, boss.States.SharedStates[0]);
+        boss.Life = 10;
+        boss.BossBarShown = false;
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+        boss.BossBarShown = true;
+        conn.Monsters.Remove(id);
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+    }
+
+    [Fact]
     public async Task A_projectile_hit_keeps_its_action_sequence_after_the_monster_starts_another_action()
     {
         string saves = Path.Combine(Path.GetTempPath(), $"localexile-shot-sequence-{Guid.NewGuid():N}.db");
