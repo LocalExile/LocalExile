@@ -101,6 +101,18 @@ calculator's inputs sit in a list in `.rdata` beside it, and a derived stat is r
 | `mtx_virtual_morph_art_variation_index` | `mtx_goblin_morph` and the other morph stats | below |
 | `virtual_endurance_charge_art_variation`, `virtual_frenzy_…`, `virtual_power_…` | `mtx_endurance_charge_art_variation` … (Alternate Charge Skins) | the skin's value, else a fixed 1000 to 1007 per other source, in the calculators' order (`0x1428ed890`, `0x1428edd70`, `0x1428ee4e0`) |
 | `actor_scale_+%` | `base_actor_scale_+%` | [04](04-player-entity.md) §4.1a |
+| choices of art (`DerivedArt`) | see below | the first input that is not 0 gives its number, else the fallback stat's value |
+
+The choices of art, on the character and on every skill (a skill's calculators see its own stats, which hold its worn
+Skill Gem Effect's, and the character's): `virtual_skill_surge_type_override` ← `skill_surge_type_override`;
+`virtual_damage_hit_effect_index` ← `damage_hit_effect_index`, and its main-hand and off-hand forms (Cold Iron Point
+66, the Cordycep bow 82); `virtual_ignite_visual_override` (the Demonic gloves 28, else `ignite_art_variation`), and
+the same shape for shock (11, 14, 15), chill (2, 4, 6, 7, 8), freeze (3, 5, 6, 7), poison (2, 3) and bleed (3);
+`virtual_mine_art_variation`, `virtual_ancestral_call_art_variation`, `virtual_triggered_summon_spider_variation`;
+the rings' `virtual_onslaught_…` (2, 1), `virtual_arcane_surge_…` and `virtual_fortify_art_variation`;
+`mtx_has_chest_effect`, `level_up_sound_disabled`, `virtual_has_item_drop_visual_replacement_stat`,
+`virtual_mtx_breach_art_variation`, `virtual_covered_in_ash_art_variation`, and `is_floating` ←
+`mtx_cosmic_armour_flying_player`. They are sent as the calculators give them; none was looked at on screen.
 
 **Charge skins.** The derived stat alone changes nothing: the charge buff's 0x1c1 names the BuffVisuals row
 (`BuffVisualsArtVariations` of `endurance_charge` / `frenzy_charge` / `power_charge` at that variation), as for every
@@ -119,10 +131,16 @@ visuals (`0x141fea550`) and takes the stance "default" (`0x141e9da30`). No clien
 model: the model and the animation set arrive as paths. In the player's blob the Animated component's .ao
 (`0x141e5afd0`) and the Actor's leading .act (`0x1421993f0`); on a pick, 0x2bc to the Animated component
 (`0x141e5b9e0`) and **S→C 0x1b6** to the Actor (read `0x141fe4570`: object header, wstr .act path, u8 stance), then
-the Inventories again. `WornMorph` knows the two goblins (28:
+the Inventories again. 0x1b6 only stores the set: the animation that was playing stays, so the new model stands frozen
+in its bind pose until its next action (0x1b5, the stance, does not help; live 2026-11-12). The transformation sets
+define `Emerge` (their idle with the pets' summon effect), so the server plays it (0x1d1, Animation row 43) and the
+Actor idles on the new set afterwards. `WornMorph` knows the two goblins (28:
 `Metadata/Pet/Goblins/GoblinShamanPet/GoblinShamanPet_01.ao` with `GoblinShamanTransform1.act`, 29: `_02.ao` with
-`GoblinShamanTransform2.act`). Seen live 2026-11-12: the goblin on a pick in town and on entering town, the class's
-own model outside. A stat sent alone (0x4336 = 28) changes nothing.
+`GoblinShamanTransform2.act`), the Skeleton Skin (30: `Metadata/Pet/SkeletonBodyPaint/SkeletonBodyPaint.ao` with
+`SkeletonBodyPaintTransform.act`), the Lunar set (18 to 20) and the Wuzhiqi Potion (27), by the client's own
+transformation rigs' names. Seen live 2026-11-12: the goblin on a pick in town and on entering town, the class's own
+model outside and when the skin comes off, and the skeleton; the Lunar and Wuzhiqi forms were not looked at. A stat
+sent alone (0x4336 = 28) changes nothing.
 
 **Pets.** Pets have no ItemisedVisualEffect row; each `Pet.dat` row names its MtxTypeGameSpecific row and its object
 type (`Id`, e.g. `Metadata/Pet/Kiwi/Basic`). `pet_slot1` / `pet_slot2` (a Pet row + 1, `0x1401096e0` → `0x14010f890`)
@@ -218,17 +236,15 @@ Verified live 2026-10-23: skins, attachments, character effects, footprints, por
 
 - Pets, the portrait and skill effects are built as above and await live verification (skill picks: 0x1fa seen live,
   its handling not yet).
-- Derived stats not sent yet (§3), so these cosmetics show less than they should. On the character:
-  `show_phasing_visual` / `virtual_phasing_art_variation` (`mtx_sunprism_phasing_ring`), `virtual_arcane_surge_…`,
-  `virtual_fortify_…`, `virtual_onslaught_art_variation` (the three rings), `mtx_has_chest_effect`,
-  `virtual_triggered_summon_spider_variation`, `level_up_sound_disabled`. On a skill (Skill Gem Effects):
-  `virtual_skill_surge_type_override` (113 effects), `virtual_damage_hit_effect_index` (66),
-  `virtual_ignite_visual_override` (51), `virtual_shock_art_variation` (42), the chill, freeze, poison, bleed, mine and
-  Ancestral Call variations. Needing state the server does not count yet: the `track_*` flags (kills, hits taken,
-  blocks, skills used, Vaal souls), the kill-streak, hit-streak and kill-counter stacks, and `is_floating` (25
-  kill-streak stacks).
-- Morphs other than the two goblins: the Lunar and Wuzhiqi sets, the skeleton body paint, the Marionette's Revenge
-  skins, the polymorph wands and the pet morphs have numbers (§3) but their model and .act paths are not worked out.
+- Derived stats (§3). The choices of art are sent but not seen on screen, and an ailment's or a buff's art very
+  likely also needs its buff to name the BuffVisuals row, as the charges' do: ignite, shock, chill, freeze, poison and
+  bleed on a monster, Onslaught, Arcane Surge and Fortification on the player. Not sent: `show_phasing_visual` /
+  `virtual_phasing_art_variation` (`mtx_sunprism_phasing_ring`), the summoning rings' and Dark Assembly's surges (they
+  need to know the skill creates minions), and everything that needs state the server does not count yet: the
+  `track_*` flags (kills, hits taken, blocks, skills used, Vaal souls), the kill-streak, hit-streak and kill-counter
+  stacks, the Druidic gloves' charge intensity, and floating at 25 kill-streak stacks.
+- Morphs without files: the Marionette's Revenge skins (31 to 34; no cosmetic gives their stat), the Ashbringer
+  Wyvern (35), the polymorph wands and the pet morphs, whose numbers come from stats the server does not set.
 - The Portal slot's two extra choices (`MicrotransactionSlotAdditionalDefaultOptions`: one random effect for every
   portal, a random effect per portal) arrive as 0x1f9 with record 0 and option 1 or 2 and are taken as an emptied slot.
 - Issue [#306](https://github.com/Wrathen/LocalExile/issues/306): after Spark is replaced by Kinetic Blast, the icon

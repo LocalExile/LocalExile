@@ -53,14 +53,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   The reported native picker mismatch still needs user verification; packet tests do not establish a UI fix.
   Protocol evidence, limits and client acceptance steps: [23](../docs/protocol/23-microtransactions.md) §4.
 
-- Cosmetics whose stat the client reads only as a derived stat: the morph (two goblins) and the charge skins are sent;
-  the other derived stats are listed, not sent ([23](../docs/protocol/23-microtransactions.md) §3 and §4).
+- Cosmetics whose stat the client reads only as a derived stat: the morphs (goblins and skeleton seen, Lunar and
+  Wuzhiqi built), the charge skins (seen) and the choices of art (surge, hit effect, ailment, mine and ring art, chest
+  effects, floating: sent, not seen on screen): [23](../docs/protocol/23-microtransactions.md) §3 and §4.
 
 ## Not working yet
 
-- Skill Gem Effects' surge, hit-effect and ailment art (their derived stats on the skill), the three buff-art rings, the
-  phasing ring, and every cosmetic that counts kills, hits, blocks or skills used:
+- The phasing ring, the summoning rings' surges, and every cosmetic that counts kills, hits, blocks or skills used:
   [23](../docs/protocol/23-microtransactions.md) §4.
-- Morphs other than the Goblin Shaman Skins (Lunar and Wuzhiqi sets, skeleton body paint, Marionette's Revenge skins,
-  polymorph wands, pet morphs), and the Portal slot's two "random effect" choices:
+- The Ashbringer Wyvern, polymorph wand and pet morphs, and the Portal slot's two "random effect" choices:
   [23](../docs/protocol/23-microtransactions.md) §4.

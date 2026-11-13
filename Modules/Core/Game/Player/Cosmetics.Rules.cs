@@ -78,9 +78,19 @@ public static partial class Game
     // The morphs the server knows the files of, by the client's morph number. No client table names them: the number
     // only tells the client that the character is morphed (it then hides weapons, flasks, footprints and stat-driven
     // visuals and takes the "default" stance), and the model and animation set arrive as paths (23-microtransactions.md
-    // §3). The Goblin Shaman Skin's two are the only ones seen working (live 2026-11-12).
+    // §3). The files are the client's own transformation rigs, found by name; the Goblin Shaman Skin's two and the
+    // Skeleton Skin's were seen working (live 2026-11-12), the Lunar set's and the Wuzhiqi Potion's were not looked at.
     static readonly Dictionary<int, Morph> Morphs = new()
     {
+        [18] = new(18, "Metadata/Items/Armours/BodyArmours/TencentLunarGoddess/Polymorph/TencentLunarGoddessTransformationHeld.ao",
+            "Metadata/Items/Armours/BodyArmours/TencentLunarGoddess/Polymorph/TencentLunarGoddessPolymorph.act"),
+        [19] = new(19, "Metadata/Items/Armours/BodyArmours/TencentLunarGoddess/Polymorph/TencentLunarGoddessTransformationCloakHeld.ao",
+            "Metadata/Items/Armours/BodyArmours/TencentLunarGoddess/Polymorph/TencentLunarGoddessPolymorphCloak.act"),
+        [20] = new(20, "Metadata/Items/Armours/BodyArmours/TencentLunarGoddess/Polymorph/TencentLunarGoddessTransformationWingsHeld.ao",
+            "Metadata/Items/Armours/BodyArmours/TencentLunarGoddess/Polymorph/TencentLunarGoddessPolymorphWings.act"),
+        [27] = new(27, "Metadata/Items/Armours/BodyArmours/WuzhiquArmour/Transform/WuzhiquTransformationHeld.ao",
+            "Metadata/Items/Armours/BodyArmours/WuzhiquArmour/Transform/WuzhiqiTransform.act"),
+        [30] = new(30, "Metadata/Pet/SkeletonBodyPaint/SkeletonBodyPaint.ao", "Metadata/Pet/SkeletonBodyPaint/SkeletonBodyPaintTransform.act"),
         [28] = new(28, "Metadata/Pet/Goblins/GoblinShamanPet/GoblinShamanPet_01.ao", "Metadata/Pet/Goblins/GoblinShamanPet/GoblinShamanTransform1.act"),
         [29] = new(29, "Metadata/Pet/Goblins/GoblinShamanPet/GoblinShamanPet_02.ao", "Metadata/Pet/Goblins/GoblinShamanPet/GoblinShamanTransform2.act"),
     };
@@ -132,11 +142,80 @@ public static partial class Game
              ("power_charge_flame_charged_helmet", 1004), ("mtx_druidic_gloves_alt_power_charge", 1005)]),
     ];
 
+    // Derived stats that are a choice of art: the first input that is not 0 gives its number, else the fallback stat's
+    // own value is the result. The rules are the client's calculators'; inputs that are not a cosmetic's are left out
+    // (a unique item's alternate art, the summoning rings' surges, which also need the skill to create minions).
+    static readonly (string Output, (string Input, int Value)[] Sources, string? Fallback)[] DerivedArt =
+    [
+        ("mtx_has_chest_effect", [("mtx_angry_chest_bees", 1), ("mtx_chest_fish", 1), ("mtx_verdant_chest_wisps", 1)], null),
+        ("level_up_sound_disabled", [("mtx_ring_black_star_level_up_effect", 1), ("mtx_skeleton_level_up_effect", 1)], null),
+        ("virtual_has_item_drop_visual_replacement_stat", [("mtx_hellfire_replace_currency_with_fire_spirits", 1),
+            ("mtx_chaos_orb_armour_entity", 1), ("mtx_card_oracle_armour_replace_divination_card_drop_visuals", 1)], null),
+        ("is_floating", [], "mtx_cosmic_armour_flying_player"),
+        ("virtual_onslaught_art_variation", [("mtx_thrillsteel_alt_onslaught", 2), ("mtx_void_emperor_onslaught_ring", 1)], null),
+        ("virtual_arcane_surge_art_variation", [("mtx_madcap_arcane_surge_ring", 1)], null),
+        ("virtual_fortify_art_variation", [("mtx_myrmidon_fortify_ring", 1)], null),
+        ("virtual_mtx_breach_art_variation", [("mtx_ritual_breach_art_variation", 1)], null),
+        ("virtual_covered_in_ash_art_variation", [("mtx_polaric_devastation_alternate_covered_in_ash_and_frost", 1)], null),
+        ("virtual_ignite_visual_override", [("mtx_alternate_ailments_gloves_demonic_ignite_scorch", 28)], "ignite_art_variation"),
+        ("virtual_shock_art_variation", [("mtx_alternate_ailments_gloves_void_shock_sap", 11), ("mtx_voidforge_alternate_shock_ailment", 14),
+            ("mtx_starforge_alternate_shock_ailment", 15)], "shock_art_variation"),
+        ("virtual_chill_art_variation", [("mtx_hyrris_ire_alternate_arrow_visuals", 2),
+            ("mtx_alternate_ailments_gloves_crystalline_chill_freeze_brittle", 4), ("mtx_spirit_chains_gloves_freeze", 6),
+            ("mtx_spirit_chains_gloves_freeze_vines", 7), ("mtx_spirit_chains_gloves_freeze_tentacles", 8)], "chill_art_variation"),
+        ("virtual_freeze_art_variation", [("mtx_alternate_ailments_gloves_crystalline_chill_freeze_brittle", 3),
+            ("mtx_spirit_chains_gloves_freeze", 5), ("mtx_spirit_chains_gloves_freeze_vines", 6),
+            ("mtx_spirit_chains_gloves_freeze_tentacles", 7)], "freeze_art_variation"),
+        ("virtual_poison_art_variation", [("mtx_alternate_ailments_gloves_black_tar_poison", 2), ("mtx_illusionist_cobra_lash_poison", 3)],
+            "poison_art_variation"),
+        ("virtual_bleed_art_variation", [("mtx_alternate_ailments_gloves_voodoo_bleed", 3)], "bleed_art_variation"),
+        ("virtual_mine_art_variation", [("corrupted_emperor_mine_art_variation", 1)], "mine_art_variation"),
+        ("virtual_ancestral_call_art_variation", [], "ancestral_call_art_variation"),
+        ("virtual_triggered_summon_spider_variation", [("alternate_arakaali_spiders_demonic", 1)], null),
+        ("virtual_skill_surge_type_override", [], "skill_surge_type_override"),
+        ("virtual_damage_hit_effect_index", [], "damage_hit_effect_index"),
+        ("virtual_main_hand_damage_hit_effect_index", [("main_hand_mtx_cold_iron_point_hit_effect_variation", 66),
+            ("mtx_cordycep_bow_hit_effect_variation", 82)], "damage_hit_effect_index"),
+        ("virtual_off_hand_damage_hit_effect_index", [("off_hand_mtx_cold_iron_point_hit_effect_variation", 66)], "damage_hit_effect_index"),
+    ];
+
+    // The outputs of DerivedArt that belong to the character alone: a skill does not carry them.
+    static readonly HashSet<string> CharacterArt = ["mtx_has_chest_effect", "level_up_sound_disabled",
+        "virtual_has_item_drop_visual_replacement_stat", "is_floating", "virtual_onslaught_art_variation",
+        "virtual_arcane_surge_art_variation", "virtual_fortify_art_variation", "virtual_mtx_breach_art_variation",
+        "virtual_covered_in_ash_art_variation"];
+
+    static IEnumerable<(uint Stat, int Value)> DerivedArtStats(Func<string, int> of, bool skill = false)
+    {
+        foreach (var (output, sources, fallback) in DerivedArt)
+        {
+            if (skill && CharacterArt.Contains(output)) continue;
+            int value = sources.FirstOrDefault(s => of(s.Input) != 0).Value;
+            if (value == 0 && fallback is not null) value = of(fallback);
+            if (value != 0 && Stats.Key(output) is uint key) yield return (key, value);
+        }
+    }
+
+    /// <summary>
+    /// The derived art stats of one skill (DerivedArt), from the skill's own stats, which hold its worn Skill Gem
+    /// Effect's (a hit effect, a surge, an ailment's or a mine's art), and the character's worn cosmetics: the
+    /// client's calculators run in the skill's context, which sees both.
+    /// </summary>
+    public static IEnumerable<(uint Stat, int Value)> SkillCosmeticDerivedStats(ClientState conn, IReadOnlyDictionary<uint, int> skill)
+    {
+        var worn = new Dictionary<uint, int>();
+        foreach (var w in WornCosmetics(conn).Where(w => w.Slot != 49))
+            foreach (var (stat, value) in MtxEffects.Of(w.MtxTypeHash)?.Stats ?? [])
+                worn[stat] = worn.GetValueOrDefault(stat) + value;
+        return DerivedArtStats(name => Stats.Key(name) is not uint key ? 0 : skill.TryGetValue(key, out int own) ? own : worn.GetValueOrDefault(key),
+            skill: true);
+    }
+
     /// <summary>
     /// The derived stats of the worn cosmetics' own (<paramref name="worn"/>: stat key → value). The client keeps
     /// calculators for them but runs none for a player the server describes: it shows what it is sent. A cosmetic whose
     /// stat only such a calculator reads does nothing until the server sends the result: the morph (WornMorph) and the
-    /// charges' art (ChargeArt). 23-microtransactions.md §3 lists the ones not worked out here.
+    /// charges' art (ChargeArt) and the choices of art (DerivedArt). 23-microtransactions.md §4 lists what is left.
     /// </summary>
     public static IEnumerable<(uint Stat, int Value)> CosmeticDerivedStats(ClientState conn, IReadOnlyDictionary<uint, int> worn)
     {
@@ -148,6 +227,7 @@ public static partial class Game
             int variant = Of(skin) != 0 ? Of(skin) : sources.FirstOrDefault(s => Of(s.Input) != 0).Variant;
             if (variant != 0 && Stats.Key(output) is uint key) yield return (key, variant);
         }
+        foreach (var derived in DerivedArtStats(Of)) yield return derived;
     }
 
     // The BuffVisuals row a charge's buff shows: BuffVisualsArtVariations' row of the charge's art variation (ChargeArt:
@@ -160,6 +240,10 @@ public static partial class Game
         int variation = CosmeticStats(conn).FirstOrDefault(s => s.Stat == key).Value;
         return variation == 0 ? null : Art.BuffVisual(id, variation);
     }
+
+    // Animation.dat's row of Emerge, and how long the morph's Emerge holds the character (our own number).
+    const byte EmergeAnimation = 43;
+    const float MorphEmergeSeconds = 1f;
 
     // The morph to the client again after a pick changed it: the stat goes with the player's stats (CosmeticStats); the
     // model is the Animated component's (0x2bc) and the animation set the Actor's (0x1b6), back to the class's own when
@@ -175,6 +259,12 @@ public static partial class Game
             $"0x02bc player model {model} (morph {now?.Index ?? 0})");
         await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceEntities.ActorFile(PlayerId, actor),
             $"0x01b6 player animation set {actor}");
+        // The client loads the new set but leaves the animation that was playing (0x1b6 only stores it), so the new
+        // model stands frozen in its bind pose until its next action (seen live 2026-11-12). The transformation sets
+        // define Emerge for this: their idle with the pets' summon effect, after which the Actor idles on the new set.
+        if (now is not null)
+            await SendWorldRecord(remote, stream, ciphers, conn, PlayerId, InstanceProtocol.ActorAnimation(PlayerId, MorphEmergeSeconds, EmergeAnimation),
+                $"0x01d1 player animation Emerge (morph {now.Index})");
         // The model was built anew: what it wears again.
         await SendModel(remote, stream, ciphers, conn, Looks(conn, ItemsOf(conn)), "morph");
     }
