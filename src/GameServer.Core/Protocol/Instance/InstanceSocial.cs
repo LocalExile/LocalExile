@@ -44,6 +44,13 @@ public static class InstanceSocial
     public const ushort PartyKickId = 0x94;
     public static string ReadPartyKick(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
+    /// <summary>C→S 0x99 (write 0x141f9bc30): bit 7 requests a current-party update, bits 0-6 are allocation,
+    /// then u8 level downscaling. The party UI's senders 0x140a62860 / 0x140a58870 set bit 7 after a leader check.</summary>
+    public const ushort PartyOptionsId = 0x99;
+    public const int PartyOptionsLength = 4;
+    public static (byte Allocation, byte Scaling, bool CurrentParty) ReadPartyOptions(ReadOnlySpan<byte> m) =>
+        ((byte)(m[2] & 0x7f), m[3], (m[2] & 0x80) != 0);
+
     /// <summary>C→S 0x80: wstr name, two independent bytes (0x141f9b7e0).
     /// First byte selects friends (0) or ignore (1); second is add (0), remove/decline (1), accept (2).
     /// Returned U16 packs the native low/high bytes: friend add 0, remove/decline 0x100, accept 0x200.</summary>
@@ -103,7 +110,8 @@ public static class InstanceSocial
     /// <summary>S→C 0xa9 (class 0x1435e7740, write 0x1421a7f90, read 0x1421a8220; dispatcher case 0x2a): u32 +0x68, wstr
     /// +0x28, wstr +0x48, u32 +0x68 again, u8 +0x6e, u8 +0x6c, u8 +0x6d, u8 +0x6f, u8 member count, then per member a
     /// wstr name (an account name: looked up in the known players, 0xa7) and a u8 status. +0x68 is the party id; +0x6e the
-    /// receiving player's own index in the list (0xff none); the second wstr the leader's account name.</summary>
+    /// receiving player's own index in the list (0xff none); the second wstr the leader's account name. +0x6c is loot
+    /// allocation (0-2), +0x6d level downscaling (0 Enabled, 1 Disabled), copied to instance +0xc730 / +0xc731.</summary>
     public static byte[] PartyInfo(uint u68, string s28, string s48, byte b6e, byte b6c, byte b6d, byte b6f,
         IReadOnlyList<(string Name, byte Status)> members)
     {

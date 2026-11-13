@@ -27,6 +27,8 @@ public static class PartyRoster
     static readonly Dictionary<(uint Party, string Character), (ClientState From, ClientState To)> Invites =
         Keep("Invites", () => new Dictionary<(uint, string), (ClientState, ClientState)>());
     static readonly Dictionary<uint, HashSet<ClientState>> Removed = Keep("Removed", () => new Dictionary<uint, HashSet<ClientState>>());
+    static readonly Dictionary<uint, (byte Allocation, byte Scaling)> Options =
+        Keep("Options", () => new Dictionary<uint, (byte, byte)>());
     static uint nextId = 0x100;
 
     static bool Same(ClientState a, ClientState b) => ReferenceEquals(a, b)
@@ -56,6 +58,7 @@ public static class PartyRoster
         foreach (var c in members) Forget(id, c);
         Humans.Remove(id);
         Companions.Remove(id);
+        Options.Remove(id);
         foreach (var key in Invites.Keys.Where(k => k.Party == id).ToArray())
         {
             Forget(id, Invites[key].To);
@@ -74,6 +77,21 @@ public static class PartyRoster
     public static bool IsLeader(ClientState c, uint id)
     {
         lock (Gate) return Humans.GetValueOrDefault(id)?.FirstOrDefault() is { } first && Same(first, c);
+    }
+
+    internal static async Task ChangeOptions(ClientState actor, byte allocation, byte scaling)
+    {
+        uint party;
+        lock (Gate)
+        {
+            party = Find(actor);
+            // Native dropdowns contain three allocation modes and two scaling choices. A replaced connection
+            // may still have the same account/name, but only the roster's current leader can change its options.
+            if (allocation > 2 || scaling > 1 || !Available(actor) || party == 0
+                || !ReferenceEquals(Humans[party][0], actor) || Options.GetValueOrDefault(party) == (allocation, scaling)) return;
+            Options[party] = (allocation, scaling);
+        }
+        await Publish(party);
     }
 
     /// <summary>Admission is atomic with human acceptance, including the shared six-player capacity.</summary>
@@ -133,11 +151,13 @@ public static class PartyRoster
         {
             ClientState[] removed, humans;
             (string Account, string Character, byte[] Known)[] guests;
+            (byte Allocation, byte Scaling) options;
             lock (Gate)
             {
                 removed = Removed.Remove(party, out var pending) ? [.. pending] : [];
                 humans = Humans.TryGetValue(party, out var list) ? [.. list] : [];
                 guests = Companions.TryGetValue(party, out var extra) ? [.. extra] : [];
+                options = Options.GetValueOrDefault(party);
             }
             foreach (var c in removed)
                 await Deliver(c, async () => { await Send(c, InstanceSocial.PartyRemove(party)); await SetPartySize(c, 1); });
@@ -155,7 +175,7 @@ public static class PartyRoster
                     foreach (var guest in guests) await Send(to, guest.Known);
                     await SetPartySize(to, entries.Length);
                     await Send(to, InstanceSocial.PartyInfo(party, CharacterName(leader), leader.Account ?? CharacterName(leader),
-                        ownIndex, 0, 0, 0, entries));
+                        ownIndex, options.Allocation, options.Scaling, 0, entries));
                 });
             }
         }
@@ -177,6 +197,7 @@ public static class PartyRoster
         uint party;
         ClientState[] humans;
         (string Account, string Character, byte[] Known)[] guests;
+        (byte Allocation, byte Scaling) options;
         lock (Gate)
         {
             party = Find(from);
@@ -184,6 +205,7 @@ public static class PartyRoster
             if (party == 0) Humans[party = Allocate()] = [from];
             humans = [.. Humans[party]];
             guests = Companions.TryGetValue(party, out var extra) ? [.. extra] : [];
+            options = Options.GetValueOrDefault(party);
             Invites[(party, CharacterName(to))] = (from, to);
         }
         // Clear only the invitee's old knowledge of this id: the native notification requires an unknown party.
@@ -195,7 +217,7 @@ public static class PartyRoster
         (string, byte)[] entries = [.. humans.Select((c, i) => (c.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
             .. guests.Select(m => (m.Account, (byte)1)), (to.Account ?? CharacterName(to), (byte)0)];
         await Send(to, InstanceSocial.PartyInfo(party, CharacterName(from), from.Account ?? CharacterName(from),
-            (byte)(entries.Length - 1), 0, 1, 0, entries));
+            (byte)(entries.Length - 1), options.Allocation, options.Scaling, 0, entries));
         return true;
     }
 

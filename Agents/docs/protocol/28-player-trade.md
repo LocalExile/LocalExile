@@ -94,18 +94,15 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   3. wstr leader account (`+0x48`);
   4. u32 party id again;
   5. u8 `+0x6e`, the receiving player's own index in the member list (0xff none);
-  6. u8 `+0x6c`, u8 `+0x6d`, u8 `+0x6f`;
+  6. u8 `+0x6c` allocation (0-2), u8 `+0x6d` level downscaling (0 Enabled, 1 Disabled), u8 `+0x6f`;
   7. u8 count, then count × (wstr account name, u8 status).
 
   `0x1421506d0` maps a status byte 0 → 1, 1 → 2, 2 → 0, any other → 3 (none).
-- **The invite notice.** "{account} sent you a party invite" (ClientStrings `0x43f`) is built by `0x140aeeee0` through
-  `0x140dce360` on the event at `+0x7f78` (case 0x2a's slot). It shows only when all of these hold:
-  - the party id is one the client doesn't know (`+0xc668`; a reused id only updates the entry);
-  - the second wstr is an account name in the known players (`0x14216d350` → `0x14216d400`), so both sides get 0xa7 first;
-  - `+0x6c` is 0 and `+0x6d` is non-zero.
-
-  To reuse an existing party id, discard only the invitee's old known-party entry with 0xaa before the invite.
-  Invitations set `+0x6d` = 1; accepted membership uses the same id with `+0x6d` = 0.
+- **The invite notice.** The historical two-client flow introduces both accounts with 0xa7, then sends an unknown
+  party id with the receiver's member status 0 (pending).
+  To reuse an existing party id, only the invitee's old known-party entry is discarded with 0xaa before the invite.
+  The old captures used allocation/downscaling bytes 0/1; these are options, not invitation flags.
+  In 3.29.3c, `0x142152f28` maps the receiver's member status and `0x142153359` branches on that status.
 - **Accept** is C→S 0x95. Accept and Decline call `0x142169480` and `0x1421693e0` (C→S 0x80 with u16 0x200 / 0x100) only
   for a non-empty name; live, Accept sent 0x95. Decline is not answered yet.
 - **The party.** Every member gets 0xa9 with its own `+0x6e`, the leader with status 2 and the others with 1, members by
@@ -118,6 +115,19 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
   - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
   - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
+
+### Party options (C→S 0x99)
+
+Writer `0x141f9bc30` emits u16 BE id, u8 `(allocation & 0x7f) | current-party-bit`, then u8 level downscaling.
+The party UI senders `0x140a62860` / `0x140a58870` check leadership with `0x142169820` and set bit 7.
+The separate flag-clear form is not a request to change the current party in this implementation.
+S→C 0xa9's `+0x6c` / `+0x6d` reach the temporary party record's `+0xa8` / `+0xa9` at `0x142152f6b`.
+`0x14215ddc0` / `0x14215dfb0` copy them to instance `+0xc730` / `+0xc731`, read by the allocation and downscaling
+dropdown builders `0x140a589f0` / `0x140a59d90` (three and two choices, respectively).
+The Social roster retains valid current-leader selections across roster changes, area rebinds and hook reloads;
+disbanding clears them.
+Invites and member updates carry the same options; rendering of the changed options is not yet verified with a client.
+Combat level scaling, loot-allocation rules, account defaults and C→S 0x187 map-portal access remain separate work.
 
 ## 6. Friends
 
