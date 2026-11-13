@@ -55,4 +55,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Tattoos: 90 rows work in the client and 8 are partial (Ancestral Bloodlines, whose life/mana recovery stats are
   unread, and the seven Forbidden ascendancy tattoos, whose client use flow is untraced); two are inert. The vendor
   recipe works (three same-tribe tattoos for one weighted random tattoo of that tribe; not live-checked).
+- Tattoos: 88 rows work in the client and 10 are partial (the three Loyalty summons Akoya, Ikiaho and Rakiata
+  whose Leadership buff stats have no reader, and the seven Forbidden ascendancy tattoos, whose client use flow is
+  untraced); two are inert.
   Docs: [tattoos](../docs/game/tattoos.md).

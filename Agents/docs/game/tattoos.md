@@ -1,15 +1,15 @@
 # Tattoos
 
-**Status: in progress (documentation complete, catalogue 100/100; 90 tattoo rows client-verified and 8 partial).** The
+**Status: in progress (documentation complete, catalogue 100/100; 91 tattoo rows client-verified and 7 partial).** The
 client's right-click tattoo + left-click passive flow is traced and implemented: C->S `0x77` carries the inventory
 id, item id and passive graph id; the server consumes the item, replaces the passive's stats and sends the tattoo in
-`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Ninety rows are `works` (the ten pilot,
+`0x33`'s fifth list as `node | PassiveSkillOverrides.HASH16 << 16`. Ninety-one rows are `works` (the ten pilot,
 22 plain stats, the nine ailment and avoidance rows, the nine skill/minion/flask plain-stat rows, the knockback row,
-the eleven Honoured rows, the Herald, guard and Fortify rows, the corpse-consumption and Hinder rows, all ten Loyalty summons, nine Makanga gates, three Journey tattoos and Journey Makanui),
-eight are `partial` (Ancestral Bloodlines: ES recovery works, life/mana recovery stats are unread; and the seven
-event-only Forbidden ascendancy tattoos, whose server apply, random pick, stats and `0x33` work but whose separate
-client ascendancy-tattoo use flow is untraced), two are `inert` (Hinekora and Kitava Makanga) and none is `not
-implemented`. The server enforces the client's per-group limits
+the eleven Honoured rows, the Herald, guard and Fortify rows, the corpse-consumption and Hinder rows, all ten Loyalty
+summons, nine Makanga gates, three Journey tattoos, Journey Makanui and Ancestral Bloodlines),
+seven are `partial` (the event-only Forbidden ascendancy tattoos, whose server apply, random pick, stats and `0x33`
+work but whose separate client ascendancy-tattoo use flow is untraced), two are `inert` (Hinekora and Kitava Makanga)
+and none is `not implemented`. The server enforces the client's per-group limits
 (Loyalty, Attribute Notable, Ancestral, Keystone and Ascendancy) independently of the client tooltip. This page
 records the 3.29.3b catalogue, the client mechanics, the protocol, the target/limit rules and the implementation
 groups. The `Status` column is per row; `Reason` names the missing layer.
@@ -26,9 +26,9 @@ This page is based on the 3.29.3b client tables `BaseItemTypes`, `CurrencyItems`
 | Group | Items | Works | Partial | Inert | Not implemented |
 |---|---:|---:|---:|---:|---:|
 | Current (drop-enabled) | 53 | 53 | 0 | 0 | 0 |
-| Drop-disabled | 40 | 37 | 1 | 2 | 0 |
+| Drop-disabled | 40 | 38 | 0 | 2 | 0 |
 | Event-only | 7 | 0 | 7 | 0 | 0 |
-| **Total** | **100** | **90** | **8** | **2** | **0** |
+| **Total** | **100** | **91** | **7** | **2** | **0** |
 
 | Status | Meaning |
 |---|---|
@@ -46,7 +46,7 @@ stat already has a gameplay consumer. The first implementation pass must audit e
 |---|---|---|
 | 1. Plain stats | The ten pilot tattoos plus the next ten (resistances, attributes, evasion, accuracy, regeneration, stun and max-res). | 32/32 non-Makanga plain stats client-verified; the Makanga rows are in group 3. |
 | 2. Ailment/avoidance and skill stats | Chance/avoid ailments, leech, guard/warcry/mark/flask/minion/totem stats. | The nine ailment and avoidance rows work: the Panels stage publishes each display total with its `base_*` sources summed in, so the existing ailment chance, avoidance, stun-recovery and bleed readers see the replacement stat (no code change; see the verification log). The nine plain skill/minion/flask rows whose consumers exist work (minion life, attack leech, totem life, maim, mark effect, blind, flask duration, flask life recovery and warcry cooldown), as do the knockback row, the eleven Honoured rows (their on-hit buffs, attribute gem levels and the existing stat readers), the Herald, guard and Fortify rows (Herald buff effect, guard-skill duration and Fortify on a melee stun) and the corpse-consumption and Hinder rows (the killing blow's corpse and 10% maximum-life recovery; the spell-hit Hinder with its four seconds, 30% reduced movement speed and the client's hinder buff). |
-| 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul and Keystone work; Ancestral is partial). |
+| 3. Counting, adjacency and limits | Journey per-allocated-tattoo, Ancestral per-tribe, Makanga adjacency, the five `PassiveSkillOverrides.Limit` groups. | Makanga, Journey counting and the generic limits are implemented (Journey Body/Mind/Soul, Keystone and Ancestral Bloodlines work; the last one's three recovery stats feed the existing regeneration, recoup and recharge consumers). |
 | 4. Random specials | Journey Makanui (random keystone) and the seven Forbidden ascendancy tattoos. | Journey Makanui works. The seven Forbidden tattoos are server-side complete and verified through the dev path: the class's non-multiple-choice ascendancy notables (PassiveSkillOverrides Type 17-23), the random pick saved in `TattooKeystones` (excluding the replaced node and every other allocated notable, so no stats count twice), the granted notable's ascendancy-policy stats, the chosen notable's `0x33` HASH16 and the Limit 40 refusal. Their client-side use flow (the items have `CurrencyUseType = 3`, not `apply_passive_tattoo`) is not traced, so they are `partial`. |
 | 5. Loyalty summons | The ten Summon Spirit triggers, each limited to 1 Loyalty Tattoo. | Partly works: the same data-driven Spirit path as the Ancestral Commander nodes reads each tattoo's `has_trigger_on_*` stat and its PassiveSkillOverrides.Effect (a level 1 TriggerSummonedAncestor skill), spends its shared 80 s stored use, and grants the spirit's Leadership buff and fighting chieftain for the skill's duration. Seven are live-verified through the dev path and Kiloava's trigger happened live. The other three Leadership stats now have consumers: Akoya's `base_rage_regeneration_per_minute` regenerates Rage, Ikiaho's `travel_skill_cooldown_speed_+%` speeds travel-skill cooldown recovery and Rakiata's `action_speed_+%_minimum_value_from_rakiatas_leadership` floors action speed at 110% of base (`LeadershipConsumersTests`). The Presence-gated triggers require a living hostile Unique within 80 cells. A refunded node no longer triggers (the grant list checks allocation and timeless conquest). |
 
@@ -385,7 +385,7 @@ Limited to 1 Ancestral Tattoo.
 
 | Tattoo | Effect | Replaces | Source | Status | Reason |
 |---|---|---|---|---|---|
-| **Ancestral Tattoo of Bloodlines** | 2% increased Recovery Rate of Life, Mana and Energy Shield per Tribe for which you have an allocated Tattoo | Small Attribute | drop-disabled | partial | live +18% recovery for 9 tribes; ES recovery consumed, life/mana recovery stats unread |
+| **Ancestral Tattoo of Bloodlines** | 2% increased Recovery Rate of Life, Mana and Energy Shield per Tribe for which you have an allocated Tattoo | Small Attribute | drop-disabled | works | live +18% recovery for 9 tribes; Life regeneration, Mana regeneration and ES recharge multiply by it (unit test), and recoup and ES regeneration read it too |
 
 ### Honoured (18)
 
@@ -587,8 +587,9 @@ Counting tattoos 2026-10-30 (client/server, `/stat`):
   replaced Agility stat).
 - **Journey Soul** on 50197 (Ancestral Knowledge, +30 Intelligence): base maximum energy shield 34 -> 74 (+40).
 - **Ancestral Bloodlines** on 3644: life/mana/ES recovery 18% for 9 distinct tribes; the Ancestral and Journey
-  tattoos use tribe 11 and are excluded. ES recovery is consumed; the life/mana recovery stats are currently
-  unread, so the row is `partial`.
+  tattoos use tribe 11 and are excluded. All three recovery stats are consumed: the unit test covers the Life
+  regeneration multiplier, the Mana regeneration rate and the Energy Shield recharge rate (each 1.18x); a code audit
+  covers the Life recoup and the Energy Shield regeneration readers. The row is `works`.
 - The test tattoos were removed and the three bonus notables refunded; the tree is back to 530 passives, 12 user
   tattoos and baseline pools (life 5490, mana 2306, ES 34, recovery 0).
 
