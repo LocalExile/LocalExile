@@ -24,12 +24,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   references), footprints and apparitions through the stats, portals (the map device's), cursors and flask skins.
   Verified live 2026-10-23.
   Verified live 2026-11-12: a pet (Kiwi: spawned, beside the player again after a teleport, gone when the slot is
-  emptied; not yet the idle-relaxed animations, e.g. the Goblin Troupe's song) and a portrait in the character panel.
+  emptied; rejoining its owner across disconnected arena rooms is built, not yet checked live; not yet the
+  idle-relaxed animations, e.g. the Goblin Troupe's song) and a portrait in the character panel.
   Built, awaiting live verification: the portrait on the selection screen, skill effects (the Cosmetics tab's skill
   slots, picked with C→S 0x1fa, the effect's stats on that skill,
-  Built, awaiting live verification: pets (spawned beside the player, following it across disconnected arena rooms, not blocking;
-  not yet their idle-relaxed animations, e.g. the Goblin Troupe's song), the portrait (character panel and selection
-  screen), skill effects (the Cosmetics tab's skill slots, picked with C→S 0x1fa, the effect's stats on that skill,
   Righteous Fire's ring and buff visuals, restyled at once while it burns, and the projectile and explosion of
   projectile skills such as Fireball).
   Portrait frames (the Social Frame slot): a pick is saved and applies at the next login, as the client's own chat line
