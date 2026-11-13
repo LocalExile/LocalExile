@@ -5,6 +5,8 @@ public sealed partial class ClientState
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
+    public ushort PhasingBuff;
+    public double PhasingSentUntil;
     public bool IsPhasing => Phasing || PhasingUntil > Clock.Elapsed.TotalSeconds;
     public ITransientCombatState? OwnedCombatState;
     public ConnectionWorker OwnedCombatWorker { get; } = new("owned-combat");
@@ -47,6 +49,9 @@ public sealed partial class ClientState
             CombatRushUse = null;
             if (RampageBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, RampageBuff));
             RampageBuff = 0;
+            if (PhasingBuff != 0) RetiredCombatBuffs.Add((Program.PlayerId, PhasingBuff));
+            PhasingBuff = 0;
+            PhasingSentUntil = 0;
             SentRampage = default;
             // Soul Eater's souls end with the area (a new one starts empty) and at death (its buff is CancelOnDeath).
             if (SoulEater.Buff != 0) RetiredCombatBuffs.Add((Program.PlayerId, SoulEater.Buff));
