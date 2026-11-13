@@ -230,7 +230,7 @@ Regret's way but gives two refund points (ClientStrings `ItemFunction2RespecPoin
 quantity. Each item is currency (35%: Scroll of Wisdom most, down to the Mirror), a gem (4%: an obtainable gem
 whose DropLevel is at most the monster's level, from `GemSources`, at gem level 1 like a vendor's), a life or mana flask (8%)
 or equipment (53%: a weighted slot, then any of its bases with DropLevel ≤ the monster's level, minus unique-only, event
-and league bases), item level = the monster's level, +1 magic, +2 rare, +3 unique (gems keep 1), with the type's default sockets. Equipment then rolls
+and league bases), item level = the monster's level, +1 magic, +2 rare or unique (gems keep 1), with the type's default sockets. Equipment then rolls
 unique, rare or magic, raised by item rarity. A unique is chosen among its base's by the inverse of its
 `VillageUniqueDisenchantValues` value (the client's measure of a unique's rarity; `RuthlessValue` in Ruthless); where a
 base's weights add up to less than 1 the rest gives a rare, and a unique outside that table does not drop.
