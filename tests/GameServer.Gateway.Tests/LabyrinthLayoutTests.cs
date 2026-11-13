@@ -7,7 +7,7 @@ public sealed class LabyrinthLayoutTests
 {
     // The client's own layout for seed 0, Normal (scripts/re/frida/lab-layout.py): its rooms, connections (-1: out) and
     // secrets with their numbers; the port matched all 168 dumped (42 seeds × 4 tiers, lg.ps1 lablayout).
-    [Fact]
+    [GameFilesFact]
     public void TheDaysLayoutMatchesTheClients()
     {
         static byte[]? Read(string path) => GamePack.Default.TryRead(path);
@@ -36,7 +36,7 @@ public sealed class LabyrinthLayoutTests
 
     // The official Eternal Labyrinth of 2026-11-07 (poelab.com's layout, its rooms' names and areacodes): the day's seed is
     // the day's number since 1970 (20764), and each room's area is the official server's pick (LabyrinthLayout.AreaPick).
-    [Fact]
+    [GameFilesFact]
     public void TheDaysRoomsAreTheOfficialOnes() => Assert.Equal(
     [
         "OH_branch", "RT_straight", "DG_quad_door", "RT_end_bottleneck", "boss_1",
@@ -47,7 +47,7 @@ public sealed class LabyrinthLayoutTests
     // `GameServer.Gateway labyrinth 2026-11-07` (LabyrinthDay.Listing), the Eternal tier against poelab.com's map of that
     // day: Argus in room 2, the silver key in 3, gauntlets in 4, 6 (escort: Payload) and 7, the puzzle in 11, Darkshrines
     // (Hidden) in 1, 11 and 12, Izaro after 5, 10 and 16; the rooms where their map positions put them.
-    [Fact]
+    [GameFilesFact]
     public void TheListingDrawsTheDaysMap()
     {
         var lines = LabyrinthDay.Listing(LabyrinthDay.SeedOf(new DateOnly(2026, 11, 7)), true).ToList();
@@ -70,7 +70,7 @@ public sealed class LabyrinthLayoutTests
 
     // Two exits of a room can lead to rooms played in the same area (seed 0's room 7 → 6 and 8 here): the exit's entranceN
     // picks the neighbour; a way without one (a passage secret's) takes the first played in its area.
-    [Fact]
+    [GameFilesFact]
     public void AnExitLeadsToItsOwnNeighbour()
     {
         var layout = LabyrinthLayout.Build(path => GamePack.Default.TryRead(path), 0, 1);
@@ -97,7 +97,7 @@ public sealed class LabyrinthLayoutTests
     // Izaro's three Aspirant's Trials of a Normal day (each section's last room) share his life bar: each starts where
     // the one before left him, the last ends at 0 in the Ascendancy Chamber's area; winning one takes his icon off the
     // run's map (0x1cb bit = the section's number).
-    [Fact]
+    [GameFilesFact]
     public void IzarosTrialsShareHisLife()
     {
         var trials = IzaroFights.Trials(20764, 1).ToList();

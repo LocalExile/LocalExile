@@ -25,12 +25,17 @@ static class TestTables
         _ => null,
     };
 
-    /// <summary>The real table from data/client.db above the test's folder, or null without the extracted game data.</summary>
-    public static ClientTable? Real(string name)
+    /// <summary>data/client.db above the test's folder, or null without the extracted game data.</summary>
+    public static string? RealPath
     {
-        for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
-            if (Path.Combine(dir.FullName, "data", "client.db") is var db && File.Exists(db))
-                return ClientTable.Load(db, name);
-        return null;
+        get
+        {
+            for (var dir = new DirectoryInfo(Directory.GetCurrentDirectory()); dir is not null; dir = dir.Parent)
+                if (Path.Combine(dir.FullName, "data", "client.db") is var db && File.Exists(db)) return db;
+            return null;
+        }
     }
+
+    /// <summary>The real table from data/client.db: a test that reads one is a ClientTablesFact.</summary>
+    public static ClientTable Real(string name) => ClientTable.Load(RealPath!, name);
 }
