@@ -22,6 +22,11 @@ Those native findings were provided with this task; this child did not run a cli
 - After that delay, loss is `10 * max(0, 1 + rage_decay_speed_+% / 100)` Rage per second.
   Fractional progress survives observations, rate changes and area carry; each complete unit removes one Rage.
   `no_inherent_rage_loss` and `should_not_lose_rage` suppress this inherent loss.
+- Regeneration is a continuous gain from `base_rage_regeneration_per_minute` (`RageStats.Inputs`; Akoya's
+  Leadership sets 300, five Rage per second). It settles in the same advance as the inherent loss at the previous
+  inputs' rate, keeps a fraction like the loss, caps at the maximum and is blocked by `cannot_gain_rage`. A point it
+  adds refreshes activity like any other positive gain; a capped attempt does not (policy v1). The soul-gain
+  prevention window is not part of `RageState.Inputs`, so it does not stop this gain yet.
 - Effective Rage is the held count times `max(0, 1 + rage_effect_+% / 100)`, truncated to an integer native stat.
   The attack packet receives the single final multiplier `1 + effective Rage / 100`.
   It scales attack damage types and converted/added damage once, without changing generic damage or spell damage.
@@ -80,7 +85,8 @@ The connection owns its transient state; there is no saved Rage or implicit logi
 The stopped game clock freezes decay during pause.
 Death clears Rage before death handling awaits, and presentation clears the count and buff even while paused.
 On a successful Auth transfer, the old owner atomically settles and moves its count, activity age, hit-interval age,
-fractional loss and previous inputs to the destination ticket under `Monsters`, then becomes permanently retired.
+fractional loss, regeneration fraction and previous inputs to the destination ticket under `Monsters`, then becomes
+permanently retired.
 The same-character destination consumes the ticket once in `SendPlayer`, immediately before its initial stats build.
 The ticket remains unconsumed during the running destination clock before `0x7d`; that loading time spends no Rage.
 Another character cannot consume it, and duplicate restoration or the retired connection cannot copy the balance.
@@ -136,8 +142,9 @@ Further native composition checks remain:
 ## Limits outside this mechanic
 
 Vaal costs/souls, class selection and the rest of Behemoth remain separate mechanics.
-This does not implement every item-specific per-Rage effect, regeneration, alternate resource spending,
-weapon/warcry/stun/kill-specific conditional source or independent additional-loss mechanic.
+This does not implement every item-specific per-Rage effect (Akoya's Leadership regeneration is the one generic
+regeneration input), alternate resource spending, weapon/warcry/stun/kill-specific conditional source or independent
+additional-loss mechanic.
 The model retains a generic atomic spending primitive for future consumers; no Vaal consumer is introduced.
 Existing attack-gem accuracy, skill shapes, projectile snapshots and target/block approximations remain as before.
 Additional native composition checks are listed above; whole-class acceptance remains separate.
