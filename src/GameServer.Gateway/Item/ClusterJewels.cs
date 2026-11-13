@@ -22,7 +22,8 @@ public static class ClusterJewels
     /// <param name="Size">0 small, 1 medium, 2 large: the jewels the theme is for.</param>
     /// <param name="Tag">The spawn tag it gives the jewel: the notables that can roll with this theme carry it.</param>
     /// <param name="Passive">The PassiveSkills Id of the small passive.</param>
-    public sealed record Theme(int Row, int Size, string Tag, string Passive, string Name)
+    /// <param name="Stats">What that passive grants: Stats.dat Ids and their values.</param>
+    public sealed record Theme(int Row, int Size, string Tag, string Passive, string Name, IReadOnlyList<(string Id, int Value)> Stats)
     {
         /// <summary>The value the enchantment holds for this theme.</summary>
         public int Value => Row + 1;
@@ -39,6 +40,9 @@ public static class ClusterJewels
         /// <summary>The jewel sockets a new jewel of the size has: two on a large one, one on a medium one.</summary>
         public int DefaultSockets => Sockets.Count == 0 ? 0 : Sockets.Keys.Max();
 
+        /// <summary>The themes a new jewel of the size can have.</summary>
+        public IEnumerable<Theme> Offered => Themes.Where(t => !t.Retired);
+
         /// <summary>The enchantments of a jewel with this theme (null for none), passive count and socket count, as the
         /// game orders them. A count outside the base's range is taken as given: only a tool asks for one.</summary>
         public IEnumerable<ItemMod> Enchants(Theme? theme, int passives, int sockets)
@@ -53,7 +57,7 @@ public static class ClusterJewels
         /// size's sockets. The game's own weights are not known: each theme and count is as likely as another.</summary>
         public IEnumerable<ItemMod> Roll(Random random)
         {
-            var themes = Themes.Where(t => !t.Retired).ToList();
+            var themes = Offered.ToList();
             return Enchants(themes.Count > 0 ? themes[random.Next(themes.Count)] : null, random.Next(MinNodes, MaxNodes + 1), DefaultSockets);
         }
     }
@@ -65,13 +69,17 @@ public static class ClusterJewels
     {
         if (ClientTables.TableOrNull("PassiveTreeExpansionSkills") is not { } table
             || ClientTables.TableOrNull("PassiveSkills") is not { } passives || ClientTables.TableOrNull("Tags") is not { } tags) return [];
+        var statIds = ClientTables.TableOrNull("Stats");
         var themes = new List<Theme>();
         foreach (var r in table)
         {
             if (passives.Row(r.Int("PassiveSkillsKey")) is not { } passive) continue;
+            // PassiveSkills: its stats' rows, and a value column for each of the first four.
+            var stats = passive.Ints("Stats").Select((key, i) => (Id: statIds?.Row(key)?.Text("Id") ?? "",
+                Value: i < 4 ? passive.IntOrNull($"Stat{i + 1}Value") ?? 0 : 0)).Where(s => s.Id.Length > 0).ToList();
             themes.Add(new(r.Index, r.Int("PassiveTreeExpansionJewelSizesKey"),
                 r.IntOrNull("TagsKey") is int tag && tags.Row(tag) is { } t ? t.Text("Id") ?? "" : "",
-                passive.Text("Id") ?? "", passive.Text("Name") ?? ""));
+                passive.Text("Id") ?? "", passive.Text("Name") ?? "", stats));
         }
         return themes;
     });
