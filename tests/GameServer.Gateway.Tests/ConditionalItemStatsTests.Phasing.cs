@@ -194,6 +194,7 @@ public partial class ConditionalItemStatsTests
             Attack_ailment_sources_grant_charges_only_after_accepted_effects(conn, Wear);
             Savage_hit_item_speed_reaches_final_attack_timing(conn, Wear);
             Canonical_culling_items_keep_the_dedicated_hit_owner(conn, Wear);
+            Real_monster_blocks_keep_attack_and_spell_history_distinct(conn, Wear);
             conn.PlayerLife = 0;
             Read(); Assert.False(conn.IsPhasing);
             Assert.Empty(conn.PlayerStats);
