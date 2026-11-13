@@ -29,6 +29,7 @@
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
     <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\World\Portals\Portals.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\Atlas\Atlas.csproj" />
   </ItemGroup>
