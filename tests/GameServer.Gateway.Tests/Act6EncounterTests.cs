@@ -41,8 +41,11 @@ public sealed class Act6EncounterTests
         cart.Update(2, [(38, 0)]);
         Assert.Equal((26d, 0d), rail.Position);
         Assert.True(cart.Moving);
-        // A delayed update can finish this leg only. The client still needs the command for the turn.
+        // The last order can travel only to the edge of the escort's circle, even if a tick is late.
+        Assert.Equal((61, 0), cart.CommandTarget);
         cart.Update(10, [(65, 15)]);
+        Assert.Equal((61d, 0d), rail.Position);
+        cart.Update(1, [(65, 15)]);
         Assert.Equal((65d, 0d), rail.Position);
         Assert.True(cart.Moving);
         cart.Update(1, []);
