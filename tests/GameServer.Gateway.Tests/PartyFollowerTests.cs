@@ -102,7 +102,8 @@ public sealed class PartyFollowerTests
         Assert.Equal((137, 100), inFront.Walk.Destination);
 
         leader.Walk.Teleport(100, 100, 0);
-        var idle = runtime.Connection(instance, wire);
+        // The idle turns are seeded by the peer id: about one id in a hundred finds no free cell and never adjusts.
+        var idle = runtime.Connection(instance, wire, peer: 0x20000001);
         idle.Walk.Teleport(160, 100, 0);
         action = idle.ActionCount;
         int adjustments = 0;
@@ -159,11 +160,15 @@ public sealed class PartyFollowerTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
         }
-        public ClientState Connection(InstanceState instance, Wire wire, string? character = null)
+        // peer: a fixed id for a rule that is seeded by it; otherwise the next id of the process.
+        public ClientState Connection(InstanceState instance, Wire wire, string? character = null, uint? peer = null)
         {
-            var conn = new ClientState(new(1, "follower", 300, 300, 100, 100, null, []), 1, 1)
-            { Instance = instance, Character = character, PlayerLife = 1000, PlayerSent = true, Controlled = true,
-                Wire = ("follower-test", wire.Stream, wire.Ciphers) };
+            AreaLayout layout = new(1, "follower", 300, 300, 100, 100, null, []);
+            var conn = peer is { } id
+                ? new ClientState(layout, 1, 1) { Instance = instance, Character = character, PeerId = id }
+                : new ClientState(layout, 1, 1) { Instance = instance, Character = character };
+            conn.PlayerLife = 1000; conn.PlayerSent = true; conn.Controlled = true;
+            conn.Wire = ("follower-test", wire.Stream, wire.Ciphers);
             players.Add(conn); Program.InGame.TryAdd(conn, 0);
             return conn;
         }
