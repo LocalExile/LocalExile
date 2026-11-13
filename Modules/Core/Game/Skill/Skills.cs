@@ -534,12 +534,14 @@ public static partial class Game
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in player) playerStats[key] = value;
         var gems = GemSkillEffects(conn).ToArray();
+        RemoveMissingSealSources(conn, gems.Select(g => g.Id));
         var skillCosmetics = CharacterSaves.SkillCosmetics(string.IsNullOrEmpty(character) ? "Exile" : character);
         foreach (var (id, effect, name, _, quality, gem) in gems)
         {
             var supported = SupportedSkill(conn, id);
             int level = supported.Level;
             var own = supported.Stats;
+            UnleashSeals(conn, id, supported, ProjectileWorldTime(conn));
             var stats = MergeSkillStats(playerStats, own);
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished

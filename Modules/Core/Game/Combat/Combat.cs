@@ -1233,10 +1233,13 @@ public static partial class Game
             return ScheduleLightningStrike(remote, stream, ciphers, conn, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt);
+        var supported = SupportedSkill(conn, skillId);
+        int seals = UnleashSeals(conn, skillId, supported, ProjectileWorldTime(conn), spend: true);
+        double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, "support_spell_rapid_fire_repeat_use_damage_+%_final") / 100d);
         if (UsesProjectileRuntime(gem.Effect))
             return ScheduleGemProjectile(remote, stream, ciphers, conn, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? conn.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt);
+                sequence, swingAt, seals, reoccurrenceMore);
         // A channelled skill (Cyclone, ActiveSkillType 47) hits as it starts: its spin is already in motion, and the later
         // sweeps follow on the attack timer (RunChannel).
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
@@ -1304,27 +1307,32 @@ public static partial class Game
         var discharge = DischargeUseFor(conn, gem.Effect, gem.Level, gem.Quality);
         bool darkBargain = IsDarkBargain(conn, gem.Effect);
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
-        if (IsStormCall(SkillsFor(conn).EffectId(gem.Effect)))
+        bool stormCall = IsStormCall(SkillsFor(conn).EffectId(gem.Effect));
+        double sealGap = seals == 0 ? 0 : (CastMs(conn, gem.Effect, skillId) ?? 0) / 10000d;
+        for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
-            for (int repeat = 0; repeat <= spellRepeats; repeat++)
+            int repeat = Math.Max(0, release - seals);
+            bool reoccurrence = release > 0 && release <= seals;
+            double sealDelay = Math.Min(release, seals) * sealGap;
+            double more = reoccurrence ? reoccurrenceMore : 1;
+            if (stormCall)
+            {
                 foreach (var area in cascadeAreas.Prepend(to))
                     jobs.Add(PlaceStormCall(remote, stream, ciphers, conn, skillId, gem, area, repeat, actionToken, cooldownUse,
-                        criticalRoll, sacrifice));
-            return Task.WhenAll(jobs);
-        }
-        for (int repeat = 0; repeat <= Math.Max(spellRepeats, meleeRepeats); repeat++)
-        {
+                        criticalRoll, sacrifice, sealDelay, more));
+                continue;
+            }
             // Dark Bargain explodes at skeletons (or the player), not at the aim: each repeat pays and chains again.
             if (darkBargain)
             {
-                jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, sacrifice));
+                jobs.Add(DarkBargainCast(remote, stream, ciphers, conn, skillId, gem, to, repeat, actionToken, cooldownUse, criticalRoll, sacrifice, sealDelay, more));
                 continue;
             }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHit(remote, stream, ciphers, conn, skillId, gem, from,
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
-                repeatDelay: repeat * repeatInterval, radiusMore: fistRadius, sacrifice: sacrifice,
-                damageMore: fistMore * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
+                repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: fistRadius, sacrifice: sacrifice,
+                damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(conn, skillId, repeat) : 1), discharge: discharge));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -1585,7 +1593,7 @@ public static partial class Game
         string? contactClip = null;
         double contactFraction = 0;
         lock (conn.Monsters) delay = spell
-            ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject))
+            ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject)) + repeatDelay
             : GemAttackContactDelay(conn, gem.Effect, SupportedAttackSeconds(conn, skillId), out contactClip, out contactFraction)
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
