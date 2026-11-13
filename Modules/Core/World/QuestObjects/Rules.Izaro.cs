@@ -184,6 +184,31 @@ static partial class QuestobjectsRules
     static byte[] IzaroLifeFloor(uint izaro, IzaroFights.Trial trial) =>
         !trial.Last && Stats.Key("cannot_drop_below_%_life") is uint key ? InstanceEntities.StatsUpdate(izaro, [(key, trial.LeavesAtPercent)]) : [];
 
+    // The Izaros this instance still has: the arena spawns his variety alone, so any monster of it is a leftover from an
+    // earlier entry. He is retired rather than forgotten: dead, out of life so no hit lands on the body, with his actions
+    // stopped, out of the instance's monsters and origins, and every player in the instance is told he is gone.
+    static List<uint> LeftoverIzaro(ClientState conn, IzaroFights.Trial trial)
+    {
+        var ids = new List<uint>();
+        lock (conn.Monsters)
+        {
+            foreach (var (id, monster) in conn.Monsters)
+            {
+                if (monster.Variety?.Id != trial.Variety) continue;
+                monster.Dead = true;
+                monster.Life = 0;
+                monster.ActionGeneration++;
+                ids.Add(id);
+            }
+            foreach (uint id in ids)
+            {
+                conn.Monsters.Remove(id);
+                conn.Instance.World.MonsterOrigins.TryRemove(id, out _);
+            }
+        }
+        return ids;
+    }
+
     // His second line at a trial's end (the arena's mechanic's, IzaroFinish…), after the first has played (the original:
     // both, one after the other).
     static async Task IzaroSaysLater(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn, string? line, Func<bool> here)
@@ -223,6 +248,20 @@ static partial class QuestobjectsRules
                 return;
             }
             byte level = (byte)Math.Clamp(ServerLevels.AreaLevel(conn.Layout.Id), 1, 100);
+            // An Izaro already up in this instance (a player who died and came back through the corridor, or a second
+            // connection into the same instance) is taken down first: one Izaro, one life bar, one set of shutting doors
+            // and one death belong to one fight (live 2026-11-11: two of him, both chasing the player).
+            foreach (uint stale in LeftoverIzaro(conn, trial))
+            {
+                await Send(remote, stream, ciphers, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
+                // The others in the instance see him too: each gets its own bytes (a send encrypts them in place).
+                foreach (var peer in conn.Instance.Presence.PlayersExcept(conn.PeerId))
+                {
+                    if (peer.Owner is not { Controlled: false, Closed: false, LeavingArea: false } other) continue;
+                    var (peerRemote, peerStream, peerCiphers) = other.Wire;
+                    await Send(peerRemote, peerStream, peerCiphers, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
+                }
+            }
             uint izaro = await SpawnMonster(remote, stream, ciphers, conn, variety, level, MonsterRarity.Unique, elevator.X, elevator.Y,
                 placement: MonsterPlacement.Established, lifePercent: trial.StartPercent, ownedLooks: variety.Weapons, extraStats: IzaroPhases,
                 movement: IzaroFights.Movement);
