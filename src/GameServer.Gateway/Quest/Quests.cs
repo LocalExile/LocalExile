@@ -152,7 +152,7 @@ public static partial class Quests
     /// <summary>A model-less exit at a named entrance stands in for this quest portal.</summary>
     public sealed record PointPortalRule(string Area, string To, string Type) : Rule;
     /// <summary>A door opened individually by use, or by the death of the monster in its named room.</summary>
-    public sealed record PlacedDoorRule(string Area, string Type, string? Room = null, string? Monster = null) : Rule;
+    public sealed record PlacedDoorRule(string Area, string Type, string? Room = null, string? Monster = null, string? Entrance = null) : Rule;
     /// <summary>A room or tile quest object the engine creates where the area places it (<see cref="QuestObjectTypes"/>): a
     /// seal, a lever, a door, an altar. Its Transitionable shows <see cref="TransitionedBy"/>: state 1 without the flag, its
     /// last state with it (the client plays the transition when the flag comes), and its TriggerableBlockage blocks until

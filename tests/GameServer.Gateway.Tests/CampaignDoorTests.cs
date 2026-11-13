@@ -24,15 +24,43 @@ public class CampaignDoorTests
         Assert.False(new InstanceState().HasState(flag));
     }
 
-    [Fact]
-    public void Each_Harvest_guardian_unlocks_only_its_own_room()
+    [GameFilesFact]
+    public void A_guardian_door_only_blocks_a_room_with_a_working_inbound_teleport()
     {
-        using var registration = Quests.Register("guardian-door-test", QuestObjectsModule.Acts());
-        var rules = Quests.For(new HashSet<string> { "guardian-door-test" });
-        var guardians = rules.Doors(Act4Areas.Harvest).Where(r => r.Monster != null).ToList();
-        Assert.Equal(3, guardians.Count);
-        Assert.Equal(3, guardians.Select(d => d.Room).Distinct().Count());
-        Assert.Equal(new[] { Act4Monsters.Doedre, Act4Monsters.Maligaro, Act4Monsters.Shavronne }, guardians.Select(d => d.Monster));
-        Assert.All(guardians, d => Assert.Equal(Act4Objects.ArenaDoor, d.Type));
+        const string module = "guardian-door-test";
+        using var registration = Quests.Register(module, QuestObjectsModule.Acts());
+        foreach (var (area, expected) in new[] { (Act4Areas.Belly2, 1), (Act4Areas.Harvest, 3) })
+        {
+            foreach (uint seed in new uint[] { 1, 2 })
+            {
+                var layout = AreaLayouts.For(AreaTransitionCatalog.HashOf(area)!.Value, seed);
+                var placed = new QuestObjectTypes.AreaPlacements(area, seed, []);
+                var entry = new ClientState(layout, 1, seed) { Instance = new() };
+                entry.LeagueModule = new(new GameServer.Core.Accounts.League("test", "Standard", false, false), new HashSet<string> { module });
+                var doors = Game.PlacedQuestDoors(entry, placed);
+                var arena = doors.Where(d => !d.Object.OpensOnUse).ToList();
+                Assert.Equal(expected, arena.Count);
+                Assert.All(doors, d => Assert.True(d.Object.GoneWhenTransitioned));
+                Assert.Equal(doors.Count, doors.Select(d => d.Object.TransitionedBy).Distinct().Count());
+
+                var entrances = layout.AreaTransitions.Where(t => t.Transition.SourceType == Act4Objects.ArenaEntrance).ToList();
+                Assert.Equal(expected, entrances.Count);
+                foreach (var gate in entrances)
+                {
+                    Assert.True(Game.TransitionShown(entry, gate.Id, gate.Transition));
+                    var missing = layout with { AreaTransitions = [.. layout.AreaTransitions.Where(t => t.Id != gate.Id)] };
+                    var peer = new ClientState(missing, 1, seed) { Instance = entry.Instance, LeagueModule = entry.LeagueModule };
+                    var remaining = Game.PlacedQuestDoors(peer, placed);
+                    var removed = Assert.Single(doors.Except(remaining));
+                    Assert.False(removed.Object.OpensOnUse);
+                    var landing = Game.GateArrival(layout, gate.Transition);
+                    var at = removed.At;
+                    long sides = (long)(gate.Transition.GridX - at.X) * (landing.X - at.X)
+                        + (long)(gate.Transition.GridY - at.Y) * (landing.Y - at.Y);
+                    Assert.True(sides < 0);
+                    Assert.True(layout.WalkableFor(landing.X, landing.Y, 1));
+                }
+            }
+        }
     }
 }

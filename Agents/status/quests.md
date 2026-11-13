@@ -110,15 +110,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Act3Complete`, the campaign runner unattended; on the modules checked by the oracle, not yet with the client): a4q2
   (Voll, Deshret's Banner, the seal opens the Mines), a4q6 (Deshret's spirit, the book), a4q3 and a4q4 (Dialla at the
   Rapture, Kaom, Daresso, both Eyes handed in), a4q5 (the Rapture Device, Piety in the Belly and her talk, the three
-  guardians' organs in one click to open the Black Core), a4q1 (Malachai's second form at the second arena's boss point, his return portal to Highgate, the withered Dialla opening the Ascent,
+  guardians' organs in one click to open the Black Core), a4q1 (Malachai's second form at the second arena's boss point, the withered Dialla opening the Ascent,
   her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
   the arena shortcut after Innocence falls in that instance, burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
   a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
-  Rapture, Kaom, Daresso, both Eyes handed in), the Belly’s individual doors and guardian arena gates, a4q5 (the Rapture Device, Piety in the Belly and her talk, the three
-  guardians' organs in one click, the Black Core), a4q1 (Malachai's second form, the withered Dialla opening the Ascent,
-  her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
-  burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
-  a5q6 (the Ossuary tomb and its lever-operated shortcut after the Sign is found, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
   −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama and the two bridges to his keep), a6q2
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black
   Flag, the Brine King; Weylam sails to The Bridge Encampment). It ended in 2_7_town with every flag of `Act4Complete`
@@ -128,7 +123,9 @@ Part of [Status](../Status.md); what to build next in this area is in
    (75/50/25% life gates, flood, tide, storm, defensive stance, minions and boss life bar): all three floods,
    tide buff entry/exit, combat and the post-kill Act 7 transition were verified live 2026-11-06.
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
-   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
+   In the 3.29.3c client the Belly side door and the four arena entrances worked at seed 1, the corresponding doors disappeared on use or kill,
+  Malachai's portal returned to Highgate, and the Ossuary lever opened the passage after taking the Sign.
+  Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
   [act 5](../docs/game/campaign/act5.md), [act 6](../docs/game/campaign/act6.md).

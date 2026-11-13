@@ -41,6 +41,7 @@ static class Act4Objects
 {
     public const string HarvestBlocker = "Metadata/Terrain/Mountain/Belly/Objects/BellyHarvestBlocker";
     public const string Seal = "Metadata/QuestObjects/Act4/MineEntranceSeal", SealBlocker = "Metadata/QuestObjects/Act4/MineEntranceSealBlocker";
+    public const string ArenaEntrance = "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaTransition";
     public const string SideDoor = "Metadata/Terrain/Mountain/Belly/Objects/BellyArseDoor";
     public const string ArenaDoor = "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaDoor";
     public const string RoomFolder = "Metadata/Terrain/Mountain/Belly/Rooms/Unique/";
@@ -153,10 +154,10 @@ sealed class Act4 : Act
                 new PlacedDoorRule(Belly1, Act4Objects.SideDoor),
                 new PlacedDoorRule(Belly2, Act4Objects.SideDoor),
                 new PlacedDoorRule(Harvest, Act4Objects.SideDoor),
-                new PlacedDoorRule(Belly2, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "boss_piety_1.arm", Act4Monsters.PietyBeast),
-                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_1.arm", Act4Monsters.Doedre),
-                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_2.arm", Act4Monsters.Maligaro),
-                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_3.arm", Act4Monsters.Shavronne),
+                new PlacedDoorRule(Belly2, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "boss_piety_1.arm", Act4Monsters.PietyBeast, Act4Objects.ArenaEntrance),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_1.arm", Act4Monsters.Doedre, Act4Objects.ArenaEntrance),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_2.arm", Act4Monsters.Maligaro, Act4Objects.ArenaEntrance),
+                new PlacedDoorRule(Harvest, Act4Objects.ArenaDoor, Act4Objects.RoomFolder + "organ_3.arm", Act4Monsters.Shavronne, Act4Objects.ArenaEntrance),
                 On.Exit(Belly2, Harvest, "a4q5-QuestReceived"),
                 On.Npc(Harvest, Act4Npcs.PietyHarvest, null),
                 On.Exists("Metadata/QuestObjects/Act4/CoreTransition", from: "a4q5-QuestComplete"),

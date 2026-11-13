@@ -411,12 +411,23 @@ public static partial class Game
             if (QuestObjectTypes.Find(rule.Type) is not { } info || !QuestObject.CanSerialize(info.Components)) continue;
             foreach (var at in placements.Of(rule.Type))
             {
-                if (rule.Room is not null && conn.Layout.Level?.Records.SelectMany(r => r.Rooms).Any(r =>
-                    r.Room.Path.Equals(rule.Room, StringComparison.OrdinalIgnoreCase) && at.X >= r.X * 23 && at.X < (r.X + r.Width) * 23
-                    && at.Y >= r.Y * 23 && at.Y < (r.Y + r.Height) * 23) != true) continue;
+                if (rule.Room is not null)
+                {
+                    var room = conn.Layout.Level?.Records.SelectMany(r => r.Rooms).FirstOrDefault(r =>
+                        r.Room.Path.Equals(rule.Room, StringComparison.OrdinalIgnoreCase) && at.X >= r.X * 23 && at.X < (r.X + r.Width) * 23
+                        && at.Y >= r.Y * 23 && at.Y < (r.Y + r.Height) * 23);
+                    if (room is null) continue;
+                    // A closed arena door is safe only with a usable teleport across it in this placed room.
+                    bool Inside(int x, int y) => x >= room.X * 23 && x < (room.X + room.Width) * 23
+                        && y >= room.Y * 23 && y < (room.Y + room.Height) * 23;
+                    if (!conn.Layout.AreaTransitions.Any(t => t.Transition.SourceType == rule.Entrance &&
+                        t.Transition.TeleportTo is { } pad && Inside(t.Transition.GridX, t.Transition.GridY) && Inside(pad.X, pad.Y)
+                        && (long)(t.Transition.GridX - at.X) * (pad.X - at.X) + (long)(t.Transition.GridY - at.Y) * (pad.Y - at.Y) < 0
+                        && conn.Layout.WalkableFor(pad.X, pad.Y, 1) && TransitionShown(conn, t.Id, t.Transition))) continue;
+                }
                 string flag = rule.Monster is { } monster ? Quests.InstanceFlag("door-kill:" + monster)
                     : Quests.InstanceFlag($"door:{rule.Type}:{at.X},{at.Y}");
-                var obj = new Quests.ObjectRule(rule.Area, rule.Type, flag) { OpensOnUse = rule.Monster is null };
+                var obj = new Quests.ObjectRule(rule.Area, rule.Type, flag) { OpensOnUse = rule.Monster is null, GoneWhenTransitioned = true };
                 doors.Add((obj, new(rule.Area, rule.Type, info.Size, flag), at));
             }
         }
