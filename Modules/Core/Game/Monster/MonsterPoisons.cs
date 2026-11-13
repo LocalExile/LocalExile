@@ -14,9 +14,10 @@ public static partial class Game
     {
         var merged = MergeSkillStats(player, SupportedSkill(conn, skillId).Stats);
         string hand = spell ? "spell" : "main_hand";
-        return MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon, addedChaos: addedChaos), hand,
-            name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
-            spell || weapon is not null ? null : MainHandLocalSources(conn));
+        return WithOverheat(conn, skillId,
+            MonsterPoisons.Settings.From(SupportedAilmentRows(conn, skillId, hand, weapon, addedChaos: addedChaos), hand,
+                name => Stats.Key(name) is uint key ? merged.GetValueOrDefault(key) : 0,
+                spell || weapon is not null ? null : MainHandLocalSources(conn)));
     }
 
     /// <summary>The default melee attack's poison, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>

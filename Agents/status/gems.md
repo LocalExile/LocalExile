@@ -82,6 +82,9 @@ Nothing yet.
   Machinations counts allocated keystones for its chaos gain and skill-local cost increase ([25](../docs/protocol/25-gem-supports.md)).
   Awakened supports' extra stats that have a consumer now apply: per-type supported gem levels, Brutality's Crush,
   Spell Echo's double damage on the final repeat, and Generosity's aura effect with its "does not affect you".
+   Overheat's Fortification consumption is modelled: a supported skill's use consumes all Fortification once, at the
+   start of the use, and stores (1 + 6-8% per 3 stacks consumed) more Ailment damage for that use's ailments, applied
+   through WithOverheat to SupportedIgnite/SupportedBleed/SupportedPoison and ProjectileRelease.
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,

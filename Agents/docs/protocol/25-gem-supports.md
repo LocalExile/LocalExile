@@ -42,7 +42,13 @@ its 300% cost multiplier), counts the Life paid against `support_lifetap_spent_l
 buff (BuffDefinitions 1846) for the support's 4000 ms base plus 100 ms per 1% quality. While it runs, supported hits
 take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% increased Life. A paid Vaal use follows the
 same Life cost.
-The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
+Overheat Support consumes all of the player's Fortification once per use, at the start of the use (before its hit or
+any projectile it releases), and stores per skill `(1 + per_3 * floor(consumed / 3) / 100)` as more Ailment damage for
+that use's ailments (6-8% per 3 at levels 1-20; Fortification's 20-stack base maximum caps it at 36%/48%). The stored
+value is applied through `WithOverheat` to `SupportedIgnite`, `SupportedBleed`, `SupportedPoison` and `ProjectileRelease`'s
+ailment settings, so a melee skill's projectiles inherit it. A use with fewer than three stacks stores nothing, and the
+next use without Fortification replaces the stored value with no bonus. Sources: poewiki "Overheat Support", poedb
+`support_overheat_ailment_damage_+%_final_per_3_fortification_consumed`, and Path of Building's `SupportOverheat`.
 converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
 refused when its Life cost is not below current Life. Mana reservation is unchanged.
 Physical more damage is applied before conversion; elemental and chaos modifiers apply to their resulting damage.
@@ -210,9 +216,9 @@ updates replace the complete spent-use queue. Duplicate same-effect gems and the
 `SingleUseCooldown` retain their existing limitations. Momentum's stacks need a skill-use and movement signal;
 Barrage needs its own release pattern, not a stat.
 Unleash's seals, minion damage on summoned minions and the curses that Blasphemy and Hextouch would apply still need
-their own mechanics or client-side geometry. Arrogance and the blessing supports need life reservation and a temporary
-aura lifecycle; Overheat needs Fortification consumption and Overexertion needs warcry exertion. Cruelty's buff adds
-more damage over time on top of its hit damage.
+their own mechanics or client-side geometry. The blessing supports need a temporary aura lifecycle; Overheat's
+Fortification consumption and per-skill ailment more are modelled (above); Overexertion needs warcry exertion. Cruelty's
+buff adds more damage over time on top of its hit damage.
 Persistent damage effects, including Righteous Fire, do not yet refresh every derived parameter on link changes.
 Only the unconditional damage keys listed by GemSupportDamage and the five target conditions above receive
 multiplicative processing.
