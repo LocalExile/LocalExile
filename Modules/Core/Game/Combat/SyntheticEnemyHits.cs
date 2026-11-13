@@ -56,9 +56,10 @@ public static partial class Game
             RecoupHitLocked(conn, taken, now, stats);
             if (type == DamageType.Physical) PreventedDamageOf(conn).Add(now, amount - dealt);
             uint lifeBefore = conn.PlayerLife;
-            conn.PlayerLife = (uint)Math.Min(LifeCap(conn), Math.Max(0, (long)conn.PlayerLife
-                - DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0, type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0, type == DamageType.Chaos ? dealt : 0, now, stats,
-                    taken) + gainedLife));
+            int lifeDamage = DamagePlayerHitTyped(conn, type == DamageType.Physical ? dealt : 0,
+                type is not (DamageType.Physical or DamageType.Chaos) ? dealt : 0,
+                type == DamageType.Chaos ? dealt : 0, now, stats, taken);
+            conn.PlayerLife = (uint)Math.Min(LifeCap(conn), Math.Max(0, (long)lifeBefore - lifeDamage + gainedLife));
             if (block) conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
             conn.EnergyShield.Recover(onBlock.EnergyShield);
             TrimLeechLocked(conn);
@@ -72,7 +73,8 @@ public static partial class Game
                 conn.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
             }
             if (suppressed) conn.RecentEvents.Record(StatConditions.SuppressedSpell, now);
-            if (lifeBefore > conn.PlayerLife && (long)(lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)
+            // On-block recovery does not undo the Life lost to the accepted hit.
+            if (lifeDamage > 0 && (long)lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
                 conn.RecentEvents.Record(StatConditions.TakenSavageHit, now);
             ChargesWhenHit(conn, blocked, spell);
             if (conn.PlayerLife == 0) { conn.InvalidateIncomingHits(); ClearAntiquarianOnDeath(conn); }

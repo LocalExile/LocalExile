@@ -1856,7 +1856,8 @@ public static partial class Game
             : afterDamage;
         conn.PlayerMana = (uint)Math.Min((uint)UnreservedMana(conn), (long)conn.PlayerMana + gainedMana);
         conn.EnergyShield.Recover(onBlock.EnergyShield);
-        if (lifeBefore > conn.PlayerLife && (lifeBefore - conn.PlayerLife) * 100 >= (long)conn.PlayerMaxLife * 15)
+        // Recovery on this block cannot erase a Savage Hit's pre-recovery Life loss.
+        if (lifeDamage > 0 && (long)lifeDamage * 100 >= (long)conn.PlayerMaxLife * 15)
             QueueFlaskTrigger(conn, FlaskEnchantments.Trigger.SavageHit);
         TrimLeechLocked(conn);
         ApplyPlayerAilmentsLocked(conn, baseHit, ailmentTaken.Select((_, r) =>
