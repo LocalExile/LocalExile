@@ -29,15 +29,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 2. The world
 
-### Every area's layout at seed 1
-
-- **Known:** generated areas only exist in the client; `live.ps1 -Walkmaps` captures an area's walk map, area
-  transitions and waypoint when the client generates it ([08](../docs/protocol/08-area-transitions.md) §7).
-  About 30 areas are captured; waypoint travel to an uncaptured one (The Submerged Passage) puts the player outside
-  the map ([16](../docs/protocol/16-waypoints.md) "Open").
-- **Start:** a dev command that walks the WorldAreas list with `/goto` and waits for each capture.
-- **Done when:** every act area has its seed-1 capture, and every waypoint area its waypoint in it.
-
 ### Server-side level generation
 
 - **Known:** the port reproduces the client's generator for every recorded trace and logged load

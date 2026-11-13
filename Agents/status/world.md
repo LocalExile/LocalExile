@@ -67,7 +67,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `InstanceRegistry.cs`, `WorldAreaTowns.cs`.
   Docs: [09](../docs/protocol/09-area-change.md).
 - Walk maps and area transitions captured from the client on first visit (optional, `live.ps1 -Walkmaps`: without
-  it nothing is recorded); the Gateway uses them for the areas it does not generate itself.
+  it nothing is recorded); the Gateway uses them for the areas it does not generate itself, and a capture that names
+  no waypoint falls back to the one its generated layout places. A recording holds the walk grid, the projectile
+  grid, the cell heights, the area transitions, doodads, room placement and the generation trace; every act area is
+  captured at seed 1 (220 areas, 189 with every file, 62 naming a waypoint), and the captures stay in `data/`, so a
+  fresh clone records its own.
   Code: `scripts/walkmaps`, `live.ps1 -Walkmaps`.
   Docs: [GettingStarted](../GettingStarted.md) step 9, [08](../docs/protocol/08-area-transitions.md) §7.
 - Waypoints: the Waypoint object where the area's layout is captured (Lioneye's Watch built in), activated on entry
@@ -303,6 +307,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Quest objects with extra components are sent as plain AreaTransition, so The Twilight Strand's gate appears without
   its animation; the Doorman and the opening tutorial's wall are not created ([12](../docs/protocol/12-quests.md) §6).
   Only quests a1q1 and a1q4 are scripted; the client builds the quest tracker from the flags.
-- Waypoint travel to a generated area without a `-Walkmaps` capture for its seed puts the player at an arbitrary cell
-  (The Submerged Passage, seed 1); quest flags are derived from visited areas and waypoints, not from quests
+- Waypoint travel to a generated area without a `-Walkmaps` capture for its seed, and whose generated layout places no
+  waypoint either, puts the player at an arbitrary cell; every act area has a seed-1 capture, so this is what any other
+  seed does. Quest flags are derived from visited areas and waypoints, not from quests
   ([16](../docs/protocol/16-waypoints.md) "Open").
