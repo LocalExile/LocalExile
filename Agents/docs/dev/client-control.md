@@ -183,7 +183,7 @@ Get-FileHash src/GameServer.Gateway/bin/Debug/net10.0/GameServer.Gateway.dll -Al
 ## Targeted development interactions
 
 JSON RPC also accepts `game:resources` (read-only Life component pools and recent 0x1b1 corrections),
-`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
+`object:interact` with an object `id` (and an optional `skill`, e.g. `258` = 0x0102, the default attack, to attack it; `ctrl` / `alt` true for an NPC's shortcuts), `move` with grid `x`/`y`, `npc:option` with row `index`, `npc:close`,
 `reward:claim` with choice `id` and main-inventory `x`/`y`, and `inventory:pickup`/`inventory:place` with `inventoryId`
 and item `id` or destination `x`/`y`, `item:use` with an item `id` (and `inventoryId`, default 1: the main inventory;
 CLI `item:use 0x403`), which sends the right-click C→S 0x58 (a quest book's use, an Orb of Regret), and `flask:use` with

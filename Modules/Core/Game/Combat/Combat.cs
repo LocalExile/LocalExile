@@ -2233,8 +2233,8 @@ public static partial class Game
                         if (Stats.Key("base_killed_monster_dropped_item_rarity_+%") is uint rarityKey)
                             m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                         SoulEaterHit(conn, m);
-                        // Devour: a killing blow recovers the support's life/mana.
-                        if (applied.Value.Life == 0) DevourOnKill(conn, skillStats);
+                        // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
+                        if (applied.Value.Life == 0) DevourOnKill(conn, m, skillStats);
                         AilmentsOnHitLocked(conn, id, m, mitigated, spell, critical, multiplier, player, skillStats, at,
                             Random.Shared, reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(player, skillStats),
@@ -2817,16 +2817,18 @@ public static partial class Game
             ChargesOnKill(conn, m);
             RecoverOnKill(conn, m);
             // ChargesOnKill recorded this accepted kill before the explosion samples its conditions.
-            bool corpseConsumed;
+            bool corpseConsumed, devoured;
             lock (conn.Monsters)
             {
                 now = conn.Clock.Elapsed.TotalSeconds;
-                corpseConsumed = ConsumeCorpseOnKillLocked(conn, id, m, now);
+                // Devour's corpse is taken before the tattoo's roll: one killing blow consumes a corpse once.
+                devoured = ConsumeDevouredCorpseLocked(conn, id, m, now);
+                corpseConsumed = devoured || ConsumeCorpseOnKillLocked(conn, id, m, now);
             }
             bool explodedCorpse = await ExplodeOnKill(remote, stream, ciphers, conn, id, m, at);
             if (corpseConsumed && !explodedCorpse)
                 await Game.SendWorldRemoval(remote, stream, ciphers, conn, id,
-                    $"0x02bd corpse 0x{id:x} ({m.Label}) consumed by the killing blow");
+                    $"0x02bd corpse 0x{id:x} ({m.Label}) {(devoured ? "devoured by the supported skill" : "consumed by the killing blow")}");
         }
         // Soul Eater eats the souls of anything killed nearby, the player's kill or not.
         SoulEaterSoul(conn, id, at);

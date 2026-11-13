@@ -160,6 +160,33 @@ public static class AreaPopulation
     /// in grid cells (a Trial of Ascendancy's room: its traps, its pack points and monsters).</summary>
     public sealed record PlacedRoom(string Path, IReadOnlyList<RoomPoint> Points, IReadOnlyList<RoomObject> Objects);
 
+    /// <summary>The rarity of the pack a room's pack point places ("normal", "magic", "rare"); null for any other point.</summary>
+    public static MonsterRarity? PackPoint(string name) => name switch
+    {
+        "normal" => MonsterRarity.Normal, "magic" => MonsterRarity.Magic, "rare" => MonsterRarity.Rare, _ => null,
+    };
+
+    /// <summary>The pack points of a generated layout's placed rooms, in grid cells, per room and once each (a room is in
+    /// every record that holds it). Placed as AreaObjects.RoomObjects places a room's lines.</summary>
+    public static List<PlacedRoom> PackRooms(IEnumerable<GameServer.Data.Terrain.Generation.DoodadRecord> records)
+    {
+        var rooms = new List<PlacedRoom>();
+        var seen = new HashSet<(string, int, int, int)>();
+        foreach (var record in records)
+            foreach (var room in record.Rooms)
+            {
+                if (room.Orientation is < 0 or > 7 || !room.Room.Points.Any(p => PackPoint(p.Name) is not null)) continue;
+                if (!seen.Add((room.Room.Path.ToLowerInvariant(), room.X, room.Y, room.Orientation))) continue;
+                rooms.Add(new PlacedRoom(room.Room.Path, [.. room.Room.Points.Where(p => PackPoint(p.Name) is not null).Select(p =>
+                {
+                    var (x, y) = GameServer.Data.Terrain.Generation.Orientation.Map(room.Orientation, (int)p.X, (int)p.Y,
+                        room.Room.Width * 23, room.Room.Height * 23);
+                    return new RoomPoint(p.Name, room.X * 23 + x, room.Y * 23 + y);
+                })], []));
+            }
+        return rooms;
+    }
+
     static bool IsMonsterPoint(string name) => BossPoint(name) is not null || name.StartsWith("%area%-", StringComparison.Ordinal);
 
     /// <summary>The bosses a fight brings rather than the area: a later Bosses row with the name of an earlier one whose
@@ -341,8 +368,7 @@ public static class AreaPopulation
         var packs = area.Scattered.Where(s => s.Pack.Entries.Any(e => spawnable(e.Variety))).ToList();
         if (packs.Count == 0) return spawns;
         foreach (var p in roomPacks ?? [])
-            if (p.Name switch { "normal" => MonsterRarity.Normal, "magic" => MonsterRarity.Magic, "rare" => MonsterRarity.Rare, _ => (MonsterRarity?)null }
-                is { } rarity)
+            if (PackPoint(p.Name) is { } rarity)
             {
                 var pack = PickPack(packs, rng);
                 AddPack(spawns, taken, walkable, (p.X, p.Y), pack, rarity, true, rng, spawnable);

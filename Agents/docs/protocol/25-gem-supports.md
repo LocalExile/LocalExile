@@ -155,7 +155,7 @@ adds Strength's damage bonus to projectile attack physical damage and Iron Will'
 (`DamageStats.StrengthDamageBonus`). Immolate's added fire against burning enemies, Bloodthirst's added physical from
 maximum life on low life, Bonechill's cold damage taken equal to the chill, and Coursing Current's equivalent
 shock/chill apply in the per-target support hook. Fist of War makes every 1.8 s slam a big hit (damage and area);
-Devour recovers its life/mana on a killing blow (the corpse is not removed); Sacrifice pays current life once at
+Devour recovers its life/mana on a killing blow and consumes the corpse (the object is removed); Sacrifice pays current life once at
 the original player cast's first valid release (including Fireball/Spark), shared by repeats and cascades.
 Its added chaos enters raw spell damage before effectiveness, conversion, increases, more and damage prohibitions;
 unreleased cancelled, replaced-source or retired casts pay nothing. Payment publishes current life/reservation;

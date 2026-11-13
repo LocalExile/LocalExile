@@ -353,7 +353,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public ClientState? Target;
     /// <summary>The player whose hit landed on it last: an ignite, bleed or poison that kills it is theirs (SharedKills.cs).</summary>
     public ClientState? LastHitBy;
-    // Its corpse was consumed (Deathrattle's explosion) and its object removed. Guarded by the Monsters lock.
+    // Its corpse was consumed (a kill explosion, the Kitava tattoo, a Devour-supported killing blow) and its object
+    // removed. Guarded by the Monsters lock.
     public bool CorpseConsumed;
     // The Unhinged hit-kill decision captured at the lethal Life mutation, bound to the client that accepted the hit.
     // Kept on this exact monster instance until the kill publication consumes it.
@@ -363,6 +364,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // A warcry's Howl of the Wolf already rerolled this corpse's loot: one reroll per corpse, like another use of it.
     // Guarded by the Monsters lock.
     public bool CorpseLooted;
+    // A Devour-supported killing blow recovered its life/mana: the kill consumes the corpse and removes its object.
+    // Set by the hit, read by the kill.
+    public bool DevourCorpse;
     // Soul credit alone is idempotent; this does not alter existing XP, loot, quest or charge policy.
     public bool SoulKillProcessed;
     public (int X, int Y)? LastTarget;

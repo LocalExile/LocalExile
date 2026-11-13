@@ -106,8 +106,12 @@ So:
    What a room places itself is in its points too (version 8 keeps them in the rooms kept for other reasons): monsters
    by MonsterVarieties Id (`Metadata/Monsters/…`: boss arenas' daemons and guards, the Imperial Gardens trial's four
    `RootSpiderHidden`), server spawners (`Metadata/QuestObjects/…Spawner`) and pack points `normal`, `magic` and
-   `rare`. Only a Trial of Ascendancy's rooms place them yet ([labyrinth-trials](../game/labyrinth-trials.md),
-   "Monsters"); a quest room placed where the client placed it is also returned with its points and objects
+   `rare`. A pack point is one of the area's scattered packs of that rarity. Every placed room of a generated layout
+   places its own (`ServerLevels.Level.PackRooms`, read from the generated rooms, not from `room-points.json`); a
+   captured layout only its Trial of Ascendancy's ([labyrinth-trials](../game/labyrinth-trials.md), "Monsters").
+   The points are few: 2 126 in 1 498 of 3 265 generated layouts (795 areas, two seeds each): 1 663 `magic`, 450 `rare`
+   and 13 `normal`, 99% of them on walkable cells. So the room files do not say where an area's ordinary packs stand,
+   or how many it has (§1). A quest room placed where the client placed it is also returned with its points and objects
    (`AreaPopulation.PlacedRoom`).
    **Which boss stands where** (`AreaPopulation.Plan`): each boss once. First the numbered points take theirs (a boss
    whose number two placed rooms carry stands at the first). Then the named packs: a pack's own boss

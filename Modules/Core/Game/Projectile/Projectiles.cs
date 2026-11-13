@@ -402,7 +402,7 @@ public static partial class Game
                 target.KilledWithItemRarityPct = shot.SkillStats.GetValueOrDefault(rarityKey);
             // Soul Ascension: this player hit on a rare or unique enemy eats a soul (its own cooldown).
             SoulEaterHit(Conn, target);
-            if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, shot.SkillStats);
+            if (shot.ActualCaster is null && hit.Value.Life == 0) DevourOnKill(Conn, target, shot.SkillStats);
             if (shot.MirageSource is not null && target.Hostile && contact.Projectile.Use.Emitter.Id == PlayerId)
                 MirageOnArrowHit(shot);
             if (!immune)

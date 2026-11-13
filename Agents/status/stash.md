@@ -21,8 +21,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   of the character's league (normal, premium, quad, currency, essence, fragment, map, flask, gem) from the tab list in
   S→C 0x21; each tab's contents come on the client's request (C→S 0xc7 → 0xc0 row 26 + 0xc8);
   items go into and out of tabs by click (0x28 / 0x2a) and Ctrl + click (C→S 0xe0 in, 0xe3 out, stacks onto stacks);
-  a click on a tab that a tab switch just unloaded re-loads that tab's inventory (0xc0 + 0xc8) before the update, which
-  stopped the client aborting on `Got an inventory set change for an inventory that isn't in the set` (#605);
+  every change to a tab that a tab switch unloaded (a click, a split, currency used from or on an item there) re-loads
+  that tab's inventory (0xc0 + 0xc8) first, which stopped the client aborting on
+  `Got an inventory set change for an inventory that isn't in the set` (#605, #710);
   special tabs hold only their own items (the map tab on the hidden page of the map's kind), the currency, essence and fragment tabs each item
   in its own slot, from the game data's stash tables (18 §7);
   currency-tab limits come from `CurrencyItems.CurrencyTab_StackSize` (generally 10 000; lifeforce 50 000).

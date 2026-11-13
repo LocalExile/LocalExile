@@ -116,9 +116,16 @@ public static partial class Game
         }
         StopCorpseBlocking(session.remote, session.stream, session.ciphers, conn, id, monster);
         session.World(PlayerId, () => VaalSoulPresentation(conn), "Vaal souls after projectile kill");
-        var position = monster.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond);
+        double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(conn) || monster.Variety is not { } variety || !monster.Hostile) return;
+        // Devour consumes the killing blow's corpse: its object leaves before the kill's loot and quest work.
+        bool devoured;
+        lock (conn.Monsters) devoured = ConsumeDevouredCorpseLocked(conn, id, monster, now);
+        if (devoured)
+            session.Enqueue(() => SendWorldRemoval(session.remote, session.stream, session.ciphers, conn, id,
+                $"0x02bd corpse 0x{id:x} ({monster.Label}) devoured by the supported skill"));
         // The mods (Program.Mods.cs) as in MonsterKilled: their modifiers here, inside the commit; the kill after it.
         var killer = PlayerOf(conn);
         var modMonster = ModMonster(monster, position);
