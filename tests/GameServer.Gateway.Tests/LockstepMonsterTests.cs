@@ -55,26 +55,6 @@ public class LockstepMonsterTests : IDisposable
         Assert.Single(Game.PlanMonsterAi(conn, cadence, 1.25).Swings);
     }
 
-    [Fact]
-    public void A_boss_can_acquire_a_nearby_golem_before_its_owner_enters_aggro_range()
-    {
-        var conn = Connection(lockstep: false);
-        var boss = Drowned(new PlayerWalk(200, 100, 8));
-        boss.Aggro = false;
-        var guard = Drowned(new PlayerWalk(202, 100, 8));
-        var definition = Assert.IsType<GolemCatalog.Definition>(new GolemCatalog().Find("SummonStoneGolem"));
-        var golem = new GolemState.Golem(0x3010, guard, definition, 1);
-        conn.Golems.All[golem.Id] = golem;
-        conn.Monsters[0x3000] = boss;
-        Game.PlanMonsterAi(conn, new MonsterAiCadence(), 1);
-        Assert.Same(golem, Assert.Single(conn.Golems.IncomingHits).Target);
-        Assert.Same(conn, boss.Target);
-
-        guard.Life = 0;
-        boss.Target = null;
-        Assert.False(Game.MonsterTargetsLocked(conn, 0x3000, boss, (200, 100), 100, 2));
-    }
-
     static SpawnedMonster Drowned(PlayerWalk walk) => new("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23)
     {
         Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, LastTarget = (100, 100),
@@ -374,6 +354,26 @@ public class LockstepMonsterTests : IDisposable
     // A melee chase farther than a leg past the reach goes as a Move to the cell a leg along its walk-up, placed by the
     // plan (the client's one search budget per frame, 07 §5); within a leg of the reach the attack aimed at the player
     // walks up as before.
+    [Fact]
+    public void A_boss_can_acquire_a_nearby_golem_before_its_owner_enters_aggro_range()
+    {
+        var conn = Connection(lockstep: false);
+        var boss = Drowned(new PlayerWalk(200, 100, 8));
+        boss.Aggro = false;
+        var guard = Drowned(new PlayerWalk(202, 100, 8));
+        var definition = Assert.IsType<GolemCatalog.Definition>(new GolemCatalog().Find("SummonStoneGolem"));
+        var golem = new GolemState.Golem(0x3010, guard, definition, 1);
+        conn.Golems.All[golem.Id] = golem;
+        conn.Monsters[0x3000] = boss;
+        Game.PlanMonsterAi(conn, new MonsterAiCadence(), 1);
+        Assert.Same(golem, Assert.Single(conn.Golems.IncomingHits).Target);
+        Assert.Same(conn, boss.Target);
+
+        guard.Life = 0;
+        boss.Target = null;
+        Assert.False(Game.MonsterTargetsLocked(conn, 0x3000, boss, (200, 100), 100, 2));
+    }
+
     [Fact]
     public void A_far_melee_chase_goes_in_legs_and_a_near_one_as_the_attack_walk_up()
     {
