@@ -69,6 +69,8 @@ static class TestEnvironment
         try { using var process = System.Diagnostics.Process.GetProcessById(id); return !process.HasExited; }
         catch (ArgumentException) { return false; }
         catch (InvalidOperationException) { return false; }
+        // A reused id of a process this user may not open: leave the folder for a later run.
+        catch (System.ComponentModel.Win32Exception) { return true; }
     }
 
     static readonly List<string> Own = [];
