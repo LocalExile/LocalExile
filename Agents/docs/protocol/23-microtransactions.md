@@ -141,7 +141,8 @@ Actor idles on the new set afterwards. `WornMorph` knows the two goblins (28:
 `GoblinShamanTransform2.act`), the Skeleton Skin (30: `Metadata/Pet/SkeletonBodyPaint/SkeletonBodyPaint.ao` with
 `SkeletonBodyPaintTransform.act`), the Lunar set (18 to 20) and the Wuzhiqi Potion (27), by the client's own
 transformation rigs' names. Seen live 2026-11-12: the goblin on a pick in town and on entering town, the class's own
-model outside and when the skin comes off, and the skeleton; the Lunar and Wuzhiqi forms were not looked at. A stat
+model outside and when the skin comes off, the skeleton, the Wuzhiqi form and the Lunar form (its four armour pieces).
+A stat
 sent alone (0x4336 = 28) changes nothing.
 
 **Pets.** Pets have no ItemisedVisualEffect row; each `Pet.dat` row names its MtxTypeGameSpecific row and its object
@@ -243,8 +244,8 @@ Verified live 2026-10-23: skins, attachments, character effects, footprints, por
   ailments) and the player's Onslaught and Fortification (`BuffArtVisual`) do. Seen live 2026-11-12: a Mystic Burning
   Arrow Effect's ignite burning teal on a monster; the others are sent the same way and were not looked at. The server
   has no shock, chill, freeze or Arcane Surge buff of its own to restyle yet. Not sent: `show_phasing_visual` /
-  `virtual_phasing_art_variation` (`mtx_sunprism_phasing_ring`), the summoning rings' and Dark Assembly's surges (they
-  need to know the skill creates minions), and everything that needs state the server does not count yet: the
+  `virtual_phasing_art_variation` (`mtx_sunprism_phasing_ring`), and everything that needs state the server does not
+  count yet: the
   `track_*` flags (kills, hits taken, blocks, skills used, Vaal souls), the kill-streak, hit-streak and kill-counter
   stacks, the Druidic gloves' charge intensity, and floating at 25 kill-streak stacks.
 - Morphs without files: the Marionette's Revenge skins (31 to 34; no cosmetic gives their stat), the Ashbringer

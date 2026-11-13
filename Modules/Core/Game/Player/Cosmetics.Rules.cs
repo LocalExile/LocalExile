@@ -148,7 +148,7 @@ public static partial class Game
 
     // Derived stats that are a choice of art: the first input that is not 0 gives its number, else the fallback stat's
     // own value is the result. The rules are the client's calculators'; inputs that are not a cosmetic's are left out
-    // (a unique item's alternate art, the summoning rings' surges, which also need the skill to create minions).
+    // (a unique item's alternate art).
     static readonly (string Output, (string Input, int Value)[] Sources, string? Fallback)[] DerivedArt =
     [
         ("mtx_has_chest_effect", [("mtx_angry_chest_bees", 1), ("mtx_chest_fish", 1), ("mtx_verdant_chest_wisps", 1)], null),
@@ -183,6 +183,10 @@ public static partial class Game
         ("virtual_off_hand_damage_hit_effect_index", [("off_hand_mtx_cold_iron_point_hit_effect_variation", 66)], "damage_hit_effect_index"),
     ];
 
+    static readonly (string Input, int Value)[] MinionSurges = [("mtx_dark_assembly_summon_minion_effect", 39),
+        ("mtx_summoning_ring_ritual", 108), ("mtx_summoning_ring_stygian", 109), ("mtx_summoning_ring_necrotic", 110),
+        ("mtx_summoning_ring_divine", 111)];
+
     // The outputs of DerivedArt that belong to the character alone: a skill does not carry them.
     static readonly HashSet<string> CharacterArt = ["mtx_has_chest_effect", "level_up_sound_disabled",
         "virtual_has_item_drop_visual_replacement_stat", "is_floating", "virtual_onslaught_art_variation",
@@ -195,6 +199,9 @@ public static partial class Game
         {
             if (skill && CharacterArt.Contains(output)) continue;
             int value = sources.FirstOrDefault(s => of(s.Input) != 0).Value;
+            // A skill that creates minions takes Dark Assembly's and the summoning rings' surge before its own.
+            if (output == "virtual_skill_surge_type_override" && of("skill_creates_minions") != 0)
+                value = MinionSurges.FirstOrDefault(s => of(s.Input) != 0).Value;
             if (value == 0 && fallback is not null) value = of(fallback);
             if (value != 0 && Stats.Key(output) is uint key) yield return (key, value);
         }

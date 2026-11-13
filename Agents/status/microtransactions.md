@@ -23,9 +23,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   in the world: equipment skins and weapon effects (including the bow in its left-hand model slot), attachments and character effects on the model (Inventories component
   references), footprints and apparitions through the stats, portals (the map device's), cursors and flask skins.
   Verified live 2026-10-23.
-  Built, awaiting live verification: pets (spawned beside the player, following it, not blocking;
-  not yet their idle-relaxed animations, e.g. the Goblin Troupe's song), the portrait (character panel and selection
-  screen), skill effects (the Cosmetics tab's skill slots, picked with C→S 0x1fa, the effect's stats on that skill,
+  Verified live 2026-11-12: a pet (Kiwi: spawned, beside the player again after a teleport, gone when the slot is
+  emptied; not yet the idle-relaxed animations, e.g. the Goblin Troupe's song) and a portrait in the character panel.
+  Built, awaiting live verification: the portrait on the selection screen, skill effects (the Cosmetics tab's skill
+  slots, picked with C→S 0x1fa, the effect's stats on that skill,
   Righteous Fire's ring and buff visuals, restyled at once while it burns, and the projectile and explosion of
   projectile skills such as Fireball).
   Portrait frames (the Social Frame slot): a pick is saved and applies at the next login, as the client's own chat line
@@ -55,8 +56,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - The Portal slot's two "random effect" choices give each portal a random effect; the panel's own display of the
   choice was not checked ([23](../docs/protocol/23-microtransactions.md) §4).
-- Cosmetics whose stat the client reads only as a derived stat: the morphs (goblins and skeleton seen, Lunar and
-  Wuzhiqi built), the charge skins (seen) and the choices of art (surge, hit effect, ailment, mine and ring art, chest
+- Cosmetics whose stat the client reads only as a derived stat: the morphs (goblins, skeleton, Lunar and Wuzhiqi
+  seen), the charge skins (seen) and the choices of art (surge, hit effect, ailment, mine and ring art, chest
   effects, floating: sent, not seen on screen): [23](../docs/protocol/23-microtransactions.md) §3 and §4.
 
 ## Not working yet
