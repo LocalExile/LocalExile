@@ -364,8 +364,7 @@ public static partial class Game
             // Reuse the cast path's skill-specific speed and action speed; a refused cast holds no action.
             if (SkillsFor(conn).IsSpell(gem.Effect) && !SkillsFor(conn).IsAttack(gem.Effect))
                 return (SpellTimingFor(conn, gem.Effect, skill)?.DurationSeconds ?? 0)
-                    * (1d + SpellRepeats(conn, skill, gem.Effect)
-                        + .1 * UnleashSeals(conn, skill, SupportedSkill(conn, skill), ProjectileWorldTime(conn))) / PlayerActionFactor(conn);
+                    * (1d + SpellRepeats(conn, skill, gem.Effect)) / PlayerActionFactor(conn);
             if (!SkillsFor(conn).IsAttack(gem.Effect)) return SkillsFor(conn).CastTimeMs(gem.Effect) / 1000d / PlayerActionFactor(conn);
         }
         return LockstepAttackCutIn(conn, skill, sequence) + conn.LockstepActionTail;
@@ -385,8 +384,7 @@ public static partial class Game
         bool cannotCancelBeforeContact = Has("cannot_cancel_skill_before_contact_point");
         string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject;
         var window = Animations.SpellMoveWindow(ao, WeaponProfileFor(conn, activeSet: true), CastAnimationKind.Projectile,
-            start, duration / (1d + repeats + .1 * UnleashSeals(conn, skill, SupportedSkill(conn, skill), ProjectileWorldTime(conn))),
-            cannotCancelBeforeContact);
+            start, duration / (1d + repeats), cannotCancelBeforeContact);
         return window is { } cast ? cast with
         {
             Duration = duration,
