@@ -2235,15 +2235,22 @@ public static partial class Game
 
     // A boss whose variety has the big life bar (MonsterVarieties BossHealthBar) shows it at the top of the screen once it
     // aggroes: its StateMachine's boss_life_bar (Metadata/Monsters/BossLifeBar.ot) and aggro (Hillock's aggro effect) go to 1.
-    public static async Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn)
+    public static Task ShowBossLifeBar(string remote, NetworkStream stream, ConnectionCiphers ciphers, uint id, SpawnedMonster m, ClientState conn) =>
+        SendWorldRecord(remote, stream, ciphers, conn, id, [],
+            $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1",
+            atGate: () => BossLifeBarRecord(conn, id, m));
+
+    internal static byte[]? BossLifeBarRecord(ClientState conn, uint id, SpawnedMonster m)
     {
-        if (m.Variety is not { } v || m.States is not { } states) return;
-        int index = v.ComponentsOrBase.ToList().IndexOf("StateMachine");
-        if (index < 0) return;
-        states = states.Set("boss_life_bar", 1).Set("aggro", 1);
-        lock (conn.Monsters) m.States = states;
-        await SendWorldRecord(remote, stream, ciphers, conn, id, InstanceEntities.StateMachineUpdate(id, (byte)index, states),
-            $"0x02bc monster 0x{id:x} ({m.Label}) StateMachine: boss_life_bar 1, aggro 1");
+        lock (conn.Monsters)
+        {
+            if (!MonsterPresent(conn, id, m) || !m.BossBarShown || conn.AsleepMonsters.Contains(id)
+                || m.Variety is not { } v || m.States is not { } states) return null;
+            int index = v.ComponentsOrBase.ToList().IndexOf("StateMachine");
+            if (index < 0) return null;
+            m.States = states.Set("boss_life_bar", 1).Set("aggro", 1);
+            return InstanceEntities.StateMachineUpdate(id, (byte)index, m.States);
+        }
     }
 
     const double CorpseBlockDelaySeconds = .165;

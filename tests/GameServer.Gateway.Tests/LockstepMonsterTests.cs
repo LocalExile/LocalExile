@@ -33,6 +33,29 @@ public class LockstepMonsterTests : IDisposable
         Pools = new(1, 1000, 100, 2, 0), PlayerLife = 500, PlayerSent = true, LockstepClient = lockstep, Character = character,
     };
 
+    [Fact]
+    public void A_queued_boss_bar_cannot_reshow_a_corpse_a_hidden_phase_or_a_replaced_actor()
+    {
+        var conn = Connection(lockstep: true);
+        var boss = new SpawnedMonster("Boss", new PlayerWalk(102, 100, 8), 60, 2, 10)
+            { Variety = new(1, "boss", "Boss", "Monster", null, ["Positioned", "StateMachine"]) };
+        boss.States = new([0, 0], 0, ["boss_life_bar", "aggro"]);
+        boss.BossBarShown = true;
+        const uint id = 0x3000;
+        conn.Monsters[id] = boss;
+        Assert.NotNull(Game.BossLifeBarRecord(conn, id, boss));
+        boss.States = boss.States.Set("boss_life_bar", 0);
+        boss.Life = 0;
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+        Assert.Equal(0, boss.States.SharedStates[0]);
+        boss.Life = 10;
+        boss.BossBarShown = false;
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+        boss.BossBarShown = true;
+        conn.Monsters.Remove(id);
+        Assert.Null(Game.BossLifeBarRecord(conn, id, boss));
+    }
+
     static SpawnedMonster Drowned(PlayerWalk walk) => new("Drowned", walk, aggroRange: 60, stopRange: 2, maxLife: 23)
     {
         Attack = new(0x3188, 2.0, 8, DamagePacket.Empty), Aggro = true, LastTarget = (100, 100),
