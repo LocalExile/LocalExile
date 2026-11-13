@@ -124,7 +124,7 @@ public sealed class Act6EncounterTests
         var boss = new SpawnedMonster("Brine King", new PlayerWalk(100, 100, 30), 60, 8, 1000)
         {
             Variety = variety, Level = 49, Rarity = MonsterRarity.Unique,
-            States = BrineKing.StartStates(variety), LifePhases = new([75, 50, 25]),
+            EntranceGrace = true, States = BrineKing.StartStates(variety), LifePhases = new([75, 50, 25]),
             Attack = new(0x4005, 1, 8, DamagePacket.Empty) { Scripted = true },
         };
         instance.World.Monsters[id] = boss;
@@ -133,7 +133,14 @@ public sealed class Act6EncounterTests
         var fight = new BrineKing.Fight(id, boss, host);
         await fight.Bind(host);
         await fight.Bind(peer);
-        double now = 1;
+        Assert.Equal(0, boss.States!.SharedStates[boss.States.IndexOf("rock_mode")]);
+        await fight.Step(host, 1);
+        await fight.Step(host, 4.2);
+        Assert.True(boss.Invulnerable);
+        await fight.Step(host, 4.4);
+        Assert.False(boss.Invulnerable);
+        Assert.Equal(1, boss.States.SharedStates[boss.States.IndexOf("rock_mode")]);
+        double now = 5;
         for (int stage = 0; stage < 3; stage++, now += 14)
         {
             boss.Life = boss.LifePhases.Damage(boss.Life, boss.MaxLife, int.MaxValue);
