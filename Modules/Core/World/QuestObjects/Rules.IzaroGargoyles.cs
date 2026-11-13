@@ -158,9 +158,9 @@ static partial class QuestobjectsRules
                 }
                 List<byte> start = [.. InstanceEntities.CreateObject(beam, InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath),
                     new BeamEffectObject(from.X, from.Y, g.Id, to.X * BeamEffectObject.WorldPerCell, to.Y * BeamEffectObject.WorldPerCell,
-                        arena.Izaro, IzaroGargoyles.BeamRow, IzaroGargoyles.MouthBone).Blob()), .. InstanceProtocol.EnterWakeZone(beam)];
-                if (IzaroGargoyles.AwakenBuff is ushort row) start.AddRange(InstanceEntities.AddBuff(g.Id, awaken, row, arena.Izaro));
-                await Send(remote, stream, ciphers, [.. start], $"0x02bb beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to Izaro");
+                        BeamEnd(arena), IzaroGargoyles.BeamRow, IzaroGargoyles.MouthBone).Blob()), .. InstanceProtocol.EnterWakeZone(beam)];
+                if (IzaroGargoyles.AwakenBuff is ushort row) start.AddRange(InstanceEntities.AddBuff(g.Id, awaken, row, BeamEnd(arena)));
+                await Send(remote, stream, ciphers, [.. start], $"0x02bb beam 0x{beam:x} from gargoyle 0x{g.Id:x} ({g.Effect.Id}) to {(arena.Goddess != 0 ? "the Goddess of Justice" : "Izaro")}");
                 // The beam runs its time, or until the gargoyle dies or Izaro leaves (live: it goes with the gargoyle).
                 for (double waited = 0; waited < IzaroGargoyles.BeamSeconds; waited += 0.2)
                 {

@@ -639,6 +639,16 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
 
+    /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
+    /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
+    public uint Parent { get; init; }
+
+    /// <summary>The parent's bone it rides on.</summary>
+    public string Bone { get; init; } = "<root>";
+
+    /// <summary>The attachment kind (the transform mask, 04-player-entity.md §4.5): 4 keeps its own facing.</summary>
+    public byte AttachKind { get; init; } = EffectObject.AttachWithoutRotation;
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -687,8 +697,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
                 case "Life": Pool(w, Life); Pool(w, 0); Pool(w, 0); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
-                    if (AnimatedObject is null) w.U8(0);
-                    else w.U8(1).WStr32(AnimatedObject);
+                    w.U8((byte)((AnimatedObject is null ? 0 : 1) | (Parent != 0 ? 4 : 0)));
+                    if (AnimatedObject is not null) w.WStr32(AnimatedObject);
+                    if (Parent != 0)
+                        w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
+                            .U8(AttachKind).U8(0).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
@@ -837,7 +850,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     const string RootBone = "<root>";
     // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5f300).
     // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
-    const byte AttachWithoutRotation = 4;
+    public const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are

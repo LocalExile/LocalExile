@@ -6,6 +6,30 @@ namespace GameServer.Gateway.Tests;
 public sealed class LabyrinthTrialTests
 {
     [Fact]
+    public void GoddessOfJusticeRidesOnIzarosBackBone()
+    {
+        string[] components = [.. MonsterObject.BaseComponents, "Transitionable"];
+        var alone = new MonsterObject(100, 120, 500, components, Rarity: MonsterRarity.Unique, TransitionState: 2).Blob();
+        var riding = (new MonsterObject(100, 120, 500, components, Rarity: MonsterRarity.Unique, TransitionState: 2)
+            { Parent = 0x1234, Bone = IzaroGoddess.Bone }).Blob();
+
+        // Animated (0x141e5afd0): bit 2 alone, then the attachment record (0x141e5f300): parent, two f32, the bone as a
+        // u32-counted byte string, the kind (4: her own facing), the mask, three offsets. Every other byte is the same.
+        int at = Enumerable.Range(0, alone.Length).First(i => alone[i] != riding[i]);
+        Assert.Equal(0, alone[at]);
+        Assert.Equal(4, riding[at]);
+        var record = new List<byte>();
+        record.AddRange(BitConverter.GetBytes(0x1234u));
+        record.AddRange(new byte[8]);
+        record.AddRange(BitConverter.GetBytes((uint)IzaroGoddess.Bone.Length));
+        record.AddRange(System.Text.Encoding.ASCII.GetBytes(IzaroGoddess.Bone));
+        record.AddRange([4, 0]);
+        record.AddRange(new byte[12]);
+        Assert.Equal(record, riding[(at + 1)..(at + 1 + record.Count)]);
+        Assert.Equal(alone[(at + 1)..], riding[(at + 1 + record.Count)..]);
+    }
+
+    [Fact]
     public void TrialDoorBlobAndUnblockFollowTheClientReaders()
     {
         const string model = "Metadata/Terrain/Doodads/Labyrinth/LabyrinthDoor.ao";
