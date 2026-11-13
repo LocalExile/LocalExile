@@ -173,6 +173,10 @@ public sealed record ProjectileProfile(string Id)
     public bool CannotSplit { get; init; }
     public bool CannotReturn { get; init; }
     public int TerrainBounces { get; init; }
+    /// <summary>Chance (0-100) that a terrain collision redirects the projectile to a nearby enemy instead of ending,
+    /// from "Projectiles have X% chance to be able to Chain when colliding with terrain"; one terrain chain per
+    /// projectile.</summary>
+    public int TerrainChainChance { get; init; }
     public ProjectileHitRule HitRule { get; init; } = new();
     /// <summary>Optional direct-hit admission during return. Null inherits HitRule.</summary>
     public ProjectileHitRule? ReturnHitRule { get; init; }
@@ -243,6 +247,7 @@ public sealed class ProjectileEntity
         Remaining = use.Profile.Range; Pierce = use.Profile.Pierce;
         Fork = use.Profile.Fork; Chain = use.Profile.Chain; Split = use.Profile.Split;
         TerrainBounces = use.Profile.TerrainBounces;
+        TerrainChainChance = use.Profile.TerrainChainChance;
         GroundChains = use.Profile.GroundChains;
         int seed = unchecked(use.Seed * 397 ^ (int)id);
         Random = new(seed);
@@ -272,6 +277,8 @@ public sealed class ProjectileEntity
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal int TerrainChainChance;
+    internal bool TerrainChained;
     internal int GroundChains;
     internal int ReturnContacts = 0;
     internal int OutboundContacts = 0;
