@@ -11,6 +11,21 @@ namespace GameServer.Gateway.Tests;
 public sealed class Act6EncounterTests
 {
     [Fact]
+    public async Task A_pet_on_a_finite_walk_rejoins_immediately_after_an_intra_area_gate()
+    {
+        using var runtime = new Runtime();
+        using var wire = new Wire();
+        var conn = runtime.Connection("GatePet", new InstanceState(), 300, 200, wire);
+        const uint id = 0x04000000;
+        var pet = new SpawnedPet(conn.NewWalk(10, 10, 10), 1);
+        conn.Pets[id] = pet;
+        pet.Walk.Order(90, 10, 0);
+        await GameServer.Modules.CosmeticsAndPets.CosmeticsFeature.FollowThroughGate(conn);
+        Assert.Equal((306, 203), pet.Walk.Destination);
+        Assert.Equal(pet.Walk.Destination, pet.Target);
+    }
+
+    [Fact]
     public void Fuel_cart_uses_the_visible_radius_and_checks_the_position_sent_to_the_client()
     {
         var rail = new RailEscort([(0, 0), (65, 0), (65, 26)], 13);
