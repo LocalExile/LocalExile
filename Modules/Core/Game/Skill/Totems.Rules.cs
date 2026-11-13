@@ -113,7 +113,12 @@ public static partial class Game
             && (TotemAuras.ContainsKey(SkillsFor(conn).EffectId(effect) ?? "")
                 // Upstream refused every payload it did not execute, which would refuse Decoy and Devouring Totem too:
                 // those are dedicated totem skills the local path places and gives their effect (taunt, corpse meal).
+                // A dedicated totem skill whose row is a ranged attack totem is a ballista: it places only through the
+                // ballista path, so a payload main refuses there (Focused Ballista Support off a bow) is refused here
+                // too instead of being placed by the dedicated-skill clause and then kept alive by it.
                 || SkillsFor(conn).HasType(effect, TotemSkillType)
+                    && (GolemStat(SupportedSkill(conn, skill).Stats, "is_ranged_attack_totem") == 0
+                        || BallistaPathAvailable(conn, skill))
                 || SpellTotemEffect(conn, effect) && TotemCastSeconds(conn, skill) is not null
                 || BallistaPathAvailable(conn, skill));
 
