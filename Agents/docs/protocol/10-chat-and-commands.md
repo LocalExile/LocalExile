@@ -31,7 +31,8 @@ A plain line reaches its listeners, the player too, as a 0x17 chat line (the Cha
 `Name` for local, `#Name` for global and `$Name` for trade, the text without its prefix.
 Live 2026-10-25 they showed as `[20:33] OfflineWitch: hello local` with the name green, `#OfflineWitch: hello global`
 with the name red and `$OfflineWitch: hello trade` with the name orange (the chat timestamps option was on).
-Party and guild lines are not sent. A whisper is typed `@Name text`.
+A `%` party line goes to the human members of the sender's party, in whatever area each one is, as a 0x17 whose sender
+carries the `%` prefix; guild lines are not sent. A whisper is typed `@Name text`.
 
 The unmodified chat submitter clamps input to 512 UTF-16 units, even when the editor holds a longer paste.
 Longer PoB share codes therefore cannot be supplied as one typed command; the optional POB mod accepts a server-side
