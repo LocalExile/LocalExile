@@ -39,6 +39,7 @@ static class Act4Items
 /// <summary>.ot types of Act 4's quest objects the engine creates (rooms and tiles; QuestObjectTypes places them).</summary>
 static class Act4Objects
 {
+    public const string HarvestBlocker = "Metadata/Terrain/Mountain/Belly/Objects/BellyHarvestBlocker";
     public const string Seal = "Metadata/QuestObjects/Act4/MineEntranceSeal", SealBlocker = "Metadata/QuestObjects/Act4/MineEntranceSealBlocker";
     public const string DeshretSpirit = "Metadata/QuestObjects/Act4/DeshretSpirit", DeshretHand = "Metadata/QuestObjects/Act4/DeshretHand";
     public const string RaptureDevice = "Metadata/QuestObjects/Act4/RaptureDevice";
@@ -98,7 +99,7 @@ sealed class Act4 : Act
                 On.Killed(Harvest, Act4Monsters.Shavronne, "a4q1-KilledShavronne"),
                 On.Seen(Harvest, Act4Monsters.Malachai, "a4q1-SeenMalachai"),
                 On.Seen(Harvest, Act4Monsters.Malachai2, "a4q1-SeenMalachai"),
-                On.SecondForm(Harvest, Act4Monsters.Malachai, Act4Monsters.Malachai2),
+                On.Forms(Harvest, [Act4Monsters.Malachai], Act4Monsters.Malachai2),
                 On.Killed(Harvest, Act4Monsters.Malachai2, "a4q1-QuestComplete"),
                 On.Exit(Highgate, Ascent, "DiallaOnMalachaiDead"),
             },
@@ -140,8 +141,11 @@ sealed class Act4 : Act
             // NPCTalk 624-626 hand them in), then 627 opens the Black Core (CoreTransition, in the area).
             new Quest("a4q5")
             {
+                On.Object(Belly2, Act4Objects.HarvestBlocker, "a4q5-QuestReceived"),
+                On.Blocker(Belly2, Act4Objects.HarvestBlocker, 5, "a4q5-QuestReceived"),
                 On.Exit(Belly2, Harvest, "a4q5-QuestReceived"),
                 On.Npc(Harvest, Act4Npcs.PietyHarvest, null),
+                On.Exists("Metadata/QuestObjects/Act4/CoreTransition", from: "a4q5-QuestComplete"),
                 On.Drops(Harvest, Act4Monsters.Doedre, Act4Items.Lungs),
                 On.Drops(Harvest, Act4Monsters.Maligaro, Act4Items.Heart),
                 On.Drops(Harvest, Act4Monsters.Shavronne, Act4Items.Entrails),

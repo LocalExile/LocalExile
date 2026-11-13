@@ -35,6 +35,8 @@ static class Act5Items
 /// <summary>.ot types and Chests.dat Ids of Act 5's quest objects and chests the engine creates or a rule watches.</summary>
 static class Act5Objects
 {
+    public static readonly string ShortcutOpen = InstanceFlag("InnocenceShortcutOpen");
+    public const string ShortcutDoor = "Metadata/QuestObjects/Act5/InnocenceShortcutDoor";
     public const string SupplyChest = "Metadata/Chests/QuestChests/Vilenta/SupplyChest";                 // Chests 201
     public const string TemplarCourtsDoor = "Metadata/QuestObjects/Act5/TemplarCourtsDoor";
     public const string ArenaSocket = "Metadata/Terrain/Act5/Area8/Objects/ArenaSocket";                  // bossentry.arm
@@ -114,6 +116,9 @@ sealed class Act5 : Act
                 On.UsedWith(OriathSquare, Act5Objects.TemplarCourtsDoor, ["a5q2-HaveKey"], "a5q2-UsedKey", "a5q4-QuestReceived"),
                 On.Exists(Act5Objects.OriathSquareToCourts, from: "a5q2-UsedKey"),
                 On.Exit(OriathSquare, TemplarCourts, "a5q2-UsedKey"),
+                new DisabledTeleportRule(ChamberOfInnocence, Act5Objects.ShortcutOpen),
+                On.Object(ChamberOfInnocence, Act5Objects.ShortcutDoor, Act5Objects.ShortcutOpen),
+                On.Blocker(ChamberOfInnocence, Act5Objects.ShortcutDoor, 3, Act5Objects.ShortcutOpen),
                 On.Seen(ChamberOfInnocence, Act5Monsters.Avarius, "a5q4-SeenBoss"),
                 On.SecondForm(ChamberOfInnocence, Act5Monsters.Avarius, Act5Monsters.Innocence),
                 On.Seen(ChamberOfInnocence, Act5Monsters.Innocence, "a5q4-SeenInnocence"),

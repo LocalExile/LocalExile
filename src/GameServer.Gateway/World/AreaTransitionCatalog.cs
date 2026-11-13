@@ -355,7 +355,7 @@ public static class AreaTransitionCatalog
                     // A Teleport (type 1) labelled with its ClientStrings key; "%areaname%" (or no key) shows the area's name.
                     placed.Add(new AreaTransitionObject(o.X, o.Y, areaHash, o.Model, Rotation: o.Rotation, Height: height,
                         Type: Resolve(o.Type, what, notes))
-                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled && openDisabled });
+                        { TeleportTo = target, Kind = 1, Label = LabelHash(e.Label), SourceType = o.Type, LayoutDisabled = !e.Enabled });
                     notes.Add($"{what}: teleport{e.Number}{(e.Enabled ? "" : "disabled")}{(e.Label is null ? "" : "-" + e.Label)} to ({target.X}, {target.Y}) within the area ({e.Why})");
                     break;
                 case ExitKind.Teleport:

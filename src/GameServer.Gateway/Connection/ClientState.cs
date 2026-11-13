@@ -1049,7 +1049,8 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     public readonly HashSet<string> KilledVarieties = new(StringComparer.Ordinal);
     // Where the later forms the area leaves out would stand (AreaPopulation.LaterFormPoints), by MonsterVarieties Id, for a
     // quest that forms one (Quests.FormsRule); under Monsters' lock.
-    public readonly Dictionary<string, (int X, int Y)> LaterFormPoints = new(StringComparer.Ordinal);
+    public Dictionary<string, (int X, int Y)> LaterFormPoints => Instance?.World.LaterFormPoints ?? ownLaterFormPoints;
+    readonly Dictionary<string, (int X, int Y)> ownLaterFormPoints = new(StringComparer.Ordinal);
     // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
     // (Game.TransitionShown).
     public HashSet<uint> ShownTransitions = [];
