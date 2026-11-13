@@ -185,6 +185,12 @@ public sealed record RoomFile(int Version, IReadOnlyList<string> Dictionary, str
             || type.StartsWith("Metadata/Chests/QuestChests/", StringComparison.OrdinalIgnoreCase))
         && !type.StartsWith("Metadata/NPC/Info/", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Whether a room object's type is the Labyrinth's own furniture: the arena's doors, the boss markers, an
+    /// Izaro's speech object, the trial objects a room raises. They live under Metadata/Terrain/Labyrinth/Objects/, which
+    /// is not a quest object, so scripts/re/atlas room-points keeps their room only because of this.</summary>
+    public static bool IsLabyrinthObject(string type) =>
+        type.StartsWith("Metadata/Terrain/Labyrinth/Objects/", StringComparison.OrdinalIgnoreCase);
+
     public static RoomFile Parse(string text)
     {
         var lines = TerrainText.Lines(text).Select(TerrainText.Tokenize).ToArray();

@@ -98,6 +98,7 @@ Nothing yet.
   The supported critical values appeared in its panel and tooltip; special execution still has the gaps below.
   Spell Echo repeats supported releases and area hits, including ordinary Ice Nova rings, a cast time apart
   (`SpellRepeats`; [11](../docs/protocol/11-skills.md) "Spell repeats"); checked with the real client (2026-11-04).
+  Unleash stores seals per linked spell and spends them on extra projectile, area and summon releases.
   Greater Spell Echo scales repeated area and projectile hits. Focused Channelling scales channelled area hits by elapsed whole seconds.
   Meat Shield reduces damage taken by supported minions, and Elemental Army scales their elemental damage paths.
   Spell Cascade places its extra areas one effective radius apart in a line, and across the aim with Greater and

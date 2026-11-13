@@ -19,7 +19,7 @@ public static class RageStats
         GainOnHit: get("gain_x_rage_on_hit"), GainOnAttackHit: get("gain_x_rage_on_attack_hit"),
         GainOnMeleeHit: get("gain_x_rage_on_melee_hit"), GainOnAttackCritical: get("gain_x_rage_on_attack_crit"),
         GainOnMeleeCritical: get("gain_x_rage_on_melee_crit"), GainWhenHit: get("gain_x_rage_when_hit"),
-        LossRatePercent: get("rage_decay_speed_+%"));
+        LossRatePercent: get("rage_decay_speed_+%"), RegenerationPerMinute: get("base_rage_regeneration_per_minute"));
 
     /// <summary>
     /// Expands the verified item coefficients once from the authoritative effective Rage into the exact stats their

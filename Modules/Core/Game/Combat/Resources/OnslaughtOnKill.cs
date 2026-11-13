@@ -136,7 +136,8 @@ public static partial class Game
             if (removed != 0) bytes.AddRange(InstanceEntities.RemoveBuff(PlayerId, removed));
             if (seconds is double left)
                 bytes.AddRange(InstanceEntities.AddBuff(PlayerId, o.Buff = conn.NextBuff++, onslaught!.BuffRow, PlayerId,
-                    u68: BitConverter.SingleToUInt32Bits((float)left)));
+                    u68: BitConverter.SingleToUInt32Bits((float)left),
+                    visual: BuffArtVisual(conn, "onslaught_buff", "virtual_onslaught_art_variation")));
             if (stats)
             {
                 RecomputePoolsAndSpeed(conn);

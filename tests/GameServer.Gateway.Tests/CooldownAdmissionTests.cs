@@ -128,6 +128,18 @@ public sealed class CooldownAdmissionTests
                 Assert.Equal(bombRecovery, Plan(bomb).RecoveryPercent);
             }
             uint minimum = Program.Stats.Key("base_minimum_frenzy_charges")!.Value;
+            // Flat Leadership input is a diagnostic here; the real Badge still supplies the per-charge coefficient.
+            uint flatTravel = Program.Stats.Key("travel_skill_cooldown_speed_+%")!.Value;
+            c.PlayerStats[flatTravel] = 100; Count(3);
+            foreach (ushort id in ids)
+            {
+                Assert.Equal(ordinary[id].RecoveryPercent + 100 + 3 * coefficient, Plan(id).RecoveryPercent);
+                Assert.Equal(Plan(id).RecoveryPercent, Published(id));
+            }
+            Assert.Equal(bombRecovery, Plan(bomb).RecoveryPercent);
+            Count(0);
+            Assert.Equal(ordinary[dash].RecoveryPercent + 100, Plan(dash).RecoveryPercent);
+            c.PlayerStats.Remove(flatTravel); Count(0);
             c.PlayerStats[minimum] = 2; Count(0);
             Assert.Equal(2, Get("current_frenzy_charges"));
             Assert.Equal(ordinary[dash].RecoveryPercent + 2 * coefficient, Plan(dash).RecoveryPercent);

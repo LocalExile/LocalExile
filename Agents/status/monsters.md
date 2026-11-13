@@ -90,7 +90,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   two steps past the cadence ([07](../docs/protocol/07-latency-visibility-movement.md) §6).
   A ranged chaser stands off one cell inside its reach (MonsterVarieties `MaximumAttackDistance`: the Sand Spitter's
   30), moving inward only when that ring is full, instead of taking a melee contact cell (`MonsterSurround.Asker.Ranged`;
-  live 2026-10-29: Spitters came in close). `MinimumAttackDistance` is not read yet.
+  live 2026-10-29: Spitters came in close). A straight projectile shooter inside range approaches instead when the
+  projectile grid blocks its shot. `MinimumAttackDistance` is not read yet.
   A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
@@ -152,11 +153,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
+- Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
 - Campaign bosses play their whole skill kit rather than one attack: a monster an act's area names as its boss
   (`WorldAreas` `Bosses_MonsterVarietiesKeys`, bar or not) or one with a bar of its own that no encounter controller
   drives acts with every granted effect the client can play as a hit — 463 varieties, 2307 actions — each with the
   damage, cast time and reach its own row gives it. A skill with a cooldown takes the turn the moment it is ready and
   in reach; between those, the skill used longest ago does, so a boss cycles its list instead of repeating one move.
+  Death-triggered skills such as the Noble Dead and Rhys of Abram soul explosions stay out of living monsters’ attack choices.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
   `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
   and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the

@@ -56,7 +56,7 @@ public static partial class Game
         {
             conn.Pools = PoolsFor(conn, conn.Pools.Level); conn.ApplyMovementSpeed();
         }
-        var packets = session.Presentation(now, () => conn.NextBuff++).SelectMany(b => ChargeBuffs.Packets(b, PlayerId)).ToArray();
+        var packets = session.Presentation(now, () => conn.NextBuff++).SelectMany(b => ChargeBuffs.Packets(b, PlayerId, type => ChargeArtVisual(conn, type))).ToArray();
         foreach (var (packet, label) in packets)
             Console.WriteLine($"[gateway] {remote} => {label}: {Convert.ToHexString(packet.AsSpan(0, Math.Min(packet.Length, 96)))}");
         return (packets.Length > 0 ? packets.SelectMany(p => p.Packet).ToArray() : null, step.CountsChanged);

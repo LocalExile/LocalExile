@@ -45,6 +45,19 @@ public sealed class QuestObjectsModule : IModule
         {
             if (kill.Monster.Variety is not { } variety) return;
             var (remote, stream, ciphers) = kill.Conn.Wire;
+            if (kill.Conn.Layout.Id == Act5Areas.ChamberOfInnocence && variety.Id == Act5Monsters.Innocence
+                && kill.Conn.Instance.SetState(Act5Objects.ShortcutOpen))
+            {
+                var instance = kill.Conn.Instance;
+                foreach (var player in instance.PlayersExcept(kill.Conn.PeerId).Select(p => p.Owner).OfType<ClientState>().Prepend(kill.Conn))
+                    player.KillShares.Enqueue(async (r, s, c) =>
+                    {
+                        if (player.Closed || player.LeavingArea || player.Instance != instance) return;
+                        lock (player.Monsters) UpdateQuestBlockers(player);
+                        await UpdateQuestObjectStates(r, s, c, player, [Act5Objects.ShortcutOpen]);
+                        await UpdateShownTransitions(r, s, c, player, "Innocence defeated");
+                    });
+            }
             if (kill.CommittedOutput is not null) { CommitAcceptedQuestKill(kill); return; }
             kill.Later(() => QuestKillEffects(remote, stream, ciphers, kill.Conn, kill.Monster, variety, kill.At));
         });

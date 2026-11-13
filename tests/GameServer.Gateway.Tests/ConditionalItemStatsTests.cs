@@ -786,6 +786,47 @@ public partial class ConditionalItemStatsTests
                     var spellAim = spellTarget.Walk.Position(global::Game.ProjectileWorldTime(projectileConn));
                     var spellUse = global::Game.CaptureGemProjectile(projectileConn, projectileSession, spell.Id, spell,
                         ((int)spellAim.X, (int)spellAim.Y), new SkillCriticalRoll(0));
+                    // Diagnostic reoccurrence/totem factors must survive target-profile selection at contact.
+                    uint totemDamage = Program.Stats.Key("support_totem_damage_+%_final")!.Value;
+                    int previousTotemDamage = projectileConn.PlayerStats.GetValueOrDefault(totemDamage);
+                    bool hadTotemDamage = projectileConn.PlayerStats.ContainsKey(totemDamage);
+                    try
+                    {
+                        projectileConn.PlayerStats[totemDamage] = -35;
+                        foreach (bool fromTotem in new[] { false, true })
+                        {
+                            var totem = fromTotem ? new TotemState.Totem(0x504, spell.Id,
+                                projectileConn.Walk.Position(global::Game.ProjectileWorldTime(projectileConn)), 1000,
+                                double.MaxValue, null) : null;
+                            ProjectileOffense Capture(double more) => Assert.IsType<ProjectileOffense>(
+                                global::Game.CaptureGemProjectile(projectileConn, projectileSession, spell.Id, spell,
+                                    ((int)spellAim.X, (int)spellAim.Y), new SkillCriticalRoll(0),
+                                    totem: totem, reoccurrenceMore: more).Payload);
+                            var primarySpell = Capture(1);
+                            var reoccurred = Capture(.6);
+                            Assert.True(primarySpell.Hit.MinTotal > 0);
+                            Assert.True(primarySpell.Ignite.Min > 0);
+                            Assert.Equal(fromTotem ? .39 : .6, reoccurred.HitProfileMore, 6);
+                            Assert.Equal(fromTotem ? .39 : .6, reoccurred.AilmentProfileMore, 6);
+                            foreach (bool blinded in new[] { false, true })
+                            foreach (bool lowLife in new[] { false, true })
+                            {
+                                var before = primarySpell.Against(blinded, lowLife: lowLife);
+                                var after = reoccurred.Against(blinded, lowLife: lowLife);
+                                Assert.Equal(before.Hit.MinTotal * .6, after.Hit.MinTotal, 6);
+                                Assert.Equal(before.AreaHit!.MinTotal * .6, after.AreaHit!.MinTotal, 6);
+                                Assert.Equal(before.Ignite.Min * .6, after.Ignite.Min, 6);
+                                Assert.Equal(before.Ignite.CriticalMax * .6, after.Ignite.CriticalMax, 6);
+                                Assert.Equal(before.Poison.Min * .6, after.Poison.Min, 6);
+                                Assert.Equal(before.Bleed.Min * .6, after.Bleed.Min, 6);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        if (hadTotemDamage) projectileConn.PlayerStats[totemDamage] = previousTotemDamage;
+                        else projectileConn.PlayerStats.Remove(totemDamage);
+                    }
                     Release(spellUse, projectileSession);
                     AssertPayload(spellUse, bleedChance: 0, poisonChance: 0, maimChance: 0);
                     Assert.True(spellTarget.Life < 100_000);

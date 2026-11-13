@@ -29,15 +29,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 2. The world
 
-### Every area's layout at seed 1
-
-- **Known:** generated areas only exist in the client; `live.ps1 -Walkmaps` captures an area's walk map, area
-  transitions and waypoint when the client generates it ([08](../docs/protocol/08-area-transitions.md) §7).
-  About 30 areas are captured; waypoint travel to an uncaptured one (The Submerged Passage) puts the player outside
-  the map ([16](../docs/protocol/16-waypoints.md) "Open").
-- **Start:** a dev command that walks the WorldAreas list with `/goto` and waits for each capture.
-- **Done when:** every act area has its seed-1 capture, and every waypoint area its waypoint in it.
-
 ### Server-side level generation
 
 - **Known:** the port reproduces the client's generator for every recorded trace and logged load
@@ -144,12 +135,11 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
      (`scripts/re/sync_report.py`, Game_TRACE=sync with `trace-sync.js`, measures them; the Shield Bash aimed at a cell is
      not live-checked).
      Normal's five arena mechanics are done (Toggle Statues, Gargoyles, Portals, Chrono Statues, Lieutenants:
-     `Rules.IzaroArena.cs` places them and what they leave); the Goddess of Justice is left. Ours, not the original's:
+     `Rules.IzaroArena.cs` places them and what they leave), and the Goddess of Justice. Ours, not the original's:
      the lieutenants' Storm Call is a skill of its own (the data casts it on an attack's hit), `bull_thorns` returns no
-     damage (no values in the data), the circles' and their skills' radii.
-     Her Guardians' circles are done without her (`IzaroGoddess.cs`): when she exists they become her skill, with its
-     mortars flying from her. As the original plays (live, the user): the gargoyles' beam ends on her, above Izaro, not
-     on him (ours ends on him: move it to her too).
+     damage (no values in the data), the circles' and their skills' radii, the Spirit Mortars' landing radius, and
+     her Guardians' mortars, which the server throws (her `SummonSpecificMonstersFromMortars` action would pick its
+     own landing spots, where the server places the guardians).
   2. Izaro's chests in the last arena (LabyrinthIzaroChests at the IzaroChestMarkers).
   3. The Cruel and Merciless Labyrinths (their select-window choice) and trials, then the secret rooms' objects (hidden doors, the Gauntlet, and the Payload room's cart `LabyrinthTrapKeyDelivery`, `pushed_by_player`, whose rail leads to the door: live, the user, it goes on while the player stands in its radius, goes back a little slower when they leave, and monsters seem to spawn round it) and darkshrines, the Divine Font (LabyrinthCraftOptions),
      enchantments and the Eternal Labyrinth with its map trials (a dev command opens them while maps are missing).

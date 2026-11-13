@@ -183,6 +183,7 @@ public static partial class Game
                     {
                         session.Buff = conn.NextBuff++;
                         packets.Add(InstanceEntities.AddBuff(PlayerId, session.Buff, 1943, PlayerId,
+                            visual: BuffArtVisual(conn, "fortify_buff", "virtual_fortify_art_variation"),
                             u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0,
                                 (value.NextExpiry!.Value - now) * session.State.ExpiryRate)),
                             stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));

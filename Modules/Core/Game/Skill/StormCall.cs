@@ -23,18 +23,19 @@ public static partial class Game
             Art.Animated("storm_call_impact", variation) ?? Art.Animated("storm_call_impact", 0), variation);
     }
 
-    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice);
+    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore);
 
     public static async Task PlaceStormCall(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
-        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice)
+        int repeat, int? actionToken, CooldownUseTicket? cooldownUse, SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice,
+        double sealDelay = 0, double damageMore = 1)
     {
         int? castMs = CastMs(conn, gem.Effect, skillId);
         if (castMs is null) return;
         bool TokenCurrent() => cooldownUse?.Current(conn) ?? (actionToken is null || conn.ActionCount == actionToken);
         double delay;
         lock (conn.Monsters)
-            delay = castMs.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
+            delay = sealDelay + castMs.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(conn).ClassFor(conn.ClassRow).AnimatedObject));
         await Task.Delay(TimeSpan.FromSeconds(Math.Max(0.05, delay)));
         await WhilePaused(conn);
         if (conn.Closed || !TokenCurrent()) return;
@@ -52,7 +53,7 @@ public static partial class Game
             if (!TokenCurrent() || !sacrifice.Current) return;
             double now = conn.Clock.Elapsed.TotalSeconds;
             marker = new(conn.TakeObjectId(), skillId, at, now + duration, repeat, conn.ProjectileEpoch,
-                sacrifice.AddedChaos(() => paid = true), new StormCallUse(criticalRoll, sacrifice));
+                sacrifice.AddedChaos(() => paid = true), new StormCallUse(criticalRoll, sacrifice, damageMore));
             conn.StormCall.Place(marker);
         }
         if (paid) await Send(remote, stream, ciphers, [], null, atGate: sacrifice.LifePacket);
@@ -133,7 +134,7 @@ public static partial class Game
             });
         }
         await AreaSkillHit(remote, stream, ciphers, conn, marker.Skill, gem, marker.At, marker.At, immediate: true,
-            criticalRoll: use.Critical, repeat: marker.Repeat, sacrifice: use.Sacrifice,
+            criticalRoll: use.Critical, repeat: marker.Repeat, sacrifice: use.Sacrifice, damageMore: use.DamageMore,
             triggeredCurrent: () => !conn.Closed && !conn.LeavingArea && conn.ProjectileEpoch == marker.Epoch && conn.PlayerLife > 0);
     }
 }

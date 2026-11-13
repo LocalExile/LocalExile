@@ -1644,12 +1644,14 @@ public static partial class Game
             Mana: (uint)Math.Min(conn.PlayerMana, (uint)Math.Max(0, (int)pools.Mana - reservedMana)), ManaReserved: (uint)reservedMana,
             LifeReserved: (uint)reservedLife,
             Experience: conn.Experience,
-            AnimatedObject: Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
+            AnimatedObject: WornMorph(conn)?.Model ?? Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? cls.AnimatedObject,
             Skills: [.. PlayerDefaultSkills(conn, weaponStats, stats), .. GemSkills(conn, [.. weaponStats, .. statList], characterInputs, panelSources!)], Stats: [.. weaponStats, .. statList],
             Equipped: Looks(conn, PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(conn))),
             QuestFlags: PlayerQuestFlags(conn), Hideout: HomeHideout(conn)?.Hash16 ?? 0, LeagueQuestFlags: [.. Quests.League.Bits(conn.LeagueQuestFlags)],
             Portrait: WornPortrait(conn), PortraitFrame: conn.PortraitFrame)
         {
+            // A worn morph's animation set (WornMorph: the Goblin Shaman Skin in a town or hideout).
+            ActorFile = WornMorph(conn)?.Actor,
             // The saved Pantheon gods (campaign/pantheon.md §5): the Player component's two bytes.
             PantheonMajor = PantheonCatalog.Default.Value.Wire(conn.PantheonMajor),
             PantheonMinor = PantheonCatalog.Default.Value.Wire(conn.PantheonMinor),

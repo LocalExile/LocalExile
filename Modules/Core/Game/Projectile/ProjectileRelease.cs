@@ -79,7 +79,7 @@ public static partial class Game
     public static Task ScheduleGemProjectile(string remote, NetworkStream stream, ConnectionCiphers ciphers, ClientState conn,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) aim, int action, int recoveryGeneration, CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll,
-        ushort sequence = 0, double? swingAt = null, bool cryExerted = false)
+        ushort sequence = 0, double? swingAt = null, bool cryExerted = false, int seals = 0, double reoccurrenceMore = 1)
     {
         var session = ProjectilesFor(remote, stream, ciphers, conn);
         session.Advance();
@@ -111,15 +111,62 @@ public static partial class Game
         // A spell's repeats (SpellRepeats) release again a cast time apart, with the use's critical roll; a new action
         // cancels the rest, as it ends the client's.
         // shortcut: a repeat keeps the cast's aim point; check live whether the client re-aims at a moving target.
-        int repeats = attack ? 0 : SpellRepeats(conn, skillId, gem.Effect);
-        for (int repeat = 0; repeat <= repeats; repeat++)
+        if (SkillsFor(conn).EffectId(gem.Effect) == "VaalSpark")
         {
-            int left = repeats - repeat;
-            int ordinal = repeat;
-            session.Schedule(ProjectileRuntime.Time(acceptedAt + repeat * cast.Value / 1000d + delay), Valid,
+            if (conn.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
+                return Task.CompletedTask;
+            session.Schedule(ProjectileRuntime.Time(acceptedAt + delay), () => Valid() && VaalAdmissionCurrent(conn, paid), () =>
+            {
+                var use = CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, sacrifice: sacrifice);
+                var own = SupportedSkill(conn, skillId).Stats;
+                // The default profile substitutes one shot for a missing base count. Vaal Spark
+                // already supplies that base as its hundred-shot stream; quality adds to the stream.
+                int extra = use.Profile.Count - (GolemStat(own, "base_number_of_projectiles") > 0 ? 0 : 1);
+                int count = Math.Clamp(GolemStat(own, "base_number_of_projectiles_in_spiral_nova") + extra, 1, 256);
+                long interval = ProjectileRuntime.Time(GolemStat(own, "projectile_spiral_nova_time_ms") / (1000d * count));
+                var profile = use.Profile with { Count = count, SequentialDelay = interval, ShareSequentialHits = true };
+                use = ClientDrawnVolley(conn, session, skillId, gem, use with { Profile = profile }, sequence, 0);
+                var angles = RandomVolleyAngles(sequence, count, use.Emitter.Id, use.Aim - use.Origin);
+                return use with { CanEmit = () => session.Active && conn.PlayerLife > 0 && conn.ProjectileActive(epoch),
+                    Profile = use.Profile with { NativeVolley = new() { Angles = angles } } };
+            });
+            return Task.CompletedTask;
+        }
+        if (SkillsFor(conn).EffectId(gem.Effect) == "VaalFireball")
+        {
+            if (conn.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
+                return Task.CompletedTask;
+            var own = SupportedSkill(conn, skillId).Stats;
+            int count = GolemStat(own, "base_number_of_projectiles_in_spiral_nova");
+            int span = GolemStat(own, "projectile_spiral_nova_time_ms");
+            int degrees = GolemStat(own, "projectile_spiral_nova_angle");
+            // Capture once at the cast contact. Walking after release cannot interrupt a paid spiral.
+            ProjectileUse? captured = null;
+            for (int i = 0; i < count; i++)
+            {
+                double turn = i / (double)count;
+                session.Schedule(ProjectileRuntime.Time(acceptedAt + delay + turn * span / 1000d),
+                    () => session.Active && conn.PlayerLife > 0 && (captured is not null || Valid() && VaalAdmissionCurrent(conn, paid)),
+                    () =>
+                    {
+                        captured ??= CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, sacrifice: sacrifice);
+                        var direction = (captured.Aim - captured.Origin).Unit.Rotate(turn * degrees * Math.PI / 180);
+                        return captured with { Aim = captured.Origin + direction * captured.Profile.Range };
+                    });
+            }
+            return Task.CompletedTask;
+        }
+        int repeats = attack ? 0 : SpellRepeats(conn, skillId, gem.Effect);
+        for (int release = 0; release <= repeats + seals; release++)
+        {
+            int ordinal = Math.Max(0, release - seals);
+            int left = repeats - ordinal;
+            double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
+            double castOffset = ordinal + Math.Min(release, seals) * .1;
+            session.Schedule(ProjectileRuntime.Time(acceptedAt + castOffset * cast.Value / 1000d + delay), Valid,
                 () => ClientDrawnVolley(conn, session, skillId, gem,
                     CaptureGemProjectile(conn, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal),
+                        cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
                     sequence, (uint)left));
         }
         return Task.CompletedTask;
@@ -244,7 +291,7 @@ public static partial class Game
     public static ProjectileUse CaptureGemProjectile(ClientState conn, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
-        TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null)
+        TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1)
     {
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
         // Its damage, crit, ailments and secondary stages resolve the same supported gem rather than repeating the
@@ -337,7 +384,7 @@ public static partial class Game
             Leech = HitLeechSources(player, !spell, own, local),
             ImpaleChance = spell ? 0 : Get("impale_on_hit_%_chance"),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
-            Ignite = WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand),
+            Ignite = NotedIgnite(conn, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), player, own, spell, hand)),
             Poison = MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
                 projectileAttack: !spell),
             EssenceDrain = EssenceDrainCast(conn, skillId, gem.Effect),
@@ -403,9 +450,9 @@ public static partial class Game
             double more = GreaterEchoHitMore(repeat, Own);
             shot = shot with { Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more), HitProfileMore = more };
         }
-        if (totem is not null)
+        if (totem is not null || reoccurrenceMore != 1)
         {
-            double totemMore = Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d);
+            double totemMore = reoccurrenceMore * (totem is null ? 1 : Math.Max(0, 1 + Get("support_totem_damage_+%_final") / 100d));
             shot = shot with { Hit = shot.Hit.Scale(totemMore), AreaHit = shot.AreaHit?.Scale(totemMore),
                 HitProfileMore = shot.HitProfileMore * totemMore, AilmentProfileMore = totemMore,
                 Ignite = shot.Ignite with { Min = shot.Ignite.Min * totemMore, Max = shot.Ignite.Max * totemMore,
@@ -415,7 +462,7 @@ public static partial class Game
                 Bleed = shot.Bleed with { Min = shot.Bleed.Min * totemMore, Max = shot.Bleed.Max * totemMore,
                     CriticalMin = shot.Bleed.CriticalMin * totemMore, CriticalMax = shot.Bleed.CriticalMax * totemMore },
                 // Pending casts still require their source; released projectiles live with the area session.
-                Leech = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
+                Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty) };
         }
         uint emitter = totem?.Id ?? PlayerId;
         var use = new ProjectileUse(profile, new(emitter, conn.ProjectileEpoch), new(emitter, conn.ProjectileEpoch), 1, origin, target)

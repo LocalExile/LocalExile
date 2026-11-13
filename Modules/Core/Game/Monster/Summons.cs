@@ -96,7 +96,18 @@ public static partial class Game
                             GolemReserveLocked(conn, reaper, ultimate, target, conn.Monsters.GetValueOrDefault(target), aim, AreaTime(conn));
                             return true;
                         }
-                await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target, current: current, triggered: triggered);
+                if (definition.Id == "BlinkArrow")
+                {
+                    var origin = conn.Walk.Position(AreaTime(conn));
+                    var landing = MovementLanding(conn, gem.Effect, origin, aim);
+                    uint clone = await SummonFighter(remote, stream, ciphers, conn, source, definition,
+                        origin, target, current: current, triggered: triggered);
+                    if (clone == 0) return false;
+                    await CommitTravelLanding(remote, stream, ciphers, conn, landing,
+                        () => conn.Summons.Fighters.ContainsKey(clone));
+                }
+                else await SummonFighter(remote, stream, ciphers, conn, source, definition, aim, target,
+                    current: current, triggered: triggered);
             }
             SaveSummons(conn);
             return true;

@@ -60,9 +60,48 @@ public static partial class Game
         ushort buff = conn.NextBuff++;
         set.Buff = buff;
         packets.Add(InstanceEntities.AddBuff(id, buff, row, PlayerId,
-            u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now))));
+            u68: BitConverter.SingleToUInt32Bits((float)set.RemainingBase(now)),
+            visual: row == IgnitedBuffRow ? AilmentArtVisual(conn, "ignite")
+                : row == LabyrinthTrials.BleedingBuffRow ? AilmentArtVisual(conn, "bleed") : null));
         return packets;
     }
+
+    // The art of the ailments the player causes: BuffVisualsArtVariations' Id and the derived stat SkillArtVariations
+    // names for it. The value is that of the skill that last worked out its ailments (a worn Skill Gem Effect's
+    // ignite_art_variation …, or gloves that restyle ailments), kept per connection. The buff names its BuffVisuals row,
+    // as every buff whose art follows a variation does (11-skills.md §12); 0 keeps the buff's own art.
+    static readonly (string Buff, string Stat)[] AilmentArtStats =
+        [("ignite", "virtual_ignite_visual_override"), ("poison", "virtual_poison_art_variation"), ("bleed", "virtual_bleed_art_variation")];
+
+    static readonly RuleTable<ClientState, System.Collections.Concurrent.ConcurrentDictionary<string, int>> AilmentArt = new();
+
+    /// <summary>Notes the art of the ailments this skill's use can cause (AilmentArt), where its ignite is worked out:
+    /// its gem's worn Skill Gem Effect's stats and the character's cosmetics, by the client's rules (DerivedArt).</summary>
+    public static void NoteIgniteArt(ClientState conn, ushort skillId)
+    {
+        var worn = new Dictionary<uint, int>();
+        uint gem = GemSkillEffects(conn).FirstOrDefault(g => g.Id == skillId).Gem;
+        if (gem != 0)
+            foreach (var (key, cosmetic) in CharacterSaves.SkillCosmetics(CharacterName(conn)))
+                if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(cosmetic) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
+                    foreach (var (k, v) in fx.Stats) worn[k] = v;
+        var derived = SkillCosmeticDerivedStats(conn, worn).ToDictionary(s => s.Stat, s => s.Value);
+        var noted = AilmentArt.GetOrCreateValue(conn);
+        foreach (var (buff, stat) in AilmentArtStats)
+            noted[buff] = Stats.Key(stat) is uint key ? derived.GetValueOrDefault(key) : 0;
+    }
+
+    /// <summary>The settings as given, with the skill's ignite art noted (for an object initializer).</summary>
+    public static MonsterIgnites.Settings NotedIgnite(ClientState conn, ushort skillId, MonsterIgnites.Settings settings)
+    {
+        NoteIgniteArt(conn, skillId);
+        return settings;
+    }
+
+    /// <summary>The BuffVisuals row an ailment's buff shows ("ignite", "poison", "bleed"), null for the buff's own.</summary>
+    public static ushort? AilmentArtVisual(ClientState conn, string buff) =>
+        AilmentArt.TryGetValue(conn, out var art) && art.GetValueOrDefault(buff) is int variation and not 0
+            ? Art.BuffVisual(buff, variation) : null;
 
     /// <summary>What a skill's hit can ignite with, as a projectile captures it at release: the skill's ignite rows in the
     /// main hand for an attack (the spell's for a spell; <paramref name="weapon"/>: a shield skill's shield) and the
@@ -80,6 +119,7 @@ public static partial class Game
         else
             get = capturedInputs.Get;
         string hand = spell ? "spell" : "main_hand";
+        NoteIgniteArt(conn, skillId);
         var rows = capturedInputs is null
             ? SupportedAilmentRows(conn, skillId, hand, weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);

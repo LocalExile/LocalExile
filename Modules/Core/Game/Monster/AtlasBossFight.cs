@@ -65,6 +65,8 @@ abstract class AtlasBossFight
         if (boss.Variety is not null)
         {
             var (remote, stream, ciphers) = conn.Wire;
+            // ShowBossLifeBar sends only a bar that is meant to show. Sirus's fight shows and hides his own (Sirus.cs).
+            if (!AtlasBosses.IsSirus(boss.Variety)) lock (conn.Monsters) boss.BossBarShown = true;
             await ShowBossLifeBar(remote, stream, ciphers, id, boss, conn);
         }
     }

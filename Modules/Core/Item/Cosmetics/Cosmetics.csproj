@@ -5,5 +5,4 @@
   <ItemGroup>
     <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
   </ItemGroup>
-
 </Project>

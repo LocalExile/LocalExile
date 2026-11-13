@@ -208,8 +208,20 @@ public static partial class Game
     public static double PlayerActionFactor(ClientState conn)
     {
         var sources = CharacterStatSources(conn).Stats;
-        return Math.Max(.01, PlayerActionFactorFrom(conn, name => Stats.Key(name) is uint k
-            ? conn.PlayerStats.GetValueOrDefault(k, sources.GetValueOrDefault(k)) : 0));
+        // The Spirit Leadership buff joins CharacterPlayerStats, not the raw source cache this path reads; Rakiata's
+        // action-speed floor has to reach the server's own attack/cast timing too.
+        SpiritChieftains.Leadership? leadership;
+        lock (conn.Monsters)
+            leadership = conn.PlayerLife > 0 ? conn.SpiritChieftains.Active(conn.Clock.Elapsed.TotalSeconds) : null;
+        return Math.Max(.01, PlayerActionFactorFrom(conn, name =>
+        {
+            if (Stats.Key(name) is not uint key) return 0;
+            long value = conn.PlayerStats.GetValueOrDefault(key, sources.GetValueOrDefault(key));
+            if (leadership is { } active)
+                foreach (var (stat, amount) in active.Stats)
+                    if (stat == key) value += amount;
+            return (int)Math.Clamp(value, int.MinValue, int.MaxValue);
+        }));
     }
 
     public static double PlayerActionFactorFrom(ClientState conn, Func<string, int> get)
@@ -217,6 +229,12 @@ public static partial class Game
         double extra = get("has_tailwind") == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get("tailwind_effect_on_self_+%") / 100d)) - 8;
         double factor = conn.ElementalAilments.TotalActionFactor(conn.Clock.Elapsed.TotalSeconds, get("action_speed_-%") - extra)
             * Math.Max(.01, 1 + get("temporal_chains_action_speed_+%_final") / 100d);
-        return get("action_speed_cannot_be_reduced_below_base") != 0 ? Math.Max(1, factor) : factor;
+        if (get("action_speed_cannot_be_reduced_below_base") != 0) factor = Math.Max(1, factor);
+        // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is
+        // the wiki's "at least 110% of base value").
+        int minimum = get("action_speed_+%_minimum_value_from_rakiatas_leadership");
+        // A frozen player's factor is 0 and stays 0; the floor only lifts a lowered (positive) action speed.
+        if (minimum != 0 && factor > 0) factor = Math.Max(factor, 1 + minimum / 100.0);
+        return factor;
     }
 }

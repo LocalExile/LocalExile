@@ -1799,6 +1799,10 @@ This is a research baseline, not new live skill acceptance or complete native/se
   Docs: [11](../docs/protocol/11-skills.md) §10.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
+  attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
+  hit roll and drops them along the swing.
+  Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).
 - Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
@@ -1822,7 +1826,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) §2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
-- Vaal souls (#308) and Vaal Ground Slam. Docs: [27](../docs/protocol/27-vaal-souls.md),
+- Vaal souls (#308), Vaal Ground Slam, Vaal Fireball and Vaal Spark. Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
 - Ground Slam's forward wave, and gem melee swings that keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
@@ -1855,6 +1859,7 @@ This is a research baseline, not new live skill acceptance or complete native/se
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) §3.
+- Blink Arrow leaves its clone at departure. Lightning Warp queues teleports and hits both endpoints.
 - Instant skills, shared Blink and Guard cooldowns, opt-in warcry sharing and cost admission, Bladefall of Trarthus and both Frostblink hit and chill areas. Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) §13.
 - Animated equipment, summons (including source recovery and spell repeats), mines and traps.
@@ -1897,8 +1902,6 @@ This is a research baseline, not new live skill acceptance or complete native/se
 - Spirit of Utula's Leadership and Rakiata's Mark trigger need their own chieftain executors.
   Docs: [11](../docs/protocol/11-skills.md) §10f.
 - Where Flicker Strike lands beside the monster is the server's guess, and its buff ignores increased buff effect.
-  Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Holy Sweep's hammers deal no damage: the server has no hammerfall hits.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Effects attached to bones (Righteous Fire's orbs) are not sent; banners and combat auras are not implemented.
   Docs: [11](../docs/protocol/11-skills.md) §12.

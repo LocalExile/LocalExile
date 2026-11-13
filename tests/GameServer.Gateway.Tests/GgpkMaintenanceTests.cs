@@ -7,12 +7,11 @@ public class GgpkMaintenanceTests
     /// <summary>scripts/dev/live.ps1 reads the gateway list (GameServer.Patch gateway) while other checkouts' clients run.
     /// A client opens Content.ggpk for reading and shares it only with readers; reading the list must still work. Uses
     /// the checkout's client GGPK (opened read-only, never written; the working directory is the repository root,
-    /// TestEnvironment); without one there is nothing to check.</summary>
-    [Fact]
+    /// TestEnvironment); skipped without one.</summary>
+    [ClientArchiveFact]
     public void ReadsAFileWhileAClientHoldsTheGgpk()
     {
         string ggpk = Path.Combine("Client", "Content.ggpk");
-        if (!File.Exists(ggpk)) return;
         using var client = new FileStream(ggpk, FileMode.Open, FileAccess.Read, FileShare.Read);
         byte[]? list = ClientFiles.TryReadFile(ggpk, "Bundles2/gateway_list.txt") ?? ClientFiles.TryReadFile(ggpk, "gateway_list.txt");
         Assert.NotNull(list);

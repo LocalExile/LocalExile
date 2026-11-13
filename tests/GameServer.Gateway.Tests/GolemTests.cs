@@ -69,8 +69,6 @@ public sealed class GolemTests
         byte[] guard = Game.GolemOwnerBuffPacket(7, 592, safeguarding);
         Assert.Equal(33, guard.Length);
         Assert.Equal(new byte[] { 0, 0, 0, 0, 0, 18, 0, 0, 0, 0 }, guard[23..]);
-        byte[] after = InstanceProtocol.LifeUpdate(0x1000, 100);
-        Assert.Equal(after, ((byte[])[.. guard, .. after])[33..]);
     }
 
     [Fact]

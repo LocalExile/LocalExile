@@ -12,6 +12,85 @@ namespace GameServer.Gateway.Tests;
 public class SacrificeSupportTests
 {
     [Fact]
+    public async Task Vaal_fireball_pays_once_and_emits_a_spiral_over_two_seconds()
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("VaalFireball");
+        var c = fixture.Conn;
+        c.Clock.Restart();
+        var gem = Game.GemSkillEffects(c).Single(g => Game.SkillsFor(c).EffectId(g.Effect) == "VaalFireball");
+        bool Admit() => Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, null, false, () => c.ActionCount++, out _);
+        Game.RefreshVaalSouls(c);
+        Assert.False(Admit());
+        for (int i = 0; i < 30; i++) Assert.True(c.VaalSouls.Gain());
+        Assert.True(Admit());
+        Assert.True(await Game.CastGemSkill("spiral", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        Assert.False(await Game.CastGemSkill("duplicate", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        long start = fixture.Session.Runtime.Now;
+        var seen = new Dictionary<long, ProjectileVector>();
+        for (int i = 0; i <= 64; i++)
+        {
+            fixture.Session.AdvanceTo(start + ProjectileRuntime.Time(i * .05));
+            foreach (var shot in fixture.Session.Runtime.Projectiles) seen.TryAdd(shot.Id, shot.Use.Aim - shot.Use.Origin);
+        }
+        Assert.Equal(32, seen.Count);
+        Assert.Contains(seen.Values, v => v.X > 0);
+        Assert.Contains(seen.Values, v => v.X < 0);
+        Assert.Contains(seen.Values, v => v.Y > 0);
+        Assert.Contains(seen.Values, v => v.Y < 0);
+        Assert.Equal(0u, c.VaalSouls.Read().Single().Current);
+    }
+
+    [Theory]
+    [InlineData(0, 100)]
+    [InlineData(20, 102)]
+    public async Task Vaal_spark_releases_one_timed_wandering_stream(int quality, int count)
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("VaalSpark");
+        var c = fixture.Conn;
+        Game.ItemsOf(c).Change(PlayerInventories.Weapon1, fixture.Host, host => host with
+        {
+            Sockets = host.Sockets.Select((socket, index) => index == 0
+                ? socket with { Gem = socket.Gem! with { Quality = (byte)quality } } : socket).ToArray()
+        });
+        c.Clock.Restart();
+        var gem = Game.GemSkillEffects(c).Single(g => Game.SkillsFor(c).EffectId(g.Effect) == "VaalSpark");
+        c.PlayerStats[Program.Stats.Key("skill_effect_duration_+%")!.Value] = 20;
+        bool Admit() => Game.TryBeginSkillCooldownUse(c, gem.Id, gem.Effect, null, false, () => c.ActionCount++, out _);
+        Game.RefreshVaalSouls(c);
+        Assert.False(Admit());
+        for (int i = 0; i < 30; i++) Assert.True(c.VaalSouls.Gain());
+        double at = Game.ProjectileWorldTime(c);
+        Assert.True(Admit());
+        Assert.InRange(c.VaalPreventionUntil - at, 5.99, 6.2);
+        Assert.True(await Game.CastGemSkill("spiral", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        Assert.False(await Game.CastGemSkill("duplicate", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (150, 100)));
+        long start = fixture.Session.Runtime.Now;
+        var seen = new Dictionary<long, ProjectileVector>();
+        var groups = new HashSet<long>();
+        for (int i = 0; i <= 85; i++)
+        {
+            fixture.Session.AdvanceTo(start + ProjectileRuntime.Time(i * .05));
+            foreach (var shot in fixture.Session.Runtime.Projectiles)
+            {
+                Assert.NotNull(shot.Profile.Legs);
+                groups.Add(shot.EmissionId);
+                seen.TryAdd(shot.Id, shot.Direction);
+            }
+            if (i == 20) Assert.InRange(seen.Count, 1, count - 1);
+        }
+        Assert.Equal(count, seen.Count);
+        Assert.Single(groups);
+        Assert.Contains(seen.Values, v => v.X > 0);
+        Assert.Contains(seen.Values, v => v.X < 0);
+        Assert.Contains(seen.Values, v => v.Y > 0);
+        Assert.Contains(seen.Values, v => v.Y < 0);
+        Assert.Equal(0u, c.VaalSouls.Read().Single().Current);
+        Assert.Equal(ProjectileRuntime.Time(3d / count), fixture.Session.Runtime.Projectiles.Last().Profile.SequentialDelay);
+    }
+
+    [Fact]
     public async Task Projectile_cast_sacrifices_once_at_release_and_added_chaos_uses_common_damage_rules()
     {
         foreach (string spell in new[] { "Fireball", "Spark" })
@@ -129,6 +208,62 @@ public class SacrificeSupportTests
         Assert.Equal(2, conn.Reservations.Trail.Count);
     }
 
+    [Fact]
+    public async Task Lightning_warp_moves_at_release_and_hits_both_endpoints()
+    {
+        using var fixture = new Fixture();
+        fixture.Equip("LightningWarp");
+        var c = fixture.Conn;
+        var gem = Game.GemSkillEffects(c).Single(g => g.Gem != 0);
+        c.Walk.Teleport(100, 100, 0);
+        c.Walk.SetSpeed(40, 0);
+        foreach (var (id, x) in new[] { (301u, 100), (302u, 160), (303u, 130) })
+            c.Monsters[id] = new("warp target", new(x, 100, 0), 0, 0, 100000) { Hostile = true };
+        Assert.False(Game.LandsAtAim(c, gem.Effect));
+        Assert.True(await Game.CastGemSkill("warp", fixture.Stream, fixture.Ciphers, c, gem.Id, (100, 100), (160, 100)));
+        Assert.Equal((100, 100), c.Walk.Position(0));
+        double start = Math.Max(c.Clock.Elapsed.TotalSeconds, Game.ProjectileWorldTime(c));
+        fixture.Session.AdvanceTo(ProjectileRuntime.Time(start + 4));
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Session.Enqueue(() => { sent.SetResult(); return Task.CompletedTask; });
+        await sent.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal((160, 100), c.Walk.Position(start + 4));
+        Assert.True(c.Monsters[301].Life < 100000);
+        Assert.True(c.Monsters[302].Life < 100000);
+        Assert.Equal(100000u, c.Monsters[303].Life);
+    }
+
+    [Fact]
+    public async Task Unleash_seals_release_distinct_discounted_fireballs_and_reset_on_source_replacement()
+    {
+        using var fixture = new Fixture();
+        var conn = fixture.Conn;
+        conn.Clock.Reset();
+        fixture.Equip("Fireball", support: "SupportGemHandcastAnticipation");
+        var skill = Game.GemSkillEffects(conn).Single(g => g.Gem != 0);
+        var source = Game.SupportedSkill(conn, skill.Id);
+        var session = fixture.Session;
+        double now = Game.ProjectileWorldTime(conn);
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, now));
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, now + .89));
+        Assert.Equal(1, Game.UnleashSeals(conn, skill.Id, source, now + .9));
+        session.AdvanceTo(ProjectileRuntime.Time(now + 3));
+        Assert.Equal(3, Game.UnleashSeals(conn, skill.Id, source, Game.ProjectileWorldTime(conn)));
+        double start = Game.ProjectileWorldTime(conn);
+        await Game.LaunchProjectile("unleash", fixture.Stream, fixture.Ciphers, conn, skill.Id, (100, 100),
+            (200, 100), conn.ActionInterruptionGeneration, swingAt: start);
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, source, start));
+        session.AdvanceTo(ProjectileRuntime.Time(start + .9));
+        var hits = session.Runtime.Projectiles.Select(p => ((ProjectileOffense)p.Use.Payload!).Hit[DamageType.Fire].Min)
+            .OrderDescending().ToArray();
+        Assert.Equal(4, hits.Length);
+        Assert.True(hits[0] > 0);
+        Assert.All(hits.Skip(1), hit => Assert.Equal(hits[0] * .55, hit, 6));
+        fixture.Equip("Fireball", support: "SupportGemHandcastAnticipation");
+        var replacement = Game.SupportedSkill(conn, skill.Id);
+        Assert.Equal(0, Game.UnleashSeals(conn, skill.Id, replacement, Game.ProjectileWorldTime(conn)));
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"sacrifice-{Guid.NewGuid():N}.db");
@@ -170,13 +305,13 @@ public class SacrificeSupportTests
             Session = new("sacrifice",Stream,Ciphers,Conn);
             Conn.ProjectileRuntime = Session;
         }
-        public void Equip(string spell, bool echo = false)
+        public void Equip(string spell, bool echo = false, string support = "SupportGemSacrifice")
         {
             if (Host != 0) Game.ItemsOf(Conn).Remove(PlayerInventories.Weapon1, Host);
             ResetSession();
             var sockets = new List<ItemSocket>();
-            foreach (string id in echo ? new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), "SupportGemSacrifice", "SupportGemSpellEcho" }
-                                      : new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), "SupportGemSacrifice" })
+            foreach (string id in echo ? new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), support, "SupportGemSpellEcho" }
+                                      : new[] { "SkillGem" + (spell == "Reap" ? "Bloodreap" : spell), support })
                 sockets.Add(new(SocketColour.White,ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/" + id)!)));
             var wand = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with { Mods = [], Sockets = sockets.ToArray(), Links = [(byte)sockets.Count] };
             Host = Game.ItemsOf(Conn).Add(PlayerInventories.Weapon1,0,0,wand).Id;

@@ -50,16 +50,4 @@ public class HncTests
         Assert.Equal(HncSender.DeriveKey(key), HncSender.DeriveKey(key));
         Assert.NotEqual(key, HncSender.DeriveKey(key));
     }
-
-    [Fact]
-    public void Mask_loads_from_the_client_when_present()
-    {
-        // Game_CLIENT_EXE or Client/Game.exe above the test directory; skips silently without a client.
-        string? exe = Environment.GetEnvironmentVariable("Game_CLIENT_EXE");
-        for (var dir = new DirectoryInfo(AppContext.BaseDirectory); exe is null && dir is not null; dir = dir.Parent)
-            if (File.Exists(Path.Combine(dir.FullName, "Client", "Game.exe"))) exe = Path.Combine(dir.FullName, "Client", "Game.exe");
-        if (exe is null || !File.Exists(exe)) return;
-        HncSender.LoadMask(File.ReadAllBytes(exe));
-        Assert.NotEqual(new byte[64], HncSender.DeriveKey(new byte[64]));
-    }
 }

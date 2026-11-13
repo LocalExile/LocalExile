@@ -581,12 +581,14 @@ public static partial class Game
         var playerStats = new Dictionary<uint, int>();
         foreach (var (key, value) in player) playerStats[key] = value;
         var gems = GemSkillEffects(conn).ToArray();
+        RemoveMissingSealSources(conn, gems.Select(g => g.Id));
         var skillCosmetics = CharacterSaves.SkillCosmetics(string.IsNullOrEmpty(character) ? "Exile" : character);
         foreach (var (id, effect, name, _, quality, gem) in gems)
         {
             var supported = SupportedSkill(conn, id);
             int level = supported.Level;
             var own = supported.Stats;
+            UnleashSeals(conn, id, supported, ProjectileWorldTime(conn));
             var stats = MergeSkillStats(playerStats, own, SkillsFor(conn).IsChannelled(effect), SkillCostMore(conn, own));
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished
@@ -645,6 +647,8 @@ public static partial class Game
             foreach (var (key, worn) in skillCosmetics)
                 if (CharacterSaves.SkillCosmeticGem(key) == gem && Mtx.Resolve(worn) is { } record && MtxEffects.Of(record.MtxTypeHash) is { } fx)
                     foreach (var (k, v) in fx.Stats) stats[k] = v;
+            // The derived stats the client reads in place of them (a hit effect, a surge, an ailment's art).
+            foreach (var (k, v) in SkillCosmeticDerivedStats(conn, stats)) stats[k] = v;
             // A Crucible weapon's "Flicker Strike and Vigilant Strike's Cooldown can be bypassed by Power Charges": the client
             // reads only the skill's own override (CooldownBypass.FlickerVigilantPowerOverride), so it goes on these skills.
             if (Stats.Key(CooldownBypass.FlickerVigilantPowerOverride) is uint crucibleKey && playerStats.GetValueOrDefault(crucibleKey) != 0
@@ -701,6 +705,15 @@ public static partial class Game
             // nothing (live 2026-10-30). The radius the server's hit uses (SkillRadius, AreaSkillHit).
             else if (Get("active_skill_base_area_of_effect_radius") > 0 && Stats.Key("active_skill_area_of_effect_radius") is uint finalRadius)
                 stats[finalRadius] = SkillRadius(conn, own, SkillsFor(conn).IsSpell(effect), effect);
+            // The final secondary radius too (0x4879): Holy Sweep's hammer art scales to it over its base size
+            // (0x1414f44b0, 0x1414f50e0), and at 0 the hammers were drawn at scale 0, never seen (live 2026-11-09).
+            if (Get("active_skill_base_secondary_area_of_effect_radius") > 0
+                && Stats.Key("active_skill_secondary_area_of_effect_radius") is uint secondaryRadius)
+                stats[secondaryRadius] = SkillSecondaryRadius(conn, own, SkillsFor(conn).IsSpell(effect));
+            // Hammerfalls' controller times its waves by the skill's combined_main_hand_attack_speed_+% (0x141b1a270); with
+            // none sent its waves kept 0.7 s whatever the attack speed (live 2026-11-11). The server's waves read the same.
+            if (Get("holy_sweep_hammerfall_rate_ms") > 0 && Stats.Key("combined_main_hand_attack_speed_+%") is uint combinedSpeed)
+                stats[combinedSpeed] = SupportedMainHandAttackSpeedPct(conn, id);
             // A trap or herald that deals secondary damage (Bear Trap carries the Spell type but no spell base damage,
             // Herald of Ice's shatter): its own secondary rows, before the attack/spell hit rows.
             if (!SkillsFor(conn).IsAttack(effect) && Get("display_skill_deals_secondary_damage") != 0

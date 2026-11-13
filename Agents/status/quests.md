@@ -89,7 +89,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Acts 2 and 3 (live 2026-10-30, seed 1, on the engine before the modules: the campaign runner on a character started
   with `/quest_preset Act1Complete`; on the modules checked by the oracle and the offline exit audit, not yet with the
   client): a2q11 (Arteri, his emblem, the Thaumetic Seal, Bestel's book), a2q10, a2q6 (Helena climbing up after
-  Fidelitas, the Strange Device), a2q1–a2q3 (the bandit lords killed, their amulets), a2q4, a2q5 (the crypt's altar,
+  Piety in the Chamber of Sins, Fidelitas, the Strange Device), a2q1–a2q3 (the bandit lords killed, their amulets), a2q4, a2q5 (the crypt's altar,
   Yeena's book), a2q7 (Eramir takes the amulets: a passive point; The Apex), a2q9 (the tree poisoned with the spike and
   the gem), a2q8 (the Ancient Seal, the Dark Altar, the Vaal Oversoul, the pyramid's exit), a3q1–a3q5, a3q8, a3q9,
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
@@ -110,9 +110,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Act3Complete`, the campaign runner unattended; on the modules checked by the oracle, not yet with the client): a4q2
   (Voll, Deshret's Banner, the seal opens the Mines), a4q6 (Deshret's spirit, the book), a4q3 and a4q4 (Dialla at the
   Rapture, Kaom, Daresso, both Eyes handed in), a4q5 (the Rapture Device, Piety in the Belly and her talk, the three
-  guardians' organs in one click, the Black Core), a4q1 (Malachai's second form, the withered Dialla opening the Ascent,
+  guardians' organs in one click to open the Black Core), a4q1 (Malachai's second form at the second arena's boss point, the withered Dialla opening the Ascent,
   her reward), a5q1a (the Resonator), a5q1b, a5q3, a5q2, a5q4 (the Templar Courts door, Avarius → Innocence, Sin's talk,
-  burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
+  the arena shortcut after Innocence falls in that instance, burnt Oriath's exits to their own versions of the areas), a5q5 (Bannon, Utula), a5q7 (the relic cases, one click) and
   a5q6 (the Ossuary tomb, the Sign in its socket wakes Kitava again on an unfinished return to a fresh rooftop, `/kill` reaches his threshold: `a5q6-CompletedBoss`,
   −30 %; Lilly sails to Lioneye's Watch), then a6q4 (The Twilight Strand cleared), a6q5, a6q3 (Tukohama and the two bridges to his keep), a6q2
   (Shavronne), a6q7 (Abberath, both phases), a6q6 (Ryslatha) and a6q1 (the three Nessas, the Beacon lit, the Black

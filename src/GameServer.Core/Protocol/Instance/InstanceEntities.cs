@@ -287,6 +287,16 @@ public static class InstanceEntities
     public static byte[] AnimatedModel(uint entityId, byte animatedIndex, string ao) =>
         ComponentUpdate(entityId, animatedIndex, new BlobWriter().U8(1).WStr32(ao).ToArray());
 
+    public const ushort ActorFileId = 0x1b6;
+
+    /// <summary>
+    /// S→C 0x1b6 (class 0x1435e82b8, read 0x141fe4570; handled by the Actor, 0x14219aa10): object header, wstr, u8. The
+    /// path is an .act file the Actor loads in place of its own animation set, and the u8 the stance it takes there
+    /// (0 the base one); the live counterpart of the Actor's leading path in the object blob.
+    /// </summary>
+    public static byte[] ActorFile(uint entityId, string act, byte stance = 0) =>
+        new LoginWriter().U16(ActorFileId).U32(entityId).U32(0).U16(0).WStr(act).U8(stance).ToArray();
+
 
     /// <summary>
     /// Changes the player's skills (0x2bc to the Actor, flags 0x20 → <c>0x14219f170</c>): u8 records, u8 ids, the skill
@@ -641,6 +651,20 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
 
+    /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
+    /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
+    public uint Parent { get; init; }
+
+    /// <summary>The parent's bone it rides on.</summary>
+    public string Bone { get; init; } = "<root>";
+
+    /// <summary>The attachment kind (the transform mask, 04-player-entity.md §4.5): 4 drops the parent's turn. The client
+    /// takes the attached object's facing from the bone alone (0x142909a50), never its own.</summary>
+    public byte AttachKind { get; init; } = EffectObject.AttachWithoutRotation;
+
+    /// <summary>The attachment's mask byte (as <see cref="EffectObject.AttachFlags"/>).</summary>
+    public byte AttachFlags { get; init; }
+
     /// <summary>Deserialized components of `Metadata/Monsters/Monster` in read order (scripts/re/ot_components.py).</summary>
     public static readonly string[] BaseComponents =
         ["Positioned", "Stats", "ObjectMagicProperties", "BaseEvents", "Pathfinding", "Buffs", "Life", "Animated",
@@ -689,8 +713,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // life, mana, energy shield pools (current, reserved, i16, u32, u32), then the flags byte.
                 case "Life": Pool(w, Life); Pool(w, 0); Pool(w, EnergyShield); w.U8(LifeData?.Flags ?? 0); break;
                 case "Animated":
-                    if (AnimatedObject is null) w.U8(0);
-                    else w.U8(1).WStr32(AnimatedObject);
+                    w.U8((byte)((AnimatedObject is null ? 0 : 1) | (Parent != 0 ? 4 : 0)));
+                    if (AnimatedObject is not null) w.WStr32(AnimatedObject);
+                    if (Parent != 0)
+                        w.U32(Parent).F32(0).F32(0).U32((uint)Bone.Length).Bytes(System.Text.Encoding.ASCII.GetBytes(Bone))
+                            .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
                 // path, u16, u8, (life >= 1: no conditional bytes), u32, u32, then slot 20's two flag bytes.
@@ -839,7 +866,7 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
     const string RootBone = "<root>";
     // The attachment's kind byte written after the bone (the native AttachedAnimatedObject reader 0x141e5f300).
     // The official Arrow Nova arrow sends 0 here and 3 for the mask byte, which keeps the bone's rotation.
-    const byte AttachWithoutRotation = 4;
+    public const byte AttachWithoutRotation = 4;
 
     /// <summary>Positioned flags0 0x80 (→ +0x1e6 bit 2): the object keeps its rotation while it glides (0x1ba); without it
     /// a glide turns it to face the move (live 2026-10-21, Righteous Fire's ring). The only flags0 bits taken here are
@@ -1133,6 +1160,13 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public const byte WashedUpStance = 68;
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
+    /// <summary>The Animated component's index in the same order.</summary>
+    public const byte AnimatedIndex = 5;
+
+    /// <summary>The Actor's leading path (0x1421993f0): an .act file that replaces the type's own animation set, which a
+    /// replacement <see cref="AnimatedObject"/> of another rig needs (a morph: 23-microtransactions.md §3). Null or
+    /// empty keeps the class's.</summary>
+    public string? ActorFile { get; init; }
 
     /// <summary>The Pantheon gods (Player +0x1ae major, +0x1ad minor): PantheonPanelLayout row + 1, 0 = none.</summary>
     public byte PantheonMajor { get; init; }
@@ -1218,7 +1252,7 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
         // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32("").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);

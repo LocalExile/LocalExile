@@ -78,7 +78,8 @@ public sealed partial class InstanceState
 public sealed partial class ClientState
 {
     static int _nextPeerId = 0x20000000;
-    public readonly uint PeerId = unchecked((uint)Interlocked.Increment(ref _nextPeerId));
+    // Settable when the state is built, so a test of a rule seeded by it does not depend on how many states came before.
+    public uint PeerId { get; init; } = unchecked((uint)Interlocked.Increment(ref _nextPeerId));
     public PlayerObject? PeerTemplate;
     public uint PeerType;
     public readonly Dictionary<uint, InstancePlayer> SeenPlayers = [];
