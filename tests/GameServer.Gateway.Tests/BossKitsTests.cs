@@ -8,6 +8,22 @@ namespace GameServer.Gateway.Tests;
 /// </summary>
 public sealed class BossKitsTests
 {
+    [Theory]
+    [InlineData("OriathanCitizenZombieMale1", 5196)]
+    [InlineData("OriathanCitizenZombieMale4Boss", 5197)]
+    public void The_living_Strand_zombies_cannot_select_their_death_explosion(string id, int explosion)
+    {
+        InGame(conn =>
+        {
+            var variety = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/OriathanCitizen/" + id));
+            var catalog = Game.SkillsFor(conn);
+            Assert.Equal(1995, variety.AttackMs);
+            Assert.Equal(406, Game.MavenNucleus.CombatEffect(catalog, variety));
+            Assert.DoesNotContain(explosion, BossKits.Effects(catalog, variety));
+            Assert.Equal(-1, Game.MavenNucleus.CombatEffect(catalog, variety with { GrantedEffects = [explosion] }));
+        });
+    }
+
     [Fact]
     public void A_campaign_boss_has_its_whole_kit_and_a_plain_monster_has_none()
     {
