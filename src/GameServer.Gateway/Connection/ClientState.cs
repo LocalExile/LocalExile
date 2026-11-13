@@ -1146,9 +1146,26 @@ public sealed partial class ClientState(AreaLayout layout, uint ticket, uint see
     readonly EmergeGround ownEmergeGround = new();
     // A shared dormant body enters this client's collision view with its admitted create, not merely with the
     // instance's roster entry. Connections without an instance retain their local body contract.
-    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters =>
-        Monsters.Concat(DormantMonsters.Where(pair => Instance is null || MonsterViews.ContainsKey(pair.Key)))
-            .OrderBy(pair => pair.Key);
+    // In ascending id. Both rosters are sorted by id, so they are merged, not sorted again.
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> CollisionMonsters => Merged(Monsters, DormantMonsters);
+
+    IEnumerable<KeyValuePair<uint, SpawnedMonster>> Merged(SortedDictionary<uint, SpawnedMonster> awake, SortedDictionary<uint, SpawnedMonster> dormant)
+    {
+        using var others = dormant.GetEnumerator();
+        bool NextBody()
+        {
+            while (others.MoveNext())
+                if (Instance is null || MonsterViews.ContainsKey(others.Current.Key)) return true;
+            return false;
+        }
+        bool more = NextBody();
+        foreach (var pair in awake)
+        {
+            for (; more && others.Current.Key < pair.Key; more = NextBody()) yield return others.Current;
+            yield return pair;
+        }
+        for (; more; more = NextBody()) yield return others.Current;
+    }
     // Items on the ground by object id (dropped with C→S 0x29).
     /// <summary>The area instance's state shared across connections: its ground items.</summary>
     public InstanceState Instance { get; init; } = null!;
