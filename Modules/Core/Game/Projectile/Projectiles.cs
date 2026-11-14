@@ -376,10 +376,14 @@ public static partial class Game
                 var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects["avoid_impale_%"]);
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored));
             }
+            uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitLocked(Conn, target, damage, player: player,
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell),
                 allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y));
             if (hit is null) return ProjectileHitResult.Miss;
+            // Cruelty: a player projectile's hit grants its skill's buff (a totem's or a monster's never does).
+            if (shot.ActualCaster is null && target.Hostile)
+                CrueltyOnHitLocked(Conn, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Conn, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
             else ArcaneSurgeOnSpellHitLocked(Conn, player, target);

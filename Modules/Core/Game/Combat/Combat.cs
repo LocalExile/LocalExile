@@ -1859,10 +1859,14 @@ public static partial class Game
                 // current raw source so a refund between victims cannot keep granting from the sweep's old snapshot.
                 var rampagePlayer = freshPlayer ? player : null;
                 var rampageSource = RampageOnMeleeHitLocked(conn, m, !spell && SkillsFor(conn).IsMelee(gem.Effect), rampagePlayer);
+                uint lifeBefore = m.Life;
                 applied = ApplyMonsterHitLocked(conn, m, damage, rampageSource, rampagePlayer,
                     cull: Cull.Of(player, skillStats, critical, spell));
                 if (applied is not null)
                 {
+                    // Cruelty: a hit of a Cruelty-supported skill grants its buff, scaled by the damage the hit dealt
+                    // relative to the monster's maximum life (never more than the life it could remove).
+                    CrueltyOnHitLocked(conn, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
                     if (!spell) ReleaseCriticalTrigger(conn, ProjectilesFor(remote, stream, ciphers, conn),
                         criticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                     else ArcaneSurgeOnSpellHitLocked(conn, player, m);

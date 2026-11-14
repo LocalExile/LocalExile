@@ -63,6 +63,7 @@ public static class AilmentPanelStats
         new("support_debilitate_poison_damage_+%_final", Only: ["poison"]),
         new("support_lethal_dose_poison_damage_+%_final", Only: ["poison"]),
         new("support_phys_chaos_projectile_chaos_damage_over_time_+%_final", Only: ["poison"]),
+        new("cruelty_damage_over_time_+%_final"),
         new("support_ignite_prolif_ignite_damage_+%_final", Only: ["ignite"]),
         new("support_burning_damage_+%_final", Only: ["ignite"]),
         new("support_melee_physical_damage_poison_and_bleeding_damage_+%_final_from_melee_hits", Only: ["bleeding", "poison"],

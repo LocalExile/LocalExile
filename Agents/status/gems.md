@@ -86,6 +86,9 @@ Nothing yet.
    (`base_skill_reserve_life_instead_of_mana`), exposes its increased aura effect (`aura_effect_+%`, 19 at level 20)
    and scales the reservation percent by its own multiplier (201% at level 20), so level-20 Grace reserves 100.50%
    of maximum life instead of 50% of maximum mana.
+   Cruelty's per-skill buff is modelled: a hit of a supported skill grants up to 40% more Damage over Time (from the
+   hit's damage relative to the monster's maximum life), keeps the strongest running value and refreshes its 4 s
+   duration; that value is injected as cruelty_damage_over_time_+%_final into the skill's own stats while its buff runs.
   Multistrike repeats its hits within the attack time, and Melee Splash hits the enemies around each struck one
   ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
