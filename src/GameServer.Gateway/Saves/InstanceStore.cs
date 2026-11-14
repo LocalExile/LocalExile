@@ -70,6 +70,12 @@ public sealed partial class InstanceState
         lock (_areaStatsGate) return _areaStats ??= compose();
     }
 
+    /// <summary>The area stats the instance is played with, or null before its first connection composed them.</summary>
+    public IReadOnlyDictionary<uint, int>? KeptAreaStats
+    {
+        get { lock (_areaStatsGate) return _areaStats; }
+    }
+
     public InstanceGround Ground { get; } = new();
     /// <summary>The instance's monsters, clock and object ids, shared by every connection in it.</summary>
     public InstanceWorld World { get; } = new();

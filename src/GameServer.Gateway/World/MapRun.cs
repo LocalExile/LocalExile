@@ -242,7 +242,8 @@ public sealed class MapRunCatalog
         if (recipe.ModRows.Count == 0) return MapMods.None;
         var sum = new Dictionary<string, int>();
         AddModRows(sum, recipe.ModRows, catalog);
-        return sum.Count == 0 ? MapMods.None : new MapMods(sum);
+        // The recipe's mods go into the area stats unscaled, as an item's implicits do.
+        return sum.Count == 0 ? MapMods.None : new MapMods(sum) { Implicit = sum };
     }
 
     public bool FragmentsAllowed(IReadOnlyList<MapDevice.Slot> fragments, int areaLevel, out string why)
