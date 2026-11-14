@@ -197,12 +197,15 @@ public static partial class Game
     public static double SupportedAttackSeconds(ClientState conn, ushort skillId) => SupportedAttackSecondsFor(conn, skillId, null);
 
     // Multistrike: "Supported Skills Repeat an additional X times" (base_melee_attack_repeat_count). The repeats are
-    // hits of the same use, so the skill's attack time is split between them and the support's per-repeat more damage
-    // applies to each one after the first.
+    // swings of one paid use, one full attack time apart. Each repeat's more damage is relative to the initial hit.
     public static int MeleeAttackRepeats(ClientState conn, ushort skillId)
     {
         var gem = SupportedSkill(conn, skillId);
-        if (!SkillsFor(conn).IsAttack(gem.Effect)) return 0;
+        var player = CharacterPlayerStats(conn);
+        int Stat(string name) => Stats.Key(name) is uint key ? gem.Stats.GetValueOrDefault(key) + player.GetValueOrDefault(key) : 0;
+        if (!SkillsFor(conn).IsAttack(gem.Effect) || !SkillsFor(conn).IsMelee(gem.Effect)
+            || SkillsFor(conn).IsChannelled(gem.Effect)
+            || Stat("disable_attack_repeats") != 0 || Stat("disable_skill_repeats") != 0) return 0;
         return Math.Clamp(Stats.Key("base_melee_attack_repeat_count") is uint key
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
     }

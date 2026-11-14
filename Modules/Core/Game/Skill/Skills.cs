@@ -632,6 +632,9 @@ public static partial class Game
             // The client's spell action repeats the cast this many times (SpellRepeats); the server repeats its hits as many.
             if (SpellRepeats(conn, effect, Get) is > 0 and int repeats && Stats.Key("spell_repeat_count") is uint repeatKey)
                 stats[repeatKey] = repeats;
+            // Network stats run no calculators. The native melee action reads this final count (0x141b71600).
+            if (SkillsFor(conn).IsAttack(effect) && Stats.Key("attack_repeat_count") is uint attackRepeatKey)
+                stats[attackRepeatKey] = MeleeAttackRepeats(conn, id);
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(conn).EffectId(effect)))
             {
@@ -701,13 +704,6 @@ public static partial class Game
                 SupportedHitInputs? offInputs = null;
                 if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
-                // Each repeat has its own multiplier relative to the initial hit. Average only the display totals;
-                // per-hit ranges and ailment inputs still describe an individual hit.
-                int meleeRepeats = MeleeAttackRepeats(conn, id);
-                double repeatAverage = 1;
-                for (int repeat = 1; repeat <= meleeRepeats; repeat++)
-                    repeatAverage += MeleeRepeatDamageMore(conn, id, repeat);
-                repeatAverage /= meleeRepeats + 1;
                 double seconds = SkillsFor(conn).IsAttack(effect)
                     ? shieldWeapon is null ? SupportedAttackSeconds(conn, id) : SupportedOffHandAttackSeconds(conn, id, shieldWeapon)
                     : Math.Max(.001, (CastMs(conn, effect, id) ?? 0) / 1000.0);
@@ -718,7 +714,7 @@ public static partial class Game
                 double damageFactor = CriticalStrikePolicy.DamageFactor(
                     CriticalProhibitedBy(characterInputs, SkillsFor(conn).IsAttack(effect), own) ? 0 : criticalChance,
                     criticalMultiplier, CriticalExtraRollsFor(conn, characterInputs, own),
-                    SkillsFor(conn).IsAttack(effect) ? accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false) : 100) * repeatAverage;
+                    SkillsFor(conn).IsAttack(effect) ? accuracy.Chance(Monsters.BaseEvasion(conn.Pools.Level) ?? 0, false, false) : 100);
                 var ranges = SkillsFor(conn).IsAttack(effect)
                     ? AttackPanelStats.Compute(finalPlan, supportedHit, 1 / seconds, damageFactor)
                     : SpellPanelStats.Compute(finalPlan, supportedHit, 1 / seconds,
@@ -748,7 +744,7 @@ public static partial class Game
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
                         var (perUse, perSecond, attacksPerSecond) = DualWieldPanel.Average(supportedHit, seconds, offHit,
                             SupportedOffHandAttackSeconds(conn, id, offWeapon), damageFactor,
-                            OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own) * repeatAverage);
+                            OffHandDamageFactor(conn, characterInputs, n => offRows.GetValueOrDefault(n), own));
                         foreach (var (field, value) in offHand.Concat(OffHandDamageRows(offHit)))
                             if (Stats.Key(field) is uint key)
                                 stats[key] = panelSources.Overrides.Contains(key) ? panelSources.Raw.GetValueOrDefault(key) : value;
